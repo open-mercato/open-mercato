@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { login } from '@open-mercato/core/helpers/integration/auth';
 
 /**
  * TC-ADMIN-007: Custom Entity Creation
@@ -30,15 +30,18 @@ test.describe('TC-ADMIN-007: Custom Entity Creation', () => {
     const rows = page.locator('table tbody tr');
     await expect(rows.first()).toBeVisible();
 
-    // Verify Export and Create buttons
+    // Verify Export and Create buttons. Use { exact: true } on the Create
+    // link to disambiguate from the topbar "Create sales document" widget,
+    // which also exposes a `<a>` whose accessible name matches the partial
+    // "Create" string.
     await expect(page.getByRole('button', { name: 'Export' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Create' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Create', exact: true })).toBeVisible();
 
     // Verify Search box
     await expect(page.getByRole('searchbox', { name: 'Search', exact: true })).toBeVisible();
 
     // Navigate to Create form
-    await page.getByRole('link', { name: 'Create' }).click();
+    await page.getByRole('link', { name: 'Create', exact: true }).click();
     await expect(page).toHaveURL(/\/backend\/entities\/user\/create$/);
     await expect(page.locator('main').getByText('Create Entity', { exact: true })).toBeVisible();
 

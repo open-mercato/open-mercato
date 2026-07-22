@@ -1,4 +1,7 @@
 import type { EntityId } from './entities'
+import { createLogger } from '../lib/logger'
+
+const logger = createLogger('shared').child({ component: 'search-registry' })
 
 // =============================================================================
 // Strategy Identifiers
@@ -52,6 +55,8 @@ export type SearchResult = {
   links?: SearchResultLink[]
   /** Extra metadata from the strategy */
   metadata?: Record<string, unknown>
+  /** Organization scope of the result, when known by the strategy. */
+  organizationId?: string | null
 }
 
 // =============================================================================
@@ -70,6 +75,15 @@ export type SearchOptions = {
    * - `undefined` or `null` means no organization filter (tenant-wide).
    */
   organizationId?: string | null
+  /**
+   * Optional organization allowlist.
+   * - Non-empty array restricts results to one of those organizations.
+   * - Empty array means no organizations are visible and should return no results.
+   * - `undefined` or `null` means no organization filter (tenant-wide).
+   *
+   * `organizationId` takes precedence when both are provided.
+   */
+  organizationIds?: string[] | null
   /** Filter to specific entity types */
   entityTypes?: EntityId[]
   /** Use only specific strategies (defaults to all available) */
@@ -149,7 +163,7 @@ export interface SearchStrategy {
   bulkIndex?(records: IndexableRecord[]): Promise<void>
 
   /** Purge all records for an entity type (optional) */
-  purge?(entityId: EntityId, tenantId: string): Promise<void>
+  purge?(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void>
 }
 
 // =============================================================================
@@ -268,6 +282,15 @@ export type SearchEntityConfig = {
   resolveLinks?: (ctx: SearchBuildContext) => Promise<SearchResultLink[] | null> | SearchResultLink[] | null
   /** Define which fields are searchable vs hash-only */
   fieldPolicy?: SearchFieldPolicy
+  /**
+   * Per-entity view feature(s) required to read this entity's records through
+   * data-returning surfaces (e.g. the `search_get` / `search_aggregate` AI tools).
+   * These tools must NOT rely on the search-administration `search.view` feature
+   * to gate record reads — callers must additionally hold the owning module's
+   * `<entity>.view` feature(s) declared here. When omitted, those tools fail
+   * closed (deny) so an entity is never exposed without an explicit grant.
+   */
+  aclFeatures?: string[]
 }
 
 /**
@@ -317,7 +340,7 @@ let _searchModuleConfigs: SearchModuleConfig[] | null = null
  */
 export function registerSearchModuleConfigs(configs: SearchModuleConfig[]): void {
   if (_searchModuleConfigs !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Search module configs re-registered (this may occur during HMR)')
+    logger.debug('Search module configs re-registered (this may occur during HMR)')
   }
   _searchModuleConfigs = configs
 }

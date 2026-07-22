@@ -45,7 +45,8 @@ describe('record lock widget resolution headers', () => {
       pendingResolutionArmed: false,
     })
 
-    const result = await widget.eventHandlers.onBeforeSave({}, { formId } as any)
+    const context: Parameters<NonNullable<typeof widget.eventHandlers.onBeforeSave>>[1] = { formId }
+    const result = await widget.eventHandlers.onBeforeSave({}, context)
     expect(result.ok).toBe(false)
     expect(mockedValidateBeforeSave).not.toHaveBeenCalled()
   })
@@ -123,5 +124,44 @@ describe('record lock widget resolution headers', () => {
     if (result.ok) throw new Error('Expected blocked save result')
     expect(result.message).toContain('deleted')
     expect(mockedValidateBeforeSave).not.toHaveBeenCalled()
+  })
+
+  test('allows save with an acquired lock when no conflict or deletion is pending', async () => {
+    setRecordLockFormState(formId, {
+      formId,
+      resourceKind: 'customers.person',
+      resourceId: 'b0000000-0000-4000-8000-000000000001',
+      acquired: true,
+      lock: {
+        id: 'c0000000-0000-4000-8000-000000000001',
+        resourceKind: 'customers.person',
+        resourceId: 'b0000000-0000-4000-8000-000000000001',
+        token: 'lock-token',
+        strategy: 'optimistic',
+        status: 'active',
+        lockedByUserId: 'user-1',
+        baseActionLogId: null,
+        lockedAt: '2026-06-03T10:00:00.000Z',
+        lastHeartbeatAt: '2026-06-03T10:00:00.000Z',
+        expiresAt: '2026-06-03T10:05:00.000Z',
+      },
+      latestActionLogId: 'log-1',
+      conflict: null,
+      pendingResolution: 'normal',
+      pendingResolutionArmed: false,
+      recordDeleted: false,
+    })
+
+    const result = await widget.eventHandlers.onBeforeSave({}, { formId } as any)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('Expected successful result')
+    expect(result.requestHeaders).toMatchObject({
+      'x-om-record-lock-kind': 'customers.person',
+      'x-om-record-lock-resource-id': 'b0000000-0000-4000-8000-000000000001',
+      'x-om-record-lock-token': 'lock-token',
+      'x-om-record-lock-base-log-id': 'log-1',
+    })
+    expect(mockedValidateBeforeSave).toHaveBeenCalledTimes(1)
   })
 })

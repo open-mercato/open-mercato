@@ -19,6 +19,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { createCustomersCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
 import { CustomerInteraction, CustomerTodoLink } from '../../data/entities'
 import { todoLinkWithTodoCreateSchema } from '../../data/validators'
+import { withOperationMetadata } from '../../lib/operationMetadata'
 import { resolveCustomerInteractionFeatureFlags } from '../../lib/interactionFeatureFlags'
 import { resolveCustomersRequestContext } from '../../lib/interactionRequestContext'
 import {
@@ -34,6 +35,9 @@ import {
   sortTodoRows,
   resolveLegacyTodoDetails,
 } from '../../lib/todoCompatibility'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -311,7 +315,7 @@ export async function GET(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.todos.get failed', err)
+    logger.error('customers.todos.get failed', { err })
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -344,7 +348,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     const customValues = collectTodoCustomValues(body as Record<string, unknown>)
 
-    const { result } = await commandBus.execute('customers.interactions.create', {
+    const { result, logEntry } = await commandBus.execute('customers.interactions.create', {
       input: {
         tenantId: auth.tenantId,
         organizationId: selectedOrganizationId ?? auth.orgId,
@@ -394,12 +398,16 @@ export async function POST(request: Request): Promise<Response> {
           ? result.id
           : null
     return withAdapterHeaders(
-      NextResponse.json(
-        {
-          linkId: interactionId,
-          todoId: interactionId,
-        },
-        { status: 201 },
+      withOperationMetadata(
+        NextResponse.json(
+          {
+            linkId: interactionId,
+            todoId: interactionId,
+          },
+          { status: 201 },
+        ),
+        logEntry,
+        { resourceKind: 'customers.todoLink', resourceId: interactionId },
       ),
     )
   } catch (err) {
@@ -411,7 +419,7 @@ export async function POST(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.todos.post failed', err)
+    logger.error('customers.todos.post failed', { err })
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -459,7 +467,7 @@ export async function PUT(request: Request): Promise<Response> {
     const customValues = collectTodoCustomValues(body as Record<string, unknown>)
     const nextDone = normalizeTodoStatusInput(body)
 
-    await commandBus.execute('customers.interactions.update', {
+    const { logEntry } = await commandBus.execute('customers.interactions.update', {
       input: {
         id: interactionId,
         ...(body.title !== undefined ? { title: body.title } : {}),
@@ -492,7 +500,13 @@ export async function PUT(request: Request): Promise<Response> {
       })
     }
 
-    return withAdapterHeaders(NextResponse.json({ ok: true }))
+    return withAdapterHeaders(
+      withOperationMetadata(
+        NextResponse.json({ ok: true }),
+        logEntry,
+        { resourceKind: 'customers.todoLink', resourceId: body.linkId ?? body.id },
+      ),
+    )
   } catch (err) {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
@@ -502,7 +516,7 @@ export async function PUT(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.todos.put failed', err)
+    logger.error('customers.todos.put failed', { err })
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -548,7 +562,7 @@ export async function DELETE(request: Request): Promise<Response> {
           auth.tenantId,
         )
 
-    await commandBus.execute('customers.interactions.delete', {
+    const { logEntry } = await commandBus.execute('customers.interactions.delete', {
       input: { id: interactionId },
       ctx: commandContext,
     })
@@ -566,7 +580,13 @@ export async function DELETE(request: Request): Promise<Response> {
       })
     }
 
-    return withAdapterHeaders(NextResponse.json({ ok: true }))
+    return withAdapterHeaders(
+      withOperationMetadata(
+        NextResponse.json({ ok: true }),
+        logEntry,
+        { resourceKind: 'customers.todoLink', resourceId: body.id },
+      ),
+    )
   } catch (err) {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
@@ -576,7 +596,7 @@ export async function DELETE(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.todos.delete failed', err)
+    logger.error('customers.todos.delete failed', { err })
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -595,6 +615,7 @@ const todoItemSchema = z.object({
   todoDueAt: z.string().nullable().optional(),
   todoCustomValues: z.record(z.string(), z.unknown()).nullable().optional(),
   todoOrganizationId: z.string().nullable(),
+  todoUpdatedAt: z.string().nullable().optional(),
   organizationId: z.string(),
   tenantId: z.string(),
   createdAt: z.string(),

@@ -1,3 +1,7 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'execution-auditor' })
+
 export const metadata = {
   event: 'inbox_ops.action.executed',
   persistent: true,
@@ -51,7 +55,7 @@ export default async function handle(payload: ActionExecutedPayload, ctx: Resolv
       },
     })
   } catch (err) {
-    console.error('[inbox_ops:execution-auditor] Failed to write audit log:', err)
+    logger.error('Failed to write audit log', { err })
     throw err
   }
 }

@@ -27,6 +27,9 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { buildHrefWithReturnTo } from '@open-mercato/shared/lib/navigation/returnTo'
 import { DictionaryValue, renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
 import { AppearanceSelector, type AppearanceSelectorLabels, useAppearanceState } from './AppearanceSelector'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'DictionaryEntrySelect' })
 
 const DEFAULT_APPEARANCE_LABELS: AppearanceSelectorLabels = {
   colorLabel: 'Color',
@@ -78,12 +81,14 @@ export type DictionaryEntrySelectProps = {
   labels: DictionarySelectLabels
   manageHref?: string
   selectClassName?: string
+  seedOptions?: DictionaryOption[]
   allowInlineCreate?: boolean
   allowAppearance?: boolean
   appearanceLabels?: AppearanceSelectorLabels
   disabled?: boolean
   showLabelInput?: boolean
   showManage?: boolean
+  sortOptions?: 'label_asc' | 'none'
   /**
    * When false, hides the read-only appearance preview (color swatch + icon + hex)
    * rendered below the trigger for the currently-selected entry. Defaults to true to
@@ -102,12 +107,14 @@ export function DictionaryEntrySelect({
   labels,
   manageHref,
   selectClassName,
+  seedOptions,
   allowInlineCreate = true,
   allowAppearance = false,
   appearanceLabels,
   disabled: disabledProp = false,
   showLabelInput = true,
   showManage = true,
+  sortOptions = 'label_asc',
   showActiveAppearance = true,
 }: DictionaryEntrySelectProps) {
   const pathname = usePathname()
@@ -125,15 +132,15 @@ export function DictionaryEntrySelect({
     setLoading(true)
     try {
       const items = await fetchOptions()
-      setOptions(items.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })))
+      setOptions(sortOptions === 'none' ? items : items.slice().sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })))
     } catch (err) {
-      console.error('DictionaryEntrySelect.fetchOptions failed', err)
+      logger.error('Failed to fetch options', { err })
       flash(labels.errorLoad, 'error')
       setOptions([])
     } finally {
       setLoading(false)
     }
-  }, [fetchOptions, labels.errorLoad])
+  }, [fetchOptions, labels.errorLoad, sortOptions])
 
   React.useEffect(() => {
     loadOptions().catch(() => {})
@@ -152,10 +159,39 @@ export function DictionaryEntrySelect({
     if (!dialogOpen) resetDialogState()
   }, [dialogOpen, resetDialogState])
 
+  const mergedOptions = React.useMemo(() => {
+    if (!Array.isArray(seedOptions) || !seedOptions.length) return options
+    const merged: DictionaryOption[] = []
+    const seen = new Set<string>()
+    for (const option of seedOptions) {
+      if (!option.value || seen.has(option.value)) continue
+      seen.add(option.value)
+      merged.push(option)
+    }
+    for (const option of options) {
+      if (seen.has(option.value)) continue
+      seen.add(option.value)
+      merged.push(option)
+    }
+    return merged
+  }, [options, seedOptions])
+
   const activeOption = React.useMemo(
-    () => options.find((option) => option.value === value) ?? null,
-    [options, value],
+    () => mergedOptions.find((option) => option.value === value) ?? null,
+    [mergedOptions, value],
   )
+  const displayOptions = React.useMemo(() => {
+    if (!value || activeOption) return mergedOptions
+    return [
+      {
+        value,
+        label: value,
+        color: null,
+        icon: null,
+      },
+      ...mergedOptions,
+    ]
+  }, [activeOption, mergedOptions, value])
 
   const handleCreate = React.useCallback(async () => {
     if (!createOption) return
@@ -181,7 +217,10 @@ export function DictionaryEntrySelect({
           color: payload.color ?? null,
           icon: payload.icon ?? null,
         })
-        return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+        const nextOptions = Array.from(map.values())
+        return sortOptions === 'none'
+          ? nextOptions
+          : nextOptions.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
       })
       await loadOptions()
       onChange(payload.value)
@@ -190,7 +229,7 @@ export function DictionaryEntrySelect({
         flash(labels.successCreateLabel, 'success')
       }
     } catch (err) {
-      console.error('DictionaryEntrySelect.createOption failed', err)
+      logger.error('Failed to create option', { err })
       flash(labels.errorSave, 'error')
     } finally {
       setSaving(false)
@@ -207,6 +246,7 @@ export function DictionaryEntrySelect({
     newLabel,
     newValue,
     onChange,
+    sortOptions,
   ])
 
   const handleDialogKeyDown = React.useCallback(
@@ -247,13 +287,21 @@ export function DictionaryEntrySelect({
     () => buildHrefWithReturnTo(manageLink, returnTo),
     [manageLink, returnTo],
   )
+  const optionsKey = React.useMemo(
+    () => displayOptions.map((option) => `${option.value}:${option.label}`).join('\0'),
+    [displayOptions],
+  )
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <Select
-          value={value || undefined}
-          onValueChange={(next) => onChange(next || undefined)}
+          key={`dictionary-entry:${value ?? ''}:${optionsKey}`}
+          value={value ?? ''}
+          onValueChange={(next) => {
+            if (!next) return
+            onChange(next)
+          }}
           disabled={disabled}
         >
           <SelectTrigger
@@ -261,10 +309,12 @@ export function DictionaryEntrySelect({
             className={selectClassName}
             title={activeOption?.label ?? undefined}
           >
-            <SelectValue placeholder={labels.placeholder} />
+            <SelectValue placeholder={labels.placeholder}>
+              {activeOption?.label}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {options.map((option) => (
+            {displayOptions.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>

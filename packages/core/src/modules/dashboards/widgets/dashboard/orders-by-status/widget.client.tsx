@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { PieChart, type PieChartDataItem } from '@open-mercato/ui/backend/charts'
 import {
@@ -19,8 +19,11 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { DEFAULT_SETTINGS, hydrateSettings, type OrdersByStatusSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 
-async function fetchOrdersByStatusData(settings: OrdersByStatusSettings): Promise<WidgetDataResponse> {
+const logger = createLogger('dashboards').child({ component: 'orders-by-status' })
+
+async function fetchOrdersByStatusData(settings: OrdersByStatusSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
     entityType: 'sales:orders',
     metric: {
@@ -36,18 +39,7 @@ async function fetchOrdersByStatusData(settings: OrdersByStatusSettings): Promis
     },
   }
 
-  const call = await apiCall<WidgetDataResponse>('/api/dashboards/widgets/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-
-  if (!call.ok) {
-    const errorMsg = (call.result as Record<string, unknown>)?.error
-    throw new Error(typeof errorMsg === 'string' ? errorMsg : 'Failed to fetch orders by status data')
-  }
-
-  return call.result as WidgetDataResponse
+  return fetchWidgetData<WidgetDataResponse>(body)
 }
 
 const ORDER_STATUS_KEYS: Record<string, string> = {
@@ -82,25 +74,26 @@ const OrdersByStatusWidget: React.FC<DashboardWidgetComponentProps<OrdersByStatu
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
+  const fetchWidgetData = useWidgetData()
   const refresh = React.useCallback(async () => {
     onRefreshStateChange?.(true)
     setLoading(true)
     setError(null)
     try {
-      const result = await fetchOrdersByStatusData(hydrated)
+      const result = await fetchOrdersByStatusData(hydrated, fetchWidgetData)
       const chartData = result.data.map((item) => ({
         name: formatStatusLabel(item.groupKey as string | null, t),
         value: item.value ?? 0,
       }))
       setData(chartData)
     } catch (err) {
-      console.error('Failed to load orders by status data', err)
+      logger.error('Failed to load orders by status data', { err })
       setError(t('dashboards.analytics.widgets.ordersByStatus.error', 'Failed to load data'))
     } finally {
       setLoading(false)
       onRefreshStateChange?.(false)
     }
-  }, [hydrated, onRefreshStateChange, t])
+  }, [hydrated, fetchWidgetData, onRefreshStateChange, t])
 
   React.useEffect(() => {
     refresh().catch(() => {})

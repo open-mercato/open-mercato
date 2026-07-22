@@ -10,11 +10,15 @@ import type {
   NotificationHandlerToastOptions,
 } from '@open-mercato/shared/modules/notifications/handler'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'notifications' })
 
 type RuntimeContext = {
   userId?: string
   features: string[]
   currentPath: string
+  t?: (key: string, fallback?: string) => string
   refreshNotifications: () => void
   navigate: (href: string) => void
   markAsRead: (notificationId: string) => Promise<void>
@@ -57,6 +61,7 @@ function buildHandlerContext(runtime: RuntimeContext): NotificationHandlerContex
     userId: runtime.userId,
     features: runtime.features,
     currentPath: runtime.currentPath,
+    t: runtime.t,
     toast(options) {
       const text = options.body ? `${options.title}: ${options.body}` : options.title
       flash(text, toFlashKind(options.severity))
@@ -114,7 +119,7 @@ class NotificationDispatcher {
         try {
           void Promise.resolve(handler.handle(notification, context))
         } catch (error) {
-          console.error(`[notifications] handler failed: ${handler.id}`, error)
+          logger.error('Notification handler failed', { handlerId: handler.id, err: error })
         }
       }
 
@@ -124,7 +129,7 @@ class NotificationDispatcher {
         try {
           listener.effect(notification)
         } catch (error) {
-          console.error('[notifications] effect listener failed', error)
+          logger.error('Notification effect listener failed', { err: error })
         }
       }
 

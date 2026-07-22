@@ -1,6 +1,8 @@
 import { expect, type APIRequestContext } from '@playwright/test';
-import { apiRequest } from '@open-mercato/core/helpers/integration/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures';
+import { deleteUserAclInDb, setUserAclInDb } from '@open-mercato/core/helpers/integration/dbFixtures';
 
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
 
@@ -99,6 +101,24 @@ type EventsResponse = {
 
 export function buildMockInboundUrl(endpointId = 'mock_inbound'): string {
   return `${BASE_URL}/api/webhooks/inbound/${endpointId}`;
+}
+
+// The mock inbound adapter (issue #2707) authenticates either an HMAC-SHA256 signature
+// over the raw body (x-mock-webhook-signature) or a static shared-secret token
+// (x-mock-webhook-token). Outbound delivery tests must use the static token because the
+// delivery body is generated server-side and cannot be pre-signed into customHeaders.
+// The secret mirrors the app process env (CI exports MOCK_INBOUND_WEBHOOK_SECRET to both).
+export const MOCK_INBOUND_TOKEN_HEADER = 'x-mock-webhook-token';
+
+export const MOCK_INBOUND_WEBHOOK_SECRET =
+  process.env.MOCK_INBOUND_WEBHOOK_SECRET?.trim() || 'open-mercato-mock-dev-inbound-webhook-secret';
+
+export function mockInboundAuthHeaders(): Record<string, string> {
+  return { [MOCK_INBOUND_TOKEN_HEADER]: MOCK_INBOUND_WEBHOOK_SECRET };
+}
+
+export function mockInboundInvalidAuthHeaders(): Record<string, string> {
+  return { [MOCK_INBOUND_TOKEN_HEADER]: 'not-the-mock-inbound-secret' };
 }
 
 export async function createWebhookFixture(
@@ -246,4 +266,102 @@ export async function deleteWebhookIfExists(
   } catch {
     return;
   }
+}
+
+export type WebhookRotateSecretResponse = {
+  success: true;
+  secret: string;
+  previousSecretSetAt: string | null;
+};
+
+export async function rotateWebhookSecret(
+  request: APIRequestContext,
+  token: string,
+  webhookId: string,
+  path = `/api/webhooks/${webhookId}/rotate-secret`,
+): Promise<WebhookRotateSecretResponse> {
+  const response = await apiRequest(request, 'POST', path, { token });
+  expect(response.status()).toBe(200);
+  const body = await readJsonSafe<WebhookRotateSecretResponse>(response);
+  if (!body) {
+    throw new Error(`Expected rotate-secret response for ${webhookId}`);
+  }
+  return body;
+}
+
+export type WebhookTestDeliveryResponse = {
+  success: true;
+  delivery: WebhookDeliveryDetailResponse;
+};
+
+export async function sendTestDelivery(
+  request: APIRequestContext,
+  token: string,
+  webhookId: string,
+  input: { eventType?: string; payload?: Record<string, unknown> } = {},
+  path = `/api/webhooks/${webhookId}/test`,
+): Promise<WebhookTestDeliveryResponse> {
+  const response = await apiRequest(request, 'POST', path, { token, data: input });
+  expect(response.status()).toBe(200);
+  const body = await readJsonSafe<WebhookTestDeliveryResponse>(response);
+  if (!body) {
+    throw new Error(`Expected test delivery response for ${webhookId}`);
+  }
+  return body;
+}
+
+export type ProvisionedWebhooksUser = {
+  userId: string;
+  email: string;
+  password: string;
+  token: string;
+};
+
+/**
+ * Creates a self-contained, role-less user and grants it an exact webhooks feature
+ * set (and optional organization-visibility list) through a per-user ACL row, then
+ * logs it in. The DB ACL path mirrors the org-scope fixtures: granting features via
+ * the ACL API requires a super-admin actor, while `setUserAclInDb` keeps the spec
+ * self-contained and deterministic. Login happens AFTER the ACL is written so the
+ * fresh session resolves the new grants.
+ */
+export async function provisionWebhooksUser(
+  request: APIRequestContext,
+  adminToken: string,
+  input: {
+    tenantId: string;
+    organizationId: string;
+    features: string[];
+    organizations?: string[] | null;
+    slug: string;
+  },
+): Promise<ProvisionedWebhooksUser> {
+  const unique = `${Date.now()}${Math.floor(Math.random() * 1_000_000)}`;
+  const email = `qa-webhooks-${input.slug}-${unique}@acme.com`;
+  const password = 'Valid1!Webhooks';
+  const userId = await createUserFixture(request, adminToken, {
+    email,
+    password,
+    organizationId: input.organizationId,
+    roles: [],
+    name: `QA Webhooks ${input.slug}`,
+  });
+  await setUserAclInDb({
+    userId,
+    tenantId: input.tenantId,
+    features: input.features,
+    organizations: input.organizations ?? null,
+  });
+  const token = await getAuthToken(request, email, password);
+  return { userId, email, password, token };
+}
+
+export async function cleanupWebhooksUser(
+  request: APIRequestContext,
+  adminToken: string | null,
+  user: ProvisionedWebhooksUser | null,
+): Promise<void> {
+  if (!user) return;
+  await deleteUserAclInDb(user.userId).catch(() => undefined);
+  await deleteUserIfExists(request, adminToken, user.userId).catch(() => undefined);
 }

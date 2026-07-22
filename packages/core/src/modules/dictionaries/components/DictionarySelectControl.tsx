@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -10,6 +11,9 @@ import {
   ensureDictionaryEntries,
   invalidateDictionaryEntries,
 } from './hooks/useDictionaryEntries'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'DictionarySelectControl' })
 
 type DictionarySelectControlProps = {
   dictionaryId: string
@@ -19,6 +23,7 @@ type DictionarySelectControlProps = {
   selectClassName?: string
   disabled?: boolean
   priorityValues?: string[]
+  seedOptions?: Array<{ value: string; label: string; color?: string | null; icon?: string | null }>
 }
 
 export function DictionarySelectControl({
@@ -29,10 +34,23 @@ export function DictionarySelectControl({
   selectClassName,
   disabled = false,
   priorityValues,
+  seedOptions,
 }: DictionarySelectControlProps) {
   const t = useT()
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
+  const mutationContextId = React.useMemo(
+    () => `dictionaries:dictionary_entry:inline:${dictionaryId}`,
+    [dictionaryId],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
   const [inlineCreateEnabled, setInlineCreateEnabled] = React.useState<boolean>(allowInlineCreate)
 
   React.useEffect(() => {
@@ -51,7 +69,7 @@ export function DictionarySelectControl({
         }
         setInlineCreateEnabled(true)
       } catch (err) {
-        console.warn('DictionarySelectControl.inlineCreate check failed', err)
+        logger.warn('Inline create check failed', { err })
         if (!cancelled) {
           setInlineCreateEnabled(allowInlineCreate)
         }
@@ -108,24 +126,36 @@ export function DictionarySelectControl({
 
   const createOption = React.useCallback(
     async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
-      const call = await apiCall<Record<string, unknown>>(
-        `/api/dictionaries/${dictionaryId}/entries`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            value: input.value,
-            label: input.label ?? input.value,
-            color: input.color,
-            icon: input.icon,
-          }),
-        },
-      )
-      if (!call.ok) {
-        throw new Error(
-          typeof call.result?.error === 'string' ? call.result.error : 'Failed to create dictionary entry',
-        )
+      const payload = {
+        value: input.value,
+        label: input.label ?? input.value,
+        color: input.color,
+        icon: input.icon,
       }
+      const call = await runMutation({
+        operation: async () => {
+          const result = await apiCall<Record<string, unknown>>(
+            `/api/dictionaries/${dictionaryId}/entries`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+          )
+          if (!result.ok) {
+            throw new Error(
+              typeof result.result?.error === 'string' ? result.result.error : 'Failed to create dictionary entry',
+            )
+          }
+          return result
+        },
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'dictionaries.dictionary_entry',
+          retryLastMutation,
+        },
+        mutationPayload: payload,
+      })
       await invalidateDictionaryEntries(queryClient, dictionaryId)
       return {
         value: String(call.result?.value ?? input.value),
@@ -137,7 +167,7 @@ export function DictionarySelectControl({
         icon: typeof call.result?.icon === 'string' ? call.result.icon : null,
       }
     },
-    [dictionaryId, queryClient],
+    [dictionaryId, mutationContextId, queryClient, runMutation, retryLastMutation],
   )
 
   const labels = React.useMemo(
@@ -191,6 +221,13 @@ export function DictionarySelectControl({
       allowAppearance
       allowInlineCreate={effectiveAllowInlineCreate}
       selectClassName={selectClassName}
+      seedOptions={seedOptions?.map((option) => ({
+        value: option.value,
+        label: option.label,
+        color: option.color ?? null,
+        icon: option.icon ?? null,
+      }))}
+      sortOptions="none"
       disabled={disabled}
       manageHref="/backend/config/dictionaries"
     />

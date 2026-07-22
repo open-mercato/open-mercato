@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { BarChart, type BarChartDataItem } from '@open-mercato/ui/backend/charts'
 import { DateRangeSelect, InlineDateRangeSelect, type DateRangePreset } from '@open-mercato/ui/backend/date-range'
@@ -17,8 +17,11 @@ import {
 import { DEFAULT_SETTINGS, hydrateSettings, type TopProductsSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencyCompact } from '../../../lib/formatters'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 
-async function fetchTopProductsData(settings: TopProductsSettings): Promise<WidgetDataResponse> {
+const logger = createLogger('dashboards').child({ component: 'top-products' })
+
+async function fetchTopProductsData(settings: TopProductsSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
     entityType: 'sales:order_lines',
     metric: {
@@ -36,18 +39,7 @@ async function fetchTopProductsData(settings: TopProductsSettings): Promise<Widg
     },
   }
 
-  const call = await apiCall<WidgetDataResponse>('/api/dashboards/widgets/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-
-  if (!call.ok) {
-    const errorMsg = (call.result as Record<string, unknown>)?.error
-    throw new Error(typeof errorMsg === 'string' ? errorMsg : 'Failed to fetch top products data')
-  }
-
-  return call.result as WidgetDataResponse
+  return fetchWidgetData<WidgetDataResponse>(body)
 }
 
 function truncateLabel(
@@ -82,6 +74,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
   const [error, setError] = React.useState<string | null>(null)
   const fetchingRef = React.useRef(false)
 
+  const fetchWidgetData = useWidgetData()
   const refresh = React.useCallback(async () => {
     if (fetchingRef.current) return
     fetchingRef.current = true
@@ -89,21 +82,21 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
     setLoading(true)
     setError(null)
     try {
-      const result = await fetchTopProductsData(hydrated)
+      const result = await fetchTopProductsData(hydrated, fetchWidgetData)
       const chartData = result.data.map((item, index) => ({
         name: truncateLabel(item.groupLabel ?? item.groupKey ?? `Product ${index + 1}`, t),
         Revenue: item.value ?? 0,
       }))
       setData(chartData)
     } catch (err) {
-      console.error('Failed to load top products data', err)
+      logger.error('Failed to load top products data', { err })
       setError(t('dashboards.analytics.widgets.topProducts.error', 'Failed to load data'))
     } finally {
       setLoading(false)
       onRefreshStateChange?.(false)
       fetchingRef.current = false
     }
-  }, [hydrated, onRefreshStateChange, t])
+  }, [hydrated, fetchWidgetData, onRefreshStateChange, t])
 
   React.useEffect(() => {
     refresh().catch(() => {})

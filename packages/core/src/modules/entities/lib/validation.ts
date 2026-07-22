@@ -4,7 +4,13 @@ import { validateValuesAgainstDefs } from '@open-mercato/shared/modules/entities
 
 export async function validateCustomFieldValuesServer(
   em: EntityManager,
-  opts: { entityId: string; organizationId?: string | null; tenantId?: string | null; values: Record<string, any> },
+  opts: {
+    entityId: string
+    organizationId?: string | null
+    tenantId?: string | null
+    values: Record<string, any>
+    rejectUndeclaredKeys?: boolean
+  },
 ): Promise<{ ok: boolean; fieldErrors: Record<string, string> }> {
   const organizationId = opts.organizationId ?? null
   const tenantId = opts.tenantId ?? null
@@ -51,5 +57,7 @@ export async function validateCustomFieldValuesServer(
       byKey.set(d.key, d)
     }
   }
-  return validateValuesAgainstDefs(opts.values, Array.from(byKey.values()) as any)
+  return validateValuesAgainstDefs(opts.values, Array.from(byKey.values()) as any, {
+    rejectUndeclaredKeys: opts.rejectUndeclaredKeys === true,
+  })
 }

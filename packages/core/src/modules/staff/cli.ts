@@ -2,6 +2,12 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { seedStaffActivityTypes, seedStaffAddressTypes, seedStaffTeamExamples, type StaffSeedScope } from './lib/seeds'
+import { appendWidgetsToRoles } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
+
+const TIMESHEETS_DASHBOARD_WIDGET_IDS = [
+  'staff.timesheets.timeReporting',
+  'staff.timesheets.hoursByProject',
+]
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string> = {}
@@ -101,4 +107,37 @@ const seedAddressTypesCommand: ModuleCli = {
   },
 }
 
-export default [seedActivityTypesCommand, seedAddressTypesCommand, seedExamplesCommand]
+const seedTimesheetsWidgetsCommand: ModuleCli = {
+  command: 'seed-timesheets-widgets',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato staff seed-timesheets-widgets --tenant <tenantId> --org <organizationId>')
+      console.error('Backfills timesheets dashboard widgets (timeReporting, hoursByProject) to existing tenant roles.')
+      process.exit(1)
+      return
+    }
+    const container = await createRequestContainer()
+    try {
+      const em = container.resolve<EntityManager>('em')
+      await em.transactional(async (tem) => {
+        await appendWidgetsToRoles(tem, {
+          tenantId,
+          organizationId,
+          roleNames: ['superadmin', 'admin', 'employee'],
+          widgetIds: TIMESHEETS_DASHBOARD_WIDGET_IDS,
+        })
+      })
+      console.log('📊 Timesheets dashboard widgets seeded for organization', organizationId)
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
+export default [seedActivityTypesCommand, seedAddressTypesCommand, seedExamplesCommand, seedTimesheetsWidgetsCommand]

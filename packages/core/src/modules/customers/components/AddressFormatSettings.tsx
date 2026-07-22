@@ -5,8 +5,11 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { RadioGroup, Radio } from '@open-mercato/ui/primitives/radio'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { AddressFormatStrategy } from '../utils/addressFormat'
+
+const SAVE_CONTEXT_ID = 'customers-address-format-settings'
 
 type Option = {
   id: AddressFormatStrategy
@@ -20,6 +23,15 @@ export function AddressFormatSettings() {
   const [loading, setLoading] = React.useState(true)
   const [pending, setPending] = React.useState<AddressFormatStrategy | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: SAVE_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   const options = React.useMemo<Option[]>(
     () => [
@@ -87,24 +99,33 @@ export function AddressFormatSettings() {
       setPending(next)
       setError(null)
       try {
-        const call = await apiCall<Record<string, unknown>>(
-          '/api/customers/settings/address-format',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ addressFormat: next }),
+        await runMutation({
+          // optimistic-lock-exempt: single-row tenant address-format preference toggle — no per-record version / concurrent record edit
+          operation: async () => {
+            const call = await apiCall<Record<string, unknown>>(
+              '/api/customers/settings/address-format',
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ addressFormat: next }),
+              },
+            )
+            const payload = call.result ?? {}
+            if (!call.ok) {
+              const message =
+                typeof payload?.error === 'string'
+                  ? payload.error
+                  : t('customers.config.addressFormat.errorSave', 'Failed to update address settings')
+              throw new Error(message)
+            }
           },
-        )
-        const payload = call.result ?? {}
-        if (!call.ok) {
-          const message =
-            typeof payload?.error === 'string'
-              ? payload.error
-              : t('customers.config.addressFormat.errorSave', 'Failed to update address settings')
-          setError(message)
-          flash(message, 'error')
-          return
-        }
+          context: {
+            formId: SAVE_CONTEXT_ID,
+            resourceKind: 'customers.settings',
+            retryLastMutation,
+          },
+          mutationPayload: { addressFormat: next },
+        })
         setFormat(next)
         flash(t('customers.config.addressFormat.success', 'Address format updated'), 'success')
       } catch (err) {
@@ -118,7 +139,7 @@ export function AddressFormatSettings() {
         setPending(null)
       }
     },
-    [format, t]
+    [format, retryLastMutation, runMutation, t]
   )
 
   return (

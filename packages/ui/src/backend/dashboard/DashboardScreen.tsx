@@ -4,16 +4,19 @@ import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { getDashboardWidgets, loadDashboardWidgetModule } from './widgetRegistry'
 import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { GripVertical, Info, Plus, RefreshCw, Settings2, Trash2, X, Loader2 } from 'lucide-react'
+import { GripVertical, Plus, RefreshCw, Settings2, Trash2, X, Loader2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { InjectionSpot } from '../injection/InjectionSpot'
+import { WidgetDataBatchProvider } from './widgetData'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'DashboardScreen' })
 
 type DashboardWidgetSize = 'sm' | 'md' | 'lg'
 
@@ -147,7 +150,7 @@ export function DashboardScreen() {
         setSettingsId(null)
       }
     } catch (err) {
-      console.error('Failed to load dashboard layout', err)
+      logger.error('Failed to load dashboard layout', { err })
       if (getDashboardWidgets().length === 0) {
         setHasRegisteredWidgets(false)
         setLayout([])
@@ -237,7 +240,7 @@ export function DashboardScreen() {
         if (!call.ok) throw new Error(`Failed with status ${call.status}`)
         setError(null)
       } catch (err) {
-        console.error('Failed to save layout', err)
+        logger.error('Failed to save layout', { err })
         setError(t('dashboard.saveError'))
       } finally {
         adjustSaving(-1)
@@ -256,7 +259,7 @@ export function DashboardScreen() {
       if (!call.ok) throw new Error(`Failed with status ${call.status}`)
       setError(null)
     } catch (err) {
-      console.error('Failed to update widget settings', err)
+      logger.error('Failed to update widget settings', { err })
       setError(t('dashboard.saveError'))
     } finally {
       adjustSaving(-1)
@@ -354,18 +357,17 @@ export function DashboardScreen() {
 
   if (error && layout.length === 0) {
     return (
-      <ErrorNotice
-        title={t('dashboard.unavailable')}
-        message={error}
-        action={<Button variant="outline" onClick={handleRefresh}>{t('dashboard.retry')}</Button>}
-      />
+      <Alert variant="destructive">
+        <AlertTitle>{t('dashboard.unavailable')}</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+        <div className="mt-2"><Button variant="outline" onClick={handleRefresh}>{t('dashboard.retry')}</Button></div>
+      </Alert>
     )
   }
 
   if (!hasRegisteredWidgets && layout.length === 0) {
     return (
       <Alert variant="info">
-        <Info className="h-4 w-4" aria-hidden />
         <AlertTitle>{t('dashboard.empty.noWidgets.title', 'No dashboard widgets yet')}</AlertTitle>
         <AlertDescription>
           {t(
@@ -401,11 +403,11 @@ export function DashboardScreen() {
       </div>
 
       {error && layout.length > 0 && (
-        <ErrorNotice
-          title={t('dashboard.error.partial')}
-          message={error}
-          action={<Button variant="ghost" onClick={handleRefresh}>{t('dashboard.error.reload')}</Button>}
-        />
+        <Alert variant="destructive">
+          <AlertTitle>{t('dashboard.error.partial')}</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+          <div className="mt-2"><Button variant="ghost" onClick={handleRefresh}>{t('dashboard.error.reload')}</Button></div>
+        </Alert>
       )}
 
       <InjectionSpot spotId={dashboardBeforeSpotId} context={injectionContext} />
@@ -429,6 +431,7 @@ export function DashboardScreen() {
         </div>
       )}
 
+      <WidgetDataBatchProvider>
       <div className={cn(
         'grid gap-3 sm:gap-4 md:gap-6',
         'grid-cols-1',
@@ -493,6 +496,7 @@ export function DashboardScreen() {
           )
         })}
       </div>
+      </WidgetDataBatchProvider>
 
       {layout.length === 0 && (
         <div className="rounded-lg border border-dashed bg-muted/30 p-10 text-center text-sm text-muted-foreground">
@@ -573,7 +577,7 @@ function DashboardWidgetCard({
       })
       .catch((err) => {
         if (cancelled) return
-        console.error('Failed to load widget module', err)
+        logger.error('Failed to load widget module', { err })
         setLoadError(t('dashboard.widget.loadError'))
         setLoading(false)
       })
@@ -614,7 +618,7 @@ function DashboardWidgetCard({
       try {
         return module.hydrateSettings(raw)
       } catch (err) {
-        console.warn('Failed to hydrate widget settings', err)
+        logger.warn('Failed to hydrate widget settings', { err })
         return raw
       }
     }
@@ -627,7 +631,7 @@ function DashboardWidgetCard({
       try {
         raw = module.dehydrateSettings(next as never)
       } catch (err) {
-        console.warn('Failed to dehydrate widget settings', err)
+        logger.warn('Failed to dehydrate widget settings', { err })
       }
     }
     onSettingsChange(raw)

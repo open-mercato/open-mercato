@@ -22,6 +22,9 @@ import {
   CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
 } from '../lib/interactionCompatibility'
 import { resolveLegacyTodoDetails } from '../lib/todoCompatibility'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type InteractionSnapshot = {
   interaction: {
@@ -173,7 +176,7 @@ async function loadLegacyTodoDetail(
   try {
     queryEngine = ctx.container.resolve('queryEngine') as QueryEngine
   } catch (err) {
-    console.warn('[customers.commands.todos] queryEngine resolve failed; returning null legacy detail', err)
+    logger.warn('queryEngine resolve failed; returning null legacy detail', { component: 'commands.todos', err })
     queryEngine = null
   }
   if (!queryEngine) return null
@@ -463,6 +466,34 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
       ctx,
       logEntry: normalizeUndoCreateLogEntry(logEntry, payload),
     })
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry)
+    const canonicalCreate = getRequiredHandler<
+      InteractionCreateInput & { customValues?: Record<string, unknown> },
+      { interactionId: string; entityId: string }
+    >('customers.interactions.create')
+    if (!canonicalCreate.redo) {
+      throw new Error('[internal] Missing redo handler: customers.interactions.create')
+    }
+    const result = await canonicalCreate.redo({
+      input: {
+        tenantId:
+          payload?.after?.interaction.tenantId ??
+          (typeof logEntry.tenantId === 'string' ? logEntry.tenantId : '00000000-0000-0000-0000-000000000000'),
+        organizationId:
+          payload?.after?.interaction.organizationId ??
+          (typeof logEntry.organizationId === 'string'
+            ? logEntry.organizationId
+            : '00000000-0000-0000-0000-000000000000'),
+        entityId: payload?.after?.interaction.entityId ?? '00000000-0000-0000-0000-000000000000',
+        interactionType: 'task',
+        status: 'planned',
+      },
+      ctx,
+      logEntry: normalizeUndoCreateLogEntry(logEntry, payload),
+    })
+    return { linkId: result.interactionId, todoId: result.interactionId }
   },
 }
 

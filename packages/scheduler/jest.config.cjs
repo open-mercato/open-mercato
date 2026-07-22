@@ -1,5 +1,8 @@
 /** @type {import('jest').Config} */
+const base = require('../../jest.config.base.cjs')
+
 module.exports = {
+  ...base,
   testEnvironment: 'node',
   watchman: false,
   roots: ['<rootDir>/src'],
@@ -8,6 +11,7 @@ module.exports = {
   moduleNameMapper: {
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
+    '^@open-mercato/cache$': '<rootDir>/../cache/src/index.ts',
     '^@open-mercato/queue/(.*)$': '<rootDir>/../queue/src/$1',
     '^@open-mercato/events/(.*)$': '<rootDir>/../events/src/$1',
     '^@open-mercato/ui/(.*)$': '<rootDir>/../ui/src/$1',
@@ -28,6 +32,6 @@ module.exports = {
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm|kysely)/)',
+    'node_modules/(?!(@mikro-orm|kysely|ai|@ai-sdk|ai-sdk-ollama|@workflow|@standard-schema)/)',
   ],
 }

@@ -95,6 +95,12 @@ function buildCommandContext(container: Awaited<ReturnType<typeof createRequestC
     selectedOrganizationId: null,
     organizationIds: null,
     request: undefined as any,
+    // CLI invocations (seed-defaults, toggle-create/update/delete) are trusted
+    // server-side calls with no end-user actor. Global feature toggles are a
+    // platform-wide table whose writes are restricted to super admins (#2266);
+    // this flag lets the command-level guard recognize the system caller so
+    // `yarn initialize` can seed defaults without an authenticated super admin.
+    systemActor: true,
   }
 }
 

@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { createPipelineFixture, createPipelineStageFixture, deleteEntityIfExists, deleteEntityByBody } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
-import { createSalesDocument } from '@open-mercato/core/modules/core/__integration__/helpers/salesUi';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { createPipelineFixture, createPipelineStageFixture, deleteEntityIfExists, deleteEntityByBody } from '@open-mercato/core/helpers/integration/crmFixtures';
+import { createSalesDocument } from '@open-mercato/core/helpers/integration/salesUi';
 
 /**
  * TC-INT-002: Customer to Deal to Quote to Order Flow
@@ -56,7 +56,7 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
         const opt = typeof label === 'string'
           ? page.getByRole('option', { name: label, exact })
           : page.getByRole('option', { name: label });
-        await expect(opt.first()).toBeVisible({ timeout: 10_000 });
+        await expect(opt.first()).toBeVisible({ timeout: 30_000 });
         await opt.first().click();
       }
       await selectByFieldId('companyEntityId', companyName)
@@ -109,8 +109,16 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
       await expect(page).toHaveURL(/\/backend\/customers\/deals$/i, { timeout: 30_000 });
 
       await page.getByPlaceholder(/Search by title/i).fill(dealTitle);
-      await page.locator('tr').filter({ hasText: dealTitle }).first().click();
-      await expect(page).toHaveURL(/\/backend\/customers\/deals\/[0-9a-f-]{36}$/i);
+      const dealRow = page.locator('tr').filter({ has: page.getByText(dealTitle, { exact: true }) }).first();
+      await expect(dealRow).toBeVisible({ timeout: 30_000 });
+      // The deals list re-renders as the debounced search settles, so a click
+      // can land on a row that is replaced before navigation registers (the URL
+      // stays on the filtered list). Retry the click until the detail route is
+      // reached instead of asserting once on a single, possibly-stale click.
+      await expect(async () => {
+        await dealRow.getByText(dealTitle, { exact: true }).click();
+        await expect(page).toHaveURL(/\/backend\/customers\/deals\/[0-9a-f-]{36}$/i, { timeout: 5_000 });
+      }).toPass({ timeout: 30_000 });
       dealId = page.url().match(/\/backend\/customers\/deals\/([0-9a-f-]{36})$/i)?.[1] ?? null;
 
       await createSalesDocument(page, { kind: 'order', customerQuery: companyName, preferApi: true, token });

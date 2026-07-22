@@ -1,5 +1,8 @@
 /** @type {import('jest').Config} */
+const base = require('../../jest.config.base.cjs')
+
 module.exports = {
+  ...base,
   testEnvironment: 'node',
   watchman: false,
   rootDir: '.',
@@ -40,7 +43,7 @@ module.exports = {
   setupFiles: ['<rootDir>/../../jest.setup.ts'],
   setupFilesAfterEnv: ['<rootDir>/../../jest.dom.setup.ts'],
   transformIgnorePatterns: [
-    '/node_modules/(?!(@mikro-orm|kysely|meilisearch)/)',
+    '/node_modules/(?!(@mikro-orm|kysely|meilisearch|ai|@ai-sdk|ai-sdk-ollama|@workflow|@standard-schema)/)',
     '\\.pnp\\.[^\\/]+$',
   ],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],

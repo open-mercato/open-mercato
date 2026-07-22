@@ -1,3 +1,7 @@
+import {
+  resolveAclDependencyDiagnostics,
+  type FeatureDescriptor,
+} from '@open-mercato/shared/security/aclDependencies'
 import { features } from '../modules/onboarding/acl'
 
 describe('onboarding ACL features', () => {
@@ -48,5 +52,50 @@ describe('onboarding ACL features', () => {
   it('is the default export', async () => {
     const mod = await import('../modules/onboarding/acl')
     expect(mod.default).toBe(features)
+  })
+})
+
+describe('onboarding acl dependency declarations', () => {
+  const descriptors: FeatureDescriptor[] = features
+  const ownIds = descriptors.map((feature) => feature.id)
+
+  it('declares dependsOn only against features registered in the catalog', () => {
+    const diagnostics = resolveAclDependencyDiagnostics(ownIds, descriptors)
+    const ownUnknown = diagnostics.unknownReferences.filter((ref) =>
+      ref.feature.startsWith('onboarding.'),
+    )
+    expect(ownUnknown).toEqual([])
+  })
+
+  it('resolves cleanly with no missing deps when every feature is granted', () => {
+    const diagnostics = resolveAclDependencyDiagnostics(ownIds, descriptors)
+    const ownMissing = diagnostics.missingDependencies.filter((dep) =>
+      dep.feature.startsWith('onboarding.'),
+    )
+    expect(ownMissing).toEqual([])
+  })
+
+  it('keeps every dependency target within the onboarding feature set', () => {
+    const ids = new Set(ownIds)
+    const deps = descriptors.flatMap((feature) => feature.dependsOn ?? [])
+    for (const dep of deps) {
+      expect(ids.has(dep)).toBe(true)
+    }
+  })
+
+  it('flags submit and verify as missing onboarding.access when access is not granted', () => {
+    const diagnostics = resolveAclDependencyDiagnostics(
+      ['onboarding.submit', 'onboarding.verify'],
+      descriptors,
+    )
+    expect(diagnostics.unknownReferences).toEqual([])
+    const submitMissing = diagnostics.missingDependencies.find(
+      (dep) => dep.feature === 'onboarding.submit',
+    )
+    const verifyMissing = diagnostics.missingDependencies.find(
+      (dep) => dep.feature === 'onboarding.verify',
+    )
+    expect(submitMissing?.missing).toEqual(['onboarding.access'])
+    expect(verifyMissing?.missing).toEqual(['onboarding.access'])
   })
 })

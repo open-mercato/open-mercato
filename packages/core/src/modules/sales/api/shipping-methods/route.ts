@@ -22,6 +22,7 @@ const listSchema = z
     pageSize: z.coerce.number().min(1).max(100).default(50),
     search: z.string().optional(),
     currency: z.string().optional(),
+    id: z.string().uuid().optional(),
     isActive: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -68,6 +69,9 @@ function buildFilters(query: z.infer<typeof listSchema>): Record<string, unknown
   if (searchFilter) Object.assign(filters, searchFilter)
   if (query.currency && query.currency.trim().length > 0) {
     filters.currency_code = query.currency.trim().toUpperCase()
+  }
+  if (query.id) {
+    filters.id = { $eq: query.id }
   }
   const isActive = parseBooleanToken(query.isActive)
   if (isActive !== null) filters.is_active = isActive

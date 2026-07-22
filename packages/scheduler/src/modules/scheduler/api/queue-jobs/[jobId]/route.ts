@@ -5,6 +5,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('scheduler').child({ component: 'queue-jobs' })
 
 
 export const metadata = {
@@ -89,10 +92,9 @@ export async function GET(
     const jobTenantId = jobData?.tenantId ?? jobPayload?.tenantId ?? null
     const jobOrgId = jobData?.organizationId ?? jobPayload?.organizationId ?? null
 
-    // System-scoped jobs (no tenantId/orgId) require superadmin
-    const isSuperAdmin = Array.isArray(auth.roles) && auth.roles.some(
-      (role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'
-    )
+    // System-scoped jobs (no tenantId/orgId) require super-admin. Use the
+    // immutable `isSuperAdmin` flag — never compare mutable/spoofable role names.
+    const isSuperAdmin = auth.isSuperAdmin === true
     if (!jobTenantId && !jobOrgId && !isSuperAdmin) {
       await queue.close()
       return NextResponse.json({ error: translate('scheduler.error.forbidden', 'Forbidden') }, { status: 403 })
@@ -131,7 +133,7 @@ export async function GET(
       logs: logs.logs || [],
     })
   } catch (error: unknown) {
-    console.error('[scheduler:queue-jobs] Error fetching job:', error)
+    logger.error('Error fetching job', { err: error })
     return NextResponse.json(
       { error: error instanceof Error ? error.message : translate('scheduler.error.fetch_job_failed', 'Failed to fetch job details') },
       { status: 500 }

@@ -28,7 +28,8 @@ import {
   directoryOkSchema,
   organizationListResponseSchema,
 } from '../openapi'
-import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import { resolveIsSuperAdmin, enforceTenantSelection } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type CrudInput = Record<string, unknown>
@@ -154,22 +155,42 @@ export async function GET(req: Request) {
   const includeInactive = parseBooleanToken(query.includeInactive) === true || status !== 'active'
 
   if (!allowAllTenants && !tenantId && !authTenantId && ids?.length) {
-    const scopedOrgs: Organization[] = await findWithDecryption(
-      em,
-      Organization,
-      { id: { $in: ids }, deletedAt: null },
-      { populate: ['tenant'] },
-      { tenantId: authTenantId, organizationId: null },
-    )
-    const tenantCandidates = new Set<string>()
-    for (const org of scopedOrgs) {
-      const orgTenantId = org.tenant?.id ? stringId(org.tenant.id) : ''
-      if (orgTenantId) tenantCandidates.add(orgTenantId)
+    let scopedIds = ids
+    if (!isSuperAdmin) {
+      let allowedIds: string[] | null = null
+      try {
+        const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+        allowedIds = Array.isArray(scope.allowedIds) ? scope.allowedIds : null
+      } catch {}
+      const allowedSet = allowedIds ? new Set(allowedIds) : new Set<string>()
+      scopedIds = ids.filter((id) => allowedSet.has(id))
     }
-    if (tenantCandidates.size === 1) {
-      tenantId = Array.from(tenantCandidates)[0] ?? null
-    } else if (tenantCandidates.size > 1) {
-      return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
+    if (scopedIds.length) {
+      const scopedOrgs: Organization[] = await findWithDecryption(
+        em,
+        Organization,
+        { id: { $in: scopedIds }, deletedAt: null },
+        { populate: ['tenant'] },
+        { tenantId: authTenantId, organizationId: null },
+      )
+      const tenantCandidates = new Set<string>()
+      for (const org of scopedOrgs) {
+        const orgTenantId = org.tenant?.id ? stringId(org.tenant.id) : ''
+        if (orgTenantId) tenantCandidates.add(orgTenantId)
+      }
+      if (tenantCandidates.size === 1) {
+        const candidateTenantId = Array.from(tenantCandidates)[0] ?? null
+        try {
+          tenantId = await enforceTenantSelection({ auth, container }, candidateTenantId)
+        } catch (error) {
+          if (isCrudHttpError(error)) {
+            return NextResponse.json(error.body, { status: error.status })
+          }
+          throw error
+        }
+      } else if (tenantCandidates.size > 1) {
+        return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
+      }
     }
   }
 
@@ -229,6 +250,7 @@ export async function GET(req: Request) {
     const items = orgs.map((org) => ({
       id: stringId(org.id),
       name: org.name,
+      logoUrl: org.logoUrl ?? null,
       parentId: org.parentId ?? null,
       tenantId: tenantId,
       isActive: !!org.isActive,
@@ -320,8 +342,12 @@ export async function GET(req: Request) {
     }
 
     const slugByOrgId = new Map<string, string | null>()
+    const updatedAtByOrgId = new Map<string, string | null>()
+    const logoUrlByOrgId = new Map<string, string | null>()
     for (const org of allOrgs) {
       slugByOrgId.set(String(org.id), org.slug ?? null)
+      updatedAtByOrgId.set(String(org.id), org.updatedAt instanceof Date ? org.updatedAt.toISOString() : null)
+      logoUrlByOrgId.set(String(org.id), org.logoUrl ?? null)
     }
 
     const tenantIds = Array.from(byTenant.keys())
@@ -405,6 +431,8 @@ export async function GET(req: Request) {
         id: node.id,
         name: node.name,
         slug: slugByOrgId.get(recordId) ?? null,
+        updatedAt: updatedAtByOrgId.get(recordId) ?? null,
+        logoUrl: logoUrlByOrgId.get(recordId) ?? null,
         tenantId: tid,
         tenantName: tenantNameMap[tid] ?? tid,
         parentId: node.parentId,
@@ -446,8 +474,12 @@ export async function GET(req: Request) {
   const orgs = await em.find(Organization, orgListFilter, { orderBy: { name: 'ASC' } })
   const hierarchy = computeHierarchyForOrganizations(orgs, tenantId)
   const slugByOrgId = new Map<string, string | null>()
+  const logoUrlByOrgId = new Map<string, string | null>()
+  const updatedAtByOrgId = new Map<string, string | null>()
   for (const org of orgs) {
     slugByOrgId.set(String(org.id), org.slug ?? null)
+    logoUrlByOrgId.set(String(org.id), org.logoUrl ?? null)
+    updatedAtByOrgId.set(String(org.id), org.updatedAt instanceof Date ? org.updatedAt.toISOString() : null)
   }
 
   // Manage view: paginated flat list for a single tenant
@@ -510,6 +542,8 @@ export async function GET(req: Request) {
       id: node.id,
       name: node.name,
       slug: slugByOrgId.get(recordId) ?? null,
+      logoUrl: logoUrlByOrgId.get(recordId) ?? null,
+      updatedAt: updatedAtByOrgId.get(recordId) ?? null,
       tenantId: node.tenantId,
       tenantName,
       parentId: node.parentId,

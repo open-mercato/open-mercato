@@ -5,6 +5,7 @@
   "attachments.errors.maxUploadSize": "El archivo adjunto supera el tamaño máximo de carga permitido.",
   "attachments.errors.publicPartitionBlocked": "No se pueden seleccionar explícitamente particiones de almacenamiento públicas para esta carga.",
   "attachments.errors.quotaExceeded": "Se superó la cuota de almacenamiento de adjuntos para este tenant.",
+  "attachments.errors.selectOrganization": "Selecciona una organización específica antes de subir un adjunto.",
   "attachments.library.actions.copied": "Enlace copiado.",
   "attachments.library.actions.copyError": "No se pudo copiar el enlace.",
   "attachments.library.actions.copyUrl": "Copiar URL",

@@ -1,7 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customer_accounts').child({ component: 'auto-link-crm-reverse' })
 
 export const metadata = {
   event: 'customers.person.created',
@@ -50,14 +53,14 @@ export default async function handle(
     const email = (entity as any).primaryEmail as string | null
     if (!email) return
 
-    const emailHash = hashForLookup(email.toLowerCase().trim())
+    const emailHashes = lookupHashCandidates(email.toLowerCase().trim())
 
     const { CustomerPersonProfile } = await import('@open-mercato/core/modules/customers/data/entities')
     const personProfile = await em.findOne(CustomerPersonProfile as any, { entity: (entity as any).id } as any) as any
     const companyEntityId = personProfile?.companyEntityId as string | undefined
 
     const customerUser = await em.findOne(CustomerUser, {
-      emailHash,
+      emailHash: { $in: emailHashes },
       tenantId,
       deletedAt: null,
       personEntityId: null,
@@ -72,6 +75,6 @@ export default async function handle(
       if (affected === 0) return
     }
   } catch (err) {
-    console.error('[customer_accounts:auto-link-crm-reverse] Failed to link CRM person to customer user:', err)
+    logger.error('Failed to link CRM person to customer user', { err })
   }
 }

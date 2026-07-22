@@ -24,6 +24,7 @@ import {
   getCurrentOrganizationScope,
   subscribeOrganizationScopeChanged,
 } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { readVersionedPreference, writeVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
 import {
   createAiServerConversation,
   listAiServerConversations,
@@ -108,57 +109,62 @@ function makeId(): string {
   return `${Date.now().toString(16)}-${rand()}-${rand()}`
 }
 
-function readPersisted(storageKey: string): AiChatSessionsState {
-  if (typeof window === 'undefined') return { sessions: [], activeByAgent: {} }
-  try {
-    const raw = window.localStorage.getItem(storageKey)
-    if (!raw) return { sessions: [], activeByAgent: {} }
-    const parsed = JSON.parse(raw) as Partial<AiChatSessionsState> | null
-    const sessions = Array.isArray(parsed?.sessions)
-      ? (parsed!.sessions as unknown[])
-          .filter((entry): entry is AiChatSession => {
-            if (!entry || typeof entry !== 'object') return false
-            const value = entry as Record<string, unknown>
-            return (
-              typeof value.id === 'string' &&
-              typeof value.agentId === 'string' &&
-              typeof value.conversationId === 'string' &&
-              typeof value.createdAt === 'number' &&
-              typeof value.lastUsedAt === 'number' &&
-              (value.status === 'open' || value.status === 'closed')
-            )
-          })
-          .map((entry) => {
-            const value = entry as unknown as Record<string, unknown>
-            const candidate = value.name
-            return {
-              ...entry,
-              name: typeof candidate === 'string' ? candidate : undefined,
-            }
-          })
-      : []
-    const activeByAgent =
-      parsed?.activeByAgent && typeof parsed.activeByAgent === 'object'
-        ? Object.fromEntries(
-            Object.entries(parsed.activeByAgent as Record<string, unknown>).filter(
-              (entry): entry is [string, string] =>
-                typeof entry[0] === 'string' && typeof entry[1] === 'string',
-            ),
-          )
-        : {}
-    return { sessions, activeByAgent }
-  } catch {
-    return { sessions: [], activeByAgent: {} }
-  }
+// Versioned-envelope discriminator for the persisted sessions cache. Bump when
+// the stored shape changes incompatibly; legacy bare `{ sessions, activeByAgent }`
+// values are migrated forward on the next write. See
+// `@open-mercato/shared/lib/browser/versionedPreference`.
+const AI_CHAT_SESSIONS_VERSION = 1
+
+function isPersistedSessionsShape(value: unknown): value is Partial<AiChatSessionsState> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function writePersisted(storageKey: string, state: AiChatSessionsState): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify(state))
-  } catch {
-    /* quota / privacy mode — drop silently */
-  }
+export function readPersisted(storageKey: string): AiChatSessionsState {
+  const parsed = readVersionedPreference<Partial<AiChatSessionsState> | null>(
+    storageKey,
+    AI_CHAT_SESSIONS_VERSION,
+    (value): value is Partial<AiChatSessionsState> | null => isPersistedSessionsShape(value),
+    null,
+    { legacyIsValid: (value): value is Partial<AiChatSessionsState> | null => isPersistedSessionsShape(value) },
+  )
+  if (!parsed) return { sessions: [], activeByAgent: {} }
+  const sessions = Array.isArray(parsed.sessions)
+    ? (parsed.sessions as unknown[])
+        .filter((entry): entry is AiChatSession => {
+          if (!entry || typeof entry !== 'object') return false
+          const value = entry as Record<string, unknown>
+          return (
+            typeof value.id === 'string' &&
+            typeof value.agentId === 'string' &&
+            typeof value.conversationId === 'string' &&
+            typeof value.createdAt === 'number' &&
+            typeof value.lastUsedAt === 'number' &&
+            (value.status === 'open' || value.status === 'closed')
+          )
+        })
+        .map((entry) => {
+          const value = entry as unknown as Record<string, unknown>
+          const candidate = value.name
+          return {
+            ...entry,
+            name: typeof candidate === 'string' ? candidate : undefined,
+          }
+        })
+    : []
+  const activeByAgent =
+    parsed.activeByAgent && typeof parsed.activeByAgent === 'object'
+      ? Object.fromEntries(
+          Object.entries(parsed.activeByAgent as Record<string, unknown>).filter(
+            (entry): entry is [string, string] =>
+              typeof entry[0] === 'string' && typeof entry[1] === 'string',
+          ),
+        )
+      : {}
+  return { sessions, activeByAgent }
+}
+
+export function writePersisted(storageKey: string, state: AiChatSessionsState): void {
+  writeVersionedPreference(storageKey, AI_CHAT_SESSIONS_VERSION, state)
 }
 
 function serverConversationToSession(

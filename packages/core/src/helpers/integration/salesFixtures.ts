@@ -73,6 +73,56 @@ export async function createOrderLineFixture(
   );
 }
 
+/**
+ * Ship one or more order lines so a subsequent return passes the
+ * shipped-quantity guard (issue #3034). A return can only be created for
+ * quantities that were physically shipped, so any spec that creates a return
+ * must ship the relevant line(s) first. Returns the created shipment id.
+ */
+export async function createShipmentFixture(
+  request: APIRequestContext,
+  token: string,
+  orderId: string,
+  items: Array<{ orderLineId: string; quantity: number }>,
+): Promise<string> {
+  return createEntity(
+    request,
+    token,
+    '/api/sales/shipments',
+    { orderId, items },
+    ['id', 'shipmentId'],
+  );
+}
+
+/**
+ * Probe whether the authenticated principal can create a sales order on the
+ * current tenant (i.e. holds `sales.orders.manage`). Sales-write integration
+ * specs use this to self-skip on dev databases whose role ACLs were never
+ * synced (`yarn mercato auth sync-role-acls`) rather than fail spuriously —
+ * CI bootstraps a fully-synced tenant so the probe passes there. The probed
+ * order is deleted immediately so the check leaves no residue.
+ */
+export async function canManageSalesOrders(
+  request: APIRequestContext,
+  token: string,
+): Promise<boolean> {
+  const response = await apiRequest(request, 'POST', '/api/sales/orders', {
+    token,
+    data: { currencyCode: 'USD' },
+  });
+  if (response.status() === 403) return false;
+  if (!response.ok()) return false;
+  const id = readId((await response.json()) as unknown, ['id', 'orderId']);
+  if (id) {
+    try {
+      await apiRequest(request, 'DELETE', '/api/sales/orders', { token, data: { id } });
+    } catch {
+      // best-effort cleanup
+    }
+  }
+  return true;
+}
+
 export async function deleteSalesEntityIfExists(
   request: APIRequestContext,
   token: string | null,

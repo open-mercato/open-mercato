@@ -21,6 +21,11 @@ export type DatePickerProps = {
   size?: 'sm' | 'default'
   disabled?: boolean
   readOnly?: boolean
+  /** Controlled open state of the popover. Omit for the default uncontrolled
+   * behavior. Pair with `onOpenChange` to drive it externally (e.g. closing the
+   * picker when a surrounding dialog scrolls). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   /**
    * Footer mode in the popover.
    * - `'apply-cancel'` (default, Figma-aligned): selecting a day stages a draft;
@@ -88,6 +93,8 @@ export function DatePicker({
   size = 'default',
   disabled = false,
   readOnly = false,
+  open: controlledOpen,
+  onOpenChange,
   footer = 'apply-cancel',
   closeOnSelect,
   showTodayButton = true,
@@ -109,7 +116,12 @@ export function DatePicker({
 }: DatePickerProps) {
   const resolvedCloseOnSelect = closeOnSelect ?? footer === 'today-clear'
   const t = useT()
-  const [open, setOpen] = React.useState(false)
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
+  const open = controlledOpen ?? uncontrolledOpen
+  const setOpen = React.useCallback((next: boolean) => {
+    if (controlledOpen === undefined) setUncontrolledOpen(next)
+    onOpenChange?.(next)
+  }, [controlledOpen, onOpenChange])
   const [draft, setDraft] = React.useState<Date | null>(value ?? null)
 
   const isInteractive = !disabled && !readOnly
@@ -147,7 +159,7 @@ export function DatePicker({
         if (footer === 'none' || resolvedCloseOnSelect) setOpen(false)
       }
     },
-    [isInteractive, withTime, useDraft, draft, value, footer, resolvedCloseOnSelect, onChange],
+    [isInteractive, withTime, useDraft, draft, value, footer, resolvedCloseOnSelect, onChange, setOpen],
   )
 
   const handleTimeChange = React.useCallback(
@@ -164,23 +176,23 @@ export function DatePicker({
   const handleApply = React.useCallback(() => {
     onChange(draft)
     setOpen(false)
-  }, [draft, onChange])
+  }, [draft, onChange, setOpen])
 
   const handleCancel = React.useCallback(() => {
     setDraft(value ?? null)
     setOpen(false)
-  }, [value])
+  }, [value, setOpen])
 
   const handleToday = React.useCallback(() => {
     const today = withTime ? new Date() : startOfDay(new Date())
     onChange(today)
     setOpen(false)
-  }, [withTime, onChange])
+  }, [withTime, onChange, setOpen])
 
   const handleClear = React.useCallback(() => {
     onChange(null)
     setOpen(false)
-  }, [onChange])
+  }, [onChange, setOpen])
 
   const disabledMatcher = React.useMemo(() => {
     if (!minDate && !maxDate) return undefined
@@ -230,6 +242,7 @@ export function DatePicker({
         <Calendar
           mode="single"
           selected={selectedDate ?? undefined}
+          defaultMonth={selectedDate ?? undefined}
           onSelect={handleDaySelect}
           locale={locale}
           disabled={disabledMatcher}

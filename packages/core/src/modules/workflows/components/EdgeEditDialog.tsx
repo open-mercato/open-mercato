@@ -1,6 +1,6 @@
 'use client'
 
-import {Edge} from '@xyflow/react'
+import type {Edge} from '@xyflow/react'
 import {useEffect, useState} from 'react'
 import {
   Dialog,
@@ -21,11 +21,13 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import {Badge} from '@open-mercato/ui/primitives/badge'
+import {Checkbox} from '@open-mercato/ui/primitives/checkbox'
 import {Separator} from '@open-mercato/ui/primitives/separator'
-import {Plus, Trash2} from 'lucide-react'
+import {ChevronDown, Plus, Trash2} from 'lucide-react'
 import {type BusinessRule, BusinessRulesSelector} from './BusinessRulesSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
+import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
 
 export interface EdgeEditDialogProps {
@@ -159,7 +161,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
         maxIntervalMs: 10000,
       },
     }
-    setActivities([...activities, newActivity])
+    setActivities(prev => [...prev, newActivity])
     // Auto-expand the new activity
     const newExpanded = new Set(expandedActivities)
     newExpanded.add(activities.length)
@@ -172,7 +174,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
       variant: 'destructive',
     })
     if (confirmed) {
-      setActivities(activities.filter((_, i) => i !== index))
+      setActivities(prev => prev.filter((_, i) => i !== index))
       // Remove from expanded set
       const newExpanded = new Set(expandedActivities)
       newExpanded.delete(index)
@@ -234,25 +236,25 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
     if (ruleSelectorMode === 'pre') {
       if (!preConditions.find(c => c.ruleId === ruleId)) {
-        setPreConditions([...preConditions, { ruleId, required: true }])
+        setPreConditions(prev => [...prev, { ruleId, required: true }])
       }
     } else {
       if (!postConditions.find(c => c.ruleId === ruleId)) {
-        setPostConditions([...postConditions, { ruleId, required: true }])
+        setPostConditions(prev => [...prev, { ruleId, required: true }])
       }
     }
     closeRuleSelector()
   }
 
   const removePreCondition = (index: number) => {
-    setPreConditions(preConditions.filter((_, i) => i !== index))
+    setPreConditions(prev => prev.filter((_, i) => i !== index))
     const newExpanded = new Set(expandedPreConditions)
     newExpanded.delete(index)
     setExpandedPreConditions(newExpanded)
   }
 
   const removePostCondition = (index: number) => {
-    setPostConditions(postConditions.filter((_, i) => i !== index))
+    setPostConditions(prev => prev.filter((_, i) => i !== index))
     const newExpanded = new Set(expandedPostConditions)
     newExpanded.delete(index)
     setExpandedPostConditions(newExpanded)
@@ -302,14 +304,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
     onDelete(edge.id)
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      handleSave()
-    }
-    if (e.key === 'Escape') {
-      onClose()
-    }
-  }
+  const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave, onCancel: onClose })
 
   if (!isOpen || !edge) return null
 
@@ -317,7 +312,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <div className="flex items-center gap-2 mb-2">
             <DialogTitle>{t('workflows.edgeEditor.title')}</DialogTitle>
@@ -397,12 +392,10 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
             <div className="space-y-2">
               <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   id="continueOnActivityFailure"
                   checked={continueOnActivityFailure}
-                  onChange={(e) => setContinueOnActivityFailure(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300"
+                  onCheckedChange={(checked) => setContinueOnActivityFailure(checked === true)}
                 />
                 <Label htmlFor="continueOnActivityFailure" className="font-normal cursor-pointer">
                   {t('workflows.edgeEditor.continueOnActivityFailure')}
@@ -447,49 +440,45 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                   const isExpanded = expandedPreConditions.has(index)
                   const rule = getBusinessRuleDetails(condition.ruleId)
                   return (
-                    <div key={index} className="border border-gray-200 rounded-lg bg-gray-50">
-                      <button
+                    <div key={index} className="border border-border rounded-lg bg-muted">
+                      <Button
                         type="button"
+                        variant="ghost"
                         onClick={() => togglePreCondition(index)}
-                        className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg"
+                        className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-left hover:bg-muted/80"
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-gray-900">
+                            <span className="text-sm font-semibold text-foreground">
                               {rule?.ruleName || condition.ruleId}
                             </span>
                             {condition.required && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                              <Badge variant="destructive" className="text-xs">
                                 {t('workflows.edgeEditor.required')}
-                              </span>
+                              </Badge>
                             )}
                             {rule && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                              <Badge variant="secondary" className="text-xs">
                                 {rule.ruleType}
-                              </span>
+                              </Badge>
                             )}
                           </div>
-                          <p className="text-xs text-gray-600 mt-1">
-                            {t('workflows.edgeEditor.ruleId')}: <code className="bg-white px-1 rounded">{condition.ruleId}</code>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {t('workflows.edgeEditor.ruleId')}: <code className="bg-background px-1 rounded">{condition.ruleId}</code>
                           </p>
                           {rule?.description && (
-                            <p className="text-xs text-gray-500 mt-1 line-clamp-1">{rule.description}</p>
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{rule.description}</p>
                           )}
                         </div>
-                        <svg
-                          className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
+                        <ChevronDown
+                          className={`size-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                        />
+                      </Button>
 
                       {isExpanded && (
-                        <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
+                        <div className="px-4 pb-4 space-y-3 border-t border-border bg-background">
                           <div className="pt-3">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.ruleId')}</label>
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.ruleId')}</label>
                             <Input
                               type="text"
                               size="sm"
@@ -499,56 +488,54 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           </div>
 
                           <div>
-                            <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
-                              <input
-                                type="checkbox"
+                            <label className="flex items-center gap-2 text-xs font-medium text-foreground">
+                              <Checkbox
                                 checked={condition.required}
-                                onChange={(e) => updatePreCondition(index, 'required', e.target.checked)}
-                                className="rounded border-gray-300 text-blue-600 focus-visible:ring-ring"
+                                onCheckedChange={(checked) => updatePreCondition(index, 'required', checked === true)}
                               />
                               {t('workflows.edgeEditor.requiredCheckbox')}
                             </label>
                           </div>
 
                           {rule && (
-                            <div className="border-t border-gray-200 pt-3">
-                              <h4 className="text-xs font-semibold text-gray-900 mb-2">{t('workflows.edgeEditor.businessRuleDetails')}</h4>
+                            <div className="border-t border-border pt-3">
+                              <h4 className="text-xs font-semibold text-foreground mb-2">{t('workflows.edgeEditor.businessRuleDetails')}</h4>
                               <dl className="space-y-1 text-xs">
                                 <div className="flex justify-between">
-                                  <dt className="font-medium text-gray-700">Name:</dt>
-                                  <dd className="text-gray-900">{rule.ruleName}</dd>
+                                  <dt className="font-medium text-foreground">Name:</dt>
+                                  <dd className="text-foreground">{rule.ruleName}</dd>
                                 </div>
                                 <div className="flex justify-between">
-                                  <dt className="font-medium text-gray-700">Type:</dt>
-                                  <dd className="text-gray-900">{rule.ruleType}</dd>
+                                  <dt className="font-medium text-foreground">Type:</dt>
+                                  <dd className="text-foreground">{rule.ruleType}</dd>
                                 </div>
                                 {rule.ruleCategory && (
                                   <div className="flex justify-between">
-                                    <dt className="font-medium text-gray-700">Category:</dt>
-                                    <dd className="text-gray-900">{rule.ruleCategory}</dd>
+                                    <dt className="font-medium text-foreground">Category:</dt>
+                                    <dd className="text-foreground">{rule.ruleCategory}</dd>
                                   </div>
                                 )}
                                 <div className="flex justify-between">
-                                  <dt className="font-medium text-gray-700">Entity Type:</dt>
-                                  <dd className="text-gray-900 font-mono text-xs">{rule.entityType}</dd>
+                                  <dt className="font-medium text-foreground">Entity Type:</dt>
+                                  <dd className="text-foreground font-mono text-xs">{rule.entityType}</dd>
                                 </div>
                                 {rule.eventType && (
                                   <div className="flex justify-between">
-                                    <dt className="font-medium text-gray-700">Event Type:</dt>
-                                    <dd className="text-gray-900">{rule.eventType}</dd>
+                                    <dt className="font-medium text-foreground">Event Type:</dt>
+                                    <dd className="text-foreground">{rule.eventType}</dd>
                                   </div>
                                 )}
                                 {rule.description && (
-                                  <div className="mt-2 pt-2 border-t border-gray-200">
-                                    <dt className="font-medium text-gray-700 mb-1">Description:</dt>
-                                    <dd className="text-gray-600">{rule.description}</dd>
+                                  <div className="mt-2 pt-2 border-t border-border">
+                                    <dt className="font-medium text-foreground mb-1">Description:</dt>
+                                    <dd className="text-muted-foreground">{rule.description}</dd>
                                   </div>
                                 )}
                               </dl>
                             </div>
                           )}
 
-                          <div className="border-t border-gray-200 pt-3">
+                          <div className="border-t border-border pt-3">
                             <Button
                               type="button"
                               variant="destructive"
@@ -599,49 +586,45 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                   const isExpanded = expandedPostConditions.has(index)
                   const rule = getBusinessRuleDetails(condition.ruleId)
                   return (
-                    <div key={index} className="border border-gray-200 rounded-lg bg-gray-50">
-                      <button
+                    <div key={index} className="border border-border rounded-lg bg-muted">
+                      <Button
                         type="button"
+                        variant="ghost"
                         onClick={() => togglePostCondition(index)}
-                        className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg"
+                        className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-left hover:bg-muted/80"
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-gray-900">
+                            <span className="text-sm font-semibold text-foreground">
                               {rule?.ruleName || condition.ruleId}
                             </span>
                             {condition.required && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                              <Badge variant="destructive" className="text-xs">
                                 {t('workflows.edgeEditor.required')}
-                              </span>
+                              </Badge>
                             )}
                             {rule && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                              <Badge variant="secondary" className="text-xs">
                                 {rule.ruleType}
-                              </span>
+                              </Badge>
                             )}
                           </div>
-                          <p className="text-xs text-gray-600 mt-1">
-                            {t('workflows.edgeEditor.ruleId')}: <code className="bg-white px-1 rounded">{condition.ruleId}</code>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {t('workflows.edgeEditor.ruleId')}: <code className="bg-background px-1 rounded">{condition.ruleId}</code>
                           </p>
                           {rule?.description && (
-                            <p className="text-xs text-gray-500 mt-1 line-clamp-1">{rule.description}</p>
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{rule.description}</p>
                           )}
                         </div>
-                        <svg
-                          className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
+                        <ChevronDown
+                          className={`size-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                        />
+                      </Button>
 
                       {isExpanded && (
-                        <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
+                        <div className="px-4 pb-4 space-y-3 border-t border-border bg-background">
                           <div className="pt-3">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.ruleId')}</label>
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.ruleId')}</label>
                             <Input
                               type="text"
                               size="sm"
@@ -651,56 +634,54 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           </div>
 
                           <div>
-                            <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
-                              <input
-                                type="checkbox"
+                            <label className="flex items-center gap-2 text-xs font-medium text-foreground">
+                              <Checkbox
                                 checked={condition.required}
-                                onChange={(e) => updatePostCondition(index, 'required', e.target.checked)}
-                                className="rounded border-gray-300 text-blue-600 focus-visible:ring-ring"
+                                onCheckedChange={(checked) => updatePostCondition(index, 'required', checked === true)}
                               />
                               {t('workflows.edgeEditor.requiredPostCheckbox')}
                             </label>
                           </div>
 
                           {rule && (
-                            <div className="border-t border-gray-200 pt-3">
-                              <h4 className="text-xs font-semibold text-gray-900 mb-2">{t('workflows.edgeEditor.businessRuleDetails')}</h4>
+                            <div className="border-t border-border pt-3">
+                              <h4 className="text-xs font-semibold text-foreground mb-2">{t('workflows.edgeEditor.businessRuleDetails')}</h4>
                               <dl className="space-y-1 text-xs">
                                 <div className="flex justify-between">
-                                  <dt className="font-medium text-gray-700">Name:</dt>
-                                  <dd className="text-gray-900">{rule.ruleName}</dd>
+                                  <dt className="font-medium text-foreground">Name:</dt>
+                                  <dd className="text-foreground">{rule.ruleName}</dd>
                                 </div>
                                 <div className="flex justify-between">
-                                  <dt className="font-medium text-gray-700">Type:</dt>
-                                  <dd className="text-gray-900">{rule.ruleType}</dd>
+                                  <dt className="font-medium text-foreground">Type:</dt>
+                                  <dd className="text-foreground">{rule.ruleType}</dd>
                                 </div>
                                 {rule.ruleCategory && (
                                   <div className="flex justify-between">
-                                    <dt className="font-medium text-gray-700">Category:</dt>
-                                    <dd className="text-gray-900">{rule.ruleCategory}</dd>
+                                    <dt className="font-medium text-foreground">Category:</dt>
+                                    <dd className="text-foreground">{rule.ruleCategory}</dd>
                                   </div>
                                 )}
                                 <div className="flex justify-between">
-                                  <dt className="font-medium text-gray-700">Entity Type:</dt>
-                                  <dd className="text-gray-900 font-mono text-xs">{rule.entityType}</dd>
+                                  <dt className="font-medium text-foreground">Entity Type:</dt>
+                                  <dd className="text-foreground font-mono text-xs">{rule.entityType}</dd>
                                 </div>
                                 {rule.eventType && (
                                   <div className="flex justify-between">
-                                    <dt className="font-medium text-gray-700">Event Type:</dt>
-                                    <dd className="text-gray-900">{rule.eventType}</dd>
+                                    <dt className="font-medium text-foreground">Event Type:</dt>
+                                    <dd className="text-foreground">{rule.eventType}</dd>
                                   </div>
                                 )}
                                 {rule.description && (
-                                  <div className="mt-2 pt-2 border-t border-gray-200">
-                                    <dt className="font-medium text-gray-700 mb-1">Description:</dt>
-                                    <dd className="text-gray-600">{rule.description}</dd>
+                                  <div className="mt-2 pt-2 border-t border-border">
+                                    <dt className="font-medium text-foreground mb-1">Description:</dt>
+                                    <dd className="text-muted-foreground">{rule.description}</dd>
                                   </div>
                                 )}
                               </dl>
                             </div>
                           )}
 
-                          <div className="border-t border-gray-200 pt-3">
+                          <div className="border-t border-border pt-3">
                             <Button
                               type="button"
                               variant="destructive"
@@ -720,9 +701,9 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
             </div>
 
             {/* Activities Section */}
-            <div className="border-t border-gray-200 pt-4 mt-4">
+            <div className="border-t border-border pt-4 mt-4">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-gray-900">
+                <h3 className="text-sm font-semibold text-foreground">
                   {t('workflows.edgeEditor.activities')} ({activities.length})
                 </h3>
                 <Button
@@ -736,7 +717,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
               </div>
 
               {activities.length === 0 && (
-                <div className="p-4 text-center text-sm text-gray-500 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="p-4 text-center text-sm text-muted-foreground bg-muted rounded-lg border border-border">
                   {t('workflows.edgeEditor.noActivities')}
                 </div>
               )}
@@ -745,40 +726,36 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                 {activities.map((activity, index) => {
                   const isExpanded = expandedActivities.has(index)
                   return (
-                    <div key={index} className="border border-gray-200 rounded-lg bg-gray-50">
-                      <button
+                    <div key={index} className="border border-border rounded-lg bg-muted">
+                      <Button
                         type="button"
+                        variant="ghost"
                         onClick={() => toggleActivity(index)}
-                        className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg"
+                        className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-left hover:bg-muted/80"
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-gray-900">
+                            <span className="text-sm font-semibold text-foreground">
                               {activity.activityName || activity.label || activity.activityId || `Activity ${index + 1}`}
                             </span>
                             <Badge variant="secondary" className="text-xs">
                               {activity.activityType}
                             </Badge>
                           </div>
-                          <p className="text-xs text-gray-600 mt-1">
-                            {t('workflows.edgeEditor.activityId')}: <code className="bg-white px-1 rounded">{activity.activityId}</code>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {t('workflows.edgeEditor.activityId')}: <code className="bg-background px-1 rounded">{activity.activityId}</code>
                           </p>
                         </div>
-                        <svg
-                          className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
+                        <ChevronDown
+                          className={`size-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                        />
+                      </Button>
 
                       {isExpanded && (
-                        <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
+                        <div className="px-4 pb-4 space-y-3 border-t border-border bg-background">
                           {/* Activity ID */}
                           <div className="pt-3">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.activityId')} *</label>
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.activityId')} *</label>
                             <Input
                               type="text"
                               size="sm"
@@ -790,7 +767,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
                           {/* Activity Name */}
                           <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.activityName')} *</label>
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.activityName')} *</label>
                             <Input
                               type="text"
                               size="sm"
@@ -802,7 +779,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
                           {/* Activity Type */}
                           <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.activityType')} *</label>
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.activityType')} *</label>
                             <Select
                               value={activity.activityType}
                               onValueChange={(value) => updateActivity(index, 'activityType', value)}
@@ -824,7 +801,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
                           {/* Timeout */}
                           <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.timeout')}</label>
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.timeout')}</label>
                             <Input
                               type="text"
                               size="sm"
@@ -832,15 +809,15 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                               onChange={(e) => updateActivity(index, 'timeout', e.target.value)}
                               placeholder={t('workflows.edgeEditor.timeoutPlaceholder')}
                             />
-                            <p className="text-xs text-gray-500 mt-0.5">{t('workflows.edgeEditor.timeoutHint')}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{t('workflows.edgeEditor.timeoutHint')}</p>
                           </div>
 
                           {/* Retry Policy */}
-                          <div className="border-t border-gray-200 pt-3">
-                            <h4 className="text-xs font-semibold text-gray-900 mb-2">{t('workflows.edgeEditor.retryPolicy')}</h4>
+                          <div className="border-t border-border pt-3">
+                            <h4 className="text-xs font-semibold text-foreground mb-2">{t('workflows.edgeEditor.retryPolicy')}</h4>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.maxAttempts')}</label>
+                                <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.maxAttempts')}</label>
                                 <Input
                                   type="number"
                                   size="sm"
@@ -852,7 +829,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 />
                               </div>
                               <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.initialInterval')}</label>
+                                <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.initialInterval')}</label>
                                 <Input
                                   type="number"
                                   size="sm"
@@ -863,7 +840,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 />
                               </div>
                               <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.backoffCoefficient')}</label>
+                                <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.backoffCoefficient')}</label>
                                 <Input
                                   type="number"
                                   size="sm"
@@ -876,7 +853,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 />
                               </div>
                               <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.maxInterval')}</label>
+                                <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.maxInterval')}</label>
                                 <Input
                                   type="number"
                                   size="sm"
@@ -890,30 +867,26 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           </div>
 
                           {/* Activity Flags */}
-                          <div className="border-t border-gray-200 pt-3">
-                            <h4 className="text-xs font-semibold text-gray-900 mb-2">{t('workflows.edgeEditor.activityOptions')}</h4>
+                          <div className="border-t border-border pt-3">
+                            <h4 className="text-xs font-semibold text-foreground mb-2">{t('workflows.edgeEditor.activityOptions')}</h4>
                             <div className="space-y-2">
                               <div className="flex items-center space-x-2">
-                                <input
-                                  type="checkbox"
+                                <Checkbox
                                   id={`activity-async-${index}`}
                                   checked={activity.async || false}
-                                  onChange={(e) => updateActivity(index, 'async', e.target.checked)}
-                                  className="h-4 w-4 rounded border-gray-300"
+                                  onCheckedChange={(checked) => updateActivity(index, 'async', checked === true)}
                                 />
-                                <label htmlFor={`activity-async-${index}`} className="text-xs text-gray-700 cursor-pointer">
+                                <label htmlFor={`activity-async-${index}`} className="text-xs text-foreground cursor-pointer">
                                   {t('workflows.edgeEditor.asyncOption')}
                                 </label>
                               </div>
                               <div className="flex items-center space-x-2">
-                                <input
-                                  type="checkbox"
+                                <Checkbox
                                   id={`activity-compensate-${index}`}
                                   checked={activity.compensate || false}
-                                  onChange={(e) => updateActivity(index, 'compensate', e.target.checked)}
-                                  className="h-4 w-4 rounded border-gray-300"
+                                  onCheckedChange={(checked) => updateActivity(index, 'compensate', checked === true)}
                                 />
-                                <label htmlFor={`activity-compensate-${index}`} className="text-xs text-gray-700 cursor-pointer">
+                                <label htmlFor={`activity-compensate-${index}`} className="text-xs text-foreground cursor-pointer">
                                   {t('workflows.edgeEditor.compensateOption')}
                                 </label>
                               </div>
@@ -921,8 +894,8 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           </div>
 
                           {/* Configuration */}
-                          <div className="border-t border-gray-200 pt-3">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.configurationJson')}</label>
+                          <div className="border-t border-border pt-3">
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.configurationJson')}</label>
                             <JsonBuilder
                               value={activity.config || {}}
                               onChange={(config) => {
@@ -931,11 +904,11 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 setActivities(updated)
                               }}
                             />
-                            <p className="text-xs text-gray-500 mt-0.5">{t('workflows.edgeEditor.configurationHint')}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{t('workflows.edgeEditor.configurationHint')}</p>
                           </div>
 
                           {/* Delete Button */}
-                          <div className="border-t border-gray-200 pt-3">
+                          <div className="border-t border-border pt-3">
                             <Button
                               type="button"
                               variant="destructive"
@@ -955,31 +928,27 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
             </div>
 
             {/* Advanced Configuration */}
-            <div className="border-t border-gray-200 pt-4 mt-4">
-              <button
+            <div className="border-t border-border pt-4 mt-4">
+              <Button
                 type="button"
+                variant="ghost"
                 onClick={() => setShowAdvanced(!showAdvanced)}
-                className="flex items-center justify-between w-full text-left"
+                className="h-auto w-full justify-between px-0 py-0 text-left hover:bg-transparent"
               >
-                <h3 className="text-sm font-semibold text-gray-900">
+                <h3 className="text-sm font-semibold text-foreground">
                   {t('workflows.edgeEditor.advancedConfiguration')}
                 </h3>
-                <svg
-                  className={`w-5 h-5 transition-transform ${showAdvanced ? 'rotate-180' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
+                <ChevronDown
+                  className={`size-5 transition-transform ${showAdvanced ? 'rotate-180' : ''}`}
+                />
+              </Button>
               {showAdvanced && (
                 <div className="mt-3">
                   <JsonBuilder
                     value={advancedConfig}
                     onChange={setAdvancedConfig}
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     {t('workflows.edgeEditor.advancedConfigHint')}
                   </p>
                 </div>

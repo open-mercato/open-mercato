@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../openapi'
 import { securityApiError } from '../../../i18n'
-import { mapSecurityUsersError, resolveSecurityUsersContext } from '../../_shared'
+import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import {
+  assertActorOwnsTenantScope,
+  mapSecurityUsersError,
+  resolveSecurityUsersContext,
+} from '../../_shared'
+import type { MfaAdminAuthScope } from '../../../../services/MfaAdminService'
 
 const querySchema = z.object({
   tenantId: z.string().uuid().optional(),
@@ -37,13 +43,18 @@ export async function GET(req: Request) {
     return securityApiError(400, 'Invalid query parameters', { issues: parsedQuery.error.issues })
   }
 
-  const tenantId = parsedQuery.data.tenantId ?? context.auth.tenantId ?? null
-  if (!tenantId) {
-    return securityApiError(400, 'Tenant context is required.')
-  }
-
   try {
-    const items = await context.mfaAdminService.bulkComplianceCheck(tenantId)
+    const tenantId = await assertActorOwnsTenantScope(context, parsedQuery.data.tenantId)
+    if (!tenantId) {
+      return securityApiError(400, 'Tenant context is required.')
+    }
+    const isSuperAdmin = await resolveIsSuperAdmin({ auth: context.auth, container: context.container })
+    const scope: MfaAdminAuthScope = {
+      tenantId: (context.auth.tenantId as string | null | undefined) ?? null,
+      organizationId: (context.auth.orgId as string | null | undefined) ?? null,
+      isSuperAdmin,
+    }
+    const items = await context.mfaAdminService.bulkComplianceCheck(tenantId, scope)
     return NextResponse.json({ items })
   } catch (error) {
     return await mapSecurityUsersError(error)
@@ -62,6 +73,7 @@ export const openApi = buildSecurityOpenApi({
       errors: [
         { status: 400, description: 'Invalid query or missing tenant context', schema: securityErrorSchema },
         { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
+        { status: 403, description: 'Not authorized for the requested tenant scope', schema: securityErrorSchema },
       ],
     },
   },

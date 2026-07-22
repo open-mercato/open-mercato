@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { usePathname } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
@@ -16,6 +17,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 
 type TreeResponse = {
   items: OrganizationTreeNode[]
@@ -34,6 +37,8 @@ type OrganizationResponse = {
     descendantIds: string[]
     isActive: boolean
     pathLabel: string
+    updatedAt?: string | null
+    updated_at?: string | null
   } & Record<string, unknown>>
 }
 
@@ -43,11 +48,13 @@ const TREE_PADDING = 12
 export default function EditOrganizationPage({ params }: { params?: { id?: string } }) {
   const orgId = params?.id
   const t = useT()
+  const pathname = usePathname()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [pathLabel, setPathLabel] = React.useState<string>('')
   const [tenantId, setTenantId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [parentTree, setParentTree] = React.useState<OrganizationTreeNode[]>([])
   const [childSummary, setChildSummary] = React.useState<OrganizationTreeOption[]>([])
   const [originalChildIds, setOriginalChildIds] = React.useState<string[]>([])
@@ -107,13 +114,23 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
     async function load() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
-        const { ok, result } = await apiCall<OrganizationResponse>(
+        const { ok, status, result } = await apiCall<OrganizationResponse>(
           `/api/directory/organizations?view=manage&ids=${currentOrgId}&status=all&includeInactive=true&page=1&pageSize=1`,
         )
-        if (!ok) throw new Error(t('directory.organizations.form.errors.load', 'Failed to load organization'))
+        if (!ok) {
+          if (status === 404) {
+            if (!cancelled) setIsNotFound(true)
+            return
+          }
+          throw new Error(t('directory.organizations.form.errors.load', 'Failed to load organization'))
+        }
         const record = Array.isArray(result?.items) ? result.items?.[0] : undefined
-        if (!record) throw new Error(t('directory.organizations.form.errors.notFound', 'Organization not found'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const resolvedTenantId = record.tenantId || null
         setTenantId(resolvedTenantId)
         const baseTree = await loadParentTree(resolvedTenantId, record.descendantIds ?? [])
@@ -133,6 +150,11 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           parentId: record.parentId || '',
           isActive: record.isActive,
           tenantId: resolvedTenantId,
+          updatedAt: typeof record.updatedAt === 'string'
+            ? record.updatedAt
+            : typeof record.updated_at === 'string'
+              ? record.updated_at
+              : null,
           ...customValues,
         })
         setPathLabel(record.pathLabel)
@@ -251,6 +273,20 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
     { id: 'custom', title: t('directory.organizations.form.group.customFields', 'Custom Data'), column: 2, kind: 'customFields' },
   ]), [detailFields, t])
 
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `directory.organization` + id
+  // explicitly. The resourceKind mirrors the CrudForm `versionHistory` so the held
+  // lock matches the save-time conflict surface for the same organization.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'directory.organization',
+      resourceId: orgId || null,
+      updatedAt: typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null,
+      data: initialValues,
+      path: pathname,
+    }),
+  )
+
   if (!orgId) {
     return (
       <Page>
@@ -263,11 +299,25 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('directory.organizations.form.errors.notFound', 'Organization not found')}
+            backHref="/backend/directory/organizations"
+            backLabel={t('directory.organizations.form.actions.backToList', 'Back to organizations')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error && !loading && !initialValues) {
     return (
       <Page>
         <PageBody>
-          <div className="rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
+          <ErrorMessage label={error} />
         </PageBody>
       </Page>
     )
@@ -284,6 +334,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           groups={groups}
           entityId={E.directory.organization}
           initialValues={initialValues ?? { id: orgId, tenantId: tenantId ?? null, name: '', slug: '', parentId: '', isActive: true, childIds: [] }}
+          optimisticLockUpdatedAt={typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null}
           isLoading={loading}
           loadingMessage={t('directory.organizations.form.loading', 'Loading organization...')}
           submitLabel={t('directory.organizations.form.action.save', 'Save')}

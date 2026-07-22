@@ -6,7 +6,7 @@
  * a curated model list for the AI Assistant UI dropdown.
  *
  * @see packages/shared/src/lib/ai/llm-provider.ts
- * @see .ai/specs/2026-04-14-llm-provider-ports-and-adapters.md
+ * @see .ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md
  */
 
 import { createAnthropic } from '@ai-sdk/anthropic'

@@ -1,4 +1,7 @@
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 export type OptionSchemaRecord = {
   version?: number | null
@@ -20,6 +23,8 @@ export type OptionSchemaTemplateSummary = {
   name?: string | null
   description?: string | null
   schema?: OptionSchemaRecord | null
+  updatedAt?: string | null
+  updated_at?: string | null
 }
 
 type OptionSchemaTemplateListResponse = {
@@ -36,7 +41,7 @@ export async function fetchOptionSchemaTemplate(id: string): Promise<OptionSchem
     const record = Array.isArray(res.result?.items) ? res.result?.items?.[0] : null
     return record ?? null
   } catch (err) {
-    console.error('catalog.option-schemas.fetch-one failed', err)
+    logger.error('catalog.option-schemas.fetch-one failed', { err })
     return null
   }
 }

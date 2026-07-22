@@ -7,6 +7,7 @@ import {
 } from '@open-mercato/shared/lib/frontend/notificationEvents'
 import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
+import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
 import { useAppEvent } from '../injection/useAppEvent'
 import {
   dispatchNotificationHandlers,
@@ -46,6 +47,9 @@ export function useNotificationsSse(): UseNotificationsSseResult {
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const grantedFeaturesRef = React.useRef<string[]>([])
+  const translate = useOptionalT()
+  const translateRef = React.useRef(translate)
+  React.useEffect(() => { translateRef.current = translate }, [translate])
   const lastIdRef = React.useRef<string | null>(null)
   const prevUnreadRef = React.useRef(0)
   const {
@@ -73,6 +77,7 @@ export function useNotificationsSse(): UseNotificationsSseResult {
           lastIdRef.current = fetched[0].id
           dispatchNotificationHandlers(fetched, {
             features: grantedFeaturesRef.current,
+            t: translateRef.current,
             currentPath:
               typeof window === 'undefined'
                 ? '/'
@@ -162,6 +167,7 @@ export function useNotificationsSse(): UseNotificationsSseResult {
       window.setTimeout(() => setHasNew(false), 3000)
       dispatchNotificationHandlers([notification], {
         features: grantedFeaturesRef.current,
+        t: translateRef.current,
         currentPath:
           typeof window === 'undefined'
             ? '/'

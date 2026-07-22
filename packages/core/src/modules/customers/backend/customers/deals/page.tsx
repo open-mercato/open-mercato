@@ -11,7 +11,9 @@ import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced
 import { createEmptyTree, makeRuleTree, makeMultiRuleTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { deserializeTree, deserializeAdvancedFilter, flatToTree, mapDictionaryColorToTone, serializeTree, type FilterFieldDef, type FilterOption as AdvancedFilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { groupBulkDeleteFailures, runBulkDelete } from '@open-mercato/ui/backend/utils/bulkDelete'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -19,13 +21,20 @@ import { coalesceLastOperations } from '@open-mercato/ui/backend/operations/stor
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
+import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
+import { Tag } from '@open-mercato/ui/primitives/tag'
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
+import { Briefcase, AlertTriangle, X } from 'lucide-react'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { ViewTabsRow } from './pipeline/components/ViewTabsRow'
+import { DealsKpiStrip } from '../../../components/DealsKpiStrip'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
-  DictionaryValue,
   type CustomerDictionaryKind,
   type CustomerDictionaryMap,
 } from '../../../lib/dictionaries'
@@ -46,12 +55,16 @@ import { useAutoDiscoveredFields } from '@open-mercato/ui/backend/utils/useAutoD
 import { useAdvancedFilterTree } from '@open-mercato/ui/backend/hooks/useAdvancedFilter'
 import { AdvancedFilterPanel } from '@open-mercato/ui/backend/filters/AdvancedFilterPanel'
 import { ActiveFilterChips } from '@open-mercato/ui/backend/filters/ActiveFilterChips'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 import {
   ensureCurrentUserFilterOption,
   fetchAssignableStaffMembers,
   mapAssignableStaffToFilterOptions,
 } from '../../../components/detail/assignableStaff'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 function makeDealsPresets(): FilterPreset[] {
   return [
@@ -146,25 +159,35 @@ function extractIdsFromParams(params: URLSearchParams | null | undefined, key: s
   return normalizeIdCandidates(values)
 }
 
-function formatCurrency(amount: number | null | undefined, currency: string | null | undefined, fallback: string): string {
-  if (typeof amount !== 'number' || Number.isNaN(amount)) return fallback
-  try {
-    if (currency && currency.trim().length) {
-      const formatter = new Intl.NumberFormat(undefined, { style: 'currency', currency })
-      return formatter.format(amount)
-    }
-    const formatter = new Intl.NumberFormat(undefined, { style: 'decimal', maximumFractionDigits: 2 })
-    return formatter.format(amount)
-  } catch {
-    return currency ? `${amount} ${currency}` : String(amount)
-  }
-}
-
 function formatDateValue(value: string | null | undefined, fallback: string): string {
   if (!value) return fallback
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return fallback
   return date.toLocaleDateString()
+}
+
+const STATUS_BADGE_VARIANTS: ReadonlySet<StatusBadgeVariant> = new Set([
+  'success',
+  'warning',
+  'error',
+  'info',
+  'neutral',
+])
+
+function coerceStatusBadgeVariant(
+  tone: ReturnType<typeof mapDictionaryColorToTone>,
+): StatusBadgeVariant {
+  if (tone && STATUS_BADGE_VARIANTS.has(tone as StatusBadgeVariant)) {
+    return tone as StatusBadgeVariant
+  }
+  return 'neutral'
+}
+
+const groupedAmountFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 })
+
+function formatGroupedAmount(amount: number | null | undefined): string | null {
+  if (typeof amount !== 'number' || Number.isNaN(amount)) return null
+  return groupedAmountFormatter.format(amount)
 }
 
 export default function CustomersDealsPage() {
@@ -189,6 +212,7 @@ export default function CustomersDealsPage() {
   const [isLoading, setIsLoading] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
+  const [needsAttentionOnly, setNeedsAttentionOnly] = React.useState(() => searchParams?.get('needsAttention') === 'true')
   // One-shot URL hydration used as the hook's initial value. The hook is the
   // single source of truth from this point on — the page MUST NOT keep a
   // parallel `useState<AdvancedFilterTree>` (see spec "Migration & Backward
@@ -295,11 +319,11 @@ export default function CustomersDealsPage() {
         items.forEach((p) => { if (p.id && p.name) map[p.id] = p.name })
         setPipelineNames(map)
       } catch (err) {
-        console.warn('[customers.deals.list] failed to load pipelines', err)
+        logger.warn('failed to load pipelines', { component: 'deals.list', err })
       }
     }
     loadPipelines().catch((err) => {
-      console.warn('[customers.deals.list] loadPipelines threw', err)
+      logger.warn('loadPipelines threw', { component: 'deals.list', err })
     })
     return () => { cancelled = true }
   }, [reloadToken, scopeVersion])
@@ -320,12 +344,13 @@ export default function CustomersDealsPage() {
     if (search.trim().length) params.set('search', search.trim())
     if (selectedPersonIds.length) params.set('personId', selectedPersonIds.join(','))
     if (selectedCompanyIds.length) params.set('companyId', selectedCompanyIds.join(','))
+    if (needsAttentionOnly) params.set('needsAttention', 'true')
     const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
     return params.toString()
-  }, [advancedFilterState, page, pageSize, search, selectedCompanyIds, selectedPersonIds, sorting])
+  }, [advancedFilterState, needsAttentionOnly, page, pageSize, search, selectedCompanyIds, selectedPersonIds, sorting])
 
   const currentParams = React.useMemo(
     () => Object.fromEntries(new URLSearchParams(queryParams)),
@@ -397,6 +422,7 @@ export default function CustomersDealsPage() {
     if (search.trim().length) params.set('search', search.trim())
     if (selectedPersonIds.length) selectedPersonIds.forEach((id) => params.append('personId', id))
     if (selectedCompanyIds.length) selectedCompanyIds.forEach((id) => params.append('companyId', id))
+    if (needsAttentionOnly) params.set('needsAttention', 'true')
     if (page > 1) params.set('page', String(page))
     const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
@@ -406,7 +432,7 @@ export default function CustomersDealsPage() {
     if (queryRef.current === next) return
     queryRef.current = next
     router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
-  }, [pathname, router, page, search, selectedPersonIds, selectedCompanyIds, advancedFilterState])
+  }, [pathname, router, page, search, selectedPersonIds, selectedCompanyIds, needsAttentionOnly, advancedFilterState])
 
   const handleRefresh = React.useCallback(() => {
     void Promise.all([
@@ -447,14 +473,18 @@ export default function CustomersDealsPage() {
         variant: 'destructive',
       })
       if (!confirmed) return
+      const lockVersion = rows.find((row) => row.id === dealId)?.updatedAt ?? null
       setPendingDeleteId(dealId)
       try {
         await runSingleMutation({
           operation: async () => {
-            await deleteCrud('customers/deals', {
-              body: { id: dealId },
-              errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
-            })
+            await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(lockVersion),
+              () => deleteCrud('customers/deals', {
+                body: { id: dealId },
+                errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+              }),
+            )
           },
           context: {
             formId: singleMutationContextId,
@@ -468,6 +498,12 @@ export default function CustomersDealsPage() {
         setTotal((prev) => Math.max(0, prev - 1))
         handleRefresh()
       } catch (err) {
+        // A stale delete surfaces the unified conflict bar (via the guarded
+        // mutation) — skip the generic error flash to avoid a double message (#2332).
+        if (surfaceRecordConflict(err, t)) {
+          handleRefresh()
+          return
+        }
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -477,11 +513,21 @@ export default function CustomersDealsPage() {
         setPendingDeleteId(null)
       }
     },
-    [confirm, handleRefresh, pendingDeleteId, retrySingleMutation, runSingleMutation, singleMutationContextId, t],
+    [confirm, handleRefresh, pendingDeleteId, retrySingleMutation, rows, runSingleMutation, singleMutationContextId, t],
   )
 
   const handlePageSizeChange = React.useCallback((newSize: number) => {
     setPageSize(newSize)
+    setPage(1)
+  }, [])
+
+  const handleNeedsAttentionFilter = React.useCallback(() => {
+    setNeedsAttentionOnly(true)
+    setPage(1)
+  }, [])
+
+  const handleNeedsAttentionClear = React.useCallback(() => {
+    setNeedsAttentionOnly(false)
     setPage(1)
   }, [])
 
@@ -573,15 +619,27 @@ export default function CustomersDealsPage() {
   })
   const currentUserId = useCurrentUserId()
   const [ownerFilterOptions, setOwnerFilterOptions] = React.useState<AdvancedFilterOption[]>([])
+  // Single staff load drives both the owner FILTER options and the owner-name
+  // map shared with the OWNER cell + the KPI strip (userId → display name).
+  // No per-row fetch — see spec audit "Owner names" resolution.
+  const [ownerNames, setOwnerNames] = React.useState<Record<string, string>>({})
   React.useEffect(() => {
     const controller = new AbortController()
     let cancelled = false
     void fetchAssignableStaffMembers('', { pageSize: 100, signal: controller.signal })
       .then((items) => {
-        if (!cancelled) setOwnerFilterOptions(mapAssignableStaffToFilterOptions(items))
+        if (cancelled) return
+        setOwnerFilterOptions(mapAssignableStaffToFilterOptions(items))
+        const names: Record<string, string> = {}
+        for (const item of items) {
+          if (item.userId) names[item.userId] = item.displayName
+        }
+        setOwnerNames(names)
       })
       .catch(() => {
-        if (!cancelled) setOwnerFilterOptions([])
+        if (cancelled) return
+        setOwnerFilterOptions([])
+        setOwnerNames({})
       })
     return () => {
       cancelled = true
@@ -601,32 +659,20 @@ export default function CustomersDealsPage() {
     return mapAssignableStaffToFilterOptions(items)
   }, [])
 
+  const startOfToday = React.useMemo(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return today
+  }, [])
+  const isDealOverdue = React.useCallback(
+    (row: DealRow): boolean =>
+      !!row.expectedCloseAt && new Date(row.expectedCloseAt) < startOfToday && row.status === 'open',
+    [startOfToday],
+  )
+
   const columns = React.useMemo<ColumnDef<DealRow>[]>(() => {
     const noValue = <span className="text-muted-foreground text-sm">{t('customers.deals.list.noValue')}</span>
-    const renderDictionaryCell = (kind: DictionaryKey, value: string | null | undefined) => (
-      <DictionaryValue
-        value={value}
-        map={dictionaryMaps[kind]}
-        fallback={value ? <span className="text-sm">{value}</span> : noValue}
-        className="text-sm"
-        iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
-        iconClassName="h-4 w-4"
-        colorClassName="h-3 w-3 rounded-full"
-      />
-    )
-    const renderAssociationSummary = (
-      items: { id: string; label: string }[],
-      fallbackLabel: string,
-    ) => {
-      if (!items.length) return noValue
-      const labels = normalizeCollectionLabels(
-        items.map((entry) => (entry.label && entry.label.trim().length ? entry.label : fallbackLabel)),
-      )
-      if (!labels.length) return noValue
-      return (
-        <CollectionPreviewCell labels={labels} maxVisible={1} />
-      )
-    }
+    const unknownOwner = t('customers.deals.list.unknownOwner')
 
     const customColumns = customFieldDefs
       .filter((def) => supportsCustomFieldColumn(def))
@@ -682,7 +728,20 @@ export default function CustomersDealsPage() {
           filterGroup: 'Deal',
           maxWidth: '280px',
         },
-        cell: ({ row }) => <span className="font-medium text-sm">{row.original.title}</span>,
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+              <Briefcase className="h-4 w-4" />
+            </span>
+            <span className="font-medium text-foreground truncate">{row.original.title}</span>
+            {isDealOverdue(row.original) ? (
+              <AlertTriangle
+                className="h-4 w-4 shrink-0 text-status-warning-text"
+                aria-label={t('customers.deals.list.close.overdue')}
+              />
+            ) : null}
+          </div>
+        ),
       },
       {
         accessorKey: 'status',
@@ -694,7 +753,14 @@ export default function CustomersDealsPage() {
           filterKey: 'status',
           filterGroup: 'Deal',
         },
-        cell: ({ row }) => renderDictionaryCell('deal-statuses', row.original.status),
+        cell: ({ row }) => {
+          const status = row.original.status
+          if (!status) return noValue
+          const entry = dictionaryMaps['deal-statuses']?.[status]
+          const label = entry?.label ?? status
+          const variant = coerceStatusBadgeVariant(mapDictionaryColorToTone(entry?.color))
+          return <StatusBadge variant={variant} dot>{label}</StatusBadge>
+        },
       },
       {
         accessorKey: 'pipelineStage',
@@ -706,7 +772,12 @@ export default function CustomersDealsPage() {
           filterKey: 'pipeline_stage',
           filterGroup: 'Deal',
         },
-        cell: ({ row }) => renderDictionaryCell('pipeline-stages', row.original.pipelineStage),
+        cell: ({ row }) => {
+          const stage = row.original.pipelineStage
+          if (!stage) return noValue
+          const label = dictionaryMaps['pipeline-stages']?.[stage]?.label ?? stage
+          return <span className="text-foreground">{label}</span>
+        },
       },
       {
         accessorKey: 'pipelineId',
@@ -731,11 +802,17 @@ export default function CustomersDealsPage() {
           filterKey: 'value_amount',
           filterGroup: 'Deal',
         },
-        cell: ({ row }) => (
-          <span className="text-sm font-medium">
-            {formatCurrency(row.original.valueAmount ?? null, row.original.valueCurrency ?? null, t('customers.deals.list.noValue'))}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const amount = formatGroupedAmount(row.original.valueAmount ?? null)
+          if (amount === null) return noValue
+          const currency = row.original.valueCurrency
+          return (
+            <div className="flex flex-col">
+              <span className="font-medium text-foreground">{amount}</span>
+              {currency ? <span className="text-xs text-muted-foreground">{currency}</span> : null}
+            </div>
+          )
+        },
       },
       {
         accessorKey: 'probability',
@@ -749,7 +826,7 @@ export default function CustomersDealsPage() {
         cell: ({ row }) => {
           const value = row.original.probability
           if (typeof value === 'number' && Number.isFinite(value)) {
-            return <span className="text-sm">{`${Math.min(Math.max(value, 0), 100)}%`}</span>
+            return <span className="font-medium text-foreground">{`${Math.min(Math.max(value, 0), 100)}%`}</span>
           }
           return noValue
         },
@@ -763,11 +840,37 @@ export default function CustomersDealsPage() {
           filterGroup: 'Activity',
           filterIconName: 'calendar',
         },
-        cell: ({ row }) => (
-          <span className="text-sm">
-            {formatDateValue(row.original.expectedCloseAt ?? null, t('customers.deals.list.noValue'))}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const expectedCloseAt = row.original.expectedCloseAt
+          if (!expectedCloseAt) return noValue
+          let subtitle: React.ReactNode = null
+          if (isDealOverdue(row.original)) {
+            subtitle = (
+              <span className="text-xs text-status-error-text">{t('customers.deals.list.close.overdue')}</span>
+            )
+          } else if (row.original.status === 'win') {
+            subtitle = (
+              <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.won')}</span>
+            )
+          } else if (row.original.status === 'loose') {
+            subtitle = (
+              <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.lost')}</span>
+            )
+          } else {
+            const relative = formatRelativeTime(expectedCloseAt, { translate: t })
+            if (relative) {
+              subtitle = <span className="text-xs text-muted-foreground">{relative}</span>
+            }
+          }
+          return (
+            <div className="flex flex-col">
+              <span className="text-foreground">
+                {formatDateValue(expectedCloseAt, t('customers.deals.list.noValue'))}
+              </span>
+              {subtitle}
+            </div>
+          )
+        },
       },
       {
         accessorKey: 'ownerUserId',
@@ -780,9 +883,18 @@ export default function CustomersDealsPage() {
           filterGroup: 'CRM',
           filterIconName: 'user-round',
           filterKey: 'owner_user_id',
-          hidden: true,
         },
-        cell: ({ row }) => row.original.ownerUserId ?? null,
+        cell: ({ row }) => {
+          const ownerUserId = row.original.ownerUserId
+          if (!ownerUserId) return noValue
+          const label = ownerNames[ownerUserId]?.trim() || unknownOwner
+          return (
+            <div className="flex items-center gap-2 min-w-0">
+              <Avatar label={label} size="sm" />
+              <span className="text-foreground truncate">{label}</span>
+            </div>
+          )
+        },
       },
       {
         accessorKey: 'companies',
@@ -798,7 +910,22 @@ export default function CustomersDealsPage() {
               row.companies.map((entry) => (entry.label && entry.label.trim().length ? entry.label : t('customers.deals.list.unnamedCompany'))),
             ).join(', '),
         },
-        cell: ({ row }) => renderAssociationSummary(row.original.companies, t('customers.deals.list.unnamedCompany')),
+        cell: ({ row }) => {
+          const companies = row.original.companies
+          if (!companies.length) return noValue
+          const first = companies[0]
+          const firstLabel =
+            first.label && first.label.trim().length ? first.label : t('customers.deals.list.unnamedCompany')
+          const overflow = companies.length - 1
+          return (
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Tag variant="neutral" className="max-w-36">
+                <span className="truncate">{firstLabel}</span>
+              </Tag>
+              {overflow > 0 ? <Tag variant="neutral">{`+${overflow}`}</Tag> : null}
+            </div>
+          )
+        },
       },
       {
         accessorKey: 'people',
@@ -814,7 +941,30 @@ export default function CustomersDealsPage() {
               row.people.map((entry) => (entry.label && entry.label.trim().length ? entry.label : t('customers.deals.list.unnamedPerson'))),
             ).join(', '),
         },
-        cell: ({ row }) => renderAssociationSummary(row.original.people, t('customers.deals.list.unnamedPerson')),
+        cell: ({ row }) => {
+          const people = row.original.people
+          if (!people.length) return noValue
+          const labels = normalizeCollectionLabels(
+            people.map((person) =>
+              person.label && person.label.trim().length ? person.label : t('customers.deals.list.unnamedPerson')),
+          )
+          const tooltip = labels.join(', ')
+          return (
+            <SimpleTooltip content={tooltip} side="top">
+              <span className="inline-flex">
+                <AvatarStack max={4} size="sm">
+                  {people.map((person) => (
+                    <Avatar
+                      key={person.id}
+                      label={person.label || t('customers.deals.list.unnamedPerson')}
+                      size="sm"
+                    />
+                  ))}
+                </AvatarStack>
+              </span>
+            </SimpleTooltip>
+          )
+        },
       },
       {
         accessorKey: 'updatedAt',
@@ -833,7 +983,7 @@ export default function CustomersDealsPage() {
       },
       ...customColumns,
     ]
-  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, loadOwnerFilterOptions, pipelineNames, resolvedOwnerFilterOptions, t])
+  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, isDealOverdue, loadOwnerFilterOptions, ownerNames, pipelineNames, resolvedOwnerFilterOptions, t])
 
   const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
 
@@ -907,9 +1057,19 @@ export default function CustomersDealsPage() {
     <Page>
       <PageBody>
         <ViewTabsRow active="list" className="mb-4" />
+        <DealsKpiStrip
+          ownerNames={ownerNames}
+          stageDictionary={dictionaryMaps['pipeline-stages'] ?? {}}
+          pipelineCount={Object.keys(pipelineNames).length}
+          scopeVersion={scopeVersion}
+          reloadToken={reloadToken}
+          onNeedsAttentionClick={handleNeedsAttentionFilter}
+          className="mb-4"
+        />
         <DataTable<DealRow>
           stickyFirstColumn
           stickyActionsColumn
+          actionsColumnAlign="center"
           title={t('customers.deals.list.title')}
           actions={(
             <Button asChild>
@@ -1003,6 +1163,29 @@ export default function CustomersDealsPage() {
           }}
           activeFilterChips={(
             <>
+              {needsAttentionOnly ? (
+                <div
+                  className="flex items-center gap-2 overflow-x-auto border-b border-border bg-background px-4 py-2"
+                  data-testid="active-filter-chips"
+                >
+                  <div
+                    className="inline-flex items-center gap-1"
+                    data-testid="active-filter-chip"
+                    aria-label={t('customers.deals.list.filters.needsAttention')}
+                  >
+                    <Tag variant="warning" dot>{t('customers.deals.list.filters.needsAttention')}</Tag>
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      aria-label={t('customers.deals.list.filters.needsAttentionRemove')}
+                      onClick={handleNeedsAttentionClear}
+                    >
+                      <X className="size-3" />
+                    </IconButton>
+                  </div>
+                </div>
+              ) : null}
               <ActiveFilterChips
                 tree={associationFilterTree}
                 fields={associationFilterFields}
@@ -1011,7 +1194,7 @@ export default function CustomersDealsPage() {
                 onOpen={() => setFiltersOpen(true)}
               />
               <ActiveFilterChips
-                tree={filterPanel.tree}
+                tree={filterPanel.appliedTree}
                 fields={advancedFilterFields}
                 popoverOpen={filtersOpen}
                 onRemoveNode={(id) => filterPanel.dispatch({ type: 'removeNode', nodeId: id })}
@@ -1020,12 +1203,40 @@ export default function CustomersDealsPage() {
             </>
           )}
           filterAwareEmptyState={{
-            active: advancedFilterState.root.children.length > 0,
+            active: needsAttentionOnly || associationFilterTree.root.children.length > 0 || advancedFilterState.root.children.length > 0,
             entityNamePlural: t('customers.deals.entityPlural', 'deals'),
-            canRemoveLast: filterPanel.tree.root.children.length > 0,
-            onClearAll: handleAdvancedFilterClear,
-            onRemoveLast: () => filterPanel.dispatch({ type: 'removeLast' }),
+            canRemoveLast: needsAttentionOnly || associationFilterTree.root.children.length > 0 || filterPanel.tree.root.children.length > 0,
+            onClearAll: () => {
+              handleAdvancedFilterClear()
+              setSelectedPersonIds([])
+              setSelectedCompanyIds([])
+              setNeedsAttentionOnly(false)
+            },
+            onRemoveLast: () => {
+              if (needsAttentionOnly) {
+                handleNeedsAttentionClear()
+                return
+              }
+              if (selectedCompanyIds.length > 0) {
+                setSelectedCompanyIds([])
+                setPage(1)
+                return
+              }
+              if (selectedPersonIds.length > 0) {
+                setSelectedPersonIds([])
+                setPage(1)
+                return
+              }
+              filterPanel.dispatch({ type: 'removeLast' })
+            },
           }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('customers.deals.entityPlural', 'deals')}
+              createHref="/backend/customers/deals/create"
+              createLabel={t('customers.deals.list.actions.new', 'New deal')}
+            />
+          )}
           virtualized
         />
         <AdvancedFilterPanel

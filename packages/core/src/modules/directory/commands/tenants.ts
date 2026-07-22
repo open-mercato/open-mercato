@@ -16,6 +16,10 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('directory').child({ component: 'tenants' })
 
 export const tenantCrudEvents: CrudEventsConfig = {
   module: 'directory',
@@ -69,12 +73,12 @@ const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
         const kms = ctx.container.resolve('kmsService') as { createTenantDek?: (id: string) => Promise<unknown>; isHealthy?: () => boolean }
         if (kms?.isHealthy?.()) {
           await kms?.createTenantDek?.(String(tenant.id))
-          console.info('🔑 [encryption][tenant] created tenant DEK', { tenantId: String(tenant.id) })
+          logger.info('Created tenant DEK', { tenantId: String(tenant.id) })
         } else {
-          console.warn('⚠️ [encryption][tenant] kms not healthy, skipping tenant DEK provisioning', { tenantId: String(tenant.id) })
+          logger.warn('KMS not healthy, skipping tenant DEK provisioning', { tenantId: String(tenant.id) })
         }
       } catch (err) {
-        console.warn('⚠️ [encryption] Failed to provision tenant key', err)
+        logger.warn('Failed to provision tenant key', { err })
       }
     }
 
@@ -96,15 +100,27 @@ const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
     return tenant
   },
   captureAfter: (_input, result) => serializeTenant(result),
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ snapshots, result, ctx }) => {
     const { translate } = await resolveTranslations()
+    const after = (snapshots.after as SerializedTenant | undefined) ?? serializeTenant(result)
     return {
       actionLabel: translate('directory.audit.tenants.create', 'Create tenant'),
       resourceKind: 'directory.tenant',
       resourceId: String(result.id),
       tenantId: ctx.auth?.tenantId ?? null,
+      snapshotAfter: after,
+      payload: { undo: { after } },
     }
   },
+  redo: makeCreateRedo<Tenant, SerializedTenant, TenantPayload, Tenant>({
+    entityClass: Tenant,
+    buildResult: (entity) => entity,
+    events: tenantCrudEvents,
+    indexer: tenantCrudIndexer,
+    afterRestore: ({ entity }) => {
+      Reflect.set(entity, 'tenantId', String(entity.id))
+    },
+  }),
 }
 
 const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {

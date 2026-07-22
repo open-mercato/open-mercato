@@ -6,6 +6,12 @@ import { screen } from '@testing-library/react'
 import { ActivityCard } from '../ActivityCard'
 import type { InteractionSummary } from '../types'
 
+// The email-card actions are exercised by their own/integration tests; stub them
+// here so ActivityCard's unit tests don't need a Next router / mutation provider.
+jest.mock('../EmailCardActions', () => ({
+  EmailCardActions: () => null,
+}))
+
 function createActivity(overrides: Partial<InteractionSummary> = {}): InteractionSummary {
   return {
     id: 'activity-1',
@@ -69,5 +75,18 @@ describe('ActivityCard', () => {
     expect(screen.getByText('buyer@example.com')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Show email/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /Sentiment/i })).toBeDisabled()
+  })
+
+  it.each(['planned', 'in_progress', 'waiting', 'follow_up_custom'])(
+    'shows the Mark done affordance for open status %s',
+    (status) => {
+      renderWithProviders(<ActivityCard activity={createActivity({ status })} />)
+      expect(screen.getByRole('button', { name: /Mark done/i })).toBeInTheDocument()
+    },
+  )
+
+  it.each(['done', 'canceled'])('hides the Mark done affordance for terminal status %s', (status) => {
+    renderWithProviders(<ActivityCard activity={createActivity({ status })} />)
+    expect(screen.queryByRole('button', { name: /Mark done/i })).not.toBeInTheDocument()
   })
 })

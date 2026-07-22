@@ -1,10 +1,13 @@
 import type { EntityMetadata, EventArgs, EventSubscriber } from '@mikro-orm/core'
 import { ReferenceKind } from '@mikro-orm/core'
 import { resolveEntityIdFromMetadata } from './entityIds'
-import { TenantDataEncryptionService } from './tenantDataEncryptionService'
+import { TenantDataEncryptionService, parseDecryptedFieldValue } from './tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'encryption' })
 
 type Scoped = {
   tenantId?: string | null
@@ -29,14 +32,34 @@ function resolveScope(entity: Scoped): Scope {
 function debug(event: string, payload: Record<string, unknown>) {
   if (!isEncryptionDebugEnabled()) return
   try {
-    // eslint-disable-next-line no-console
-    console.debug(event, payload)
+    logger.debug(event, payload)
   } catch {
     // ignore
   }
 }
 
+function isJsonColumnProperty(prop: unknown): boolean {
+  if (!prop || typeof prop !== 'object') return false
+  const candidate = prop as Record<string, unknown>
+  const type = typeof candidate.type === 'string' ? candidate.type.toLowerCase() : ''
+  if (type === 'json' || type === 'jsonb') return true
+  const columnTypes = Array.isArray(candidate.columnTypes) ? candidate.columnTypes : []
+  if (columnTypes.some((value) => typeof value === 'string' && value.toLowerCase().includes('json'))) return true
+  const customTypeName = (candidate.customType as { constructor?: { name?: string } } | undefined)?.constructor?.name
+  return typeof customTypeName === 'string' && customTypeName.toLowerCase().includes('json')
+}
+
 const registeredEventManagers = new WeakSet<object>()
+
+const subscribersByService = new WeakMap<TenantDataEncryptionService, TenantEncryptionSubscriber>()
+
+function getSubscriberForService(service: TenantDataEncryptionService): TenantEncryptionSubscriber {
+  const existing = subscribersByService.get(service)
+  if (existing) return existing
+  const subscriber = new TenantEncryptionSubscriber(service)
+  subscribersByService.set(service, subscriber)
+  return subscriber
+}
 
 const toSnakeCase = (value: string): string =>
   value.replace(/([A-Z])/g, '_$1').replace(/__/g, '_').toLowerCase()
@@ -92,6 +115,21 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     }
   }
 
+  private restoreDecryptedJsonColumns(
+    target: Record<string, unknown>,
+    meta: EntityMetadata<any> | undefined,
+  ) {
+    const properties = meta?.properties
+    if (!properties || typeof properties !== 'object') return
+    for (const [propertyName, prop] of Object.entries(properties)) {
+      if (!isJsonColumnProperty(prop)) continue
+      const value = target[propertyName]
+      if (typeof value !== 'string') continue
+      const parsed = parseDecryptedFieldValue(value)
+      if (parsed !== value) target[propertyName] = parsed
+    }
+  }
+
   private syncOriginalEntityData(
     target: Record<string, unknown>,
     meta: EntityMetadata<any> | undefined,
@@ -127,6 +165,43 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     }
     helper.__originalEntityData = snapshot
     helper.__touched = false
+  }
+
+  /**
+   * Reports whether a managed entity currently carries un-flushed changes relative to its load
+   * baseline, using MikroORM's own comparator so the verdict matches the change-set computer that
+   * runs at flush time. Used to avoid re-baselining (and thereby discarding) pending writes when a
+   * decrypt pass traverses back into an entity a command already mutated.
+   */
+  private hasPendingChanges(
+    target: Record<string, unknown>,
+    meta: EntityMetadata<any> | undefined,
+    em?: { getComparator?: () => any },
+  ): boolean {
+    const helper = (target as any)?.__helper
+    if (!helper || typeof helper !== 'object') return false
+    const original = helper.__originalEntityData
+    if (!original) return false
+    const entityName = meta?.className || meta?.name
+    try {
+      const comparator = em?.getComparator?.()
+      if (entityName && comparator?.prepareEntity) {
+        const current = comparator.prepareEntity(target)
+        if (typeof comparator.matching === 'function') {
+          return !comparator.matching(entityName, original, current)
+        }
+        if (typeof comparator.diffEntities === 'function') {
+          const diff = comparator.diffEntities(entityName, original, current)
+          return !!diff && Object.keys(diff).length > 0
+        }
+      }
+    } catch (err) {
+      debug('⚪️ subscriber.pending_changes.compare_failed', {
+        entity: entityName,
+        message: (err as Error)?.message ?? String(err),
+      })
+    }
+    return helper.__touched === true
   }
 
   private async encrypt(
@@ -254,9 +329,15 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       debug('⚪️ subscriber.skip', { reason: 'no-tenant', entityId })
       return
     }
+    // Capture pending (un-flushed) changes BEFORE decrypt mutates the target. Re-baselining a
+    // managed entity that a command already mutated would clear its dirty changeset and silently
+    // drop the pending write (e.g. an undo handler that mutates an entity, then loads a related
+    // encrypted entity whose deep-decrypt recurses back into the still-dirty entity before flush).
+    const hadPendingChanges = syncOriginal ? this.hasPendingChanges(target, resolvedMeta, em as any) : false
     const decrypted = await this.service.decryptEntityPayload(entityId, target, scopedTenantId, scopedOrgId)
     Object.assign(target, decrypted)
-    if (syncOriginal) {
+    this.restoreDecryptedJsonColumns(target, resolvedMeta)
+    if (syncOriginal && !hadPendingChanges) {
       this.syncOriginalEntityData(target, resolvedMeta, em as any)
     }
     const nextFallback =
@@ -268,6 +349,17 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     try {
       const extractEntities = (value: any): any[] => {
         if (!value) return []
+        // MikroORM Collection wrapper — MUST be checked before the Reference branch: both wrappers
+        // expose isInitialized(), but only a Collection exposes getItems(). Matching the Reference
+        // branch first returned the Collection wrapper itself instead of its items, so collection
+        // relations were never deep-decrypted and leaked ciphertext (issue #2744).
+        if (typeof value === 'object' && typeof (value as any).isInitialized === 'function' && typeof (value as any).getItems === 'function') {
+          try {
+            return (value as any).isInitialized() ? (value as any).getItems() ?? [] : []
+          } catch {
+            return []
+          }
+        }
         // MikroORM Reference wrapper
         if (typeof value === 'object' && typeof (value as any).isInitialized === 'function') {
           try {
@@ -279,14 +371,6 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
             // ignore
           }
           return []
-        }
-        // Collection wrapper
-        if (typeof value === 'object' && typeof (value as any).isInitialized === 'function' && typeof (value as any).getItems === 'function') {
-          try {
-            return (value as any).isInitialized() ? (value as any).getItems() ?? [] : []
-          } catch {
-            return []
-          }
         }
         if (Array.isArray(value)) return value
         if (typeof value === 'object') return [value]
@@ -397,7 +481,7 @@ export async function decryptEntitiesWithFallbackScope(
   if (!list.length) return
   const service = encryptionService ?? resolveTenantEncryptionService(em as any)
   if (!service || !service.isEnabled()) return
-  const subscriber = new TenantEncryptionSubscriber(service)
+  const subscriber = getSubscriberForService(service)
   const fallback: Scope | undefined =
     tenantId || organizationId
       ? {

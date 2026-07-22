@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 
 /**
  * TC-ADMIN-001: Create API Key
@@ -25,8 +25,10 @@ test.describe('TC-ADMIN-001: Create API Key', () => {
       await page.goto('/backend/api-keys');
       await expect(page.getByRole('heading', { name: 'API Keys', level: 2 })).toBeVisible();
 
-      // Click Create
-      await page.getByRole('link', { name: 'Create' }).click();
+      // Click Create. Use { exact: true } to disambiguate from the topbar
+      // "Create sales document" widget which also exposes a `<a>` matching the
+      // partial "Create" name.
+      await page.getByRole('link', { name: 'Create', exact: true }).click();
       await expect(page).toHaveURL(/\/backend\/api-keys\/create$/);
       await expect(page.locator('main').getByText('Create API Key', { exact: true })).toBeVisible();
 

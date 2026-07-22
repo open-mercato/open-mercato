@@ -4,6 +4,13 @@ import * as path from 'path'
 import { fileURLToPath } from 'node:url'
 import { WorkflowDefinition, type WorkflowDefinitionData } from '../data/entities'
 import { BusinessRule, type RuleType } from '@open-mercato/core/modules/business_rules/data/entities'
+import {
+  invalidateBusinessRuleDiscoveryCache,
+  type RuleDiscoveryCache,
+} from '@open-mercato/core/modules/business_rules/lib/rule-engine'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 const __esmDirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -106,7 +113,14 @@ async function seedWorkflowDefinition(
       (seedHasTransitionPreConditions && !existingHasTransitionPreConditions)
 
     if (needsUpdate) {
-      console.log(`[seed] Updating workflow ${workflowId} (steps: ${existingStepCount}→${seedStepCount}, transitions: ${existingTransitionCount}→${seedTransitionCount})`)
+      logger.info('Updating seeded workflow', {
+        component: 'seed',
+        workflowId,
+        existingStepCount,
+        seedStepCount,
+        existingTransitionCount,
+        seedTransitionCount,
+      })
       existing.definition = seed.definition
       await em.flush()
       return true
@@ -130,6 +144,7 @@ async function seedGuardRules(
   em: EntityManager,
   scope: WorkflowSeedScope,
   fileName: string,
+  cache?: RuleDiscoveryCache | null,
 ): Promise<{ seeded: number; skipped: number; updated: number }> {
   const seeds = readExampleJson<GuardRuleSeed[]>(fileName)
   if (!Array.isArray(seeds)) {
@@ -150,7 +165,12 @@ async function seedGuardRules(
       // Check if entityType or eventType needs updating
       const needsUpdate = existing.entityType !== rule.entityType || existing.eventType !== rule.eventType
       if (needsUpdate) {
-        console.log(`[seed] Updating business rule ${ruleId}: entityType=${rule.entityType}, eventType=${rule.eventType}`)
+        logger.info('Updating seeded business rule', {
+          component: 'seed',
+          ruleId,
+          entityType: rule.entityType,
+          eventType: rule.eventType,
+        })
         existing.entityType = rule.entityType
         existing.eventType = rule.eventType ?? null
         updated += 1
@@ -185,16 +205,21 @@ async function seedGuardRules(
   }
   if (seeded > 0 || updated > 0) {
     await em.flush()
+    await invalidateBusinessRuleDiscoveryCache(cache, scope.tenantId, scope.organizationId)
   }
   return { seeded, skipped, updated }
 }
 
-export async function seedExampleWorkflows(em: EntityManager, scope: WorkflowSeedScope): Promise<void> {
+export async function seedExampleWorkflows(
+  em: EntityManager,
+  scope: WorkflowSeedScope,
+  options: { cache?: RuleDiscoveryCache | null } = {},
+): Promise<void> {
   // workflows.checkout-demo and workflows.simple-approval are now code-defined
   // (see packages/core/src/modules/workflows/workflows.ts). Seeding DB rows for
   // them would shadow the code definitions in the merge layer, so they are no
   // longer seeded here. Existing tenants are migrated via Migration20260428102318.
-  await seedGuardRules(em, scope, 'guard-rules-example.json')
+  await seedGuardRules(em, scope, 'guard-rules-example.json', options.cache)
   await seedWorkflowDefinition(em, scope, 'sales-pipeline-definition.json')
-  await seedGuardRules(em, scope, 'order-approval-guard-rules.json')
+  await seedGuardRules(em, scope, 'order-approval-guard-rules.json', options.cache)
 }

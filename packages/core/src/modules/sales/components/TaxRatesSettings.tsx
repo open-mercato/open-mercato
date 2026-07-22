@@ -10,12 +10,17 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type TaxRateRow = {
   id: string
@@ -166,7 +171,7 @@ export function TaxRatesSettings() {
         }),
       )
     } catch (err) {
-      console.error('sales.tax-rates.list failed', err)
+      logger.error('sales.tax-rates.list failed', { err })
       flash(translations.errors.load, 'error')
     } finally {
       setLoading(false)
@@ -206,12 +211,15 @@ export function TaxRatesSettings() {
       payload.id = dialog.entry.id
     }
     try {
-      const call = await apiCall('/api/sales/tax-rates', {
+      const saveTaxRate = () => apiCall('/api/sales/tax-rates', {
         method,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       })
+      const headers = buildOptimisticLockHeader(dialog.mode === 'edit' ? dialog.entry.updatedAt : null)
+      const call = await withScopedApiRequestHeaders(headers, saveTaxRate)
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
         await raiseCrudError(call.response, translations.errors.save)
         return
       }
@@ -219,7 +227,7 @@ export function TaxRatesSettings() {
       closeDialog()
       await loadEntries()
     } catch (err) {
-      console.error('sales.tax-rates.save failed', err)
+      logger.error('sales.tax-rates.save failed', { err })
       flash(translations.errors.save, 'error')
     }
   }, [dialog, translations.errors.save, translations.messages.saved, closeDialog, loadEntries])
@@ -232,19 +240,21 @@ export function TaxRatesSettings() {
     })
     if (!confirmed) return
     try {
-      const call = await apiCall('/api/sales/tax-rates', {
+      const headers = buildOptimisticLockHeader(entry.updatedAt)
+      const call = await withScopedApiRequestHeaders(headers, () => apiCall('/api/sales/tax-rates', {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id: entry.id }),
-      })
+      }))
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
         await raiseCrudError(call.response, translations.errors.delete)
         return
       }
       flash(translations.messages.deleted, 'success')
       await loadEntries()
     } catch (err) {
-      console.error('sales.tax-rates.delete failed', err)
+      logger.error('sales.tax-rates.delete failed', { err })
       flash(translations.errors.delete, 'error')
     }
   }, [confirm, translations.actions.deleteConfirm, translations.errors.delete, translations.messages.deleted, loadEntries])
@@ -361,6 +371,7 @@ export function TaxRatesSettings() {
             schema={taxRateFormSchema}
             fields={fields}
             initialValues={dialogValues}
+            optimisticLockUpdatedAt={dialog?.mode === 'edit' ? dialog.entry.updatedAt : null}
             submitLabel={translations.form.save}
             cancelHref={undefined}
             embedded
@@ -386,5 +397,4 @@ function formatLocation(entry: TaxRateRow): string {
   if (entry.countryCode) parts.push(entry.countryCode.toUpperCase())
   return parts.length ? parts.join(', ') : '—'
 }
-
 

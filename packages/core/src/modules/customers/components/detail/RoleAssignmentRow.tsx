@@ -7,11 +7,14 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs/LookupSelect'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { fetchAssignableStaffMembers } from './assignableStaff'
-import { getInitials } from './utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export interface RoleAssignment {
   id: string
@@ -71,7 +74,7 @@ export function RoleAssignmentRow({
         subtitle: member.displayName && member.email ? member.email : null,
       }))
     } catch (error) {
-      console.error('customers.roles.searchUsers failed', error)
+      logger.error('customers.roles.searchUsers failed', { err: error })
       return []
     }
   }, [])
@@ -82,6 +85,7 @@ export function RoleAssignmentRow({
     try {
       await runMutationWithContext(
         () =>
+          // optimistic-lock-exempt: role assignment add/remove
           apiCallOrThrow(`/api/customers/${basePath}/${entityId}/roles?roleId=${role.id}`, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
@@ -92,7 +96,7 @@ export function RoleAssignmentRow({
       setChangingUser(false)
       onUpdated()
     } catch (error) {
-      console.error('customers.roles.update failed', error)
+      logger.error('customers.roles.update failed', { err: error })
       flash(t('customers.roles.updateFailed', 'Failed to update role assignment.'), 'error')
       setChangingUser(false)
     }
@@ -110,6 +114,7 @@ export function RoleAssignmentRow({
     try {
       await runMutationWithContext(
         () =>
+          // optimistic-lock-exempt: role assignment add/remove
           apiCallOrThrow(`/api/customers/${basePath}/${entityId}/roles?roleId=${role.id}`, {
             method: 'DELETE',
           }),
@@ -117,7 +122,7 @@ export function RoleAssignmentRow({
       )
       onRemoved()
     } catch (error) {
-      console.error('customers.roles.remove failed', error)
+      logger.error('customers.roles.remove failed', { err: error })
       flash(t('customers.roles.removeFailed', 'Failed to remove role assignment.'), 'error')
     } finally {
       setRemoving(false)
@@ -136,9 +141,8 @@ export function RoleAssignmentRow({
     [role.userEmail, role.userId, role.userName],
   )
 
-  const initials = React.useMemo(() => {
-    const name = role.userName ?? role.userEmail ?? ''
-    return getInitials(name || '?')
+  const userLabel = React.useMemo(() => {
+    return role.userName ?? role.userEmail ?? '?'
   }, [role.userEmail, role.userName])
 
   const displayName = role.userName ?? role.userEmail ?? role.userId
@@ -165,9 +169,7 @@ export function RoleAssignmentRow({
         </div>
 
         <div className="mt-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-muted-foreground">
-            {initials}
-          </div>
+          <Avatar label={userLabel} size="lg" variant="monochrome" />
           <div className="min-w-0 flex-1">
             <div className="break-all text-sm font-semibold leading-5 text-foreground">{displayName}</div>
             {role.userEmail ? (

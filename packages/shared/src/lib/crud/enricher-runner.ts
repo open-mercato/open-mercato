@@ -14,6 +14,9 @@ import type {
 } from './response-enricher'
 import { getEnrichersForEntity } from './enricher-registry'
 import { logEnricherTiming } from '../umes/enricher-timing'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'umes' })
 
 const DEFAULT_TIMEOUT = 2000
 const SLOW_WARN_MS = 100
@@ -63,6 +66,54 @@ function getActiveEnrichers(
 ): EnricherRegistryEntry[] {
   const entries = getEnrichersForEntity(targetEntity)
   return filterByACLAndTenant(entries, context)
+}
+
+/**
+ * Plan describing whether (and how) a CRUD list cache may embed enricher output.
+ */
+export type ListCacheEnricherPlan = {
+  /**
+   * Stable signature of the active, cache-embeddable enrichers in registry
+   * (priority) order. Included in the CRUD list cache key so a cached enriched
+   * payload is only ever served back to a request whose entitlements select the
+   * exact same enricher set. Empty string when nothing is embeddable — keeping
+   * the cache key identical to the pre-enricher shape for unaffected routes.
+   */
+  signature: string
+  /**
+   * True only when there is at least one active enricher for the context AND
+   * every active enricher opted into `cacheableOnListHit`. When true, the
+   * enriched list payload may be stored in the cache and served on a hit without
+   * re-running enrichers. When false, enrichers MUST re-run on every request so
+   * the response reflects live data (cross-module reads, wall-clock values, etc.)
+   * and no live enrichment is embedded in the shared cache entry.
+   */
+  skipEnrichersOnCacheHit: boolean
+}
+
+/**
+ * Resolve, for the given context, whether the CRUD list cache may embed enricher
+ * output and the cache-key signature to partition by when it can.
+ *
+ * The enriched payload is only embeddable (and the cache hit allowed to skip
+ * enrichment) when every active enricher is `cacheableOnListHit` — i.e. its
+ * output is a pure function of the cached record and invalidated together with
+ * it. If any active enricher reads data the list cache does not invalidate on,
+ * the route falls back to caching the pre-enrichment payload and re-running
+ * enrichers on every request.
+ */
+export function resolveListCacheEnricherPlan(
+  targetEntity: string,
+  context: EnricherContext,
+): ListCacheEnricherPlan {
+  const active = getActiveEnrichers(targetEntity, context)
+  if (active.length === 0) return { signature: '', skipEnrichersOnCacheHit: false }
+  const allCacheable = active.every((entry) => entry.enricher.cacheableOnListHit === true)
+  if (!allCacheable) return { signature: '', skipEnrichersOnCacheHit: false }
+  return {
+    signature: active.map((entry) => entry.enricher.id).join(','),
+    skipEnrichersOnCacheHit: true,
+  }
 }
 
 type CacheLike = {
@@ -215,13 +266,9 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
 
       const elapsedMs = Date.now() - startTime
       if (elapsedMs > SLOW_ERROR_MS) {
-        console.error(
-          `[UMES] Enricher ${enricher.id} took ${elapsedMs}ms (threshold: ${SLOW_ERROR_MS}ms)`,
-        )
+        logger.error('Enricher exceeded slow threshold', { enricherId: enricher.id, elapsedMs, thresholdMs: SLOW_ERROR_MS })
       } else if (elapsedMs > SLOW_WARN_MS) {
-        console.warn(
-          `[UMES] Enricher ${enricher.id} took ${elapsedMs}ms (threshold: ${SLOW_WARN_MS}ms)`,
-        )
+        logger.warn('Enricher exceeded slow threshold', { enricherId: enricher.id, elapsedMs, thresholdMs: SLOW_WARN_MS })
       }
       logEnricherTiming(enricher.id, entry.moduleId, targetEntity, elapsedMs)
 
@@ -241,8 +288,7 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
         throw err
       }
 
-      const message = err instanceof Error ? err.message : String(err)
-      console.warn(`[UMES] Enricher ${enricher.id} failed: ${message}`)
+      logger.warn('Enricher failed', { enricherId: enricher.id, err })
       enricherErrors.push(enricher.id)
 
       if (enricher.fallback) {
@@ -328,8 +374,7 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
         throw err
       }
 
-      const message = err instanceof Error ? err.message : String(err)
-      console.warn(`[UMES] Enricher ${enricher.id} failed: ${message}`)
+      logger.warn('Enricher failed', { enricherId: enricher.id, err })
       enricherErrors.push(enricher.id)
 
       if (enricher.fallback) {

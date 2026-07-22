@@ -25,6 +25,9 @@ import {
   attachmentDetailResponseSchema,
   attachmentErrorSchema,
 } from '../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('attachments').child({ component: 'library' })
 
 const updateSchema = z.object({
   tags: z.array(z.string()).optional(),
@@ -163,22 +166,25 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   if (parsed.data.tags) patch.tags = normalizeAttachmentTags(parsed.data.tags)
   if (parsed.data.assignments) patch.assignments = normalizeAttachmentAssignments(parsed.data.assignments)
   record.storageMetadata = mergeAttachmentMetadata(record.storageMetadata, patch)
-  await em.flush()
-
-  if (dataEngine && custom && Object.keys(custom).length) {
-    try {
-      await setCustomFieldsIfAny({
-        dataEngine,
-        entityId: E.attachments.attachment,
-        recordId: record.id,
-        tenantId: record.tenantId ?? auth.tenantId ?? null,
-        organizationId: record.organizationId ?? auth.orgId ?? null,
-        values: custom,
-      })
-    } catch (error) {
-      console.error('[attachments] failed to persist custom attributes', error)
-      return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
-    }
+  // Commit the metadata mutation and the custom-field write atomically so a
+  // custom-field failure cannot leave the attachment metadata partially updated.
+  try {
+    await em.transactional(async (tx) => {
+      await tx.flush()
+      if (dataEngine && custom && Object.keys(custom).length) {
+        await setCustomFieldsIfAny({
+          dataEngine,
+          entityId: E.attachments.attachment,
+          recordId: record.id,
+          tenantId: record.tenantId ?? auth.tenantId ?? null,
+          organizationId: record.organizationId ?? auth.orgId ?? null,
+          values: custom,
+        })
+      }
+    })
+  } catch (error) {
+    logger.error('Failed to persist custom attributes', { err: error })
+    return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
   }
 
   if (dataEngine) {
@@ -242,8 +248,12 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
     tenantId: record.tenantId ?? auth.tenantId,
     organizationId: record.organizationId ?? auth.orgId,
   })
-  await deleteDriver.delete(record.partitionCode, record.storagePath)
+  // Commit the DB row removal before deleting the irreversible storage file so a
+  // failed commit cannot leave a dangling record whose backing file is already gone.
+  const recordPartitionCode = record.partitionCode
+  const recordStoragePath = record.storagePath
   await em.remove(record).flush()
+  await deleteDriver.delete(recordPartitionCode, recordStoragePath)
 
   if (dataEngine) {
     await emitCrudSideEffects({

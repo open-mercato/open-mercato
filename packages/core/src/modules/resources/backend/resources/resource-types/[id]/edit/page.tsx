@@ -1,15 +1,19 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { extractCustomFieldValues } from '@open-mercato/core/modules/sales/components/documents/customFieldHelpers'
 import { buildResourceTypePayload, ResourceTypeCrudForm, type ResourceTypeFormValues } from '@open-mercato/core/modules/resources/components/ResourceTypeCrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('resources').child({ component: 'resource-types-edit-page' })
 
 type ResourceTypesResponse = {
   items?: Array<Record<string, unknown>>
@@ -19,9 +23,11 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
   const resourceTypeId = params?.id ?? ''
   const t = useT()
   const router = useRouter()
+  const pathname = usePathname()
   const [initialValues, setInitialValues] = React.useState<ResourceTypeFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [resourceCount, setResourceCount] = React.useState(0)
 
   React.useEffect(() => {
@@ -30,14 +36,18 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
     async function load() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
         const payload = await readApiResultOrThrow<ResourceTypesResponse>(
-          `/api/resources/resource-types?ids=${encodeURIComponent(resourceTypeId)}&page=1&pageSize=1`,
+          `/api/resources/resource-types?ids=${encodeURIComponent(resourceTypeId)}&page=1&pageSize=1&withResourceCounts=true`,
           undefined,
           { errorMessage: t('resources.resourceTypes.errors.load', 'Failed to load resource types.') },
         )
         const item = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!item) throw new Error(t('resources.resourceTypes.errors.notFound', 'Resource type not found.'))
+        if (!item) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         if (!cancelled) {
           const customValues = extractCustomFieldValues(item)
           setInitialValues({
@@ -54,8 +64,13 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
                 ? item.appearanceColor
                 : typeof item.appearance_color === 'string'
                   ? item.appearance_color
-                  : null,
+                : null,
             },
+            updatedAt: typeof item.updatedAt === 'string'
+              ? item.updatedAt
+              : typeof item.updated_at === 'string'
+                ? item.updated_at
+                : null,
             ...customValues,
           })
           setResourceCount(typeof item.resourceCount === 'number'
@@ -65,7 +80,7 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
               : 0)
         }
       } catch (err) {
-        console.error('resources.resource-types.load', err)
+        logger.error('Failed to load resource types', { err })
         if (!cancelled) setError(t('resources.resourceTypes.errors.load', 'Failed to load resource types.'))
       } finally {
         if (!cancelled) setLoading(false)
@@ -98,12 +113,41 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
     router.push('/backend/resources/resource-types')
   }, [resourceCount, resourceTypeId, router, t])
 
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `resources.resourceType` + id
+  // explicitly. The resourceKind mirrors the ResourceTypeCrudForm `versionHistory` so the
+  // held lock matches the save-time conflict surface for the same resource type.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'resources.resourceType',
+      resourceId: resourceTypeId || null,
+      updatedAt: initialValues?.updatedAt ?? null,
+      data: initialValues as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('resources.resourceTypes.errors.notFound', 'Resource type not found.')}
+            backHref="/backend/resources/resource-types"
+            backLabel={t('resources.resourceTypes.actions.backToList', 'Back to resource types')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
         {error ? (
           <ErrorMessage label={error} />
         ) : null}
+        {/* optimistic-lock: ResourceTypeCrudForm forwards optimisticLockUpdatedAt from initialValues.updatedAt (auto-derives the header on save + delete). */}
         <ResourceTypeCrudForm
           mode="edit"
           initialValues={initialValues ?? { id: resourceTypeId, name: '', description: '', appearance: { icon: null, color: null } }}

@@ -52,4 +52,5 @@ yarn workspace @open-mercato/checkout build
 - Password verification must remain slug-bound and cookie-backed.
 - Checkout transaction status updates must be idempotent because gateway events and status polling can race.
 - The public submit endpoint validates Origin/Referer headers against allowed origins. Extra origins can be added via `CHECKOUT_ALLOWED_ORIGINS` (comma-separated) for cross-domain pay pages.
+- Gateway-bound `successUrl`/`cancelUrl` and the embedded session's `returnUrl`/`cancelUrl` are built from a **server-pinned origin** (`APP_URL`/`NEXT_PUBLIC_APP_URL`, or `CHECKOUT_ALLOWED_ORIGINS`), never from the inbound request `Host`/`X-Forwarded-Host` — otherwise a spoofed Host would redirect payers to an attacker origin (open redirect / phishing). The allowed-origins set used to validate `Origin`/`Referer` (and to reject spoofed `Host`/`X-Forwarded-Host`) is likewise built only from those configured values. A non-loopback deployment with no configured origin rejects submit with `500 Checkout origin is not configured`; configure `APP_URL`/`NEXT_PUBLIC_APP_URL`.
 - Idempotency-Key must be 16–128 characters to prevent trivially guessable keys.

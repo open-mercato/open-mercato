@@ -1,5 +1,13 @@
 import { z } from 'zod'
-import { CATALOG_PRICE_DISPLAY_MODES, CATALOG_PRODUCT_TYPES } from './types'
+import {
+  CATALOG_EXCISE_CATEGORIES,
+  CATALOG_GTIN_TYPES,
+  CATALOG_GTU_CODES,
+  CATALOG_HAZMAT_PACKING_GROUPS,
+  CATALOG_PRICE_DISPLAY_MODES,
+  CATALOG_PRODUCT_TYPES,
+} from './types'
+import { isValidGtin, normalizeGtinValue } from '../lib/gtin'
 import { REFERENCE_UNIT_CODES } from '../lib/unitCodes'
 import {
   getCatalogPriceAmountValidationMessage,
@@ -214,14 +222,111 @@ const productBaseSchema = scoped.extend({
   customFieldsetCode: slugSchema.nullable().optional(),
   isConfigurable: z.boolean().optional(),
   isActive: z.boolean().optional(),
+  countryOfOriginCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/, 'catalog.products.validation.countryCodeInvalid')
+    .nullable()
+    .optional(),
+  pkwiuCode: z.string().trim().min(1).max(32).nullable().optional(),
+  cnCode: z.string().trim().min(1).max(32).nullable().optional(),
+  hsCode: z.string().trim().min(1).max(32).nullable().optional(),
+  taxClassificationCode: z.string().trim().min(1).max(64).nullable().optional(),
+  gtuCodes: z
+    .array(z.enum(CATALOG_GTU_CODES))
+    .max(13)
+    .transform((codes) => Array.from(new Set(codes)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)))
+    .nullable()
+    .optional(),
+  ageMin: z.coerce.number().int().min(0).max(120).nullable().optional(),
+  isExciseGood: z.boolean().optional(),
+  exciseCategory: z.enum(CATALOG_EXCISE_CATEGORIES).nullable().optional(),
+  requiresPrescription: z.boolean().optional(),
+  hazmatClass: z.string().trim().min(1).max(32).nullable().optional(),
+  unNumber: z
+    .string()
+    .trim()
+    .regex(/^(?:UN)?[0-9]{4}$/i, 'catalog.products.validation.unNumberInvalid')
+    .transform((value) => {
+      const upper = value.toUpperCase()
+      return upper.startsWith('UN') ? upper : `UN${upper}`
+    })
+    .nullable()
+    .optional(),
+  hazmatPackingGroup: z.enum(CATALOG_HAZMAT_PACKING_GROUPS).nullable().optional(),
+  containsLithiumBattery: z.boolean().optional(),
+  launchAt: z.coerce.date().nullable().optional(),
+  endOfLifeAt: z.coerce.date().nullable().optional(),
+  availableFrom: z.coerce.date().nullable().optional(),
+  availableUntil: z.coerce.date().nullable().optional(),
+  minOrderQty: z.coerce.number().int().min(1).nullable().optional(),
+  maxOrderQty: z.coerce.number().int().min(1).nullable().optional(),
+  orderQtyIncrement: z.coerce.number().int().min(1).nullable().optional(),
+  requiresShipping: z.boolean().optional(),
+  isQuoteOnly: z.boolean().optional(),
+  seoTitle: z.string().trim().min(1).max(255).nullable().optional(),
+  seoDescription: z.string().trim().min(1).max(1000).nullable().optional(),
+  canonicalUrl: z
+    .string()
+    .trim()
+    .max(500)
+    .regex(/^https?:\/\/\S+$/, 'catalog.products.validation.canonicalUrlInvalid')
+    .nullable()
+    .optional(),
   metadata: metadataSchema,
   offers: z.array(offerInputSchema.omit({ id: true })).optional(),
   categoryIds: z.array(uuid()).max(100).optional(),
   tags: z.array(tagLabelSchema).max(100).optional(),
 })
 
+// Cross-field checks chained on the exported schemas only — refining the base
+// schema itself would break `.partial()` in the update schema.
+const productComplianceCrossFieldRefinement = (
+  input: {
+    minOrderQty?: number | null
+    maxOrderQty?: number | null
+    launchAt?: Date | null
+    endOfLifeAt?: Date | null
+    availableFrom?: Date | null
+    availableUntil?: Date | null
+  },
+  ctx: z.RefinementCtx,
+) => {
+  if (
+    input.minOrderQty != null &&
+    input.maxOrderQty != null &&
+    input.maxOrderQty < input.minOrderQty
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['maxOrderQty'],
+      message: 'catalog.products.validation.orderQtyRange',
+    })
+  }
+  if (input.launchAt && input.endOfLifeAt && input.endOfLifeAt < input.launchAt) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endOfLifeAt'],
+      message: 'catalog.products.validation.lifecycleDateRange',
+    })
+  }
+  if (
+    input.availableFrom &&
+    input.availableUntil &&
+    input.availableUntil < input.availableFrom
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['availableUntil'],
+      message: 'catalog.products.validation.availabilityDateRange',
+    })
+  }
+}
+
 export const productCreateSchema = productBaseSchema
   .superRefine(productUomCrossFieldRefinement)
+  .superRefine(productComplianceCrossFieldRefinement)
 
 export const productUpdateSchema = z
   .object({
@@ -232,8 +337,10 @@ export const productUpdateSchema = z
     productType: productTypeSchema.optional(),
   })
   .superRefine(productUomCrossFieldRefinement)
+  .superRefine(productComplianceCrossFieldRefinement)
 
-export const variantCreateSchema = scoped.extend({
+// Base schema without refinements (used for .partial() in update schema)
+const variantBaseSchema = scoped.extend({
   productId: uuid(),
   name: z.string().trim().max(255).optional(),
   sku: z
@@ -243,6 +350,8 @@ export const variantCreateSchema = scoped.extend({
     .max(191)
     .optional(),
   barcode: z.string().trim().max(191).optional(),
+  gtinType: z.enum(CATALOG_GTIN_TYPES).nullable().optional(),
+  hsCode: z.string().trim().min(1).max(32).nullable().optional(),
   statusEntryId: uuid().optional(),
   isDefault: z.boolean().optional(),
   isActive: z.boolean().optional(),
@@ -265,11 +374,58 @@ export const variantCreateSchema = scoped.extend({
   customFieldsetCode: slugSchema.nullable().optional(),
 })
 
+// Payload-level GTIN check. Partial updates carrying only one of
+// (gtinType, barcode) are re-validated against the merged record state in the
+// catalog.variants.update command — zod cannot see the stored half here.
+const variantGtinRefinement =
+  (mode: 'create' | 'update') =>
+  (
+    input: {
+      gtinType?: (typeof CATALOG_GTIN_TYPES)[number] | null
+      barcode?: string
+    },
+    ctx: z.RefinementCtx,
+  ) => {
+    const gtinType = input.gtinType
+    if (!gtinType) return
+    const barcode = input.barcode
+    if (barcode === undefined) {
+      if (mode === 'create') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['barcode'],
+          message: 'catalog.variants.validation.gtinBarcodeRequired',
+        })
+      }
+      return
+    }
+    if (!barcode.trim().length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['barcode'],
+        message: 'catalog.variants.validation.gtinBarcodeRequired',
+      })
+      return
+    }
+    if (!isValidGtin(gtinType, normalizeGtinValue(gtinType, barcode))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['barcode'],
+        message: 'catalog.variants.validation.gtinChecksum',
+      })
+    }
+  }
+
+export const variantCreateSchema = variantBaseSchema.superRefine(
+  variantGtinRefinement('create'),
+)
+
 export const variantUpdateSchema = z
   .object({
     id: uuid(),
   })
-  .merge(variantCreateSchema.partial())
+  .merge(variantBaseSchema.partial())
+  .superRefine(variantGtinRefinement('update'))
 
 export const optionSchemaTemplateCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),

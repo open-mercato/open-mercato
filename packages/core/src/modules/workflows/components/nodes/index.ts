@@ -18,3 +18,9 @@ export type { WaitForSignalNodeData } from './WaitForSignalNode'
 
 export { WaitForTimerNode } from './WaitForTimerNode'
 export type { WaitForTimerNodeData } from './WaitForTimerNode'
+
+export { ParallelForkNode } from './ParallelForkNode'
+export type { ParallelForkNodeData } from './ParallelForkNode'
+
+export { ParallelJoinNode } from './ParallelJoinNode'
+export type { ParallelJoinNodeData } from './ParallelJoinNode'

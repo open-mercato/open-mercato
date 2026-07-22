@@ -4,7 +4,8 @@
 
 import * as React from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
@@ -27,6 +28,9 @@ import {
   type AddressValue,
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { Pencil, Plus, Save, Trash2 } from 'lucide-react'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
@@ -154,6 +158,12 @@ function mapApiAddress(item: Record<string, unknown>, format: AddressFormatStrat
   const summary = formatAddressString(value, format)
   const label = name || summary || id
   return { id, label, summary, value, name: name || null, purpose: purpose || null }
+}
+
+function mergeAddressOption(options: AddressOption[], selected: AddressOption | null): AddressOption[] {
+  if (!selected) return options
+  if (options.some((option) => option.id === selected.id)) return options
+  return [selected, ...options]
 }
 
 function draftFromDocumentAddress(entry: DocumentAddressAssignment): AddressEditorDraft {
@@ -345,7 +355,7 @@ export function SalesDocumentAddressesSection({
         setDocumentAddresses([])
       }
     } catch (err) {
-      console.error('sales.documents.addresses.document.load', err)
+      logger.error('sales.documents.addresses.document.load', { err })
       const message = t('sales.documents.detail.addresses.loadError', 'Failed to load addresses.')
       flash(message, 'error')
       setDocumentAddressesError(message)
@@ -435,7 +445,7 @@ export function SalesDocumentAddressesSection({
           setAddressOptions([])
         }
       } catch (err) {
-        console.error('sales.documents.addresses.load', err)
+        logger.error('sales.documents.addresses.load', { err })
         const message = t('sales.documents.detail.addresses.loadError', 'Failed to load addresses.')
         setAddressesError(message)
         flash(message, 'error')
@@ -447,9 +457,42 @@ export function SalesDocumentAddressesSection({
     [addressFormat, t]
   )
 
+  const loadAddressOptionById = React.useCallback(
+    async (addressId: string): Promise<AddressOption | null> => {
+      const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/customers/addresses?id=${encodeURIComponent(addressId)}&pageSize=1`
+      )
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
+      return (
+        items
+          .map((item) => mapApiAddress(item, addressFormat))
+          .find((entry): entry is AddressOption => entry?.id === addressId) ?? null
+      )
+    },
+    [addressFormat]
+  )
+
   React.useEffect(() => {
     loadAddresses(customerId).catch(() => {})
   }, [customerId, loadAddresses])
+
+  React.useEffect(() => {
+    const selectedIds = [shippingAddressIdState, billingAddressIdState].filter(
+      (id): id is string => typeof id === 'string' && id.length > 0
+    )
+    const missingIds = selectedIds.filter((id) => !addressOptions.some((option) => option.id === id))
+    if (!missingIds.length) return
+    Promise.all(missingIds.map((id) => loadAddressOptionById(id).catch(() => null)))
+      .then((selectedOptions) => {
+        setAddressOptions((current) =>
+          selectedOptions.reduce(
+            (next, selected) => mergeAddressOption(next, selected),
+            current
+          )
+        )
+      })
+      .catch(() => {})
+  }, [addressOptions, billingAddressIdState, loadAddressOptionById, shippingAddressIdState])
 
   const guardLocked = React.useCallback(() => {
     if (!locked) return false
@@ -479,7 +522,7 @@ export function SalesDocumentAddressesSection({
           setAddressFormat(format)
         }
       } catch (err) {
-        console.error('sales.documents.addresses.format', err)
+        logger.error('sales.documents.addresses.format', { err })
       }
     }
     fetchAddressFormat().catch(() => {})
@@ -691,14 +734,17 @@ export function SalesDocumentAddressesSection({
       }
       await runGuardedMutation(
         () =>
-          apiCallOrThrow(
-            '/api/sales/document-addresses',
-            {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            },
-            { errorMessage: t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.') },
+          // TODO(#2373-C): thread document updatedAt
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(undefined), () =>
+            apiCallOrThrow(
+              '/api/sales/document-addresses',
+              {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.') },
+            ),
           ),
         payload,
       )
@@ -750,14 +796,17 @@ export function SalesDocumentAddressesSection({
         const payload = { id, documentId, documentKind: kind }
         await runGuardedMutation(
           () =>
-            apiCallOrThrow(
-              '/api/sales/document-addresses',
-              {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-              },
-              { errorMessage: t('sales.documents.detail.addresses.deleteError', 'Failed to remove address.') },
+            // TODO(#2373-C): thread document updatedAt
+            withScopedApiRequestHeaders(buildOptimisticLockHeader(undefined), () =>
+              apiCallOrThrow(
+                '/api/sales/document-addresses',
+                {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload),
+                },
+                { errorMessage: t('sales.documents.detail.addresses.deleteError', 'Failed to remove address.') },
+              ),
             ),
           payload,
         )
@@ -849,14 +898,17 @@ export function SalesDocumentAddressesSection({
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       const call = await runGuardedMutation(
         () =>
-          apiCallOrThrow<Record<string, unknown>>(
-            endpoint,
-            {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            },
-            { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') },
+          // TODO(#2373-C): thread document updatedAt
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(undefined), () =>
+            apiCallOrThrow<Record<string, unknown>>(
+              endpoint,
+              {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') },
+            ),
           ),
         payload,
       )
@@ -909,29 +961,48 @@ export function SalesDocumentAddressesSection({
     options: AddressOption[],
     onChange: (next: string | null) => void,
     disabled: boolean
-  ) => (
-    <Select value={value || undefined} onValueChange={(next) => onChange(next || null)} disabled={disabled}>
-      <SelectTrigger>
-        <SelectValue
-          placeholder={
-            addressesLoading
-              ? t('sales.documents.form.address.loading', 'Loading addresses…')
-              : t('sales.documents.form.address.placeholder', 'Select address')
-          }
-        />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((addr) => {
-          const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
-          return (
-            <SelectItem key={addr.id} value={addr.id}>
-              {optionLabel}
-            </SelectItem>
-          )
-        })}
-      </SelectContent>
-    </Select>
-  )
+  ) => {
+    const selectedOption = options.find((addr) => addr.id === value) ?? null
+    const selectedLabel = selectedOption
+      ? selectedOption.summary
+        ? `${selectedOption.label} — ${selectedOption.summary}`
+        : selectedOption.label
+      : null
+    const optionsKey = options
+      .map((addr) => `${addr.id}:${addr.summary ? `${addr.label} — ${addr.summary}` : addr.label}`)
+      .join('\0')
+
+    return (
+      <Select
+        key={`address:${value}:${optionsKey}`}
+        value={value || undefined}
+        onValueChange={(next) => onChange(next || null)}
+        disabled={disabled}
+      >
+        <SelectTrigger>
+          <SelectValue
+            placeholder={
+              addressesLoading
+                ? t('sales.documents.form.address.loading', 'Loading addresses…')
+                : t('sales.documents.form.address.placeholder', 'Select address')
+            }
+          >
+            {selectedLabel ?? undefined}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((addr) => {
+            const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
+            return (
+              <SelectItem key={addr.id} value={addr.id}>
+                {optionLabel}
+              </SelectItem>
+            )
+          })}
+        </SelectContent>
+      </Select>
+    )
+  }
 
   return (
     <div className="space-y-4">

@@ -85,6 +85,23 @@ import { resetAgentRegistryForTests, seedAgentRegistryForTests } from '../agent-
 import { toolRegistry } from '../tool-registry'
 import { runAiAgentText, runAiAgentObject } from '../agent-runtime'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
+
 function makeAgent(
   overrides: Partial<AiAgentDefinition> & Pick<AiAgentDefinition, 'id' | 'moduleId'>,
 ): AiAgentDefinition {
@@ -132,7 +149,7 @@ function makeContainer(em: ReturnType<typeof makeFakeEm>) {
 }
 
 describe('Phase 4a — runtime model override hydration in agent-runtime', () => {
-  let warnSpy: jest.SpyInstance
+  let warnSpy: jest.Mock
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -140,7 +157,8 @@ describe('Phase 4a — runtime model override hydration in agent-runtime', () =>
     toolRegistry.clear()
     streamTextMock.mockImplementation(() => fakeStreamResult())
     generateObjectMock.mockResolvedValue({ object: { result: 'ok' }, finishReason: 'stop', usage: {} })
-    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    warnSpy = testLogger.warn
+    warnSpy.mockClear()
   })
 
   afterEach(() => {

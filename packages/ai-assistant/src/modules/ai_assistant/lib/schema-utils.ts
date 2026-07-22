@@ -1,9 +1,34 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { z, type ZodType } from 'zod'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Cache for converted safe schemas to avoid repeated conversions per request.
  */
 const safeSchemaCache = new WeakMap<ZodType, ZodType>()
+
+function coerceNumberLike(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return value
+  return Number(trimmed)
+}
+
+function jsonNumberSchemaToZod(jsonSchema: Record<string, unknown>, integer: boolean): ZodType {
+  let numberSchema = integer ? z.number().int() : z.number()
+  const minimum = jsonSchema.minimum
+  const maximum = jsonSchema.maximum
+  const exclusiveMinimum = jsonSchema.exclusiveMinimum
+  const exclusiveMaximum = jsonSchema.exclusiveMaximum
+
+  if (typeof minimum === 'number') numberSchema = numberSchema.min(minimum)
+  if (typeof maximum === 'number') numberSchema = numberSchema.max(maximum)
+  if (typeof exclusiveMinimum === 'number') numberSchema = numberSchema.gt(exclusiveMinimum)
+  if (typeof exclusiveMaximum === 'number') numberSchema = numberSchema.lt(exclusiveMaximum)
+
+  return z.preprocess(coerceNumberLike, numberSchema)
+}
 
 /**
  * Convert a JSON Schema to a simple Zod schema.
@@ -24,7 +49,7 @@ export function jsonSchemaToZod(jsonSchema: Record<string, unknown>): ZodType {
     return z.string()
   }
   if (type === 'number' || type === 'integer') {
-    return z.number()
+    return jsonNumberSchemaToZod(jsonSchema, type === 'integer')
   }
   if (type === 'boolean') {
     return z.boolean()
@@ -147,7 +172,7 @@ export function toSafeZodSchema(schema: ZodType): ZodType {
 
     return safeSchema
   } catch (error) {
-    console.error('[Schema Utils] Error converting schema:', error)
+    logger.error('Schema Utils — Error converting schema', { err: error })
     // Fallback to the original schema if conversion fails
     return schema
   }

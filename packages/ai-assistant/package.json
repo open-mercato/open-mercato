@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/ai-assistant",
-  "version": "0.6.3",
+  "version": "0.6.6",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
@@ -85,14 +86,14 @@
     }
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.79",
-    "@ai-sdk/google": "^3.0.79",
-    "@ai-sdk/openai": "^3.0.65",
+    "@ai-sdk/anthropic": "^4.0.1",
+    "@ai-sdk/google": "^4.0.2",
+    "@ai-sdk/openai": "^4.0.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "ai": "^6.0.191",
+    "ai": "^7.0.4",
     "cmdk": "^1.0.0",
-    "framer-motion": "^12.40.0",
-    "isolated-vm": "^6.1.2",
+    "framer-motion": "^12.42.0",
+    "isolated-vm": "^7.0.0",
     "react-json-view-lite": "^2.5.0",
     "react-markdown": "^10.1.0",
     "zod-to-json-schema": "^3.25.2"
@@ -108,11 +109,11 @@
     "@open-mercato/cli": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "@types/react": "^19.2.15",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "tsx": "^4.22.3",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "tsx": "^4.22.4",
     "zod": "^4.4.3"
   },
   "publishConfig": {

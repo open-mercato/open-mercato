@@ -106,6 +106,74 @@ describe('AdvancedFilterPanel', () => {
     expect(screen.queryByText(/no filters applied/i)).not.toBeInTheDocument()
   })
 
+  it('closes the panel on Escape even when a closing dropdown layer marked the event prevented', () => {
+    const onOpenChange = jest.fn()
+    const onFlush = jest.fn()
+    render(
+      <AdvancedFilterPanel
+        fields={fields}
+        value={createEmptyTree()}
+        onChange={() => {}}
+        onApply={() => {}}
+        onClear={() => {}}
+        onFlush={onFlush}
+        pendingErrors={[]}
+        userId="u1"
+        presets={[]}
+        open
+        onOpenChange={onOpenChange}
+        triggerRef={{ current: null }}
+      />,
+    )
+
+    // Simulate a just-closed Select whose dismissable layer is still mounted during
+    // its exit animation: it consumes Escape (defaultPrevented) but its trigger has
+    // already flipped aria-expanded to "false". The panel must still close.
+    const swallow = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') event.preventDefault()
+    }
+    window.addEventListener('keydown', swallow, true)
+    try {
+      fireEvent.keyDown(window, { key: 'Escape' })
+    } finally {
+      window.removeEventListener('keydown', swallow, true)
+    }
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(onFlush).toHaveBeenCalled()
+  })
+
+  it('keeps the panel open on Escape while an inner dropdown is actually open', () => {
+    const onOpenChange = jest.fn()
+    render(
+      <AdvancedFilterPanel
+        fields={fields}
+        value={createEmptyTree()}
+        onChange={() => {}}
+        onApply={() => {}}
+        onClear={() => {}}
+        pendingErrors={[]}
+        userId="u1"
+        presets={[]}
+        open
+        onOpenChange={onOpenChange}
+        triggerRef={{ current: null }}
+      />,
+    )
+
+    // A genuinely-open Radix Select keeps its trigger at aria-expanded="true".
+    const openSelect = document.createElement('div')
+    openSelect.setAttribute('role', 'combobox')
+    openSelect.setAttribute('aria-expanded', 'true')
+    document.body.appendChild(openSelect)
+    try {
+      fireEvent.keyDown(window, { key: 'Escape' })
+      expect(onOpenChange).not.toHaveBeenCalled()
+    } finally {
+      document.body.removeChild(openSelect)
+    }
+  })
+
   it('saves filters separately from perspectives', async () => {
     const tree = { root: { id: 'r', type: 'group' as const, combinator: 'and' as const, children: [
       { id: 'a', type: 'rule' as const, field: 'name', operator: 'contains' as const, value: 'Alice' } as any,
@@ -208,5 +276,35 @@ describe('AdvancedFilterPanel', () => {
       }),
     }))
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('closes and flushes the panel when Escape is pressed after manual filter editing', () => {
+    const onOpenChange = jest.fn()
+    const onFlush = jest.fn()
+    const tree = { root: { id: 'r', type: 'group' as const, combinator: 'and' as const, children: [
+      { id: 'a', type: 'rule' as const, field: 'name', operator: 'contains' as const, value: 'Alice' } as any,
+    ] } }
+
+    render(
+      <AdvancedFilterPanel
+        fields={fields}
+        value={tree}
+        onChange={() => {}}
+        onApply={() => {}}
+        onClear={() => {}}
+        onFlush={onFlush}
+        pendingErrors={[]}
+        userId="u1"
+        presets={[]}
+        open
+        onOpenChange={onOpenChange}
+        triggerRef={{ current: null }}
+      />,
+    )
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(onFlush).toHaveBeenCalledTimes(1)
   })
 })

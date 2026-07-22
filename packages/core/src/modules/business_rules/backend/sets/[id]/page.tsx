@@ -2,15 +2,19 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter, useParams, usePathname } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import type { CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiFetch, withScopedApiHeaders } from '@open-mercato/ui/backend/utils/api'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
+import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -52,6 +56,7 @@ type RuleSetDetail = {
 export default function EditRuleSetPage() {
   const router = useRouter()
   const params = useParams()
+  const pathname = usePathname()
 
   // Handle catch-all route: params.slug = ['sets', 'uuid']
   let setId: string | undefined
@@ -85,15 +90,23 @@ export default function EditRuleSetPage() {
       ...values,
     }
 
-    const response = await apiFetch('/api/business_rules/sets', {
+    const updateSet = () => apiFetch('/api/business_rules/sets', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
+    const headers = buildOptimisticLockHeader(ruleSet?.updatedAt ?? null)
+    const response = Object.keys(headers).length
+      ? await withScopedApiHeaders(headers, updateSet)
+      : await updateSet()
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || error.message || t('business_rules.sets.errors.updateFailed'))
+      const body = (await readJsonSafe<Record<string, unknown>>(response)) ?? {}
+      const message =
+        (typeof body.error === 'string' && body.error) ||
+        (typeof body.message === 'string' && body.message) ||
+        t('business_rules.sets.errors.updateFailed')
+      throw new CrudHttpError(response.status, { ...body, error: message })
     }
 
     flash(t('business_rules.sets.messages.updated'), 'success')
@@ -226,6 +239,21 @@ export default function EditRuleSetPage() {
     ]
   }, [t, ruleSet, handleAddMember, handleUpdateMember, handleRemoveMember])
 
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves the rule set + id
+  // explicitly. The resourceKind mirrors the route's `enforceCommandOptimisticLock`
+  // call (`business_rules.ruleSet`) so the held lock matches the save-time conflict
+  // surface for the same rule set.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'business_rules.ruleSet',
+      resourceId: setId ?? null,
+      updatedAt: ruleSet?.updatedAt ?? null,
+      data: (ruleSet ?? null) as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
+
   if (isLoading) {
     return (
       <Page>
@@ -265,6 +293,7 @@ export default function EditRuleSetPage() {
           schema={ruleSetFormSchema}
           fields={fields}
           initialValues={initialValues}
+          optimisticLockUpdatedAt={ruleSet.updatedAt}
           onSubmit={handleSubmit}
           cancelHref="/backend/sets"
           submitLabel={t('business_rules.sets.form.update')}

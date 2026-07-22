@@ -51,7 +51,11 @@ import {
   ensureCustomerDictionary,
   invalidateCustomerDictionary,
 } from './detail/hooks/useCustomerDictionary'
-import type { CustomerDictionaryKind } from '../lib/dictionaries'
+import {
+  CUSTOMER_DICTIONARIES_MANAGE_HREF,
+  getCustomerDictionaryManageHref,
+  type CustomerDictionaryKind,
+} from '../lib/dictionaries'
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
 import { CUSTOMER_PHONE_INVALID_MESSAGE_KEY } from '../data/validators'
 
@@ -115,6 +119,8 @@ type DictionarySelectFieldProps = {
   showLabelInput?: boolean
   showActiveAppearance?: boolean
 }
+
+export { CUSTOMER_DICTIONARIES_MANAGE_HREF, getCustomerDictionaryManageHref }
 
 const emailValidationSchema = z.string().email()
 const EMAIL_CHECK_DEBOUNCE_MS = 350
@@ -233,12 +239,13 @@ export function DictionarySelectField({
       fetchOptions={fetchOptions}
       createOption={createOption}
       labels={labels}
-      manageHref={manageHref}
+      manageHref={manageHref ?? getCustomerDictionaryManageHref(kind)}
       selectClassName={selectClassName}
       allowInlineCreate={allowInlineCreate}
       allowAppearance={allowAppearance}
       showManage={showManage}
       showLabelInput={showLabelInput}
+      sortOptions="none"
       showActiveAppearance={showActiveAppearance}
     />
   )
@@ -411,7 +418,7 @@ const createPrimaryPhoneField = (t: Translator): CrudField => ({
     return (
       <PhoneNumberField
         value={typeof value === 'string' ? value : null}
-        onValueChange={(next) => setValue(typeof next === 'string' ? next : undefined)}
+        onValueChange={(next) => setValue(typeof next === 'string' ? next : '')}
         externalError={error}
         autoFocus={autoFocus}
         disabled={disabled}
@@ -456,6 +463,12 @@ type CompanySelectFieldProps = {
 
 type CompanyOption = { value: string; label: string }
 
+function mergeCompanyOptions(options: CompanyOption[], selected: CompanyOption | null): CompanyOption[] {
+  if (!selected) return options
+  if (options.some((option) => option.value === selected.value)) return options
+  return [selected, ...options]
+}
+
 function normalizeCompanyOption(raw: unknown): CompanyOption | null {
   if (!raw || typeof raw !== 'object') return null
   const candidate = raw as Record<string, unknown>
@@ -479,6 +492,21 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
   const [saving, setSaving] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
 
+  const loadCompanyOption = React.useCallback(
+    async (companyId: string): Promise<CompanyOption | null> => {
+      const payload = await readApiResultOrThrow<{ items?: unknown[] }>(
+        `/api/customers/companies?id=${encodeURIComponent(companyId)}&pageSize=1`,
+        undefined,
+        { errorMessage: labels.errorLoad },
+      )
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      return items
+        .map((item: unknown) => normalizeCompanyOption(item))
+        .find((option): option is CompanyOption => option?.value === companyId) ?? null
+    },
+    [labels.errorLoad],
+  )
+
   const loadOptions = React.useCallback(async () => {
     setLoading(true)
     try {
@@ -494,7 +522,11 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
         .sort((a: CompanyOption, b: CompanyOption) =>
           a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
         )
-      setOptions(normalized)
+      const selected =
+        value && !normalized.some((option) => option.value === value)
+          ? await loadCompanyOption(value).catch(() => null)
+          : null
+      setOptions(mergeCompanyOptions(normalized, selected))
     } catch (err) {
       const message = err instanceof Error ? err.message : labels.errorLoad
       flash(message, 'error')
@@ -502,11 +534,20 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
     } finally {
       setLoading(false)
     }
-  }, [labels.errorLoad])
+  }, [labels.errorLoad, loadCompanyOption, value])
 
   React.useEffect(() => {
     loadOptions().catch(() => {})
   }, [loadOptions])
+
+  React.useEffect(() => {
+    if (!value || options.some((option) => option.value === value)) return
+    loadCompanyOption(value)
+      .then((selected) => {
+        setOptions((current) => mergeCompanyOptions(current, selected))
+      })
+      .catch(() => {})
+  }, [loadCompanyOption, options, value])
 
   const handleDialogChange = React.useCallback((open: boolean) => {
     setDialogOpen(open)
@@ -568,6 +609,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
   )
 
   const disabled = loading || saving
+  const selectedOption = value ? options.find((option) => option.value === value) : null
 
   return (
     <div className="space-y-2">
@@ -578,7 +620,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
           disabled={loading}
         >
           <SelectTrigger>
-            <SelectValue placeholder={labels.placeholder} />
+            <SelectValue placeholder={labels.placeholder}>{selectedOption?.label}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {options.map((option) => (
@@ -913,6 +955,7 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
             t={t}
             emptyLabel={t('customers.people.detail.empty.addresses')}
             gridClassName="grid gap-4 min-[480px]:grid-cols-1 xl:grid-cols-2"
+            showCoordinateFields
             onCreate={async (payload: CustomerAddressInput) => {
               const nextId =
                 typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -931,6 +974,8 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
                 region: payload.region ?? undefined,
                 postalCode: payload.postalCode ?? undefined,
                 country: payload.country ?? undefined,
+                latitude: payload.latitude ?? undefined,
+                longitude: payload.longitude ?? undefined,
                 isPrimary: payload.isPrimary ?? false,
               }
               const current = Array.isArray(addresses) ? addresses : []
@@ -959,6 +1004,8 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
                   region: payload.region ?? null,
                   postalCode: payload.postalCode ?? null,
                   country: payload.country ?? null,
+                  latitude: payload.latitude ?? null,
+                  longitude: payload.longitude ?? null,
                   isPrimary: payload.isPrimary ?? false,
                 }
               })
@@ -1198,7 +1245,7 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
       component: ({ value, setValue, error, disabled, autoFocus }: CrudCustomFieldRenderProps) => (
         <PhoneNumberField
           value={typeof value === 'string' ? value : null}
-          onValueChange={(next) => setValue(typeof next === 'string' ? next : undefined)}
+          onValueChange={(next) => setValue(typeof next === 'string' ? next : '')}
           externalError={error}
           autoFocus={autoFocus}
           disabled={disabled}
@@ -1274,6 +1321,7 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
             t={t}
             emptyLabel={t('customers.companies.detail.empty.addresses')}
             gridClassName="grid gap-4 min-[480px]:grid-cols-1 xl:grid-cols-2"
+            showCoordinateFields
             onCreate={async (payload: CustomerAddressInput) => {
               const nextId =
                 typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -1292,6 +1340,8 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
                 region: payload.region ?? undefined,
                 postalCode: payload.postalCode ?? undefined,
                 country: payload.country ?? undefined,
+                latitude: payload.latitude ?? undefined,
+                longitude: payload.longitude ?? undefined,
                 isPrimary: payload.isPrimary ?? false,
               }
               const current = Array.isArray(addresses) ? addresses : []
@@ -1320,6 +1370,8 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
                   region: payload.region ?? null,
                   postalCode: payload.postalCode ?? null,
                   country: payload.country ?? null,
+                  latitude: payload.latitude ?? null,
+                  longitude: payload.longitude ?? null,
                   isPrimary: payload.isPrimary ?? false,
                 }
               })
@@ -1426,15 +1478,40 @@ export function buildCompanyPayload(
 // Edit-mode types
 // ---------------------------------------------------------------------------
 
-export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses'> & {
+// URL/email/phone fields are clearable on edit: blanking a previously-set value transmits null,
+// so the edit-form value types widen to `string | null` to match the edit-schema output. See #2526.
+export type CompanyEditFormValues = Omit<
+  CompanyFormValues,
+  | 'addresses'
+  | 'primaryEmail'
+  | 'primaryPhone'
+  | 'websiteUrl'
+  | 'domain'
+  | 'legalName'
+  | 'brandName'
+  | 'sizeBucket'
+  | 'annualRevenue'
+  | 'description'
+> & {
   id: string
+  primaryEmail?: string | null
+  primaryPhone?: string | null
+  websiteUrl?: string | null
+  domain?: string | null
+  legalName?: string | null
+  brandName?: string | null
+  sizeBucket?: string | null
+  annualRevenue?: string | null
+  description?: string | null
 }
 
-export type PersonEditFormValues = Omit<PersonFormValues, 'addresses'> & {
+export type PersonEditFormValues = Omit<PersonFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone'> & {
   id: string
   department?: string
-  linkedInUrl?: string
-  twitterUrl?: string
+  primaryEmail?: string | null
+  primaryPhone?: string | null
+  linkedInUrl?: string | null
+  twitterUrl?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -1450,31 +1527,87 @@ const optionalString = () =>
     .transform((val) => (val === '' ? undefined : val))
     .optional()
 
+// Edit-mode URL/email/phone fields map to nullable columns and must be clearable: blanking a
+// previously-set value transforms '' → null so the payload builder can transmit an explicit
+// clear (omitting the key can never remove an existing value). Create-mode schemas keep the
+// '' → undefined transform. See #2526.
+const clearableUrlField = () =>
+  z
+    .string()
+    .trim()
+    .url()
+    .optional()
+    .or(z.literal(''))
+    .transform((val) => (val === '' ? null : val))
+    .optional()
+
+const clearableEmailField = () =>
+  z
+    .string()
+    .trim()
+    .email()
+    .optional()
+    .or(z.literal(''))
+    .transform((val) => (val === '' ? null : val))
+    .optional()
+
+// Domain maps to a nullable column; on edit a blanked value must transmit null
+// (not undefined) so it actually clears — mirroring the website field. See #2529.
+const clearableDomainField = () =>
+  z
+    .string()
+    .trim()
+    .max(200)
+    .optional()
+    .or(z.literal(''))
+    .transform((val) => (val === '' ? null : val))
+    .optional()
+
+// Plain optional string fields that map to nullable columns (legal name, brand name,
+// company size, annual revenue, description). On edit a blanked value must transmit null
+// so it actually clears — create-mode keeps the '' → undefined transform. See #3050.
+const clearableTextField = () =>
+  z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(''))
+    .transform((val) => (val === '' ? null : val))
+    .optional()
+
+const clearablePhoneField = () =>
+  z
+    .string()
+    .trim()
+    .max(50)
+    .refine((value) => value === '' || isValidPhoneNumber(value), { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY })
+    .optional()
+    .or(z.literal(''))
+    .transform((val) => (val === '' ? null : val))
+    .optional()
+
 export const createCompanyEditSchema = () =>
   createCompanyFormSchema().extend({
     id: z.string().uuid(),
+    primaryEmail: clearableEmailField(),
+    primaryPhone: clearablePhoneField(),
+    websiteUrl: clearableUrlField(),
+    domain: clearableDomainField(),
+    legalName: clearableTextField(),
+    brandName: clearableTextField(),
+    sizeBucket: clearableTextField(),
+    annualRevenue: clearableTextField(),
+    description: clearableTextField(),
   })
 
 export const createPersonEditSchema = () =>
   createPersonFormSchema().extend({
     id: z.string().uuid(),
     department: optionalString(),
-    linkedInUrl: z
-      .string()
-      .trim()
-      .url()
-      .optional()
-      .or(z.literal(''))
-      .transform((val) => (val === '' ? undefined : val))
-      .optional(),
-    twitterUrl: z
-      .string()
-      .trim()
-      .url()
-      .optional()
-      .or(z.literal(''))
-      .transform((val) => (val === '' ? undefined : val))
-      .optional(),
+    primaryEmail: clearableEmailField(),
+    primaryPhone: clearablePhoneField(),
+    linkedInUrl: clearableUrlField(),
+    twitterUrl: clearableUrlField(),
   })
 
 // ---------------------------------------------------------------------------
@@ -1754,9 +1887,44 @@ export const createPersonPersonalDataGroups = (
 // Edit-mode payload builders
 // ---------------------------------------------------------------------------
 
+// On edit, optional URL/email/phone fields that map to nullable columns must transmit an explicit
+// `null` when the user blanks a previously-set value — omitting the key can never clear it.
+// The base create-mode builders omit blanks (correct for create), so the edit builders
+// override these clearable fields here. See #2526.
+const assignClearable = (payload: Record<string, unknown>, key: string, raw: unknown): void => {
+  if (raw === null) {
+    payload[key] = null
+    return
+  }
+  if (typeof raw !== 'string') return
+  const trimmed = raw.trim()
+  payload[key] = trimmed.length ? trimmed : null
+}
+
 export function buildCompanyEditPayload(values: CompanyEditFormValues, organizationId?: string | null): Record<string, unknown> {
   const payload = buildCompanyPayload(values, organizationId)
   payload.id = values.id
+
+  assignClearable(payload, 'primaryEmail', values.primaryEmail)
+  assignClearable(payload, 'primaryPhone', values.primaryPhone)
+  assignClearable(payload, 'websiteUrl', values.websiteUrl)
+  assignClearable(payload, 'domain', typeof values.domain === 'string' ? values.domain.toLowerCase() : values.domain)
+
+  // Plain nullable string fields that must transmit null when blanked on edit (#3050).
+  assignClearable(payload, 'legalName', values.legalName)
+  assignClearable(payload, 'brandName', values.brandName)
+  assignClearable(payload, 'sizeBucket', values.sizeBucket)
+  assignClearable(payload, 'description', values.description)
+
+  // Annual revenue maps to a nullable numeric column: a blanked value must clear it.
+  // Non-empty values are already validated/normalized by buildCompanyPayload; an omitted
+  // (undefined) value stays a no-op like the other clearable fields. (#3050)
+  const annualRevenueRaw = values.annualRevenue
+  const annualRevenueBlank =
+    annualRevenueRaw === null ||
+    (typeof annualRevenueRaw === 'string' && annualRevenueRaw.trim().length === 0)
+  if (annualRevenueBlank) payload.annualRevenue = null
+
   return payload
 }
 
@@ -1767,11 +1935,10 @@ export function buildPersonEditPayload(values: PersonEditFormValues, organizatio
   const department = typeof values.department === 'string' ? values.department.trim() : ''
   if (department.length) payload.department = department
 
-  const linkedInUrl = typeof values.linkedInUrl === 'string' ? values.linkedInUrl.trim() : ''
-  if (linkedInUrl.length) payload.linkedInUrl = linkedInUrl
-
-  const twitterUrl = typeof values.twitterUrl === 'string' ? values.twitterUrl.trim() : ''
-  if (twitterUrl.length) payload.twitterUrl = twitterUrl
+  assignClearable(payload, 'primaryEmail', values.primaryEmail)
+  assignClearable(payload, 'primaryPhone', values.primaryPhone)
+  assignClearable(payload, 'linkedInUrl', values.linkedInUrl)
+  assignClearable(payload, 'twitterUrl', values.twitterUrl)
 
   return payload
 }
@@ -1896,6 +2063,8 @@ export type PersonOverview = {
     nextInteractionIcon?: string | null
     nextInteractionColor?: string | null
     organizationId?: string | null
+    updatedAt?: string | null
+    updated_at?: string | null
   }
   profile: {
     id: string

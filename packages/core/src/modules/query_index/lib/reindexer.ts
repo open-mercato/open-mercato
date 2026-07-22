@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { upsertIndexBatch, type AnyRow } from './batch'
@@ -9,6 +9,9 @@ import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './job
 import { purgeOrphans } from './stale'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { isSearchDebugEnabled } from './search-tokens'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('query_index').child({ component: 'reindexer' })
 
 export type ReindexJobOptions = {
   entityType: string
@@ -39,6 +42,33 @@ const DEFAULT_BATCH_SIZE = 500
 const deriveOrgFromId = new Set<string>(['directory:organization'])
 const COVERAGE_REFRESH_THROTTLE_MS = 5 * 60 * 1000
 const lastCoverageReset = new Map<string, number>()
+
+const REINDEX_DECRYPT_DEBUG_KEYS = ['display_name', 'first_name', 'last_name', 'brand_name', 'legal_name', 'primary_email', 'primary_phone'] as const
+
+export type ReindexDecryptDebugPayload = {
+  entityType: string
+  tenantId: string | null
+  organizationId: string | null
+  keys: string[]
+}
+
+export function buildReindexDecryptDebugPayload(
+  entityType: string,
+  doc: Record<string, unknown>,
+  scope: { organizationId: string | null; tenantId: string | null },
+): ReindexDecryptDebugPayload {
+  const presentKeys: string[] = []
+  for (const key of REINDEX_DECRYPT_DEBUG_KEYS) {
+    const value = doc[key]
+    if (key in doc && value != null && value !== '') presentKeys.push(key)
+  }
+  return {
+    entityType,
+    tenantId: scope.tenantId ?? null,
+    organizationId: scope.organizationId ?? null,
+    keys: presentKeys,
+  }
+}
 
 async function cleanupLegacyJobScopes(
   db: Kysely<any>,
@@ -118,8 +148,18 @@ export async function reindexEntity(
   const resetCoverage = options?.resetCoverage ?? (!usingPartitions || partitionIndex === 0)
 
   const db = (em as any).getKysely() as Kysely<any>
-  const table = resolveEntityTableName(em, entityType)
-  if (entityType === 'query_index:search_token' || table === 'search_tokens') {
+  // Resolve the source table strictly via registered MikroORM metadata. We must
+  // never fall back to a pluralized guess derived from the caller-supplied id
+  // here: doing so would let a principal with `query_index.reindex` point the
+  // reindexer at arbitrary tables (e.g. `auth_users`, `users`) and read their
+  // rows into the index, bypassing tenant scoping and entity-level encryption.
+  const table = resolveRegisteredEntityTableName(em, entityType)
+  if (!table || entityType === 'query_index:search_token' || table === 'search_tokens') {
+    if (!table) {
+      logger.warn('Refusing to reindex unregistered entity type', {
+        entityType,
+      })
+    }
     return {
       processed: 0,
       total: 0,
@@ -282,7 +322,7 @@ export async function reindexEntity(
         }
         await purgeQuery.execute()
       } catch (error) {
-        console.warn('[HybridQueryEngine] Failed to purge index rows before force reindex', {
+        logger.warn('Failed to purge index rows before force reindex', {
           entityType,
           tenantId: tenantId ?? null,
           organizationId: organizationId ?? null,
@@ -300,7 +340,7 @@ export async function reindexEntity(
           try {
             await eventBus.emitEvent('query_index.vectorize_purge', payload)
           } catch (err) {
-            console.warn('[HybridQueryEngine] Failed to queue vector purge before force reindex', {
+            logger.warn('Failed to queue vector purge before force reindex', {
               entityType,
               tenantId: tenantId ?? null,
               organizationId: organizationId ?? null,
@@ -308,7 +348,7 @@ export async function reindexEntity(
             })
           }
         } else {
-          console.warn('[HybridQueryEngine] Skipping vector purge for force reindex without tenant scope', {
+          logger.warn('Skipping vector purge for force reindex without tenant scope', {
             entityType,
           })
         }
@@ -377,18 +417,7 @@ export async function reindexEntity(
           dekKeyCache,
         )
         if (isSearchDebugEnabled()) {
-          const keysOfInterest = ['display_name', 'first_name', 'last_name', 'brand_name', 'legal_name', 'primary_email', 'primary_phone']
-          const snapshot: Record<string, unknown> = {}
-          for (const key of keysOfInterest) {
-            if (key in result) snapshot[key] = (result as Record<string, unknown>)[key]
-          }
-          console.info('[reindex:decrypt]', {
-            entityType: targetEntity,
-            tenantId: scope.tenantId ?? null,
-            organizationId: scope.organizationId ?? null,
-            keys: Object.keys(snapshot),
-            sample: snapshot,
-          })
+          logger.debug('Reindex decrypt', buildReindexDecryptDebugPayload(targetEntity, result as Record<string, unknown>, scope))
         }
         return result
       }
@@ -473,7 +502,7 @@ export async function reindexEntity(
           olderThan: jobStartedAt,
         })
       } catch (error) {
-        console.warn('[HybridQueryEngine] Failed to prune vector orphans after reindex', {
+        logger.warn('Failed to prune vector orphans after reindex', {
           entityType,
           tenantId: tenantId ?? null,
           organizationId: organizationId ?? null,

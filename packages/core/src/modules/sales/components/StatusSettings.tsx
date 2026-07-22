@@ -8,7 +8,9 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -22,6 +24,9 @@ import {
   type DictionaryTableEntry,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryTable'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type SalesStatusKind = 'order-statuses' | 'order-line-statuses' | 'shipment-statuses' | 'payment-statuses'
 
@@ -42,6 +47,8 @@ const DEFAULT_FORM_VALUES: DictionaryFormValues = {
   icon: null,
 }
 
+const SAVE_CONTEXT_ID = 'sales-status-settings'
+
 export function StatusSettings() {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -49,6 +56,23 @@ export function StatusSettings() {
     const value = t(key)
     return value === key ? fallback : value
   }, [t])
+
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: SAVE_CONTEXT_ID,
+    blockedMessage: translate('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo(
+    () => ({
+      formId: SAVE_CONTEXT_ID,
+      resourceKind: 'sales.statuses',
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
 
   const sections = React.useMemo<SectionDefinition[]>(() => [
     {
@@ -127,7 +151,7 @@ export function StatusSettings() {
       }))
       setEntriesByKind((prev) => ({ ...prev, [kind]: items }))
     } catch (err) {
-      console.error('sales.statuses.list failed', err)
+      logger.error('sales.statuses.list failed', { err })
       flash(translate('sales.config.statuses.error.load', 'Failed to load status entries.'), 'error')
     } finally {
       setLoadingKind((prev) => ({ ...prev, [kind]: false }))
@@ -197,22 +221,33 @@ export function StatusSettings() {
     })
     if (!confirmed) return
     try {
-      const call = await apiCall(apiPaths[kind], {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: entry.id }),
+      await runMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(entry.updatedAt),
+            () =>
+              apiCall(apiPaths[kind], {
+                method: 'DELETE',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ id: entry.id }),
+              })
+          )
+          if (!call.ok) {
+            await raiseCrudError(call.response, translate('sales.config.statuses.error.delete', 'Failed to delete status.'))
+          }
+          return call
+        },
+        context: mutationContext,
+        mutationPayload: { action: 'delete', kind, id: entry.id },
       })
-      if (!call.ok) {
-        await raiseCrudError(call.response, translate('sales.config.statuses.error.delete', 'Failed to delete status.'))
-      }
       flash(translate('sales.config.statuses.success.delete', 'Status deleted.'), 'success')
       await loadEntries(kind)
     } catch (err) {
-      console.error('sales.statuses.delete failed', err)
+      logger.error('sales.statuses.delete failed', { err })
       const message = err instanceof Error ? err.message : translate('sales.config.statuses.error.delete', 'Failed to delete status.')
       flash(message, 'error')
     }
-  }, [apiPaths, confirm, loadEntries, translate])
+  }, [apiPaths, confirm, loadEntries, mutationContext, runMutation, translate])
 
   const submitForm = React.useCallback(async (values: DictionaryFormValues) => {
     if (!dialog) return
@@ -220,14 +255,21 @@ export function StatusSettings() {
     setSubmitting(true)
     try {
       if (dialog.mode === 'create') {
-        const call = await apiCall(path, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(values),
+        await runMutation({
+          operation: async () => {
+            const call = await apiCall(path, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(values),
+            })
+            if (!call.ok) {
+              await raiseCrudError(call.response, translate('sales.config.statuses.error.save', 'Failed to save status.'))
+            }
+            return call
+          },
+          context: mutationContext,
+          mutationPayload: { action: 'create', kind: dialog.kind, ...values },
         })
-        if (!call.ok) {
-          await raiseCrudError(call.response, translate('sales.config.statuses.error.save', 'Failed to save status.'))
-        }
         flash(translate('sales.config.statuses.success.save', 'Status saved.'), 'success')
       } else if (dialog.mode === 'edit') {
         const entry = dialog.entry
@@ -238,27 +280,38 @@ export function StatusSettings() {
         if (nextColor !== (entry.color ?? null)) body.color = nextColor
         const nextIcon = values.icon ?? null
         if (nextIcon !== (entry.icon ?? null)) body.icon = nextIcon
-        const call = await apiCall(path, {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
+        await runMutation({
+          operation: async () => {
+            const call = await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(entry.updatedAt),
+              () =>
+                apiCall(path, {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify(body),
+                })
+            )
+            if (!call.ok) {
+              await raiseCrudError(call.response, translate('sales.config.statuses.error.save', 'Failed to save status.'))
+            }
+            return call
+          },
+          context: mutationContext,
+          mutationPayload: { action: 'update', kind: dialog.kind, ...body },
         })
-        if (!call.ok) {
-          await raiseCrudError(call.response, translate('sales.config.statuses.error.save', 'Failed to save status.'))
-        }
         flash(translate('sales.config.statuses.success.save', 'Status saved.'), 'success')
       }
       closeDialog()
       await loadEntries(dialog.kind)
     } catch (err) {
-      console.error('sales.statuses.submit failed', err)
+      logger.error('sales.statuses.submit failed', { err })
       const message = err instanceof Error ? err.message : translate('sales.config.statuses.error.save', 'Failed to save status.')
       flash(message, 'error')
       throw err instanceof Error ? err : new Error(message)
     } finally {
       setSubmitting(false)
     }
-  }, [apiPaths, closeDialog, dialog, loadEntries, translate])
+  }, [apiPaths, closeDialog, dialog, loadEntries, mutationContext, runMutation, translate])
 
   const currentValues = React.useMemo<DictionaryFormValues>(() => {
     if (dialog && dialog.mode === 'edit') {

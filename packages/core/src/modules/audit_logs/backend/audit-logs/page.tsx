@@ -9,6 +9,9 @@ import type { ActionLogItem } from '../../components/AuditLogsActions'
 import { AuditLogsActions } from '../../components/AuditLogsActions'
 import type { AccessLogItem } from '../../components/AccessLogsTable'
 import { AccessLogsTable } from '../../components/AccessLogsTable'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('audit_logs').child({ component: 'audit-logs-page' })
 
 type ActionLogResponse = {
   items: ActionLogItem[]
@@ -118,7 +121,7 @@ export default function AuditLogsPage() {
     try {
       await loadAll(actionPage, actionPageSize, accessPageNum, accessPageSizeNum)
     } catch (err) {
-      console.error('Failed to load audit logs', err)
+      logger.error('Failed to load audit logs', { err })
       setError(t('audit_logs.error.load'))
     } finally {
       setLoading(false)
@@ -185,7 +188,7 @@ export default function AuditLogsPage() {
               type="button"
               role="tab"
               aria-selected={tab === 'actions'}
-              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'actions' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'actions' ? 'border-accent-indigo text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
               onClick={() => setTab('actions')}
             >
               {t('audit_logs.actions.title')}
@@ -194,7 +197,7 @@ export default function AuditLogsPage() {
               type="button"
               role="tab"
               aria-selected={tab === 'access'}
-              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'access' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'access' ? 'border-accent-indigo text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
               onClick={() => setTab('access')}
             >
               {t('audit_logs.access.title')}
@@ -202,7 +205,7 @@ export default function AuditLogsPage() {
           </nav>
         </div>
 
-        {error && <div className="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        {error && <div className="mb-4 rounded-md border border-status-error-border bg-status-error-bg p-3 text-sm text-status-error-text">{error}</div>}
 
         {tab === 'actions' && (
           <AuditLogsActions

@@ -45,6 +45,16 @@ registerCatalogPricingResolver(myResolver, { priority: 10 })
 
 The default pipeline emits `catalog.pricing.resolve.before|after` events.
 
+### Price selection order
+
+When multiple price rows match the same context, `selectBestPrice` resolves ties in this order:
+
+1. **Score** (descending) — `custom` > `promotion` > `tier` > `regular`, plus additional points for variant, offer, channel, user, group, and customer scoping. See `scorePrice` for the full rubric.
+2. **`startsAt`** (descending) — when scores tie, the row with the more recent `startsAt` wins.
+3. **`minQuantity`** — direction depends on whether the tied rows share the same resolved kind:
+    - **Same kind** (e.g. tier vs tier): **descending** — the row with the larger `minQuantity` wins. This implements the standard volume-discount semantic: for `qty=50` with tiers `minQty=10` ($9) and `minQty=50` ($8), the `minQty=50` row applies (issue #1706).
+    - **Different kinds** (e.g. promotion vs tier): **ascending** — the row with the smaller `minQuantity` wins. The `+1 for minQuantity > 1` bonus in `scorePrice` can pull a lower-base kind up to the same total as a higher-base kind (e.g. tier `minQty=3` = 3+1 vs promotion `minQty=1` = 4). Ascending across kinds preserves the kind precedence in those collisions.
+
 ## Data Model Constraints
 
 - **Products** — core entities with media and descriptions. MUST have at least a name

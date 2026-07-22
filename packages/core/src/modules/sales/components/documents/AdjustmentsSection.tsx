@@ -8,9 +8,11 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { handleSectionMutationError } from './optimisticLock'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { type DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import {
@@ -24,6 +26,9 @@ import { AdjustmentDialog, type AdjustmentRowData, type AdjustmentSubmitPayload 
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { extractCustomFieldValues } from './customFieldHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type AdjustmentRow = AdjustmentRowData
 
@@ -31,6 +36,7 @@ type SalesDocumentAdjustmentsSectionProps = {
   documentId: string
   kind: 'order' | 'quote'
   currencyCode: string | null | undefined
+  documentUpdatedAt?: string | null
   organizationId?: string | null
   tenantId?: string | null
   onActionChange?: (action: SectionAction | null) => void
@@ -64,6 +70,7 @@ export function SalesDocumentAdjustmentsSection({
   documentId,
   kind,
   currencyCode,
+  documentUpdatedAt,
   organizationId: orgFromProps,
   tenantId: tenantFromProps,
   onActionChange,
@@ -149,7 +156,7 @@ export function SalesDocumentAdjustmentsSection({
       kindLoadingRef.current = false
       return options
     } catch (err) {
-      console.error('sales.adjustment-kinds.fetch', err)
+      logger.error('sales.adjustment-kinds.fetch', { err })
       kindLoadingRef.current = false
       setKindOptions(fallbackKindOptions)
       return fallbackKindOptions
@@ -236,7 +243,7 @@ export function SalesDocumentAdjustmentsSection({
       setRows(ordered)
       if (onRowsChange) onRowsChange(ordered)
     } catch (err) {
-      console.error('sales.document.adjustments.load', err)
+      logger.error('sales.document.adjustments.load', { err })
       setError(t('sales.documents.adjustments.errorLoad', 'Failed to load adjustments.'))
     } finally {
       setLoading(false)
@@ -317,27 +324,43 @@ export function SalesDocumentAdjustmentsSection({
       }
 
       const action = values.id ? updateCrud : createCrud
-      const result = await action(
-        crudResourcePath,
-        values.id ? { id: values.id, ...payload } : payload,
-        {
-          successMessage: values.id
-            ? t('sales.documents.adjustments.updated', 'Adjustment updated.')
-            : t('sales.documents.adjustments.created', 'Adjustment added.'),
-          errorMessage: t('sales.documents.adjustments.errorSave', 'Failed to save adjustment.'),
+      try {
+        const result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(documentUpdatedAt),
+          () =>
+            action(
+              crudResourcePath,
+              values.id ? { id: values.id, ...payload } : payload,
+              {
+                successMessage: values.id
+                  ? t('sales.documents.adjustments.updated', 'Adjustment updated.')
+                  : t('sales.documents.adjustments.created', 'Adjustment added.'),
+                errorMessage: t('sales.documents.adjustments.errorSave', 'Failed to save adjustment.'),
+              }
+            )
+        )
+        if (result.ok) {
+          await loadAdjustments()
+          emitSalesDocumentTotalsRefresh({ documentId, kind })
+          setDialogOpen(false)
+          setActiveAdjustment(null)
         }
-      )
-      if (result.ok) {
-        await loadAdjustments()
-        emitSalesDocumentTotalsRefresh({ documentId, kind })
-        setDialogOpen(false)
-        setActiveAdjustment(null)
+      } catch (err) {
+        if (
+          handleSectionMutationError(err, t, () => void loadAdjustments())
+        ) {
+          setDialogOpen(false)
+          setActiveAdjustment(null)
+          return
+        }
+        throw err
       }
     },
     [
       currencyCode,
       documentId,
       documentKey,
+      documentUpdatedAt,
       kind,
       loadAdjustments,
       crudResourcePath,
@@ -350,25 +373,30 @@ export function SalesDocumentAdjustmentsSection({
   const handleDelete = React.useCallback(
     async (row: AdjustmentRow) => {
       try {
-        const result = await deleteCrud(crudResourcePath, {
-          body: {
-            id: row.id,
-            [documentKey]: documentId,
-            organizationId: resolvedOrganizationId ?? undefined,
-            tenantId: resolvedTenantId ?? undefined,
-          },
-          errorMessage: t('sales.documents.adjustments.errorDelete', 'Failed to delete adjustment.'),
-        })
+        const result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(documentUpdatedAt),
+          () =>
+            deleteCrud(crudResourcePath, {
+              body: {
+                id: row.id,
+                [documentKey]: documentId,
+                organizationId: resolvedOrganizationId ?? undefined,
+                tenantId: resolvedTenantId ?? undefined,
+              },
+              errorMessage: t('sales.documents.adjustments.errorDelete', 'Failed to delete adjustment.'),
+            })
+        )
         if (result.ok) {
           await loadAdjustments()
           emitSalesDocumentTotalsRefresh({ documentId, kind })
         }
       } catch (err) {
-        console.error('sales.document.adjustments.delete', err)
+        if (handleSectionMutationError(err, t, () => void loadAdjustments())) return
+        logger.error('sales.document.adjustments.delete', { err })
         flash(t('sales.documents.adjustments.errorDelete', 'Failed to delete adjustment.'), 'error')
       }
     },
-    [crudResourcePath, documentId, documentKey, kind, loadAdjustments, resolvedOrganizationId, resolvedTenantId, t]
+    [crudResourcePath, documentId, documentKey, documentUpdatedAt, kind, loadAdjustments, resolvedOrganizationId, resolvedTenantId, t]
   )
 
   const columns = React.useMemo<ColumnDef<AdjustmentRow>[]>(

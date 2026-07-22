@@ -11,7 +11,16 @@ import {
 } from "@open-mercato/ui/primitives/select";
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
-export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) {
+/**
+ * Normalize a boolean override value (which may be stored as a real boolean or a
+ * 'true'/'false' string) to the string the `<Select>` needs. Passing a raw boolean
+ * to `Select.value` matched no `<SelectItem>` and rendered blank (#2410).
+ */
+export function booleanOverrideSelectValue(value: unknown): 'true' | 'false' {
+  return value === true || value === 'true' ? 'true' : 'false'
+}
+
+export function OverrideValueField(props: CrudCustomFieldRenderProps) {
     const t = useT()
     const toggleType = props.values?.toggleType as string;
     const isOverride = props.values?.isOverride as boolean;
@@ -30,7 +39,7 @@ export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) 
                 <div>
                     <label className="block text-sm font-medium mb-2">{t('feature_toggles.override.fields.value.boolean.label', 'Override Value (Boolean)')}</label>
                     <Select
-                        value={props.value as string || 'false'}
+                        value={booleanOverrideSelectValue(props.value)}
                         onValueChange={(value) => props.setValue(value === 'true')}
                         disabled={props.disabled}
                     >
@@ -110,7 +119,7 @@ export function createOverrideFieldDefinitions(
             id: 'overrideValue',
             label: '',
             type: 'custom',
-            component: renderOverrideValueComponent,
+            component: (props) => <OverrideValueField {...props} />,
             description: t('feature_toggles.override.fields.overrideValue.description'),
         },
     ]

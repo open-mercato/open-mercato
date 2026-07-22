@@ -243,6 +243,97 @@ describe('loadCustomFieldValues (encryption)', () => {
     })
     expect(values['rec-1'].cf_priority).toBe(42)
   })
+
+  it('decrypts rows concurrently rather than sequentially (regression: issue #2229)', async () => {
+    const deks: Record<string, string> = {
+      'tenant-1': Buffer.alloc(32, 1).toString('base64'),
+      'tenant-2': Buffer.alloc(32, 2).toString('base64'),
+      'tenant-3': Buffer.alloc(32, 3).toString('base64'),
+    }
+    const rows = [
+      { recordId: 'rec-1', tenantId: 'tenant-1', plaintext: 'note-1' },
+      { recordId: 'rec-2', tenantId: 'tenant-2', plaintext: 'note-2' },
+      { recordId: 'rec-3', tenantId: 'tenant-3', plaintext: 'note-3' },
+    ].map((row) => ({
+      ...row,
+      valueText: encryptWithAesGcm(row.plaintext, deks[row.tenantId]).value,
+    }))
+    const em = {
+      find: jest.fn().mockImplementation((_, where) => {
+        if ((where as any).recordId) {
+          return Promise.resolve(
+            rows.map((row) => ({
+              recordId: row.recordId,
+              fieldKey: 'note',
+              organizationId: null,
+              tenantId: row.tenantId,
+              valueText: row.valueText,
+              valueMultiline: null,
+              valueInt: null,
+              valueFloat: null,
+              valueBool: null,
+              deletedAt: null,
+            })),
+          )
+        }
+        return Promise.resolve([
+          { key: 'note', entityId: 'demo:entity', organizationId: null, tenantId: null, kind: 'text', configJson: { encrypted: true }, isActive: true },
+        ])
+      }),
+    }
+    let inFlight = 0
+    let maxInFlight = 0
+    const mockService = {
+      isEnabled: () => true,
+      getDek: jest.fn(async (tenantId: string) => {
+        inFlight += 1
+        maxInFlight = Math.max(maxInFlight, inFlight)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        inFlight -= 1
+        return { key: deks[tenantId] }
+      }),
+    }
+    const values = await loadCustomFieldValues({
+      em: em as any,
+      entityId: 'demo:entity',
+      recordIds: ['rec-1', 'rec-2', 'rec-3'],
+      tenantIdByRecord: { 'rec-1': 'tenant-1', 'rec-2': 'tenant-2', 'rec-3': 'tenant-3' },
+      encryptionService: mockService as any,
+    })
+    expect(values['rec-1'].cf_note).toBe('note-1')
+    expect(values['rec-2'].cf_note).toBe('note-2')
+    expect(values['rec-3'].cf_note).toBe('note-3')
+    // Sequential await-in-loop would cap concurrency at 1; batching lifts it.
+    expect(maxInFlight).toBeGreaterThan(1)
+  })
+
+  it('preserves multi-value grouping order for encrypted fields (regression: issue #2229)', async () => {
+    const dek = Buffer.alloc(32, 2).toString('base64')
+    const first = encryptWithAesGcm('alpha', dek).value
+    const second = encryptWithAesGcm('beta', dek).value
+    const em = {
+      find: jest.fn().mockImplementation((_, where) => {
+        if ((where as any).recordId) {
+          return Promise.resolve([
+            { recordId: 'rec-1', fieldKey: 'tags', organizationId: null, tenantId: 'tenant-1', valueText: first, valueMultiline: null, valueInt: null, valueFloat: null, valueBool: null, deletedAt: null },
+            { recordId: 'rec-1', fieldKey: 'tags', organizationId: null, tenantId: 'tenant-1', valueText: second, valueMultiline: null, valueInt: null, valueFloat: null, valueBool: null, deletedAt: null },
+          ])
+        }
+        return Promise.resolve([
+          { key: 'tags', entityId: 'demo:entity', organizationId: null, tenantId: 'tenant-1', kind: 'text', configJson: { encrypted: true, multi: true }, isActive: true },
+        ])
+      }),
+    }
+    const mockService = { isEnabled: () => true, getDek: async () => ({ key: dek }) }
+    const values = await loadCustomFieldValues({
+      em: em as any,
+      entityId: 'demo:entity',
+      recordIds: ['rec-1'],
+      tenantIdByRecord: { 'rec-1': 'tenant-1' },
+      encryptionService: mockService as any,
+    })
+    expect(values['rec-1'].cf_tags).toEqual(['alpha', 'beta'])
+  })
 })
 
 describe('decorateRecordWithCustomFields', () => {

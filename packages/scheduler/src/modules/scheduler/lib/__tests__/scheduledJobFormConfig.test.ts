@@ -83,6 +83,30 @@ describe('scheduledJobFormConfig target fields', () => {
   })
 })
 
+describe('scheduledJobFormConfig scope field', () => {
+  const t = (_key: string, fallback: string) => fallback
+  const loaders = {
+    loadQueueOptions: async () => [],
+    loadCommandOptions: async () => [],
+    loadTimezoneOptions: async () => [],
+  }
+
+  it('keeps the scope field editable on create (no lockScope)', () => {
+    const fields = scheduledJobFields(t, loaders)
+    const scope = fields.find((f) => f.id === 'scopeType')
+    expect(scope).toBeDefined()
+    expect(scope?.disabled).toBeFalsy()
+  })
+
+  it('locks the scope field on edit so the value cannot be deceptively changed then silently dropped', () => {
+    const fields = scheduledJobFields(t, loaders, { lockScope: true })
+    const scope = fields.find((f) => f.id === 'scopeType')
+    expect(scope).toBeDefined()
+    expect(scope?.disabled).toBe(true)
+    expect(scope?.description).toBeTruthy()
+  })
+})
+
 describe('loadTimezoneOptions', () => {
   it('includes UTC even when Intl.supportedValuesOf does not list it', async () => {
     const options = await loadTimezoneOptions('utc')

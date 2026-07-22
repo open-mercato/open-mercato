@@ -15,7 +15,7 @@ const responseSchema = z.object({
 })
 
 export const metadata = {
-  POST: { requireAuth: true },
+  POST: { requireAuth: true, rateLimit: { points: 20, duration: 60, keyPrefix: 'security_mfa_prepare' } },
 }
 
 export async function POST(req: Request) {
@@ -34,7 +34,12 @@ export async function POST(req: Request) {
   }
 
   try {
-    const prepared = await context.mfaVerificationService.prepareChallenge(challengeId, methodType, { request: req })
+    const prepared = await context.mfaVerificationService.prepareChallenge(
+      challengeId,
+      methodType,
+      { request: req },
+      { userId: context.auth.sub },
+    )
     return NextResponse.json({ ok: true, ...(prepared.clientData ? { clientData: prepared.clientData } : {}) })
   } catch (error) {
     return await mapMfaError(error)

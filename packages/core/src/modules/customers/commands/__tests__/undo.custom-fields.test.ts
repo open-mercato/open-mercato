@@ -589,7 +589,7 @@ describe('customers commands undo custom fields', () => {
               valueAmount: '1000',
               valueCurrency: 'USD',
               probability: 20,
-              expectedCloseAt: null,
+              expectedCloseAt: '2026-07-20T12:00:00.000Z',
               ownerUserId: 'user-8',
               source: 'event',
             },
@@ -609,7 +609,7 @@ describe('customers commands undo custom fields', () => {
               valueAmount: '5000',
               valueCurrency: 'USD',
               probability: 90,
-              expectedCloseAt: new Date('2024-01-01'),
+              expectedCloseAt: '2024-01-01T00:00:00.000Z',
               ownerUserId: 'user-10',
               source: 'referral',
             },
@@ -634,6 +634,7 @@ describe('customers commands undo custom fields', () => {
       })
     )
     expect(existingDeal.title).toBe('Before Deal')
+    expect(existingDeal.expectedCloseAt).toEqual(new Date('2026-07-20T12:00:00.000Z'))
   })
 
   it('activities.update undo restores custom fields', async () => {

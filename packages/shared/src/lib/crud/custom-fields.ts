@@ -6,6 +6,20 @@ import type { TenantDataEncryptionService } from '../encryption/tenantDataEncryp
 import { decryptCustomFieldValue, resolveTenantEncryptionService } from '../encryption/customFieldValues'
 import { parseBooleanToken } from '../boolean'
 import { extractCustomFieldEntries } from './custom-fields-client'
+import { createLogger } from '../logger'
+import {
+  buildCustomFieldDefinitionIndexFromRows,
+  normalizeDefinitionKey,
+  normalizeFieldsetFilter,
+  selectDefinitionForRecord,
+  type CustomFieldDefinitionIndex,
+  type CustomFieldDefinitionRow,
+  type CustomFieldDefinitionSummary,
+} from './custom-field-definition-index'
+
+const logger = createLogger('shared').child({ component: 'crud' })
+
+export type { CustomFieldDefinitionSummary, CustomFieldDefinitionIndex } from './custom-field-definition-index'
 
 export type CustomFieldSelectors = {
   keys: string[]
@@ -17,20 +31,6 @@ export type SplitCustomFieldPayload = {
   base: Record<string, unknown>
   custom: Record<string, unknown>
 }
-
-export type CustomFieldDefinitionSummary = {
-  key: string
-  label: string | null
-  kind: string | null
-  multi: boolean
-  dictionaryId?: string | null
-  organizationId?: string | null
-  tenantId?: string | null
-  priority: number
-  updatedAt: number
-}
-
-export type CustomFieldDefinitionIndex = Map<string, CustomFieldDefinitionSummary[]>
 
 export type CustomFieldDisplayEntry = {
   key: string
@@ -91,22 +91,6 @@ export function extractCustomFieldsFromItem(item: Record<string, unknown>, keys:
 
 export function extractAllCustomFieldEntries(item: Record<string, unknown>): Record<string, unknown> {
   return extractCustomFieldEntries(item)
-}
-
-function normalizeFieldsetFilter(input?: string | string[] | null): Set<string | null> | null {
-  if (input == null) return null
-  const values = Array.isArray(input) ? input : [input]
-  const normalized = new Set<string | null>()
-  for (const raw of values) {
-    if (raw == null) continue
-    const trimmed = String(raw).trim()
-    if (!trimmed) {
-      normalized.add(null)
-    } else {
-      normalized.add(trimmed)
-    }
-  }
-  return normalized.size ? normalized : null
 }
 
 export async function buildCustomFieldFiltersFromQuery(opts: {
@@ -250,93 +234,6 @@ export function extractCustomFieldValuesFromPayload(raw: Record<string, unknown>
   return splitCustomFieldPayload(raw).custom
 }
 
-function normalizeDefinitionKey(key: unknown): string {
-  if (typeof key !== 'string') return ''
-  const trimmed = key.trim()
-  return trimmed.length ? trimmed.toLowerCase() : ''
-}
-
-function normalizeDefinitionConfig(raw: unknown): Record<string, any> {
-  if (!raw) return {}
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw)
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return { ...(parsed as Record<string, any>) }
-      }
-      return {}
-    } catch {
-      return {}
-    }
-  }
-  if (typeof raw === 'object' && !Array.isArray(raw)) {
-    return { ...(raw as Record<string, any>) }
-  }
-  return {}
-}
-
-function summarizeDefinition(def: CustomFieldDef): CustomFieldDefinitionSummary | null {
-  const normalizedKey = normalizeDefinitionKey(def.key)
-  if (!normalizedKey) return null
-  const cfg = normalizeDefinitionConfig((def as any).configJson)
-  const label =
-    typeof cfg.label === 'string' && cfg.label.trim().length
-      ? cfg.label.trim()
-      : def.key
-  const dictionaryId =
-    typeof cfg.dictionaryId === 'string' && cfg.dictionaryId.trim().length
-      ? cfg.dictionaryId.trim()
-      : null
-  const multi =
-    cfg.multi !== undefined ? Boolean(cfg.multi) : false
-  const priority =
-    typeof cfg.priority === 'number' ? cfg.priority : 0
-  const updatedAt =
-    def.updatedAt instanceof Date
-      ? def.updatedAt.getTime()
-      : new Date(def.updatedAt as any).getTime()
-  return {
-    key: def.key,
-    label,
-    kind: typeof def.kind === 'string' ? def.kind : null,
-    multi,
-    dictionaryId,
-    organizationId: def.organizationId ?? null,
-    tenantId: def.tenantId ?? null,
-    priority,
-    updatedAt: Number.isNaN(updatedAt) ? 0 : updatedAt,
-  }
-}
-
-function sortDefinitionSummaries(defs: CustomFieldDefinitionSummary[]): CustomFieldDefinitionSummary[] {
-  return [...defs].sort((a, b) => {
-    const priorityDiff = (a.priority ?? 0) - (b.priority ?? 0)
-    if (priorityDiff !== 0) return priorityDiff
-    const updatedDiff = (b.updatedAt ?? 0) - (a.updatedAt ?? 0)
-    if (updatedDiff !== 0) return updatedDiff
-    return a.key.localeCompare(b.key)
-  })
-}
-
-function selectDefinitionForRecord(
-  defs: CustomFieldDefinitionSummary[],
-  organizationId: string | null,
-  tenantId: string | null,
-): CustomFieldDefinitionSummary | null {
-  if (!defs.length) return null
-  const prioritizedForOrg = defs.filter(
-    (def) => def.organizationId && organizationId && def.organizationId === organizationId,
-  )
-  if (prioritizedForOrg.length) return sortDefinitionSummaries(prioritizedForOrg)[0]
-  const prioritizedForTenant = defs.filter(
-    (def) => def.tenantId && tenantId && def.tenantId === tenantId && !def.organizationId,
-  )
-  if (prioritizedForTenant.length) return sortDefinitionSummaries(prioritizedForTenant)[0]
-  const global = defs.filter((def) => !def.organizationId)
-  if (global.length) return sortDefinitionSummaries(global)[0]
-  return sortDefinitionSummaries(defs)[0] ?? null
-}
-
 type LoadCustomFieldDefinitionIndexOptions = {
   em: EntityManager
   entityIds: string | string[]
@@ -375,8 +272,8 @@ function buildCfDefIndexCacheKey(opts: {
   fieldsetKey: string | null
 }): string {
   const tenant = opts.tenantId ?? 'global'
-  const entities = opts.entityIds.slice().sort().join('|')
-  const orgs = opts.organizationIds.length ? opts.organizationIds.slice().sort().join('|') : 'none'
+  const entities = opts.entityIds.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join('|')
+  const orgs = opts.organizationIds.length ? opts.organizationIds.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join('|') : 'none'
   const fieldset = opts.fieldsetKey ?? 'all'
   return `${CF_DEF_INDEX_CACHE_KEY_PREFIX}:${tenant}:${entities}:${orgs}:${fieldset}`
 }
@@ -401,7 +298,7 @@ function normalizeFieldsetKey(value: string | string[] | null | undefined): stri
       .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
       .filter((entry) => entry.length > 0)
     if (!cleaned.length) return null
-    return cleaned.sort().join(',')
+    return cleaned.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')
   }
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
@@ -463,36 +360,20 @@ async function loadCustomFieldDefinitionIndexFresh(
     $and: scopeClauses,
   }
   const defs = await em.find(CustomFieldDef, where as any)
-  const fieldsetFilter = normalizeFieldsetFilter(opts.fieldset)
-  const index: CustomFieldDefinitionIndex = new Map()
-  defs.forEach((def) => {
-    if (fieldsetFilter) {
-      const config = normalizeDefinitionConfig((def as any).configJson)
-      const fieldsets = Array.isArray(config.fieldsets)
-        ? config.fieldsets
-            .filter((entry: unknown): entry is string => typeof entry === 'string')
-            .map((entry: string) => entry.trim())
-            .filter((entry: string) => entry.length > 0)
-        : []
-      const fieldset = typeof config.fieldset === 'string' && config.fieldset.trim().length > 0
-        ? config.fieldset.trim()
-        : null
-      const matches = fieldsets.length > 0
-        ? fieldsets.some((entry: string) => fieldsetFilter.has(entry))
-        : fieldsetFilter.has(fieldset)
-      if (!matches) return
-    }
-    const summary = summarizeDefinition(def)
-    if (!summary) return
-    const normalizedKey = normalizeDefinitionKey(summary.key)
-    if (!normalizedKey) return
-    if (!index.has(normalizedKey)) index.set(normalizedKey, [])
-    index.get(normalizedKey)!.push(summary)
+  const rows: CustomFieldDefinitionRow[] = defs.map((def) => ({
+    key: def.key,
+    entityId: String((def as any).entityId),
+    kind: typeof def.kind === 'string' ? def.kind : null,
+    configJson: (def as any).configJson,
+    organizationId: def.organizationId ?? null,
+    tenantId: def.tenantId ?? null,
+    deletedAt: (def as any).deletedAt ?? null,
+    updatedAt: (def as any).updatedAt ?? null,
+  }))
+  return buildCustomFieldDefinitionIndexFromRows(rows, {
+    organizationIds: orgCandidates,
+    fieldset: opts.fieldset,
   })
-  index.forEach((entries, key) => {
-    index.set(key, sortDefinitionSummaries(entries))
-  })
-  return index
 }
 
 export async function loadCustomFieldDefinitionIndex(opts: LoadCustomFieldDefinitionIndexOptions & {
@@ -538,7 +419,7 @@ export async function loadCustomFieldDefinitionIndex(opts: LoadCustomFieldDefini
         return restored
       }
     } catch (err) {
-      console.warn('[crud:cf-def-cache] read failed', err)
+      logger.warn('Custom-field definition cache read failed', { err })
     }
   }
 
@@ -555,7 +436,7 @@ export async function loadCustomFieldDefinitionIndex(opts: LoadCustomFieldDefini
         tags: buildCfDefIndexCacheTags({ tenantId, entityIds }),
       })
     } catch (err) {
-      console.warn('[crud:cf-def-cache] write failed', err)
+      logger.warn('Custom-field definition cache write failed', { err })
     }
   }
   if (requestBucket) requestBucket.set(cacheKey, index)
@@ -754,7 +635,7 @@ export async function loadCustomFieldValues(opts: {
   type Bucket = { orgId: string | null; tenantId: string | null; values: unknown[]; def?: CustomFieldDef | null; encrypted?: boolean }
   const buckets = new Map<string, Bucket>()
 
-  for (const row of cfRows) {
+  const rowInfos = cfRows.map((row) => {
     const recordId = String(row.recordId)
     const key = String(row.fieldKey)
     const bucketKey = `${recordId}::${key}`
@@ -765,26 +646,39 @@ export async function loadCustomFieldValues(opts: {
     const def = pickDefinition(key, resolvedOrgId, resolvedTenantId)
     const encrypted = Boolean(def?.configJson && (def as any).configJson?.encrypted)
     const value = valueFromRow(row)
-    const decrypted = encrypted
-      ? await decryptCustomFieldValue(
-          value,
-          resolvedTenantId ?? tenantId ?? null,
-          getEncryptionService(),
-          encryptionCache,
-          { kind: def?.kind ?? null },
-        )
-      : value
-    const existing = buckets.get(bucketKey)
+    return { bucketKey, resolvedOrgId, resolvedTenantId, tenantId, def, encrypted, value }
+  })
+
+  // Decrypt every encrypted value concurrently so a list of N rows × M encrypted
+  // fields costs the slowest single decryption rather than the sum (issue #2229).
+  // The shared encryptionCache keeps DEK lookups deduped per tenant.
+  const decryptedValues = await Promise.all(
+    rowInfos.map((info) =>
+      info.encrypted
+        ? decryptCustomFieldValue(
+            info.value,
+            info.resolvedTenantId ?? info.tenantId ?? null,
+            getEncryptionService(),
+            encryptionCache,
+            { kind: info.def?.kind ?? null },
+          )
+        : info.value,
+    ),
+  )
+
+  rowInfos.forEach((info, index) => {
+    const decrypted = decryptedValues[index]
+    const existing = buckets.get(info.bucketKey)
     if (existing) {
-      if (existing.orgId == null && resolvedOrgId) existing.orgId = resolvedOrgId
-      if (existing.tenantId == null && resolvedTenantId) existing.tenantId = resolvedTenantId
-      if (existing.def == null && def) existing.def = def
-      existing.encrypted = existing.encrypted || encrypted
+      if (existing.orgId == null && info.resolvedOrgId) existing.orgId = info.resolvedOrgId
+      if (existing.tenantId == null && info.resolvedTenantId) existing.tenantId = info.resolvedTenantId
+      if (existing.def == null && info.def) existing.def = info.def
+      existing.encrypted = existing.encrypted || info.encrypted
       existing.values.push(decrypted)
     } else {
-      buckets.set(bucketKey, { orgId: resolvedOrgId, tenantId: resolvedTenantId, values: [decrypted], def: def ?? null, encrypted })
+      buckets.set(info.bucketKey, { orgId: info.resolvedOrgId, tenantId: info.resolvedTenantId, values: [decrypted], def: info.def ?? null, encrypted: info.encrypted })
     }
-  }
+  })
 
   const result: Record<string, Record<string, unknown>> = {}
   for (const [compoundKey, bucket] of buckets.entries()) {

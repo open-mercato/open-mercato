@@ -8,6 +8,7 @@ const mockCreateUser = jest.fn()
 const mockCreateEmailVerification = jest.fn()
 const mockEmitCustomerAccountsEvent = jest.fn()
 const mockFindOneRole = jest.fn()
+const mockFindOneOrganization = jest.fn()
 const mockFlush = jest.fn()
 const mockPersist = jest.fn()
 const mockCreate = jest.fn()
@@ -24,7 +25,11 @@ const mockCustomerTokenService = {
 
 const mockEm = {
   getConnection: () => ({ execute: mockExecute }),
-  findOne: mockFindOneRole,
+  findOne: jest.fn((entity: { name?: string }, ...rest: unknown[]) =>
+    entity?.name === 'Organization'
+      ? mockFindOneOrganization(entity, ...rest)
+      : mockFindOneRole(entity, ...rest),
+  ),
   create: mockCreate,
   persist: mockPersist,
 }
@@ -100,6 +105,7 @@ describe('POST /api/customer_accounts/signup', () => {
     mockCreateEmailVerification.mockResolvedValue('verification-token')
     mockEmitCustomerAccountsEvent.mockResolvedValue(undefined)
     mockFindOneRole.mockResolvedValue(null)
+    mockFindOneOrganization.mockResolvedValue({ id: organizationId, tenant: { id: tenantId } })
     mockCreate.mockReturnValue({ id: 'user-role-link' })
     mockFlush.mockResolvedValue(undefined)
     mockPersist.mockImplementation(() => ({ flush: mockFlush }))

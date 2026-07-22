@@ -15,7 +15,13 @@ import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@op
 import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
 import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
+import { assertActorCanAccessUserTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'users-resend-invite' })
 
 const resendInviteRateLimitConfig = readEndpointRateLimitConfig('RESEND_INVITE', {
   points: 3, duration: 300, blockDuration: 300, keyPrefix: 'resend-invite',
@@ -77,7 +83,24 @@ export async function POST(req: Request) {
       isSuperAdmin = !!acl?.isSuperAdmin
     }
   } catch (err) {
-    console.error('[auth.users.resend-invite] Failed to resolve rbac:', err)
+    logger.error('Failed to resolve rbac', { err })
+  }
+
+  if (auth.sub) {
+    try {
+      await assertActorCanAccessUserTarget({
+        em,
+        rbacService: container.resolve('rbacService') as RbacService,
+        actorUserId: auth.sub,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        targetUserId: parsed.data.id,
+        actorIsSuperAdmin: isSuperAdmin,
+      })
+    } catch (err) {
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+      throw err
+    }
   }
 
   const where: Record<string, unknown> = { id: parsed.data.id, deletedAt: null }
@@ -147,7 +170,7 @@ export async function POST(req: Request) {
   try {
     await sendEmail({ to: user.email, subject, react: InviteUserEmail({ inviteUrl, copy }) })
   } catch (err) {
-    console.error('[auth.users.resend-invite] Failed to send invitation email:', err)
+    logger.error('Failed to send invitation email', { err })
     emailSent = false
   }
 

@@ -10,23 +10,7 @@
  */
 
 // Register app dictionary loader before bootstrap (required for i18n in standalone packages)
-import { registerAppDictionaryLoader } from '@open-mercato/shared/lib/i18n/server'
-import type { Locale } from '@open-mercato/shared/lib/i18n/config'
-
-registerAppDictionaryLoader(async (locale: Locale): Promise<Record<string, unknown>> => {
-  switch (locale) {
-    case 'en':
-      return import('./i18n/en.json').then((m) => m.default)
-    case 'pl':
-      return import('./i18n/pl.json').then((m) => m.default)
-    case 'es':
-      return import('./i18n/es.json').then((m) => m.default)
-    case 'de':
-      return import('./i18n/de.json').then((m) => m.default)
-    default:
-      return import('./i18n/en.json').then((m) => m.default)
-  }
-})
+import './lib/i18n/register-dictionary-loader'
 
 // modules.ts inline overrides (replace/disable any contract a module
 // presents through the unified modules.ts override surface).
@@ -39,7 +23,7 @@ import '@open-mercato/ai-assistant'
 applyModuleOverridesFromEnabledModules(enabledModules)
 
 // Generated imports (static - works with bundlers)
-import { modules } from '@/.mercato/generated/modules.app.generated'
+import { modules } from '@/.mercato/generated/modules.bootstrap.generated'
 import { entities } from '@/.mercato/generated/entities.generated'
 import { diRegistrars } from '@/.mercato/generated/di.generated'
 import { E } from '@/.mercato/generated/entities.ids.generated'
@@ -58,6 +42,7 @@ import { interceptorEntries } from '@/.mercato/generated/interceptors.generated'
 import { componentOverrideEntries } from '@/.mercato/generated/component-overrides.generated'
 import { guardEntries } from '@/.mercato/generated/guards.generated'
 import { commandInterceptorEntries } from '@/.mercato/generated/command-interceptors.generated'
+import { commandLoaderEntries } from '@/.mercato/generated/command-loaders.generated'
 import { notificationHandlerEntries } from '@/.mercato/generated/notification-handlers.generated'
 import { messageTypes } from '@/.mercato/generated/message-types.generated'
 import { messageObjectTypes } from '@/.mercato/generated/message-objects.generated'
@@ -94,6 +79,7 @@ export const bootstrap = createBootstrap({
   componentOverrideEntries,
   guardEntries,
   commandInterceptorEntries,
+  commandLoaderEntries,
   notificationHandlerEntries,
 })
 

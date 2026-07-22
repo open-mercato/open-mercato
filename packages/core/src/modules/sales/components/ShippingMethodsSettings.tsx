@@ -24,7 +24,9 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { CrudForm, type CrudCustomFieldRenderProps, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -35,6 +37,9 @@ import {
 } from '../lib/providers'
 import { isRecord } from '@open-mercato/shared/lib/utils'
 import { renderProviderFieldInput } from './ProviderFieldInput'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type ShippingMethodRow = {
   id: string
@@ -498,7 +503,7 @@ export function ShippingMethodsSettings() {
         })
       )
     } catch (err) {
-      console.error('sales.shipping-methods.list failed', err)
+      logger.error('sales.shipping-methods.list failed', { err })
       flash(translations.errors.load, 'error')
     } finally {
       setLoading(false)
@@ -549,18 +554,20 @@ export function ShippingMethodsSettings() {
     })
     if (!confirmed) return
     try {
-      const call = await apiCall('/api/sales/shipping-methods', {
+      const headers = buildOptimisticLockHeader(entry.updatedAt)
+      const call = await withScopedApiRequestHeaders(headers, () => apiCall('/api/sales/shipping-methods', {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id: entry.id }),
-      })
+      }))
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
         await raiseCrudError(call.response, translations.errors.delete)
       }
       flash(translations.messages.deleted, 'success')
       await loadEntries()
     } catch (err) {
-      console.error('sales.shipping-methods.delete failed', err)
+      logger.error('sales.shipping-methods.delete failed', { err })
       const message = err instanceof Error ? err.message : translations.errors.delete
       flash(message, 'error')
     }
@@ -642,19 +649,22 @@ export function ShippingMethodsSettings() {
     const method = dialog.mode === 'create' ? 'POST' : 'PUT'
     if (dialog.mode === 'edit') payload.id = dialog.entry.id
     try {
-      const call = await apiCall(path, {
+      const saveShippingMethod = () => apiCall(path, {
         method,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       })
+      const headers = buildOptimisticLockHeader(dialog.mode === 'edit' ? dialog.entry.updatedAt : null)
+      const call = await withScopedApiRequestHeaders(headers, saveShippingMethod)
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
         await raiseCrudError(call.response, translations.errors.save)
       }
       flash(translations.messages.saved, 'success')
       await loadEntries()
       closeDialog()
     } catch (err) {
-      console.error('sales.shipping-methods.save failed', err)
+      logger.error('sales.shipping-methods.save failed', { err })
       const message = err instanceof Error ? err.message : translations.errors.save
       flash(message, 'error')
     } finally {
@@ -770,6 +780,7 @@ export function ShippingMethodsSettings() {
             schema={shippingFormSchema}
             fields={fields}
             initialValues={formValues}
+            optimisticLockUpdatedAt={dialog?.mode === 'edit' ? dialog.entry.updatedAt : null}
             submitLabel={translations.form.save}
             cancelHref={undefined}
             embedded

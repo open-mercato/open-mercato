@@ -194,6 +194,24 @@ yarn dev --database-name=review_1720 --no-update-env
 
 Without the flag, behavior is unchanged (no prompt, no `.env` mutation). See the [installation guides](https://docs.openmercato.com/installation/monorepo) and [`yarn setup`](https://docs.openmercato.com/installation/setup) for details.
 
+#### Reducing dev-mode memory usage
+
+`yarn dev` watches every workspace package by default, and the watcher's memory footprint scales with how many packages it tracks. On smaller machines you can narrow the watch scope so only the packages you actually touch stay live — the active mode is printed with an emoji at startup:
+
+```bash
+# Watch only packages you've touched recently (git working tree + branch diff)
+yarn dev --watch=auto-optimized
+OM_WATCH_SCOPE=auto-optimized yarn dev
+
+# Watch only an explicit set of packages
+OM_WATCH_SCOPE=env OM_WATCH_PACKAGES=core,ui yarn dev
+
+# Watch only the most frequently changed packages (default cap: 6)
+yarn dev --watch=popular
+```
+
+Set `OM_WATCH_SCOPE=all` (or `--watch=all`) to restore watching every package. See [Choosing which packages the watcher tracks](https://docs.openmercato.com/appendix/troubleshooting) for the full reference, including `OM_WATCH_POPULAR_LIMIT` and the `git`-detection toggles.
+
 ---
 
 ### Detailed guides (prerequisites, native services, troubleshooting)
@@ -311,7 +329,7 @@ Use the global launcher to find every assistant you can access, or embed `<AiCha
 - [Getting started](https://docs.openmercato.com/framework/ai-assistant/overview)
 - [How to configure it](https://docs.openmercato.com/framework/ai-assistant/settings)
 - [User guide](https://docs.openmercato.com/user-guide/ai-assistant)
-- [Legacy MCP assistant docs](.ai/specs/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md)
+- [Legacy MCP assistant docs](.ai/specs/implemented/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md)
 
 ## Data Encryption
 
@@ -325,6 +343,7 @@ Architecture in two lines: Vault/KMS (or a derived-key fallback) issues per-tena
 - `latest` is the stable npm channel published from `main`.
 - `develop` is the moving prerelease channel published from pushes to `develop`.
 - Exact snapshot versions remain installable for debugging or rollback when you need to pin one specific build.
+- PR package previews are opt-in. Run the `Package Previews` workflow manually with the PR number, or use the `om-auto-publish-pr` skill / `gh workflow run`, to publish pkg.pr.new previews without publishing to npm. Run `NPM Snapshot Preview` manually only when you need the legacy npm canary snapshot and standalone validation path.
 
 Examples:
 

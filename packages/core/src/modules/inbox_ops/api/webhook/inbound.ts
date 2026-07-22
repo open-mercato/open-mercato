@@ -12,6 +12,9 @@ import { InboxSettings, InboxEmail } from '../../data/entities'
 import { parseInboundEmail } from '../../lib/emailParser'
 import { checkRateLimit } from '../../lib/rateLimiter'
 import { emitInboxOpsEvent } from '../../events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'webhook' })
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -19,6 +22,13 @@ export const metadata = {
 
 const MAX_PAYLOAD_SIZE = 2 * 1024 * 1024 // 2MB
 const REPLAY_WINDOW_MS = 5 * 60 * 1000 // 5 minutes
+
+function isTimestampFresh(timestamp: string): boolean {
+  if (!timestamp) return false
+  const timestampMs = parseInt(timestamp, 10) * 1000
+  if (isNaN(timestampMs)) return false
+  return Math.abs(Date.now() - timestampMs) <= REPLAY_WINDOW_MS
+}
 
 function verifyHmacSignature(
   payload: string,
@@ -28,9 +38,7 @@ function verifyHmacSignature(
 ): boolean {
   if (!signature || !timestamp || !secret) return false
 
-  const timestampMs = parseInt(timestamp, 10) * 1000
-  if (isNaN(timestampMs)) return false
-  if (Math.abs(Date.now() - timestampMs) > REPLAY_WINDOW_MS) return false
+  if (!isTimestampFresh(timestamp)) return false
 
   const expected = createHmac('sha256', secret)
     .update(`${timestamp}.${payload}`)
@@ -48,6 +56,31 @@ function verifyHmacSignature(
   } catch {
     return false
   }
+}
+
+// True when the signature verifies against ANY of the candidate secrets. Used
+// to bind the inbound signature to the resolved tenant: once the target inbox
+// declares its own per-tenant secret, the global INBOX_OPS_WEBHOOK_SECRET is no
+// longer accepted for that inbox, so a holder of the global key alone cannot
+// forge mail into a tenant that opted into a dedicated secret.
+function verifyHmacAgainstAny(
+  payload: string,
+  signature: string,
+  timestamp: string,
+  secrets: string[],
+): boolean {
+  for (const secret of secrets) {
+    if (secret && verifyHmacSignature(payload, signature, timestamp, secret)) return true
+  }
+  return false
+}
+
+// Stable, non-reversible identifier for the pre-DB global rate-limit bucket.
+// Keying on the configured signing secret (rather than the attacker-set `to` or
+// the per-request signature) means the bucket is request-invariant for a given
+// secret, so rotating recipients or mutating the body cannot dilute the limit.
+function secretFingerprint(secret: string): string {
+  return createHmac('sha256', 'inbox_ops:rate_limit:salt').update(secret).digest('hex').slice(0, 32)
 }
 
 function verifySvixSignature(
@@ -102,7 +135,7 @@ async function fetchResendEmail(emailId: string): Promise<{
 }
 
 type VerifiedPayload =
-  | { kind: 'custom'; payload: Record<string, unknown> }
+  | { kind: 'custom'; payload: Record<string, unknown>; signature: string; timestamp: string }
   | { kind: 'resend'; emailFields: Awaited<ReturnType<typeof fetchResendEmail>>; to: string[] }
 
 async function verifyAndParse(req: Request, rawBody: string): Promise<
@@ -115,11 +148,15 @@ async function verifyAndParse(req: Request, rawBody: string): Promise<
   if (customSig) {
     const webhookSecret = process.env.INBOX_OPS_WEBHOOK_SECRET
     if (!webhookSecret) {
-      console.error('[inbox_ops:webhook] INBOX_OPS_WEBHOOK_SECRET not configured')
+      logger.error('INBOX_OPS_WEBHOOK_SECRET not configured')
       return { ok: false, response: NextResponse.json({ error: 'Service unavailable' }, { status: 503 }) }
     }
     const timestamp = req.headers.get('x-webhook-timestamp') || ''
-    if (!verifyHmacSignature(rawBody, customSig, timestamp, webhookSecret)) {
+    // Cheap, secret-independent gate first: reject replayed/stale requests
+    // before parsing. The HMAC itself is verified later, against the secret
+    // bound to the resolved inbox (see the POST handler), so a holder of the
+    // global secret cannot inject into a tenant that owns its own secret.
+    if (!isTimestampFresh(timestamp)) {
       return { ok: false, response: NextResponse.json({ error: 'Invalid signature' }, { status: 400 }) }
     }
     let payload: Record<string, unknown>
@@ -128,13 +165,13 @@ async function verifyAndParse(req: Request, rawBody: string): Promise<
     } catch {
       return { ok: false, response: NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
     }
-    return { ok: true, data: { kind: 'custom', payload } }
+    return { ok: true, data: { kind: 'custom', payload, signature: customSig, timestamp } }
   }
 
   if (svixId) {
     const signingSecret = process.env.RESEND_WEBHOOK_SIGNING_SECRET
     if (!signingSecret) {
-      console.error('[inbox_ops:webhook] RESEND_WEBHOOK_SIGNING_SECRET not configured')
+      logger.error('RESEND_WEBHOOK_SIGNING_SECRET not configured')
       return { ok: false, response: NextResponse.json({ error: 'Service unavailable' }, { status: 503 }) }
     }
     const headers: Record<string, string> = {
@@ -170,7 +207,7 @@ export async function POST(req: Request) {
   const hasCustomSecret = Boolean(process.env.INBOX_OPS_WEBHOOK_SECRET)
   const hasResendSecret = Boolean(process.env.RESEND_WEBHOOK_SIGNING_SECRET)
   if (!hasCustomSecret && !hasResendSecret) {
-    console.error('[inbox_ops:webhook] Neither INBOX_OPS_WEBHOOK_SECRET nor RESEND_WEBHOOK_SIGNING_SECRET is configured')
+    logger.error('Neither INBOX_OPS_WEBHOOK_SECRET nor RESEND_WEBHOOK_SIGNING_SECRET is configured')
     return NextResponse.json({ error: 'Service unavailable' }, { status: 503 })
   }
 
@@ -238,23 +275,29 @@ export async function POST(req: Request) {
   try {
     cache = container.resolve('cache') as CacheStrategy
   } catch {
-    // Cache not available — proceed without rate limiting
+    // Cache not available — the limiter now fails closed with a process-local
+    // bucket instead of waving the request through.
   }
 
-  const rateCheck = await checkRateLimit(cache, `webhook:${toAddress}`)
-  if (!rateCheck.allowed) {
-    return NextResponse.json(
-      { error: 'Rate limit exceeded' },
-      {
-        status: 429,
-        headers: rateCheck.retryAfterSeconds
-          ? { 'Retry-After': String(rateCheck.retryAfterSeconds) }
-          : undefined,
-      },
-    )
+  // Pre-DB global bucket keyed on the configured signing secret (custom) or the
+  // static Resend path, NOT on the attacker-controllable `to` and NOT on the
+  // per-request signature (which mutates with timestamp/body, so it would mint a
+  // fresh bucket every request and never throttle). The per-tenant secret lives
+  // behind the encrypted-column lookup, so the only secret available here without
+  // a DB hit is the global one — keying on it caps total inbound volume for the
+  // custom path and runs BEFORE the lookup so a flood cannot amplify DB work.
+  const globalBucketKey = verified.data.kind === 'custom'
+    ? `webhook:secret:${secretFingerprint(process.env.INBOX_OPS_WEBHOOK_SECRET || '')}`
+    : 'webhook:resend'
+  const globalRateCheck = await checkRateLimit(cache, globalBucketKey)
+  if (!globalRateCheck.allowed) {
+    return rateLimitedResponse(globalRateCheck.retryAfterSeconds)
   }
+
   const em = (container.resolve('em') as EntityManager).fork()
 
+  // No explicit scope: decryptEntitiesWithFallbackScope reads tenant/org off the
+  // resolved row, which is exactly what binds webhook_secret to its own tenant.
   const settings = await findOneWithDecryption(
     em,
     InboxSettings,
@@ -265,8 +308,39 @@ export async function POST(req: Request) {
     },
   )
 
+  // Final HMAC verification for the custom provider path: bind the signature to
+  // the resolved tenant. When the inbox declares its own secret, ONLY that
+  // secret is accepted; otherwise the global secret is accepted (back-compat).
+  // For an unknown `to` we still require the global secret so the endpoint never
+  // behaves as an unauthenticated probe oracle.
+  if (verified.data.kind === 'custom') {
+    const globalSecret = process.env.INBOX_OPS_WEBHOOK_SECRET || ''
+    const inboxSecret = settings?.webhookSecret || ''
+    const acceptableSecrets = inboxSecret ? [inboxSecret] : [globalSecret]
+    const signatureValid = verifyHmacAgainstAny(
+      rawBody,
+      verified.data.signature,
+      verified.data.timestamp,
+      acceptableSecrets,
+    )
+    if (!signatureValid) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
+    }
+  }
+
   if (!settings) {
     return NextResponse.json({ ok: true })
+  }
+
+  // Per-tenant bucket keyed on the RESOLVED tenant (not the raw `to`), so it
+  // cannot be diluted by alias addresses that map to the same inbox.
+  const tenantRateCheck = await checkRateLimit(
+    cache,
+    `webhook:tenant:${settings.tenantId}`,
+    settings.tenantId,
+  )
+  if (!tenantRateCheck.allowed) {
+    return rateLimitedResponse(tenantRateCheck.retryAfterSeconds)
   }
 
   const parsed = parseInboundEmail(emailInput)
@@ -280,7 +354,7 @@ export async function POST(req: Request) {
         toAddress,
       })
     } catch (eventError) {
-      console.error('[inbox_ops:webhook] Failed to emit deduplicated event:', eventError)
+      logger.error('Failed to emit deduplicated event', { err: eventError })
     }
     return NextResponse.json({ ok: true })
   }
@@ -322,10 +396,20 @@ export async function POST(req: Request) {
       subject: parsed.subject,
     })
   } catch (eventError) {
-    console.error('[inbox_ops:webhook] Failed to emit email.received event:', eventError)
+    logger.error('Failed to emit email.received event', { err: eventError })
   }
 
   return NextResponse.json({ ok: true })
+}
+
+function rateLimitedResponse(retryAfterSeconds?: number): NextResponse {
+  return NextResponse.json(
+    { error: 'Rate limit exceeded' },
+    {
+      status: 429,
+      headers: retryAfterSeconds ? { 'Retry-After': String(retryAfterSeconds) } : undefined,
+    },
+  )
 }
 
 function extractToAddress(payload: Record<string, unknown>): string | null {

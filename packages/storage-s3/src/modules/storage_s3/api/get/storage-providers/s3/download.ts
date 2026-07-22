@@ -3,6 +3,12 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import {
+  buildAttachmentContentDisposition,
+  canRenderInlineAttachment,
+  sanitizeUploadedFileName,
+} from '@open-mercato/core/modules/attachments/lib/security'
+import { isS3KeyAddressableByScope } from '../../../../lib/key-scope'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
 
 export const metadata = {
@@ -20,11 +26,6 @@ async function resolveDriver(tenantId: string, orgId: string): Promise<S3Storage
   return new S3StorageDriver(creds)
 }
 
-function isKeyScoped(key: string, orgId: string, tenantId: string): boolean {
-  const parts = key.split('/')
-  return parts.length >= 3 && parts[1] === `org_${orgId}` && parts[2] === `tenant_${tenantId}`
-}
-
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
@@ -36,7 +37,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'key query param is required' }, { status: 400 })
   }
 
-  if (!isKeyScoped(key, auth.orgId, auth.tenantId)) {
+  if (!isS3KeyAddressableByScope(key, auth.orgId, auth.tenantId)) {
     return NextResponse.json({ error: 'Access denied: key is not scoped to this tenant.' }, { status: 403 })
   }
 
@@ -55,11 +56,18 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'File not found' }, { status: 404 })
   }
 
+  const fileName = sanitizeUploadedFileName(key.split('/').pop() || 'download')
+  const renderInline = canRenderInlineAttachment(contentType)
+  const responseContentType = renderInline ? (contentType ?? 'application/octet-stream') : 'application/octet-stream'
+
   return new NextResponse(new Uint8Array(buffer), {
     status: 200,
     headers: {
-      'Content-Type': contentType ?? 'application/octet-stream',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'Content-Disposition': buildAttachmentContentDisposition(fileName, renderInline ? 'inline' : 'attachment'),
       'Content-Length': String(buffer.length),
+      'Content-Type': responseContentType,
+      'X-Content-Type-Options': 'nosniff',
     },
   })
 }

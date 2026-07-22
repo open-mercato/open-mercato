@@ -1,9 +1,17 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
-import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
+import { resolveDictionariesRouteContext, resolveDictionaryActorId } from '@open-mercato/core/modules/dictionaries/api/context'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  resolveDictionaryEntrySortMode,
+} from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import {
   dictionariesErrorSchema,
   dictionariesOkSchema,
@@ -13,10 +21,21 @@ import {
   dictionaryUpdateSchema,
   upsertDictionarySchema,
 } from '../openapi'
+import { dictionaryKeySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'api' })
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
+// System dictionaries use namespaced keys (e.g. `sales.deal_loss_reason`,
+// `resources.activity-types`) that the strict create-key regex rejects. The
+// manager edit dialog disables the key field but still resubmits the existing
+// key, so the update parse must accept any stored key verbatim. The strict
+// user-key regex is only enforced below when the key actually changes.
+const updateKeySchema = z.string().trim().min(1).max(100)
 const updateSchema = upsertDictionarySchema
   .partial()
+  .extend({ key: updateKeySchema.optional() })
   .refine((data) => Object.keys(data).length > 0, {
     message: 'Provide at least one field to update.',
   })
@@ -77,6 +96,7 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
       isSystem: dictionary.isSystem,
       isActive: dictionary.isActive,
       managerVisibility: dictionary.managerVisibility,
+      entrySortMode: resolveDictionaryEntrySortMode(dictionary.entrySortMode),
       organizationId: dictionary.organizationId,
       isInherited: context.organizationId ? dictionary.organizationId !== context.organizationId : false,
       createdAt: dictionary.createdAt,
@@ -86,7 +106,7 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries/:id.GET] Unexpected error', err)
+    logger.error('Failed to load dictionary', { err })
     return NextResponse.json({ error: 'Failed to load dictionary' }, { status: 500 })
   }
 }
@@ -97,6 +117,29 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const payload = updateSchema.parse(await req.json().catch(() => ({})))
     const dictionary = await loadDictionary(context, dictionaryId)
+
+    await enforceCommandOptimisticLockWithGuards(context.container, {
+      resourceKind: 'dictionaries.dictionary',
+      resourceId: dictionary.id,
+      current: dictionary.updatedAt ?? null,
+      request: req,
+    })
+
+    const guardUserId = resolveDictionaryActorId(context.auth)
+    const guardResult = await validateCrudMutationGuard(context.container, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: guardUserId,
+      resourceKind: 'dictionaries.dictionary',
+      resourceId: dictionary.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: payload,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
 
     if (isProtectedCurrencyDictionary(dictionary)) {
       if (payload.key && payload.key.trim().toLowerCase() !== dictionary.key) {
@@ -110,6 +153,10 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     if (payload.key) {
       const key = payload.key.trim().toLowerCase()
       if (key !== dictionary.key) {
+        const strictKey = dictionaryKeySchema.safeParse(key)
+        if (!strictKey.success) {
+          throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.invalid_key', 'Use lowercase letters, numbers, hyphen, or underscore.') })
+        }
         const organizationId = context.organizationId
         if (!organizationId) {
           throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.organization_required', 'Organization context is required') })
@@ -141,9 +188,26 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
         dictionary.deletedAt = null
       }
     }
+    if (payload.entrySortMode !== undefined) {
+      dictionary.entrySortMode = payload.entrySortMode
+    }
 
     dictionary.updatedAt = new Date()
     await context.em.flush()
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(context.container, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userId: guardUserId,
+        resourceKind: 'dictionaries.dictionary',
+        resourceId: dictionary.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     return NextResponse.json({
       id: dictionary.id,
@@ -153,6 +217,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
       isSystem: dictionary.isSystem,
       isActive: dictionary.isActive,
       managerVisibility: dictionary.managerVisibility,
+      entrySortMode: resolveDictionaryEntrySortMode(dictionary.entrySortMode),
       createdAt: dictionary.createdAt,
       updatedAt: dictionary.updatedAt,
     })
@@ -160,7 +225,10 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries/:id.PATCH] Unexpected error', err)
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: err.issues[0]?.message ?? 'Validation failed' }, { status: 400 })
+    }
+    logger.error('Failed to update dictionary', { err })
     return NextResponse.json({ error: 'Failed to update dictionary' }, { status: 500 })
   }
 }
@@ -171,6 +239,29 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const dictionary = await loadDictionary(context, dictionaryId)
 
+    await enforceCommandOptimisticLockWithGuards(context.container, {
+      resourceKind: 'dictionaries.dictionary',
+      resourceId: dictionary.id,
+      current: dictionary.updatedAt ?? null,
+      request: req,
+    })
+
+    const guardUserId = resolveDictionaryActorId(context.auth)
+    const guardResult = await validateCrudMutationGuard(context.container, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: guardUserId,
+      resourceKind: 'dictionaries.dictionary',
+      resourceId: dictionary.id,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: null,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     if (isProtectedCurrencyDictionary(dictionary)) {
       throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.currency_protected', 'The currency dictionary cannot be modified or deleted.') })
     }
@@ -179,12 +270,26 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     dictionary.deletedAt = dictionary.deletedAt ?? new Date()
     await context.em.flush()
 
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(context.container, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userId: guardUserId,
+        resourceKind: 'dictionaries.dictionary',
+        resourceId: dictionary.id,
+        operation: 'delete',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
     return NextResponse.json({ ok: true })
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries/:id.DELETE] Unexpected error', err)
+    logger.error('Failed to delete dictionary', { err })
     return NextResponse.json({ error: 'Failed to delete dictionary' }, { status: 500 })
   }
 }

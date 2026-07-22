@@ -15,15 +15,28 @@ import {
   clearEphemeralEnvironmentState,
   resolveBuildCacheTtlSeconds,
   resolveAppReadyTimeoutMs,
+  resolveEphemeralPostgresImage,
+  ephemeralPostgresInitSql,
   shouldReuseBuildArtifacts,
   acquireEphemeralRuntimeLock,
+  waitForApplicationReadiness,
 } from '../integration'
+import { EventEmitter } from 'node:events'
+import type { ChildProcess } from 'node:child_process'
 
 const CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
 const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
 const CHECKOUT_TEST_INJECTION_FLAG = 'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED'
+const PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY = 'ATTACHMENTS_PARTITION_PRIVATE_ATTACHMENTS_ROOT'
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
+const appDirectory = path.join(projectRootDirectory, 'apps', 'mercato')
+const defaultPrivateAttachmentsRoot = path.join(appDirectory, 'storage', 'attachments', 'privateAttachments')
+
+const makeSetCookieHeaders = (cookies: string[]): Headers => ({
+  get: (name: string) => (name.toLowerCase() === 'set-cookie' ? cookies.join(', ') : null),
+  getSetCookie: () => cookies,
+}) as unknown as Headers
 
 const mockHealthyReadinessFetch = (
   overrides: {
@@ -37,6 +50,10 @@ const mockHealthyReadinessFetch = (
       return {
         status: 200,
         ok: true,
+        headers: makeSetCookieHeaders([
+          'auth_token=test-auth-token; Path=/; HttpOnly; SameSite=Lax',
+          'session_token=test-session-token; Path=/; HttpOnly; SameSite=Lax',
+        ]),
         text: async () => JSON.stringify({ token: 'test-admin-token' }),
       } as unknown as Response
     }
@@ -59,6 +76,9 @@ const mockHealthyReadinessFetch = (
       ok: true,
       text: async () => '<!doctype html><script src="/_next/static/chunks/app-healthcheck.js"></script>',
     } as unknown as Response
+  }
+  if (url.endsWith('/backend')) {
+    return { status: 200, ok: true, text: async () => '' } as unknown as Response
   }
   if (url.includes('/_next/static/chunks/app-healthcheck.js')) {
     return { status: 200, ok: true, text: async () => '' } as unknown as Response
@@ -164,6 +184,7 @@ describe('integration cache and options', () => {
         'postgres://integration:integration@127.0.0.1:5432/open_mercato',
       )
       expect(environment?.commandEnvironment.QUEUE_BASE_DIR).toBe('/tmp/open-mercato-queue')
+      expect(environment?.commandEnvironment[PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY]).toBe(defaultPrivateAttachmentsRoot)
       expect(environment?.commandEnvironment.PW_CAPTURE_SCREENSHOTS).toBe('1')
       expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBeUndefined()
     } finally {
@@ -198,6 +219,43 @@ describe('integration cache and options', () => {
       expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBe('true')
     } finally {
       fetchSpy.mockRestore()
+    }
+  }, REUSE_ENV_TEST_TIMEOUT_MS)
+
+  it('reuses app-local private attachment storage when queue state points at an app root', async () => {
+    const baseUrl = 'http://127.0.0.1:5001'
+    const appRoot = await mkdtemp(path.join(os.tmpdir(), 'om-integration-app-root-'))
+    const queueBaseDir = path.join(appRoot, '.mercato', 'queue')
+    const fetchSpy = mockHealthyReadinessFetch()
+
+    try {
+      await mkdir(path.join(appRoot, 'src'), { recursive: true })
+      await writeFile(path.join(appRoot, 'package.json'), '{"name":"integration-test-app"}\n', 'utf8')
+      await writeFile(path.join(appRoot, 'src', 'modules.ts'), 'export const enabledModules = []\n', 'utf8')
+
+      await writeEphemeralEnvironmentState({
+        baseUrl,
+        port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir,
+        logPrefix: 'integration',
+        captureScreenshots: false,
+      })
+
+      const environment = await tryReuseExistingEnvironment({
+        verbose: false,
+        captureScreenshots: false,
+        logPrefix: 'integration',
+        forceRebuild: false,
+      })
+
+      expect(environment).not.toBeNull()
+      expect(environment?.commandEnvironment[PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY]).toBe(
+        path.join(appRoot, 'storage', 'attachments', 'privateAttachments'),
+      )
+    } finally {
+      fetchSpy.mockRestore()
+      await rm(appRoot, { recursive: true, force: true })
     }
   }, REUSE_ENV_TEST_TIMEOUT_MS)
 
@@ -400,6 +458,27 @@ describe('integration cache and options', () => {
     warn.mockRestore()
   })
 
+  it('defaults the ephemeral Postgres image to a pgvector-enabled build', () => {
+    expect(resolveEphemeralPostgresImage({})).toBe('pgvector/pgvector:pg16')
+    expect(resolveEphemeralPostgresImage({ OM_INTEGRATION_POSTGRES_IMAGE: '   ' })).toBe(
+      'pgvector/pgvector:pg16',
+    )
+  })
+
+  it('honors an OM_INTEGRATION_POSTGRES_IMAGE override for the ephemeral Postgres image', () => {
+    expect(
+      resolveEphemeralPostgresImage({ OM_INTEGRATION_POSTGRES_IMAGE: 'pgvector/pgvector:pg17' }),
+    ).toBe('pgvector/pgvector:pg17')
+  })
+
+  it('creates the vector and pgcrypto extensions in the ephemeral init SQL', () => {
+    const sql = ephemeralPostgresInitSql()
+    expect(sql).toContain('CREATE EXTENSION IF NOT EXISTS vector')
+    expect(sql).toContain('CREATE EXTENSION IF NOT EXISTS pgcrypto')
+    // Extensions are also seeded into template1 so future databases inherit them.
+    expect(sql).toContain('\\connect template1')
+  })
+
   it('reuses build artifacts only with matching source fingerprint and fresh cache state', async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'om-int-cache-test-'))
     try {
@@ -448,7 +527,7 @@ describe('integration cache and options', () => {
       ).resolves.toBe(false)
 
       await writeFile(sourceFile, 'const value = 1')
-      await writeFile(sourceFile, 'const value = 2')
+      await writeFile(sourceFile, 'const value = 22')
       await expect(
         shouldReuseBuildArtifacts(120, 'integration', {
           inputPaths: [sourceFile],
@@ -553,6 +632,292 @@ describe('integration cache and options', () => {
     } finally {
       warn.mockRestore()
       await rm(tempRoot, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('waitForApplicationReadiness', () => {
+  const makeFakeProcess = (): ChildProcess => new EventEmitter() as unknown as ChildProcess
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+  it('verifies backend browser navigation with cookies returned by login', async () => {
+    let backendCookieHeader: string | null = null
+
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      const body = typeof init?.body === 'string' ? init.body : ''
+
+      if (url.endsWith('/api/auth/login')) {
+        if (body.includes('email=admin%40acme.com')) {
+          return {
+            status: 200,
+            ok: true,
+            headers: makeSetCookieHeaders([
+              'auth_token=secret-auth-value; Path=/; HttpOnly; SameSite=Lax',
+              'session_token=secret-session-value; Path=/; HttpOnly; SameSite=Lax',
+            ]),
+            text: async () => JSON.stringify({ token: 'token' }),
+          } as unknown as Response
+        }
+        return { status: 401, ok: false, text: async () => '' } as unknown as Response
+      }
+      if (url.endsWith('/login')) {
+        return {
+          status: 200,
+          ok: true,
+          text: async () => '<!doctype html><script src="/_next/static/chunks/app.js"></script>',
+        } as unknown as Response
+      }
+      if (url.includes('/api/customers/people')) {
+        return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+      }
+      if (url.endsWith('/backend')) {
+        backendCookieHeader = typeof init?.headers === 'object'
+          && init.headers !== null
+          && !Array.isArray(init.headers)
+          ? String((init.headers as Record<string, unknown>).Cookie ?? '')
+          : ''
+        return { status: backendCookieHeader ? 200 : 307, ok: Boolean(backendCookieHeader), text: async () => '' } as unknown as Response
+      }
+      return { status: 200, ok: true, text: async () => '' } as unknown as Response
+    })
+
+    try {
+      await waitForApplicationReadiness('http://127.0.0.1:5001', makeFakeProcess(), {
+        timeoutMs: 1_000,
+        intervalMs: 5,
+        stabilizationMs: 10,
+      })
+      expect(backendCookieHeader).toContain('auth_token=secret-auth-value')
+      expect(backendCookieHeader).toContain('session_token=secret-session-value')
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('reports backend auth redirect loops without leaking cookie values', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      const body = typeof init?.body === 'string' ? init.body : ''
+
+      if (url.endsWith('/api/auth/login')) {
+        if (body.includes('email=admin%40acme.com')) {
+          return {
+            status: 200,
+            ok: true,
+            headers: makeSetCookieHeaders([
+              'auth_token=secret-auth-value; Path=/; HttpOnly; SameSite=Lax',
+              'session_token=secret-session-value; Path=/; HttpOnly; SameSite=Lax',
+            ]),
+            text: async () => JSON.stringify({ token: 'token' }),
+          } as unknown as Response
+        }
+        return { status: 401, ok: false, text: async () => '' } as unknown as Response
+      }
+      if (url.endsWith('/login')) {
+        return {
+          status: 200,
+          ok: true,
+          text: async () => '<!doctype html><script src="/_next/static/chunks/app.js"></script>',
+        } as unknown as Response
+      }
+      if (url.includes('/api/customers/people')) {
+        return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+      }
+      if (url.endsWith('/backend')) {
+        return {
+          status: 307,
+          ok: false,
+          headers: {
+            get: (name: string) => (name.toLowerCase() === 'location' ? '/api/auth/session/refresh' : null),
+            getSetCookie: () => [],
+          },
+          text: async () => '',
+        } as unknown as Response
+      }
+      if (url.endsWith('/api/auth/session/refresh')) {
+        return {
+          status: 307,
+          ok: false,
+          headers: {
+            get: (name: string) => (name.toLowerCase() === 'location' ? '/backend' : null),
+            getSetCookie: () => ['auth_token=rotated-secret-value; Path=/; HttpOnly; SameSite=Lax'],
+          },
+          text: async () => '',
+        } as unknown as Response
+      }
+      return { status: 200, ok: true, text: async () => '' } as unknown as Response
+    })
+
+    try {
+      let error: Error | null = null
+      try {
+        await waitForApplicationReadiness('http://127.0.0.1:5001', makeFakeProcess(), {
+          timeoutMs: 50,
+          intervalMs: 5,
+          stabilizationMs: 10,
+        })
+      } catch (caught) {
+        error = caught instanceof Error ? caught : new Error(String(caught))
+      }
+
+      expect(error).not.toBeNull()
+      expect(error?.message).toMatch(/Backend browser auth probe detected redirect loop/)
+      expect(error?.message).not.toMatch(/secret-(auth|session)|rotated-secret/)
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('rejects unsafe backend auth redirects without following them', async () => {
+    let externalRedirectFetches = 0
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      const body = typeof init?.body === 'string' ? init.body : ''
+
+      if (url.includes('evil.example')) {
+        externalRedirectFetches += 1
+        return { status: 200, ok: true, text: async () => '' } as unknown as Response
+      }
+      if (url.endsWith('/api/auth/login')) {
+        if (body.includes('email=admin%40acme.com')) {
+          return {
+            status: 200,
+            ok: true,
+            headers: makeSetCookieHeaders([
+              'auth_token=secret-auth-value; Path=/; HttpOnly; SameSite=Lax',
+              'session_token=secret-session-value; Path=/; HttpOnly; SameSite=Lax',
+            ]),
+            text: async () => JSON.stringify({ token: 'token' }),
+          } as unknown as Response
+        }
+        return { status: 401, ok: false, text: async () => '' } as unknown as Response
+      }
+      if (url.endsWith('/login')) {
+        return {
+          status: 200,
+          ok: true,
+          text: async () => '<!doctype html><script src="/_next/static/chunks/app.js"></script>',
+        } as unknown as Response
+      }
+      if (url.includes('/api/customers/people')) {
+        return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+      }
+      if (url.endsWith('/backend')) {
+        return {
+          status: 307,
+          ok: false,
+          headers: {
+            get: (name: string) => (name.toLowerCase() === 'location' ? '//evil.example/session' : null),
+            getSetCookie: () => [],
+          },
+          text: async () => '',
+        } as unknown as Response
+      }
+      return { status: 200, ok: true, text: async () => '' } as unknown as Response
+    })
+
+    try {
+      let error: Error | null = null
+      try {
+        await waitForApplicationReadiness('http://127.0.0.1:5001', makeFakeProcess(), {
+          timeoutMs: 50,
+          intervalMs: 5,
+          stabilizationMs: 10,
+        })
+      } catch (caught) {
+        error = caught instanceof Error ? caught : new Error(String(caught))
+      }
+
+      expect(error).not.toBeNull()
+      expect(error?.message).toMatch(/unsafe redirect: protocol-relative redirect/)
+      expect(error?.message).not.toMatch(/secret-(auth|session)/)
+      expect(externalRedirectFetches).toBe(0)
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('serializes probe cycles so slow probes never pile up concurrent login attempts', async () => {
+    let inFlight = 0
+    let maxInFlight = 0
+    let loginPageCycles = 0
+
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : String(input)
+      inFlight += 1
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      try {
+        // Each probe fetch is slower than the retry interval; the old race-against-a-tick loop
+        // would launch overlapping cycles here and blow past one cycle's concurrent requests.
+        await sleep(40)
+        const isLoginPage = url.endsWith('/login') && !url.endsWith('/api/auth/login')
+        if (isLoginPage) {
+          loginPageCycles += 1
+          if (loginPageCycles <= 2) {
+            return { status: 503, ok: false, text: async () => '' } as unknown as Response
+          }
+          return {
+            status: 200,
+            ok: true,
+            text: async () => '<!doctype html><script src="/_next/static/chunks/app.js"></script>',
+          } as unknown as Response
+        }
+        if (url.endsWith('/api/auth/login')) {
+          return {
+            status: 200,
+            ok: true,
+            headers: makeSetCookieHeaders([
+              'auth_token=test-auth-token; Path=/; HttpOnly; SameSite=Lax',
+              'session_token=test-session-token; Path=/; HttpOnly; SameSite=Lax',
+            ]),
+            text: async () => JSON.stringify({ token: 'token' }),
+          } as unknown as Response
+        }
+        if (url.includes('/api/customers/people')) {
+          return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+        }
+        if (url.endsWith('/backend')) {
+          return { status: 200, ok: true, text: async () => '' } as unknown as Response
+        }
+        return { status: 200, ok: true, text: async () => '' } as unknown as Response
+      } finally {
+        inFlight -= 1
+      }
+    })
+
+    try {
+      await waitForApplicationReadiness('http://127.0.0.1:5001', makeFakeProcess(), {
+        timeoutMs: 5_000,
+        intervalMs: 5,
+        stabilizationMs: 10,
+      })
+      // One cycle issues exactly four parallel probe fetches (login page, backend login,
+      // authenticated API, and backend browser-cookie navigation). Serialized cycles keep the
+      // peak at four; overlap would exceed it.
+      expect(maxInFlight).toBeLessThanOrEqual(4)
+      expect(loginPageCycles).toBeGreaterThanOrEqual(3)
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('fails fast when the application process exits before becoming ready', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async () => {
+      await sleep(20)
+      return { status: 503, ok: false, text: async () => '' } as unknown as Response
+    })
+    const fakeProcess = makeFakeProcess()
+
+    try {
+      const readiness = waitForApplicationReadiness('http://127.0.0.1:5001', fakeProcess, {
+        timeoutMs: 5_000,
+        intervalMs: 5,
+      })
+      setTimeout(() => fakeProcess.emit('exit', 1), 30)
+      await expect(readiness).rejects.toThrow(/exited before readiness check \(exit 1\)/)
+    } finally {
+      fetchSpy.mockRestore()
     }
   })
 })

@@ -38,7 +38,7 @@ describe('PortalSignupPage', () => {
     fireEvent.change(getByLabelText(/^password$/i), { target: { value: 'pw12345' } })
   }
 
-  it('submits the signup payload with tenant + organization scope on 202 success', async () => {
+  it('submits the signup payload with organization scope on 202 success', async () => {
     apiCallMock.mockResolvedValueOnce({ ok: true, status: 202, result: { ok: true } })
 
     const { getByLabelText, getByRole, findByRole } = renderWithProviders(
@@ -58,7 +58,6 @@ describe('PortalSignupPage', () => {
           email: 'jane@example.com',
           password: 'pw12345',
           displayName: 'Jane Smith',
-          tenantId: 't-1',
           organizationId: 'o-1',
         }),
       }),
@@ -110,5 +109,174 @@ describe('PortalSignupPage', () => {
     })
 
     await findByText(/signup failed/i)
+  })
+
+  it('surfaces per-field validation errors from details and does not show raw Zod strings', async () => {
+    apiCallMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      result: {
+        ok: false,
+        error: 'Validation failed',
+        details: { password: ['Too small: expected string to have >=8 characters'] },
+      },
+    })
+
+    const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(
+      <PortalSignupPage params={{ orgSlug: 'acme' }} />,
+    )
+    fillForm(getByLabelText)
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
+    })
+
+    // Shows the translated, user-friendly field-level message
+    await findByText(/password must be at least 8 characters/i)
+    // Does NOT show the generic "Validation failed" banner
+    expect(queryByText(/validation failed/i)).toBeNull()
+    // Does NOT show raw Zod message text
+    expect(queryByText(/too small/i)).toBeNull()
+  })
+
+  it('shows the generic banner when the API returns 400 with an empty details map', async () => {
+    apiCallMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      result: { ok: false, error: 'Validation failed', details: {} },
+    })
+
+    const { getByLabelText, getByRole, findByText } = renderWithProviders(
+      <PortalSignupPage params={{ orgSlug: 'acme' }} />,
+    )
+    fillForm(getByLabelText)
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
+    })
+
+    await findByText(/validation failed/i)
+  })
+
+  it('shows the generic banner when details only contains empty message arrays', async () => {
+    apiCallMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      result: { ok: false, error: 'Validation failed', details: { password: [] } },
+    })
+
+    const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(
+      <PortalSignupPage params={{ orgSlug: 'acme' }} />,
+    )
+    fillForm(getByLabelText)
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
+    })
+
+    await findByText(/validation failed/i)
+    expect(queryByText(/password must be at least 8 characters/i)).toBeNull()
+  })
+
+  it('falls back to the banner for unmapped detail field keys instead of dropping them', async () => {
+    apiCallMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      result: {
+        ok: false,
+        error: 'Validation failed',
+        details: { phoneNumber: ['Invalid phone number'] },
+      },
+    })
+
+    const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(
+      <PortalSignupPage params={{ orgSlug: 'acme' }} />,
+    )
+    fillForm(getByLabelText)
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
+    })
+
+    await findByText(/validation failed/i)
+    expect(queryByText(/invalid phone number/i)).toBeNull()
+  })
+
+  it('keeps mapped field errors and shows the banner when known and unknown detail keys are mixed', async () => {
+    apiCallMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      result: {
+        ok: false,
+        error: 'Validation failed',
+        details: { email: ['Invalid email'], phoneNumber: ['Invalid phone number'] },
+      },
+    })
+
+    const { getByLabelText, getByRole, findByText } = renderWithProviders(
+      <PortalSignupPage params={{ orgSlug: 'acme' }} />,
+    )
+    fillForm(getByLabelText)
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
+    })
+
+    await findByText(/please enter a valid email address/i)
+    await findByText(/validation failed/i)
+  })
+
+  it('announces field errors to assistive technology and links them to their inputs', async () => {
+    apiCallMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      result: {
+        ok: false,
+        error: 'Validation failed',
+        details: { email: ['Invalid email'] },
+      },
+    })
+
+    const { getByLabelText, getByRole, findByRole } = renderWithProviders(
+      <PortalSignupPage params={{ orgSlug: 'acme' }} />,
+    )
+    fillForm(getByLabelText)
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
+    })
+
+    const alert = await findByRole('alert')
+    expect(alert).toHaveTextContent(/please enter a valid email address/i)
+    expect(alert).toHaveAttribute('id', 'signup-email-error')
+    const emailInput = getByLabelText(/email/i)
+    expect(emailInput).toHaveAttribute('aria-describedby', 'signup-email-error')
+    expect(emailInput).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('clears field errors on subsequent submit attempts', async () => {
+    apiCallMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        result: {
+          ok: false,
+          error: 'Validation failed',
+          details: { email: ['Invalid email'] },
+        },
+      })
+      .mockResolvedValueOnce({ ok: true, status: 202, result: { ok: true } })
+
+    const { getByLabelText, getByRole, findByText, findByRole, queryByText } = renderWithProviders(
+      <PortalSignupPage params={{ orgSlug: 'acme' }} />,
+    )
+    fillForm(getByLabelText)
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
+    })
+
+    await findByText(/please enter a valid email address/i)
+
+    // Re-submit — field errors should clear and success view should appear
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
+    })
+
+    await findByRole('heading', { name: /check your email/i })
+    expect(queryByText(/please enter a valid email address/i)).toBeNull()
   })
 })

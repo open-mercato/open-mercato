@@ -22,7 +22,17 @@ import { E } from '#generated/entities.ids.generated'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
+import { runWithCacheTenant } from '@open-mercato/cache'
+import {
+  buildCollectionTags,
+  debugCrudCache,
+  expandResourceAliases,
+  isCrudCacheEnabled,
+  resolveCrudCache,
+} from '@open-mercato/shared/lib/crud/cache'
+import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { isMissingDealStageTransitionTable, warnMissingDealStageTransitionTable } from '../../../lib/dealStageTransitionTable'
 
 export const metadata = {
@@ -323,6 +333,72 @@ async function resolveEffectivePipelineStage(
   return null
 }
 
+const DEAL_DETAIL_CACHE_RESOURCE = 'customers.deal'
+// Every entity the detail payload reads, expressed with the same resourceKind
+// strings the customers commands declare. `expandResourceAliases` canonicalizes
+// them exactly the way `invalidateCrudCache` does on the write side (camelCase is
+// split, `_`/`-` become `.`), so `customers.pipelineStage` resolves to
+// `customers.pipeline.stage` and `customers.dictionary_entry` to
+// `customers.dictionary.entry`. That guarantees the collection tags stored here
+// match the ones the deal/pipeline/stage/dictionary commands flush.
+const DEAL_DETAIL_CACHE_TAG_RESOURCES = [
+  'customers.pipeline',
+  'customers.pipelineStage',
+  'customers.dictionary_entry',
+]
+const DEAL_DETAIL_CACHE_TTL_MS = 60_000
+
+type DealDetailCacheAuth = {
+  isSuperAdmin?: boolean | null
+  orgId?: string | null
+}
+
+// Capture every input `isOrganizationReadAccessAllowed` consults, so two requests
+// that share a signature also share an authorization outcome for the same deal.
+// The lookup runs after the access check, so this is defense in depth plus the
+// per-scope cache partitioning the issue asks for.
+function buildDealDetailScopeSignature(
+  auth: DealDetailCacheAuth,
+  scope: Pick<OrganizationScope, 'allowedIds' | 'filterIds'> | null | undefined,
+): string {
+  if (auth?.isSuperAdmin === true) return 'super'
+  if (scope?.allowedIds === null) return 'all'
+  const filterIds = Array.isArray(scope?.filterIds)
+    ? scope!.filterIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+    : []
+  if (filterIds.length) return `filter:${[...filterIds].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)).join(',')}`
+  return `home:${auth?.orgId ?? 'null'}`
+}
+
+function buildDealDetailCacheKey(params: {
+  tenantId: string | null
+  organizationId: string | null
+  dealId: string
+  scopeSignature: string
+  view: 'full' | 'lite'
+  includeKey: string
+}): string {
+  return [
+    'customers:deal:detail',
+    `tenant=${params.tenantId ?? 'null'}`,
+    `org=${params.organizationId ?? 'null'}`,
+    `deal=${params.dealId}`,
+    `scope=${params.scopeSignature}`,
+    `view=${params.view}`,
+    `include=${params.includeKey}`,
+  ].join(':')
+}
+
+function buildDealDetailCacheTags(tenantId: string | null, organizationId: string | null): string[] {
+  const tags = new Set<string>()
+  for (const key of expandResourceAliases(DEAL_DETAIL_CACHE_RESOURCE, DEAL_DETAIL_CACHE_TAG_RESOURCES)) {
+    for (const tag of buildCollectionTags(key, tenantId, [organizationId])) {
+      tags.add(tag)
+    }
+  }
+  return Array.from(tags)
+}
+
 export async function GET(request: Request, context: { params?: Record<string, unknown> }) {
   const parsedParams = paramsSchema.safeParse(context.params)
   if (!parsedParams.success) {
@@ -377,15 +453,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
     return notFound('Deal not found')
   }
 
-  const allowedOrgIds = new Set<string>()
-  if (Array.isArray(scope?.filterIds)) {
-    scope.filterIds.forEach((id) => {
-      if (typeof id === 'string' && id.trim().length) allowedOrgIds.add(id)
-    })
-  } else if (auth.orgId) {
-    allowedOrgIds.add(auth.orgId)
-  }
-  if (allowedOrgIds.size && deal.organizationId && !allowedOrgIds.has(deal.organizationId)) {
+  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: deal.organizationId })) {
     return forbidden('Access denied')
   }
 
@@ -393,103 +461,182 @@ export async function GET(request: Request, context: { params?: Record<string, u
     tenantId: deal.tenantId ?? auth.tenantId ?? null,
     organizationId: deal.organizationId ?? auth.orgId ?? null,
   }
-  let linkedPersonIds: string[] = []
-  let linkedCompanyIds: string[] = []
-  let people: DealAssociation[] = []
-  let companies: DealAssociation[] = []
 
-  if (liteView) {
-    const personLinkRows = await findWithDecryption(
+  const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
+  const resolveViewer = async (): Promise<{ name: string | null; email: string | null }> => {
+    if (!viewerUserId) {
+      return { name: null, email: auth.email ?? null }
+    }
+    const viewer = await findOneWithDecryption(
       em,
-      CustomerDealPersonLink,
-      { deal: deal.id },
-      { orderBy: { createdAt: 'ASC' } },
-      decryptionScope,
+      User,
+      { id: viewerUserId, tenantId: auth.tenantId ?? null },
+      {},
+      { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
     )
-    const companyLinkRows = await findWithDecryption(
-      em,
-      CustomerDealCompanyLink,
-      { deal: deal.id },
-      { orderBy: { createdAt: 'ASC' } },
-      decryptionScope,
-    )
+    return {
+      name: viewer?.name ?? null,
+      email: viewer?.email ?? auth.email ?? null,
+    }
+  }
 
-    linkedPersonIds = Array.from(
-      new Set(
-        personLinkRows
-          .map((link) => {
-            const personRef = link.person
-            if (!personRef) return null
-            if (typeof personRef === 'string') return personRef
-            const personIdValue = personRef.id
-            return typeof personIdValue === 'string' ? personIdValue : null
-          })
-          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
-      ),
-    )
-    linkedCompanyIds = Array.from(
-      new Set(
-        companyLinkRows
-          .map((link) => {
-            const companyRef = link.company
-            if (!companyRef) return null
-            if (typeof companyRef === 'string') return companyRef
-            const companyIdValue = companyRef.id
-            return typeof companyIdValue === 'string' ? companyIdValue : null
-          })
-          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
-      ),
-    )
+  // Opt-in detail cache (ENABLE_CRUD_API_CACHE). The lookup runs after the deal is
+  // resolved and the tenant + organization read-access checks pass, so the cache
+  // only ever memoizes a payload this caller is already authorized to see; it then
+  // skips the heavy association / custom-field / pipeline-stage / dictionary /
+  // audit-fallback sweeps below. The viewer block is request-specific, so it is
+  // excluded from the cached value and always resolved fresh.
+  const cacheTenantId = deal.tenantId ?? auth.tenantId ?? null
+  const cacheOrganizationId = deal.organizationId ?? null
+  const detailCache = isCrudCacheEnabled() ? resolveCrudCache(container) : null
+  const includeKey = includeFlags.size ? Array.from(includeFlags).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)).join(',') : 'none'
+  const detailCacheKey = detailCache
+    ? buildDealDetailCacheKey({
+        tenantId: cacheTenantId,
+        organizationId: cacheOrganizationId,
+        dealId: deal.id,
+        scopeSignature: buildDealDetailScopeSignature(auth, scope),
+        view: viewMode,
+        includeKey,
+      })
+    : null
 
-    const previewPeople = linkedPersonIds.length
-      ? await findWithDecryption(
+  if (detailCache && detailCacheKey) {
+    try {
+      const cached = await runWithCacheTenant(cacheTenantId, () => detailCache.get(detailCacheKey))
+      if (cached && typeof cached === 'object') {
+        const viewerInfo = await resolveViewer()
+        return NextResponse.json({
+          ...(cached as Record<string, unknown>),
+          viewer: {
+            userId: viewerUserId,
+            name: viewerInfo.name,
+            email: viewerInfo.email,
+          },
+        })
+      }
+    } catch (err) {
+      // A cache-backend read error must degrade to a fresh DB read, never a 500.
+      debugCrudCache('get', {
+        resource: DEAL_DETAIL_CACHE_RESOURCE,
+        key: detailCacheKey,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+  // Issue #3175: the reads below only depend on the already-resolved deal +
+  // organization scope + decryption scope, so they are grouped into Promise.all
+  // batches instead of being awaited one after another. True dependencies stay
+  // ordered: preview/decrypt run after their link rows, pipeline reads after the
+  // effective stage is known, and the appearance map / audit fallback after the
+  // pipeline stages load. This mirrors the parallel-read pattern already used
+  // across the customers list/interactions/activities routes.
+  const resolveAssociations = async (): Promise<{
+    people: DealAssociation[]
+    companies: DealAssociation[]
+    linkedPersonIds: string[]
+    linkedCompanyIds: string[]
+  }> => {
+    if (liteView) {
+      const [personLinkRows, companyLinkRows] = await Promise.all([
+        findWithDecryption(
           em,
-          CustomerEntity,
-          { id: { $in: linkedPersonIds.slice(0, 3) } },
-          { populate: ['personProfile'] },
+          CustomerDealPersonLink,
+          { deal: deal.id },
+          { orderBy: { createdAt: 'ASC' } },
           decryptionScope,
-        )
-      : []
-    const previewCompanies = linkedCompanyIds.length
-      ? await findWithDecryption(
+        ),
+        findWithDecryption(
           em,
-          CustomerEntity,
-          { id: { $in: linkedCompanyIds.slice(0, 3) } },
-          { populate: ['companyProfile'] },
+          CustomerDealCompanyLink,
+          { deal: deal.id },
+          { orderBy: { createdAt: 'ASC' } },
           decryptionScope,
-        )
-      : []
-    const previewPeopleMap = new Map(previewPeople.map((entity) => [entity.id, entity]))
-    const previewCompaniesMap = new Map(previewCompanies.map((entity) => [entity.id, entity]))
-    people = linkedPersonIds.slice(0, 3).reduce<DealAssociation[]>((acc, personId) => {
-      const entity = previewPeopleMap.get(personId) ?? null
-      if (!entity || entity.deletedAt) return acc
-      const { label, subtitle } = normalizePersonAssociation(entity)
-      acc.push({ id: entity.id, label, subtitle, kind: 'person' })
-      return acc
-    }, [])
-    companies = linkedCompanyIds.slice(0, 3).reduce<DealAssociation[]>((acc, companyId) => {
-      const entity = previewCompaniesMap.get(companyId) ?? null
-      if (!entity || entity.deletedAt) return acc
-      const { label, subtitle } = normalizeCompanyAssociation(entity)
-      acc.push({ id: entity.id, label, subtitle, kind: 'company' })
-      return acc
-    }, [])
-  } else {
-    const personLinks = await findWithDecryption(
-      em,
-      CustomerDealPersonLink,
-      { deal: deal.id },
-      { populate: ['person', 'person.personProfile'] },
-      decryptionScope,
-    )
-    const companyLinks = await findWithDecryption(
-      em,
-      CustomerDealCompanyLink,
-      { deal: deal.id },
-      { populate: ['company', 'company.companyProfile'] },
-      decryptionScope,
-    )
+        ),
+      ])
+
+      const linkedPersonIds = Array.from(
+        new Set(
+          personLinkRows
+            .map((link) => {
+              const personRef = link.person
+              if (!personRef) return null
+              if (typeof personRef === 'string') return personRef
+              const personIdValue = personRef.id
+              return typeof personIdValue === 'string' ? personIdValue : null
+            })
+            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
+        ),
+      )
+      const linkedCompanyIds = Array.from(
+        new Set(
+          companyLinkRows
+            .map((link) => {
+              const companyRef = link.company
+              if (!companyRef) return null
+              if (typeof companyRef === 'string') return companyRef
+              const companyIdValue = companyRef.id
+              return typeof companyIdValue === 'string' ? companyIdValue : null
+            })
+            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
+        ),
+      )
+
+      const [previewPeople, previewCompanies] = await Promise.all([
+        linkedPersonIds.length
+          ? findWithDecryption(
+              em,
+              CustomerEntity,
+              { id: { $in: linkedPersonIds.slice(0, 3) } },
+              { populate: ['personProfile'] },
+              decryptionScope,
+            )
+          : [],
+        linkedCompanyIds.length
+          ? findWithDecryption(
+              em,
+              CustomerEntity,
+              { id: { $in: linkedCompanyIds.slice(0, 3) } },
+              { populate: ['companyProfile'] },
+              decryptionScope,
+            )
+          : [],
+      ])
+      const previewPeopleMap = new Map(previewPeople.map((entity) => [entity.id, entity]))
+      const previewCompaniesMap = new Map(previewCompanies.map((entity) => [entity.id, entity]))
+      const people = linkedPersonIds.slice(0, 3).reduce<DealAssociation[]>((acc, personId) => {
+        const entity = previewPeopleMap.get(personId) ?? null
+        if (!entity || entity.deletedAt) return acc
+        const { label, subtitle } = normalizePersonAssociation(entity)
+        acc.push({ id: entity.id, label, subtitle, kind: 'person' })
+        return acc
+      }, [])
+      const companies = linkedCompanyIds.slice(0, 3).reduce<DealAssociation[]>((acc, companyId) => {
+        const entity = previewCompaniesMap.get(companyId) ?? null
+        if (!entity || entity.deletedAt) return acc
+        const { label, subtitle } = normalizeCompanyAssociation(entity)
+        acc.push({ id: entity.id, label, subtitle, kind: 'company' })
+        return acc
+      }, [])
+      return { people, companies, linkedPersonIds, linkedCompanyIds }
+    }
+
+    const [personLinks, companyLinks] = await Promise.all([
+      findWithDecryption(
+        em,
+        CustomerDealPersonLink,
+        { deal: deal.id },
+        { populate: ['person', 'person.personProfile'] },
+        decryptionScope,
+      ),
+      findWithDecryption(
+        em,
+        CustomerDealCompanyLink,
+        { deal: deal.id },
+        { populate: ['company', 'company.companyProfile'] },
+        decryptionScope,
+      ),
+    ])
     const fallbackTenantId = deal.tenantId ?? auth.tenantId ?? null
     const fallbackOrgId = deal.organizationId ?? auth.orgId ?? null
     await decryptEntitiesWithFallbackScope(personLinks, {
@@ -503,7 +650,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
       organizationId: fallbackOrgId,
     })
 
-    people = personLinks.reduce<DealAssociation[]>((acc, link) => {
+    const people = personLinks.reduce<DealAssociation[]>((acc, link) => {
       const entity = link.person as CustomerEntity | null
       if (!entity || entity.deletedAt) return acc
       const { label, subtitle } = normalizePersonAssociation(entity)
@@ -511,103 +658,36 @@ export async function GET(request: Request, context: { params?: Record<string, u
       return acc
     }, [])
 
-    companies = companyLinks.reduce<DealAssociation[]>((acc, link) => {
+    const companies = companyLinks.reduce<DealAssociation[]>((acc, link) => {
       const entity = link.company as CustomerEntity | null
       if (!entity || entity.deletedAt) return acc
       const { label, subtitle } = normalizeCompanyAssociation(entity)
       acc.push({ id: entity.id, label, subtitle, kind: 'company' })
       return acc
     }, [])
-    linkedPersonIds = people.map((entry) => entry.id)
-    linkedCompanyIds = companies.map((entry) => entry.id)
+    return {
+      people,
+      companies,
+      linkedPersonIds: people.map((entry) => entry.id),
+      linkedCompanyIds: companies.map((entry) => entry.id),
+    }
   }
 
-  const customFieldValues = await loadCustomFieldValues({
-    em,
-    entityId: E.customers.customer_deal,
-    recordIds: [deal.id],
-    tenantIdByRecord: { [deal.id]: deal.tenantId ?? null },
-    organizationIdByRecord: { [deal.id]: deal.organizationId ?? null },
-    tenantFallbacks: [deal.tenantId ?? auth.tenantId ?? null].filter((value): value is string => !!value),
-  })
-  const customFields = normalizeCustomFieldResponse(customFieldValues[deal.id]) ?? {}
+  const resolveOwner = async () =>
+    deal.ownerUserId
+      ? await findOneWithDecryption(
+        em,
+        User,
+        { id: deal.ownerUserId, tenantId: deal.tenantId ?? auth.tenantId ?? null },
+        {},
+        decryptionScope,
+      )
+      : null
 
-  const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
-  let viewerName: string | null = null
-  let viewerEmail: string | null = auth.email ?? null
-  if (viewerUserId) {
-    const viewerScope = {
-      tenantId: auth.tenantId ?? null,
-      organizationId: auth.orgId ?? null,
-    }
-    const viewer = await findOneWithDecryption(
-      em,
-      User,
-      { id: viewerUserId, tenantId: auth.tenantId ?? null },
-      {},
-      viewerScope,
-    )
-    viewerName = viewer?.name ?? null
-    viewerEmail = viewer?.email ?? viewerEmail ?? null
-  }
-
-  const owner = deal.ownerUserId
-    ? await findOneWithDecryption(
-      em,
-      User,
-      { id: deal.ownerUserId, tenantId: deal.tenantId ?? auth.tenantId ?? null },
-      {},
-      decryptionScope,
-    )
-    : null
-  const ownerPayload = owner
-    ? {
-      id: owner.id,
-      name: owner.name ?? owner.email ?? owner.id,
-      email: owner.email ?? '',
-    }
-    : null
-
-  const effectiveStage = includeStages
-    ? await resolveEffectivePipelineStage(em, deal, decryptionScope)
-    : null
-  const effectivePipelineId = deal.pipelineId ?? effectiveStage?.pipelineId ?? null
-  const effectivePipelineStageId = deal.pipelineStageId ?? effectiveStage?.id ?? null
-  const effectivePipelineStageLabel = deal.pipelineStage ?? effectiveStage?.label ?? null
-
-  const pipelineStages = includeStages && effectivePipelineId
-    ? await findWithDecryption(
-      em,
-      CustomerPipelineStage,
-      {
-        pipelineId: effectivePipelineId,
-        organizationId: deal.organizationId,
-        tenantId: deal.tenantId,
-      },
-      { orderBy: { order: 'ASC' } },
-      decryptionScope,
-    )
-    : []
-  const pipeline = effectivePipelineId
-    ? await findOneWithDecryption(
-      em,
-      CustomerPipeline,
-      {
-        id: effectivePipelineId,
-        organizationId: deal.organizationId,
-        tenantId: deal.tenantId,
-      },
-      {},
-      decryptionScope,
-    )
-    : null
-  const pipelineStageAppearanceMap = pipelineStages.length
-    ? await loadPipelineStageAppearanceMap(em, pipelineStages, deal.organizationId, deal.tenantId)
-    : new Map<string, CustomerDictionaryEntry>()
-  let stageTransitions: CustomerDealStageTransition[] = []
-  if (includeStages) {
+  const resolveStageTransitions = async (): Promise<CustomerDealStageTransition[]> => {
+    if (!includeStages) return []
     try {
-      stageTransitions = await findWithDecryption(
+      return await findWithDecryption(
         em,
         CustomerDealStageTransition,
         { deal: deal.id, deletedAt: null },
@@ -619,18 +699,85 @@ export async function GET(request: Request, context: { params?: Record<string, u
         throw error
       }
       warnMissingDealStageTransitionTable('customers.api.deals.detail.GET')
-      stageTransitions = []
+      return []
     }
   }
+
+  const [associations, customFieldValues, viewerInfo, owner, effectiveStage, stageTransitions] = await Promise.all([
+    resolveAssociations(),
+    loadCustomFieldValues({
+      em,
+      entityId: E.customers.customer_deal,
+      recordIds: [deal.id],
+      tenantIdByRecord: { [deal.id]: deal.tenantId ?? null },
+      organizationIdByRecord: { [deal.id]: deal.organizationId ?? null },
+      tenantFallbacks: [deal.tenantId ?? auth.tenantId ?? null].filter((value): value is string => !!value),
+    }),
+    resolveViewer(),
+    resolveOwner(),
+    includeStages ? resolveEffectivePipelineStage(em, deal, decryptionScope) : Promise.resolve(null),
+    resolveStageTransitions(),
+  ])
+
+  const { people, companies, linkedPersonIds, linkedCompanyIds } = associations
+  const customFields = normalizeCustomFieldResponse(customFieldValues[deal.id]) ?? {}
+  const viewerName = viewerInfo.name
+  const viewerEmail = viewerInfo.email
+  const ownerPayload = owner
+    ? {
+      id: owner.id,
+      name: owner.name ?? owner.email ?? owner.id,
+      email: owner.email ?? '',
+    }
+    : null
+
+  const effectivePipelineId = deal.pipelineId ?? effectiveStage?.pipelineId ?? null
+  const effectivePipelineStageId = deal.pipelineStageId ?? effectiveStage?.id ?? null
+  const effectivePipelineStageLabel = deal.pipelineStage ?? effectiveStage?.label ?? null
+
+  const [pipelineStages, pipeline] = await Promise.all([
+    includeStages && effectivePipelineId
+      ? findWithDecryption(
+        em,
+        CustomerPipelineStage,
+        {
+          pipelineId: effectivePipelineId,
+          organizationId: deal.organizationId,
+          tenantId: deal.tenantId,
+        },
+        { orderBy: { order: 'ASC' } },
+        decryptionScope,
+      )
+      : [],
+    effectivePipelineId
+      ? findOneWithDecryption(
+        em,
+        CustomerPipeline,
+        {
+          id: effectivePipelineId,
+          organizationId: deal.organizationId,
+          tenantId: deal.tenantId,
+        },
+        {},
+        decryptionScope,
+      )
+      : null,
+  ])
+
   const persistedStageTransitions = stageTransitions.map((transition) => ({
     stageId: transition.stageId,
     stageLabel: transition.stageLabel,
     stageOrder: transition.stageOrder,
     transitionedAt: transition.transitionedAt.toISOString(),
   }))
-  const recoveredStageTransitions = includeStages && persistedStageTransitions.length === 0
-    ? await loadAuditStageTransitionsFallback({ container, deal, pipelineStages })
-    : []
+  const [pipelineStageAppearanceMap, recoveredStageTransitions] = await Promise.all([
+    pipelineStages.length
+      ? loadPipelineStageAppearanceMap(em, pipelineStages, deal.organizationId, deal.tenantId)
+      : new Map<string, CustomerDictionaryEntry>(),
+    includeStages && persistedStageTransitions.length === 0
+      ? loadAuditStageTransitionsFallback({ container, deal, pipelineStages })
+      : [],
+  ])
   const effectiveCurrentStage = (() => {
     if (!effectivePipelineStageId) return null
     const matchingStage = pipelineStages.find((stage) => stage.id === effectivePipelineStageId)
@@ -655,7 +802,15 @@ export async function GET(request: Request, context: { params?: Record<string, u
     fallbackTimestamp: deal.createdAt.toISOString(),
   })
 
-  return NextResponse.json({
+  const viewer = {
+    userId: viewerUserId,
+    name: viewerName,
+    email: viewerEmail,
+  }
+
+  // Everything except the request-specific viewer block is shareable across
+  // authorized callers, so it is what gets cached.
+  const cacheableBody = {
     deal: {
       id: deal.id,
       title: deal.title,
@@ -687,11 +842,6 @@ export async function GET(request: Request, context: { params?: Record<string, u
       companies: linkedCompanyIds.length,
     },
     customFields,
-    viewer: {
-      userId: viewerUserId,
-      name: viewerName,
-      email: viewerEmail,
-    },
     pipelineStages: pipelineStages.map((stage) => {
       const appearance = pipelineStageAppearanceMap.get(stage.label.trim().toLowerCase())
       return {
@@ -705,7 +855,28 @@ export async function GET(request: Request, context: { params?: Record<string, u
     pipelineName: pipeline?.name ?? null,
     stageTransitions: stageTransitionPayload,
     owner: ownerPayload,
-  })
+  }
+
+  if (detailCache && detailCacheKey) {
+    try {
+      await runWithCacheTenant(cacheTenantId, () =>
+        detailCache.set(detailCacheKey, cacheableBody, {
+          ttl: DEAL_DETAIL_CACHE_TTL_MS,
+          tags: buildDealDetailCacheTags(cacheTenantId, cacheOrganizationId),
+        }),
+      )
+    } catch (err) {
+      // A cache write must never break the request; log it for observability
+      // instead of failing the response (matches the CRUD factory).
+      debugCrudCache('store', {
+        resource: DEAL_DETAIL_CACHE_RESOURCE,
+        key: detailCacheKey,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  return NextResponse.json({ ...cacheableBody, viewer })
 }
 
 const dealDetailQuerySchema = z.object({

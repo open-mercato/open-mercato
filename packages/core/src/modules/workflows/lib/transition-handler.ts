@@ -15,7 +15,6 @@ import type { AwilixContainer } from 'awilix'
 import type { EventBus } from '@open-mercato/events'
 import {
   WorkflowInstance,
-  WorkflowDefinition,
   WorkflowEvent,
 } from '../data/entities'
 import * as ruleEvaluator from '../../business_rules/lib/rule-evaluator'
@@ -23,6 +22,22 @@ import * as ruleEngine from '../../business_rules/lib/rule-engine'
 import * as activityExecutor from './activity-executor'
 import type { ActivityDefinition } from './activity-executor'
 import * as stepHandler from './step-handler'
+import { findDefinitionForInstance } from './find-definition'
+import {
+  type ExecutionToken,
+  rootToken,
+  tokenBranchInstanceId,
+  tokenReadContext,
+  setTokenCurrentStepId,
+  applyTokenContextWrites,
+  mergeTokenContext,
+  setTokenWaitingForActivities,
+  setTokenPendingTransition,
+  touchToken,
+} from './execution-token'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 // ============================================================================
 // Types and Interfaces
@@ -101,9 +116,7 @@ export async function evaluateTransition(
 
   try {
     // Load workflow definition
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       return {
@@ -212,9 +225,7 @@ export async function findValidTransitions(
 ): Promise<TransitionEvaluationResult[]> {
   try {
     // Load workflow definition
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       return []
@@ -279,7 +290,7 @@ export async function findValidTransitions(
 
     return results
   } catch (error) {
-    console.error('Error finding valid transitions:', error)
+    logger.error('Error finding valid transitions', { err: error })
     return []
   }
 }
@@ -311,6 +322,28 @@ export async function executeTransition(
   toStepId: string,
   context: TransitionExecutionContext
 ): Promise<TransitionExecutionResult> {
+  // Public DI signature preserved: the root token adapts the instance, so the
+  // single-token path is behaviourally unchanged.
+  return executeTransitionForToken(em, container, rootToken(instance), fromStepId, toStepId, context)
+}
+
+/**
+ * Token-aware transition execution. The root token wraps a WorkflowInstance
+ * (legacy single-token path); a branch token wraps a WorkflowBranchInstance so
+ * a parallel branch advances independently with its own context namespace,
+ * status and pending transition.
+ */
+export async function executeTransitionForToken(
+  em: EntityManager,
+  container: AwilixContainer,
+  token: ExecutionToken,
+  fromStepId: string,
+  toStepId: string,
+  context: TransitionExecutionContext
+): Promise<TransitionExecutionResult> {
+  const instance = token.instance
+  const branch = token.kind === 'branch' ? token.branch : null
+  const branchInstanceId = tokenBranchInstanceId(token)
   try {
     let eventBus: Pick<EventBus, 'emitEvent'> | null = null
     try {
@@ -394,9 +427,10 @@ export async function executeTransition(
       const activityContext: activityExecutor.ActivityContext = {
         workflowInstance: instance,
         workflowContext: {
-          ...instance.context,
+          ...tokenReadContext(token),
           ...context.workflowContext,
         },
+        branchInstanceId,
         userId: context.userId,
       }
 
@@ -466,29 +500,27 @@ export async function executeTransition(
         .filter(a => a.async && a.jobId)
         .map(a => ({ activityId: a.activityId, jobId: a.jobId }))
 
-      // Store pending transition state
-      instance.pendingTransition = {
+      // Store pending transition state (per-token: branch or instance)
+      setTokenPendingTransition(token, {
         toStepId,
         activityResults,
         timestamp: new Date(),
-      }
+      })
 
-      // Store pending activities in context for tracking
-      instance.context = {
-        ...instance.context,
-        ...context.workflowContext,
-        ...activityOutputs,
-        _pendingAsyncActivities: pendingJobIds,
-      }
+      // Store activity outputs + pending-activity tracking in the token's own
+      // context scope (instance.context for root, branch namespace for a branch)
+      applyTokenContextWrites(token, context.workflowContext, activityOutputs)
+      mergeTokenContext(token, { _pendingAsyncActivities: pendingJobIds })
 
-      // Set status to waiting
-      instance.status = 'WAITING_FOR_ACTIVITIES'
-      instance.updatedAt = new Date()
+      // Set status to waiting (branch-scoped when running inside a branch)
+      setTokenWaitingForActivities(token)
+      touchToken(token, new Date())
       await em.flush()
 
       // Log event
       await logTransitionEvent(em, {
         workflowInstanceId: instance.id,
+        branchInstanceId,
         eventType: 'TRANSITION_PAUSED_FOR_ACTIVITIES',
         eventData: {
           fromStepId,
@@ -514,14 +546,11 @@ export async function executeTransition(
       }
     }
 
-    // Update workflow instance - set current step and update context atomically
-    instance.currentStepId = toStepId
-    instance.context = {
-      ...instance.context,
-      ...context.workflowContext,
-      ...activityOutputs, // Include activity outputs
-    }
-    instance.updatedAt = new Date()
+    // Advance the token cursor and update context atomically (instance for the
+    // root token; branch cursor + namespace for a branch token).
+    setTokenCurrentStepId(token, toStepId)
+    applyTokenContextWrites(token, context.workflowContext, activityOutputs)
+    touchToken(token, new Date())
 
     await em.flush()
 
@@ -531,11 +560,12 @@ export async function executeTransition(
       instance,
       toStepId,
       {
-        workflowContext: instance.context || {},
+        workflowContext: tokenReadContext(token),
         userId: context.userId,
         triggerData: context.triggerData,
       },
-      container
+      container,
+      branch
     )
 
     // Flush to database after step execution completes to make state visible to UI
@@ -718,9 +748,7 @@ async function evaluatePreConditions(
 ): Promise<ruleEngine.RuleEngineResult> {
   try {
     // Load workflow definition to get workflow ID
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       return {
@@ -813,7 +841,7 @@ async function evaluatePreConditions(
       errors: errors.length > 0 ? errors : undefined,
     }
   } catch (error) {
-    console.error('Error evaluating pre-conditions:', error)
+    logger.error('Error evaluating pre-conditions', { err: error })
     return {
       allowed: false,
       executedRules: [],
@@ -847,9 +875,7 @@ async function evaluatePostConditions(
 ): Promise<ruleEngine.RuleEngineResult> {
   try {
     // Load workflow definition to get workflow ID
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       return {
@@ -937,7 +963,7 @@ async function evaluatePostConditions(
       errors: errors.length > 0 ? errors : undefined,
     }
   } catch (error) {
-    console.error('Error evaluating post-conditions:', error)
+    logger.error('Error evaluating post-conditions', { err: error })
     return {
       allowed: false,
       executedRules: [],
@@ -958,6 +984,7 @@ async function logTransitionEvent(
   em: EntityManager,
   event: {
     workflowInstanceId: string
+    branchInstanceId?: string | null
     eventType: string
     eventData: any
     userId?: string

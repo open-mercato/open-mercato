@@ -14,7 +14,7 @@ import {
 } from './lib/ready-apps.js'
 import { applyStarterPreset } from './lib/apply-starter-preset.js'
 import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
-import { runAgenticSetup } from './setup/wizard.js'
+import { runAgenticSetup, parseAgentsValue } from './setup/wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'))
@@ -27,11 +27,18 @@ interface Options {
   preset?: string
   registry?: string
   initGit?: boolean
+  agents?: string
   skipAgenticSetup: boolean
   verdaccio: boolean
   help: boolean
   version: boolean
 }
+
+/** Resolved agentic-setup intent after combining --agents and --skip-agentic-setup. */
+type AgentSelection =
+  | { mode: 'skip' }
+  | { mode: 'tools'; tools: string[] }
+  | { mode: 'interactive' }
 
 function showHelp(): void {
   console.log(`
@@ -49,7 +56,9 @@ ${pc.bold('Options:')}
   --preset <id>      Starter preset: classic, empty, or crm (omit to choose interactively)
   --init-git         Initialize a local Git repository after scaffolding
   --no-init-git      Do not prompt for or initialize a local Git repository
-  --skip-agentic-setup  Skip the interactive agentic setup wizard
+  --agents <list>    Set up agent tooling non-interactively (skips the wizard):
+                     comma-separated claude-code,codex,cursor — or 'all' / 'none'
+  --skip-agentic-setup  Skip the agentic setup wizard (alias for --agents none)
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
   --help, -h         Show help
@@ -61,6 +70,9 @@ ${pc.bold('Examples:')}
   npx create-mercato-app my-store --preset empty
   npx create-mercato-app my-store --preset crm
   npx create-mercato-app my-store --init-git
+  npx create-mercato-app my-store --agents claude-code,codex
+  npx create-mercato-app my-store --agents all
+  npx create-mercato-app my-store --agents none
   npx create-mercato-app my-prm --app prm
   npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
   npx create-mercato-app my-store --verdaccio
@@ -88,6 +100,7 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
     preset: undefined,
     registry: undefined,
     initGit: undefined,
+    agents: undefined,
     skipAgenticSetup: false,
     verdaccio: false,
     help: false,
@@ -102,6 +115,9 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
       options.help = true
     } else if (arg === '--version' || arg === '-v') {
       options.version = true
+    } else if (arg === '--agents') {
+      options.agents = requireOptionValue(args, index, arg)
+      index += 1
     } else if (arg === '--skip-agentic-setup') {
       options.skipAgenticSetup = true
     } else if (arg === '--init-git') {
@@ -344,6 +360,7 @@ function buildRegistryConfig(registryUrl: string): string {
 
 const FILE_RENAMES: Record<string, string> = {
   gitignore: '.gitignore',
+  gitattributes: '.gitattributes',
 }
 
 const SKIP_DIRS = new Set(['__tests__', '__integration__'])
@@ -419,10 +436,30 @@ async function scaffoldImportedReadyApp(targetDir: string, source: ReadyAppSourc
   ensureGeneratedCssPlaceholder(targetDir)
 }
 
-async function maybeRunAgenticSetup(targetDir: string, skipAgenticSetup: boolean): Promise<void> {
-  if (skipAgenticSetup) {
-    await runAgenticSetup(targetDir, async () => '', { tool: 'skip' })
-    return
+// Combine --agents (validated) and --skip-agentic-setup into a single intent.
+// `--agents none` == `--skip-agentic-setup`; a non-empty --agents list together
+// with --skip-agentic-setup is contradictory and rejected.
+function resolveAgentSelection(options: Options): AgentSelection {
+  if (options.agents === undefined) {
+    return options.skipAgenticSetup ? { mode: 'skip' } : { mode: 'interactive' }
+  }
+  const parsed = parseAgentsValue(options.agents)
+  if (parsed.skip) {
+    return { mode: 'skip' }
+  }
+  if (options.skipAgenticSetup) {
+    throw new Error('--skip-agentic-setup cannot be combined with --agents <tools>. Use --agents none to skip.')
+  }
+  return { mode: 'tools', tools: parsed.tools }
+}
+
+async function maybeRunAgenticSetup(targetDir: string, selection: AgentSelection): Promise<boolean> {
+  if (selection.mode === 'skip') {
+    return runAgenticSetup(targetDir, async () => '', { tool: 'skip' })
+  }
+
+  if (selection.mode === 'tools') {
+    return runAgenticSetup(targetDir, async () => '', { tool: selection.tools.join(',') })
   }
 
   const rl = createInterface({ input: process.stdin, output: process.stdout })
@@ -430,13 +467,13 @@ async function maybeRunAgenticSetup(targetDir: string, skipAgenticSetup: boolean
     new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
 
   try {
-    await runAgenticSetup(targetDir, ask)
+    return await runAgenticSetup(targetDir, ask)
   } finally {
     rl.close()
   }
 }
 
-function printTemplateNextSteps(appName: string): void {
+function printTemplateNextSteps(appName: string, agenticConfigured: boolean): void {
   console.log('Next steps:')
   console.log('')
   console.log(pc.cyan(`  cd ${appName}`))
@@ -464,6 +501,14 @@ function printTemplateNextSteps(appName: string): void {
   console.log(pc.cyan('  # Dev (recommended on Windows): docker compose -f docker-compose.fullapp.dev.yml up --build'))
   console.log(pc.cyan('  # Production-style: docker compose -f docker-compose.fullapp.yml up --build'))
   console.log('')
+
+  if (agenticConfigured) {
+    console.log(pc.green('Agent pipeline:'))
+    console.log(pc.dim('  # .ai/agentic.config.json ships preconfigured (GitHub tracker, labels off) — skills work out of the box.'))
+    console.log(pc.dim('  # To tailor it (enable pipeline labels + QA gate, switch tracker, change validation commands), run in your agent CLI:'))
+    console.log(pc.cyan('  /om-setup-agent-pipeline'))
+    console.log('')
+  }
 }
 
 function printImportedReadyAppNextSteps(appName: string): void {
@@ -529,6 +574,16 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 
   const readyAppSource = resolveReadyAppSource(options, PACKAGE_VERSION)
 
+  if (options.agents !== undefined && readyAppSource) {
+    throw new Error(
+      '--agents is not supported with --app/--app-url. Imported ready apps manage their own agentic tooling; run `yarn mercato agentic:init` inside the app instead.',
+    )
+  }
+
+  // Resolve (and validate) the agentic selection up front so a bad --agents
+  // value fails before any scaffolding work happens.
+  const agentSelection = resolveAgentSelection(options)
+
   const presetId = await resolveStarterPresetId(options, readyAppSource)
 
   const registryConfig = options.verdaccio
@@ -559,8 +614,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
   console.log('')
 
+  let agenticConfigured = false
   if (!readyAppSource) {
-    await maybeRunAgenticSetup(targetDir, options.skipAgenticSetup)
+    agenticConfigured = await maybeRunAgenticSetup(targetDir, agentSelection)
   }
 
   const gitResult = await maybeInitializeGitRepository(targetDir, options)
@@ -568,7 +624,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (readyAppSource) {
     printImportedReadyAppNextSteps(appName)
   } else {
-    printTemplateNextSteps(appName)
+    printTemplateNextSteps(appName, agenticConfigured)
   }
   printGitHubSyncInstructions(gitResult)
 

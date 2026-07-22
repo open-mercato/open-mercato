@@ -4,6 +4,8 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { emitWebhooksEvent } from '../../../events'
 import { findScopedWebhook, json, resolveWebhookRequestScope, serializeWebhookDetail } from '../../helpers'
 import { webhookUpdateSchema } from '../../../data/validators'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['webhooks.view'] },
@@ -69,6 +71,18 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     return json({ error: 'Webhook not found' }, { status: 404 })
   }
 
+  try {
+    await enforceCommandOptimisticLockWithGuards(scope.container, {
+      resourceKind: 'webhooks.endpoint',
+      resourceId: webhook.id,
+      current: webhook.updatedAt ?? null,
+      request,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) return json(err.body, { status: err.status })
+    throw err
+  }
+
   const parsed = webhookUpdateSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) {
     return json({ error: 'Invalid request payload' }, { status: 400 })
@@ -112,6 +126,18 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
 
   if (!webhook) {
     return json({ error: translate('webhooks.errors.notFound', 'Webhook not found') }, { status: 404 })
+  }
+
+  try {
+    await enforceCommandOptimisticLockWithGuards(scope.container, {
+      resourceKind: 'webhooks.endpoint',
+      resourceId: webhook.id,
+      current: webhook.updatedAt ?? null,
+      request,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) return json(err.body, { status: err.status })
+    throw err
   }
 
   webhook.deletedAt = new Date()

@@ -2,9 +2,9 @@
 
 import * as React from "react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
-import { ErrorMessage } from "@open-mercato/ui/backend/detail";
+import { ErrorMessage, RecordNotFoundState } from "@open-mercato/ui/backend/detail";
 import {
   CrudForm,
   type CrudFormGroup,
@@ -18,6 +18,7 @@ import {
 import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { collectCustomFieldValues } from "@open-mercato/ui/backend/utils/customFieldValues";
 import { flash } from "@open-mercato/ui/backend/FlashMessages";
+import MarkdownField from "@open-mercato/ui/backend/inputs/MarkdownField";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Input } from "@open-mercato/ui/primitives/input";
 import { Label } from "@open-mercato/ui/primitives/label";
@@ -37,7 +38,14 @@ import { Spinner } from "@open-mercato/ui/primitives/spinner";
 import {
   apiCall,
   readApiResultOrThrow,
+  withScopedApiRequestHeaders,
 } from "@open-mercato/ui/backend/utils/apiCall";
+import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
+import { surfaceRecordConflict } from "@open-mercato/ui/backend/conflicts";
+import {
+  buildRecordInjectionContext,
+  useSetCurrentRecordInjectionContext,
+} from "@open-mercato/ui/backend/injection/recordContext";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { E } from "#generated/entities.ids.generated";
@@ -68,6 +76,8 @@ import {
   createLocalId,
   slugify,
   formatTaxRateLabel,
+  normalizeTaxRateSummary,
+  mergeTaxRateSummaries,
   buildOptionSchemaDefinition,
   convertSchemaToProductOptions,
   normalizePriceKindSummary,
@@ -81,6 +91,8 @@ import {
   updateDimensionValue,
   updateWeightValue,
   isConfigurableProductType,
+  buildComplianceProductPayload,
+  complianceFormValuesFromApiRecord,
 } from "@open-mercato/core/modules/catalog/components/products/productForm";
 import {
   CATALOG_PRODUCT_TYPES,
@@ -97,6 +109,7 @@ import {
   type ProductCategorizePickerOption,
 } from "@open-mercato/core/modules/catalog/components/products/ProductCategorizeSection";
 import { ProductUomSection } from "@open-mercato/core/modules/catalog/components/products/ProductUomSection";
+import { ProductComplianceSection } from "@open-mercato/core/modules/catalog/components/products/ProductComplianceSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
 import {
   UNIT_PRICE_REFERENCE_UNITS,
@@ -125,20 +138,9 @@ import {
   DialogTitle,
 } from "@open-mercato/ui/primitives/dialog";
 import { SendObjectMessageDialog } from "@open-mercato/ui/backend/messages/SendObjectMessageDialog.tsx";
+import { createLogger } from '@open-mercato/shared/lib/logger'
 
-const MarkdownEditor = dynamic(() => import("@uiw/react-md-editor"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-      <Spinner />
-    </div>
-  ),
-}) as unknown as React.ComponentType<{
-  value?: string;
-  height?: number;
-  onChange?: (value?: string) => void;
-  previewOptions?: { remarkPlugins?: unknown[] };
-}>;
+const logger = createLogger('catalog')
 
 type ProductResponse = {
   items?: Array<Record<string, unknown>>;
@@ -157,6 +159,8 @@ type VariantSummaryApi = {
   default_media_id?: string | null;
   defaultMediaId?: string | null;
   metadata?: Record<string, unknown> | null;
+  updated_at?: string | null;
+  updatedAt?: string | null;
 };
 
 type AttachmentListResponse = {
@@ -181,6 +185,7 @@ type VariantSummary = {
   defaultMediaId: string | null;
   prices: VariantPriceSummary[];
   optionValues: Record<string, string> | null;
+  updatedAt: string | null;
 };
 
 type VariantPriceListResponse = {
@@ -221,6 +226,7 @@ type OfferSnapshot = {
   isActive: boolean;
   channelName: string | null;
   channelCode: string | null;
+  updatedAt: string | null;
 };
 
 function mapVariantPriceSummary(
@@ -273,7 +279,7 @@ function readProductConversionRows(
 ): ProductUnitConversionDraft[] {
   const rows = Array.isArray(items) ? items : [];
   return rows
-    .map((item) => {
+    .map((item): ProductUnitConversionDraft | null => {
       const id = toTrimmedOrNull(item.id);
       const unitCode = canonicalizeUnitCode(item.unit_code ?? item.unitCode);
       const factor = toPositiveNumberOrNull(
@@ -298,6 +304,12 @@ function readProductConversionRows(
         toBaseFactor: String(factor),
         sortOrder: String(sortOrderRaw),
         isActive,
+        updatedAt:
+          typeof item.updated_at === "string"
+            ? item.updated_at
+            : typeof item.updatedAt === "string"
+              ? item.updatedAt
+              : null,
       } satisfies ProductUnitConversionDraft;
     })
     .filter((entry): entry is ProductUnitConversionDraft => Boolean(entry));
@@ -310,6 +322,7 @@ export default function EditCatalogProductPage({
 }) {
   const productId = params?.id ? String(params.id) : null;
   const t = useT();
+  const pathname = usePathname();
   const productSubpathPrefix = productId
     ? `/backend/catalog/products/${productId}/`
     : null;
@@ -327,6 +340,7 @@ export default function EditCatalogProductPage({
     React.useState<Partial<ProductFormValues> | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [isNotFound, setIsNotFound] = React.useState(false);
   const offerSnapshotsRef = React.useRef<OfferSnapshot[]>([]);
   const initialConversionsRef = React.useRef<ProductUnitConversionDraft[]>([]);
   const [categorizeOptions, setCategorizeOptions] = React.useState<{
@@ -337,6 +351,41 @@ export default function EditCatalogProductPage({
   const [variantMediaGroups, setVariantMediaGroups] = React.useState<
     VariantMediaGroup[]
   >([]);
+
+  const parseTaxRateSummary = React.useCallback(
+    (item: Record<string, unknown>) =>
+      normalizeTaxRateSummary(
+        item,
+        t("catalog.products.create.taxRates.unnamed", "Untitled tax rate"),
+      ),
+    [t],
+  );
+
+  const fetchTaxRateById = React.useCallback(
+    async (taxRateId: string): Promise<TaxRateSummary | null> => {
+      const payload = await readApiResultOrThrow<{
+        items?: Array<Record<string, unknown>>;
+      }>(
+        `/api/sales/tax-rates?id=${encodeURIComponent(taxRateId)}&pageSize=1`,
+        undefined,
+        {
+          errorMessage: t(
+            "catalog.products.create.taxRates.error",
+            "Failed to load tax rates.",
+          ),
+          fallback: { items: [] },
+        },
+      );
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      return (
+        items
+          .map((item) => parseTaxRateSummary(item))
+          .find((item): item is TaxRateSummary => item?.id === taxRateId) ??
+        null
+      );
+    },
+    [parseTaxRateSummary, t],
+  );
 
   const loadVariants = React.useCallback(async (id: string) => {
     try {
@@ -404,6 +453,12 @@ export default function EditCatalogProductPage({
                   : null,
             prices: priceMap[variantId] ?? [],
             optionValues,
+            updatedAt:
+              typeof variant.updatedAt === "string"
+                ? variant.updatedAt
+                : typeof variant.updated_at === "string"
+                  ? variant.updated_at
+                  : null,
           };
         })
         .filter((entry): entry is VariantSummary => Boolean(entry));
@@ -413,47 +468,56 @@ export default function EditCatalogProductPage({
         setVariantMediaGroups([]);
         return;
       }
-      const CONCURRENCY = 5;
-      const groups: VariantMediaGroup[] = [];
-      for (let i = 0; i < mapped.length; i += CONCURRENCY) {
-        const batch = mapped.slice(i, i + CONCURRENCY);
-        const results = await Promise.all(
-          batch.map(async (variant) => {
-            try {
-              const res = await apiCall<AttachmentListResponse>(
-                `/api/attachments?entityId=${encodeURIComponent(E.catalog.catalog_product_variant)}&recordId=${encodeURIComponent(variant.id)}`,
-              );
-              if (!res.ok) return null;
-              const mediaItems: ProductMediaItem[] = (res.result?.items ?? []).map(
-                (item) => ({
-                  id: item.id,
-                  url: item.url,
-                  fileName: item.fileName,
-                  fileSize: item.fileSize,
-                  thumbnailUrl: item.thumbnailUrl ?? undefined,
-                }),
-              );
-              if (!mediaItems.length) return null;
-              return {
-                variantId: variant.id,
-                variantName: variant.name,
-                defaultMediaId: variant.defaultMediaId,
-                items: mediaItems,
-                editUrl: `/backend/catalog/products/${id}/variants/${variant.id}`,
-              } satisfies VariantMediaGroup;
-            } catch {
-              // Non-critical: variant media is optional; gallery degrades gracefully
-              return null;
+      // Load per-variant media in the background so the product form is not blocked
+      // by the batched attachment fetches; the readonly gallery fills in once ready.
+      void (async () => {
+        try {
+          const CONCURRENCY = 5;
+          const groups: VariantMediaGroup[] = [];
+          for (let i = 0; i < mapped.length; i += CONCURRENCY) {
+            const batch = mapped.slice(i, i + CONCURRENCY);
+            const results = await Promise.all(
+              batch.map(async (variant) => {
+                try {
+                  const res = await apiCall<AttachmentListResponse>(
+                    `/api/attachments?entityId=${encodeURIComponent(E.catalog.catalog_product_variant)}&recordId=${encodeURIComponent(variant.id)}`,
+                  );
+                  if (!res.ok) return null;
+                  const mediaItems: ProductMediaItem[] = (res.result?.items ?? []).map(
+                    (item) => ({
+                      id: item.id,
+                      url: item.url,
+                      fileName: item.fileName,
+                      fileSize: item.fileSize,
+                      thumbnailUrl: item.thumbnailUrl ?? undefined,
+                    }),
+                  );
+                  if (!mediaItems.length) return null;
+                  return {
+                    variantId: variant.id,
+                    variantName: variant.name,
+                    defaultMediaId: variant.defaultMediaId,
+                    items: mediaItems,
+                    editUrl: `/backend/catalog/products/${id}/variants/${variant.id}`,
+                  } satisfies VariantMediaGroup;
+                } catch {
+                  // Non-critical: variant media is optional; gallery degrades gracefully
+                  return null;
+                }
+              }),
+            );
+            for (const result of results) {
+              if (result) groups.push(result);
             }
-          }),
-        );
-        for (const result of results) {
-          if (result) groups.push(result);
+          }
+          setVariantMediaGroups(groups);
+        } catch (err) {
+          logger.error('catalog.variants.media.fetch failed', { err });
+          setVariantMediaGroups([]);
         }
-      }
-      setVariantMediaGroups(groups);
+      })();
     } catch (err) {
-      console.error("catalog.variants.fetch failed", err);
+      logger.error('catalog.variants.fetch failed', { err });
       setVariants([]);
       setVariantMediaGroups([]);
     }
@@ -479,7 +543,7 @@ export default function EditCatalogProductPage({
           thumbnailUrl: item.thumbnailUrl ?? undefined,
         }));
       } catch (err) {
-        console.error("attachments.fetch failed", err);
+        logger.error('attachments.fetch failed', { err });
         return [];
       }
     },
@@ -500,42 +564,27 @@ export default function EditCatalogProductPage({
         });
         const items = Array.isArray(payload.items) ? payload.items : [];
         setTaxRates(
-          items.map((item) => {
-            const rawRate =
-              typeof item.rate === "number"
-                ? item.rate
-                : Number(item.rate ?? Number.NaN);
-            return {
-              id: String(item.id),
-              name:
-                typeof item.name === "string" && item.name.trim().length
-                  ? item.name
-                  : t(
-                      "catalog.products.create.taxRates.unnamed",
-                      "Untitled tax rate",
-                    ),
-              code:
-                typeof item.code === "string" && item.code.trim().length
-                  ? item.code
-                  : null,
-              rate: Number.isFinite(rawRate) ? rawRate : null,
-              isDefault: Boolean(
-                typeof item.isDefault === "boolean"
-                  ? item.isDefault
-                  : typeof item.is_default === "boolean"
-                    ? item.is_default
-                    : false,
-              ),
-            };
-          }),
+          items
+            .map((item) => parseTaxRateSummary(item))
+            .filter((item): item is TaxRateSummary => item !== null),
         );
       } catch (err) {
-        console.error("sales.tax-rates.fetch failed", err);
+        logger.error('sales.tax-rates.fetch failed', { err });
         setTaxRates([]);
       }
     };
     loadTaxRates().catch(() => {});
-  }, [t]);
+  }, [parseTaxRateSummary, t]);
+
+  React.useEffect(() => {
+    const taxRateId = initialValues?.taxRateId
+    if (!taxRateId || taxRates.some((rate) => rate.id === taxRateId)) return
+    fetchTaxRateById(taxRateId)
+      .then((selected) => {
+        setTaxRates((current) => mergeTaxRateSummaries(current, selected))
+      })
+      .catch(() => {})
+  }, [fetchTaxRateById, initialValues?.taxRateId, taxRates])
 
   React.useEffect(() => {
     if (!productId) {
@@ -552,6 +601,7 @@ export default function EditCatalogProductPage({
     async function loadProduct() {
       setLoading(true);
       setError(null);
+      setIsNotFound(false);
       try {
         const productRes = await apiCall<ProductResponse>(
           `/api/catalog/products?id=${encodeURIComponent(productId!)}&page=1&pageSize=1&withDeleted=false`,
@@ -567,10 +617,10 @@ export default function EditCatalogProductPage({
         const record = Array.isArray(productRes.result?.items)
           ? productRes.result?.items?.[0]
           : undefined;
-        if (!record)
-          throw new Error(
-            t("catalog.products.edit.errors.notFound", "Product not found."),
-          );
+        if (!record) {
+          if (!cancelled) setIsNotFound(true);
+          return;
+        }
         const rawMetadata = isRecord(record.metadata)
           ? (record.metadata as Record<string, unknown>)
           : null;
@@ -603,9 +653,18 @@ export default function EditCatalogProductPage({
             : typeof record.taxRateId === "string"
               ? record.taxRateId
               : null;
-        const optionSchemaTemplate = optionSchemaId
-          ? await fetchOptionSchemaTemplate(optionSchemaId)
-          : null;
+        const [optionSchemaTemplate, attachments, conversionsRes] =
+          await Promise.all([
+            optionSchemaId
+              ? fetchOptionSchemaTemplate(optionSchemaId)
+              : Promise.resolve(null),
+            fetchAttachments(productId!),
+            apiCall<{ items?: Array<Record<string, unknown>> }>(
+              `/api/catalog/product-unit-conversions?productId=${encodeURIComponent(productId!)}&page=1&pageSize=100`,
+              undefined,
+              { fallback: { items: [] } },
+            ),
+          ]);
         const normalizedSchema = normalizeOptionSchemaRecord(
           optionSchemaTemplate?.schema,
         );
@@ -615,14 +674,6 @@ export default function EditCatalogProductPage({
         if (!optionInputs.length) {
           optionInputs = readOptionSchema(metadata);
         }
-        const [attachments, conversionsRes] = await Promise.all([
-          fetchAttachments(productId!),
-          apiCall<{ items?: Array<Record<string, unknown>> }>(
-            `/api/catalog/product-unit-conversions?productId=${encodeURIComponent(productId!)}&page=1&pageSize=100`,
-            undefined,
-            { fallback: { items: [] } },
-          ),
-        ]);
         const conversionRows = conversionsRes.ok
           ? readProductConversionRows(conversionsRes.result?.items)
           : [];
@@ -710,6 +761,13 @@ export default function EditCatalogProductPage({
           categoryIds,
           channelIds,
           tags: tagValues,
+          ...complianceFormValuesFromApiRecord(record),
+          updatedAt:
+            typeof record.updatedAt === "string"
+              ? record.updatedAt
+              : typeof record.updated_at === "string"
+                ? record.updated_at
+                : null,
         };
         if (!cancelled) {
           setInitialValues({ ...initial, ...customValues });
@@ -721,7 +779,7 @@ export default function EditCatalogProductPage({
         }
         await loadVariants(productId!);
       } catch (err) {
-        console.error("catalog.products.edit.load failed", err);
+        logger.error('catalog.products.edit.load failed', { err });
         if (!cancelled) {
           const message =
             err instanceof Error && err.message
@@ -759,7 +817,7 @@ export default function EditCatalogProductPage({
           setPriceKinds(summaries);
         }
       } catch (err) {
-        console.error("catalog.price-kinds.fetch failed", err);
+        logger.error('catalog.price-kinds.fetch failed', { err });
         if (!cancelled) {
           setPriceKinds([]);
         }
@@ -786,6 +844,21 @@ export default function EditCatalogProductPage({
     el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
 
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `catalog.product` + id
+  // explicitly (presence/acquire/heartbeat on load; cleared on unmount). The
+  // resourceKind mirrors the CrudForm `versionHistory` so the held lock matches
+  // the save-time conflict surface for the same product.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: "catalog.product",
+      resourceId: productId,
+      updatedAt: initialValues?.updatedAt ?? null,
+      data: initialValues as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  );
+
   const handleVariantDeleted = React.useCallback((variantId: string) => {
     setVariants((prev) => prev.filter((variant) => variant.id !== variantId));
   }, []);
@@ -795,11 +868,12 @@ export default function EditCatalogProductPage({
       {
         id: "details",
         column: 1,
-        component: ({ values, setValue, errors }) => (
+        component: ({ values, setValue, errors, requiredFieldIds }) => (
           <ProductDetailsSection
             values={values as ProductFormValues}
             setValue={setValue}
             errors={errors}
+            requiredFieldIds={requiredFieldIds}
             productId={productId ?? ""}
             hasVariants={Boolean(
               (values as ProductFormValues).hasVariants,
@@ -847,6 +921,18 @@ export default function EditCatalogProductPage({
         bare: true,
         component: ({ values, setValue, errors }) => (
           <ProductUomSection
+            values={values as ProductFormValues}
+            setValue={setValue}
+            errors={errors}
+          />
+        ),
+      },
+      {
+        id: "compliance",
+        column: 1,
+        bare: true,
+        component: ({ values, setValue, errors }) => (
+          <ProductComplianceSection
             values={values as ProductFormValues}
             setValue={setValue}
             errors={errors}
@@ -1015,6 +1101,32 @@ export default function EditCatalogProductPage({
         channelIds: parsed.data.channelIds ?? [],
         tags: parsed.data.tags ?? [],
         optionSchemaId: parsed.data.optionSchemaId ?? null,
+        countryOfOriginCode: parsed.data.countryOfOriginCode ?? "",
+        pkwiuCode: parsed.data.pkwiuCode ?? "",
+        cnCode: parsed.data.cnCode ?? "",
+        hsCode: parsed.data.hsCode ?? "",
+        taxClassificationCode: parsed.data.taxClassificationCode ?? "",
+        gtuCodes: parsed.data.gtuCodes ?? [],
+        ageMin: parsed.data.ageMin?.toString() ?? "",
+        isExciseGood: parsed.data.isExciseGood ?? false,
+        exciseCategory: parsed.data.exciseCategory ?? null,
+        requiresPrescription: parsed.data.requiresPrescription ?? false,
+        hazmatClass: parsed.data.hazmatClass ?? "",
+        unNumber: parsed.data.unNumber ?? "",
+        hazmatPackingGroup: parsed.data.hazmatPackingGroup ?? null,
+        containsLithiumBattery: parsed.data.containsLithiumBattery ?? false,
+        launchAt: parsed.data.launchAt ?? "",
+        endOfLifeAt: parsed.data.endOfLifeAt ?? "",
+        availableFrom: parsed.data.availableFrom ?? "",
+        availableUntil: parsed.data.availableUntil ?? "",
+        minOrderQty: parsed.data.minOrderQty?.toString() ?? "",
+        maxOrderQty: parsed.data.maxOrderQty?.toString() ?? "",
+        orderQtyIncrement: parsed.data.orderQtyIncrement?.toString() ?? "",
+        requiresShipping: parsed.data.requiresShipping ?? true,
+        isQuoteOnly: parsed.data.isQuoteOnly ?? false,
+        seoTitle: parsed.data.seoTitle ?? "",
+        seoDescription: parsed.data.seoDescription ?? "",
+        canonicalUrl: parsed.data.canonicalUrl ?? "",
       };
       const title = values.title?.trim();
       if (!title) {
@@ -1181,6 +1293,7 @@ export default function EditCatalogProductPage({
         unitPriceBaseQuantity: unitPriceEnabled
           ? unitPriceBaseQuantity
           : undefined,
+        ...buildComplianceProductPayload(values),
         customFieldsetCode: values.customFieldsetCode?.trim().length
           ? values.customFieldsetCode
           : undefined,
@@ -1223,15 +1336,21 @@ export default function EditCatalogProductPage({
         try {
           for (const offer of removedOffers) {
             if (!offer.id) continue;
-            await deleteCrud("catalog/offers", offer.id, {
-              errorMessage: t(
-                "catalog.products.edit.offers.deleteError",
-                "Failed to remove sales channel offer.",
-              ),
-            });
+            const offerId = offer.id;
+            // Send the offer's own version, overriding the product header the
+            // parent CrudForm submit scope put on the stack (#2055).
+            await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(offer.updatedAt),
+              () => deleteCrud("catalog/offers", offerId, {
+                errorMessage: t(
+                  "catalog.products.edit.offers.deleteError",
+                  "Failed to remove sales channel offer.",
+                ),
+              }),
+            );
           }
         } catch (err) {
-          console.error("catalog.products.edit.offers.delete", err);
+          logger.error('catalog.products.edit.offers.delete', { err });
           throw createCrudFormError(
             t(
               "catalog.products.edit.offers.deleteError",
@@ -1246,6 +1365,15 @@ export default function EditCatalogProductPage({
           .map((entry) => toTrimmedOrNull(entry.id))
           .filter((id): id is string => Boolean(id)),
       );
+      // Loaded conversion id → version, so the sync sends each row's own
+      // optimistic-lock version (overriding the product header leaked by the
+      // parent CrudForm submit scope onto the catalog/product-unit-conversions
+      // guard) (#2055).
+      const conversionVersions = new Map<string, string | null>();
+      for (const entry of initialConversionsRef.current) {
+        const cid = toTrimmedOrNull(entry.id);
+        if (cid) conversionVersions.set(cid, entry.updatedAt ?? null);
+      }
       const nextConversionIds = new Set(
         conversionInputs
           .map((entry) =>
@@ -1257,23 +1385,30 @@ export default function EditCatalogProductPage({
         (id) => !nextConversionIds.has(id),
       );
       for (const conversionId of removedConversionIds) {
-        await deleteCrud("catalog/product-unit-conversions", conversionId, {
-          errorMessage: t(
-            "catalog.products.uom.errors.sync",
-            "Failed to synchronize product conversions.",
-          ),
-        });
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(conversionVersions.get(conversionId) ?? null),
+          () => deleteCrud("catalog/product-unit-conversions", conversionId, {
+            errorMessage: t(
+              "catalog.products.uom.errors.sync",
+              "Failed to synchronize product conversions.",
+            ),
+          }),
+        );
       }
       const persistedConversions: ProductUnitConversionDraft[] = [];
       for (const conversion of conversionInputs) {
         if (conversion.id) {
-          await updateCrud("catalog/product-unit-conversions", {
-            id: conversion.id,
-            unitCode: conversion.unitCode,
-            toBaseFactor: conversion.toBaseFactor,
-            sortOrder: conversion.sortOrder,
-            isActive: conversion.isActive,
-          });
+          const conversionId = conversion.id;
+          await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(conversionVersions.get(conversionId) ?? null),
+            () => updateCrud("catalog/product-unit-conversions", {
+              id: conversionId,
+              unitCode: conversion.unitCode,
+              toBaseFactor: conversion.toBaseFactor,
+              sortOrder: conversion.sortOrder,
+              isActive: conversion.isActive,
+            }),
+          );
           persistedConversions.push({
             id: conversion.id,
             unitCode: conversion.unitCode,
@@ -1335,6 +1470,20 @@ export default function EditCatalogProductPage({
               "catalog.products.edit.errors.idMissing",
               "Product identifier is missing.",
             )}
+          />
+        </PageBody>
+      </Page>
+    );
+  }
+
+  if (isNotFound && !loading) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t("catalog.products.edit.errors.notFound", "Product not found.")}
+            backHref="/backend/catalog/products"
+            backLabel={t("catalog.products.edit.actions.backToList", "Back to products")}
           />
         </PageBody>
       </Page>
@@ -1427,6 +1576,7 @@ function ProductDetailsSection({
   values,
   setValue,
   errors,
+  requiredFieldIds,
   productId,
   hasVariants,
   variantMediaGroups,
@@ -1483,10 +1633,10 @@ function ProductDetailsSection({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
+      <div className="space-y-2" data-crud-field-id="title">
         <Label className="flex items-center gap-1">
           {t("catalog.products.form.title", "Title")}
-          <span className="text-red-600">*</span>
+          <span className="text-status-error-text">*</span>
         </Label>
         <Input
           value={values.title}
@@ -1497,13 +1647,18 @@ function ProductDetailsSection({
           )}
         />
         {errors.title ? (
-          <p className="text-xs text-red-600">{errors.title}</p>
+          <p className="text-xs text-status-error-text">{errors.title}</p>
         ) : null}
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-2" data-crud-field-id="description">
         <div className="flex items-center justify-between">
-          <Label>{t("catalog.products.form.description", "Description")}</Label>
+          <Label className="flex items-center gap-1">
+            {t("catalog.products.form.description", "Description")}
+            {requiredFieldIds?.has("description") ? (
+              <span className="text-status-error-text">*</span>
+            ) : null}
+          </Label>
           <Button
             type="button"
             variant="ghost"
@@ -1525,17 +1680,10 @@ function ProductDetailsSection({
           </Button>
         </div>
         {values.useMarkdown ? (
-          <div
-            data-color-mode="light"
-            className="overflow-hidden rounded-md border"
-          >
-            <MarkdownEditor
-              value={values.description}
-              height={260}
-              onChange={(val) => setValue("description", val ?? "")}
-              previewOptions={{ remarkPlugins: [] }}
-            />
-          </div>
+          <MarkdownField
+            value={values.description}
+            onChange={(val) => setValue("description", val ?? "")}
+          />
         ) : (
           <Textarea
             className="min-h-[180px]"
@@ -1547,6 +1695,9 @@ function ProductDetailsSection({
             )}
           />
         )}
+        {errors.description ? (
+          <p className="text-xs text-status-error-text">{errors.description}</p>
+        ) : null}
       </div>
 
       <ProductMediaManager
@@ -1741,7 +1892,7 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
         setSchemaTemplates([]);
       }
     } catch (err) {
-      console.error("catalog.option-schemas.list failed", err);
+      logger.error('catalog.option-schemas.list failed', { err });
       setSchemaTemplates([]);
     } finally {
       setSchemaLoading(false);
@@ -1750,23 +1901,29 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
 
   const handleDeleteSchema = React.useCallback(
     async (id: string) => {
+      const target = schemaTemplates.find((entry) => entry.id === id);
+      const lockVersion = target?.updatedAt ?? target?.updated_at ?? null;
       try {
-        await deleteCrud("catalog/option-schemas", id, {
-          errorMessage: t(
-            "catalog.products.edit.schemas.deleteError",
-            "Failed to delete schema.",
-          ),
-        });
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(lockVersion),
+          () => deleteCrud("catalog/option-schemas", id, {
+            errorMessage: t(
+              "catalog.products.edit.schemas.deleteError",
+              "Failed to delete schema.",
+            ),
+          }),
+        );
         flash(
           t("catalog.products.edit.schemas.deleted", "Schema deleted."),
           "success",
         );
         void loadSchemas();
       } catch (err) {
-        console.error("catalog.option-schemas.delete failed", err);
+        if (surfaceRecordConflict(err, t)) { void loadSchemas(); return; }
+        logger.error('catalog.option-schemas.delete failed', { err });
       }
     },
-    [loadSchemas, t],
+    [loadSchemas, schemaTemplates, t],
   );
 
   const handleSaveSchema = React.useCallback(
@@ -1798,8 +1955,25 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
         isActive: true,
       };
       if (schemaToEdit?.id) payload.id = schemaToEdit.id;
-      if (schemaToEdit?.id) await updateCrud("catalog/option-schemas", payload);
-      else await createCrud("catalog/option-schemas", payload);
+      try {
+        if (schemaToEdit?.id) {
+          const lockVersion = schemaToEdit.updatedAt ?? schemaToEdit.updated_at ?? null;
+          await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(lockVersion),
+            () => updateCrud("catalog/option-schemas", payload),
+          );
+        } else {
+          await createCrud("catalog/option-schemas", payload);
+        }
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) {
+          setSaveSchemaOpen(false);
+          setSchemaToEdit(null);
+          void loadSchemas();
+          return;
+        }
+        throw err;
+      }
       flash(
         t("catalog.products.edit.schemas.saved", "Schema saved."),
         "success",
@@ -2122,19 +2296,24 @@ function ProductVariantsSection({
       if (!confirmed) return;
       setDeletingId(variant.id);
       try {
-        await deleteCrud("catalog/variants", variant.id, {
-          errorMessage: t(
-            "catalog.variants.form.deleteError",
-            "Failed to delete variant.",
-          ),
-        });
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(variant.updatedAt),
+          () =>
+            deleteCrud("catalog/variants", variant.id, {
+              errorMessage: t(
+                "catalog.variants.form.deleteError",
+                "Failed to delete variant.",
+              ),
+            }),
+        );
         flash(
           t("catalog.variants.form.deleted", "Variant deleted."),
           "success",
         );
         onVariantDeleted(variant.id);
       } catch (err) {
-        console.error("catalog.products.edit.variants.delete", err);
+        if (surfaceRecordConflict(err, t)) return;
+        logger.error('catalog.products.edit.variants.delete', { err });
         flash(
           t("catalog.variants.form.deleteError", "Failed to delete variant."),
           "error",
@@ -2183,7 +2362,7 @@ function ProductVariantsSection({
       );
       if (onVariantsReload) await onVariantsReload();
     } catch (err) {
-      console.error("catalog.products.edit.variantList.generate", err);
+      logger.error('catalog.products.edit.variantList.generate', { err });
       flash(
         t(
           "catalog.products.edit.variantList.generateError",
@@ -2372,6 +2551,9 @@ function ProductMetaSection({
   const autoHandleEnabledRef = React.useRef(handleValue.trim().length === 0);
   const autoHandleInitializedRef = React.useRef(false);
   const previousTitleRef = React.useRef(titleSource);
+  const selectedTaxRate = values.taxRateId
+    ? taxRates.find((rate) => rate.id === values.taxRateId) ?? null
+    : null;
 
   React.useEffect(() => {
     if (isLoadingProduct) return;
@@ -2568,7 +2750,9 @@ function ProductMetaSection({
                   ? t("catalog.products.create.taxRates.noneSelected", "No tax class selected")
                   : t("catalog.products.create.taxRates.emptyOption", "No tax classes available")
               }
-            />
+            >
+              {selectedTaxRate ? formatTaxRateLabel(selectedTaxRate) : undefined}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {taxRates.map((rate) => (
@@ -2751,6 +2935,7 @@ function readOfferSnapshots(record: Record<string, unknown>): OfferSnapshot[] {
         getString(offer.channelName) ?? getString(offer.channel_name),
       channelCode:
         getString(offer.channelCode) ?? getString(offer.channel_code),
+      updatedAt: getString(offer.updatedAt) ?? getString(offer.updated_at) ?? null,
     });
   }
   return snapshots;
@@ -2851,6 +3036,7 @@ function mergeOfferSnapshots(
       isActive: entry.isActive ?? previous?.isActive ?? true,
       channelName: previous?.channelName ?? null,
       channelCode: previous?.channelCode ?? null,
+      updatedAt: previous?.updatedAt ?? null,
     };
   });
 }
@@ -3141,7 +3327,7 @@ function SaveSchemaDialog({
       await onSubmit(name);
       onOpenChange(false);
     } catch (err) {
-      console.error("schema.save.failed", err);
+      logger.error('schema.save.failed', { err });
     } finally {
       setSaving(false);
     }

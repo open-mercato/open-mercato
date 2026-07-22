@@ -23,10 +23,14 @@ import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encrypti
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import { fetchStuckDealIds } from '../../lib/stuckDeals'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const rawBodySchema = z.object({}).passthrough()
 
 const stringOrStringArray = z.union([z.string(), z.array(z.string())])
+const OPEN_DEAL_STATUSES = ['open', 'in_progress'] as const
 const booleanQueryParam = z.preprocess((value) => {
   const parsed = parseBooleanFromUnknown(value)
   return parsed === null ? value : parsed
@@ -36,6 +40,7 @@ export const dealListQuerySchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
+    id: z.string().uuid().optional(),
     search: z.string().optional(),
     status: stringOrStringArray.optional(),
     pipelineStage: z.string().optional(),
@@ -46,6 +51,7 @@ export const dealListQuerySchema = z
     expectedCloseAtTo: z.string().optional(),
     isStuck: booleanQueryParam,
     isOverdue: booleanQueryParam,
+    needsAttention: booleanQueryParam,
     valueCurrency: stringOrStringArray.optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -155,6 +161,43 @@ async function fetchDealIdsMatchingAssociations(
   return rows.map((row) => row.id)
 }
 
+async function fetchNeedAttentionDealIds(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string,
+): Promise<string[]> {
+  const connection = em.getConnection()
+  const overdueRows = await connection.execute<Array<{ id: string }>>(
+    `SELECT id FROM customer_deals
+      WHERE organization_id = ?
+        AND tenant_id = ?
+        AND deleted_at IS NULL
+        AND status = 'open'
+        AND expected_close_at IS NOT NULL
+        AND expected_close_at < CURRENT_DATE`,
+    [organizationId, tenantId],
+  )
+
+  const attentionIds = new Set(overdueRows.map((row) => row.id))
+  const stuckIds = await fetchStuckDealIds(em, organizationId, tenantId)
+  if (stuckIds.length > 0) {
+    const idPlaceholders = stuckIds.map(() => '?').join(',')
+    const statusPlaceholders = OPEN_DEAL_STATUSES.map(() => '?').join(',')
+    const openStuckRows = await connection.execute<Array<{ id: string }>>(
+      `SELECT id FROM customer_deals
+        WHERE organization_id = ?
+          AND tenant_id = ?
+          AND deleted_at IS NULL
+          AND status IN (${statusPlaceholders})
+          AND id IN (${idPlaceholders})`,
+      [organizationId, tenantId, ...OPEN_DEAL_STATUSES, ...stuckIds],
+    )
+    for (const row of openStuckRows) attentionIds.add(row.id)
+  }
+
+  return Array.from(attentionIds)
+}
+
 function normalizeCurrencyList(value: unknown): string[] {
   const set = new Set<string>()
   const visit = (entry: unknown) => {
@@ -213,6 +256,8 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
     const lookup = new Set(ids)
     restrictedIds = restrictedIds.filter((id) => lookup.has(id))
   }
+
+  if (query.id) filters.id = { $eq: query.id }
 
   if (query.search) {
     const matchingIds = ctx
@@ -299,7 +344,7 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
     filters.expected_close_at = range
   }
 
-  if (query.isOverdue) {
+  if (query.isOverdue && !query.needsAttention) {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     if (statusList.length === 0) {
@@ -313,7 +358,7 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
     filters.expected_close_at = existingRange
   }
 
-  if (query.isStuck && ctx) {
+  if (query.isStuck && !query.needsAttention && ctx) {
     const tenantId = ctx.auth?.tenantId
     // CrudCtx.auth carries `orgId` (not `organizationId`). The previous code referenced
     // `organizationId` which is always `undefined`, so the typeof check below silently
@@ -323,6 +368,16 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
       const em = ctx.container.resolve<EntityManager>('em')
       const stuckIds = await fetchStuckDealIds(em, organizationId, tenantId)
       intersectIds(stuckIds)
+    }
+  }
+
+  if (query.needsAttention && ctx) {
+    const tenantId = ctx.auth?.tenantId
+    const organizationId = ctx.auth?.orgId
+    if (typeof tenantId === 'string' && typeof organizationId === 'string') {
+      const em = ctx.container.resolve<EntityManager>('em')
+      const attentionIds = await fetchNeedAttentionDealIds(em, organizationId, tenantId)
+      intersectIds(attentionIds)
     }
   }
 
@@ -601,7 +656,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
         // people/companies labels (cards just lose their company pill). Tag every item with
         // `_associations: { ok: false }` so a future surface can render a degraded-state hint
         // instead of silently showing cards without company badges.
-        console.warn('[customers.deals] failed to decorate items with person/company links', err)
+        logger.warn('failed to decorate items with person/company links', { component: 'deals', err })
         payload.items = items.map((item: unknown) => {
           if (!item || typeof item !== 'object') return item
           return {

@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
-import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
+import { resolveDictionariesRouteContext, resolveDictionaryActorId } from '@open-mercato/core/modules/dictionaries/api/context'
 import { updateDictionaryEntrySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -16,6 +21,9 @@ import {
   dictionariesTag,
   updateDictionaryEntrySchema as updateEntryDocSchema,
 } from '../../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'entries-api' })
 const paramsSchema = z.object({
   dictionaryId: z.string().uuid(),
   entryId: z.string().uuid(),
@@ -70,9 +78,30 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
       entryId: ctx.params?.entryId,
     })
     const dictionary = await loadDictionary(context, dictionaryId)
-    await loadEntry(context, dictionary, entryId)
+    const entry = await loadEntry(context, dictionary, entryId)
+    await enforceCommandOptimisticLockWithGuards(context.container, {
+      resourceKind: 'dictionaries.entry',
+      resourceId: entry.id,
+      current: entry.updatedAt ?? null,
+      request: req,
+    })
     const rawBody = await req.json().catch(() => ({}))
     const payload = updateDictionaryEntrySchema.parse(rawBody)
+    const guardUserId = resolveDictionaryActorId(context.auth)
+    const guardResult = await validateCrudMutationGuard(context.container, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: guardUserId,
+      resourceKind: 'dictionaries.entry',
+      resourceId: entry.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: payload,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
     // These nested routes don't use the CRUD factory, so invoke the command bus explicitly.
     const commandBus = (context.container.resolve('commandBus') as CommandBus)
     const input = { ...(payload as Record<string, unknown>), id: entryId }
@@ -84,6 +113,19 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     const updatedEntryId = typeof updateResult.entryId === 'string' ? updateResult.entryId : null
     if (!updatedEntryId) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_update_failed', 'Failed to update dictionary entry') })
+    }
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(context.container, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userId: guardUserId,
+        resourceKind: 'dictionaries.entry',
+        resourceId: updatedEntryId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
     }
     const updated = await findOneWithDecryption(
       context.em.fork(),
@@ -125,7 +167,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries/:id/entries/:entryId.PATCH] Unexpected error', err)
+    logger.error('Failed to update dictionary entry', { err })
     return NextResponse.json({ error: 'Failed to update dictionary entry' }, { status: 500 })
   }
 }
@@ -139,11 +181,46 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     })
     const dictionary = await loadDictionary(context, dictionaryId)
     const entry = await loadEntry(context, dictionary, entryId)
+    await enforceCommandOptimisticLockWithGuards(context.container, {
+      resourceKind: 'dictionaries.entry',
+      resourceId: entry.id,
+      current: entry.updatedAt ?? null,
+      request: req,
+    })
+
+    const guardUserId = resolveDictionaryActorId(context.auth)
+    const guardResult = await validateCrudMutationGuard(context.container, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: guardUserId,
+      resourceKind: 'dictionaries.entry',
+      resourceId: entry.id,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: null,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
     const commandBus = (context.container.resolve('commandBus') as CommandBus)
     const { logEntry } = await commandBus.execute('dictionaries.entries.delete', {
       input: { body: { id: entry.id } },
       ctx: context.ctx,
     })
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(context.container, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userId: guardUserId,
+        resourceKind: 'dictionaries.entry',
+        resourceId: entry.id,
+        operation: 'delete',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
     const response = NextResponse.json({ ok: true })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
@@ -164,7 +241,7 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries/:id/entries/:entryId.DELETE] Unexpected error', err)
+    logger.error('Failed to delete dictionary entry', { err })
     return NextResponse.json({ error: 'Failed to delete dictionary entry' }, { status: 500 })
   }
 }

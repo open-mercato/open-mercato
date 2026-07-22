@@ -34,12 +34,24 @@ test.describe('TC-TRANS-010: Drawer Escape Close and Body Scroll Restore', () =>
 
       const dialog = await openTranslationsDrawer(page)
 
-      await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe('hidden')
+      // Radix Dialog (DS Drawer primitive base) blocks body scroll via
+      // `react-remove-scroll-bar`, which sets a `data-scroll-locked`
+      // attribute on `<body>` + injects a `<style>` rule with
+      // `body[data-scroll-locked] { overflow: hidden !important }`.
+      // Inline `body.style.overflow` is NOT set — the lock lives in
+      // the attribute + injected stylesheet. Assert against the
+      // computed style (covers both the attribute approach and any
+      // future hand-rolled `body.style.overflow = 'hidden'` regression).
+      await expect
+        .poll(() => page.evaluate(() => window.getComputedStyle(document.body).overflow))
+        .toBe('hidden')
       await expect(dialog).toBeVisible()
 
       await page.keyboard.press('Escape')
       await expect(dialog).toBeHidden()
-      await expect.poll(() => page.evaluate(() => document.body.style.overflow)).not.toBe('hidden')
+      await expect
+        .poll(() => page.evaluate(() => window.getComputedStyle(document.body).overflow))
+        .not.toBe('hidden')
     } finally {
       await deleteCatalogProductIfExists(request, adminToken, productId)
     }

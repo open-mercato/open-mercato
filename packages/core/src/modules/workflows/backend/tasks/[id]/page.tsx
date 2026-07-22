@@ -25,6 +25,10 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { MobileTaskForm } from '../../../components/mobile/MobileTaskForm'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import type { UserTaskResponse, UserTaskStatus } from '../../../data/types'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export default function UserTaskDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
@@ -44,12 +48,16 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
       const result = await apiCall<{ data: UserTaskResponse }>(
         `/api/workflows/tasks/${params.id}`
       )
-
       if (!result.ok) {
-        throw new Error('Failed to fetch task')
+        const httpErr = new Error(
+          result.status === 404
+            ? t('workflows.tasks.detail.notFound', 'Task not found')
+            : t('workflows.tasks.detail.loadFailed', 'Failed to load task')
+        ) as Error & { status: number }
+        httpErr.status = result.status
+        throw httpErr
       }
-
-      return result.result?.data || null
+      return result.result?.data ?? null
     },
   })
 
@@ -111,7 +119,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
         flash(error?.error || t('workflows.tasks.messages.completeFailed'), 'error')
       }
     } catch (err) {
-      console.error('Error completing task:', err)
+      logger.error('Error completing task', { err })
       flash(t('workflows.tasks.messages.completeFailed'), 'error')
     } finally {
       setSubmitting(false)
@@ -347,16 +355,34 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
     )
   }
 
+  const isNotFound = !isLoading && (error as (Error & { status?: number }) | null)?.status === 404
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('workflows.tasks.detail.notFound', 'Task not found')}
+            backHref="/backend/tasks"
+            backLabel={t('workflows.tasks.detail.backToList', 'Back to Tasks')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !task) {
     return (
       <Page>
         <PageBody>
-          <div className="p-8 text-center">
-            <p className="text-status-error-text">{t('workflows.tasks.detail.notFound')}</p>
-            <Button onClick={() => router.push('/backend/tasks')} className="mt-4">
-              {t('workflows.tasks.detail.backToList')}
-            </Button>
-          </div>
+          <ErrorMessage
+            label={(error as Error | null)?.message ?? t('workflows.tasks.detail.loadFailed', 'Failed to load task')}
+            action={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/backend/tasks">{t('workflows.tasks.detail.backToList', 'Back to Tasks')}</Link>
+              </Button>
+            }
+          />
         </PageBody>
       </Page>
     )

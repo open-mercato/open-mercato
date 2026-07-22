@@ -2,7 +2,7 @@
 
 import '@xyflow/react/dist/style.css'
 
-import { useCallback, useMemo, useEffect, useState } from 'react'
+import { useCallback, useMemo, useEffect, useRef, useState } from 'react'
 import {
   ReactFlow,
   Node,
@@ -15,11 +15,15 @@ import {
   useNodesState,
   useEdgesState,
   addEdge,
+  applyNodeChanges,
+  applyEdgeChanges,
   Connection,
+  NodeChange,
+  EdgeChange,
   ConnectionMode,
   MarkerType,
 } from '@xyflow/react'
-import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode} from './nodes'
+import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, ParallelForkNode, ParallelJoinNode} from './nodes'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
 import { STATUS_COLORS } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -30,8 +34,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 export interface WorkflowGraphImplProps {
   initialNodes?: Node[]
   initialEdges?: Edge[]
-  onNodesChange?: (changes: any[]) => void
-  onEdgesChange?: (changes: any[]) => void
+  onNodesChange?: (nodes: Node[]) => void
+  onEdgesChange?: (edges: Edge[]) => void
   onNodeClick?: (event: React.MouseEvent, node: Node) => void
   onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void
   onConnect?: (connection: Connection) => void
@@ -53,8 +57,16 @@ export default function WorkflowGraphImpl({
   height = '600px',
 }: WorkflowGraphImplProps) {
   const t = useT()
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+  const [nodes, setNodes] = useNodesState(initialNodes)
+  const [edges, setEdges] = useEdgesState(initialEdges)
+
+  // Track the latest committed graph so the change reducers can run inside the
+  // lazy boundary (#3169) and forward the already-applied arrays to the parent,
+  // keeping React Flow's runtime out of the editor page chunk.
+  const latestNodesRef = useRef(nodes)
+  latestNodesRef.current = nodes
+  const latestEdgesRef = useRef(edges)
+  latestEdgesRef.current = edges
 
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme === 'dark'
@@ -105,23 +117,25 @@ export default function WorkflowGraphImpl({
   )
 
   const handleNodesChange = useCallback(
-    (changes: any) => {
-      onNodesChange(changes)
+    (changes: NodeChange[]) => {
+      const nextNodes = applyNodeChanges(changes, latestNodesRef.current)
+      setNodes(nextNodes)
       if (onNodesChangeProp) {
-        onNodesChangeProp(changes)
+        onNodesChangeProp(nextNodes)
       }
     },
-    [onNodesChange, onNodesChangeProp]
+    [setNodes, onNodesChangeProp]
   )
 
   const handleEdgesChange = useCallback(
-    (changes: any) => {
-      onEdgesChange(changes)
+    (changes: EdgeChange[]) => {
+      const nextEdges = applyEdgeChanges(changes, latestEdgesRef.current)
+      setEdges(nextEdges)
       if (onEdgesChangeProp) {
-        onEdgesChangeProp(changes)
+        onEdgesChangeProp(nextEdges)
       }
     },
-    [onEdgesChange, onEdgesChangeProp]
+    [setEdges, onEdgesChangeProp]
   )
 
   const nodeTypes = useMemo(
@@ -133,6 +147,8 @@ export default function WorkflowGraphImpl({
       subWorkflow: SubWorkflowNode,
       waitForSignal: WaitForSignalNode,
       waitForTimer: WaitForTimerNode,
+      parallelFork: ParallelForkNode,
+      parallelJoin: ParallelJoinNode,
     }),
     []
   )
@@ -219,8 +235,7 @@ export default function WorkflowGraphImpl({
 
         {editable && !isCompactViewport && (
           <Panel position="top-left" style={{ margin: 10 }}>
-            <Alert variant="info" className="max-w-sm">
-              <Edit3 className="size-4" />
+            <Alert variant="info" icon={<Edit3 aria-hidden="true" />} className="max-w-sm">
               <AlertDescription className="font-medium">
                 {t('workflows.graph.editModeInfo')}
               </AlertDescription>

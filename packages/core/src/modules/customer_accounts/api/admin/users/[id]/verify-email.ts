@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata = {}
 
@@ -24,11 +25,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const user = await em.findOne(CustomerUser, {
-    id: params.id,
-    tenantId: auth.tenantId,
-    deletedAt: null,
-  })
+  const user = await findOneWithDecryption(
+    em,
+    CustomerUser,
+    {
+      id: params.id,
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      deletedAt: null,
+    } as any,
+    undefined,
+    { tenantId: auth.tenantId, organizationId: auth.orgId },
+  )
   if (!user) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
@@ -37,13 +45,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ ok: true, alreadyVerified: true })
   }
 
-  await em.nativeUpdate(CustomerUser, { id: user.id }, { emailVerifiedAt: new Date() })
+  await em.nativeUpdate(CustomerUser, {
+    id: user.id,
+    tenantId: user.tenantId,
+    organizationId: user.organizationId,
+  }, { emailVerifiedAt: new Date() })
 
   void emitCustomerAccountsEvent('customer_accounts.email.verified', {
     id: user.id,
+    recipientUserId: user.id,
     email: user.email,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    tenantId: user.tenantId,
+    organizationId: user.organizationId,
     verifiedBy: auth.sub,
   }).catch(() => undefined)
 

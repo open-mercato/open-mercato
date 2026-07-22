@@ -1,0 +1,115 @@
+name: Package Previews
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to publish package previews for"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: package-previews-${{ github.event.inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-pr:
+    name: Resolve PR
+    runs-on: ubuntu-latest
+    outputs:
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      head_repo: ${{ steps.pr.outputs.head_repo }}
+      same_repo: ${{ steps.pr.outputs.same_repo }}
+    steps:
+      - name: Resolve pull request
+        id: pr
+        uses: actions/github-script@v9
+        env:
+          PR_NUMBER: ${{ github.event.inputs.pr_number }}
+        with:
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER);
+            if (!Number.isInteger(prNumber) || prNumber <= 0) {
+              core.setFailed('pr_number must be a positive integer');
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            const expectedRepo = `${context.repo.owner}/${context.repo.repo}`;
+            const sameRepo = pr.head.repo.full_name === expectedRepo;
+
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('head_repo', pr.head.repo.full_name);
+            core.setOutput('same_repo', String(sameRepo));
+
+            if (!sameRepo) {
+              core.setFailed('Package previews are restricted to same-repository PR branches.');
+            }
+
+  publish-previews:
+    name: Publish Package Previews
+    needs: resolve-pr
+    if: needs.resolve-pr.outputs.same_repo == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve-pr.outputs.head_sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 'lts/*'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build packages
+        run: |
+          yarn build:packages
+          yarn generate
+          yarn build:packages
+
+      - name: Publish package previews
+        run: >
+          yarn pkg-pr-new publish --comment=update --no-template --yarn --packageManager=yarn
+          './packages/ai-assistant'
+          './packages/cache'
+          './packages/channel-gmail'
+          './packages/channel-imap'
+          './packages/checkout'
+          './packages/cli'
+          './packages/content'
+          './packages/core'
+          './packages/create-app'
+          './packages/enterprise'
+          './packages/events'
+          './packages/gateway-stripe'
+          './packages/onboarding'
+          './packages/queue'
+          './packages/scheduler'
+          './packages/search'
+          './packages/shared'
+          './packages/storage-s3'
+          './packages/sync-akeneo'
+          './packages/ui'
+          './packages/webhooks'

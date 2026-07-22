@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { InboxDiscrepancy, InboxEmail, InboxProposal, InboxProposalAction } from '../../../../data/entities'
 import { emitInboxOpsEvent } from '../../../../events'
@@ -9,6 +10,9 @@ import {
   extractPathSegment,
   UnauthorizedError,
 } from '../../../routeHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'email-reprocess' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.manage'] },
@@ -48,11 +52,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Email is already queued for processing' }, { status: 409 })
     }
 
-    const retiredCounts = await retireActiveProposalsForEmail(ctx.em, email.id, ctx.userId, ctx.scope)
-
-    email.status = 'received'
-    email.processingError = null
-    await ctx.em.flush()
+    let retiredCounts = { retiredProposalCount: 0, retiredActionCount: 0 }
+    await withAtomicFlush(ctx.em, [
+      async () => {
+        retiredCounts = await retireActiveProposalsForEmail(ctx.em, email.id, ctx.userId, ctx.scope)
+      },
+      () => {
+        email.status = 'received'
+        email.processingError = null
+      },
+    ], { transaction: true })
 
     try {
       await emitInboxOpsEvent('inbox_ops.email.reprocessed', {
@@ -68,7 +77,7 @@ export async function POST(req: Request) {
         subject: email.subject,
       })
     } catch (eventError) {
-      console.error('[inbox_ops:email:reprocess] Failed to emit events:', eventError)
+      logger.error('Failed to emit events', { err: eventError })
     }
 
     return NextResponse.json({ ok: true, ...retiredCounts })
@@ -80,7 +89,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: err.message }, { status: 409 })
     }
 
-    console.error('[inbox_ops:email:reprocess] Error:', err)
+    logger.error('Reprocess failed', { err })
     return NextResponse.json({ error: 'Failed to reprocess email' }, { status: 500 })
   }
 }
@@ -123,6 +132,21 @@ async function retireActiveProposalsForEmail(
     throw new ReprocessConflictError('Cannot reprocess after actions were already executed. Open the latest proposal instead.')
   }
 
+  // Resolve every read before mutating: a query issued between a scalar
+  // mutation and the flush can silently reset the Unit of Work (SPEC-018
+  // Problem 1). withAtomicFlush flushes once at the end, so ordering is ours.
+  const discrepancies = await findWithDecryption(
+    em,
+    InboxDiscrepancy,
+    {
+      proposalId: { $in: proposalIds },
+      resolved: false,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+
   const now = new Date()
   const supersededAt = now.toISOString()
   for (const proposal of proposals) {
@@ -153,22 +177,9 @@ async function retireActiveProposalsForEmail(
     retiredActionCount += 1
   }
 
-  const discrepancies = await findWithDecryption(
-    em,
-    InboxDiscrepancy,
-    {
-      proposalId: { $in: proposalIds },
-      resolved: false,
-      deletedAt: null,
-    },
-    undefined,
-    scope,
-  )
   for (const discrepancy of discrepancies) {
     discrepancy.resolved = true
   }
-
-  await em.flush()
 
   return {
     retiredProposalCount: proposals.length,

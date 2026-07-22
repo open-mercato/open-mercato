@@ -50,6 +50,7 @@ export type VectorDriverQuery = {
   filter?: {
     entityIds?: EntityId[]
     organizationId?: string | null
+    organizationIds?: string[] | null
     tenantId: string
   }
 }
@@ -102,7 +103,7 @@ export interface VectorDriver {
   delete(entityId: EntityId, recordId: string, tenantId: string): Promise<void>
   query(input: VectorDriverQuery): Promise<VectorDriverQueryResult[]>
   getChecksum(entityId: EntityId, recordId: string, tenantId: string): Promise<string | null>
-  purge?(entityId: EntityId, tenantId: string): Promise<void>
+  purge?(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void>
   list?(params: VectorDriverListParams): Promise<VectorIndexEntry[]>
   count?(params: VectorDriverCountParams): Promise<number>
   removeOrphans?(params: VectorDriverRemoveOrphansParams): Promise<number | void>

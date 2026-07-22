@@ -15,6 +15,9 @@ import {
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
 import { isForeignTenantActor } from "../../../../lib/publicQuoteTenantScope";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 const paramsSchema = z.object({
   token: z.string().uuid(),
@@ -143,7 +146,7 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
       return NextResponse.json(err.body, { status: err.status });
     }
     const { translate } = await resolveTranslations();
-    console.error("sales.quotes.public failed", err);
+    logger.error('sales.quotes.public failed', { err });
     return NextResponse.json(
       {
         error: translate("sales.quotes.public.failed", "Failed to load quote."),

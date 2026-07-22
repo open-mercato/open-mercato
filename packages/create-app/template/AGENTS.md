@@ -84,14 +84,17 @@ yarn test
 # Run a single unit test
 yarn test path/to/test.spec.ts
 
-# Run integration tests (spins up fresh ephemeral app + DB, runs Playwright)
+# Run integration tests (preferred: provisions/reuses an ephemeral app + DB, runs Playwright)
 yarn test:integration:ephemeral
 
-# Start ephemeral app only (for manual QA exploration)
-mercato test ephemeral
+# Start ephemeral app only (manual QA exploration or iterative test loops; admin@acme.com / secret)
+yarn test:integration:ephemeral:start
+
+# Iterate against the running ephemeral env with small filtered batches
+yarn mercato test:integration <filter>
 
 # View HTML integration test report
-mercato test coverage
+npx playwright show-report .ai/qa/test-results/html
 
 # Generate code from modules
 yarn generate
@@ -214,6 +217,7 @@ Install official package-backed modules with `yarn mercato module add @open-merc
 
 - Define module entities in `src/modules/<module>/data/entities.ts`.
 - Import entity decorators from `@mikro-orm/decorators/legacy`, not `@mikro-orm/core`.
+- User-editable entities MUST carry an `updated_at` column (onCreate+onUpdate) — it backs OSS **optimistic locking** (default ON). Return `updatedAt` from CRUD list/detail responses, and on edit/delete UI let `CrudForm` auto-derive the version header from `initialValues.updatedAt`, or for custom handlers wrap with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` + `surfaceRecordConflict(err, t)`. Without it, concurrent edits silently overwrite.
 - Treat `yarn db:generate` as a schema-diff probe. Default to the generated SQL, but if it emits unrelated churn, keep or write only the scoped SQL for the module you are changing and update `src/modules/<module>/migrations/.snapshot-open-mercato.json` in the same change.
 
 ### API Route Files MUST Export `metadata`
@@ -267,6 +271,28 @@ Practical consequences:
   4. Re-apply (`yarn db:migrate`) and commit.
 - Never hand-edit historical migrations that have shipped; add a **new** migration that performs the correction instead.
 
+## Entity Update Safety / Transaction Safety
+
+MikroORM v7 can silently drop a pending scalar UPDATE when a query (`em.find`, `em.findOne`, or a sync helper) runs on the same `EntityManager` between the scalar mutation and `em.flush()`. For commands that mutate entities across multiple phases:
+
+- Use `withAtomicFlush(em, phases, { transaction: true })` from `@open-mercato/shared/lib/commands/flush` for multi-phase scalar + relation mutations.
+- Never interleave `em.find`/`em.findOne` between a scalar mutation and `em.flush()` without `withAtomicFlush`.
+- Keep `emitCrudSideEffects` and cache invalidation OUTSIDE the `withAtomicFlush` block — they run only AFTER the DB write commits.
+
+```ts
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+
+await withAtomicFlush(em, [
+  () => { record.name = 'New Name'; record.status = 'active' },
+  () => syncEntityTags(em, record, tags),
+], { transaction: true })
+
+// Cache invalidation + side effects AFTER commit
+await emitCrudSideEffects({ /* ... */ })
+```
+
+Cache invalidation running post-commit means reads can briefly observe a query-index convergence window. The opt-in `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` env flag (default OFF, backward compatible) is planned to make the query-index read-projection tail converge synchronously on write, at a write-latency cost — opt-in/forthcoming, not on by default.
+
 ## AI Assistant — adding agents, tools, UI parts, and overrides
 
 Standalone apps consume the AI framework from `@open-mercato/ai-assistant` (in `node_modules/`). The same conventions used in the monorepo apply here:
@@ -293,7 +319,7 @@ export const aiAgentOverrides: AiAgentOverridesMap = {
 }
 ```
 
-Example `modules.ts` inline override (preferred for app-level decisions that do not deserve a fake module). All module contract domains live under the same `entry.overrides` umbrella per the [unified spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-05-04-modules-ts-unified-overrides.md):
+Example `modules.ts` inline override (preferred for app-level decisions that do not deserve a fake module). All module contract domains live under the same `entry.overrides` umbrella per the [unified spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md):
 
 ```ts
 // src/modules.ts
@@ -344,7 +370,7 @@ yarn generate
 yarn mercato configs cache structural --all-tenants
 ```
 
-Refer to the `create-ai-agent` skill (`.ai/skills/create-ai-agent/SKILL.md`) and the public docs at `framework/ai-assistant/overrides` for the full contract, MUST rules, and the resolution order.
+Refer to the `om-create-ai-agent` skill (`.ai/skills/om-create-ai-agent/SKILL.md`) and the public docs at `framework/ai-assistant/overrides` for the full contract, MUST rules, and the resolution order.
 
 ### Unified module contract overrides
 
@@ -452,7 +478,7 @@ Full reference: `framework/modules/overrides` and `framework/modules/routes-and-
 
 The default `/backend` page (`src/app/(backend)/backend/page.tsx`) renders `<DashboardScreen />` from `@open-mercato/ui/backend/dashboard`. That component's data flow depends on the `dashboards` module being enabled — widgets, layouts, and the dashboard API routes all live there.
 
-If you or the `trim-unused-modules` skill removes `dashboards` from `src/modules.ts`, you MUST also update `src/app/(backend)/backend/page.tsx` so it no longer renders `<DashboardScreen />`. Replace the body with a `redirect(...)` to the first backend page the current user can see — pick from the main sidebar group, fall back to `/backend/profile` when nothing else is enabled. Example:
+If you or the `om-trim-unused-modules` skill removes `dashboards` from `src/modules.ts`, you MUST also update `src/app/(backend)/backend/page.tsx` so it no longer renders `<DashboardScreen />`. Replace the body with a `redirect(...)` to the first backend page the current user can see — pick from the main sidebar group, fall back to `/backend/profile` when nothing else is enabled. Example:
 
 ```tsx
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
@@ -505,9 +531,9 @@ When building a new application or a new module under `src/modules/<id>/`, do no
 | Backend admin pages | Auto-discovered files under `backend/**` with paired `page.meta.ts` (`requireAuth`, `requireFeatures`, `pageGroup`, `pageGroupKey`, `pageOrder`) | <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
 | Frontend public pages and customer portal | Auto-discovered files under `frontend/**`. Portal pages live at `frontend/[orgSlug]/portal/<path>/page.tsx` with `requireCustomerAuth` / `requireCustomerFeatures` | <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
 | API routes (auth + OpenAPI) | `src/modules/<id>/api/**/route.ts` exporting handlers + `metadata` (per-method `requireAuth` / `requireFeatures`) + `openApi` | <https://docs.open-mercato.dev/framework/api/api-development-guide> |
-| CRUD APIs (factory) | `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/factory` | <https://docs.open-mercato.dev/framework/api/crud-factory> |
-| CRUD forms in admin | `<CrudForm entityId apiPath mode fields />` from `@open-mercato/ui/backend/CrudForm`; helpers `createCrud` / `updateCrud` / `deleteCrud` from `@open-mercato/ui/backend/utils/crud`; `createCrudFormError` from `@open-mercato/ui/backend/utils/serverErrors`. Never raw `<form>` or raw `fetch` | <https://docs.open-mercato.dev/framework/admin-ui/crud-form> |
-| DataTables in admin | `<DataTable entityId apiPath columns />` from `@open-mercato/ui/backend/DataTable`; keep `entityId` and `extensionTableId` stable so widget injection (columns, row actions, filters, toolbar) keeps working | <https://docs.open-mercato.dev/framework/admin-ui/data-grids> |
+| CRUD APIs (factory) | `makeCrudRoute({ metadata, orm, list, create, update, del, indexer })` from `@open-mercato/shared/lib/crud/factory` — all methods in one `api/<entities>/route.ts`, export named `{ GET, POST, PUT, DELETE }` and `metadata` | <https://docs.open-mercato.dev/framework/api/crud-factory> |
+| CRUD forms in admin | `<CrudForm fields onSubmit onDelete />` from `@open-mercato/ui/backend/CrudForm`; use `createCrud` / `updateCrud` / `deleteCrud` from `@open-mercato/ui/backend/utils/crud` in the handlers; `createCrudFormError` from `@open-mercato/ui/backend/utils/serverErrors`. Never `apiPath`, `mode`, or `resourceId` props. Never raw `<form>` or raw `fetch` | <https://docs.open-mercato.dev/framework/admin-ui/crud-form> |
+| DataTables in admin | `<DataTable columns data isLoading error pagination />` from `@open-mercato/ui/backend/DataTable`; fetch data with `apiCall` + `useQuery` and pass it explicitly — no built-in `apiPath` data-fetching prop. Use optional `entityId` only for widget injection slot targeting | <https://docs.open-mercato.dev/framework/admin-ui/data-grids> |
 | Authorization (RBAC) | Declare features in `<module>/acl.ts`, grant in `<module>/setup.ts` `defaultRoleFeatures`, gate routes/pages with `requireFeatures` in `metadata`. NEVER use `requireRoles`. Run `yarn mercato auth sync-role-acls` after adding features | <https://docs.open-mercato.dev/framework/rbac/overview> |
 | Multi-tenant scoping (default) | Every tenant-scoped entity MUST include indexed `organization_id` and `tenant_id`; every read/write filters by them. The CRUD factory injects the scope automatically — do not bypass it | <https://docs.open-mercato.dev/architecture/system-overview> |
 | **Encryption maps for sensitive data** | Declare `<module>/encryption.ts` exporting `defaultEncryptionMaps: ModuleEncryptionMap[]`; read via `findWithDecryption` / `findOneWithDecryption`. NEVER hand-roll AES/KMS — see the next section | <https://docs.open-mercato.dev/user-guide/encryption> |
@@ -571,7 +597,7 @@ Full guide: <https://docs.open-mercato.dev/user-guide/encryption>.
 
 ## Design System (Strict — applies to every UI change)
 
-All UI added or edited in `src/modules/<module>/backend/**` or `src/modules/<module>/frontend/**` MUST follow the Open Mercato design system. Non-compliant code will be blocked in `auto-review-pr`.
+All UI added or edited in `src/modules/<module>/backend/**` or `src/modules/<module>/frontend/**` MUST follow the Open Mercato design system. Non-compliant code will be blocked in `om-auto-review-pr`.
 
 **Colors.** NEVER hardcode Tailwind status colors (`text-red-500`, `bg-green-100`, `text-amber-*`, `text-emerald-*`, `bg-blue-*`). Use semantic tokens: `text-status-error-text`, `bg-status-success-bg`, `border-status-warning-border`, `text-status-info-icon`. For destructive actions (buttons) use the `destructive` token (`text-destructive`, `bg-destructive`). All status tokens have dedicated dark-mode values — no `dark:` overrides needed.
 
@@ -632,18 +658,21 @@ Grab the `d="..."` path values from the lucide icon you want — for example by 
 
 ## Agent Automation / Auto-Skills
 
-This project ships four auto-* Claude Code skills under `.ai/skills/` that let you delegate whole units of work to an autonomous agent. They work inside your own repository (any default branch name, optional pipeline labels, and a validation gate that probes `package.json` for available scripts).
+These auto-* agent skills let you delegate whole units of work to an autonomous agent. They are maintained in the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection — `create-mercato-app` installs them automatically during agentic setup; run **`yarn install-skills`** to refresh them or to install them later if scaffolding skipped the step (`npx skills add`; re-runs refresh via `npx skills update`). After install they are available by name from whichever harness directory your CLI reads (`.claude/skills/<name>` for Claude Code, `.agents/skills/` for Codex, mirrored into `.codex/skills/`); the matching `.ai/skills/<name>/` folder holds the standalone override the skill reads on top of its built-in workflow (any default branch name, optional pipeline labels, and a validation gate that probes `package.json` for available scripts). Repo-specific settings live in `.ai/agentic.config.json`. The `claude "…"` invocations below are examples for Claude Code — other harnesses invoke the same skills by name with their own slash-command syntax.
 
 | Skill | When to use | Invocation |
 |-------|-------------|------------|
-| `auto-create-pr` | Delegate an arbitrary task end-to-end and receive it as a PR against your default branch | `claude "/auto-create-pr <task description>"` |
-| `auto-continue-pr` | Resume an in-progress agent PR that wasn't finished in one run | `claude "/auto-continue-pr <PR#>"` |
-| `auto-review-pr` | Run a thorough automated code review on a PR (with optional autofix) | `claude "/auto-review-pr <PR#>"` |
-| `auto-fix-github` | Fix a GitHub issue by number and open a PR linked to it | `claude "/auto-fix-github <issue#>"` |
-| `trim-unused-modules` | Propose disabling built-in modules you don't use (classic-mode slimdown after adding your own module) | `claude "/trim-unused-modules"` |
+| `om-auto-create-pr` | Delegate an arbitrary task end-to-end and receive it as a PR against your default branch | `claude "/om-auto-create-pr <task description>"` |
+| `om-auto-continue-pr` | Resume an in-progress agent PR that wasn't finished in one run | `claude "/om-auto-continue-pr <PR#>"` |
+| `om-auto-review-pr` | Run a thorough automated code review on a PR (with optional autofix) | `claude "/om-auto-review-pr <PR#>"` |
+| `om-auto-fix-issue` | Fix a GitHub issue by number and open a PR linked to it (drives the installed chain `om-verify-in-repo` → `om-root-cause` → `om-fix` → `om-open-pr` → `om-auto-review-pr`) | `claude "/om-auto-fix-issue <issue#>"` |
+| `om-setup-agent-pipeline` | Tailor the agent PR pipeline — the scaffold ships a working `.ai/agentic.config.json` (GitHub tracker, labels off), so run this only to enable the label pipeline + QA gate, switch tracker, or change validation commands | `claude "/om-setup-agent-pipeline"` |
+| `om-apply-upgrade-notes` | Re-sync the installed pipeline artifacts (tracker descriptor, config) after `yarn install-skills` refreshed the external collection | `claude "/om-apply-upgrade-notes"` |
+| `om-trim-unused-modules` | Propose disabling built-in modules you don't use (classic-mode slimdown after adding your own module) — ships locally, installed by tier | `claude "/om-trim-unused-modules"` |
 
 Notes:
 
+- The external skills install automatically when the app is scaffolded, including the chain steps the skills above invoke (`om-prepare-test-env` for integration tests, the autofix chain steps); run `yarn install-skills` to refresh them or if that step was skipped (and `yarn install-skills --list` to see the local tier catalog). It is offline-safe: pass `--no-external` to skip the network step.
 - The skills probe `gh repo view --json defaultBranchRef` for your repo's default branch; no assumption that it's `main` or `develop`.
 - Pipeline labels (`review`, `qa`, `merge-queue`, etc.) are opt-in — the skills detect which labels exist in your repo via `gh label list` and skip gracefully when they're missing. If you want the full workflow, the skill README in each skill folder has a `gh label create` snippet you can paste in once.
 - The validation gate runs `yarn typecheck`, `yarn test`, `yarn generate`, and `yarn build` only when the corresponding `package.json` script exists.

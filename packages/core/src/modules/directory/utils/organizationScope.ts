@@ -7,6 +7,9 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { parseSelectedOrganizationCookie, parseSelectedTenantCookie } from './scopeCookies'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('directory').child({ component: 'org-scope-cache' })
 
 export { parseSelectedOrganizationCookie, parseSelectedTenantCookie }
 
@@ -21,9 +24,11 @@ export type OrganizationScope = {
 // OrganizationScope is a pure function of (userId, tenantId, selectedOrgId,
 // requestedTenant) between membership changes; caching it bypasses 1
 // SELECT on `organizations` per CRUD request. TTL is short (60s default)
-// to keep staleness bounded for membership/visibility changes. Tag-based
-// invalidation kicks the cache when user_organizations or organizations
-// mutate (wired via invalidateOrganizationScopeCacheFor).
+// to keep staleness bounded as a backstop. Tag-based invalidation also fires
+// eagerly: per-user entries are dropped by RbacService.invalidateUserCache
+// (every ACL/role grant change goes through it — see buildOrgScopeUserCacheTag)
+// and per-tenant entries by the directory.organization.* subscriber plus
+// RbacService.invalidateTenantCache (role-ACL changes).
 const ORG_SCOPE_CACHE_KEY_PREFIX = 'org-scope'
 // Phase 4 default-off until the same readiness probe (`GET /api/customers/people`)
 // stays green with the cache layer engaged. Set `OM_ORG_SCOPE_CACHE_TTL_MS=60000`
@@ -49,10 +54,23 @@ function buildOrgScopeCacheKey(parts: {
   return `${ORG_SCOPE_CACHE_KEY_PREFIX}:${parts.userId}:${parts.effectiveTenantId}:${selected}:${requested}`
 }
 
+// Tag builders are exported so the modules that own the "this user's scope
+// changed" / "this tenant's org tree changed" signals (auth RBAC invalidation,
+// the directory.organization.* subscriber) can drop the matching cross-request
+// cache entries without re-deriving the tag format. Keeping the format in one
+// place is what lets the TTL be enabled safely (issue #2259).
+export function buildOrgScopeUserCacheTag(userId: string): string {
+  return `${ORG_SCOPE_CACHE_KEY_PREFIX}:user:${userId}`
+}
+
+export function buildOrgScopeTenantCacheTag(tenantId: string): string {
+  return `${ORG_SCOPE_CACHE_KEY_PREFIX}:tenant:${tenantId}`
+}
+
 function buildOrgScopeCacheTags(parts: { userId: string; effectiveTenantId: string }): string[] {
   return [
-    `${ORG_SCOPE_CACHE_KEY_PREFIX}:user:${parts.userId}`,
-    `${ORG_SCOPE_CACHE_KEY_PREFIX}:tenant:${parts.effectiveTenantId}`,
+    buildOrgScopeUserCacheTag(parts.userId),
+    buildOrgScopeTenantCacheTag(parts.effectiveTenantId),
   ]
 }
 
@@ -82,9 +100,9 @@ export async function invalidateOrganizationScopeCacheForUser(
   const cache = resolveCacheFromContainer(container)
   if (!cache?.deleteByTags) return
   try {
-    await cache.deleteByTags([`${ORG_SCOPE_CACHE_KEY_PREFIX}:user:${userId}`])
+    await cache.deleteByTags([buildOrgScopeUserCacheTag(userId)])
   } catch (err) {
-    console.warn('[org-scope:cache] invalidate user failed', err)
+    logger.warn('Cache invalidate user failed', { err })
   }
 }
 
@@ -95,10 +113,34 @@ export async function invalidateOrganizationScopeCacheForTenant(
   const cache = resolveCacheFromContainer(container)
   if (!cache?.deleteByTags) return
   try {
-    await cache.deleteByTags([`${ORG_SCOPE_CACHE_KEY_PREFIX}:tenant:${tenantId}`])
+    await cache.deleteByTags([buildOrgScopeTenantCacheTag(tenantId)])
   } catch (err) {
-    console.warn('[org-scope:cache] invalidate tenant failed', err)
+    logger.warn('Cache invalidate tenant failed', { err })
   }
+}
+
+// Issue #2259 — per-request memoization. resolveOrganizationScopeForRequest
+// runs at least twice per CRUD request: once for the route-level feature check
+// (resolveFeatureCheckContext) and once inside the shared factory's withCtx.
+// Those two call sites use different request-scoped DI containers but are handed
+// the SAME Request instance, so memoizing the resolved scope on a WeakMap keyed
+// by that request collapses the duplicate work — and the duplicate
+// `organizations` SELECT — into a single resolution. The inner map is keyed by
+// the same identity tuple as the cross-request cache key, so distinct explicit
+// selectedId/tenant overrides on one request stay independent. There is no
+// staleness risk: the memo lives only for the lifetime of one request and is
+// dropped with the request object by the GC.
+const orgScopeRequestMemo = new WeakMap<object, Map<string, Promise<OrganizationScope>>>()
+
+function getRequestScopeMemo(request: unknown): Map<string, Promise<OrganizationScope>> | null {
+  if (!request || (typeof request !== 'object' && typeof request !== 'function')) return null
+  const key = request as object
+  let memo = orgScopeRequestMemo.get(key)
+  if (!memo) {
+    memo = new Map<string, Promise<OrganizationScope>>()
+    orgScopeRequestMemo.set(key, memo)
+  }
+  return memo
 }
 
 function normalizeOrganizationId(value: unknown): string | null {
@@ -131,29 +173,56 @@ export function getSelectedTenantFromRequest(
   return parseSelectedTenantCookie(header)
 }
 
-async function collectWithDescendants(em: EntityManager, tenantId: string, ids: string[]): Promise<Set<string>> {
-  if (!ids.length) return new Set()
-  const unique = Array.from(new Set(
+function normalizeOrganizationIds(ids: string[]): string[] {
+  return Array.from(new Set(
     ids.map((value) => normalizeOrganizationId(value)).filter((value): value is string => {
       if (!value) return false
       if (isAllOrganizationsSelection(value)) return false
       return true
     })
   ))
-  if (!unique.length) return new Set()
+}
+
+// Map each organization id to itself plus its persisted descendant ids. Only
+// orgs that exist for the tenant and are not soft-deleted are included, so an
+// unknown/inaccessible id simply has no entry (matching the per-id query that
+// returned an empty set for it).
+type OrgDescendantMap = Map<string, string[]>
+
+// Issue #2228 — single round-trip for org-scope resolution. Instead of issuing
+// one `organizations` SELECT per `collectWithDescendants` call (up to 3-4
+// sequential queries per request: accessible set, fallback set, selected set),
+// gather every candidate id up front and fetch their descendant expansions in
+// one `em.find(Organization, { id: $in })`. Expansion then happens in-memory.
+async function loadOrgDescendantMap(em: EntityManager, tenantId: string, ids: string[]): Promise<OrgDescendantMap> {
+  const unique = normalizeOrganizationIds(ids)
+  if (!unique.length) return new Map()
   const filter: FilterQuery<Organization> = {
     tenant: tenantId,
     id: { $in: unique },
     deletedAt: null,
   }
   const orgs = await em.find(Organization, filter)
-  const set = new Set<string>()
+  const map: OrgDescendantMap = new Map()
   for (const org of orgs) {
     const id = String(org.id)
-    set.add(id)
+    const expansion = [id]
     if (Array.isArray(org.descendantIds)) {
-      for (const desc of org.descendantIds) set.add(String(desc))
+      for (const desc of org.descendantIds) expansion.push(String(desc))
     }
+    map.set(id, expansion)
+  }
+  return map
+}
+
+function expandWithDescendants(map: OrgDescendantMap, ids: string[]): Set<string> {
+  const set = new Set<string>()
+  for (const value of ids) {
+    const id = normalizeOrganizationId(value)
+    if (!id || isAllOrganizationsSelection(id)) continue
+    const expansion = map.get(id)
+    if (!expansion) continue
+    for (const entry of expansion) set.add(entry)
   }
   return set
 }
@@ -214,14 +283,18 @@ export async function resolveOrganizationScope({
 
   const accountOrgId = actorTenantId && actorTenantId === tenantId ? normalizeOrganizationId(auth.orgId) : null
   const fallbackOrgId = accountOrgId ?? null
-  let fallbackSet: Set<string> | null = null
-  const loadFallbackSet = async (): Promise<Set<string> | null> => {
-    if (!fallbackOrgId) return null
-    if (!fallbackSet) {
-      fallbackSet = await collectWithDescendants(em, tenantId, [fallbackOrgId])
-    }
-    return fallbackSet
-  }
+
+  // Every id that could be expanded below — accessible set, fallback (account)
+  // org, and the requested selection — is known up front, so fetch them all in
+  // a single `organizations` query and expand from the in-memory map.
+  const candidateIds = [
+    ...(accessibleList ?? []),
+    ...(fallbackOrgId ? [fallbackOrgId] : []),
+    ...(normalizedSelectedId ? [normalizedSelectedId] : []),
+  ]
+  const orgDescendants = await loadOrgDescendantMap(em, tenantId, candidateIds)
+  const loadFallbackSet = (): Set<string> | null =>
+    fallbackOrgId ? expandWithDescendants(orgDescendants, [fallbackOrgId]) : null
 
   let allowedSet: Set<string> | null = null
   if (accessibleList === null) {
@@ -229,11 +302,11 @@ export async function resolveOrganizationScope({
   } else if (accessibleList.length === 0) {
     allowedSet = new Set()
   } else {
-    allowedSet = await collectWithDescendants(em, tenantId, accessibleList)
+    allowedSet = expandWithDescendants(orgDescendants, accessibleList)
   }
 
   if (allowedSet && allowedSet.size === 0 && fallbackOrgId) {
-    const computed = await loadFallbackSet()
+    const computed = loadFallbackSet()
     if (computed && computed.size > 0) {
       allowedSet = computed
     }
@@ -256,17 +329,17 @@ export async function resolveOrganizationScope({
 
   let filterSet: Set<string> | null = null
   if (effectiveSelected) {
-    filterSet = await collectWithDescendants(em, tenantId, [effectiveSelected])
+    filterSet = expandWithDescendants(orgDescendants, [effectiveSelected])
   } else if (allowedSet !== null) {
     filterSet = allowedSet
   } else if (widenToAllOrgs) {
     filterSet = null
   } else if (auth.orgId) {
-    filterSet = await loadFallbackSet()
+    filterSet = loadFallbackSet()
   }
 
   if ((!filterSet || filterSet.size === 0) && fallbackOrgId && !widenToAllOrgs) {
-    const computed = await loadFallbackSet()
+    const computed = loadFallbackSet()
     if (computed && computed.size > 0) {
       filterSet = computed
       if (!effectiveSelected) {
@@ -371,35 +444,51 @@ export async function resolveOrganizationScopeForRequest({
       })
     : null
 
-  if (cache && cacheKey && typeof cache.get === 'function') {
-    try {
-      const cached = await cache.get(cacheKey)
-      if (isValidCachedScope(cached)) return cached
-    } catch (err) {
-      console.warn('[org-scope:cache] read failed', err)
-    }
+  const requestMemo = getRequestScopeMemo(request)
+  if (requestMemo && cacheKey) {
+    const memoized = requestMemo.get(cacheKey)
+    if (memoized) return memoized
   }
 
-  const baseScope = await resolveOrganizationScope({
-    em,
-    rbac,
-    auth: scopedAuth,
-    selectedId: rawSelected,
-    tenantId: effectiveTenantId,
-  })
-
-  if (cache && cacheKey && userId && typeof cache.set === 'function') {
-    try {
-      await cache.set(cacheKey, baseScope, {
-        ttl: ttlMs,
-        tags: buildOrgScopeCacheTags({ userId, effectiveTenantId }),
-      })
-    } catch (err) {
-      console.warn('[org-scope:cache] write failed', err)
+  const resolveScope = async (): Promise<OrganizationScope> => {
+    if (cache && cacheKey && typeof cache.get === 'function') {
+      try {
+        const cached = await cache.get(cacheKey)
+        if (isValidCachedScope(cached)) return cached
+      } catch (err) {
+        logger.warn('Cache read failed', { err })
+      }
     }
+
+    const baseScope = await resolveOrganizationScope({
+      em,
+      rbac,
+      auth: scopedAuth,
+      selectedId: rawSelected,
+      tenantId: effectiveTenantId,
+    })
+
+    if (cache && cacheKey && userId && typeof cache.set === 'function') {
+      try {
+        await cache.set(cacheKey, baseScope, {
+          ttl: ttlMs,
+          tags: buildOrgScopeCacheTags({ userId, effectiveTenantId }),
+        })
+      } catch (err) {
+        logger.warn('Cache write failed', { err })
+      }
+    }
+
+    return baseScope
   }
 
-  return baseScope
+  if (requestMemo && cacheKey) {
+    const pending = resolveScope()
+    requestMemo.set(cacheKey, pending)
+    return pending
+  }
+
+  return resolveScope()
 }
 
 export type FeatureCheckContext = {

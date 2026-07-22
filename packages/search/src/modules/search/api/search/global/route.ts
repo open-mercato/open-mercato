@@ -3,6 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { SearchService } from '@open-mercato/search'
 import type { EmbeddingService } from '../../../../../vector'
 import { resolveEmbeddingConfig } from '../../../lib/embedding-config'
@@ -63,8 +64,8 @@ export async function GET(req: Request) {
       )
     }
 
-    // Fetch saved global search strategies
-    const strategies = await resolveGlobalSearchStrategies(container)
+    // Fetch saved global search strategies (per-tenant; falls back to the instance default)
+    const strategies = await resolveGlobalSearchStrategies(container, { scope: { tenantId: auth.tenantId } })
 
     // Load embedding config for vector strategy (only if vector is enabled)
     if (strategies.includes('vector')) {
@@ -93,11 +94,13 @@ export async function GET(req: Request) {
       })
     }
 
+    const scopeFilter = resolveOrganizationScopeFilter(scope, auth)
     const organizationId =
       typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : undefined
     const searchOptions = {
       tenantId: auth.tenantId,
       organizationId,
+      organizationIds: scopeFilter.organizationIds,
       limit,
       strategies,
       entityTypes,

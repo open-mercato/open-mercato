@@ -10,6 +10,9 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CHECKOUT_PASSWORD_COOKIE } from '../lib/constants'
 import { verifyCheckoutAccessToken } from '../lib/utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout')
 
 export async function requireAdminContext(req: Request): Promise<{
   auth: Exclude<AuthContext, null>
@@ -120,7 +123,7 @@ export function handleCheckoutRouteError(error: unknown) {
     )
   }
   if (error instanceof Error) {
-    console.error('[checkout] Unhandled route error:', error.message)
+    logger.error('Unhandled route error', { err: error })
   }
   return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
 }

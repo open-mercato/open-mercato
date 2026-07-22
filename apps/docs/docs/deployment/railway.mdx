@@ -1,0 +1,389 @@
+---
+title: Deploy to Railway
+description: Deploy a standalone Open Mercato app to Railway with one repeatable CLI command.
+---
+
+# Deploy to Railway
+
+`mercato deploy railway` provisions and deploys a standalone Open Mercato app to Railway. It creates the project, environment, PostgreSQL, Redis, app service, optional worker, environment variables, healthcheck, and public domain.
+
+The command records Railway resource IDs locally, so running it again updates the same project instead of creating a duplicate.
+
+:::info Availability
+This command was implemented for [issue #2414](https://github.com/open-mercato/open-mercato/issues/2414). Use a CLI release that includes `mercato deploy railway`; older releases do not provide it.
+:::
+
+## Before you start
+
+Prepare these pieces before the first deploy:
+
+- A standalone Open Mercato app created with `create-mercato-app`.
+- A real local `.env` file. In a fresh standalone app, run `yarn setup` first; it copies `.env.example` to `.env` when needed and initializes the app.
+- A Railway account or workspace on a plan that can run the app service, optional worker, PostgreSQL, and Redis. For production and team deployments, prefer a paid plan with at least 16 GB RAM available per service; check [Railway pricing](https://railway.com/pricing) for current limits before deploying.
+- A Railway **Account token** from Account Settings. Do not use a token assigned to a project.
+- A source strategy:
+  - **GitHub-backed**: your app is pushed to a GitHub remote and Railway can build from that repository. The Railway CLI is not required for this mode.
+  - **Local-source**: your app is not on GitHub, or you want to upload the current directory directly. This mode requires the Railway CLI because Open Mercato shells out to `railway up`.
+
+## Quickstart
+
+### 1. Create an Account token
+
+Create a Railway **Account token** at [railway.com/account/tokens](https://railway.com/account/tokens):
+
+1. Open **Account Settings** -> **Tokens**.
+2. Create a new token.
+3. Select **No workspace** and do not assign the token to a project. A token created inside a project is a Project token and will not work for this deploy command.
+4. Copy the token once, then expose it to the command:
+
+```bash
+export RAILWAY_API_TOKEN="your-account-token"
+```
+
+Prefer the environment variable or the interactive token prompt over `--token`. Command-line arguments may be retained in shell history or exposed through process inspection.
+
+`RAILWAY_TOKEN` is a different, project-scoped Railway credential. It is not used as the primary token for this command.
+
+### 2. Pick a source mode
+
+Use the default `auto` mode unless you need to force a path:
+
+- With GitHub: push the current branch to GitHub and run `yarn mercato deploy railway`. `auto` uses the GitHub remote when it is clean, pushed, and supported by Railway.
+- Without GitHub: install the Railway CLI, then run `yarn mercato deploy railway --source local`. `auto` also falls back to this path when no usable GitHub remote exists.
+
+### 3. Install the Railway CLI when using local-source mode
+
+Skip this step for GitHub-backed deploys.
+
+For local-source deploys, install the Railway CLI from the [Railway CLI docs](https://docs.railway.com/cli). Current supported options include the shell installer, Homebrew, npm, Scoop, pre-built binaries, and source builds. Common options:
+
+```bash
+bash <(curl -fsSL railway.com/install.sh) -y
+# or
+brew install railway
+# or
+npm install -g @railway/cli
+```
+
+Then confirm it is available:
+
+```bash
+railway --version
+```
+
+You do not need `railway login` when `RAILWAY_API_TOKEN` is set correctly. If you do run `railway login`, unset invalid Railway token variables first; the Railway CLI uses those variables for non-interactive authentication and skips browser login.
+
+### 4. Prepare an environment file
+
+The command loads `.env.production` when it exists, otherwise `.env`. You can select another file with `--env-file`.
+
+For a fresh standalone app:
+
+```bash
+npx create-mercato-app my-shop
+cd my-shop
+yarn setup
+```
+
+Review the generated `.env` before deployment. Replace placeholders and add provider keys you need for production. Missing AI provider keys do not block deployment, but payment, mail, storage, or integration credentials must be present when your enabled modules require them.
+
+Keep environment files out of version control. The CLI uploads their values as Railway variables; it does not include the file in a local-source upload.
+
+### 5. Verify the app locally
+
+Before deploying, run generation and a production build from the standalone app root:
+
+```bash
+yarn generate
+yarn build
+```
+
+`yarn generate` refreshes module registries and generated metadata. `yarn build` verifies the Next.js production build before Railway receives the source. In standalone apps, `yarn build` also runs generation, but running `yarn generate` explicitly first makes discovery or registry failures easier to identify before deployment.
+
+### 6. Preview the deployment
+
+Run a dry run before creating billable resources:
+
+```bash
+yarn mercato deploy railway --dry-run
+```
+
+The plan shows the selected source mode, Railway operations, and environment-variable changes. Secret values are redacted.
+
+### 7. Deploy
+
+```bash
+yarn mercato deploy railway
+```
+
+The default deployment:
+
+- creates or resumes a Railway project,
+- uses a `production` environment,
+- provisions PostgreSQL and Redis,
+- creates `mercato-app` and `mercato-worker`,
+- selects Git or local upload automatically,
+- creates a Railway-provided domain,
+- waits for `/api/healthz` to report a healthy deployment.
+
+On success, the CLI prints the app URL, healthcheck URL, Railway dashboard URL, source mode, and deployed services.
+
+## Source modes
+
+Select the source strategy with `--source auto|git|local`.
+
+| Mode | Behavior |
+|------|----------|
+| `auto` | Default. Uses Git when the current branch has a usable, synchronized GitHub remote; otherwise falls back to local upload when the Railway CLI is available. The selected mode and reason appear in dry-run and deployment output. |
+| `git` | Requires a clean working tree and a branch synchronized with a GitHub remote. Railway builds from the connected repository. This is the recommended CI path. |
+| `local` | Requires the Railway CLI on `PATH` and uploads the current source with `railway up`. Use this when the repository has no supported remote. |
+
+### GitHub-backed deploys
+
+Use this mode when your app lives in a GitHub repository that Railway can access. Open Mercato configures Railway resources through the Railway API, then points the app service at the repository and branch.
+
+Requirements:
+
+- The working tree is clean.
+- The current branch has an upstream GitHub remote.
+- Local commits are pushed.
+- Railway has access to the repository.
+
+The Railway CLI is not required for GitHub-backed deploys.
+
+```bash
+git status
+git push -u origin HEAD
+yarn mercato deploy railway --source git
+```
+
+The command does not create a GitHub repository. If `--source git` cannot resolve or access the GitHub remote, fix the remote or Railway repository access and run the command again.
+
+### Local-source deploys
+
+Use this mode when you only have a local app directory, when you ran `git init` without creating a GitHub repository, or when you want Railway to receive the current local source archive.
+
+Requirements:
+
+- The Railway CLI is installed and available as `railway`.
+- `RAILWAY_API_TOKEN` contains a valid Account token.
+- `.railwayignore` protects files that should never be uploaded.
+
+```bash
+railway --version
+yarn mercato deploy railway --source local
+```
+
+Local uploads run a safety preflight that requires `.railwayignore` entries for environment files, private keys, `.git`, `node_modules`, local databases, and local Railway state. Runtime configuration is uploaded as Railway variables, not as source files.
+
+## Token resolution
+
+The CLI resolves the Railway Account token in this order:
+
+1. `--token <value>`
+2. `RAILWAY_API_TOKEN`
+3. `~/.config/open-mercato/railway.json`
+4. An interactive prompt when stdin is a TTY
+
+The optional token cache contains:
+
+```json
+{
+  "token": "your-account-token"
+}
+```
+
+On macOS and Linux, the file must have mode `0600`. The CLI refuses a more widely readable token file. On Windows, the equivalent location is `%APPDATA%\open-mercato\railway.json`; protect the file with appropriate NTFS permissions and rotate the token after use on a shared machine.
+
+The token is never written to repository state or printed in verbose output.
+
+### Token types
+
+Use an **Account token** for this command. In Railway Account Settings -> Tokens, create the token with **No workspace** selected and do not assign it to a project. This gives the deploy command access to create projects, environments, services, databases, variables, and domains.
+
+Do not use a Project token. Project tokens are generated from project settings, are scoped to one environment, use `RAILWAY_TOKEN`, and are only suitable for deployment operations inside an already-existing project. They do not authorize the account/workspace API operations that `mercato deploy railway` performs.
+
+Workspace tokens can be useful for shared automation that must stay inside one workspace, but the recommended path for local first-time deployment is an Account token with no workspace or project assigned.
+
+## Flag reference
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--project <name>` | `package.json` name | Railway project name. For a recorded project, combine with `--force-rename` to change the name. |
+| `--env <name>` | `production` | Railway environment. A different value, such as `staging`, creates or updates a sibling environment in the same project. |
+| `--service <name>` | `mercato-app` | App service name. |
+| `--worker` / `--no-worker` | worker enabled | Create a dedicated `mercato-worker` service or remove the recorded managed worker and run workers in the app service. |
+| `--source <mode>` | `auto` | Select `auto`, `git`, or `local`. |
+| `--region <id>` | Railway default | Deploy to a Railway region validated for the project. |
+| `--env-file <path>` | `.env.production`, then `.env` | Environment file to upload as Railway variables. |
+| `--domain <fqdn>` | Railway domain | Attach a custom domain instead of creating an `*.up.railway.app` domain. |
+| `--no-wait-domain` | off | Print required DNS records without waiting for custom-domain verification. |
+| `--volume <mountPath>` | none | Create persistent Railway storage at the specified mount path. |
+| `--token <value>` | token resolution chain | Supply an Account token directly. Prefer `RAILWAY_API_TOKEN` or the prompt. |
+| `--non-interactive` | enabled when `CI=true` | Disable prompts and fail when required input or confirmation is missing. |
+| `--dry-run` | off | Print the selected source, planned operations, and redacted variable diff without changing local state or Railway. |
+| `--cleanup` | off | Delete the Railway project recorded in local state. |
+| `--yes` | off | Confirm destructive non-interactive operations. Required with `--cleanup --non-interactive`. |
+| `--write-env` | off | Write generated application secrets back to the selected local env file. |
+| `--no-track` | off | Store state in ignored `.mercato/railway.json.local` instead of `.mercato/railway.json`. |
+| `--force-rename` | off | Allow `--project` to rename an already-recorded project. |
+| `--timeout <seconds>` | `900` | Deployment polling timeout. |
+| `--allow-secret-passthrough <key>` | none | Allow one exact variable key through the credential scanner. Repeat for additional keys. |
+| `--verbose` | off | Print Railway operations and redacted responses. |
+
+## Environment variables
+
+Values are merged from Railway service references, generated secrets, static production settings, and the selected env file.
+
+| Variable | Source and behavior |
+|----------|---------------------|
+| `DATABASE_URL` | Railway reference to the managed PostgreSQL service. The rendered database URL is not copied into local state. |
+| `REDIS_URL` | Railway reference to the managed Redis service, applied after Redis is ready. |
+| `NODE_ENV` | Set to `production`. |
+| `NEXT_TELEMETRY_DISABLED` | Set to `1`. |
+| `NEXT_PUBLIC_APP_URL` | Derived from the provisioned Railway or custom domain. |
+| `APP_URL` | Server-side mirror of the deployed app URL. |
+| `OM_AI_PROVIDER` | Loaded from the env file; defaults to `openai`. |
+| `OM_AI_MODEL` | Loaded from the env file; defaults to `gpt-5-mini`. |
+| AI provider API keys | Passed through when present. Missing AI keys do not block deployment. |
+| `AUTH_SECRET` | Generated once per Railway environment and stored on Railway. |
+| `JWT_SECRET` | Generated backward-compatible auth secret. |
+| `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` | Generated fallback key for tenant data encryption. |
+| `QUEUE_STRATEGY` | Set to `async`. |
+| `NEXT_PUBLIC_QUEUE_STRATEGY` | Set to `async`. |
+| `AUTO_SPAWN_WORKERS` / `OM_AUTO_SPAWN_WORKERS` | Disabled in the app when a dedicated worker is provisioned; the worker service also disables nested worker spawning. |
+| `PORT` | Injected by Railway and respected by the app start command. |
+
+Generated secrets remain only in Railway unless you pass `--write-env`. Before using that flag, verify the target env file is ignored by Git. The CLI refuses to write generated secrets to an env file that is not ignored.
+
+The variable scanner blocks values that resemble the Railway Account token or common credential formats. Use `--allow-secret-passthrough <key>` only for a reviewed, exact key. There is no global scanner bypass.
+
+## Re-deploy and local state
+
+By default the command writes `.mercato/railway.json`. It contains opaque Railway IDs, environment records, service and domain IDs, source metadata, last deployment IDs, a schema version, and the CLI version. It does not contain tokens, passwords, generated secrets, or rendered database URLs.
+
+Commit this file when a team should share ownership of the deployment:
+
+```text
+.mercato/*
+!.mercato/railway.json
+```
+
+A teammate or CI job can then run the same command and update the recorded project. Each run validates recorded resources against Railway, recreates missing resources when appropriate, and resumes from the last completed step after an interrupted deployment.
+
+Use `--no-track` to keep deployment state local. The command then writes `.mercato/railway.json.local`, which should remain ignored. A fresh clone without that state cannot identify the existing project and may create another one.
+
+Deploy another environment under the same project with:
+
+```bash
+yarn mercato deploy railway --env staging
+```
+
+## Domains
+
+Without `--domain`, the CLI creates a Railway `*.up.railway.app` domain.
+
+For a custom domain:
+
+```bash
+yarn mercato deploy railway --domain commerce.example.com
+```
+
+The command prints the required DNS records and waits up to five minutes for verification. DNS propagation can take longer; `--no-wait-domain` prints the records and completes without waiting. Re-run the deploy after DNS is ready to confirm the domain and app URL.
+
+## Persistent storage
+
+Persistent storage is opt-in:
+
+```bash
+yarn mercato deploy railway --volume /app/storage
+```
+
+Without a volume, files written to the service filesystem, including locally stored attachments, can be lost during redeploy or service replacement. Use a Railway volume or configure durable external object storage before relying on uploaded files in production.
+
+## Cleanup
+
+Delete the project recorded in the current repository:
+
+```bash
+yarn mercato deploy railway --cleanup
+```
+
+Interactive cleanup shows the project name, project ID, environments, and app URL, then requires typing the project name. In CI or another non-interactive environment:
+
+```bash
+yarn mercato deploy railway --cleanup --non-interactive --yes
+```
+
+Cleanup deletes the entire recorded Railway project, including its services and databases, then removes the repository state file. It does not delete the user token cache. Export or back up any data you need before running it.
+
+## Cost and resource usage
+
+The command can create an app service, worker service, PostgreSQL service, Redis service, domain, and optional volume. These resources can consume Railway trial credits or incur charges on a paid plan.
+
+Review current [Railway pricing](https://railway.com/pricing) and project usage before deployment. Railway limits change over time; as of June 2026, Railway's public pricing page lists Hobby and Pro limits above 16 GB RAM per service, while the free/trial limits are much lower. For production deployments, team use, larger builds, or heavier imports, prefer Pro or another paid plan with at least 16 GB RAM available per service.
+
+Use `--dry-run` to review the planned resources and `--no-worker` when a dedicated worker is not needed. Run `--cleanup` for test projects you no longer use.
+
+## Security checklist
+
+- Prefer `RAILWAY_API_TOKEN`, the interactive prompt, or the protected token cache over `--token`.
+- Never commit env files, Account tokens, private keys, or `.mercato/railway.json.local`.
+- Review `--dry-run` output before the first deploy.
+- Keep `.mercato/railway.json` only when sharing opaque deployment IDs is intentional.
+- Use `--write-env` only when the target file is ignored by Git.
+- Treat `--allow-secret-passthrough` as a narrow exception for one reviewed key.
+- Keep Git deployments clean and synchronized so Railway builds the expected commit.
+- Rotate the Railway Account token after suspected exposure.
+
+## Troubleshooting
+
+### Token rejected
+
+Confirm that you created an **Account token** from Account Settings -> Tokens with **No workspace** selected and no project assigned. Do not use a Project token from project settings. Also verify that `RAILWAY_API_TOKEN` does not contain whitespace or shell quoting. If a cached token is used, ensure its file permissions are `0600`. Rotate the token in Railway if it may have been exposed.
+
+### `railway login` reports an invalid token
+
+If `RAILWAY_API_TOKEN` or `RAILWAY_TOKEN` is exported, the Railway CLI uses that value for non-interactive auth and skips browser login. An invalid value can make `railway login` fail before the browser flow starts.
+
+Unset token variables before interactive login:
+
+```bash
+unset RAILWAY_API_TOKEN
+unset RAILWAY_TOKEN
+railway login
+```
+
+For Open Mercato deployment, set only the Account token afterward:
+
+```bash
+export RAILWAY_API_TOKEN="your-account-token"
+```
+
+### `auto` selected an unexpected source
+
+Run with `--dry-run --verbose` to see the selected mode and reason. For Git mode, verify the remote is supported by Railway, the working tree is clean, the current branch has an upstream, and local commits are pushed. For local mode, install the Railway CLI and ensure `railway` is on `PATH`.
+
+### Local upload is blocked
+
+The safety preflight found a missing protection in `.railwayignore`. Add exclusions for env files, private keys, `.git`, `node_modules`, local database files, and local Railway state. Do not bypass this by adding secrets to the source archive.
+
+### Database provisioning is stuck
+
+Check the Railway project activity and service logs. Railway resource limits or temporary template provisioning failures can block PostgreSQL or Redis. Resolve the Railway-side error, then run the same deploy command again; recorded state allows the flow to resume.
+
+### Deployment failed
+
+The CLI prints redacted logs and leaves the project and state intact for inspection. Fix the build or runtime error, then re-run the command. Increase `--timeout` only when the deployment is progressing but needs more than 900 seconds.
+
+### Healthcheck returns `503`
+
+`/api/healthz` reports `degraded` when PostgreSQL or Redis is unavailable or times out. Inspect app logs and verify both Railway services are running and their reference variables are present. The public response intentionally exposes only `status` and `ts`.
+
+### DNS is not verified
+
+Copy the exact records printed by the CLI and verify them with your DNS provider. DNS propagation may exceed the five-minute wait. The deployment remains valid; re-run after propagation or use `--no-wait-domain`.
+
+### A second project was created
+
+Confirm that the repository contains the expected `.mercato/railway.json`, or the local `.mercato/railway.json.local` when using `--no-track`. Restore the correct state file before deploying again. Inspect duplicate projects carefully and use cleanup only from the repository whose state points to the project you intend to delete.

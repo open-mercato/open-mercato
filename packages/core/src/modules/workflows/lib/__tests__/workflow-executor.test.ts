@@ -13,6 +13,10 @@ jest.mock('../transition-handler', () => ({
   executeTransition: jest.fn(),
 }))
 
+jest.mock('../compensation-handler', () => ({
+  compensateWorkflow: jest.fn(),
+}))
+
 describe('Workflow Executor (Unit Tests)', () => {
   let mockEm: jest.Mocked<EntityManager>
   let mockContainer: jest.Mocked<AwilixContainer>
@@ -642,6 +646,157 @@ describe('Workflow Executor (Unit Tests)', () => {
 
       expect(result.status).toBe('FAILED')
       expect(result.errors).toContain('Activities failed: Email delivery error')
+    })
+  })
+
+  // ============================================================================
+  // Failure Persistence Tests (issue #2291)
+  // ============================================================================
+
+  describe('failure persistence (issue #2291)', () => {
+    const buildRunningInstance = (): WorkflowInstance =>
+      ({
+        id: testInstanceId,
+        definitionId: testDefinitionId,
+        workflowId: 'simple-workflow',
+        version: 1,
+        status: 'RUNNING',
+        currentStepId: 'start',
+        context: {},
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }) as WorkflowInstance
+
+    const mockFindOneByIds = (
+      instance: WorkflowInstance,
+      definition: Partial<WorkflowDefinition>
+    ) => {
+      mockEm.findOne.mockImplementation(async (_entity: unknown, where: unknown) => {
+        if ((where as Record<string, unknown>)?.id === testInstanceId) {
+          return instance
+        }
+        if ((where as Record<string, unknown>)?.id === testDefinitionId) {
+          return definition as WorkflowDefinition
+        }
+        return null
+      })
+    }
+
+    const mockValidStartToEndTransition = () => {
+      const transitionHandler = jest.requireMock('../transition-handler') as {
+        findValidTransitions: jest.Mock
+        executeTransition: jest.Mock
+      }
+      transitionHandler.findValidTransitions.mockResolvedValue([
+        {
+          isValid: true,
+          transition: {
+            transitionId: 'start-to-end',
+            fromStepId: 'start',
+            toStepId: 'end',
+            trigger: 'auto',
+          },
+        },
+      ])
+      return transitionHandler
+    }
+
+    test('should persist FAILED status, error message and WORKFLOW_FAILED event when transition is rejected', async () => {
+      const instance = buildRunningInstance()
+      mockFindOneByIds(instance, mockDefinition)
+      const transitionHandler = mockValidStartToEndTransition()
+      transitionHandler.executeTransition.mockResolvedValue({
+        success: false,
+        error: 'Activities failed: Email delivery error',
+      })
+
+      const result = await workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
+
+      expect(result.status).toBe('FAILED')
+      expect(instance.status).toBe('FAILED')
+      expect(instance.errorMessage).toBe('Activities failed: Email delivery error')
+      expect(instance.completedAt).toBeDefined()
+      expect(mockEm.flush).toHaveBeenCalled()
+      expect(mockEm.create).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ eventType: 'WORKFLOW_FAILED' })
+      )
+    })
+
+    test('should persist FAILED status and WORKFLOW_FAILED event when transition execution throws', async () => {
+      const instance = buildRunningInstance()
+      mockFindOneByIds(instance, mockDefinition)
+      const transitionHandler = mockValidStartToEndTransition()
+      transitionHandler.executeTransition.mockRejectedValue(new Error('Webhook target unreachable'))
+
+      const result = await workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
+
+      expect(result.status).toBe('FAILED')
+      expect(result.errors).toContain('Webhook target unreachable')
+      expect(instance.status).toBe('FAILED')
+      expect(instance.errorMessage).toBe('Webhook target unreachable')
+      expect(mockEm.create).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ eventType: 'WORKFLOW_FAILED' })
+      )
+    })
+
+    test('should trigger compensation when transition fails on a definition with compensatable activities', async () => {
+      const compensationHandler = jest.requireMock('../compensation-handler') as {
+        compensateWorkflow: jest.Mock
+      }
+      compensationHandler.compensateWorkflow.mockResolvedValue({
+        status: 'COMPENSATED',
+        compensatedActivities: 1,
+        totalActivities: 1,
+      })
+
+      const compensatableDefinition: Partial<WorkflowDefinition> = {
+        ...mockDefinition,
+        definition: {
+          steps: mockDefinition.definition!.steps,
+          transitions: [
+            {
+              transitionId: 'start-to-end',
+              fromStepId: 'start',
+              toStepId: 'end',
+              trigger: 'auto',
+              priority: 0,
+              activities: [
+                {
+                  activityId: 'reserve-stock',
+                  activityType: 'CALL_API',
+                  compensation: { activityId: 'release-stock' },
+                },
+              ],
+            },
+          ],
+        },
+      }
+
+      const instance = buildRunningInstance()
+      mockFindOneByIds(instance, compensatableDefinition)
+      const transitionHandler = mockValidStartToEndTransition()
+      transitionHandler.executeTransition.mockResolvedValue({
+        success: false,
+        error: 'Activities failed: stock reservation rejected',
+      })
+
+      const result = await workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
+
+      expect(result.status).toBe('FAILED')
+      expect(instance.errorMessage).toBe('Activities failed: stock reservation rejected')
+      expect(compensationHandler.compensateWorkflow).toHaveBeenCalledWith(
+        mockEm,
+        mockContainer,
+        instance,
+        compensatableDefinition,
+        expect.objectContaining({ continueOnError: true })
+      )
     })
   })
 

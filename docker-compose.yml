@@ -18,6 +18,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
       # MCP configuration
       OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}
       MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
@@ -54,7 +56,9 @@ services:
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
       - redis_data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf --maxmemory ${REDIS_MAXMEMORY:-512mb}
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

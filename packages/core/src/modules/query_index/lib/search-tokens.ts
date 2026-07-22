@@ -2,6 +2,9 @@ import { type Kysely, sql } from 'kysely'
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('query_index').child({ component: 'search-tokens' })
 
 const INSERT_BATCH_SIZE = 500
 
@@ -41,8 +44,7 @@ export const isSearchDebugEnabled = (): boolean => {
 const debug = (event: string, payload: Record<string, unknown>) => {
   if (!isSearchDebugEnabled()) return
   try {
-    // eslint-disable-next-line no-console
-    console.debug(`[search-tokens] ${event}`, payload)
+    logger.debug('Search token event', { event, payload })
   } catch {
     // ignore
   }
@@ -78,7 +80,7 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
   if (!params.doc) return []
   const tokens: SearchTokenRow[] = []
   const capturePairs = isSearchDebugEnabled() && params.entityType === 'customers:customer_deal'
-  const debugPairs: Array<{ field: string; token: string; hash: string }> = []
+  const debugPairs: Array<{ field: string; hash: string }> = []
   const scope = {
     organizationId: params.organizationId ?? DEFAULT_SCOPE.organizationId,
     tenantId: params.tenantId ?? DEFAULT_SCOPE.tenantId,
@@ -96,7 +98,7 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
         const dedupeKey = `${field}|${hash}`
         if (seen.has(dedupeKey)) continue
         seen.add(dedupeKey)
-        debug('token.generated', { entityType: params.entityType, recordId: params.recordId, field, token, hash })
+        debug('token.generated', { entityType: params.entityType, recordId: params.recordId, field, hash })
         tokens.push({
           entity_type: params.entityType,
           entity_id: String(params.recordId),
@@ -107,7 +109,7 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
           token: config.storeRawTokens ? token : null,
         })
         if (capturePairs) {
-          debugPairs.push({ field, token, hash })
+          debugPairs.push({ field, hash })
         }
       }
     }
@@ -116,7 +118,7 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
     debug('deal.tokens', {
       entityType: params.entityType,
       recordId: params.recordId,
-      title: params.doc?.title ?? null,
+      tokenCount: debugPairs.length,
       tokens: debugPairs,
     })
   }
@@ -212,8 +214,6 @@ export async function replaceSearchTokensForBatch(
 
   const scopeKey = (org: string | null, tenant: string | null) => `${org ?? '__null__'}|${tenant ?? '__null__'}`
   const scopeBuckets = new Map<string, { organizationId: string | null; tenantId: string | null; ids: Set<string> }>()
-  const fieldPairsByScope = new Map<string, EntityFieldPair[]>()
-  const seenPairsByScope = new Map<string, Set<string>>()
 
   for (const payload of payloads) {
     const org = payload.organizationId ?? null
@@ -224,41 +224,16 @@ export async function replaceSearchTokensForBatch(
     scopeBuckets.set(key, bucket)
   }
 
-  for (const payload of payloads) {
-    const org = payload.organizationId ?? null
-    const tenant = payload.tenantId ?? null
-    const key = scopeKey(org, tenant)
-    const pairs = fieldPairsByScope.get(key) ?? []
-    const seen = seenPairsByScope.get(key) ?? new Set<string>()
-    const fieldPairs = buildFieldPairs(String(payload.recordId), payload.doc)
-    for (const pair of fieldPairs) {
-      const dedupeKey = `${pair[0]}|${pair[1]}`
-      if (seen.has(dedupeKey)) continue
-      seen.add(dedupeKey)
-      pairs.push(pair)
-    }
-    fieldPairsByScope.set(key, pairs)
-    seenPairsByScope.set(key, seen)
-  }
-
   await db.transaction().execute(async (trx) => {
-    for (const [key, bucket] of scopeBuckets.entries()) {
-      const pairs = fieldPairsByScope.get(key) ?? []
-      let deleteQuery = trx
+    for (const [, bucket] of scopeBuckets.entries()) {
+      // Delete by entity_id: a batch replaces all of a record's tokens, and a per-field OR over the
+      // whole batch overflows the query compiler's call stack on large batches.
+      const deleteQuery = trx
         .deleteFrom('search_tokens' as any)
         .where('entity_type' as any, '=', payloads[0].entityType)
         .where(sql<boolean>`organization_id is not distinct from ${bucket.organizationId}`)
         .where(sql<boolean>`tenant_id is not distinct from ${bucket.tenantId}`)
-      if (pairs.length) {
-        deleteQuery = deleteQuery.where((eb: any) => eb.or(
-          pairs.map(([rid, field]) => eb.and([
-            eb('entity_id' as any, '=', rid),
-            eb('field' as any, '=', field),
-          ])),
-        ))
-      } else {
-        deleteQuery = deleteQuery.where('entity_id' as any, 'in', Array.from(bucket.ids))
-      }
+        .where('entity_id' as any, 'in', Array.from(bucket.ids))
       await deleteQuery.execute()
     }
     const payloadWithTimestamps = rows.map((row) => ({ ...row, created_at: sql`now()` }))

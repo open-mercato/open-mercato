@@ -7,10 +7,14 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import type { CrudField, CrudFormGroup, CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type RoleDetail = {
   id: string
@@ -21,6 +25,8 @@ type RoleDetail = {
   isSystem: boolean
   customerAssignable: boolean
   features: string[]
+  updatedAt?: string | null
+  updated_at?: string | null
 }
 
 const PORTAL_FEATURES = [
@@ -101,12 +107,9 @@ function PortalPermissionsEditor({ values, setValue }: CrudFormGroupComponentPro
             <div className="flex items-center justify-between border-b px-4 py-3">
               <span className="text-sm font-semibold">{t(group.labelKey, group.fallback)}</span>
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected }}
-                  onChange={() => handleGroupToggle(groupFeatures)}
-                  className="rounded border-border"
+                <Checkbox
+                  checked={allSelected ? true : (someSelected ? 'indeterminate' : false)}
+                  onCheckedChange={() => handleGroupToggle(groupFeatures)}
                 />
                 {t('customer_accounts.admin.roleDetail.selectAll', 'Select all')}
               </label>
@@ -116,11 +119,10 @@ function PortalPermissionsEditor({ values, setValue }: CrudFormGroupComponentPro
                 const feature = PORTAL_FEATURES.find((portalFeature) => portalFeature.id === featureId)
                 return (
                   <label key={featureId} className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={features.includes(featureId)}
-                      onChange={() => handleFeatureToggle(featureId)}
-                      className="mt-0.5 rounded border-border"
+                      onCheckedChange={() => handleFeatureToggle(featureId)}
+                      className="mt-0.5"
                     />
                     <div className="space-y-0.5">
                       <div className="text-sm font-medium">{feature ? t(feature.labelKey, feature.fallback) : featureId}</div>
@@ -146,10 +148,11 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
   const [data, setData] = React.useState<RoleDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   React.useEffect(() => {
     if (!id) {
-      setError(t('customer_accounts.admin.roleDetail.error.notFound', 'Role not found'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -157,6 +160,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
     async function load() {
       setIsLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
         const payload = await readApiResultOrThrow<RoleDetail>(
           `/api/customer_accounts/admin/roles/${encodeURIComponent(id!)}`,
@@ -167,8 +171,12 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
         setData(payload)
       } catch (err) {
         if (cancelled) return
-        const message = err instanceof Error ? err.message : t('customer_accounts.admin.roleDetail.error.load', 'Failed to load role')
-        setError(message)
+        if ((err as { status?: number }).status === 404) {
+          setIsNotFound(true)
+        } else {
+          const message = err instanceof Error ? err.message : t('customer_accounts.admin.roleDetail.error.load', 'Failed to load role')
+          setError(message)
+        }
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -234,58 +242,75 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
       isDefault: data.isDefault,
       customerAssignable: data.customerAssignable,
       features: data.features,
+      updatedAt: data.updatedAt ?? data.updated_at ?? null,
     }
   }, [data])
 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
     if (!id) return
-    const roleCall = await apiCall(
-      `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
-      {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          name: (values.name as string)?.trim(),
-          description: (values.description as string)?.trim() || null,
-          isDefault: values.isDefault,
-          customerAssignable: values.customerAssignable,
-        }),
-      },
-    )
+    const headers = buildOptimisticLockHeader(data?.updatedAt ?? data?.updated_at ?? null)
+    const roleCall = await withScopedApiRequestHeaders(headers, () => (
+      apiCall(
+        `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            name: (values.name as string)?.trim(),
+            description: (values.description as string)?.trim() || null,
+            isDefault: values.isDefault,
+            customerAssignable: values.customerAssignable,
+          }),
+        },
+      )
+    ))
     if (!roleCall.ok) {
+      if (surfaceRecordConflict({ status: roleCall.status, body: roleCall.result }, t)) return
       flash(t('customer_accounts.admin.roleDetail.error.save', 'Failed to save role'), 'error')
       return
     }
     const features = Array.isArray(values.features) ? values.features : []
-    const aclCall = await apiCall(
-      `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}/acl`,
-      {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ features }),
-      },
-    )
+    // The role PUT just bumped the aggregate's `updatedAt`; the ACL write guards
+    // the SAME role aggregate, so send its NEW version (not the stale pre-edit one)
+    // to avoid a false 409 while still blocking a concurrent overwrite (#3194).
+    const roleResult = (roleCall.result ?? null) as { updatedAt?: string | null } | null
+    const aclHeaders = buildOptimisticLockHeader(roleResult?.updatedAt ?? data?.updatedAt ?? data?.updated_at ?? null)
+    const aclCall = await withScopedApiRequestHeaders(aclHeaders, () => (
+      apiCall(
+        `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}/acl`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ features }),
+        },
+      )
+    ))
     if (!aclCall.ok) {
+      if (surfaceRecordConflict({ status: aclCall.status, body: aclCall.result }, t)) return
       flash(t('customer_accounts.admin.roleDetail.error.saveAcl', 'Failed to save permissions'), 'error')
       return
     }
     flash(t('customer_accounts.admin.roleDetail.flash.saved', 'Role updated'), 'success')
     router.push('/backend/customer_accounts/roles')
-  }, [id, router, t])
+  }, [data?.updatedAt, data?.updated_at, id, router, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!id) return
-    const call = await apiCall(
-      `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
-      { method: 'DELETE' },
-    )
+    const headers = buildOptimisticLockHeader(data?.updatedAt ?? data?.updated_at ?? null)
+    const call = await withScopedApiRequestHeaders(headers, () => (
+      apiCall(
+        `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
+        { method: 'DELETE' },
+      )
+    ))
     if (!call.ok) {
+      if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
       flash(t('customer_accounts.admin.roles.error.delete', 'Failed to delete role'), 'error')
       return
     }
     flash(t('customer_accounts.admin.roles.flash.deleted', 'Role deleted'), 'success')
     router.push('/backend/customer_accounts/roles')
-  }, [id, router, t])
+  }, [data?.updatedAt, data?.updated_at, id, router, t])
 
   if (isLoading) {
     return (
@@ -300,18 +325,34 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('customer_accounts.admin.roleDetail.error.notFound', 'Role not found')}
+            backHref="/backend/customer_accounts/roles"
+            backLabel={t('customer_accounts.admin.roleDetail.actions.backToList', 'Back to roles')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !data) {
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <p>{error || t('customer_accounts.admin.roleDetail.error.notFound', 'Role not found')}</p>
-            <Button asChild variant="outline">
-              <Link href="/backend/customer_accounts/roles">
-                {t('customer_accounts.admin.roleDetail.actions.backToList', 'Back to roles')}
-              </Link>
-            </Button>
-          </div>
+          <ErrorMessage
+            label={error ?? t('customer_accounts.admin.roleDetail.error.notFound', 'Role not found')}
+            action={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/backend/customer_accounts/roles">
+                  {t('customer_accounts.admin.roleDetail.actions.backToList', 'Back to roles')}
+                </Link>
+              </Button>
+            }
+          />
         </PageBody>
       </Page>
     )
@@ -326,9 +367,10 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
           fields={fields}
           groups={groups}
           initialValues={initialValues}
+          optimisticLockUpdatedAt={data.updatedAt ?? data.updated_at ?? null}
           entityId="customer_accounts:customer_role"
           onSubmit={handleSubmit}
-          onDelete={!data.isSystem ? handleDelete : undefined}
+          onDelete={!data.isDefault ? handleDelete : undefined}
           cancelHref="/backend/customer_accounts/roles"
         />
       </PageBody>

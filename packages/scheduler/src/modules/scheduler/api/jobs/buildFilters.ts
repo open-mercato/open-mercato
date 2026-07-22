@@ -4,7 +4,7 @@ export type SchedulerJobsFilterContext = {
   auth?: {
     tenantId?: string | null
     orgId?: string | null
-    roles?: unknown
+    isSuperAdmin?: boolean
   } | null
   organizationIds?: string[] | null
 }
@@ -29,9 +29,7 @@ export async function buildSchedulerJobsFilters(
     return filters
   }
 
-  const isSuperAdmin =
-    Array.isArray(ctx.auth?.roles) &&
-    ctx.auth.roles.some((role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin')
+  const isSuperAdmin = ctx.auth?.isSuperAdmin === true
 
   const rawOrgIds = Array.isArray(ctx.organizationIds)
     ? ctx.organizationIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)

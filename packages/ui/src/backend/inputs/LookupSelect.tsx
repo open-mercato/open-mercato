@@ -5,6 +5,9 @@ import { Check, Loader2, Search, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'LookupSelect' })
 
 export type LookupSelectItem = {
   id: string
@@ -85,11 +88,16 @@ export function LookupSelect({
   const [fetchKey, setFetchKey] = React.useState(0)
   const fetchItemsRef = React.useRef(fetchItems ?? fetchOptions)
   const setQueryRef = React.useRef(setQuery)
+  const onReadyRef = React.useRef(onReady)
   const optionsWasArrayRef = React.useRef(Array.isArray(options))
 
   React.useEffect(() => {
     fetchItemsRef.current = fetchItems ?? fetchOptions
   }, [fetchItems, fetchOptions])
+
+  React.useEffect(() => {
+    onReadyRef.current = onReady
+  }, [onReady])
 
   React.useEffect(() => {
     if (Array.isArray(options)) {
@@ -103,8 +111,8 @@ export function LookupSelect({
 
   React.useEffect(() => {
     setQueryRef.current = setQuery
-    if (onReady) onReady({ setQuery })
-  }, [onReady, setQuery])
+    if (onReadyRef.current) onReadyRef.current({ setQuery })
+  }, [setQuery])
 
   const shouldSearch =
     defaultOpen || query.trim().length >= minQuery || Boolean(value && (options?.length ?? 0) > 0)
@@ -135,7 +143,7 @@ export function LookupSelect({
         })
         .catch((err) => {
           if (cancelled) return
-          console.error('LookupSelect.fetchItems', err)
+          logger.error('Failed to fetch lookup items', { err })
           setError('error')
         })
         .finally(() => {

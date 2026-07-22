@@ -27,6 +27,7 @@ import {
 test.describe('TC-CRM-057: Activity history date-range chevron padding (#1811)', () => {
   test('Date-range trigger has DS chevron spacing and no label/icon overlap', async ({ page, request }) => {
     test.slow()
+    test.setTimeout(120_000)
 
     let token: string | null = null
     let companyId: string | null = null
@@ -40,6 +41,7 @@ test.describe('TC-CRM-057: Activity history date-range chevron padding (#1811)',
       await page.goto(`/backend/customers/companies-v2/${companyId}`, {
         waitUntil: 'domcontentloaded',
       })
+      await expect(page.getByText(`QA TC-CRM-057 Co ${stamp}`, { exact: true }).first()).toBeVisible({ timeout: 30_000 })
 
       await page.getByRole('tab', { name: /Activity log/i }).click()
 

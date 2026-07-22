@@ -1,19 +1,25 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { McpClientInterface, ToolInfo, ToolResult } from './types'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Options for stdio transport.
  */
 export type StdioClientOptions = {
   transport: 'stdio'
-  /** API key secret (passed to server via --api-key) */
+  /**
+   * API key secret. Delivered to the spawned server via the
+   * `OPEN_MERCATO_API_KEY` environment variable, never as a command-line
+   * argument (argv is world-readable via `ps`/`/proc/<pid>/cmdline`).
+   */
   apiKeySecret: string
   /** Command to run (default: 'yarn') */
   command?: string
-  /** Arguments for the command (default: mercato mcp:serve with api-key) */
+  /** Arguments for the command (default: mercato ai_assistant mcp:serve, no secret on argv) */
   args?: string[]
   /** Working directory (default: process.cwd()) */
   cwd?: string
@@ -45,19 +51,16 @@ export type McpClientOptions = StdioClientOptions | HttpClientOptions
 export class McpClient implements McpClientInterface {
   private client: Client
   private transport: StdioClientTransport | StreamableHTTPClientTransport
-  private childProcess?: ChildProcess
   private apiKeySecret: string
 
   private constructor(
     client: Client,
     transport: StdioClientTransport | StreamableHTTPClientTransport,
-    apiKeySecret: string,
-    childProcess?: ChildProcess
+    apiKeySecret: string
   ) {
     this.client = client
     this.transport = transport
     this.apiKeySecret = apiKeySecret
-    this.childProcess = childProcess
   }
 
   /**
@@ -76,34 +79,27 @@ export class McpClient implements McpClientInterface {
    */
   private static async connectStdio(options: StdioClientOptions): Promise<McpClient> {
     const command = options.command ?? 'yarn'
+    // The API key is passed via OPEN_MERCATO_API_KEY in the child env (below),
+    // never on argv — command-line arguments are readable by any local user.
     const args = options.args ?? [
       'mercato',
       'ai_assistant',
       'mcp:serve',
-      '--api-key',
-      options.apiKeySecret,
     ]
     const cwd = options.cwd ?? process.cwd()
-
-    const childProcess = spawn(command, args, {
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
-    })
-
-    // Forward stderr for debugging
-    childProcess.stderr?.on('data', (data) => {
-      const message = data.toString().trim()
-      if (message) {
-        console.error(`[MCP Client] ${message}`)
-      }
-    })
 
     const transport = new StdioClientTransport({
       command,
       args,
       cwd,
-      env: process.env as Record<string, string>,
+      env: { ...process.env, OPEN_MERCATO_API_KEY: options.apiKeySecret } as Record<string, string>,
+      stderr: 'pipe',
+    })
+    transport.stderr?.on('data', (data) => {
+      const message = data.toString().trim()
+      if (message) {
+        logger.info('MCP server stderr output', { output: message })
+      }
     })
 
     const client = new Client(
@@ -113,7 +109,7 @@ export class McpClient implements McpClientInterface {
 
     await client.connect(transport)
 
-    return new McpClient(client, transport, options.apiKeySecret, childProcess)
+    return new McpClient(client, transport, options.apiKeySecret)
   }
 
   /**
@@ -213,9 +209,5 @@ export class McpClient implements McpClientInterface {
       // Ignore close errors
     }
 
-    if (this.childProcess) {
-      this.childProcess.kill()
-      this.childProcess = undefined
-    }
   }
 }

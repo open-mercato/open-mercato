@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates'
+import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 
 const uuid = () => z.string().uuid()
 
@@ -9,9 +11,54 @@ export const ACTIVITY_TIME_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.t
 export const ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.phoneRequired'
 export const ACTIVITY_PHONE_INVALID_MESSAGE_KEY = 'customers.activities.errors.phoneInvalid'
 
-const phoneSchema = z.string().trim().max(50).refine((val) => {
-  return isValidPhoneNumber(val)
-}, { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY }).optional()
+const emptyStringToNull = (value: unknown): unknown => {
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+const phoneSchema = z.preprocess(
+  emptyStringToNull,
+  z
+    .string()
+    .trim()
+    .max(50)
+    .refine((val) => isValidPhoneNumber(val), { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY })
+    .nullable()
+    .optional(),
+)
+
+const clearableEmailSchema = z.preprocess(
+  emptyStringToNull,
+  z.string().email().max(320).nullable().optional(),
+)
+
+const clearableUrlSchema = z.preprocess(
+  emptyStringToNull,
+  z.string().url().max(300).nullable().optional(),
+)
+
+// Domain is a plain (non-URL) string that maps to a nullable column, so blanking
+// a previously-set value on edit must transmit null to clear it. See #2529.
+const clearableDomainSchema = z.preprocess(
+  emptyStringToNull,
+  z.string().trim().max(200).nullable().optional(),
+)
+
+// Plain optional string fields that map to nullable columns: blanking a previously-set
+// value on edit must transmit null to clear it, not be silently dropped. See #3050.
+const clearableStringSchema = (max: number) =>
+  z.preprocess(emptyStringToNull, z.string().trim().max(max).nullable().optional())
+
+// Annual revenue maps to a nullable numeric column. `''`/whitespace/null all clear it;
+// `.nullable()` short-circuits before coercion so null does not coerce to 0. See #3050.
+const clearableRevenueSchema = z.preprocess(
+  (value) => {
+    if (typeof value === 'string' && value.trim().length === 0) return null
+    return value
+  },
+  z.coerce.number().min(0).nullable().optional(),
+)
 
 const interactionPhoneNumberSchema = z.string().trim().max(50).optional().nullable()
 
@@ -39,14 +86,10 @@ const displayNameSchema = z.string().trim().min(1).max(200)
 
 const baseEntitySchema = {
   displayName: displayNameSchema,
-  description: z.string().trim().max(4000).optional(),
+  // Nullable so a blanked description on edit clears the column instead of being dropped. See #3050.
+  description: clearableStringSchema(4000),
   ownerUserId: uuid().optional(),
-  primaryEmail: z
-    .string()
-    .trim()
-    .email()
-    .max(320)
-    .optional(),
+  primaryEmail: clearableEmailSchema,
   primaryPhone: phoneSchema,
   status: z.string().trim().max(100).optional(),
   lifecycleStage: z.string().trim().max(100).optional(),
@@ -64,8 +107,8 @@ const personDetailsSchema = {
   department: z.string().trim().max(150).optional(),
   seniority: z.string().trim().max(100).optional(),
   timezone: z.string().trim().max(120).optional(),
-  linkedInUrl: z.string().trim().url().max(300).optional(),
-  twitterUrl: z.string().trim().url().max(300).optional(),
+  linkedInUrl: clearableUrlSchema,
+  twitterUrl: clearableUrlSchema,
   companyEntityId: uuid().nullable().optional(),
 }
 
@@ -73,13 +116,14 @@ const personFirstNameSchema = z.string().trim().min(1).max(120)
 const personLastNameSchema = z.string().trim().min(1).max(120)
 
 const companyDetailsSchema = {
-  legalName: z.string().trim().max(200).optional(),
-  brandName: z.string().trim().max(200).optional(),
-  domain: z.string().trim().max(200).optional(),
-  websiteUrl: z.string().trim().url().max(300).optional(),
+  // Nullable so blanked values on edit clear the columns instead of being dropped. See #3050.
+  legalName: clearableStringSchema(200),
+  brandName: clearableStringSchema(200),
+  domain: clearableDomainSchema,
+  websiteUrl: clearableUrlSchema,
   industry: z.string().trim().max(150).optional(),
-  sizeBucket: z.string().trim().max(100).optional(),
-  annualRevenue: z.coerce.number().min(0).optional(),
+  sizeBucket: clearableStringSchema(100),
+  annualRevenue: clearableRevenueSchema,
 }
 
 export const personCreateSchema = scopedSchema.extend({
@@ -221,8 +265,18 @@ export const addressCreateSchema = scopedSchema.extend({
   region: z.string().max(150).optional(),
   postalCode: z.string().max(30).optional(),
   country: z.string().max(150).optional(),
-  latitude: z.coerce.number().optional(),
-  longitude: z.coerce.number().optional(),
+  latitude: z.coerce
+    .number()
+    .min(COORDINATE_RANGES.latitude.min)
+    .max(COORDINATE_RANGES.latitude.max)
+    .nullable()
+    .optional(),
+  longitude: z.coerce
+    .number()
+    .min(COORDINATE_RANGES.longitude.min)
+    .max(COORDINATE_RANGES.longitude.max)
+    .nullable()
+    .optional(),
   isPrimary: z.boolean().optional(),
 })
 
@@ -352,7 +406,17 @@ export const todoLinkWithTodoCreateSchema = scopedSchema.extend({
 
 // --- Interaction schemas ---
 
+/**
+ * @deprecated Interaction statuses are now dictionary-backed and tenant-configurable
+ * (the `interaction-statuses` dictionary). This frozen 3-value list is kept only for
+ * backward compatibility; it is no longer the validation source (the API accepts any
+ * `z.string().max(50)`). For open/terminal semantics use `lib/interactionStatus.ts`
+ * (`isOpenInteractionStatus` / `isTerminalInteractionStatus` / `INTERACTION_STATUS_*`);
+ * for the seeded default set use `INTERACTION_STATUS_DEFAULTS` in `cli.ts`. Do not expand
+ * this list — adding members would break exhaustive consumers.
+ */
 export const interactionStatusValues = ['planned', 'done', 'canceled'] as const
+/** @deprecated See {@link interactionStatusValues}. */
 export type InteractionStatus = typeof interactionStatusValues[number]
 
 const interactionParticipantSchema = z.object({
@@ -364,7 +428,9 @@ const interactionParticipantSchema = z.object({
 
 const interactionLinkedEntitySchema = z.object({
   id: z.string().uuid(),
-  type: z.enum(['company', 'deal', 'offer']),
+  // 'resource' links calendar events to bookable resources (rooms, cars,
+  // equipment) from the optional resources module (#3552).
+  type: z.enum(['company', 'deal', 'offer', 'resource']),
   label: z.string().trim().max(500),
 })
 
@@ -395,7 +461,11 @@ const interactionCreateBaseSchema = scopedSchema.extend({
   interactionType: z.string().trim().min(1).max(100),
   title: z.string().trim().max(500).optional().nullable(),
   body: z.string().trim().max(10000).optional().nullable(),
-  status: z.enum(interactionStatusValues).optional().default('planned'),
+  // Lenient like `deal_status` (status: z.string().max(50)). The `interaction-statuses`
+  // dictionary drives the UI dropdown; the API accepts any string <=50 chars so existing
+  // rows, external writers, and the dispatch-crm MCP keep working. Open/terminal semantics
+  // live in lib/interactionStatus.ts, not in this validator.
+  status: z.string().max(50).optional().default('planned'),
   date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional(),
   time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional(),
   phoneNumber: interactionPhoneNumberSchema,
@@ -462,7 +532,7 @@ const interactionUpdateBaseSchema = z
         interactionType: z.string().trim().min(1).max(100).optional(),
         title: z.string().trim().max(500).optional().nullable(),
         body: z.string().trim().max(10000).optional().nullable(),
-        status: z.enum(interactionStatusValues).optional(),
+        status: z.string().max(50).optional(),
         date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional(),
         time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional(),
         phoneNumber: interactionPhoneNumberSchema,
@@ -530,6 +600,12 @@ export const customerStuckThresholdUpsertSchema = scopedSchema.extend({
   stuckThresholdDays: z.number().int().min(1).max(365),
 })
 
+export const customerDictionarySortModesSchema = z.record(z.string(), dictionaryEntrySortModeSchema)
+
+export const customerDictionarySortModesUpsertSchema = scopedSchema.extend({
+  dictionarySortModes: customerDictionarySortModesSchema,
+})
+
 export type PersonCreateInput = z.infer<typeof personCreateSchema>
 export type PersonUpdateInput = z.infer<typeof personUpdateSchema>
 export type CompanyCreateInput = z.infer<typeof companyCreateSchema>
@@ -549,6 +625,7 @@ export type TodoLinkCreateInput = z.infer<typeof todoLinkCreateSchema>
 export type TodoLinkWithTodoCreateInput = z.infer<typeof todoLinkWithTodoCreateSchema>
 export type CustomerSettingsUpsertInput = z.infer<typeof customerSettingsUpsertSchema>
 export type CustomerStuckThresholdUpsertInput = z.infer<typeof customerStuckThresholdUpsertSchema>
+export type CustomerDictionarySortModesUpsertInput = z.infer<typeof customerDictionarySortModesUpsertSchema>
 export type CustomerAddressFormatInput = z.infer<typeof customerAddressFormatSchema>
 export type InteractionCompleteInput = z.infer<typeof interactionCompleteSchema>
 export type InteractionCancelInput = z.infer<typeof interactionCancelSchema>
@@ -580,16 +657,16 @@ export const pipelineStageCreateSchema = scopedSchema.extend({
   pipelineId: uuid(),
   label: z.string().trim().min(1).max(200),
   order: z.number().int().min(0).optional(),
-  color: z.string().trim().max(20).optional(),
-  icon: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(20).nullish(),
+  icon: z.string().trim().max(100).nullish(),
 })
 
 export const pipelineStageUpdateSchema = z.object({
   id: uuid(),
   label: z.string().trim().min(1).max(200).optional(),
   order: z.number().int().min(0).optional(),
-  color: z.string().trim().max(20).optional(),
-  icon: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(20).nullish(),
+  icon: z.string().trim().max(100).nullish(),
 })
 
 export const pipelineStageDeleteSchema = z.object({

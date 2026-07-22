@@ -1,16 +1,26 @@
 import { test, expect } from '@playwright/test';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { createApiKeyFixture } from '@open-mercato/core/modules/core/__integration__/helpers/apiKeysFixtures';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
+import { createApiKeyFixture } from '@open-mercato/core/helpers/integration/apiKeysFixtures';
+
+type Page = import('@playwright/test').Page;
+type Locator = import('@playwright/test').Locator;
+
+async function waitForApiKeysTable(page: Page): Promise<void> {
+  await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
+  await page.getByText('Loading table', { exact: false }).waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
+  await expect(page.locator('table').first()).toBeVisible({ timeout: 10_000 });
+}
 
 async function openApiKeysPage(page: import('@playwright/test').Page): Promise<void> {
   const searchInput = page.getByRole('searchbox', { name: 'Search', exact: true });
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await page.goto('/backend/api-keys', { waitUntil: 'domcontentloaded' });
-    await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
+    await waitForApiKeysTable(page).catch(() => {});
 
     if (await searchInput.isVisible().catch(() => false)) {
+      await waitForApiKeysTable(page);
       return;
     }
 
@@ -18,18 +28,39 @@ async function openApiKeysPage(page: import('@playwright/test').Page): Promise<v
     if (await retryButton.isVisible().catch(() => false)) {
       await retryButton.click().catch(() => {});
       await page.waitForLoadState('domcontentloaded').catch(() => {});
-      await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
+      await waitForApiKeysTable(page).catch(() => {});
       if (await searchInput.isVisible().catch(() => false)) {
+        await waitForApiKeysTable(page);
         return;
       }
     }
   }
 
   await expect(searchInput).toBeVisible({ timeout: 10_000 });
+  await waitForApiKeysTable(page);
+}
+
+async function searchApiKeyRow(page: Page, keyName: string): Promise<Locator> {
+  const searchInput = page.getByRole('searchbox', { name: 'Search', exact: true });
+  const keyRow = page.locator('table tbody tr').filter({ hasText: keyName }).first();
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await searchInput.fill(keyName);
+    await waitForApiKeysTable(page).catch(() => {});
+    if (await keyRow.isVisible().catch(() => false)) {
+      return keyRow;
+    }
+
+    await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+    await waitForApiKeysTable(page).catch(() => {});
+  }
+
+  await expect(keyRow).toBeVisible({ timeout: 15_000 });
+  return keyRow;
 }
 
 async function clickDeleteMenuItem(
-  page: import('@playwright/test').Page,
+  page: Page,
   openMenu: () => Promise<void>,
 ): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -59,6 +90,8 @@ async function clickDeleteMenuItem(
  */
 test.describe('TC-ADMIN-002: Revoke API Key', () => {
   test('should revoke an existing API key', async ({ page, request }) => {
+    test.slow();
+
     const keyName = `QA TC-ADMIN-002 ${Date.now()}`;
     let token: string | null = null;
     let keyId: string | null = null;
@@ -72,11 +105,7 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
       await openApiKeysPage(page);
 
       // Search for the key
-      await page.getByRole('searchbox', { name: 'Search', exact: true }).fill(keyName);
-      await expect(page.getByText(keyName)).toBeVisible({ timeout: 5_000 });
-
-      // Find and click the row actions for this key — look for a revoke/delete button
-      const keyRow = page.locator('table tbody tr').filter({ hasText: keyName }).first();
+      const keyRow = await searchApiKeyRow(page, keyName);
       await expect(keyRow).toBeVisible();
 
       const openRowActions = async (): Promise<void> => {

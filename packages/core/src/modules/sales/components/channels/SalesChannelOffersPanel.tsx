@@ -9,10 +9,16 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { mapOfferRow, renderOfferPriceSummary, type OfferRow } from './offerTableUtils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type OffersResponse = {
   items?: Array<Record<string, unknown>>
@@ -22,9 +28,27 @@ type OffersResponse = {
 
 const PAGE_SIZE = 25
 
+const SAVE_CONTEXT_ID = 'sales-channel-offers-panel'
+
 export function SalesChannelOffersPanel({ channelId, channelName }: { channelId: string; channelName?: string }) {
   const t = useT()
   const router = useRouter()
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: SAVE_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo(
+    () => ({
+      formId: SAVE_CONTEXT_ID,
+      resourceKind: 'sales.channels.offers',
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
   const [rows, setRows] = React.useState<OfferRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -110,7 +134,7 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
     } catch (err) {
-      console.error('sales.channels.offers', err)
+      logger.error('sales.channels.offers', { err })
       flash(t('sales.channels.offers.errors.load', 'Failed to load offers.'), 'error')
     } finally {
       setLoading(false)
@@ -123,15 +147,24 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
 
   const handleDelete = React.useCallback(async (row: OfferRow) => {
     try {
-      await deleteCrud('catalog/offers', row.id, {
-        errorMessage: t('sales.channels.offers.errors.delete', 'Failed to delete offer.'),
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(row.updatedAt), () =>
+            deleteCrud('catalog/offers', row.id, {
+              errorMessage: t('sales.channels.offers.errors.delete', 'Failed to delete offer.'),
+            }),
+          ),
+        context: mutationContext,
+        mutationPayload: { action: 'delete', id: row.id },
       })
       flash(t('sales.channels.offers.messages.deleted', 'Offer deleted.'), 'success')
       setReloadToken((token) => token + 1)
     } catch (err) {
-      console.error('sales.channels.offers.delete', err)
+      if (surfaceRecordConflict(err, t)) return
+      logger.error('sales.channels.offers.delete', { err })
+      flash(t('sales.channels.offers.errors.delete', 'Failed to delete offer.'), 'error')
     }
-  }, [t])
+  }, [mutationContext, runMutation, t])
 
   const handleSearchChange = React.useCallback((value: string) => {
     setSearch(value)

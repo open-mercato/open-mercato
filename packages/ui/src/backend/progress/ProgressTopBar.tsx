@@ -5,19 +5,43 @@ import { Button } from '../../primitives/button'
 import { Progress } from '../../primitives/progress'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useProgress } from './useProgress'
+import { useAutoHideCompletedJobs } from './useAutoHideCompletedJobs'
 import type { ProgressJobDto } from './useProgressPoll'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '../utils/apiCall'
+import { useBackendChrome } from '../BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 
 export type ProgressTopBarProps = {
   className?: string
   t: TranslateFn
+  /**
+   * How long (ms) to keep successfully completed jobs visible before auto-hiding.
+   * Set to `false` or `0` to disable auto-hide. Defaults to 10 000 ms.
+   * Failed and cancelled jobs are never auto-hidden.
+   */
+  completedAutoHideMs?: number | false
 }
 
-export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
+export function ProgressTopBar(props: ProgressTopBarProps) {
+  const { payload } = useBackendChrome()
+  // The progress read routes (`/api/progress/active`, `/api/progress/jobs`) are
+  // gated on `progress.view`. Users without the feature would only get 403s, so
+  // skip mounting the polling/SSE hooks entirely instead of firing doomed reads.
+  const canViewProgress = hasFeature(payload?.grantedFeatures, 'progress.view')
+  if (!canViewProgress) return null
+  return <ProgressTopBarContent {...props} />
+}
+
+function ProgressTopBarContent({ className, t, completedAutoHideMs }: ProgressTopBarProps) {
   const { activeJobs, recentlyCompleted, refresh } = useProgress()
+  const visibleCompleted = useAutoHideCompletedJobs(recentlyCompleted, completedAutoHideMs)
   const [expanded, setExpanded] = React.useState(false)
 
+  // `om:progress:expanded` is a trivial scalar flag ('true' | 'false') with no
+  // schema to evolve, so it is intentionally kept raw rather than wrapped in a
+  // versioned envelope (the versioning threshold for structured persisted state
+  // lives in `@open-mercato/shared/lib/browser/versionedPreference`).
   React.useEffect(() => {
     const saved = localStorage.getItem('om:progress:expanded')
     if (saved === 'true') setExpanded(true)
@@ -28,7 +52,7 @@ export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
   }, [expanded])
 
   const hasActiveJobs = activeJobs.length > 0
-  const hasRecentJobs = recentlyCompleted.length > 0
+  const hasRecentJobs = visibleCompleted.length > 0
 
   if (!hasActiveJobs && !hasRecentJobs) return null
 
@@ -60,7 +84,7 @@ export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
             <>
               <CheckCircle className="h-4 w-4 text-status-success-icon" />
               <span className="text-muted-foreground">
-                {t('progress.recentlyCompleted', '{count} operations completed', { count: recentlyCompleted.length })}
+                {t('progress.recentlyCompleted', '{count} operations completed', { count: visibleCompleted.length })}
               </span>
             </>
           )}
@@ -77,7 +101,7 @@ export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
           {activeJobs.map((job) => (
             <ProgressJobCard key={job.id} job={job} t={t} onCancel={refresh} />
           ))}
-          {recentlyCompleted.map((job) => (
+          {visibleCompleted.map((job) => (
             <ProgressJobCard key={job.id} job={job} t={t} />
           ))}
         </div>

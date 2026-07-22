@@ -6,6 +6,7 @@ import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AiActionChips } from './AiActionChips'
 import type { InteractionSummary } from './types'
+import { isOpenInteractionStatus } from '../../lib/interactionStatus'
 
 const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   call: Phone,
@@ -18,7 +19,7 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
 interface ActivityTimelineProps {
   activities: InteractionSummary[]
   onEdit?: (activity: InteractionSummary) => void
-  onMarkDone?: (activityId: string) => void | Promise<void>
+  onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
 }
 
 export function ActivityTimeline({ activities, onEdit, onMarkDone }: ActivityTimelineProps) {
@@ -77,13 +78,13 @@ function TimelineEntry({
   t: TranslateFn
   withBorder: boolean
   onEdit?: (activity: InteractionSummary) => void
-  onMarkDone?: (activityId: string) => void | Promise<void>
+  onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
 }) {
   const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
   const TypeIcon = TYPE_ICONS[activity.interactionType]
   const title = activity.title ?? activity.body ?? activity.interactionType
   const duration = activity.duration ? ` (${activity.duration} min)` : ''
-  const isPlanned = activity.status === 'planned'
+  const isOpen = isOpenInteractionStatus(activity.status)
   const [markingDone, setMarkingDone] = React.useState(false)
 
   const handleMarkDone = React.useCallback(async (event: React.MouseEvent | React.KeyboardEvent) => {
@@ -91,7 +92,7 @@ function TimelineEntry({
     if (!onMarkDone || markingDone) return
     setMarkingDone(true)
     try {
-      await onMarkDone(activity.id)
+      await onMarkDone(activity.id, activity.updatedAt)
     } finally {
       setMarkingDone(false)
     }
@@ -127,7 +128,7 @@ function TimelineEntry({
             <span className="block text-[12px] font-semibold leading-tight text-foreground">
               {title}{duration}
             </span>
-            {isPlanned && onMarkDone ? (
+            {isOpen && onMarkDone ? (
               <Button
                 type="button"
                 variant="default"

@@ -4,16 +4,22 @@ import * as React from 'react'
 import { CreditCard } from 'lucide-react'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { handleSectionMutationError } from './optimisticLock'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { normalizeCustomFieldSubmitValue, extractCustomFieldValues } from './customFieldHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 export type PaymentTotals = {
   paidTotalAmount?: number | null
@@ -23,6 +29,7 @@ export type PaymentTotals = {
 
 export type PaymentFormData = {
   id?: string | null
+  updatedAt?: string | null
   amount?: number | string | null
   paymentMethodId?: string | null
   paymentReference?: string | null
@@ -54,6 +61,7 @@ type PaymentDialogProps = {
   orderId: string
   organizationId: string | null
   tenantId: string | null
+  documentUpdatedAt?: string | null
   onOpenChange: (open: boolean) => void
   onSaved?: (totals?: PaymentTotals | null) => void | Promise<void>
 }
@@ -75,6 +83,7 @@ export function PaymentDialog({
   orderId,
   organizationId,
   tenantId,
+  documentUpdatedAt,
   onOpenChange,
   onSaved,
 }: PaymentDialogProps) {
@@ -147,7 +156,7 @@ export function PaymentDialog({
         if (!query) setPaymentMethods([])
         return []
       } catch (err) {
-        console.error('sales.payments.methods.load', err)
+        logger.error('sales.payments.methods.load', { err })
         return []
       } finally {
         setMethodsLoading(false)
@@ -218,7 +227,7 @@ export function PaymentDialog({
       setDocumentStatuses(mapped)
       return mapped
     } catch (err) {
-      console.error('sales.payments.statuses.load', err)
+      logger.error('sales.payments.statuses.load', { err })
       setDocumentStatuses([])
       return []
     } finally {
@@ -253,7 +262,7 @@ export function PaymentDialog({
       setPaymentStatuses(mapped)
       return mapped
     } catch (err) {
-      console.error('sales.payments.statuses.load', err)
+      logger.error('sales.payments.statuses.load', { err })
       setPaymentStatuses([])
       return []
     } finally {
@@ -533,48 +542,58 @@ export function PaymentDialog({
       if (Object.keys(customFields).length) payload.customFields = customFields
 
       const action = payment?.id ? updateCrud : createCrud
-      const result = await action(
-        'sales/payments',
-        payment?.id ? { id: payment.id, ...payload } : payload,
-        {
-          errorMessage: t('sales.documents.payments.errorSave', 'Failed to save payment.'),
+      try {
+        const result = await withScopedApiRequestHeaders(
+          // The server guards the PARENT order's aggregate version (Gap A) for
+          // both create and update, so send the order's `updated_at`.
+          buildOptimisticLockHeader(documentUpdatedAt ?? undefined),
+          () =>
+            action(
+              'sales/payments',
+              payment?.id ? { id: payment.id, ...payload } : payload,
+              {
+                errorMessage: t('sales.documents.payments.errorSave', 'Failed to save payment.'),
+              }
+            )
+        )
+        if (result.ok) {
+          const totals = (result.result as any)?.orderTotals as PaymentTotals | undefined
+          if (onSaved) {
+            await onSaved(totals ?? null)
+          }
+          setFormResetKey((prev) => prev + 1)
+          onOpenChange(false)
         }
-      )
-      if (result.ok) {
-        const totals = (result.result as any)?.orderTotals as PaymentTotals | undefined
-        if (onSaved) {
-          await onSaved(totals ?? null)
+      } catch (err) {
+        if (
+          handleSectionMutationError(err, t, () => {
+            if (onSaved) void onSaved()
+          })
+        ) {
+          onOpenChange(false)
+          return
         }
-        setFormResetKey((prev) => prev + 1)
-        onOpenChange(false)
+        throw err
       }
     },
-    [currencyCode, mode, onOpenChange, onSaved, orderId, organizationId, payment?.id, t, tenantId]
+    [currencyCode, documentUpdatedAt, mode, onOpenChange, onSaved, orderId, organizationId, payment?.id, t, tenantId]
   )
 
-  const handleShortcutSubmit = React.useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-        event.preventDefault()
-        const form = dialogContentRef.current?.querySelector('form')
-        form?.requestSubmit()
-      }
-    },
-    []
+  const handleSubmitForm = React.useCallback(
+    () => dialogContentRef.current?.querySelector('form')?.requestSubmit(),
+    [],
   )
+  const handleKeyDown = useDialogKeyHandler({
+    onConfirm: handleSubmitForm,
+    onCancel: () => onOpenChange(false),
+  })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         ref={dialogContentRef}
         className="sm:max-w-5xl"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            onOpenChange(false)
-          }
-          handleShortcutSubmit(event)
-        }}
+        onKeyDown={handleKeyDown}
       >
         <DialogHeader>
           <DialogTitle>

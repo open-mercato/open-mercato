@@ -13,13 +13,18 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useCustomFieldDefs, type CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Plus, Save, Trash2 } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { getEntityFields } from '#generated/entity-fields-registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('entities').child({ component: 'EncryptionManager' })
 
 type EntityOption = { entityId: string; label?: string; source?: string }
 type FieldOption = { value: string; label: string }
@@ -34,6 +39,7 @@ type EncryptionMapResponse = {
   entityId: string
   fields?: Array<{ field: string; hashField?: string | null }>
   isActive?: boolean
+  updatedAt?: string | null
 }
 
 type CanonicalOption = { value: string; label?: string }
@@ -169,7 +175,7 @@ export function EncryptionManager() {
     // Use static registry instead of dynamic import for Turbopack compatibility
     const mod = getEntityFields(entitySlug)
     if (!mod) {
-      console.warn('[encryption] No fields found for entity', entitySlug)
+      logger.warn('No fields found for entity', { entitySlug })
       setBaseFieldOptions((prev) => (prev.length ? [] : prev))
       return
     }
@@ -225,6 +231,8 @@ export function EncryptionManager() {
     lastMapSignatureRef.current = signature
   }, [mapSignature, map, canonicalOptions, hasUserEdited])
 
+  const { runMutation } = useGuardedMutation({ contextId: 'entities.encryption-map' })
+
   const mutation = useMutation({
     mutationFn: async () => {
       const trimmed = fields
@@ -243,15 +251,29 @@ export function EncryptionManager() {
       if (!trimmed.length) {
         throw new Error(t('entities.encryption.errors.noFields', 'Add at least one field to encrypt'))
       }
-      const res = await apiCall('/api/entities/encryption', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ entityId: selectedEntityId, fields: trimmed, isActive }),
+      const payload = { entityId: selectedEntityId, fields: trimmed, isActive }
+      // Route the write through the guarded mutation helper so global injection
+      // modules (mutation guard, record-lock conflict handling) can run, and send
+      // the loaded map's version so a stale tab cannot silently overwrite a newer
+      // encryption configuration (the server rejects mismatches with a 409).
+      return runMutation({
+        operation: async () => {
+          const res = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(map?.updatedAt ?? null),
+            () => apiCall('/api/entities/encryption', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }),
+          )
+          if (!res.ok) {
+            await raiseCrudError(res.response, t('entities.encryption.errors.save', 'Failed to save encryption map'))
+          }
+          return true
+        },
+        context: {},
+        mutationPayload: payload,
       })
-      if (!res.ok) {
-        await raiseCrudError(res.response, t('entities.encryption.errors.save', 'Failed to save encryption map'))
-      }
-      return true
     },
     onSuccess: () => {
       flash(t('entities.encryption.flash.saved', 'Encryption map saved'), 'success')

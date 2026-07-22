@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from 'react'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { resolveTodoApiPath } from '../utils'
 import type { TodoLinkSummary } from '../types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
@@ -22,6 +23,7 @@ type CustomerTodoRow = {
   todoDueAt: string | null
   todoCustomValues: Record<string, unknown> | null
   todoOrganizationId: string | null
+  todoUpdatedAt?: string | null
   organizationId: string
   tenantId: string
   createdAt: string
@@ -39,6 +41,7 @@ export type TaskFormPayload = {
   base: {
     title: string
     is_done?: boolean
+    status?: string
     description?: string | null
     priority?: number | null
     scheduledAt?: string | null
@@ -83,6 +86,7 @@ function mapRowToSummary(row: CustomerTodoRow): TodoLinkSummary {
     description: row.todoDescription ?? null,
     dueAt: row.todoDueAt ?? null,
     todoOrganizationId: row.todoOrganizationId ?? null,
+    updatedAt: row.todoUpdatedAt ?? null,
     customValues: row.todoCustomValues ?? null,
   }
 }
@@ -369,14 +373,21 @@ export function usePersonTasks({
         if (Object.keys(customValues).length) {
           body.customFields = customValues
         }
-        await apiCallOrThrow(
-          apiPath,
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(body),
-          },
-          { errorMessage: 'Failed to update task.' },
+        // Send the optimistic-lock header (task's loaded updatedAt) so a stale
+        // edit — or an edit after the task was deleted in another tab — surfaces
+        // the unified conflict bar (409) instead of silently overwriting or
+        // returning a bare "Interaction not found" 404 (#2055).
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(task.updatedAt ?? null),
+          () => apiCallOrThrow(
+            apiPath,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+            },
+            { errorMessage: 'Failed to update task.' },
+          ),
         )
         setTasks((prev) =>
           prev.map((item) => {
@@ -440,14 +451,17 @@ export function usePersonTasks({
       if (!task.id) throw new Error('Task link id missing')
       setIsMutating(true)
     try {
-      await apiCallOrThrow(
-        '/api/customers/todos',
-        {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: task.id }),
-        },
-        { errorMessage: 'Failed to remove task.' },
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(task.updatedAt ?? null),
+        () => apiCallOrThrow(
+          '/api/customers/todos',
+          {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: task.id }),
+          },
+          { errorMessage: 'Failed to remove task.' },
+        ),
       )
         setTasks((prev) => prev.filter((item) => item.id !== task.id))
         setPageInfo((prev) => ({

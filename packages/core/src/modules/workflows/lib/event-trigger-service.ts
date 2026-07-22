@@ -22,6 +22,9 @@ import {
   type WorkflowDefinitionTrigger,
 } from '../data/entities'
 import { startWorkflow, executeWorkflow } from './workflow-executor'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows').child({ component: 'event-trigger' })
 
 // ============================================================================
 // Types
@@ -123,6 +126,9 @@ function isSafeWorkflowRegexPattern(pattern: string): boolean {
   let lastClosedGroup: RegexGroupFrame | null = null
   let lastAtomWasQuantified = false
 
+  // Hand-written single-pass lexer: `index` is intentionally advanced inside the
+  // loop body (escape pairs, `(?:` prefixes, multi-char quantifiers, lazy `?`) on
+  // top of the `index += 1` update clause. Do not "simplify" these in-body writes.
   for (let index = 0; index < pattern.length; index += 1) {
     const char = pattern[index]
 
@@ -599,7 +605,7 @@ export async function processEventTriggers(
       // Check concurrency limit
       const canStart = await checkConcurrencyLimit(em, trigger)
       if (!canStart) {
-        console.log(`[workflow-trigger] Skipping trigger "${trigger.name}": max concurrent instances reached`)
+        logger.debug('Skipping trigger: max concurrent instances reached', { triggerId: trigger.id, triggerName: trigger.name })
         result.skipped++
         continue
       }
@@ -656,12 +662,12 @@ export async function processEventTriggers(
 
       // Execute workflow asynchronously (don't wait)
       executeWorkflow(em.fork(), container, instance.id).catch(err => {
-        console.error(`[workflow-trigger] Error executing workflow ${instance.id}:`, err)
+        logger.error('Error executing workflow', { instanceId: instance.id, err })
       })
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      console.error(`[workflow-trigger] Error processing trigger "${trigger.name}":`, error)
+      logger.error('Error processing trigger', { triggerId: trigger.id, triggerName: trigger.name, err: error })
       result.errors.push({
         triggerId: trigger.id,
         error: errorMessage,

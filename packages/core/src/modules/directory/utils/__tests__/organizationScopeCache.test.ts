@@ -96,6 +96,38 @@ describe('resolveOrganizationScopeForRequest caching (Phase 4)', () => {
     expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(1)
   })
 
+  it('memoizes resolution per request, deduping the double resolution (issue #2259)', async () => {
+    // TTL off: the cross-request cache is disabled, so any dedupe must come from
+    // the per-request memo keyed on the shared Request instance.
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '0'
+    const em = createMockEm([{ id: 'org-home', descendantIds: [] }])
+    const rbac = createMockRbac()
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+    const request = {} as unknown as Request
+
+    const first = await resolveOrganizationScopeForRequest({ container, auth: auth(), request })
+    const second = await resolveOrganizationScopeForRequest({ container, auth: auth(), request })
+
+    expect(first).toBe(second)
+    expect(cache.set).not.toHaveBeenCalled()
+    expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(1)
+    expect((em.find as jest.Mock).mock.calls.length).toBe(1)
+  })
+
+  it('does not share the per-request memo across distinct requests (issue #2259)', async () => {
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '0'
+    const em = createMockEm([{ id: 'org-home', descendantIds: [] }])
+    const rbac = createMockRbac()
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+
+    await resolveOrganizationScopeForRequest({ container, auth: auth(), request: {} as unknown as Request })
+    await resolveOrganizationScopeForRequest({ container, auth: auth(), request: {} as unknown as Request })
+
+    expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(2)
+  })
+
   it('does not cache when OM_ORG_SCOPE_CACHE_TTL_MS=0', async () => {
     process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '0'
     const em = createMockEm([{ id: 'org-home', descendantIds: [] }])

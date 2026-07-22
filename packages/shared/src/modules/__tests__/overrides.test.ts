@@ -6,9 +6,10 @@
  * by shared's default appliers; custom/future domains still warn if no
  * applier is registered.
  *
- * Spec: `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`.
+ * Spec: `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md`.
  */
 import {
+
   applyModuleOverridesFromEnabledModules,
   composeInjectionWidgetOverrides,
   composeSubscriberOverrides,
@@ -18,6 +19,20 @@ import {
   type ModuleEntryWithOverrides,
   type ModuleOverrideEntry,
 } from '../overrides'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerWarn = createLogger('shared').warn as jest.Mock
 
 beforeEach(() => {
   resetModuleOverrideAppliersForTests()
@@ -77,7 +92,7 @@ describe('applyModuleOverridesFromEnabledModules', () => {
   })
 
   it('routes built-in domains to default appliers without unwired warnings', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    loggerWarn.mockClear()
 
     applyModuleOverridesFromEnabledModules([
       {
@@ -93,7 +108,7 @@ describe('applyModuleOverridesFromEnabledModules', () => {
       },
     ])
 
-    const unwiredCalls = warnSpy.mock.calls.filter((args) =>
+    const unwiredCalls = loggerWarn.mock.calls.filter((args) =>
       typeof args[0] === 'string' && args[0].includes('not yet wired'),
     )
     expect(unwiredCalls).toHaveLength(0)
@@ -105,7 +120,6 @@ describe('applyModuleOverridesFromEnabledModules', () => {
       'example.todo.created.notify': null,
     })
 
-    warnSpy.mockRestore()
   })
 
   it('does NOT consume the legacy `aiAgentOverrides` / `aiToolOverrides` keys', () => {

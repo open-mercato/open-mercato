@@ -14,7 +14,10 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -30,6 +33,9 @@ import {
   DialogDescription,
 } from '@open-mercato/ui/primitives/dialog'
 import { TranslationManager } from '@open-mercato/core/modules/translations/components/TranslationManager'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'DictionaryEntriesEditor' })
 
 type Entry = DictionaryEntryRecord
 
@@ -45,6 +51,7 @@ type FormState = {
   label: string
   color: string | null
   icon: string | null
+  updatedAt?: string | null
 }
 
 export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly = false }: DictionaryEntriesEditorProps) {
@@ -72,6 +79,19 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
   const [errors, setErrors] = React.useState<{ value?: string; label?: string }>({})
   const [translateEntry, setTranslateEntry] = React.useState<Entry | null>(null)
   const appearance = useAppearanceState(formState.icon, formState.color)
+  const mutationContextId = React.useMemo(
+    () => `dictionaries:dictionary_entry:${dictionaryId}`,
+    [dictionaryId],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId?: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   const resetForm = React.useCallback(() => {
     setFormState({ value: '', label: '', color: null, icon: null })
@@ -93,6 +113,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           label: entry.label,
           color: entry.color ?? null,
           icon: entry.icon ?? null,
+          updatedAt: entry.updatedAt ?? null,
         })
         appearance.setColor(entry.color ?? null)
         appearance.setIcon(entry.icon ?? null)
@@ -136,34 +157,64 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         icon: appearance.icon,
       }
       if (formState.id) {
-        const call = await apiCall<Record<string, unknown>>(
-          `/api/dictionaries/${dictionaryId}/entries/${formState.id}`,
-          {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
+        const entryId = formState.id
+        const expectedUpdatedAt = formState.updatedAt
+        await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(expectedUpdatedAt),
+              async () => {
+                const call = await apiCall<Record<string, unknown>>(
+                  `/api/dictionaries/${dictionaryId}/entries/${entryId}`,
+                  {
+                    method: 'PATCH',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(payload),
+                  },
+                )
+                if (!call.ok) {
+                  throw Object.assign(
+                    new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to save dictionary entry'),
+                    { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
+                  )
+                }
+                return call
+              },
+            ),
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'dictionaries.dictionary_entry',
+            resourceId: entryId,
+            retryLastMutation,
           },
-        )
-        if (!call.ok) {
-          throw new Error(
-            typeof call.result?.error === 'string' ? call.result.error : 'Failed to save dictionary entry',
-          )
-        }
+          mutationPayload: payload,
+        })
         flash(t('dictionaries.config.entries.success.update', 'Dictionary entry updated.'), 'success')
       } else {
-        const call = await apiCall<Record<string, unknown>>(
-          `/api/dictionaries/${dictionaryId}/entries`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
+        await runMutation({
+          operation: async () => {
+            const call = await apiCall<Record<string, unknown>>(
+              `/api/dictionaries/${dictionaryId}/entries`,
+              {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+            )
+            if (!call.ok) {
+              throw new Error(
+                typeof call.result?.error === 'string' ? call.result.error : 'Failed to create dictionary entry',
+              )
+            }
+            return call
           },
-        )
-        if (!call.ok) {
-          throw new Error(
-            typeof call.result?.error === 'string' ? call.result.error : 'Failed to create dictionary entry',
-          )
-        }
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'dictionaries.dictionary_entry',
+            retryLastMutation,
+          },
+          mutationPayload: payload,
+        })
         flash(t('dictionaries.config.entries.success.create', 'Dictionary entry created.'), 'success')
       }
       await invalidateDictionaryEntries(queryClient, dictionaryId)
@@ -173,12 +224,15 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
       appearance.setIcon(null)
       setErrors({})
     } catch (err) {
-      console.error('Failed to save dictionary entry', err)
+      if (surfaceRecordConflict(err, t)) {
+        return
+      }
+      logger.error('Failed to save dictionary entry', { err })
       flash(t('dictionaries.config.entries.error.save', 'Failed to save dictionary entry.'), 'error')
     } finally {
       setIsSaving(false)
     }
-  }, [appearance, dictionaryId, formState.id, formState.label, formState.value, queryClient, readOnly, readOnlyMessage, t])
+  }, [appearance, dictionaryId, formState.id, formState.label, formState.updatedAt, formState.value, mutationContextId, queryClient, readOnly, readOnlyMessage, runMutation, retryLastMutation, t])
 
   const handleDelete = React.useCallback(
     async (entry: Entry) => {
@@ -194,25 +248,49 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
       if (!confirmDelete) return
       setIsDeleting(true)
       try {
-        const call = await apiCall<Record<string, unknown>>(
-          `/api/dictionaries/${dictionaryId}/entries/${entry.id}`,
-          { method: 'DELETE' },
-        )
-        if (!call.ok) {
-          throw new Error(
-            typeof call.result?.error === 'string' ? call.result.error : 'Failed to delete dictionary entry',
-          )
-        }
+        await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(entry.updatedAt),
+              async () => {
+                const call = await apiCall<Record<string, unknown>>(
+                  `/api/dictionaries/${dictionaryId}/entries/${entry.id}`,
+                  { method: 'DELETE' },
+                )
+                if (!call.ok) {
+                  throw Object.assign(
+                    new Error(
+                      typeof call.result?.error === 'string' ? call.result.error : 'Failed to delete dictionary entry',
+                    ),
+                    { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
+                  )
+                }
+                return call
+              },
+            ),
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'dictionaries.dictionary_entry',
+            resourceId: entry.id,
+            retryLastMutation,
+          },
+          mutationPayload: { id: entry.id },
+        })
         await invalidateDictionaryEntries(queryClient, dictionaryId)
         flash(t('dictionaries.config.entries.success.delete', 'Dictionary entry deleted.'), 'success')
       } catch (err) {
-        console.error('Failed to delete dictionary entry', err)
+        // Route a concurrent-edit 409 through the single conflict surface (matching
+        // the entry save path); fall back to a flash for any other delete failure.
+        if (surfaceRecordConflict(err, t)) {
+          return
+        }
+        logger.error('Failed to delete dictionary entry', { err })
         flash(t('dictionaries.config.entries.error.delete', 'Failed to delete dictionary entry.'), 'error')
       } finally {
         setIsDeleting(false)
       }
     },
-    [confirm, dictionaryId, queryClient, readOnly, readOnlyMessage, t],
+    [confirm, dictionaryId, mutationContextId, queryClient, readOnly, readOnlyMessage, runMutation, retryLastMutation, t],
   )
 
   const tableContent = React.useMemo(() => {
@@ -244,10 +322,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         </TableRow>
       )
     }
-    return entries
-      .slice()
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
-      .map((entry) => (
+    return entries.map((entry) => (
         <TableRow key={entry.id}>
           <TableCell className="font-medium">{entry.value}</TableCell>
           <TableCell>{entry.label}</TableCell>
@@ -396,6 +471,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
             <AppearanceSelector
               icon={appearance.icon}
               color={appearance.color}
+              previewLabel={formState.label.trim() || formState.value.trim()}
               onIconChange={(next) => {
                 appearance.setIcon(next)
                 setFormState((prev) => ({ ...prev, icon: next }))

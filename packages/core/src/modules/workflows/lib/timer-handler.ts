@@ -14,10 +14,12 @@ import type * as eventLoggerModule from './event-logger'
 import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
 import type * as workflowExecutorModule from './workflow-executor'
+import { resolveCodeDefinitionForInstance } from './find-definition'
 
 export interface FireTimerOptions {
   instanceId: string
   stepInstanceId?: string
+  branchInstanceId?: string | null
   userId?: string
   tenantId: string
   organizationId: string
@@ -46,12 +48,40 @@ export async function fireTimer(
   container: AwilixContainer,
   options: FireTimerOptions
 ): Promise<void> {
-  const { instanceId, stepInstanceId, userId, tenantId, organizationId } = options
+  const { instanceId, stepInstanceId, branchInstanceId, userId, tenantId, organizationId } = options
 
   const eventLogger = container.resolve<typeof eventLoggerModule>('eventLogger')
   const stepHandler = container.resolve<typeof stepHandlerModule>('stepHandler')
   const transitionHandler = container.resolve<typeof transitionHandlerModule>('transitionHandler')
   const workflowExecutor = container.resolve<typeof workflowExecutorModule>('workflowExecutor')
+
+  // Branch-scoped timer: the instance is FORKED and the branch is PAUSED at the
+  // WAIT_FOR_TIMER step. Resume just that branch, then drive the parallel loop.
+  if (branchInstanceId) {
+    await eventLogger.logWorkflowEvent(em, {
+      workflowInstanceId: instanceId,
+      stepInstanceId,
+      branchInstanceId,
+      eventType: 'TIMER_FIRED',
+      eventData: { firedAt: new Date().toISOString(), branch: true },
+      userId,
+      tenantId,
+      organizationId,
+    })
+    const { resumeBranch } = await import('./parallel-handler')
+    const resumed = await resumeBranch(em, {
+      instanceId,
+      branchInstanceId,
+      tenantId,
+      organizationId,
+      exitStepInstanceId: stepInstanceId,
+      exitOutput: { firedAt: new Date().toISOString() },
+    })
+    if (resumed) {
+      await workflowExecutor.executeWorkflow(em, container, instanceId, { userId })
+    }
+    return
+  }
 
   const instance = await findOneWithDecryption(
     em as PostgreSqlEntityManager,
@@ -81,7 +111,7 @@ export async function fireTimer(
     )
   }
 
-  const definition = await findOneWithDecryption(
+  const definition = (await findOneWithDecryption(
     em as PostgreSqlEntityManager,
     WorkflowDefinition,
     {
@@ -92,7 +122,7 @@ export async function fireTimer(
     },
     undefined,
     { tenantId: instance.tenantId, organizationId: instance.organizationId },
-  )
+  )) ?? resolveCodeDefinitionForInstance(instance)
   if (!definition) {
     throw new TimerError(
       'Workflow definition not found',

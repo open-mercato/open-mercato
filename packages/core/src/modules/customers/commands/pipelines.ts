@@ -12,6 +12,11 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  enforceCommandOptimisticLockWithGuards,
+  enforceRecordGoneIsConflict,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 
 const createPipelineCommand: CommandHandler<PipelineCreateInput, { pipelineId: string }> = {
   id: 'customers.pipelines.create',
@@ -22,14 +27,6 @@ const createPipelineCommand: CommandHandler<PipelineCreateInput, { pipelineId: s
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    if (parsed.isDefault) {
-      await em.nativeUpdate(
-        CustomerPipeline,
-        { organizationId: parsed.organizationId, tenantId: parsed.tenantId, isDefault: true },
-        { isDefault: false }
-      )
-    }
-
     const pipeline = em.create(CustomerPipeline, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -38,8 +35,19 @@ const createPipelineCommand: CommandHandler<PipelineCreateInput, { pipelineId: s
       createdAt: new Date(),
       updatedAt: new Date(),
     })
-    em.persist(pipeline)
-    await em.flush()
+
+    await withAtomicFlush(em, [
+      async () => {
+        if (parsed.isDefault) {
+          await em.nativeUpdate(
+            CustomerPipeline,
+            { organizationId: parsed.organizationId, tenantId: parsed.tenantId, isDefault: true },
+            { isDefault: false }
+          )
+        }
+        em.persist(pipeline)
+      },
+    ], { transaction: true })
 
     return { pipelineId: pipeline.id }
   },
@@ -52,24 +60,36 @@ const updatePipelineCommand: CommandHandler<PipelineUpdateInput, void> = {
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const pipeline = await em.findOne(CustomerPipeline, { id: parsed.id })
-    if (!pipeline) throw new CrudHttpError(404, { error: 'Pipeline not found' })
+    if (!pipeline) {
+      enforceRecordGoneIsConflict({ resourceKind: 'customers.pipeline', resourceId: parsed.id, request: ctx.request ?? null })
+      throw new CrudHttpError(404, { error: 'Pipeline not found' })
+    }
 
     ensureTenantScope(ctx, pipeline.tenantId)
     ensureOrganizationScope(ctx, pipeline.organizationId)
 
-    if (parsed.isDefault && !pipeline.isDefault) {
-      await em.nativeUpdate(
-        CustomerPipeline,
-        { organizationId: pipeline.organizationId, tenantId: pipeline.tenantId, isDefault: true },
-        { isDefault: false }
-      )
-    }
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: 'customers.pipeline',
+      resourceId: pipeline.id,
+      current: pipeline.updatedAt,
+      request: ctx.request ?? null,
+    })
 
-    if (parsed.name !== undefined) pipeline.name = parsed.name
-    if (parsed.isDefault !== undefined) pipeline.isDefault = parsed.isDefault
-    pipeline.updatedAt = new Date()
+    await withAtomicFlush(em, [
+      async () => {
+        if (parsed.isDefault && !pipeline.isDefault) {
+          await em.nativeUpdate(
+            CustomerPipeline,
+            { organizationId: pipeline.organizationId, tenantId: pipeline.tenantId, isDefault: true },
+            { isDefault: false }
+          )
+        }
 
-    await em.flush()
+        if (parsed.name !== undefined) pipeline.name = parsed.name
+        if (parsed.isDefault !== undefined) pipeline.isDefault = parsed.isDefault
+        pipeline.updatedAt = new Date()
+      },
+    ], { transaction: true })
   },
 }
 
@@ -80,10 +100,20 @@ const deletePipelineCommand: CommandHandler<PipelineDeleteInput, void> = {
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const pipeline = await em.findOne(CustomerPipeline, { id: parsed.id })
-    if (!pipeline) throw new CrudHttpError(404, { error: 'Pipeline not found' })
+    if (!pipeline) {
+      enforceRecordGoneIsConflict({ resourceKind: 'customers.pipeline', resourceId: parsed.id, request: ctx.request ?? null })
+      throw new CrudHttpError(404, { error: 'Pipeline not found' })
+    }
 
     ensureTenantScope(ctx, pipeline.tenantId)
     ensureOrganizationScope(ctx, pipeline.organizationId)
+
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: 'customers.pipeline',
+      resourceId: pipeline.id,
+      current: pipeline.updatedAt,
+      request: ctx.request ?? null,
+    })
 
     const activeDealsCount = await em.count(CustomerDeal, {
       pipelineId: parsed.id,

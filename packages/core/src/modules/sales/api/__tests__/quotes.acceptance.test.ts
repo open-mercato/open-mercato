@@ -16,6 +16,9 @@ const mockEm: Record<string, jest.Mock> = {
   find: jest.fn(),
   persist: jest.fn(),
   flush: jest.fn(),
+  begin: jest.fn().mockResolvedValue(undefined),
+  commit: jest.fn().mockResolvedValue(undefined),
+  rollback: jest.fn().mockResolvedValue(undefined),
   transactional: jest.fn().mockImplementation(async (callback: (trx: any) => Promise<unknown>) => callback(mockEm)),
 }
 
@@ -127,7 +130,9 @@ describe('quote send + accept flow', () => {
     expect(quote.acceptanceToken).toHaveLength(64)
     expect(quote.acceptanceToken).toMatch(/^[0-9a-f]{64}$/)
     expect(quote.validUntil).toBeInstanceOf(Date)
-    expect(mockEm.flush).toHaveBeenCalled()
+    // Send-state is now persisted inside em.transactional (committed before the email), not via a bare em.flush.
+    expect(mockEm.transactional).toHaveBeenCalled()
+    expect(mockEm.persist).toHaveBeenCalledWith(quote)
   })
 
   test('accept falls back to raw token lookup for quotes sent before hashing rollout', async () => {
@@ -494,7 +499,7 @@ describe('accept - TOCTOU concurrency guard', () => {
   })
 })
 
-describe('accept - state rollback on conversion failure (fix: #1415)', () => {
+describe('accept - atomic conversion (fix: #1415, #2114)', () => {
   const ACCEPTANCE_TOKEN = '00000000-0000-4000-8000-000000000003'
 
   beforeEach(async () => {
@@ -507,7 +512,7 @@ describe('accept - state rollback on conversion failure (fix: #1415)', () => {
     ;(getCachedRateLimiterService as jest.Mock).mockReturnValue(mockRateLimiterService)
   })
 
-  test('reverts quote status to sent when order conversion fails', async () => {
+  test('runs the conversion inside the locking transaction with no out-of-band compensating write on failure', async () => {
     const quote = {
       id: '99999999-9999-4999-8999-999999999999',
       tenantId: '00000000-0000-4000-8000-000000000000',
@@ -519,8 +524,21 @@ describe('accept - state rollback on conversion failure (fix: #1415)', () => {
       updatedAt: new Date(),
     }
 
+    // The conversion must be attempted *inside* the transaction callback so a
+    // failure rolls back the status flip together with any partial order. We
+    // assert the command bus is invoked while the transaction is open and that
+    // no second compensating flush runs afterwards — the DB rollback (proven by
+    // the integration test) restores the quote, so #2114's unlocked compensating
+    // write is gone.
+    let insideTransaction = false
+    let convertCalledInsideTransaction = false
     mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => {
-      return callback(mockEm)
+      insideTransaction = true
+      try {
+        return await callback(mockEm)
+      } finally {
+        insideTransaction = false
+      }
     }) as any
 
     mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
@@ -534,18 +552,62 @@ describe('accept - state rollback on conversion failure (fix: #1415)', () => {
       return null
     })
 
-    mockCommandBus.execute.mockRejectedValue(new Error('Conversion failed'))
+    mockCommandBus.execute.mockImplementation(async () => {
+      convertCalledInsideTransaction = insideTransaction
+      throw new Error('Conversion failed')
+    })
 
     const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
     expect(res.status).toBe(400)
-    expect(quote.status).toBe('sent')
+    expect(convertCalledInsideTransaction).toBe(true)
+    expect(mockEm.transactional).toHaveBeenCalledTimes(1)
+    // Only the in-transaction status-flip flush ran; the removed compensating
+    // path would have produced a second flush.
+    expect(mockEm.flush).toHaveBeenCalledTimes(1)
+  })
+
+  test('passes the transactional EM to convert_to_order so the command joins the same transaction', async () => {
+    const quote = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-ATOMIC-1',
+      status: 'sent',
+      statusEntryId: null,
+      validUntil: new Date(Date.now() + 60_000),
+      updatedAt: new Date(),
+    }
+
+    const trxSentinel: Record<string, unknown> = { __trx: true }
+    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => callback(trxSentinel)) as any
+
+    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
+      if (cls === SalesQuote) return where?.acceptanceToken ? quote : null
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
+      if (cls === SalesOrder) return { id: quote.id, orderNumber: 'SO-ATOMIC-1', deletedAt: null }
+      return null
+    })
+    // The route flips the quote and flushes through the transactional EM.
+    trxSentinel.findOne = mockEm.findOne
+    trxSentinel.persist = mockEm.persist
+    trxSentinel.flush = mockEm.flush
+    mockCommandBus.execute.mockResolvedValue({ result: { orderId: quote.id } })
+
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+    expect(res.status).toBe(200)
+
+    const [commandId, options] = mockCommandBus.execute.mock.calls[0]
+    expect(commandId).toBe('sales.quotes.convert_to_order')
+    expect(options.ctx.transactionalEm).toBe(trxSentinel)
   })
 })
 
-describe('send - no flush before email delivery (fix: #1415)', () => {
+describe('send - commits send-state before email delivery (fix: #2336, supersedes #1415)', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
+    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => callback(mockEm)) as any
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     const { resolveOrganizationScopeForRequest } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
@@ -561,7 +623,7 @@ describe('send - no flush before email delivery (fix: #1415)', () => {
     })
   })
 
-  test('does not persist quote state when email delivery fails', async () => {
+  test('keeps the committed send-state when email delivery fails', async () => {
     const quote = {
       id: '22222222-2222-4222-8222-222222222222',
       tenantId: '00000000-0000-4000-8000-000000000000',
@@ -590,11 +652,15 @@ describe('send - no flush before email delivery (fix: #1415)', () => {
     ;(sendEmail as jest.Mock).mockRejectedValueOnce(new Error('SMTP connection refused'))
 
     const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+    // A failed email surfaces as an error to the caller so they know the customer was not notified...
     expect(res.status).toBe(400)
-    expect(mockEm.flush).not.toHaveBeenCalled()
+    // ...but the acceptance token was already committed durably before the email, so the send-state is NOT rolled back.
+    expect(mockEm.transactional).toHaveBeenCalled()
+    expect(quote.status).toBe('sent')
+    expect(quote.acceptanceToken).toBeTruthy()
   })
 
-  test('persists quote state only after email delivery succeeds', async () => {
+  test('commits send-state before sending the email', async () => {
     const quote = {
       id: '22222222-2222-4222-8222-222222222222',
       tenantId: '00000000-0000-4000-8000-000000000000',
@@ -620,9 +686,11 @@ describe('send - no flush before email delivery (fix: #1415)', () => {
     })
 
     const callOrder: string[] = []
-    mockEm.flush.mockImplementation(async () => {
-      callOrder.push('flush')
-    })
+    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => {
+      const result = await callback(mockEm)
+      callOrder.push('commit')
+      return result
+    }) as any
 
     const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
     ;(sendEmail as jest.Mock).mockImplementation(async () => {
@@ -631,7 +699,8 @@ describe('send - no flush before email delivery (fix: #1415)', () => {
 
     const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
     expect(res.status).toBe(200)
-    expect(callOrder.indexOf('sendEmail')).toBeLessThan(callOrder.indexOf('flush'))
+    expect(callOrder.indexOf('commit')).toBeGreaterThanOrEqual(0)
+    expect(callOrder.indexOf('commit')).toBeLessThan(callOrder.indexOf('sendEmail'))
   })
 })
 

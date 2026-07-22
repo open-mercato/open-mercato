@@ -1,0 +1,232 @@
+#!/usr/bin/env bash
+# gap-depth-check — post-synthesis reporting-fidelity gate for cited upstream
+# PRs, run ONCE after Phase 3 has produced the summary.
+# Usage:  gap-depth-check <md-file> <snapshot-file> <summary-file>
+#                         [--min-additions N]
+#
+#   <md-file>        The gap-analysis MD after Phase 2 (stories done/needs-review).
+#   <snapshot-file>  The one-time widened Upstream-pipeline snapshot (PR lines
+#                    carry the depth suffix "[+A/-D, F files, STATE, updated T]").
+#   <summary-file>   The client-facing summary Phase 3 wrote.
+#   --min-additions N   The size half of the significance trigger: a cited PR
+#                    with additions >= N is significant. CALIBRATED per
+#                    engagement against the live open-PR set — deliberately no
+#                    default: when the flag is absent, only the review-state
+#                    half of the trigger applies (that half is exact and needs
+#                    no calibration). Falls back to env GAP_MIN_ADDITIONS.
+#
+# The hole it closes: a story can cite a near-mergeable, human-reviewed,
+# multi-hundred-file PR as a bare tag in its per-story **Upstream pipeline**
+# field, and the client-facing summary never mentions it — the client scopes
+# off a "missing" verdict without learning that most of the work already sits
+# in an open PR. Observed twice on the same story, six days apart, on a real
+# engagement (the client caught it). The widened snapshot makes a PR's depth
+# visible to every subagent; it does not make the report STATE it — surfacing
+# rides the same per-call variance that citation-presence did, so it gets the
+# same treatment: a deterministic orchestrator-side gate, not a prompt.
+#
+# The significance trigger (one definition, shared with the subagent prompt):
+#   additions >= N (when --min-additions is given)
+#   OR review state in {APPROVED, CHANGES_REQUESTED}
+# REVIEW_REQUIRED never triggers — it is the un-discriminating default of
+# every open PR in a review-gated repo, not a signal a human engaged. A large
+# changed-file count never triggers — it is dominated by deletions/refactors
+# that are not coverage; additions is the coverage proxy.
+#
+# What it checks: for every DISTINCT PR that (a) is cited in any done story's
+# **Upstream pipeline** field and (b) trips the trigger, the PR's number must
+# appear in the client-facing summary. A flagged PR present in a buried
+# per-story block but absent from the summary → exit 1, naming the citing
+# stories, the PR, and its additions/review-state. The run does not pass until
+# synthesis surfaces it.
+#
+# Scope honesty (mirror the sibling gates):
+#   - It gates SURFACING, not semantics: it asserts the PR reached the summary,
+#     not that the resulting recommendation is right.
+#   - A PR just under N with no human review yet can still be missed — the
+#     size half is the calibrated knob; its miss is a narrowed blind spot, not
+#     a closed one.
+#   - It only ever reads. It is structurally incapable of altering a Verdict,
+#     Evidence, or Effort value — reporting fidelity only, never
+#     verdict-altering.
+#   - A cited PR absent from the snapshot is a PHANTOM — that is
+#     bin/gap-pipeline-crosscheck's flag, not this gate's; it is skipped here
+#     (its depth is unknowable from a snapshot it isn't in).
+#
+# Exit codes:
+#   0  PASS  — every trigger-flagged cited PR appears in the summary (or
+#              nothing tripped the trigger).
+#   1  FLAG  — at least one trigger-flagged cited PR is absent from the
+#              summary. Report on stdout; fix Phase 3's synthesis (fold the PR
+#              into Top risks / Open questions) and re-run.
+#   2  USAGE — bad invocation, unreadable file, or a file that does not parse
+#              as its expected format (no "## " sections in the snapshot, no
+#              "### Story" headings in the MD, no "## " headings in the
+#              summary) — fail closed, never a vacuous pass.
+
+set -uo pipefail
+
+MD=""
+SNAP=""
+SUMMARY=""
+MIN_ADDITIONS="${GAP_MIN_ADDITIONS:-}"
+
+usage() {
+  echo "usage: gap-depth-check <md-file> <snapshot-file> <summary-file> [--min-additions N]" >&2
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --min-additions)    MIN_ADDITIONS="${2:-}"; shift 2 || usage ;;
+    --min-additions=*)  MIN_ADDITIONS="${1#--min-additions=}"; shift ;;
+    -*)                 usage ;;
+    *)  if   [ -z "$MD" ];      then MD="$1"
+        elif [ -z "$SNAP" ];    then SNAP="$1"
+        elif [ -z "$SUMMARY" ]; then SUMMARY="$1"
+        else usage; fi
+        shift ;;
+  esac
+done
+
+[ -n "$MD" ] && [ -n "$SNAP" ] && [ -n "$SUMMARY" ] || usage
+[ -f "$MD" ]      || { echo "DEPTH-CHECK USAGE: md-file not found: $MD" >&2; exit 2; }
+[ -f "$SNAP" ]    || { echo "DEPTH-CHECK USAGE: snapshot-file not found: $SNAP" >&2; exit 2; }
+[ -f "$SUMMARY" ] || { echo "DEPTH-CHECK USAGE: summary-file not found: $SUMMARY" >&2; exit 2; }
+if [ -n "$MIN_ADDITIONS" ]; then
+  case "$MIN_ADDITIONS" in *[!0-9]*|'') echo "DEPTH-CHECK USAGE: --min-additions must be a non-negative integer" >&2; exit 2 ;; esac
+fi
+
+LC_ALL=C awk -v minadd="$MIN_ADDITIONS" '
+function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
+
+{ sub(/\r$/, "") }
+
+# ---------------------------------------------------------------------------
+# File 1 — the snapshot: PR candidates with their depth suffix.
+# Kind is "core" (platform repo) or "companion"; specs carry no depth and are
+# never significance-triggered, so they are ignored here.
+# ---------------------------------------------------------------------------
+FILENAME == ARGV[1] {
+  if ($0 ~ /^## /) {
+    if      (index($0, "companion") > 0)     sec = "companion"
+    else if (index($0, "Open PRs") > 0)      sec = "core"
+    else if (index($0, "Planned specs") > 0) sec = "spec"
+    else                                     sec = ""
+    if (sec != "") nsec++
+    next
+  }
+  kind = ""
+  if      (sec == "core"      && $0 ~ /^- PR #[0-9]+: /)           kind = "core"
+  else if (sec == "companion" && $0 ~ /^- companion PR #[0-9]+: /) kind = "companion"
+  if (kind == "") next
+  match($0, /#[0-9]+/); num = substr($0, RSTART + 1, RLENGTH - 1)
+  key = kind ":" num
+  known[key] = 1
+  # Depth suffix: "[+A/-D, F files, STATE, updated T]". Parse additions and
+  # review state FROM THE SUFFIX ONLY — a PR title containing the word
+  # APPROVED must not forge the trigger. A line without the suffix stays at
+  # additions=-1 (unknown) and cannot trigger at all.
+  adds[key] = -1
+  state[key] = ""
+  if (match($0, /\[\+[0-9]+.*\]$/)) {
+    sfx = substr($0, RSTART, RLENGTH)
+    match(sfx, /\+[0-9]+/); adds[key] = substr(sfx, RSTART + 1, RLENGTH - 1) + 0
+    if (sfx ~ /APPROVED/)               state[key] = "APPROVED"
+    else if (sfx ~ /CHANGES_REQUESTED/) state[key] = "CHANGES_REQUESTED"
+    else if (sfx ~ /DRAFT/)             state[key] = "DRAFT"
+  }
+  next
+}
+
+# ---------------------------------------------------------------------------
+# File 2 — the MD: done stories and their cited PRs.
+# ---------------------------------------------------------------------------
+FILENAME == ARGV[2] {
+  if ($0 ~ /^## / || $0 ~ /^### /) instory = 0
+  if ($0 ~ /^### Story [0-9]+\.[0-9]+:/) {
+    ns++
+    instory = 1
+    match($0, /[0-9]+\.[0-9]+/); cursid = substr($0, RSTART, RLENGTH)
+    curdone = 0
+    next
+  }
+  if (!instory) next
+  if ($0 ~ /^- \*\*Status\*\*:/) {
+    v = $0; sub(/^- \*\*Status\*\*:[ \t]*/, "", v)
+    if (tolower(trim(v)) == "done") curdone = 1
+  }
+  if (curdone && $0 ~ /^- \*\*Upstream pipeline\*\*:/) {
+    v = $0; sub(/^- \*\*Upstream pipeline\*\*:[ \t]*/, "", v)
+    v = trim(v); sub(/ \[\+[0-9]+.*\]$/, "", v)
+    ckind = ""
+    if      (v ~ /^PR #[0-9]+ \(open\)$/)           ckind = "core"
+    else if (v ~ /^companion PR #[0-9]+ \(open\)$/) ckind = "companion"
+    if (ckind != "") {
+      match(v, /#[0-9]+/); cnum = substr(v, RSTART + 1, RLENGTH - 1)
+      key = ckind ":" cnum
+      if (key in citedby) citedby[key] = citedby[key] ", " cursid
+      else                citedby[key] = cursid
+    }
+  }
+  next
+}
+
+# ---------------------------------------------------------------------------
+# File 3 — the summary: collect lines; heading presence is the format check.
+# ---------------------------------------------------------------------------
+FILENAME == ARGV[3] {
+  if ($0 ~ /^## /) nsumheads++
+  sumlines[++nsum] = $0
+  next
+}
+
+END {
+  if (nsec == 0) {
+    print "DEPTH-CHECK USAGE: snapshot has no recognized \"## \" sections — is this really the Phase-2 pipeline snapshot?" > "/dev/stderr"
+    exit 2
+  }
+  if (ns == 0) {
+    print "DEPTH-CHECK USAGE: MD has no \"### Story\" headings — is this really the gap-analysis MD?" > "/dev/stderr"
+    exit 2
+  }
+  if (nsumheads == 0) {
+    print "DEPTH-CHECK USAGE: summary has no \"## \" headings — is this really the Phase-3 summary?" > "/dev/stderr"
+    exit 2
+  }
+
+  nflag = 0; nchecked = 0; ntrig = 0
+  for (key in citedby) {
+    if (!(key in known)) continue   # phantom citation — gap-pipeline-crosscheck flags it, not this gate
+    nchecked++
+    trig = 0; why = ""
+    if (state[key] == "APPROVED" || state[key] == "CHANGES_REQUESTED") {
+      trig = 1; why = "review: " state[key]
+    }
+    if (minadd != "" && adds[key] >= 0 && adds[key] >= minadd + 0) {
+      trig = 1
+      why = (why == "" ? "" : why ", ") "+" adds[key] " additions >= " (minadd + 0)
+    }
+    if (!trig) continue
+    ntrig++
+    split(key, kk, ":")
+    ref = (kk[1] == "companion" ? "companion PR #" kk[2] : "PR #" kk[2])
+    # Does the PR number reach the summary? Digit-boundary match so #29
+    # never passes on the strength of a #290 mention.
+    found = 0
+    for (i = 1; i <= nsum; i++) {
+      if (sumlines[i] ~ ("#" kk[2] "([^0-9]|$)")) { found = 1; break }
+    }
+    if (!found) {
+      nflag++
+      printf "FLAG %s — significant (%s; additions: %s) — cited by stor%s %s but ABSENT from the summary.\n", \
+             ref, why, (adds[key] < 0 ? "unknown" : adds[key]), (index(citedby[key], ",") ? "ies" : "y"), citedby[key]
+      printf "  Fix: fold it, named and sized, into the summary (Top risks or Open questions), then re-run this gate.\n"
+    }
+  }
+
+  printf "DEPTH-CHECK %s: %d distinct cited PRs checked, %d significant, %d unsurfaced (min-additions=%s)\n", \
+         (nflag ? "FLAG" : "PASS"), nchecked, ntrig, nflag, (minadd == "" ? "unset (review-state half only)" : minadd) > "/dev/stderr"
+  exit (nflag ? 1 : 0)
+}
+' "$SNAP" "$MD" "$SUMMARY"

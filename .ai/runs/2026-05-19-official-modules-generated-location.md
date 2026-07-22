@@ -56,13 +56,13 @@ None. No `--skill-url` flags supplied.
 ### Phase 3 — Validation gate
 
 - 3.1 Run the docs-relevant subset: `yarn lint` (if it covers MDX/Markdown), `yarn test scripts/__tests__/official-modules.test.mjs` to make sure the banner change does not break the `renderGenerated` empty-array assertion.
-- 3.2 Run the full gate per `auto-create-pr` step 7 — `yarn build:packages`, `yarn generate`, `yarn build:packages`, `yarn i18n:check-sync`, `yarn i18n:check-usage`, `yarn typecheck`, `yarn test`, `yarn build:app`. If `yarn install` is impractical in this environment, document the blocker and ship docs-only.
+- 3.2 Run the full gate per `om-auto-create-pr` step 7 — `yarn build:packages`, `yarn generate`, `yarn build:packages`, `yarn i18n:check-sync`, `yarn i18n:check-usage`, `yarn typecheck`, `yarn test`, `yarn build:app`. If `yarn install` is impractical in this environment, document the blocker and ship docs-only.
 
 ### Phase 4 — Ship
 
 - 4.1 Open PR against `develop` with the standard body.
 - 4.2 Apply `review`, `skip-qa`, `documentation` labels with one-line explanation comments each.
-- 4.3 Run `auto-review-pr` against the PR in autofix mode; address actionable findings as new commits.
+- 4.3 Run `om-auto-review-pr` against the PR in autofix mode; address actionable findings as new commits.
 - 4.4 Post the comprehensive summary comment.
 - 4.5 Mark the plan `Status: complete` and push.
 

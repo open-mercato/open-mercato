@@ -17,11 +17,14 @@ import {
   WorkflowInstance,
   WorkflowEvent,
   StepInstance,
-  WorkflowDefinition,
 } from '../data/entities'
 import { executeWorkflow } from './workflow-executor'
+import { findDefinitionForInstance } from './find-definition'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 // ============================================================================
 // Types and Interfaces
@@ -120,6 +123,37 @@ export async function completeUserTask(
     )
   }
 
+  // Branch-scoped completion: when the task belongs to a parallel branch,
+  // merge form data into the branch namespace and resume just that branch.
+  if (task.branchInstanceId) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      stepInstanceId: task.stepInstanceId,
+      branchInstanceId: task.branchInstanceId,
+      eventType: 'USER_TASK_COMPLETED',
+      eventData: { taskId: task.id, taskName: task.taskName, completedBy: userId, formData },
+      userId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+
+    const { resumeBranch } = await import('./parallel-handler')
+    const resumed = await resumeBranch(em, {
+      instanceId: instance.id,
+      branchInstanceId: task.branchInstanceId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+      contextMerge: formData,
+      exitStepInstanceId: task.stepInstanceId,
+      exitOutput: { userTaskId: task.id, formData },
+    })
+
+    if (resumed) {
+      await executeWorkflow(em, container, instance.id, { userId })
+    }
+    return
+  }
+
   // Merge form data into workflow context
   instance.context = {
     ...instance.context,
@@ -157,9 +191,7 @@ export async function completeUserTask(
   const currentStepId = instance.currentStepId
 
   // Load workflow definition to find transitions
-  const definition = await em.findOne(WorkflowDefinition, {
-    id: instance.definitionId,
-  })
+  const definition = await findDefinitionForInstance(em, instance)
 
   if (!definition) {
     throw new UserTaskError(
@@ -213,7 +245,7 @@ export async function completeUserTask(
   )
 
   if (!transitionResult.success) {
-    console.error(`[TaskHandler] Transition failed:`, transitionResult.error)
+    logger.error('Transition failed', { component: 'task-handler', err: transitionResult.error })
     // Don't throw, just leave workflow in current state
     return
   }
@@ -307,6 +339,7 @@ async function logWorkflowEvent(
   event: {
     workflowInstanceId: string
     stepInstanceId: string | null
+    branchInstanceId?: string | null
     eventType: string
     eventData: any
     userId?: string

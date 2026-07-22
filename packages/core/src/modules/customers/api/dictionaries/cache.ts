@@ -1,4 +1,7 @@
 import type { CacheStrategy } from '@open-mercato/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const CACHE_PREFIX = 'customers:dictionaries'
 export const DICTIONARY_CACHE_TTL_MS = 5 * 60 * 1000
@@ -8,6 +11,7 @@ type CacheKeyOptions = {
   organizationId: string | null
   mappedKind: string
   readableOrganizationIds: string[]
+  sortMode?: string
 }
 
 type CacheTagOptions = {
@@ -20,7 +24,8 @@ type CacheTagOptions = {
 export function createDictionaryCacheKey(options: CacheKeyOptions): string {
   const scope = options.readableOrganizationIds.join('|')
   const organizationPart = options.organizationId ?? 'all'
-  return `${CACHE_PREFIX}:${options.tenantId}:${options.mappedKind}:org=${organizationPart}:scope=${scope}`
+  const sortPart = options.sortMode ? `:sort=${options.sortMode}` : ''
+  return `${CACHE_PREFIX}:${options.tenantId}:${options.mappedKind}:org=${organizationPart}:scope=${scope}${sortPart}`
 }
 
 export function createDictionaryCacheTags(options: CacheTagOptions): string[] {
@@ -46,6 +51,6 @@ export async function invalidateDictionaryCache(
   try {
     await cache.deleteByTags(tags)
   } catch (err) {
-    console.warn('[customers.dictionaries.cache] Failed to invalidate cache', err)
+    logger.warn('Failed to invalidate cache', { component: 'dictionaries.cache', err })
   }
 }

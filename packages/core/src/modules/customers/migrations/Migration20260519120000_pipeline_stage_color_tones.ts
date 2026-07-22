@@ -15,7 +15,7 @@ import { Migration } from '@mikro-orm/migrations';
  *   'pink', '', or NULL. Lane.tsx now reads the value directly as a tone identifier.
  *
  * Unknown / unmappable hex values collapse to 'neutral'. Forward-only — reverting tones to
- * the original hex is lossy and not supported. See `.ai/specs/2026-05-19-customers-deals-kanban-ux-review-fixes.md`.
+ * the original hex is lossy and not supported. See `.ai/specs/implemented/2026-05-19-customers-deals-kanban-ux-review-fixes.md`.
  */
 export class Migration20260519120000_pipeline_stage_color_tones extends Migration {
   override up(): void | Promise<void> {

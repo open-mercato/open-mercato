@@ -1,6 +1,9 @@
 "use client"
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui')
 
 /**
  * @deprecated Use <Alert variant="destructive|warning|info"> instead.
@@ -48,10 +51,7 @@ export function Notice({
   compact = false,
 }: NoticeProps) {
   if (process.env.NODE_ENV === 'development') {
-    console.warn(
-      '[DS] <Notice> is deprecated. Use <Alert variant="destructive|warning|info"> instead. ' +
-      'See: docs/design-system/migration-tables.md'
-    )
+    logger.warn('<Notice> is deprecated. Use <Alert variant="destructive|warning|info"> instead. See: docs/design-system/migration-tables.md')
   }
 
   const styles = variantStyles[variant]

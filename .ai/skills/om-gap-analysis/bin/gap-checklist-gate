@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# gap-checklist-gate — structural completeness gate for a gap-analysis MD.
+# Usage:  gap-checklist-gate <md-file>
+#
+# Sibling of bin/gap-validate-finding, one layer up: that gate guards the
+# *verdict* layer; this one guards the *intake* layer. Phase 2 of om-gap-analysis
+# must not start until this returns 0.
+#
+# Why a script and not a prose "remember to check NFRs": Phase 1 already
+# *mentions* NFRs, and a mention does not bind an agent's behavior. The binding
+# surface is this deterministic check, outside the model loop.
+#
+# What it enforces: every Epic must address each category in a FIXED checklist,
+# satisfied one of two ways —
+#   - a story reference (`Story <epic>.<n>`) that actually exists in the MD, OR
+#   - `out-of-scope: <non-empty reason>` (an explicit deferral, never silence).
+# The category set is read from the MD frontmatter `coverage_categories:` list
+# (extensible per domain). If that list is ABSENT or EMPTY the gate FAILS CLOSED
+# (exit 1) — completeness is unverifiable, so it must not pass. This mirrors the
+# sibling gate (bin/gap-validate-finding fails closed when its --story precondition
+# is missing); defaulting to a built-in list would let a stripped/old MD silently
+# bypass the domain's declared categories — the exact garbage-in-green-gate
+# failure this gate exists to prevent.
+#
+# Exit codes:
+#   0  PASS  — every epic covers every declared category (story ref or explicit out-of-scope).
+#   1  FAIL  — at least one epic has a category in neither state, OR no categories
+#              are declared (precondition missing). Offenders printed.
+#   2  USAGE — bad invocation.
+#
+# Input format note: the parser is deliberately literal — do NOT put inline `#`
+# comments on the `coverage_categories:` key, its list items, or `#### Coverage`
+# lines (a `#` is parsed as content, and an inline comment on the key line hides
+# the whole list → fail-closed). HTML `<!-- ... -->` comments on their own line
+# are fine. The Phase-1 MD template follows this rule.
+#
+# Scope honesty (mirror gap-validate-finding): a green checklist means "these
+# declared dimensions are addressed," NOT "the tree is complete." A dimension
+# not on the list (i18n, data-migration, observability) passes untouched — the
+# price of decidability. Extend the list per domain when a run needs more.
+
+set -uo pipefail
+
+MD="${1:-}"
+if [ -z "$MD" ] || [ ! -f "$MD" ]; then
+  echo "usage: gap-checklist-gate <md-file>" >&2
+  exit 2
+fi
+
+rc=0
+awk '
+function trim(s){ sub(/^[ \t]+/,"",s); sub(/[ \t]+$/,"",s); return s }
+BEGIN { incat=0; ncat=0 }
+# --- read declared coverage_categories from frontmatter ---
+/^coverage_categories:[ \t]*$/ { incat=1; next }
+incat==1 {
+  if ($0 ~ /^[ \t]+-[ \t]+/) { v=$0; sub(/^[ \t]+-[ \t]+/,"",v); cats[++ncat]=trim(v); next }
+  else { incat=0 }
+}
+{ lines[NR]=$0 }
+END {
+  # Fail closed: a missing/empty coverage_categories list means completeness is
+  # unverifiable. Do NOT default to a built-in set — that would silently bypass
+  # the per-domain declared categories.
+  if (ncat==0){
+    print "FAIL: no coverage_categories declared in frontmatter — completeness unverifiable; Phase 1.5 incomplete" > "/dev/stderr"
+    exit 1
+  }
+
+  # collect existing story ids (### Story <e>.<n>)
+  for (i=1;i<=NR;i++){
+    if (lines[i] ~ /^### Story [0-9]+\.[0-9]+/){
+      s=lines[i]; match(s,/[0-9]+\.[0-9]+/); story[substr(s,RSTART,RLENGTH)]=1
+    }
+  }
+
+  nepic=0; bad=0
+  for (i=1;i<=NR;i++){
+    if (lines[i] ~ /^## Epic /){
+      nepic++
+      ename=lines[i]; sub(/^## /,"",ename)
+      # gather this epic`s coverage lines until the next "## " (or EOF)
+      for (c=1;c<=ncat;c++) seen[c]=""    # reset per epic
+      for (j=i+1;j<=NR && lines[j] !~ /^## /; j++){
+        if (lines[j] ~ /^-[ \t]*[A-Za-z0-9_-]+:[ \t]*/){
+          key=lines[j]; sub(/^-[ \t]*/,"",key); sub(/:.*/,"",key); key=trim(key)
+          val=lines[j]; sub(/^-[ \t]*[A-Za-z0-9_-]+:[ \t]*/,"",val); val=trim(val)
+          for (c=1;c<=ncat;c++) if (cats[c]==key) seen[c]=val
+        }
+      }
+      for (c=1;c<=ncat;c++){
+        v=seen[c]; ok=0; why=""
+        if (v=="") { why="(missing)" }
+        else if (v ~ /^out-of-scope:/){
+          r=substr(v,14); if (trim(r)!="") ok=1; else why="out-of-scope with no reason"
+        }
+        else if (v ~ /[Ss]tory[ \t]+[0-9]+\.[0-9]+/){
+          match(v,/[0-9]+\.[0-9]+/); rid=substr(v,RSTART,RLENGTH)
+          if (rid in story) ok=1; else why="references Story " rid " which is not in the MD"
+        }
+        else { why="unresolved value: " v }
+        if (!ok){ printf("FAIL: epic [%s] category [%s] -> %s\n", ename, cats[c], why) > "/dev/stderr"; bad=1 }
+      }
+    }
+  }
+  if (nepic==0){ print "FAIL: no epics found (expected \"## Epic N: ...\" headings)" > "/dev/stderr"; exit 1 }
+  exit bad
+}
+' "$MD" || rc=$?
+
+if [ "$rc" -eq 0 ]; then
+  echo "GATE PASS: every epic covers every declared category (story ref or explicit out-of-scope)" >&2
+fi
+exit "$rc"

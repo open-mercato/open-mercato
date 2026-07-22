@@ -10,6 +10,10 @@ assignees: ""
 
 Provide a clear description of the bug.
 
+## Page URL
+
+Paste the link to the subpage where the bug occurs (e.g. `/backend/customers`).
+
 ## Steps to reproduce
 
 1. …

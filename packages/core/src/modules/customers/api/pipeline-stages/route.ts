@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
 import { CustomerPipelineStage, CustomerDictionaryEntry } from '../../data/entities'
@@ -15,11 +16,19 @@ import {
   type PipelineStageDeleteInput,
 } from '../../data/validators'
 import { withScopedPayload } from '../utils'
-import { ensureDictionaryEntry } from '../../commands/shared'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
+
+const PIPELINE_STAGE_RESOURCE_KIND = 'customers.pipelineStage'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.pipelines.view'] },
@@ -30,7 +39,7 @@ export const metadata = {
 
 async function buildContext(
   req: Request
-): Promise<{ ctx: CommandRuntimeContext; organizationId: string | null; tenantId: string | null }> {
+): Promise<{ ctx: CommandRuntimeContext; organizationId: string | null; tenantId: string | null; translate: (key: string, fallback?: string) => string }> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
   const { translate } = await resolveTranslations()
@@ -46,20 +55,21 @@ async function buildContext(
   }
   const organizationId = scope?.selectedId ?? auth.orgId ?? null
   const tenantId = auth.tenantId ?? null
-  return { ctx, organizationId, tenantId }
+  return { ctx, organizationId, tenantId, translate }
 }
 
 export async function GET(req: Request) {
   try {
-    const { ctx, organizationId, tenantId } = await buildContext(req)
-    if (!organizationId || !tenantId) {
-      return NextResponse.json({ error: 'Organization and tenant context required' }, { status: 400 })
+    const { ctx, tenantId, translate } = await buildContext(req)
+    if (!tenantId) {
+      return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
     }
+    const orgFilter = resolveOrganizationScopeFilter(ctx.organizationScope, ctx.auth)
     const url = new URL(req.url)
     const pipelineId = url.searchParams.get('pipelineId')
 
     const em = (ctx.container.resolve('em') as EntityManager)
-    const where: Record<string, unknown> = { organizationId, tenantId }
+    const where: Record<string, unknown> = { tenantId, ...orgFilter.where }
     if (pipelineId) where.pipelineId = pipelineId
 
     const stages = await em.find(CustomerPipelineStage, where, { orderBy: { order: 'ASC' } })
@@ -67,27 +77,14 @@ export async function GET(req: Request) {
     const stageLabels = stages.map((s) => s.label.trim().toLowerCase())
     const dictEntries = stageLabels.length
       ? await em.find(CustomerDictionaryEntry, {
-          organizationId,
           tenantId,
+          ...orgFilter.where,
           kind: 'pipeline_stage',
           normalizedValue: { $in: stageLabels },
         })
       : []
     const dictByNormalized = new Map<string, CustomerDictionaryEntry>()
     dictEntries.forEach((entry) => dictByNormalized.set(entry.normalizedValue, entry))
-
-    const missingStages = stages.filter((s) => !dictByNormalized.has(s.label.trim().toLowerCase()))
-    if (missingStages.length) {
-      for (const stage of missingStages) {
-        const created = await ensureDictionaryEntry(em, {
-          tenantId,
-          organizationId,
-          kind: 'pipeline_stage',
-          value: stage.label,
-        })
-        if (created) dictByNormalized.set(created.normalizedValue, created)
-      }
-    }
 
     const items = stages.map((stage) => {
       const dictEntry = dictByNormalized.get(stage.label.trim().toLowerCase())
@@ -109,23 +106,54 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages GET failed', err)
+    logger.error('customers.pipeline-stages GET failed', { err })
     return NextResponse.json({ error: 'Failed to load pipeline stages' }, { status: 500 })
   }
 }
 
 export async function POST(req: Request) {
   try {
-    const { ctx } = await buildContext(req)
+    const { ctx, organizationId, tenantId, translate } = await buildContext(req)
+    if (!organizationId || !tenantId) {
+      return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
+    }
     const body = await req.json().catch(() => ({}))
-    const { translate } = await resolveTranslations()
     const scoped = withScopedPayload(body, ctx, translate)
+    const input = pipelineStageCreateSchema.parse(scoped)
+
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId,
+      organizationId,
+      userId: ctx.auth!.sub,
+      resourceKind: PIPELINE_STAGE_RESOURCE_KIND,
+      resourceId: organizationId,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<PipelineStageCreateInput, { stageId: string }>(
       'customers.pipeline-stages.create',
-      { input: pipelineStageCreateSchema.parse(scoped), ctx },
+      { input, ctx },
     )
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId,
+        organizationId,
+        userId: ctx.auth!.sub,
+        resourceKind: PIPELINE_STAGE_RESOURCE_KIND,
+        resourceId: result?.stageId ?? organizationId,
+        operation: 'create',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
     const response = NextResponse.json({ id: result?.stageId ?? null }, { status: 201 })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
@@ -146,23 +174,54 @@ export async function POST(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages POST failed', err)
+    logger.error('customers.pipeline-stages POST failed', { err })
     return NextResponse.json({ error: 'Failed to create pipeline stage' }, { status: 400 })
   }
 }
 
 export async function PUT(req: Request) {
   try {
-    const { ctx } = await buildContext(req)
+    const { ctx, organizationId, tenantId, translate } = await buildContext(req)
+    if (!organizationId || !tenantId) {
+      return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
+    }
     const body = await req.json().catch(() => ({}))
-    const { translate } = await resolveTranslations()
     const scoped = withScopedPayload(body, ctx, translate)
+    const input = pipelineStageUpdateSchema.parse(scoped)
+
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId,
+      organizationId,
+      userId: ctx.auth!.sub,
+      resourceKind: PIPELINE_STAGE_RESOURCE_KIND,
+      resourceId: input.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { logEntry } = await commandBus.execute<PipelineStageUpdateInput, void>(
       'customers.pipeline-stages.update',
-      { input: pipelineStageUpdateSchema.parse(scoped), ctx },
+      { input, ctx },
     )
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId,
+        organizationId,
+        userId: ctx.auth!.sub,
+        resourceKind: PIPELINE_STAGE_RESOURCE_KIND,
+        resourceId: input.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
     const response = NextResponse.json({ ok: true })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
@@ -183,29 +242,60 @@ export async function PUT(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages PUT failed', err)
+    logger.error('customers.pipeline-stages PUT failed', { err })
     return NextResponse.json({ error: 'Failed to update pipeline stage' }, { status: 400 })
   }
 }
 
 export async function DELETE(req: Request) {
   try {
-    const { ctx } = await buildContext(req)
+    const { ctx, organizationId, tenantId, translate } = await buildContext(req)
+    if (!organizationId || !tenantId) {
+      return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
+    }
     const body = await req.json().catch(() => ({}))
-    const { translate } = await resolveTranslations()
     const scoped = withScopedPayload(body, ctx, translate)
+    const input = pipelineStageDeleteSchema.parse(scoped)
+
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId,
+      organizationId,
+      userId: ctx.auth!.sub,
+      resourceKind: PIPELINE_STAGE_RESOURCE_KIND,
+      resourceId: input.id,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     await commandBus.execute<PipelineStageDeleteInput, void>(
       'customers.pipeline-stages.delete',
-      { input: pipelineStageDeleteSchema.parse(scoped), ctx },
+      { input, ctx },
     )
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId,
+        organizationId,
+        userId: ctx.auth!.sub,
+        resourceKind: PIPELINE_STAGE_RESOURCE_KIND,
+        resourceId: input.id,
+        operation: 'delete',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
     return NextResponse.json({ ok: true })
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages DELETE failed', err)
+    logger.error('customers.pipeline-stages DELETE failed', { err })
     return NextResponse.json({ error: 'Failed to delete pipeline stage' }, { status: 400 })
   }
 }

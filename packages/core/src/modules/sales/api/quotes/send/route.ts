@@ -23,6 +23,9 @@ import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
 import { QuoteSentEmail } from '../../../emails/QuoteSentEmail'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['sales.quotes.manage'] },
@@ -168,17 +171,23 @@ export async function POST(req: Request) {
     validUntil.setUTCDate(validUntil.getUTCDate() + input.validForDays)
 
     const rawAcceptanceToken = crypto.randomUUID()
-    quote.validUntil = validUntil
-    quote.acceptanceToken = hashAuthToken(rawAcceptanceToken)
-    quote.sentAt = now
-    quote.status = 'sent'
-    quote.statusEntryId = await resolveStatusEntryIdByValue(em, {
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-      value: 'sent',
+
+    // Persist the send state (status/token/sentAt) atomically and commit it
+    // BEFORE the email goes out, so a customer never receives a link whose
+    // acceptance token was not durably stored.
+    await em.transactional(async (tx) => {
+      quote.validUntil = validUntil
+      quote.acceptanceToken = hashAuthToken(rawAcceptanceToken)
+      quote.sentAt = now
+      quote.status = 'sent'
+      quote.statusEntryId = await resolveStatusEntryIdByValue(tx, {
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+        value: 'sent',
+      })
+      quote.updatedAt = now
+      tx.persist(quote)
     })
-    quote.updatedAt = now
-    em.persist(quote)
 
     const appUrl = process.env.APP_URL || ''
     const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${rawAcceptanceToken}` : `/quote/${rawAcceptanceToken}`
@@ -202,13 +211,12 @@ export async function POST(req: Request) {
       footer: translate('sales.quotes.email.footer', 'Open Mercato'),
     }
 
+    // Side effect after commit: an email failure must not roll back the send state.
     await sendEmail({
       to: email,
       subject: translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
       react: QuoteSentEmail({ url, copy }),
     })
-
-    await em.flush()
 
     if (guardResult.afterSuccessCallbacks.length) {
       await runGuardAfterSuccessCallbacks(guardResult.afterSuccessCallbacks, {
@@ -229,7 +237,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('sales.quotes.send failed', err)
+    logger.error('sales.quotes.send failed', { err })
     return NextResponse.json(
       { error: translate('sales.quotes.send.failed', 'Failed to send quote.') },
       { status: 400 }

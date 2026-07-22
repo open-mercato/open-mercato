@@ -4,7 +4,12 @@ import * as React from 'react'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { SearchX } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type PublicQuoteResponse = {
   quote: {
@@ -63,7 +68,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
         if (!mounted) return
         setData(call.result ?? null)
       } catch (err) {
-        console.error('sales.quotes.public.load', err)
+        logger.error('sales.quotes.public.load', { err })
         if (!mounted) return
         setError(t('sales.quotes.public.failed'))
       } finally {
@@ -88,7 +93,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
       })
       setAcceptedOrder(call.result ?? null)
     } catch (err) {
-      console.error('sales.quotes.accept', err)
+      logger.error('sales.quotes.accept', { err })
       setError(t('sales.quotes.public.acceptFailed'))
     } finally {
       setAccepting(false)
@@ -110,7 +115,12 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
     return (
       <main className="mx-auto max-w-3xl p-6 space-y-2">
         <h1 className="text-2xl font-semibold">{t('sales.quotes.public.pageTitle')}</h1>
-        <p className="text-sm text-destructive">{error ?? t('sales.quotes.public.notFound')}</p>
+        <EmptyState
+          variant="subtle"
+          size="lg"
+          icon={<SearchX className="h-6 w-6" aria-hidden />}
+          title={error ?? t('sales.quotes.public.notFound')}
+        />
       </main>
     )
   }

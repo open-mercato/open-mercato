@@ -9,15 +9,21 @@ import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/Dat
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
-import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { markdownToPlainText } from '@open-mercato/ui/backend/markdown/markdownToPlainText'
+import { readApiResultOrThrow, apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Pencil } from 'lucide-react'
+import { Pencil, Users } from 'lucide-react'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 const PAGE_SIZE = 50
 
@@ -150,7 +156,7 @@ export default function StaffTeamMembersPage() {
           ? (
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                {row.original.teamId ? <TeamsIcon className="h-4 w-4 text-muted-foreground" /> : null}
+                {row.original.teamId ? <Users className="h-4 w-4 text-muted-foreground" /> : null}
                 <span className="font-semibold">{row.original.displayName}</span>
               </div>
               {row.original.teamId ? (
@@ -173,7 +179,7 @@ export default function StaffTeamMembersPage() {
             <div className="flex flex-col">
               <span className="font-medium pl-6">{row.original.displayName}</span>
               {row.original.description ? (
-                <span className="text-xs text-muted-foreground line-clamp-2 pl-6">{row.original.description}</span>
+                <span className="text-xs text-muted-foreground line-clamp-2 pl-6">{markdownToPlainText(row.original.description)}</span>
               ) : null}
             </div>
           )
@@ -266,7 +272,7 @@ export default function StaffTeamMembersPage() {
           ? payload.totalPages
           : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
     } catch (error) {
-      console.error('staff.team-members.list', error)
+      logger.error('staff.team-members.list', { err: error })
       flash(labels.errors.load, 'error')
     } finally {
       setIsLoading(false)
@@ -391,11 +397,14 @@ export default function StaffTeamMembersPage() {
     })
     if (!confirmed) return
     try {
-      await deleteCrud('staff/team-members', entry.id, { errorMessage: labels.errors.delete })
+      const headers = buildOptimisticLockHeader(entry.updatedAt)
+      await withScopedApiRequestHeaders(headers, () => (
+        deleteCrud('staff/team-members', entry.id, { errorMessage: labels.errors.delete })
+      ))
       flash(labels.messages.deleted, 'success')
       handleRefresh()
     } catch (error) {
-      console.error('staff.team-members.delete', error)
+      logger.error('staff.team-members.delete', { err: error })
       flash(labels.errors.delete, 'error')
     }
   }, [confirm, handleRefresh, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.messages.deleted])
@@ -415,7 +424,13 @@ export default function StaffTeamMembersPage() {
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
-          emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{labels.table.empty}</p>}
+          emptyState={(
+            <ListEmptyState
+              entityName={labels.title}
+              createHref="/backend/staff/team-members/create"
+              createLabel={labels.actions.add}
+            />
+          )}
           actions={(
             <Button asChild size="sm">
               <Link href="/backend/staff/team-members/create">
@@ -627,22 +642,3 @@ function renderLabelPills(values: string[]): React.ReactNode {
   )
 }
 
-function TeamsIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className={className}
-      aria-hidden="true"
-    >
-      <circle cx="8" cy="8" r="3" />
-      <circle cx="16" cy="8" r="3" />
-      <path d="M3 20c0-3 3-5 5-5" />
-      <path d="M21 20c0-3-3-5-5-5" />
-    </svg>
-  )
-}

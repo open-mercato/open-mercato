@@ -15,6 +15,11 @@ const standaloneTemplatePackageJsonPath = path.join(repoRoot, 'packages', 'creat
 const agenticRoot = path.join(repoRoot, 'packages', 'create-app', 'agentic')
 const packagesRoot = path.join(repoRoot, 'packages')
 
+// Modules the standalone fixture enables in src/modules.ts. Both are on the
+// fact-sheet allowlist, so agentic:init must ship exactly their fact-sheets
+// (enabled ∩ allowlist — spec D6) and list them in the AGENTS.md marker block.
+const FIXTURE_ENABLED_MODULES = ['customers', 'sales']
+
 function normalizePath(value: string): string {
   return value.split(path.sep).join('/')
 }
@@ -27,6 +32,10 @@ function runCommand(command: string, args: string[], cwd: string): string {
       ...process.env,
       FORCE_COLOR: '0',
       NODE_NO_WARNINGS: '1',
+      // Keep the test hermetic: agentic:init runs scripts/install-skills.sh,
+      // whose external step (`npx skills add`) needs the network. Local tier
+      // symlinks are still installed.
+      OM_SKIP_EXTERNAL_SKILLS: '1',
     },
   })
 }
@@ -57,7 +66,8 @@ function createStandaloneFixture(rootDir: string): string {
       2,
     ),
   )
-  writeFile(path.join(appDir, 'src', 'modules.ts'), 'export const enabledModules = []\n')
+  const moduleEntries = FIXTURE_ENABLED_MODULES.map((moduleId) => `  { id: '${moduleId}' },`).join('\n')
+  writeFile(path.join(appDir, 'src', 'modules.ts'), `export const enabledModules = [\n${moduleEntries}\n]\n`)
   return appDir
 }
 
@@ -86,6 +96,10 @@ function listRelativeFiles(rootDir: string): string[] {
 function mapSharedSourceToOutput(relativePath: string): string {
   if (relativePath === 'AGENTS.md.template') {
     return 'AGENTS.md'
+  }
+
+  if (relativePath.startsWith('scripts/')) {
+    return relativePath
   }
 
   if (!relativePath.startsWith('ai/')) {
@@ -167,6 +181,17 @@ function readPlaywrightConfigPathFromCliRunner(): string {
 function expectedGuideOutputNames(): string[] {
   const collected = new Set<string>()
 
+  // Static conceptual guides checked into create-app (e.g. module-system.md) are
+  // bundled into dist/agentic/guides by the CLI build and copied wholesale.
+  const staticGuidesRoot = path.join(agenticRoot, 'guides')
+  if (fs.existsSync(staticGuidesRoot)) {
+    for (const entry of fs.readdirSync(staticGuidesRoot, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.md')) {
+        collected.add(entry.name)
+      }
+    }
+  }
+
   for (const packageName of fs.readdirSync(packagesRoot)) {
     const packageGuide = path.join(packagesRoot, packageName, 'agentic', 'standalone-guide.md')
     if (fs.existsSync(packageGuide)) {
@@ -184,6 +209,15 @@ function expectedGuideOutputNames(): string[] {
         collected.add(`${packageName}.${moduleName}.md`)
       }
     }
+  }
+
+  // Generated fact-sheet artifacts (spec 2026-06-27-ts-morph-module-fact-sheets):
+  // the module-facts.json sidecar is copied as-is and fact-sheets are filtered to the
+  // fixture's enabled modules. The legacy core.<module>.md redirect stubs are no longer
+  // emitted (#3754).
+  collected.add('module-facts.json')
+  for (const moduleId of FIXTURE_ENABLED_MODULES) {
+    collected.add(normalizePath(path.join('modules', `${moduleId}.md`)))
   }
 
   return Array.from(collected).sort()
@@ -230,22 +264,45 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
       expect(agentsSource).toContain('<!-- CODEX_ENFORCEMENT_RULES_START -->')
       expect(agentsSource).toContain('.ai/guides/core.md')
 
+      // The Module-Specific Guides marker block lists exactly the enabled modules'
+      // fact-sheets (enabled ∩ allowlist), not the full bundled set.
+      for (const moduleId of FIXTURE_ENABLED_MODULES) {
+        expect(agentsSource).toContain(`.ai/guides/modules/${moduleId}.md`)
+      }
+      expect(agentsSource).not.toContain('.ai/guides/modules/auth.md')
+
       const specsReadmeSource = fs.readFileSync(path.join(appDir, '.ai', 'specs', 'README.md'), 'utf8')
       expect(specsReadmeSource).toContain('sample-store')
 
       const cursorRulesSource = fs.readFileSync(path.join(appDir, '.cursor', 'rules', 'open-mercato.mdc'), 'utf8')
       expect(cursorRulesSource).toContain('sample-store')
 
-      const specWritingSkillSource = fs.readFileSync(
-        path.join(appDir, '.ai', 'skills', 'spec-writing', 'SKILL.md'),
-        'utf8',
-      )
-      expect(specWritingSkillSource).toContain('sample-store')
+      // om-spec-writing moved to the external open-mercato/skills collection
+      // (installed via `yarn install-skills`), so agentic:init must not ship a copy.
+      expect(fs.existsSync(path.join(appDir, '.ai', 'skills', 'om-spec-writing'))).toBe(false)
+      expect(fs.existsSync(path.join(appDir, 'scripts', 'install-skills.sh'))).toBe(true)
 
-      for (const toolDir of ['.claude', '.codex', '.cursor']) {
-        const skillsLinkPath = path.join(appDir, toolDir, 'skills')
-        expect(fs.lstatSync(skillsLinkPath).isSymbolicLink()).toBe(true)
-        expect(normalizePath(fs.readlinkSync(skillsLinkPath))).toBe('../.ai/skills')
+      // install-skills.sh (run by agentic:init) replaces the legacy directory-level
+      // .claude/skills and .codex/skills symlinks with real directories holding one
+      // symlink per default-tier local skill; .cursor/skills keeps the directory link.
+      const cursorSkillsLinkPath = path.join(appDir, '.cursor', 'skills')
+      expect(fs.lstatSync(cursorSkillsLinkPath).isSymbolicLink()).toBe(true)
+      expect(normalizePath(fs.readlinkSync(cursorSkillsLinkPath))).toBe('../.ai/skills')
+
+      const tiersManifest = JSON.parse(
+        fs.readFileSync(path.join(agenticRoot, 'shared', 'ai', 'skills', 'tiers.json'), 'utf8'),
+      ) as { default: string[]; tiers: Record<string, { skills: string[] }> }
+      const defaultTierSkills = tiersManifest.default.flatMap((tierName) => tiersManifest.tiers[tierName].skills)
+      expect(defaultTierSkills.length).toBeGreaterThan(0)
+
+      for (const toolDir of ['.claude', '.codex']) {
+        const harnessSkillsDir = path.join(appDir, toolDir, 'skills')
+        expect(fs.lstatSync(harnessSkillsDir).isDirectory()).toBe(true)
+        for (const skillName of defaultTierSkills) {
+          const skillLinkPath = path.join(harnessSkillsDir, skillName)
+          expect(fs.lstatSync(skillLinkPath).isSymbolicLink()).toBe(true)
+          expect(normalizePath(fs.readlinkSync(skillLinkPath))).toBe(`../../.ai/skills/${skillName}`)
+        }
       }
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true })

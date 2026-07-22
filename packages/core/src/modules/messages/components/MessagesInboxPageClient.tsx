@@ -8,6 +8,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -24,6 +25,9 @@ import {
   buildMessagesListParams,
   type SenderOption,
 } from './inboxFilters'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('messages').child({ component: 'MessagesInboxPageClient' })
 
 type MessageListItem = {
   id: string
@@ -253,7 +257,7 @@ export function MessagesInboxPageClient() {
     senderOptionsScopeRef.current = scopeVersion
     setSenderOptions([])
     loadSenderOptions().catch((error: unknown) => {
-      console.warn('[messages] Failed to load sender filter options', error)
+      logger.warn('Failed to load sender filter options', { err: error })
     })
   }, [loadSenderOptions, scopeVersion])
 
@@ -362,6 +366,10 @@ export function MessagesInboxPageClient() {
     <div className="space-y-4">
       <DataTable
         title={t('messages.title', 'Messages')}
+        // UMES extension surface — opt into widget injection at:
+        //   data-table:messages:columns / :row-actions / :bulk-actions / :filters / :toolbar / :search-trailing
+        // (SPEC-045d §9.3a — communication_channels hub renders channel badge + delivery status here)
+        extensionTableId="messages"
         columns={columns}
         data={rows}
         bulkActions={bulkActions}
@@ -447,6 +455,13 @@ export function MessagesInboxPageClient() {
         onRowClick={(row) => {
           router.push(`/backend/messages/${row.id}`)
         }}
+        emptyState={(
+          <ListEmptyState
+            entityName={t('messages.title', 'Messages')}
+            createHref="/backend/messages/compose"
+            createLabel={t('messages.compose', 'Compose message')}
+          />
+        )}
         embedded
       />
       {ConfirmDialogElement}

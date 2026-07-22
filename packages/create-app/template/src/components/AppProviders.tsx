@@ -13,13 +13,14 @@ type AppProvidersProps = {
   children: ReactNode
   locale: Locale
   dict: Dict
+  localeLocked: boolean
   demoModeEnabled: boolean
   noticeBarsEnabled: boolean
 }
 
-export function AppProviders({ children, locale, dict, demoModeEnabled, noticeBarsEnabled }: AppProvidersProps) {
+export function AppProviders({ children, locale, dict, localeLocked, demoModeEnabled, noticeBarsEnabled }: AppProvidersProps) {
   return (
-    <I18nProvider locale={locale} dict={dict}>
+    <I18nProvider locale={locale} dict={dict} localeLocked={localeLocked}>
       <ClientBootstrapProvider>
         <ComponentOverridesBootstrap>
           <ThemeProvider>

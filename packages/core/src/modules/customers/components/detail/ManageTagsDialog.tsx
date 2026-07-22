@@ -42,14 +42,20 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ColorPicker } from '@open-mercato/ui/primitives/color-picker'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { ScrollArea } from '@open-mercato/ui/primitives/scroll-area'
 import {
   Dialog,
   DialogContent,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 // ---------------------------------------------------------------------------
 // Types
@@ -421,23 +427,12 @@ function SortableEntryRow({
       </div>
 
       {/* Color picker */}
-      <div className="flex w-[80px] shrink-0 items-center gap-1.5 rounded-md border border-input px-2 py-1.5">
-        <label className="relative size-4 shrink-0 cursor-pointer">
-          <span
-            className="block size-full rounded-sm"
-            style={{ backgroundColor: normalizeColor(entry.color) }}
-          />
-          <input
-            type="color"
-            value={normalizeColor(entry.color)}
-            onChange={(e) => onColorChange(normalizeColor(e.target.value))}
-            className="absolute inset-0 size-full cursor-pointer opacity-0"
-          />
-        </label>
-        <span className="text-xs font-medium text-muted-foreground">
-          {normalizeColor(entry.color)}
-        </span>
-      </div>
+      <ColorPicker
+        value={normalizeColor(entry.color)}
+        onChange={(next) => onColorChange(normalizeColor(next))}
+        size="sm"
+        className="shrink-0"
+      />
 
       {/* Delete */}
       <IconButton
@@ -613,7 +608,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
     setCreateCategoryOpen(false)
     setNewCategoryName('')
     setNewCategorySelectionMode('multi')
-    loadData().catch((err) => console.warn('[ManageTagsDialog] loadData failed', err))
+    loadData().catch((err) => logger.warn('loadData failed', { component: 'ManageTagsDialog', err }))
   }, [loadData, open])
 
   // --- derived state ---
@@ -768,6 +763,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
             if (entry.id) {
               await runGuardedMutation(
                 () =>
+                  // optimistic-lock-exempt: tag dictionary entry assignment add/remove
                   apiCallOrThrow(`/api/customers/dictionaries/${category.kind}/${entry.id}`, {
                     method: 'DELETE',
                   }),
@@ -787,6 +783,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
           if (!entry.id) {
             await runGuardedMutation(
               () =>
+                // optimistic-lock-exempt: tag dictionary entry create-only
                 apiCallOrThrow(`/api/customers/dictionaries/${category.kind}`, {
                   method: 'POST',
                   headers: { 'content-type': 'application/json' },
@@ -813,6 +810,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
 
           await runGuardedMutation(
             () =>
+              // optimistic-lock-exempt: tag dictionary entry assignment add/remove
               apiCallOrThrow(`/api/customers/dictionaries/${category.kind}/${entry.id}`, {
                 method: 'PATCH',
                 headers: { 'content-type': 'application/json' },
@@ -899,6 +897,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
     try {
       await runGuardedMutation(
         () =>
+          // optimistic-lock-exempt: tag dictionary kind-settings assignment add/remove
           apiCallOrThrow('/api/customers/dictionaries/kind-settings', {
             method: 'PATCH',
             headers: { 'content-type': 'application/json' },
@@ -1065,12 +1064,12 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
             ) : null}
 
             {/* Tab bar */}
-            <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-1.5">
+            <div className="flex shrink-0 items-end gap-2 border-b border-input px-4 pt-1.5">
               <IconButton
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="size-8 shrink-0 rounded-full"
+                className="size-8 shrink-0 self-center rounded-full"
                 onClick={() => scrollCategoryRail('left')}
                 disabled={!canScrollLeft}
                 aria-label={t('customers.tags.manage.scrollLeft', 'Scroll categories left')}
@@ -1079,7 +1078,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
               </IconButton>
               <div
                 ref={categoryRailRef}
-                className="min-w-0 flex-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                className="scrollbar-hide min-w-0 flex-1 overflow-x-auto"
               >
                 <div className="flex items-end gap-0.5">
                   {translatedCategories.map((category) => {
@@ -1096,10 +1095,10 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                           setActiveTab(category.kind)
                           setSearchValue('')
                         }}
-                        className={`flex h-auto shrink-0 items-center gap-1.5 rounded-none border-b-2 px-2.5 py-2 hover:bg-transparent ${
+                        className={`flex h-auto shrink-0 items-center gap-1.5 rounded-none border-b-2 px-2.5 py-2 hover:bg-transparent -mb-px ${
                           isActive
-                            ? '-mb-px border-foreground text-foreground'
-                            : '-mb-px border-transparent text-muted-foreground'
+                            ? 'border-accent-indigo text-foreground'
+                            : 'border-transparent text-muted-foreground'
                         }`}
                       >
                         <Icon className="size-3.5" />
@@ -1120,7 +1119,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="size-8 shrink-0 rounded-full"
+                className="size-8 shrink-0 self-center rounded-full"
                 onClick={() => scrollCategoryRail('right')}
                 disabled={!canScrollRight}
                 aria-label={t('customers.tags.manage.scrollRight', 'Scroll categories right')}
@@ -1130,7 +1129,8 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
             </div>
 
             {/* Content */}
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 py-3.5">
+            <ScrollArea className="min-h-0 flex-1" viewportClassName="px-6 py-3.5">
+              <div className="flex flex-col gap-3">
               {activeMeta ? (
                 <>
                   {/* Category header + search */}
@@ -1141,18 +1141,15 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                           {activeMeta.shortLabel}
                         </span>
                         {(activeMeta.badges ?? []).map((badge) => (
-                          <span
+                          <Badge
                             key={badge}
-                            className={`rounded-sm px-2 py-0.5 text-overline font-bold ${
-                              badge === 'required'
-                                ? 'bg-status-warning-bg text-status-warning-text'
-                                : 'bg-muted text-muted-foreground'
-                            }`}
+                            variant={badge === 'required' ? 'warning' : 'muted'}
+                            size="sm"
                           >
                             {badge === 'required'
                               ? t('customers.tags.manage.badge.required', 'REQUIRED')
                               : t('customers.tags.manage.badge.system', 'SYSTEM')}
-                          </span>
+                          </Badge>
                         ))}
                       </div>
                       <div className="flex items-center gap-1.5">
@@ -1178,17 +1175,17 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                   <div className="flex items-center gap-3 px-3 py-1.5">
                     <div className="w-[18px] shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <span className="text-overline font-bold uppercase text-muted-foreground">
+                      <span className="text-overline font-medium uppercase tracking-wider text-muted-foreground">
                         {t('customers.tags.manage.columns.label', 'LABEL')}
                       </span>
                     </div>
                     <div className="w-[140px] shrink-0">
-                      <span className="text-overline font-bold uppercase text-muted-foreground">
+                      <span className="text-overline font-medium uppercase tracking-wider text-muted-foreground">
                         {t('customers.tags.manage.columns.slug', 'SLUG')}
                       </span>
                     </div>
                     <div className="w-[80px] shrink-0">
-                      <span className="text-overline font-bold uppercase text-muted-foreground">
+                      <span className="text-overline font-medium uppercase tracking-wider text-muted-foreground">
                         {t('customers.tags.manage.columns.color', 'COLOR')}
                       </span>
                     </div>
@@ -1283,7 +1280,8 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                   {t('customers.tags.manage.noDictionaries', 'No tag categories found.')}
                 </div>
               )}
-            </div>
+              </div>
+            </ScrollArea>
 
             {/* Separator */}
             <div className="h-px shrink-0 bg-border" />

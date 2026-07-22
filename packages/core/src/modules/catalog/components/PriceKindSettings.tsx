@@ -17,7 +17,9 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -26,6 +28,9 @@ import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/c
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
 import type { DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import type { CatalogPriceDisplayMode } from '../data/types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 type PriceKind = {
   id: string
@@ -151,7 +156,7 @@ export function PriceKindSettings() {
       const normalized = Array.isArray(payload.items) ? payload.items.map((item) => normalizePriceKind(item)) : []
       setItems(normalized)
     } catch (err) {
-      console.error('catalog.price-kinds.list failed', err)
+      logger.error('catalog.price-kinds.list failed', { err })
       flash(loadErrorMessage, 'error')
     } finally {
       setLoading(false)
@@ -211,11 +216,17 @@ export function PriceKindSettings() {
         dialog.mode === 'edit'
           ? JSON.stringify({ id: dialog.entry.id, ...payload })
           : JSON.stringify(payload)
-      const call = await apiCall(path, {
+      const savePriceKind = () => apiCall(path, {
         method,
         headers: { 'content-type': 'application/json' },
         body,
       })
+      const optimisticLockHeader = buildOptimisticLockHeader(
+        dialog.mode === 'edit' ? dialog.entry.updatedAt : null,
+      )
+      const call = Object.keys(optimisticLockHeader).length > 0
+        ? await withScopedApiRequestHeaders(optimisticLockHeader, savePriceKind)
+        : await savePriceKind()
       if (!call.ok) {
         await raiseCrudError(call.response, t('catalog.priceKinds.errors.save', 'Failed to save price kind.'))
       }
@@ -228,9 +239,16 @@ export function PriceKindSettings() {
       closeDialog()
       await loadItems()
     } catch (err) {
-      console.error('catalog.price-kinds.save failed', err)
-      const message =
-        err instanceof Error ? err.message : t('catalog.priceKinds.errors.save', 'Failed to save price kind.')
+      logger.error('catalog.price-kinds.save failed', { err })
+      // Route a concurrent-edit 409 through the single conflict surface (unified
+      // conflict bar, or the enterprise merge dialog when its handler is mounted)
+      // and close the editor so that surface owns the resolution. Other errors
+      // stay inline in the dialog so the user can correct and resubmit.
+      if (surfaceRecordConflict(err, t, { onRefresh: () => { void loadItems() } })) {
+        closeDialog()
+        return
+      }
+      const message = err instanceof Error ? err.message : t('catalog.priceKinds.errors.save', 'Failed to save price kind.')
       setError(message)
     } finally {
       setSubmitting(false)
@@ -246,20 +264,26 @@ export function PriceKindSettings() {
       })
       if (!confirmed) return
       try {
-        const call = await apiCall('/api/catalog/price-kinds', {
+        const deletePriceKind = () => apiCall('/api/catalog/price-kinds', {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ id: entry.id }),
         })
+        const optimisticLockHeader = buildOptimisticLockHeader(entry.updatedAt)
+        const call = Object.keys(optimisticLockHeader).length > 0
+          ? await withScopedApiRequestHeaders(optimisticLockHeader, deletePriceKind)
+          : await deletePriceKind()
         if (!call.ok) {
           await raiseCrudError(call.response, t('catalog.priceKinds.errors.delete', 'Failed to delete price kind.'))
         }
         flash(t('catalog.priceKinds.messages.deleted', 'Price kind deleted.'), 'success')
         await loadItems()
       } catch (err) {
-        console.error('catalog.price-kinds.delete failed', err)
-        const message =
-          err instanceof Error ? err.message : t('catalog.priceKinds.errors.delete', 'Failed to delete price kind.')
+        logger.error('catalog.price-kinds.delete failed', { err })
+        // Route a concurrent-edit 409 through the single conflict surface; fall
+        // back to a flash for any other delete failure.
+        if (surfaceRecordConflict(err, t, { onRefresh: () => { void loadItems() } })) return
+        const message = err instanceof Error ? err.message : t('catalog.priceKinds.errors.delete', 'Failed to delete price kind.')
         flash(message, 'error')
       }
     },
@@ -508,6 +532,7 @@ export function PriceKindSettings() {
                   fetchOptions={currencyOptionsLoader}
                   labels={currencyLabels}
                   allowInlineCreate={false}
+                  sortOptions="none"
                 />
               </div>
               <div className="flex flex-col gap-2">

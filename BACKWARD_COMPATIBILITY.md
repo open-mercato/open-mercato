@@ -7,7 +7,7 @@ Open Mercato modules are developed by third-party developers who depend on stabl
 1. **Never remove or rename** a public contract surface in a single release.
 2. **Deprecate first**: add `@deprecated` JSDoc with migration guidance and the target removal version.
 3. **Provide a bridge**: re-export the old name/path, accept the old signature, or keep the old behavior alongside the new one for at least one minor version.
-4. **Document in RELEASE_NOTES.md**: every deprecation and every removal must be listed with migration instructions.
+4. **Document in UPGRADE_NOTES.md**: every deprecation and every removal must be listed with migration instructions.
 5. **Spec requirement**: any PR that modifies a contract surface MUST reference a spec (in `.ai/specs/`) that includes a "Migration & Backward Compatibility" section.
 
 ---
@@ -80,6 +80,8 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `AiAgentOverridesMap` / `AiToolOverridesMap`: `Record<string, AiAgentDefinition | null>` and `Record<string, AiToolDefinition | null>` semantics are STABLE; `null` means disable
 - `ModuleOverrides`: `overrides.ai.agents`, `overrides.ai.tools`, and `overrides.ai.extensions` shapes are STABLE; other domain keys are reserved by the unified override contract and may be wired additively
 - `WorkerMeta`: `queue` — MUST NOT remove
+- `RefreshCredentialsInput` (communication_channels hub): `channelId`, `credentials`, `scope` — MUST NOT remove. `oauthClient?` was added 2026-05-27 as an additive optional field (see [Spec A](.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md)). The legacy `credentials._client` read path in the Gmail adapter is **deprecated and slated for removal in the next minor release** — pass OAuth client config via `RefreshCredentialsInput.oauthClient` instead.
+- `OAuthClientConfig` (communication_channels hub): added 2026-05-27 with `clientId` required; optional `clientSecret`, `tenantId`, `scopes`. New optional fields may be added; required `clientId` MUST NOT be removed.
 
 ### 3. Function Signatures (STABLE)
 
@@ -263,3 +265,39 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 | Generated registry exports | OK | OK | BREAKING | BREAKING | BREAKING |
 
 \* Feature ID removal requires a data migration.
+
+---
+
+## Per-User Integration Credentials (2026-05-26)
+
+`.ai/specs/2026-05-21-email-integration-foundation.md` adds optional per-user scoping to integration credentials so two users on the same tenant can connect their own mailbox (Gmail / IMAP) without sharing one row. **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Type interface (`IntegrationScope`) | New **optional** field `userId?: string \| null` | ✓ ADDITIVE (Type interface, optional field) |
+| Database schema | New nullable column `integration_credentials.user_id uuid` via additive migration `Migration20260526154136`, plus partial unique index `integration_credentials_user_lookup_idx` on `(integration_id, organization_id, tenant_id, user_id)` `WHERE user_id IS NOT NULL AND deleted_at IS NULL` | ✓ ADDITIVE (NULL default; the partial index leaves existing tenant-wide rows untouched) |
+| `createCredentialsService` API | `getRaw` / `resolve` / `save` / `saveField` signatures unchanged; when `scope.userId` is falsy the lookup filter pins `user_id = NULL`, reproducing the prior tenant-wide behaviour exactly | ✓ Behaviour-preserving for existing callers |
+
+**Migration path for existing tenants**: no action required. Existing integrations keep their single `user_id IS NULL` row and resolve exactly as before; only callers that pass `scope.userId` (the new per-user channels) read or write user-scoped rows.
+
+---
+
+## Spec C — Provider Push Delivery (2026-05-27)
+
+`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md` extends the communication-channels module with provider push delivery. **All changes are additive** and pass the contract-surface checks above:
+
+> **Update (2026-06-02):** the Microsoft Graph push surfaces (the two `/webhooks/microsoft/*` routes, the `…-microsoft-delta-sync` / `…-microsoft-renew-subscriptions` queues, and `OM_MICROSOFT_WEBHOOK_BASE_URL` / `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS`) were removed together with the `@open-mercato/channel-microsoft` provider — they never shipped in a release, so the removal is not a breaking change. The rows below reflect the Gmail-only surfaces that remain. The `client_state_encrypted` column — proposed solely for Microsoft Graph's anti-tampering nonce — was dropped from scope together with the provider before this branch's migrations were finalized; it appears in no committed migration or snapshot, so there is no schema change to reconcile.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Adapter type interface (`ChannelAdapter`) | Three new **optional** methods: `registerPush?`, `unregisterPush?`, `applyPushNotification?` | ✓ ADDITIVE (Type interface, optional fields) |
+| Adapter input/output types | New exported types: `PushRegistration`, `RegisterPushInput`, `UnregisterPushInput`, `ApplyPushNotificationInput` | ✓ ADDITIVE (new types, no rename) |
+| Event IDs | Four new events: `communication_channels.push.{registered,failed,renewed,deactivated}` | ✓ ADDITIVE (new event IDs) |
+| ACL feature IDs | One new feature: `communication_channels.channel.push.manage` | ✓ ADDITIVE (new feature ID) |
+| API routes | Two new routes: `/webhooks/gmail`, `/channels/[id]/push/register` | ✓ ADDITIVE (new routes) |
+| Database schema | No change. The `client_state_encrypted` column proposed for Microsoft Graph was removed from scope before the migrations were finalized — it is absent from every committed migration and the snapshot. | ✓ No net schema change |
+| Queue names | Two new queues: `…-gmail-history-sync`, `…-gmail-renew-watch` | ✓ ADDITIVE |
+| Env vars | New optional: `OM_GMAIL_PUBSUB_TOPIC`, `OM_GMAIL_PUBSUB_AUDIENCE`, `OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL`, `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS` | ✓ ADDITIVE |
+| Polling cadence | `pollIntervalSeconds` flips 60 → 1800 only when `pushStatus='active'` is persisted. Non-push channels unchanged. | ✓ Behavior-preserving for existing channels |
+
+**Migration path for existing tenants**: no action required. Push is opt-in per channel — until an operator explicitly registers (via connect flow or `POST /push/register`), Gmail channels keep polling on the Spec B baseline. The new ACL feature `communication_channels.channel.push.manage` must be granted via `yarn mercato auth sync-role-acls` post-deploy for the "Re-register push" button to appear.

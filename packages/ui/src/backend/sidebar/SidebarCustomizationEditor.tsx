@@ -21,7 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../primitives/select'
-import { apiCall } from '../utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '../utils/apiCall'
+import { buildOptimisticLockHeader } from '../utils/optimisticLock'
+import { surfaceRecordConflict } from '../conflicts'
 import { flash } from '../FlashMessages'
 import { Page, PageBody } from '../Page'
 import { useBackendChrome } from '../BackendChromeProvider'
@@ -40,6 +42,9 @@ import {
   type SidebarGroup,
   type SidebarItem,
 } from './customization-helpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'SidebarCustomizationEditor' })
 
 export type SidebarCustomizationEditorProps = {
   onSaved?: () => void
@@ -231,6 +236,9 @@ export function SidebarCustomizationEditor({
   const [addDialogError, setAddDialogError] = React.useState<string | null>(null)
   const baseSnapshotRef = React.useRef<SidebarGroup[] | null>(null)
   const hasInitializedRef = React.useRef(false)
+  // Tracks the user-scope sidebar-preference version so concurrent edits from another
+  // tab are caught by the server's optimistic-lock guard (409 → conflict bar).
+  const preferencesUpdatedAtRef = React.useRef<string | null>(null)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -285,11 +293,12 @@ export function SidebarCustomizationEditor({
   }, [variantsApiPath])
 
   const loadRolesPayload = React.useCallback(async (): Promise<{ canApplyToRoles: boolean; roles: RoleTarget[] }> => {
-    const call = await apiCall<{ canApplyToRoles?: boolean; roles?: Array<{ id?: string; name?: string; hasPreference?: boolean }> }>(preferencesApiPath)
+    const call = await apiCall<{ canApplyToRoles?: boolean; roles?: Array<{ id?: string; name?: string; hasPreference?: boolean }>; updatedAt?: string | null }>(preferencesApiPath)
     if (!call.ok) {
       return { canApplyToRoles: false, roles: [] }
     }
     const data = call.result ?? null
+    preferencesUpdatedAtRef.current = typeof data?.updatedAt === 'string' ? data.updatedAt : null
     const can = data?.canApplyToRoles === true
     const roles = Array.isArray(data?.roles)
       ? (data!.roles as Array<{ id?: string; name?: string; hasPreference?: boolean }>)
@@ -352,7 +361,7 @@ export function SidebarCustomizationEditor({
         selectVariantInternal(initial, list)
         setSelectedRoleIds([])
       } catch (err) {
-        console.error('Failed to load sidebar variants', err)
+        logger.error('Failed to load sidebar variants', { err })
         setError(t('appShell.sidebarCustomizationLoadError'))
       } finally {
         setLoading(false)
@@ -431,7 +440,7 @@ export function SidebarCustomizationEditor({
       flash(t('appShell.sidebarCustomizationVariantCreated', 'Variant created.'), 'success')
       return { ok: true }
     } catch (err) {
-      console.error('Failed to create sidebar variant', err)
+      logger.error('Failed to create sidebar variant', { err })
       const message = t('appShell.sidebarCustomizationSaveError')
       if (!options.suppressPageError) setError(message)
       return { ok: false, error: message }
@@ -695,19 +704,37 @@ export function SidebarCustomizationEditor({
       }
       const preferencesCall = await runMutation({
         operation: () =>
-          apiCall(preferencesApiPath, {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(preferencesPayload),
-          }),
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(preferencesUpdatedAtRef.current),
+            () =>
+              apiCall<{ updatedAt?: string | null }>(preferencesApiPath, {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(preferencesPayload),
+              }),
+          ),
         context: buildMutationContext('savePreferences', selectedVariantId),
         mutationPayload: preferencesPayload,
       })
+      if (preferencesCall.ok) {
+        preferencesUpdatedAtRef.current =
+          typeof preferencesCall.result?.updatedAt === 'string' ? preferencesCall.result.updatedAt : null
+      }
       if (!preferencesCall.ok) {
-        // The variant entity is the canonical layout; the preferences sync is what the
-        // AppShell sidebar actually reads. A failed sync would leave the saved variant
-        // not reflected live, so surface it as a save error rather than flashing success.
-        setError(formatVariantApiError(preferencesCall, t))
+        // A stale save (another tab changed the sidebar customization first) returns a
+        // 409 with `code: 'optimistic_lock_conflict'`. apiCall does not throw, so surface
+        // the conflict explicitly on the shared, persistent conflict bar instead of a
+        // generic save error.
+        const surfaced = surfaceRecordConflict(
+          { status: preferencesCall.status, body: preferencesCall.result },
+          t,
+        )
+        if (!surfaced) {
+          // The variant entity is the canonical layout; the preferences sync is what the
+          // AppShell sidebar actually reads. A failed sync would leave the saved variant
+          // not reflected live, so surface it as a save error rather than flashing success.
+          setError(formatVariantApiError(preferencesCall, t))
+        }
         return
       }
       try { window.dispatchEvent(new Event(REFRESH_SIDEBAR_EVENT)) } catch { /* no listener attached — fine, AppShell will refresh on next navigation */ }
@@ -739,7 +766,7 @@ export function SidebarCustomizationEditor({
       )
       onSaved?.()
     } catch (err) {
-      console.error('Failed to save sidebar variant', err)
+      logger.error('Failed to save sidebar variant', { err })
       setError(t('appShell.sidebarCustomizationSaveError'))
     } finally {
       setSaving(false)
@@ -770,7 +797,7 @@ export function SidebarCustomizationEditor({
       const fresh = list.find((v) => v.id === selectedVariant.id) ?? selectedVariant
       selectVariantInternal(fresh, list)
     } catch (err) {
-      console.error('Failed to toggle variant active state', err)
+      logger.error('Failed to toggle variant active state', { err })
       setError(t('appShell.sidebarCustomizationSaveError'))
     }
   }, [selectedVariant, saving, deleting, variantsApiPath, t, loadVariantsList, selectVariantInternal, runMutation, buildMutationContext])
@@ -807,7 +834,7 @@ export function SidebarCustomizationEditor({
       const fallback = list[0] ?? null
       selectVariantInternal(fallback, list)
     } catch (err) {
-      console.error('Failed to delete variant', err)
+      logger.error('Failed to delete variant', { err })
       setError(t('appShell.sidebarCustomizationSaveError'))
     } finally {
       setDeleting(false)

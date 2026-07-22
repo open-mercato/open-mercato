@@ -1,12 +1,17 @@
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getOverrides } from '../../lib/queries'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
+import { FeatureToggleOverride } from '../../data/entities'
 import { buildContext } from '../../lib/utils'
 import { resolveFeatureCheckContext } from "@open-mercato/core/modules/directory/utils/organizationScope"
 import { ProcessedChangeOverrideStateInput } from '../../data/validators'
@@ -19,20 +24,22 @@ import {
   changeOverrideStateResponseSchema,
 } from '../openapi'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('feature_toggles').child({ component: 'overrides' })
 
 export async function GET(req: Request) {
-  const { auth } = await buildContext(req)
+  const { auth, ctx, scope } = await buildContext(req)
 
   const url = new URL(req.url)
   const parsed = overrideListQuerySchema.safeParse(Object.fromEntries(url.searchParams.entries()))
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid query parameters' }, { status: 400 })
   }
-  const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
+  const em = ctx.container.resolve('em') as EntityManager
 
   const tenant = await em.findOne(Tenant, {
-    id: auth?.tenantId,
+    id: scope.tenantId,
   })
 
   if (!tenant) {
@@ -44,13 +51,13 @@ export async function GET(req: Request) {
   const result = await getOverrides(em, tenant, parsed.data)
 
   await logCrudAccess({
-    container,
+    container: ctx.container,
     auth,
     request: req,
     items: [...result.raw.toggles, ...result.raw.overrides],
     idField: 'id',
     resourceKind: 'feature_toggles.override_list',
-    tenantId: auth.tenantId ?? null,
+    tenantId: scope.tenantId ?? null,
     query: parsed.data,
     accessType: 'read:list',
     fields: ['id', 'toggleId', 'tenantId', 'identifier', 'name', 'category']
@@ -75,7 +82,7 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
     }
 
-    const { scope } = await resolveFeatureCheckContext({
+    const { scope, organizationId } = await resolveFeatureCheckContext({
       container: ctx.container,
       auth: ctx.auth,
       request: req
@@ -85,6 +92,48 @@ export async function PUT(req: Request) {
       return NextResponse.json({
         error: 'Tenant context required. Please select a tenant.'
       }, { status: 400 })
+    }
+
+    // Optimistic lock: refuse a stale override overwrite when two admins edit the
+    // same global toggle override in parallel. Only enforced when an override row
+    // already exists (first set has no prior version). Strictly additive.
+    const em = ctx.container.resolve('em') as EntityManager
+    const existingOverride = await em.findOne(FeatureToggleOverride, {
+      tenantId: scope.tenantId,
+      toggle: { id: parsed.data.toggleId },
+    })
+    if (existingOverride) {
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: 'feature_toggles.feature_toggle_override',
+        resourceId: existingOverride.id,
+        current: existingOverride.updatedAt ?? null,
+        request: req,
+      })
+    }
+
+    // Run the CRUD mutation guard lifecycle so this custom write route honors
+    // module-level guard injections (and after-success hooks) like every other
+    // mutating endpoint. The override either updates an existing row or creates a
+    // new one, so the resource id falls back to the toggle id when no row exists.
+    const guardUserId = ctx.auth?.userId ?? ctx.auth?.sub ?? null
+    if (!guardUserId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const guardResourceKind = 'feature_toggles.feature_toggle_override'
+    const guardResourceId = existingOverride?.id ?? parsed.data.toggleId
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId: scope.tenantId,
+      organizationId: organizationId ?? null,
+      userId: guardUserId,
+      resourceKind: guardResourceKind,
+      resourceId: guardResourceId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: parsed.data,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
@@ -97,6 +146,20 @@ export async function PUT(req: Request) {
       },
       ctx,
     })
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId: scope.tenantId,
+        organizationId: organizationId ?? null,
+        userId: guardUserId,
+        resourceKind: guardResourceKind,
+        resourceId: result?.overrideToggleId ?? guardResourceId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     const response = NextResponse.json({
       ok: true,
@@ -128,7 +191,7 @@ export async function PUT(req: Request) {
     if (message === 'INVALID_STATE' || message === 'INVALID_TOGGLE_ID' || message === 'INVALID_TENANT_ID') {
       return NextResponse.json({ error: message }, { status: 400 })
     }
-    console.error('feature_toggles.overrides.changeState failed', error)
+    logger.error('Override state change failed', { err: error })
     return NextResponse.json({ error: 'Failed to update override' }, { status: 500 })
   }
 }
