@@ -62,8 +62,15 @@ const crud = makeCrudRoute({
     buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       const actorUserId = resolveDeviceActorUserId(ctx.auth)
+      // Self-serve visibility is strictly the acting user's own devices. Emit the scope as an `$and`
+      // branch, NOT a top-level `user_id` key: the CRUD factory merges client-supplied advanced
+      // filters (`filter[...]`, which survive the `.passthrough()` list schema) OVER this output via
+      // object spread (advanced-filter-integration.ts: `{ ...existing, ...advancedWhere }`), so a bare
+      // `user_id` key would be clobbered by a crafted `filter[conditions][0][field]=user_id` param and
+      // widen the scope to another user. `$and` stays AND-combined with (and un-clobberable by) any
+      // merged advanced filter, so cross-user requests fail closed to an empty result.
       // Fail closed when there is no resolvable acting user (e.g. API keys).
-      filters.user_id = { $eq: actorUserId ?? NO_MATCH_USER_ID }
+      filters.$and = [{ user_id: { $eq: actorUserId ?? NO_MATCH_USER_ID } }]
       if (query.platform) filters.platform = { $eq: query.platform }
       return filters
     },

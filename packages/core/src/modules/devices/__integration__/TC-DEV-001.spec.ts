@@ -266,6 +266,36 @@ test.describe('TC-DEV-001: Devices module registry APIs', () => {
     }
   })
 
+  test('self list ignores advanced-filter user_id passthrough (scope is override-proof)', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const employeeToken = await getAuthToken(request, 'employee')
+    const employeeScope = getTokenScope(employeeToken)
+    const adminDeviceId = uniqueDeviceId()
+    const employeeDeviceId = uniqueDeviceId()
+    let adminDevId: string | null = null
+    let employeeDevId: string | null = null
+    try {
+      adminDevId = (await registerDevice(request, adminToken, { deviceId: adminDeviceId, platform: 'ios' })).json?.id ?? null
+      employeeDevId = (await registerDevice(request, employeeToken, { deviceId: employeeDeviceId, platform: 'ios' })).json?.id ?? null
+
+      // The self list schema is `.passthrough()`, so advanced-filter params (`filter[...]`) survive zod
+      // and the CRUD factory merges them OVER buildFilters via object spread. A crafted single-condition
+      // filter on `user_id` must NOT override the server-enforced actor scope and leak another user's
+      // devices — the scope is emitted as an un-clobberable `$and` branch, so this fails closed.
+      await waitForDevices(request, adminToken, (its) => its.some((d) => d.id === adminDevId))
+      const filterQuery =
+        '?filter[conditions][0][field]=user_id' +
+        '&filter[conditions][0][op]=is' +
+        `&filter[conditions][0][value]=${encodeURIComponent(employeeScope.userId)}`
+      const selfView = await listDevices(request, adminToken, filterQuery)
+      expect(selfView.items.every((d) => d.user_id !== employeeScope.userId)).toBe(true)
+      expect(selfView.items.find((d) => d.id === employeeDevId)).toBeFalsy()
+    } finally {
+      await deleteDeviceIfExists(request, adminToken, adminDevId)
+      await deleteDeviceIfExists(request, employeeToken, employeeDevId)
+    }
+  })
+
   test('PUT updates metadata and clears a revoked push token', async ({ request }) => {
     const token = await getAuthToken(request, 'employee')
     const deviceId = uniqueDeviceId()
