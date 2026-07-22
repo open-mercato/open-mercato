@@ -46,14 +46,16 @@ The attempted cherry-pick exposed a lockfile conflict because `develop` already 
 
 ## Progress
 
+PR: #4351
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Port the dependency update
 
-- [ ] 1.1 Apply PR #4347's dependency commit onto `develop`
-- [ ] 1.2 Verify the port contains only intended lockfile changes
+- [x] 1.1 Apply PR #4347's dependency commit onto `develop` — no-op: superseded by `3140fbb3d`; documented in `b716acb68`
+- [x] 1.2 Verify the port contains only intended lockfile changes — `b716acb68`
 
 ### Phase 2: Validate and publish
 
-- [ ] 2.1 Run targeted checks and the configured validation gate
+- [x] 2.1 Run targeted checks and the configured validation gate — docs/no-change path; immutable install and lock assertions passed
 - [ ] 2.2 Review, finalize the replacement PR, and close PR #4347
