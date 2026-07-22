@@ -4,19 +4,22 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { CollapsibleSection } from '@open-mercato/ui/backend/SectionHeader'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { AttachmentInput } from '@open-mercato/core/modules/attachments/fields/attachment'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   CompanySelectField,
+  CountrySelectField,
   MappingSelectField,
+  PlotMultiSelectField,
   StatementSelectField,
   commodityOptions,
-  formatAttachmentIds,
-  parseAttachmentIdsInput,
   parseGeolocationInput,
   submissionStatusOptions,
   type CompanySnapshot,
@@ -30,6 +33,7 @@ type EvidenceSubmissionRecord = {
   commodity: EudrCommodity
   productMappingId: string | null
   statementId: string | null
+  plotIds?: string[]
   originCountry: string | null
   geolocation: Record<string, unknown> | null
   quantityKg: number | string | null
@@ -41,6 +45,7 @@ type EvidenceSubmissionRecord = {
   status: EudrSubmissionStatus
   completenessScore: number
   missingFields: string[]
+  warnings?: string[]
   notes: string | null
   createdAt: string
   updatedAt: string
@@ -57,6 +62,7 @@ type EvidenceSubmissionFormValues = {
   commodity: string
   productMappingId: string
   statementId: string
+  plotIds: string[]
   originCountry: string
   geolocation: string
   quantityKg: string
@@ -64,7 +70,6 @@ type EvidenceSubmissionFormValues = {
   harvestFrom: string
   harvestTo: string
   producerName: string
-  attachmentIds: string
   status: string
   notes: string
   updatedAt: string
@@ -96,6 +101,11 @@ function isCompanySnapshot(value: unknown): value is CompanySnapshot {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+}
+
 function getRouteId(params?: { id?: string }): string | null {
   const rawId = params?.id
   return typeof rawId === 'string' && rawId.trim().length ? rawId : null
@@ -113,6 +123,36 @@ function formatGeolocation(value: Record<string, unknown> | null): string {
 function formatDateInput(value: string | null): string {
   if (!value) return ''
   return value.slice(0, 10)
+}
+
+function EvidenceAdvancedFields({
+  values,
+  setValue,
+  translate,
+}: {
+  values: Record<string, unknown>
+  setValue: (id: string, value: unknown) => void
+  translate: ReturnType<typeof useT>
+}) {
+  return (
+    <CollapsibleSection
+      title={translate('eudr.evidenceSubmissions.form.legacyGeolocation')}
+      defaultCollapsed
+      contentClassName="space-y-4"
+    >
+      <div className="space-y-2" data-crud-field-id="geolocation">
+        <label className="text-sm font-medium" htmlFor="eudr-evidence-geolocation">
+          {translate('eudr.evidenceSubmissions.form.geolocation')}
+        </label>
+        <Textarea
+          id="eudr-evidence-geolocation"
+          rows={8}
+          value={typeof values.geolocation === 'string' ? values.geolocation : ''}
+          onChange={(event) => setValue('geolocation', event.target.value)}
+        />
+      </div>
+    </CollapsibleSection>
+  )
 }
 
 export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { id?: string } }) {
@@ -220,17 +260,32 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
       ),
     },
     {
-      id: 'originCountry',
-      label: translate('eudr.evidenceSubmissions.form.originCountry'),
-      type: 'text',
-      maxLength: 2,
-      description: translate('eudr.form.originCountryHint'),
+      id: 'plotIds',
+      label: translate('eudr.evidenceSubmissions.form.plots'),
+      type: 'custom',
+      component: ({ id, value, setValue, values }) => (
+        <PlotMultiSelectField
+          id={id}
+          value={stringArray(value)}
+          onChange={(nextValue) => setValue(nextValue)}
+          supplierEntityId={typeof values?.supplierEntityId === 'string' ? values.supplierEntityId : null}
+        />
+      ),
     },
     {
-      id: 'geolocation',
-      label: translate('eudr.evidenceSubmissions.form.geolocation'),
-      type: 'textarea',
-      rows: 8,
+      id: 'originCountry',
+      label: translate('eudr.evidenceSubmissions.form.originCountry'),
+      type: 'custom',
+      description: translate('eudr.form.originCountryHint'),
+      component: ({ id, value, setValue, disabled }) => (
+        <CountrySelectField
+          id={id}
+          value={typeof value === 'string' ? value : null}
+          onChange={(nextValue) => setValue(nextValue ?? '')}
+          disabled={disabled}
+          placeholder={translate('eudr.plots.form.originCountryPlaceholder')}
+        />
+      ),
     },
     {
       id: 'quantityKg',
@@ -258,13 +313,6 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
       type: 'text',
     },
     {
-      id: 'attachmentIds',
-      label: translate('eudr.evidenceSubmissions.form.attachmentIds'),
-      type: 'textarea',
-      rows: 5,
-      description: translate('eudr.form.attachmentIdsHint'),
-    },
-    {
       id: 'status',
       label: translate('eudr.evidenceSubmissions.form.status'),
       type: 'select',
@@ -282,13 +330,21 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
       id: 'details',
       title: translate('eudr.evidenceSubmissions.form.details'),
       column: 1,
-      fields: ['supplierEntityId', 'commodity', 'status', 'productMappingId', 'statementId'],
+      fields: ['supplierEntityId', 'commodity', 'status', 'productMappingId', 'statementId', 'plotIds'],
     },
     {
       id: 'evidence',
       title: translate('eudr.evidenceSubmissions.form.evidence'),
       column: 1,
-      fields: ['originCountry', 'geolocation', 'quantityKg', 'batchNumber', 'harvestFrom', 'harvestTo', 'producerName', 'attachmentIds'],
+      fields: ['originCountry', 'quantityKg', 'batchNumber', 'harvestFrom', 'harvestTo', 'producerName'],
+    },
+    {
+      id: 'advanced',
+      column: 1,
+      bare: true,
+      component: ({ values, setValue }) => (
+        <EvidenceAdvancedFields values={values} setValue={setValue} translate={translate} />
+      ),
     },
     {
       id: 'notes',
@@ -307,6 +363,7 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
       commodity: record.commodity,
       productMappingId: record.productMappingId ?? '',
       statementId: record.statementId ?? '',
+      plotIds: Array.isArray(record.plotIds) ? record.plotIds : [],
       originCountry: record.originCountry ?? '',
       geolocation: formatGeolocation(record.geolocation),
       quantityKg: record.quantityKg === null || record.quantityKg === undefined ? '' : String(record.quantityKg),
@@ -314,7 +371,6 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
       harvestFrom: formatDateInput(record.harvestFrom),
       harvestTo: formatDateInput(record.harvestTo),
       producerName: record.producerName ?? '',
-      attachmentIds: formatAttachmentIds(record.attachmentIds),
       status: record.status,
       notes: record.notes ?? '',
       updatedAt: record.updatedAt,
@@ -358,6 +414,14 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
   return (
     <Page>
       <PageBody>
+        {Array.isArray(record.warnings) && record.warnings.includes('harvest_before_cutoff') ? (
+          <div
+            role="status"
+            className="rounded-md border border-status-warning-border bg-status-warning-bg px-3 py-2 text-sm text-status-warning-text"
+          >
+            {translate('eudr.warnings.harvestBeforeCutoff')}
+          </div>
+        ) : null}
         <CrudForm<EvidenceSubmissionFormValues>
           title={translate('eudr.evidenceSubmissions.edit.title')}
           backHref="/backend/eudr/evidence-submissions"
@@ -378,7 +442,7 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
               const message = translate('eudr.evidenceSubmissions.form.commodityRequired')
               throw createCrudFormError(message, { commodity: message })
             }
-            await updateCrud('eudr/evidence-submissions', {
+            const payload: Record<string, unknown> = {
               id: record.id,
               supplierEntityId,
               supplierSnapshot: isCompanySnapshot(values.supplierSnapshot) ? values.supplierSnapshot : null,
@@ -392,10 +456,14 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
               harvestFrom: optionalText(values.harvestFrom),
               harvestTo: optionalText(values.harvestTo),
               producerName: optionalText(values.producerName),
-              attachmentIds: parseAttachmentIdsInput(typeof values.attachmentIds === 'string' ? values.attachmentIds : ''),
               status: optionalText(values.status) ?? 'draft',
               notes: optionalText(values.notes),
-            }, {
+            }
+            const nextPlotIds = stringArray(values.plotIds)
+            if (nextPlotIds.length > 0 || Object.prototype.hasOwnProperty.call(record, 'plotIds')) {
+              payload.plotIds = nextPlotIds
+            }
+            await updateCrud('eudr/evidence-submissions', payload, {
               errorMessage: translate('eudr.evidenceSubmissions.form.updateError'),
             })
             flash(translate('eudr.evidenceSubmissions.form.updateSuccess'), 'success')
@@ -407,6 +475,10 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
             })
           }}
         />
+        <div className="rounded-lg border bg-card px-4 py-3 space-y-3">
+          <h3 className="text-sm font-semibold">{translate('eudr.evidenceSubmissions.form.documents')}</h3>
+          <AttachmentInput entityId="eudr:eudr_evidence_submission" recordId={record.id} />
+        </div>
       </PageBody>
     </Page>
   )

@@ -5,19 +5,20 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@open-mercato/ui/primitives/select'
+import { LookupSelect } from '@open-mercato/ui/backend/inputs'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import type { StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
+import { Plus, Trash2 } from 'lucide-react'
 import {
+  EUDR_ACTIVITY_TYPES,
+  EUDR_ACTOR_ROLES,
   EUDR_COMMODITIES,
   EUDR_STATEMENT_STATUSES,
   EUDR_SUBMISSION_STATUSES,
   GEOJSON_TYPES,
+  type EudrActivityType,
+  type EudrActorRole,
   type EudrCommodity,
   type EudrStatementStatus,
   type EudrSubmissionStatus,
@@ -38,17 +39,28 @@ export type CompanySnapshot = {
   displayName?: string
 }
 
-type PickerOption<Snapshot extends Record<string, unknown>> = {
+export type OrderSnapshot = {
+  orderNumber?: string | null
+}
+
+export type ReferencedStatementValue = {
+  referenceNumber: string
+  verificationNumber?: string
+}
+
+export type PickerOption<Snapshot extends Record<string, unknown>> = {
   value: string
   label: string
+  subtitle?: string | null
   snapshot?: Snapshot | null
+  unavailable?: boolean
 }
 
 type PickerPayload = {
   items?: unknown[]
 }
 
-type AsyncSelectFieldProps<Snapshot extends Record<string, unknown>> = {
+type LookupSelectFieldProps<Snapshot extends Record<string, unknown>> = {
   id: string
   value?: string | null
   onChange: (value: string | undefined) => void
@@ -56,12 +68,13 @@ type AsyncSelectFieldProps<Snapshot extends Record<string, unknown>> = {
   placeholder: string
   emptyLabel?: string
   loadError: string
-  loadOptions: () => Promise<PickerOption<Snapshot>[]>
+  disabled?: boolean
+  loadOptions: (search: string) => Promise<PickerOption<Snapshot>[]>
   loadSelectedOption?: (id: string) => Promise<PickerOption<Snapshot> | null>
 }
 
-const EMPTY_OPTION_VALUE = '__eudr_empty__'
 const GEOJSON_SIZE_LIMIT = 1_048_576
+export const PICKER_PAGE_SIZE = 20
 
 export function commodityOptions(translate: Translator): Array<{ value: EudrCommodity; label: string }> {
   return EUDR_COMMODITIES.map((commodity) => ({
@@ -81,6 +94,20 @@ export function statementStatusOptions(translate: Translator): Array<{ value: Eu
   return EUDR_STATEMENT_STATUSES.map((status) => ({
     value: status,
     label: translate(`eudr.statementStatus.${status}`),
+  }))
+}
+
+export function activityTypeOptions(translate: Translator): Array<{ value: EudrActivityType; label: string }> {
+  return EUDR_ACTIVITY_TYPES.map((activityType) => ({
+    value: activityType,
+    label: translate(`eudr.activityType.${activityType}`),
+  }))
+}
+
+export function actorRoleOptions(translate: Translator): Array<{ value: EudrActorRole; label: string }> {
+  return EUDR_ACTOR_ROLES.map((actorRole) => ({
+    value: actorRole,
+    label: translate(`eudr.actorRole.${actorRole}`),
   }))
 }
 
@@ -108,29 +135,18 @@ function readString(record: Record<string, unknown>, keys: string[]): string | n
   return null
 }
 
-function mergeOptions<Snapshot extends Record<string, unknown>>(
-  options: Array<PickerOption<Snapshot>>,
-  selected: PickerOption<Snapshot> | null,
-): Array<PickerOption<Snapshot>> {
-  if (!selected) return options
-  if (options.some((option) => option.value === selected.value)) return options
-  return [selected, ...options]
-}
-
 function normalizeProductOption(raw: unknown): PickerOption<ProductSnapshot> | null {
   if (!isRecord(raw)) return null
   const id = readString(raw, ['id'])
   if (!id) return null
   const title = readString(raw, ['title'])
   const sku = readString(raw, ['sku'])
-  const label = title && sku ? `${title} (${sku})` : title ?? sku ?? id
-  const snapshot = title || sku
-    ? {
-        ...(title ? { name: title } : {}),
-        ...(sku ? { sku } : {}),
-      }
-    : null
-  return { value: id, label, snapshot }
+  if (!title && !sku) return null
+  const snapshot = {
+    ...(title ? { name: title } : {}),
+    ...(sku ? { sku } : {}),
+  }
+  return { value: id, label: title ?? sku ?? '', subtitle: title ? sku : null, snapshot }
 }
 
 function normalizeCompanyOption(raw: unknown): PickerOption<CompanySnapshot> | null {
@@ -153,16 +169,15 @@ function normalizeMappingOption(raw: unknown, translate: Translator): PickerOpti
   const productSnapshot = isRecord(raw.productSnapshot) ? raw.productSnapshot : null
   const productName = productSnapshot ? readString(productSnapshot, ['name']) : null
   const productSku = productSnapshot ? readString(productSnapshot, ['sku']) : null
-  const productId = readString(raw, ['productId'])
   const commodity = readString(raw, ['commodity'])
   const hsCode = readString(raw, ['hsCode'])
-  const productLabel = productName && productSku ? `${productName} (${productSku})` : productName ?? productSku ?? productId
-  const segments = [
-    productLabel,
+  const label = productName ?? productSku ?? translate('eudr.common.recordUnavailable')
+  const subtitleSegments = [
+    productName ? productSku : null,
     commodity ? translate(`eudr.commodity.${commodity}`) : null,
     hsCode,
-  ].filter((value): value is string => typeof value === 'string' && value.length > 0)
-  return { value: id, label: segments.length ? segments.join(' - ') : id }
+  ].filter((segment): segment is string => typeof segment === 'string' && segment.length > 0)
+  return { value: id, label, subtitle: subtitleSegments.length ? subtitleSegments.join(' - ') : null }
 }
 
 function normalizeStatementOption(raw: unknown, translate: Translator): PickerOption<Record<string, unknown>> | null {
@@ -171,113 +186,128 @@ function normalizeStatementOption(raw: unknown, translate: Translator): PickerOp
   if (!id) return null
   const title = readString(raw, ['title'])
   const referenceNumber = readString(raw, ['referenceNumber'])
-  const commodity = readString(raw, ['commodity'])
-  const segments = [
-    title ?? referenceNumber,
-    commodity ? translate(`eudr.commodity.${commodity}`) : null,
-  ].filter((value): value is string => typeof value === 'string' && value.length > 0)
-  return { value: id, label: segments.length ? segments.join(' - ') : id }
+  const label = title ?? referenceNumber ?? translate('eudr.common.recordUnavailable')
+  return { value: id, label, subtitle: title ? referenceNumber : null }
 }
 
-function sortOptions<Snapshot extends Record<string, unknown>>(
-  options: Array<PickerOption<Snapshot>>,
-): Array<PickerOption<Snapshot>> {
-  return [...options].sort((left, right) =>
-    left.label.localeCompare(right.label, undefined, { sensitivity: 'base' }),
-  )
-}
-
-function AsyncSelectField<Snapshot extends Record<string, unknown>>({
+export function LookupSelectField<Snapshot extends Record<string, unknown>>({
   id,
   value,
   onChange,
   onSnapshot,
   placeholder,
-  emptyLabel,
   loadError,
+  disabled,
   loadOptions,
   loadSelectedOption,
-}: AsyncSelectFieldProps<Snapshot>) {
-  const [options, setOptions] = React.useState<Array<PickerOption<Snapshot>>>([])
-  const [loading, setLoading] = React.useState(true)
-  const selectedValue = typeof value === 'string' && value.length > 0 ? value : undefined
-  const selectedOption = selectedValue ? options.find((option) => option.value === selectedValue) : null
-  const selectValue = selectedValue ?? (emptyLabel ? EMPTY_OPTION_VALUE : undefined)
+}: LookupSelectFieldProps<Snapshot>) {
+  const translate = useT()
+  const selectedValue = typeof value === 'string' && value.length > 0 ? value : null
+  const [selectedOption, setSelectedOption] = React.useState<PickerOption<Snapshot> | null>(null)
+  const knownOptionsRef = React.useRef<Map<string, PickerOption<Snapshot>>>(new Map())
 
   React.useEffect(() => {
+    if (!selectedValue) {
+      setSelectedOption(null)
+      return
+    }
+    if (selectedOption?.value === selectedValue) return
+    const known = knownOptionsRef.current.get(selectedValue)
+    if (known) {
+      setSelectedOption(known)
+      return
+    }
     let cancelled = false
-    async function load() {
-      setLoading(true)
-      try {
-        const loadedOptions = await loadOptions()
-        const selected = selectedValue && !loadedOptions.some((option) => option.value === selectedValue) && loadSelectedOption
-          ? await loadSelectedOption(selectedValue).catch(() => null)
-          : null
-        if (!cancelled) setOptions(mergeOptions(sortOptions(loadedOptions), selected))
-      } catch (error) {
-        if (!cancelled) {
-          const message = error instanceof Error && error.message ? error.message : loadError
-          flash(message, 'error')
-          setOptions([])
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
+    const markUnavailable = () => {
+      if (!cancelled) {
+        setSelectedOption({
+          value: selectedValue,
+          label: translate('eudr.common.recordUnavailable'),
+          unavailable: true,
+        })
       }
     }
-    load()
-    return () => {
-      cancelled = true
+    if (!loadSelectedOption) {
+      markUnavailable()
+      return
     }
-  }, [loadError, loadOptions, loadSelectedOption, selectedValue])
-
-  React.useEffect(() => {
-    if (!selectedValue || !loadSelectedOption) return
-    if (options.some((option) => option.value === selectedValue)) return
-    let cancelled = false
     loadSelectedOption(selectedValue)
-      .then((selected) => {
-        if (!cancelled) setOptions((current) => mergeOptions(current, selected))
+      .then((resolved) => {
+        if (cancelled) return
+        if (resolved) {
+          knownOptionsRef.current.set(resolved.value, resolved)
+          setSelectedOption(resolved)
+        } else {
+          markUnavailable()
+        }
       })
-      .catch(() => {})
+      .catch(markUnavailable)
     return () => {
       cancelled = true
     }
-  }, [loadSelectedOption, options, selectedValue])
+  }, [loadSelectedOption, selectedOption, selectedValue, translate])
 
   React.useEffect(() => {
-    if (!onSnapshot || !selectedOption) return
+    if (!onSnapshot || !selectedOption || selectedOption.unavailable) return
     onSnapshot(selectedOption.snapshot ?? null)
   }, [onSnapshot, selectedOption])
 
+  const selectedOptionRef = React.useRef(selectedOption)
+  React.useEffect(() => {
+    selectedOptionRef.current = selectedOption
+  }, [selectedOption])
+
+  const fetchItems = React.useCallback(async (query: string) => {
+    let options: Array<PickerOption<Snapshot>> = []
+    try {
+      options = await loadOptions(query)
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : loadError
+      flash(message, 'error')
+      options = []
+    }
+    for (const option of options) knownOptionsRef.current.set(option.value, option)
+    const selected = selectedOptionRef.current
+    const merged = selected && !options.some((option) => option.value === selected.value)
+      ? [selected, ...options]
+      : options
+    return merged.map((option) => ({
+      id: option.value,
+      title: option.label,
+      subtitle: option.subtitle ?? undefined,
+    }))
+  }, [loadError, loadOptions])
+
   return (
-    <Select
-      value={selectValue}
-      onValueChange={(nextValue) => {
-        if (nextValue === EMPTY_OPTION_VALUE) {
-          onChange(undefined)
-          onSnapshot?.(null)
-          return
-        }
-        onChange(nextValue)
-        const nextOption = options.find((option) => option.value === nextValue)
-        onSnapshot?.(nextOption?.snapshot ?? null)
-      }}
-      disabled={loading}
-    >
-      <SelectTrigger id={id}>
-        <SelectValue placeholder={placeholder}>{selectedOption?.label}</SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        {emptyLabel ? (
-          <SelectItem value={EMPTY_OPTION_VALUE}>{emptyLabel}</SelectItem>
-        ) : null}
-        {options.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            {option.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div id={id} className="space-y-2">
+      {selectedValue ? (
+        <p className="text-sm text-foreground">
+          <span className="font-medium">{selectedOption?.label ?? ''}</span>
+          {selectedOption?.subtitle ? (
+            <span className="text-muted-foreground"> — {selectedOption.subtitle}</span>
+          ) : null}
+        </p>
+      ) : null}
+      <LookupSelect
+        value={selectedValue}
+        minQuery={0}
+        disabled={disabled}
+        searchPlaceholder={placeholder}
+        fetchItems={fetchItems}
+        onChange={(nextValue) => {
+          if (!nextValue) {
+            onChange(undefined)
+            onSnapshot?.(null)
+            setSelectedOption(null)
+            return
+          }
+          onChange(nextValue)
+          const nextOption = knownOptionsRef.current.get(nextValue) ?? null
+          setSelectedOption(nextOption)
+          onSnapshot?.(nextOption?.snapshot ?? null)
+        }}
+      />
+    </div>
   )
 }
 
@@ -288,10 +318,12 @@ export function ProductSelectField({
   onSnapshot,
   placeholder,
   loadError,
-}: Omit<AsyncSelectFieldProps<ProductSnapshot>, 'loadOptions' | 'loadSelectedOption' | 'emptyLabel'>) {
-  const loadProductOptions = React.useCallback(async () => {
+}: Omit<LookupSelectFieldProps<ProductSnapshot>, 'loadOptions' | 'loadSelectedOption' | 'emptyLabel'>) {
+  const loadProductOptions = React.useCallback(async (search: string) => {
+    const params = new URLSearchParams({ page: '1', pageSize: String(PICKER_PAGE_SIZE) })
+    if (search) params.set('search', search)
     const payload = await readApiResultOrThrow<PickerPayload>(
-      '/api/catalog/products?pageSize=100',
+      `/api/catalog/products?${params.toString()}`,
       undefined,
       { errorMessage: loadError },
     )
@@ -314,7 +346,7 @@ export function ProductSelectField({
   }, [loadError])
 
   return (
-    <AsyncSelectField
+    <LookupSelectField
       id={id}
       value={value}
       onChange={onChange}
@@ -334,10 +366,17 @@ export function CompanySelectField({
   onSnapshot,
   placeholder,
   loadError,
-}: Omit<AsyncSelectFieldProps<CompanySnapshot>, 'loadOptions' | 'loadSelectedOption' | 'emptyLabel'>) {
-  const loadCompanyOptions = React.useCallback(async () => {
+}: Omit<LookupSelectFieldProps<CompanySnapshot>, 'loadOptions' | 'loadSelectedOption' | 'emptyLabel'>) {
+  const loadCompanyOptions = React.useCallback(async (search: string) => {
+    const params = new URLSearchParams({
+      page: '1',
+      pageSize: String(PICKER_PAGE_SIZE),
+      sortField: 'name',
+      sortDir: 'asc',
+    })
+    if (search) params.set('search', search)
     const payload = await readApiResultOrThrow<PickerPayload>(
-      '/api/customers/companies?pageSize=100&sortField=name&sortDir=asc',
+      `/api/customers/companies?${params.toString()}`,
       undefined,
       { errorMessage: loadError },
     )
@@ -360,7 +399,7 @@ export function CompanySelectField({
   }, [loadError])
 
   return (
-    <AsyncSelectField
+    <LookupSelectField
       id={id}
       value={value}
       onChange={onChange}
@@ -373,25 +412,73 @@ export function CompanySelectField({
   )
 }
 
+function collectProductIds(items: unknown[]): string[] {
+  const ids: string[] = []
+  for (const item of items) {
+    if (!isRecord(item)) continue
+    const id = readString(item, ['id'])
+    if (id) ids.push(id)
+  }
+  return ids
+}
+
 export function MappingSelectField({
   id,
   value,
   onChange,
   placeholder,
-  emptyLabel,
   loadError,
-}: Omit<AsyncSelectFieldProps<Record<string, unknown>>, 'loadOptions' | 'loadSelectedOption' | 'onSnapshot'>) {
+}: Omit<LookupSelectFieldProps<Record<string, unknown>>, 'loadOptions' | 'loadSelectedOption' | 'onSnapshot'>) {
   const translate = useT()
-  const loadMappingOptions = React.useCallback(async () => {
-    const payload = await readApiResultOrThrow<PickerPayload>(
-      '/api/eudr/product-mappings?pageSize=100',
-      undefined,
-      { errorMessage: loadError },
-    )
-    const items = Array.isArray(payload.items) ? payload.items : []
-    return items
-      .map((item) => normalizeMappingOption(item, translate))
-      .filter((option): option is PickerOption<Record<string, unknown>> => option !== null)
+  const loadMappingOptions = React.useCallback(async (search: string) => {
+    const mappingParams = new URLSearchParams({ page: '1', pageSize: String(PICKER_PAGE_SIZE) })
+    if (!search) {
+      const payload = await readApiResultOrThrow<PickerPayload>(
+        `/api/eudr/product-mappings?${mappingParams.toString()}`,
+        undefined,
+        { errorMessage: loadError },
+      )
+      const items = Array.isArray(payload.items) ? payload.items : []
+      return items
+        .map((item) => normalizeMappingOption(item, translate))
+        .filter((option): option is PickerOption<Record<string, unknown>> => option !== null)
+    }
+    const productParams = new URLSearchParams({ page: '1', pageSize: String(PICKER_PAGE_SIZE), search })
+    const directParams = new URLSearchParams({ page: '1', pageSize: String(PICKER_PAGE_SIZE), search })
+    const [productsPayload, directPayload] = await Promise.all([
+      readApiResultOrThrow<PickerPayload>(
+        `/api/catalog/products?${productParams.toString()}`,
+        undefined,
+        { errorMessage: loadError },
+      ),
+      readApiResultOrThrow<PickerPayload>(
+        `/api/eudr/product-mappings?${directParams.toString()}`,
+        undefined,
+        { errorMessage: loadError },
+      ),
+    ])
+    const productIds = collectProductIds(Array.isArray(productsPayload.items) ? productsPayload.items : [])
+    let byProductItems: unknown[] = []
+    if (productIds.length) {
+      const byProductParams = new URLSearchParams({
+        page: '1',
+        pageSize: String(PICKER_PAGE_SIZE),
+        productId: productIds.join(','),
+      })
+      const byProductPayload = await readApiResultOrThrow<PickerPayload>(
+        `/api/eudr/product-mappings?${byProductParams.toString()}`,
+        undefined,
+        { errorMessage: loadError },
+      )
+      byProductItems = Array.isArray(byProductPayload.items) ? byProductPayload.items : []
+    }
+    const directItems = Array.isArray(directPayload.items) ? directPayload.items : []
+    const merged = new Map<string, PickerOption<Record<string, unknown>>>()
+    for (const item of [...byProductItems, ...directItems]) {
+      const option = normalizeMappingOption(item, translate)
+      if (option && !merged.has(option.value)) merged.set(option.value, option)
+    }
+    return Array.from(merged.values())
   }, [loadError, translate])
 
   const loadSelectedMapping = React.useCallback(async (mappingId: string) => {
@@ -407,12 +494,11 @@ export function MappingSelectField({
   }, [loadError, translate])
 
   return (
-    <AsyncSelectField
+    <LookupSelectField
       id={id}
       value={value}
       onChange={onChange}
       placeholder={placeholder}
-      emptyLabel={emptyLabel}
       loadError={loadError}
       loadOptions={loadMappingOptions}
       loadSelectedOption={loadSelectedMapping}
@@ -425,13 +511,14 @@ export function StatementSelectField({
   value,
   onChange,
   placeholder,
-  emptyLabel,
   loadError,
-}: Omit<AsyncSelectFieldProps<Record<string, unknown>>, 'loadOptions' | 'loadSelectedOption' | 'onSnapshot'>) {
+}: Omit<LookupSelectFieldProps<Record<string, unknown>>, 'loadOptions' | 'loadSelectedOption' | 'onSnapshot'>) {
   const translate = useT()
-  const loadStatementOptions = React.useCallback(async () => {
+  const loadStatementOptions = React.useCallback(async (search: string) => {
+    const params = new URLSearchParams({ page: '1', pageSize: String(PICKER_PAGE_SIZE) })
+    if (search) params.set('search', search)
     const payload = await readApiResultOrThrow<PickerPayload>(
-      '/api/eudr/statements?pageSize=100',
+      `/api/eudr/statements?${params.toString()}`,
       undefined,
       { errorMessage: loadError },
     )
@@ -454,28 +541,16 @@ export function StatementSelectField({
   }, [loadError, translate])
 
   return (
-    <AsyncSelectField
+    <LookupSelectField
       id={id}
       value={value}
       onChange={onChange}
       placeholder={placeholder}
-      emptyLabel={emptyLabel}
       loadError={loadError}
       loadOptions={loadStatementOptions}
       loadSelectedOption={loadSelectedStatement}
     />
   )
-}
-
-export function parseAttachmentIdsInput(raw: string): string[] {
-  return raw
-    .split(/[,\s]+/)
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0)
-}
-
-export function formatAttachmentIds(ids: string[] | null | undefined): string {
-  return Array.isArray(ids) ? ids.join('\n') : ''
 }
 
 export function parseGeolocationInput(raw: string, translate: Translator): Record<string, unknown> | null {
@@ -511,3 +586,105 @@ export function parseGeolocationInput(raw: string, translate: Translator): Recor
 
   return parsed
 }
+
+function normalizeReferencedStatements(value: unknown): ReferencedStatementValue[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => {
+      if (!isRecord(entry)) return null
+      const referenceNumber = readString(entry, ['referenceNumber']) ?? ''
+      const verificationNumber = readString(entry, ['verificationNumber']) ?? ''
+      return verificationNumber
+        ? { referenceNumber, verificationNumber }
+        : { referenceNumber }
+    })
+    .filter((entry): entry is ReferencedStatementValue => entry !== null)
+}
+
+export function ReferencedStatementsField({
+  id,
+  value,
+  onChange,
+  disabled,
+}: {
+  id: string
+  value: ReferencedStatementValue[] | unknown
+  onChange: (value: ReferencedStatementValue[]) => void
+  disabled?: boolean
+}) {
+  const translate = useT()
+  const rows = React.useMemo(() => normalizeReferencedStatements(value), [value])
+  const hasIncompleteRows = rows.some((row) => row.referenceNumber.trim().length === 0)
+
+  const updateRow = React.useCallback((index: number, patch: Partial<ReferencedStatementValue>) => {
+    const nextRows = rows.map((row, rowIndex) => {
+      if (rowIndex !== index) return row
+      const referenceNumber = patch.referenceNumber ?? row.referenceNumber
+      const verificationNumber = patch.verificationNumber ?? row.verificationNumber ?? ''
+      return verificationNumber.trim()
+        ? { referenceNumber, verificationNumber }
+        : { referenceNumber }
+    })
+    onChange(nextRows)
+  }, [onChange, rows])
+
+  const removeRow = React.useCallback((index: number) => {
+    onChange(rows.filter((_, rowIndex) => rowIndex !== index))
+  }, [onChange, rows])
+
+  return (
+    <div id={id} className="space-y-3">
+      {rows.length > 0 ? (
+        <div className="space-y-2">
+          {rows.map((row, index) => (
+            <div key={index} className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+              <Input
+                value={row.referenceNumber}
+                disabled={disabled}
+                placeholder={translate('eudr.statements.form.referenceNumber')}
+                onChange={(event) => updateRow(index, { referenceNumber: event.target.value })}
+              />
+              <Input
+                value={row.verificationNumber ?? ''}
+                disabled={disabled}
+                placeholder={translate('eudr.statements.form.verificationNumber')}
+                onChange={(event) => updateRow(index, { verificationNumber: event.target.value })}
+              />
+              <IconButton
+                type="button"
+                variant="ghost"
+                disabled={disabled}
+                aria-label={translate('eudr.statements.form.removeReferencedStatement')}
+                onClick={() => removeRow(index)}
+              >
+                <Trash2 className="size-4" aria-hidden="true" />
+              </IconButton>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {translate('eudr.statements.form.noReferencedStatements')}
+        </p>
+      )}
+      {hasIncompleteRows ? (
+        <p className="text-sm text-status-warning-text">
+          {translate('eudr.statements.form.referencedStatementsValidation')}
+        </p>
+      ) : null}
+      <IconButton
+        type="button"
+        variant="outline"
+        disabled={disabled}
+        aria-label={translate('eudr.statements.form.addReferencedStatement')}
+        onClick={() => onChange([...rows, { referenceNumber: '' }])}
+      >
+        <Plus className="size-4" aria-hidden="true" />
+      </IconButton>
+    </div>
+  )
+}
+
+export { CountrySelectField } from './CountrySelectField'
+export { OrderSelectField } from './OrderSelectField'
+export { PlotMultiSelectField } from './PlotMultiSelectField'

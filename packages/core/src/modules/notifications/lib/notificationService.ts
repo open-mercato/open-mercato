@@ -187,11 +187,15 @@ export interface NotificationServiceContext {
   userId?: string | null
 }
 
+export type CreateFeatureNotificationServiceInput = CreateFeatureNotificationInput & {
+  restrictRecipientsToOrganization?: boolean
+}
+
 export interface NotificationService {
   create(input: CreateNotificationInput, ctx: NotificationServiceContext): Promise<Notification>
   createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
   createForRole(input: CreateRoleNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
-  createForFeature(input: CreateFeatureNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
+  createForFeature(input: CreateFeatureNotificationServiceInput, ctx: NotificationServiceContext): Promise<Notification[]>
   markAsRead(notificationId: string, ctx: NotificationServiceContext): Promise<Notification>
   markAllAsRead(ctx: NotificationServiceContext): Promise<number>
   dismiss(notificationId: string, ctx: NotificationServiceContext): Promise<Notification>
@@ -311,11 +315,86 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         return []
       }
 
-      debug('Creating notifications for', recipientUserIds.length, 'user(s) with feature:', input.requiredFeature)
+      let authorizedRecipientUserIds = recipientUserIds
+      if (input.restrictRecipientsToOrganization) {
+        const uniqueCandidateUserIds = Array.from(new Set(recipientUserIds))
+        if (!ctx.organizationId) {
+          logger.warn('Organization-restricted feature fan-out skipped because organization scope is missing', {
+            tenantId: ctx.tenantId,
+            requiredFeature: input.requiredFeature,
+          })
+          return []
+        }
 
-      const { requiredFeature: _requiredFeature, ...content } = input
+        if (uniqueCandidateUserIds.length > 200) {
+          logger.warn('Organization-restricted feature fan-out skipped because the candidate cap was exceeded', {
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId,
+            requiredFeature: input.requiredFeature,
+            candidateCount: uniqueCandidateUserIds.length,
+            candidateCap: 200,
+          })
+          return []
+        }
+
+        if (!container) {
+          logger.warn('Organization-restricted feature fan-out skipped because the DI container is unavailable', {
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId,
+            requiredFeature: input.requiredFeature,
+          })
+          return []
+        }
+
+        try {
+          const rbacService = container.resolve('rbacService') as {
+            userHasAllFeatures: (
+              userId: string,
+              features: string[],
+              scope: { tenantId: string | null; organizationId: string | null },
+            ) => Promise<boolean>
+          }
+          const allowedRecipientUserIds: string[] = []
+          for (let offset = 0; offset < uniqueCandidateUserIds.length; offset += 10) {
+            const candidates = uniqueCandidateUserIds.slice(offset, offset + 10)
+            const results = await Promise.all(candidates.map(async (recipientUserId) => ({
+              recipientUserId,
+              allowed: await rbacService.userHasAllFeatures(
+                recipientUserId,
+                [input.requiredFeature],
+                { tenantId: ctx.tenantId, organizationId: ctx.organizationId ?? null },
+              ),
+            })))
+            for (const result of results) {
+              if (result.allowed) allowedRecipientUserIds.push(result.recipientUserId)
+            }
+          }
+          authorizedRecipientUserIds = allowedRecipientUserIds
+        } catch (err) {
+          logger.warn('Organization-restricted feature fan-out skipped because RBAC filtering failed', {
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId,
+            requiredFeature: input.requiredFeature,
+            err,
+          })
+          return []
+        }
+
+        if (authorizedRecipientUserIds.length === 0) {
+          debug('No users found with feature in organization:', input.requiredFeature, ctx.organizationId)
+          return []
+        }
+      }
+
+      debug('Creating notifications for', authorizedRecipientUserIds.length, 'user(s) with feature:', input.requiredFeature)
+
+      const {
+        requiredFeature: _requiredFeature,
+        restrictRecipientsToOrganization: _restrictRecipientsToOrganization,
+        ...content
+      } = input
       const notifications: Notification[] = []
-      const uniqueRecipientUserIds = Array.from(new Set(recipientUserIds))
+      const uniqueRecipientUserIds = Array.from(new Set(authorizedRecipientUserIds))
       const writeEm = rootEm.fork()
 
       await writeEm.transactional(async (tx) => {

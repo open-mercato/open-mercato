@@ -10,6 +10,7 @@ export const integrationMeta = {
 
 const STATEMENTS_PATH = '/api/eudr/statements'
 const EVIDENCE_SUBMISSIONS_PATH = '/api/eudr/evidence-submissions'
+const RISK_ASSESSMENTS_PATH = '/api/eudr/risk-assessments'
 const CUSTOMERS_COMPANIES_PATH = '/api/customers/companies'
 
 type ExportGap = {
@@ -79,6 +80,20 @@ async function createSubmission(
   return expectId(body?.id, 'Evidence submission create response should include id')
 }
 
+async function createRiskAssessment(
+  request: APIRequestContext,
+  token: string,
+  data: Record<string, unknown>,
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', RISK_ASSESSMENTS_PATH, {
+    token,
+    data,
+  })
+  expect(response.status(), `create risk assessment failed: ${response.status()}`).toBe(201)
+  const body = await readJsonSafe<{ id?: string }>(response)
+  return expectId(body?.id, 'Risk assessment create response should include id')
+}
+
 async function exportStatement(
   request: APIRequestContext,
   token: string,
@@ -116,6 +131,20 @@ async function deleteSubmissionIfExists(
   ).catch(() => undefined)
 }
 
+async function deleteRiskAssessmentIfExists(
+  request: APIRequestContext,
+  token: string | null,
+  id: string | null,
+): Promise<void> {
+  if (!token || !id) return
+  await apiRequest(
+    request,
+    'DELETE',
+    `${RISK_ASSESSMENTS_PATH}?id=${encodeURIComponent(id)}`,
+    { token },
+  ).catch(() => undefined)
+}
+
 /**
  * TC-EUDR-003: Due diligence statements + export readiness packet.
  */
@@ -128,6 +157,7 @@ test.describe('TC-EUDR-003: Statements + export packet', () => {
     let statementId: string | null = null
     let submissionAId: string | null = null
     let submissionBId: string | null = null
+    let riskAssessmentId: string | null = null
 
     try {
       supplierId = await createCompanyFixture(request, token, `TC-EUDR-003 Supplier ${stamp}`)
@@ -195,6 +225,30 @@ test.describe('TC-EUDR-003: Statements + export packet', () => {
         gaps: [],
       }))
 
+      const blockedSubmitResponse = await apiRequest(request, 'PUT', STATEMENTS_PATH, {
+        token,
+        data: { id: statementId, status: 'submitted' },
+      })
+      expect(
+        blockedSubmitResponse.status(),
+        'ready standard-risk statement without risk assessment should be blocked by the submit gate',
+      ).toBe(400)
+      const blockedSubmitBody = await readJsonSafe<{ details?: { reasons?: string[] } }>(blockedSubmitResponse)
+      expect(Array.isArray(blockedSubmitBody?.details?.reasons), 'submit gate should expose reasons array').toBe(true)
+      expect(blockedSubmitBody?.details?.reasons).toContain('eudr.gate.riskConclusionMissing')
+
+      riskAssessmentId = await createRiskAssessment(request, token, {
+        statementId,
+        criteria: {},
+        conclusion: 'negligible',
+      })
+
+      const submitResponse = await apiRequest(request, 'PUT', STATEMENTS_PATH, {
+        token,
+        data: { id: statementId, status: 'submitted' },
+      })
+      expect(submitResponse.status(), `submit statement after negligible risk assessment failed: ${submitResponse.status()}`).toBe(200)
+
       const missingExport = await exportStatement(request, token, randomUUID())
       expect(missingExport.status, 'exporting an unknown statement should return 404').toBe(404)
 
@@ -208,6 +262,7 @@ test.describe('TC-EUDR-003: Statements + export packet', () => {
       })
       expect(employeeUpdateResponse.status(), 'employee should not be allowed to update statements').toBe(403)
     } finally {
+      await deleteRiskAssessmentIfExists(request, token, riskAssessmentId)
       await deleteSubmissionIfExists(request, token, submissionBId)
       await deleteSubmissionIfExists(request, token, submissionAId)
       await deleteStatementIfExists(request, token, statementId)

@@ -15,12 +15,13 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Plus } from 'lucide-react'
+import { Plus, Sparkles } from 'lucide-react'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { EudrCommodity } from '../../../data/validators'
 import { commodityOptions, type ProductSnapshot } from '../../../components/formConfig'
+import { MappingSuggestionsDialog } from '../../../components/MappingSuggestionsDialog'
 
 type ProductMappingRow = {
   id: string
@@ -47,7 +48,7 @@ function formatDateTime(value: string | null | undefined, emptyLabel: string): s
   return date.toLocaleString()
 }
 
-function formatProduct(row: ProductMappingRow): string {
+function formatProduct(row: ProductMappingRow, unavailableLabel: string): string {
   const name = typeof row.productSnapshot?.name === 'string' && row.productSnapshot.name.trim().length
     ? row.productSnapshot.name.trim()
     : null
@@ -55,7 +56,7 @@ function formatProduct(row: ProductMappingRow): string {
     ? row.productSnapshot.sku.trim()
     : null
   if (name && sku) return `${name} (${sku})`
-  return name ?? sku ?? row.productId
+  return name ?? sku ?? unavailableLabel
 }
 
 export default function EudrProductMappingsPage() {
@@ -73,6 +74,7 @@ export default function EudrProductMappingsPage() {
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [loading, setLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const [suggestionsOpen, setSuggestionsOpen] = React.useState(false)
   const mutationContextId = 'eudr-product-mappings-list:delete'
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -141,7 +143,7 @@ export default function EudrProductMappingsPage() {
 
   const handleDelete = React.useCallback(async (row: ProductMappingRow) => {
     const confirmed = await confirm({
-      title: translate('eudr.productMappings.list.confirmDelete', { product: formatProduct(row) }),
+      title: translate('eudr.productMappings.list.confirmDelete', { product: formatProduct(row, translate('eudr.common.recordUnavailable')) }),
       variant: 'destructive',
     })
     if (!confirmed) return
@@ -184,9 +186,10 @@ export default function EudrProductMappingsPage() {
     {
       accessorKey: 'productId',
       header: translate('eudr.productMappings.list.columns.product'),
+      enableSorting: false,
       cell: ({ row }) => (
         <Link href={`/backend/eudr/product-mappings/${row.original.id}`} className="font-medium hover:underline">
-          {formatProduct(row.original)}
+          {formatProduct(row.original, translate('eudr.common.recordUnavailable'))}
         </Link>
       ),
       meta: { maxWidth: '260px', truncate: true },
@@ -259,12 +262,22 @@ export default function EudrProductMappingsPage() {
             setPage(1)
           }}
           actions={(
-            <Button asChild>
-              <Link href="/backend/eudr/product-mappings/create">
-                <Plus className="mr-2 h-4 w-4" aria-hidden />
-                {translate('eudr.productMappings.list.actions.create')}
-              </Link>
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSuggestionsOpen(true)}
+              >
+                <Sparkles className="mr-2 h-4 w-4" aria-hidden />
+                {translate('eudr.suggestions.open')}
+              </Button>
+              <Button asChild>
+                <Link href="/backend/eudr/product-mappings/create">
+                  <Plus className="mr-2 h-4 w-4" aria-hidden />
+                  {translate('eudr.productMappings.list.actions.create')}
+                </Link>
+              </Button>
+            </div>
           )}
           rowActions={(row) => (
             <RowActions
@@ -318,6 +331,11 @@ export default function EudrProductMappingsPage() {
           stickyActionsColumn
         />
       </PageBody>
+      <MappingSuggestionsDialog
+        open={suggestionsOpen}
+        onOpenChange={setSuggestionsOpen}
+        onApplied={refreshRows}
+      />
       {ConfirmDialogElement}
     </Page>
   )

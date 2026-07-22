@@ -10,6 +10,8 @@ export const attachmentCrudEvents: CrudEventsConfig<Attachment> = {
     id: ctx.identifiers.id,
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
+    entityId: ctx.entity?.entityId ?? null,
+    recordId: ctx.entity?.recordId ?? null,
   }),
 }
 

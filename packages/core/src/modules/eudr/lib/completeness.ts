@@ -1,6 +1,7 @@
 import { GEOJSON_TYPES } from '../data/validators'
 
 export const COMPLETENESS_DIMENSIONS = ['origin_country', 'geolocation', 'quantity', 'harvest_period', 'producer', 'documents'] as const
+export const REQUIRED_DIMENSIONS = COMPLETENESS_DIMENSIONS
 export type CompletenessDimension = (typeof COMPLETENESS_DIMENSIONS)[number]
 
 export type CompletenessInput = {
@@ -11,6 +12,11 @@ export type CompletenessInput = {
   harvestTo?: Date | string | null
   producerName?: string | null
   attachmentIds?: string[] | null
+}
+
+export type CompletenessContext = {
+  linkedAttachmentCount?: number
+  activePlotCount?: number
 }
 
 export type CompletenessResult = { score: number; missingFields: CompletenessDimension[] }
@@ -51,14 +57,14 @@ function isDocumentsComplete(value: string[] | null | undefined): boolean {
   return Array.isArray(value) && value.length >= 1
 }
 
-export function computeSubmissionCompleteness(input: CompletenessInput): CompletenessResult {
+export function computeCompleteness(input: CompletenessInput, context: CompletenessContext = {}): CompletenessResult {
   const completionByDimension: Record<CompletenessDimension, boolean> = {
     origin_country: isOriginCountryComplete(input.originCountry),
-    geolocation: isGeolocationComplete(input.geolocation),
+    geolocation: isGeolocationComplete(input.geolocation) || (context.activePlotCount ?? 0) > 0,
     quantity: isQuantityComplete(input.quantityKg),
     harvest_period: isHarvestPeriodComplete(input.harvestFrom, input.harvestTo),
     producer: isProducerComplete(input.producerName),
-    documents: isDocumentsComplete(input.attachmentIds),
+    documents: isDocumentsComplete(input.attachmentIds) || (context.linkedAttachmentCount ?? 0) > 0,
   }
 
   const missingFields = COMPLETENESS_DIMENSIONS.filter((dimension) => !completionByDimension[dimension])
@@ -66,4 +72,19 @@ export function computeSubmissionCompleteness(input: CompletenessInput): Complet
   const score = Math.round((metCount / COMPLETENESS_DIMENSIONS.length) * 100)
 
   return { score, missingFields }
+}
+
+export function computeSubmissionCompleteness(input: CompletenessInput, context?: CompletenessContext): CompletenessResult {
+  return computeCompleteness(input, context)
+}
+
+export const HARVEST_CUTOFF_DATE = new Date('2020-12-31T23:59:59.999Z')
+
+export function computeHarvestCutoffWarning(
+  harvestFrom: Date | string | null | undefined,
+  harvestTo: Date | string | null | undefined,
+): 'harvest_before_cutoff' | null {
+  const windowEnd = parseDate(harvestTo) ?? parseDate(harvestFrom)
+  if (!windowEnd) return null
+  return windowEnd.getTime() <= HARVEST_CUTOFF_DATE.getTime() ? 'harvest_before_cutoff' : null
 }

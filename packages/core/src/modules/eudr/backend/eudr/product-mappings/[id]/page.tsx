@@ -23,6 +23,8 @@ type ProductMappingRecord = {
   productSnapshot: ProductSnapshot | null
   commodity: EudrCommodity
   hsCode: string | null
+  speciesScientificName: string | null
+  speciesCommonName: string | null
   isInScope: boolean
   notes: string | null
   createdAt: string
@@ -39,6 +41,8 @@ type ProductMappingFormValues = {
   productSnapshot: ProductSnapshot | null
   commodity: string
   hsCode: string
+  speciesScientificName: string
+  speciesCommonName: string
   isInScope: boolean
   notes: string
   updatedAt: string
@@ -139,6 +143,22 @@ export default function EditEudrProductMappingPage({ params }: { params?: { id?:
       type: 'text',
     },
     {
+      id: 'speciesScientificName',
+      label: translate('eudr.productMappings.speciesScientificName'),
+      type: 'text',
+      description: translate('eudr.productMappings.speciesHint'),
+      maxLength: 256,
+      visibleWhen: { field: 'commodity', equals: 'wood' },
+    },
+    {
+      id: 'speciesCommonName',
+      label: translate('eudr.productMappings.speciesCommonName'),
+      type: 'text',
+      description: translate('eudr.productMappings.speciesHint'),
+      maxLength: 256,
+      visibleWhen: { field: 'commodity', equals: 'wood' },
+    },
+    {
       id: 'isInScope',
       label: translate('eudr.productMappings.form.isInScope'),
       type: 'checkbox',
@@ -155,7 +175,15 @@ export default function EditEudrProductMappingPage({ params }: { params?: { id?:
       id: 'details',
       title: translate('eudr.productMappings.form.details'),
       column: 1,
-      fields: ['productId', 'commodity', 'hsCode', 'isInScope', 'notes'],
+      fields: [
+        'productId',
+        'commodity',
+        'hsCode',
+        'speciesScientificName',
+        'speciesCommonName',
+        'isInScope',
+        'notes',
+      ],
     },
   ], [translate])
 
@@ -167,6 +195,8 @@ export default function EditEudrProductMappingPage({ params }: { params?: { id?:
       productSnapshot: record.productSnapshot,
       commodity: record.commodity,
       hsCode: record.hsCode ?? '',
+      speciesScientificName: record.speciesScientificName ?? '',
+      speciesCommonName: record.speciesCommonName ?? '',
       isInScope: record.isInScope,
       notes: record.notes ?? '',
       updatedAt: record.updatedAt,
@@ -235,6 +265,8 @@ export default function EditEudrProductMappingPage({ params }: { params?: { id?:
               productId,
               commodity,
               hsCode: optionalText(values.hsCode),
+              speciesScientificName: commodity === 'wood' ? optionalText(values.speciesScientificName) : null,
+              speciesCommonName: commodity === 'wood' ? optionalText(values.speciesCommonName) : null,
               isInScope: values.isInScope !== false,
               notes: optionalText(values.notes),
               productSnapshot: isProductSnapshot(values.productSnapshot) ? values.productSnapshot : null,

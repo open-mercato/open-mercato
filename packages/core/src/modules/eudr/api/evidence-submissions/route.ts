@@ -9,6 +9,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
 import { EudrEvidenceSubmission } from '../../data/entities'
+import { computeHarvestCutoffWarning } from '../../lib/completeness'
 import {
   EUDR_COMMODITIES,
   EUDR_SUBMISSION_STATUSES,
@@ -63,6 +64,7 @@ const gridFields = [
   'harvest_from',
   'harvest_to',
   'attachment_ids',
+  'plot_ids',
   'status',
   'completeness_score',
   'missing_fields',
@@ -135,6 +137,9 @@ function buildFilters(query: EvidenceSubmissionListQuery): Record<string, unknow
 function transformEvidenceSubmissionItem(item: unknown) {
   if (!item || typeof item !== 'object') return item
   const record = item as Record<string, unknown>
+  const harvestFrom = toIsoString(record.harvest_from)
+  const harvestTo = toIsoString(record.harvest_to)
+  const cutoffWarning = computeHarvestCutoffWarning(harvestFrom, harvestTo)
   return {
     id: record.id,
     supplierEntityId: record.supplier_entity_id ?? null,
@@ -146,13 +151,15 @@ function transformEvidenceSubmissionItem(item: unknown) {
     geolocation: record.geolocation ?? null,
     quantityKg: record.quantity_kg ?? null,
     batchNumber: record.batch_number ?? null,
-    harvestFrom: toIsoString(record.harvest_from),
-    harvestTo: toIsoString(record.harvest_to),
+    harvestFrom,
+    harvestTo,
     producerName: record.producer_name ?? null,
     attachmentIds: stringArray(record.attachment_ids),
+    plotIds: stringArray(record.plot_ids),
     status: record.status ?? null,
     completenessScore: asNumber(record.completeness_score),
     missingFields: stringArray(record.missing_fields),
+    warnings: cutoffWarning ? [cutoffWarning] : [],
     notes: record.notes ?? null,
     createdAt: toIsoString(record.created_at),
     updatedAt: toIsoString(record.updated_at),
@@ -291,9 +298,11 @@ const evidenceSubmissionListItemSchema = z.object({
   harvestTo: z.string().nullable().optional(),
   producerName: z.string().nullable().optional(),
   attachmentIds: z.array(z.string().uuid()).optional(),
+  plotIds: z.array(z.string().uuid()).optional(),
   status: z.enum(EUDR_SUBMISSION_STATUSES).nullable().optional(),
   completenessScore: z.number(),
   missingFields: z.array(z.string()),
+  warnings: z.array(z.string()),
   notes: z.string().nullable().optional(),
   createdAt: z.string().nullable().optional(),
   updatedAt: z.string().nullable().optional(),

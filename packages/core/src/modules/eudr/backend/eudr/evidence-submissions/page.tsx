@@ -15,11 +15,13 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Plus } from 'lucide-react'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { resolveCountryName } from '@open-mercato/shared/lib/location/countries'
 import type { EudrCommodity, EudrSubmissionStatus } from '../../../data/validators'
 import { commodityOptions, statusBadgeVariant, submissionStatusOptions, type CompanySnapshot } from '../../../components/formConfig'
 
@@ -40,6 +42,7 @@ type EvidenceSubmissionRow = {
   status: EudrSubmissionStatus
   completenessScore: number
   missingFields: string[]
+  warnings?: string[]
   createdAt: string
   updatedAt: string
 }
@@ -57,11 +60,11 @@ function formatDateTime(value: string | null | undefined, emptyLabel: string): s
   return date.toLocaleString()
 }
 
-function formatSupplier(row: EvidenceSubmissionRow): string {
+function formatSupplier(row: EvidenceSubmissionRow, unavailableLabel: string): string {
   const displayName = typeof row.supplierSnapshot?.displayName === 'string' && row.supplierSnapshot.displayName.trim().length
     ? row.supplierSnapshot.displayName.trim()
     : null
-  return displayName ?? row.supplierEntityId
+  return displayName ?? unavailableLabel
 }
 
 function formatQuantityKg(value: number | string | null, emptyLabel: string): string {
@@ -72,6 +75,7 @@ function formatQuantityKg(value: number | string | null, emptyLabel: string): st
 
 export default function EudrEvidenceSubmissionsPage() {
   const translate = useT()
+  const locale = useLocale()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -153,7 +157,7 @@ export default function EudrEvidenceSubmissionsPage() {
 
   const handleDelete = React.useCallback(async (row: EvidenceSubmissionRow) => {
     const confirmed = await confirm({
-      title: translate('eudr.evidenceSubmissions.list.confirmDelete', { supplier: formatSupplier(row) }),
+      title: translate('eudr.evidenceSubmissions.list.confirmDelete', { supplier: formatSupplier(row, translate('eudr.common.recordUnavailable')) }),
       variant: 'destructive',
     })
     if (!confirmed) return
@@ -198,7 +202,7 @@ export default function EudrEvidenceSubmissionsPage() {
       header: translate('eudr.evidenceSubmissions.list.columns.supplier'),
       cell: ({ row }) => (
         <Link href={`/backend/eudr/evidence-submissions/${row.original.id}`} className="font-medium hover:underline">
-          {formatSupplier(row.original)}
+          {formatSupplier(row.original, translate('eudr.common.recordUnavailable'))}
         </Link>
       ),
       meta: { maxWidth: '240px', truncate: true },
@@ -220,12 +224,28 @@ export default function EudrEvidenceSubmissionsPage() {
     {
       accessorKey: 'completenessScore',
       header: translate('eudr.evidenceSubmissions.list.columns.completeness'),
-      cell: ({ row }) => `${Number.isFinite(row.original.completenessScore) ? row.original.completenessScore : 0}%`,
+      cell: ({ row }) => {
+        const score = Number.isFinite(row.original.completenessScore) ? row.original.completenessScore : 0
+        const hasCutoffWarning = Array.isArray(row.original.warnings) && row.original.warnings.includes('harvest_before_cutoff')
+        return (
+          <span className="inline-flex items-center gap-2">
+            {`${score}%`}
+            {hasCutoffWarning ? (
+              <Badge variant="warning" title={translate('eudr.warnings.harvestBeforeCutoff')}>
+                {translate('eudr.warnings.harvestBeforeCutoff')}
+              </Badge>
+            ) : null}
+          </span>
+        )
+      },
     },
     {
       accessorKey: 'originCountry',
       header: translate('eudr.evidenceSubmissions.list.columns.originCountry'),
-      cell: ({ row }) => row.original.originCountry || translate('eudr.common.empty'),
+      cell: ({ row }) => {
+        const code = row.original.originCountry
+        return code ? `${resolveCountryName(code, { locale })} (${code})` : translate('eudr.common.empty')
+      },
     },
     {
       accessorKey: 'quantityKg',
@@ -237,7 +257,7 @@ export default function EudrEvidenceSubmissionsPage() {
       header: translate('eudr.evidenceSubmissions.list.columns.updatedAt'),
       cell: ({ row }) => formatDateTime(row.original.updatedAt, translate('eudr.common.empty')),
     },
-  ], [translate])
+  ], [locale, translate])
 
   const filterDefs = React.useMemo<FilterDef[]>(() => [
     {

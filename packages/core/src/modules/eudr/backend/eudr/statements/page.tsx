@@ -20,8 +20,12 @@ import { Plus } from 'lucide-react'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { EudrCommodity, EudrStatementStatus } from '../../../data/validators'
+import type { EudrActivityType, EudrCommodity, EudrRiskConclusion, EudrRiskTier, EudrStatementStatus } from '../../../data/validators'
 import { commodityOptions, statementStatusOptions, statusBadgeVariant } from '../../../components/formConfig'
+import {
+  riskConclusionBadgeVariant,
+  riskTierBadgeVariant,
+} from '../../../components/StatementRiskSection'
 
 type StatementRow = {
   id: string
@@ -30,9 +34,15 @@ type StatementRow = {
   referenceNumber: string | null
   verificationNumber: string | null
   status: EudrStatementStatus
+  activityType: EudrActivityType | null
   quantityKg: number | string | null
   orderId: string | null
   notes: string | null
+  latestRisk: {
+    conclusion: EudrRiskConclusion
+    overallTier: EudrRiskTier
+    reviewDueAt: string | null
+  } | null
   createdAt: string
   updatedAt: string
 }
@@ -204,6 +214,31 @@ export default function EudrStatementsPage() {
       ),
     },
     {
+      accessorKey: 'activityType',
+      header: translate('eudr.statements.list.columns.activityType'),
+      cell: ({ row }) => row.original.activityType
+        ? translate(`eudr.activityType.${row.original.activityType}`)
+        : translate('eudr.common.empty'),
+    },
+    {
+      id: 'latestRiskConclusion',
+      header: translate('eudr.statements.list.columns.latestRiskConclusion'),
+      cell: ({ row }) => row.original.latestRisk ? (
+        <StatusBadge variant={riskConclusionBadgeVariant(row.original.latestRisk.conclusion)}>
+          {translate(`eudr.conclusion.${row.original.latestRisk.conclusion}`)}
+        </StatusBadge>
+      ) : translate('eudr.common.empty'),
+    },
+    {
+      id: 'latestRiskTier',
+      header: translate('eudr.statements.list.columns.latestRiskTier'),
+      cell: ({ row }) => row.original.latestRisk ? (
+        <StatusBadge variant={riskTierBadgeVariant(row.original.latestRisk.overallTier)}>
+          {translate(`eudr.riskTier.${row.original.latestRisk.overallTier}`)}
+        </StatusBadge>
+      ) : translate('eudr.common.empty'),
+    },
+    {
       accessorKey: 'referenceNumber',
       header: translate('eudr.statements.list.columns.referenceNumber'),
       cell: ({ row }) => row.original.referenceNumber || translate('eudr.common.empty'),
@@ -279,6 +314,11 @@ export default function EudrStatementsPage() {
                   id: 'edit',
                   label: translate('eudr.statements.list.actions.edit'),
                   href: `/backend/eudr/statements/${row.id}`,
+                },
+                {
+                  id: 'duplicate',
+                  label: translate('eudr.statements.duplicateAction'),
+                  href: `/backend/eudr/statements/create?duplicateFrom=${encodeURIComponent(row.id)}`,
                 },
                 {
                   id: 'delete',

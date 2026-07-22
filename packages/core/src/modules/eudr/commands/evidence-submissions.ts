@@ -22,17 +22,19 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
+import { randomUUID } from 'crypto'
+import { sql } from 'kysely'
 import { z } from 'zod'
-import { EudrEvidenceSubmission } from '../data/entities'
+import { EudrEvidenceSubmission, EudrPlot } from '../data/entities'
 import {
   evidenceSubmissionCreateSchema,
   evidenceSubmissionUpdateSchema,
   type EvidenceSubmissionCreateInput,
   type EvidenceSubmissionUpdateInput,
 } from '../data/validators'
-import { computeSubmissionCompleteness } from '../lib/completeness'
+import { computeSubmissionCompleteness, type CompletenessContext } from '../lib/completeness'
 
 const EVIDENCE_SUBMISSION_ENTITY_ID = 'eudr:eudr_evidence_submission'
 
@@ -62,6 +64,7 @@ type EvidenceSubmissionSnapshot = {
   harvestTo: string | null
   producerName: string | null
   attachmentIds: string[]
+  plotIds: string[]
   status: string
   completenessScore: number
   missingFields: string[]
@@ -83,6 +86,15 @@ type ScopedEvidenceSubmissionUpdateInput = EvidenceSubmissionUpdateInput & Parti
 type EvidenceSubmissionCommandResult = {
   entityId: string
   updatedAt?: Date
+}
+
+type AttachmentCountDatabase = {
+  attachments: {
+    entity_id: string
+    record_id: string
+    tenant_id: string | null
+    organization_id: string | null
+  }
 }
 
 const scopedCommandInputSchema = z.object({
@@ -136,6 +148,7 @@ function evidenceSubmissionSeedFromSnapshot(snapshot: EvidenceSubmissionSnapshot
     harvestTo: toDate(snapshot.harvestTo),
     producerName: snapshot.producerName,
     attachmentIds: snapshot.attachmentIds,
+    plotIds: snapshot.plotIds,
     status: snapshot.status,
     completenessScore: snapshot.completenessScore,
     missingFields: snapshot.missingFields,
@@ -151,15 +164,9 @@ async function findEvidenceSubmission(
   entityId: string,
   includeDeleted = true,
 ): Promise<EudrEvidenceSubmission | null> {
-  const where = includeDeleted ? { id: entityId } : { id: entityId, deletedAt: null }
-  const record = await em.findOne(EudrEvidenceSubmission, where)
-  if (!record) return null
-  await decryptEntitiesWithFallbackScope(record, {
-    em,
-    tenantId: record.tenantId ?? null,
-    organizationId: record.organizationId ?? null,
-  })
-  return record
+  return includeDeleted
+    ? findOneWithDecryption(em, EudrEvidenceSubmission, { id: entityId })
+    : findOneWithDecryption(em, EudrEvidenceSubmission, { id: entityId, deletedAt: null })
 }
 
 async function loadEvidenceSubmissionSnapshot(em: EntityManager, entityId: string): Promise<EvidenceSubmissionSnapshot | null> {
@@ -188,6 +195,7 @@ async function loadEvidenceSubmissionSnapshot(em: EntityManager, entityId: strin
     harvestTo: record.harvestTo ? record.harvestTo.toISOString() : null,
     producerName: record.producerName ?? null,
     attachmentIds: Array.isArray(record.attachmentIds) ? [...record.attachmentIds] : [],
+    plotIds: Array.isArray(record.plotIds) ? [...record.plotIds] : [],
     status: record.status,
     completenessScore: record.completenessScore,
     missingFields: Array.isArray(record.missingFields) ? [...record.missingFields] : [],
@@ -199,7 +207,7 @@ async function loadEvidenceSubmissionSnapshot(em: EntityManager, entityId: strin
   }
 }
 
-function refreshSubmissionCompleteness(record: EudrEvidenceSubmission): void {
+function refreshSubmissionCompleteness(record: EudrEvidenceSubmission, context: CompletenessContext = {}): void {
   const completeness = computeSubmissionCompleteness({
     originCountry: record.originCountry ?? null,
     geolocation: record.geolocation ?? null,
@@ -208,9 +216,72 @@ function refreshSubmissionCompleteness(record: EudrEvidenceSubmission): void {
     harvestTo: record.harvestTo ?? null,
     producerName: record.producerName ?? null,
     attachmentIds: record.attachmentIds ?? [],
+  }, {
+    activePlotCount: context.activePlotCount,
+    linkedAttachmentCount: context.linkedAttachmentCount,
   })
   record.completenessScore = completeness.score
   record.missingFields = [...completeness.missingFields]
+}
+
+function parseCountValue(value: string | number | bigint | null | undefined): number | undefined {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
+  if (typeof value === 'bigint') return Number(value)
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+  return undefined
+}
+
+async function countLinkedAttachments(
+  em: EntityManager,
+  scope: ScopedCommandInput,
+  recordId: string,
+): Promise<number | undefined> {
+  try {
+    const db = em.getKysely<AttachmentCountDatabase>()
+    const row = await db
+      .selectFrom('attachments')
+      .select(sql<string | number | bigint>`count(*)`.as('attachment_count'))
+      .where('entity_id', '=', EVIDENCE_SUBMISSION_ENTITY_ID)
+      .where('record_id', '=', recordId)
+      .where('tenant_id', '=', scope.tenantId)
+      .where('organization_id', '=', scope.organizationId)
+      .executeTakeFirst()
+    return parseCountValue(row?.attachment_count)
+  } catch {
+    return undefined
+  }
+}
+
+async function validateSubmissionPlots(input: {
+  em: EntityManager
+  scope: ScopedCommandInput
+  plotIds: string[]
+  supplierEntityId: string
+}): Promise<number> {
+  const uniquePlotIds = Array.from(new Set(input.plotIds))
+  for (const plotId of uniquePlotIds) {
+    const plot = await findOneWithDecryption(
+      input.em,
+      EudrPlot,
+      {
+        id: plotId,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId,
+        deletedAt: null,
+      },
+      undefined,
+      input.scope,
+    )
+    if (!plot) throw new CrudHttpError(400, { error: 'eudr.errors.plotNotFound' })
+    if (plot.isActive === false) throw new CrudHttpError(400, { error: 'eudr.errors.plotInactive' })
+    if (plot.supplierEntityId !== input.supplierEntityId) {
+      throw new CrudHttpError(400, { error: 'eudr.errors.plotSupplierMismatch' })
+    }
+  }
+  return uniquePlotIds.length
 }
 
 function applySubmissionUpdate(record: EudrEvidenceSubmission, parsed: EvidenceSubmissionUpdateInput): void {
@@ -227,6 +298,7 @@ function applySubmissionUpdate(record: EudrEvidenceSubmission, parsed: EvidenceS
   if (parsed.harvestTo !== undefined) record.harvestTo = parsed.harvestTo ?? null
   if (parsed.producerName !== undefined) record.producerName = parsed.producerName ?? null
   if (parsed.attachmentIds !== undefined) record.attachmentIds = [...parsed.attachmentIds]
+  if (parsed.plotIds !== undefined) record.plotIds = [...parsed.plotIds]
   if (parsed.status !== undefined) record.status = parsed.status
   if (parsed.notes !== undefined) record.notes = parsed.notes ?? null
 }
@@ -247,6 +319,7 @@ function restoreEvidenceSubmission(record: EudrEvidenceSubmission, snapshot: Evi
   record.harvestTo = toDate(snapshot.harvestTo)
   record.producerName = snapshot.producerName
   record.attachmentIds = [...snapshot.attachmentIds]
+  record.plotIds = [...snapshot.plotIds]
   record.status = snapshot.status
   record.completenessScore = snapshot.completenessScore
   record.missingFields = [...snapshot.missingFields]
@@ -303,8 +376,17 @@ const createEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionCr
         },
       }),
       phases: [
-        () => {
+        async () => {
+          const recordId = randomUUID()
+          const plotIds = parsed.plotIds ? [...parsed.plotIds] : []
+          const activePlotCount = await validateSubmissionPlots({
+            em: entityManager,
+            scope,
+            plotIds,
+            supplierEntityId: parsed.supplierEntityId,
+          })
           record = entityManager.create(EudrEvidenceSubmission, {
+            id: recordId,
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
             supplierEntityId: parsed.supplierEntityId,
@@ -320,10 +402,11 @@ const createEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionCr
             harvestTo: parsed.harvestTo ?? null,
             producerName: parsed.producerName ?? null,
             attachmentIds: parsed.attachmentIds ? [...parsed.attachmentIds] : [],
+            plotIds,
             status: parsed.status ?? 'draft',
             notes: parsed.notes ?? null,
           })
-          refreshSubmissionCompleteness(record)
+          refreshSubmissionCompleteness(record, { activePlotCount, linkedAttachmentCount: 0 })
           entityManager.persist(record)
         },
       ],
@@ -415,16 +498,17 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
     const { parsed, custom } = parseWithCustomFields(evidenceSubmissionUpdateSchema, rawInput)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await findEvidenceSubmission(entityManager, parsed.id, false)
-    if (!record) throw new CrudHttpError(404, { error: 'EUDR evidence submission not found' })
+    if (!record) throw new CrudHttpError(404, { error: 'eudr.errors.evidenceSubmissionNotFound' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
 
     await runCrudCommandWrite({
       ctx,
       em: entityManager,
       entityId: EVIDENCE_SUBMISSION_ENTITY_ID,
       action: 'updated',
-      scope: { tenantId: record.tenantId, organizationId: record.organizationId },
+      scope,
       customFields: custom,
       events: evidenceSubmissionCrudEvents,
       indexer: evidenceSubmissionCrudIndexer,
@@ -437,9 +521,22 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
         },
       }),
       phases: [
-        () => {
+        async () => {
+          const nextSupplierEntityId = parsed.supplierEntityId ?? record.supplierEntityId
+          const nextPlotIds = parsed.plotIds !== undefined
+            ? [...parsed.plotIds]
+            : Array.isArray(record.plotIds)
+              ? [...record.plotIds]
+              : []
+          const activePlotCount = await validateSubmissionPlots({
+            em: entityManager,
+            scope,
+            plotIds: nextPlotIds,
+            supplierEntityId: nextSupplierEntityId,
+          })
+          const linkedAttachmentCount = await countLinkedAttachments(entityManager, scope, record.id)
           applySubmissionUpdate(record, parsed)
-          refreshSubmissionCompleteness(record)
+          refreshSubmissionCompleteness(record, { activePlotCount, linkedAttachmentCount })
         },
       ],
     })
@@ -506,7 +603,7 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
 const deleteEvidenceSubmissionCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, EvidenceSubmissionCommandResult> = {
   id: 'eudr.evidence_submissions.delete',
   async prepare(input, ctx) {
-    const entityId = requireId(input, 'EUDR evidence submission id required')
+    const entityId = requireId(input, 'eudr.errors.evidenceSubmissionIdRequired')
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadEvidenceSubmissionSnapshot(entityManager, entityId)
     if (snapshot) {
@@ -516,10 +613,10 @@ const deleteEvidenceSubmissionCommand: CommandHandler<{ body?: Record<string, un
     return snapshot ? { before: snapshot } : {}
   },
   async execute(input, ctx) {
-    const entityId = requireId(input, 'EUDR evidence submission id required')
+    const entityId = requireId(input, 'eudr.errors.evidenceSubmissionIdRequired')
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await findEvidenceSubmission(entityManager, entityId, false)
-    if (!record) throw new CrudHttpError(404, { error: 'EUDR evidence submission not found' })
+    if (!record) throw new CrudHttpError(404, { error: 'eudr.errors.evidenceSubmissionNotFound' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
 

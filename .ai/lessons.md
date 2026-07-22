@@ -1036,3 +1036,15 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When code must write a row that a subsequent out-of-band request (self `fetch`, worker, another connection) has to read, create/flush it on a context-detached EM: `em.fork({ clear: true, freshEventManager: true, useContext: false })`. That fork commits on its own pooled connection, matching the query_index/webhooks isolated-EM convention.
 
 **Applies to**: `activity-executor` `CALL_API`, any one-time credential minted for a self-request, and anything that persists data then reads it back over HTTP or from a second connection while a transaction is open.
+
+## EUDR batch-2 run gotchas (2026-07-06)
+
+- 2026-07-06 · eudr: MikroORM `@Property({ type: 'json', default: {} })` renders the migration SQL default as literal `[object Object]` (arrays `[]` serialize fine) → use `defaultRaw: "'{}'"` for json object defaults and re-run `yarn db:generate`.
+- 2026-07-06 · eudr: command input schemas are parsed TWICE (route `mapInput` coerces ISO strings to `Date`, then the command re-parses the mapped input) → zod date/datetime schemas used in command inputs must accept BOTH `string` and `Date` instances or every write with a date field 400s.
+- 2026-07-06 · eudr: PG `numeric` columns read back scale-padded (`'100.000'`) → change-detection guards must compare numerically (`Number(a) === Number(b)`), never raw strings, or whole-document saves echoing an unchanged quantity trip field-freeze guards.
+
+## EUDR batch-3 run gotchas (2026-07-11)
+
+- 2026-07-11 · eudr: dev preview serves API routes from packages/core/dist — an Edit to a route file silently no-ops until `yarn workspace @open-mercato/core build`; symptom is "my fix didn't work" with zero errors → rebuild core before concluding a route change failed.
+- 2026-07-11 · eudr: `yarn mercato auth sync-role-acls` updates the DB but a RUNNING dev server keeps serving the pre-sync RBAC grants from cache → restart the dev server (or invalidate the rbac cache) before re-testing feature-gated 403s.
+- 2026-07-11 · eudr: cross-model reviewers on a >700KB staged diff each saw only one auto-split path area and raised "missing deliverable" blockers for files in other areas → scope juries with OM_XMR_PATHSPEC per cohesive area and reconcile per-area, or findings are artifacts.

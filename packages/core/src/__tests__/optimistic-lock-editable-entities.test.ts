@@ -56,7 +56,14 @@ const moduleEntities: Record<string, string[]> = {
   feature_toggles: ['FeatureToggle'],
   workflows: ['WorkflowDefinition'],
   directory: ['Organization', 'Tenant'],
-  eudr: ['EudrProductMapping', 'EudrEvidenceSubmission', 'EudrDueDiligenceStatement'],
+  eudr: [
+    'EudrProductMapping',
+    'EudrEvidenceSubmission',
+    'EudrDueDiligenceStatement',
+    'EudrPlot',
+    'EudrRiskAssessment',
+    'EudrMitigationAction',
+  ],
   messages: ['Message'],
 }
 

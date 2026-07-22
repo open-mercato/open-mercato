@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Download } from 'lucide-react'
+import { Copy, Download } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -16,8 +16,28 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ColumnDef } from '@tanstack/react-table'
-import { commodityOptions, statementStatusOptions, statusBadgeVariant, type CompanySnapshot } from '../../../../components/formConfig'
-import type { EudrCommodity, EudrStatementStatus, EudrSubmissionStatus } from '../../../../data/validators'
+import {
+  OrderSelectField,
+  ReferencedStatementsField,
+  actorRoleOptions,
+  activityTypeOptions,
+  commodityOptions,
+  statusBadgeVariant,
+  type CompanySnapshot,
+  type OrderSnapshot,
+  type ReferencedStatementValue,
+} from '../../../../components/formConfig'
+import { StatementLifecycleBar } from '../../../../components/StatementLifecycleBar'
+import { StatementRiskSection, type StatementLatestRisk } from '../../../../components/StatementRiskSection'
+import { PlotMapPreview } from '../../../../components/PlotMapPreview'
+import type {
+  EudrActivityType,
+  EudrActorRole,
+  EudrCommodity,
+  EudrStatementStatus,
+  EudrSubmissionStatus,
+} from '../../../../data/validators'
+import { hasMissingSpecies } from '../../../../lib/species'
 
 type StatementRecord = {
   id: string
@@ -26,9 +46,18 @@ type StatementRecord = {
   referenceNumber: string | null
   verificationNumber: string | null
   status: EudrStatementStatus
+  activityType: EudrActivityType | null
+  actorRole: EudrActorRole | null
+  referencedStatements: ReferencedStatementValue[]
   quantityKg: number | string | null
+  supplementaryUnit: string | null
+  supplementaryQuantity: number | string | null
   orderId: string | null
+  submittedAt: string | null
+  referenceIssuedAt: string | null
+  orderSnapshot: OrderSnapshot | null
   notes: string | null
+  latestRisk: StatementLatestRisk
   createdAt: string
   updatedAt: string
 }
@@ -43,9 +72,14 @@ type StatementFormValues = {
   commodity: string
   referenceNumber: string
   verificationNumber: string
-  status: string
+  activityType: string
+  actorRole: string
+  referencedStatements: ReferencedStatementValue[]
   quantityKg: string
+  supplementaryUnit: string
+  supplementaryQuantity: string
   orderId: string
+  orderSnapshot: OrderSnapshot | null
   notes: string
   updatedAt: string
 } & Record<string, unknown>
@@ -55,12 +89,33 @@ type LinkedSubmissionRow = {
   supplierEntityId: string
   supplierSnapshot: CompanySnapshot | null
   commodity: EudrCommodity
+  productMappingId: string | null
   status: EudrSubmissionStatus
   completenessScore: number
+  plotIds?: string[]
 }
 
 type LinkedSubmissionsResponse = {
   items?: LinkedSubmissionRow[]
+}
+
+type ProductMappingRow = {
+  commodity: EudrCommodity
+  speciesScientificName?: string | null
+  speciesCommonName?: string | null
+}
+
+type ProductMappingsResponse = {
+  items?: ProductMappingRow[]
+}
+
+type PlotRow = {
+  id: string
+  geometry: unknown
+}
+
+type PlotsResponse = {
+  items?: PlotRow[]
 }
 
 function optionalText(value: unknown): string | null {
@@ -80,6 +135,35 @@ function optionalNumber(value: unknown, translate: ReturnType<typeof useT>): num
   return parsedNumber
 }
 
+function optionalSupplementaryNumber(value: unknown, translate: ReturnType<typeof useT>): number | null {
+  const text = optionalText(value)
+  if (!text) return null
+  const parsedNumber = Number(text)
+  if (!Number.isFinite(parsedNumber)) {
+    const message = translate('eudr.statements.form.supplementaryQuantityInvalid')
+    throw createCrudFormError(message, { supplementaryQuantity: message })
+  }
+  return parsedNumber
+}
+
+function isOrderSnapshot(value: unknown): value is OrderSnapshot {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeReferencedStatements(value: unknown): ReferencedStatementValue[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => {
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return null
+      const record = entry as Record<string, unknown>
+      const referenceNumber = optionalText(record.referenceNumber)
+      if (!referenceNumber) return null
+      const verificationNumber = optionalText(record.verificationNumber)
+      return verificationNumber ? { referenceNumber, verificationNumber } : { referenceNumber }
+    })
+    .filter((entry): entry is ReferencedStatementValue => entry !== null)
+}
+
 function getRouteId(params?: { id?: string }): string | null {
   const rawId = params?.id
   return typeof rawId === 'string' && rawId.trim().length ? rawId : null
@@ -90,8 +174,13 @@ function formatQuantityKg(value: number | string | null): string {
   return String(value)
 }
 
-function supplierLabel(row: LinkedSubmissionRow): string {
-  return row.supplierSnapshot?.displayName || row.supplierEntityId
+function formatOptionalNumber(value: number | string | null): string {
+  if (value === null || value === undefined) return ''
+  return String(value)
+}
+
+function supplierLabel(row: LinkedSubmissionRow, unavailableLabel: string): string {
+  return row.supplierSnapshot?.displayName || unavailableLabel
 }
 
 export default function EditEudrStatementPage({ params }: { params?: { id?: string } }) {
@@ -105,7 +194,11 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
   const [submissionRows, setSubmissionRows] = React.useState<LinkedSubmissionRow[]>([])
   const [submissionsLoading, setSubmissionsLoading] = React.useState(false)
   const [submissionsError, setSubmissionsError] = React.useState<string | null>(null)
-  const [exporting, setExporting] = React.useState(false)
+  const [speciesMissing, setSpeciesMissing] = React.useState(false)
+  const [plotFeatures, setPlotFeatures] = React.useState<unknown[]>([])
+  const [plotsLoading, setPlotsLoading] = React.useState(false)
+  const [exportingFormat, setExportingFormat] = React.useState<'json' | 'geojson' | null>(null)
+  const [reloadToken, setReloadToken] = React.useState(0)
 
   React.useEffect(() => {
     let cancelled = false
@@ -146,7 +239,7 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
     return () => {
       cancelled = true
     }
-  }, [statementId, translate])
+  }, [reloadToken, statementId, translate])
 
   React.useEffect(() => {
     let cancelled = false
@@ -177,6 +270,97 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
     }
   }, [statementId, translate])
 
+  React.useEffect(() => {
+    const productMappingIds = Array.from(
+      new Set(
+        submissionRows
+          .map((submission) => submission.productMappingId)
+          .filter((mappingId): mappingId is string => typeof mappingId === 'string' && mappingId.length > 0),
+      ),
+    )
+    if (!productMappingIds.length) {
+      setSpeciesMissing(false)
+      return
+    }
+    setSpeciesMissing(false)
+    let cancelled = false
+    async function loadProductMappings() {
+      try {
+        const call = await apiCall<ProductMappingsResponse>(
+          `/api/eudr/product-mappings?ids=${encodeURIComponent(productMappingIds.join(','))}&pageSize=100`,
+          {
+            headers: {
+              'x-om-forbidden-redirect': '0',
+              'x-om-unauthorized-redirect': '0',
+            },
+          },
+          { fallback: { items: [] } },
+        )
+        if (!cancelled) {
+          const mappings = call.ok && Array.isArray(call.result?.items) ? call.result.items : []
+          setSpeciesMissing(mappings.some((mapping) => hasMissingSpecies(mapping)))
+        }
+      } catch {
+        if (!cancelled) setSpeciesMissing(false)
+      }
+    }
+    void loadProductMappings()
+    return () => {
+      cancelled = true
+    }
+  }, [submissionRows])
+
+  React.useEffect(() => {
+    const plotIds = Array.from(
+      new Set(
+        submissionRows
+          .flatMap((submission) => Array.isArray(submission.plotIds) ? submission.plotIds : [])
+          .filter((plotId): plotId is string => typeof plotId === 'string' && plotId.trim().length > 0),
+      ),
+    )
+    if (!plotIds.length) {
+      setPlotFeatures([])
+      setPlotsLoading(false)
+      return
+    }
+    let cancelled = false
+    async function loadPlots() {
+      setPlotsLoading(true)
+      try {
+        const call = await apiCall<PlotsResponse>(
+          `/api/eudr/plots?ids=${encodeURIComponent(plotIds.join(','))}&pageSize=100`,
+          {
+            headers: {
+              'x-om-forbidden-redirect': '0',
+              'x-om-unauthorized-redirect': '0',
+            },
+          },
+          { fallback: { items: [] } },
+        )
+        if (!call.ok) {
+          if (!cancelled) setPlotFeatures([])
+          return
+        }
+        const features = (Array.isArray(call.result?.items) ? call.result.items : [])
+          .map((plot) => plot.geometry)
+          .filter((geometry) => geometry !== null && geometry !== undefined)
+        if (!cancelled) setPlotFeatures(features)
+      } catch {
+        if (!cancelled) setPlotFeatures([])
+      } finally {
+        if (!cancelled) setPlotsLoading(false)
+      }
+    }
+    loadPlots()
+    return () => {
+      cancelled = true
+    }
+  }, [submissionRows])
+
+  const refreshRecord = React.useCallback(() => {
+    setReloadToken((currentToken) => currentToken + 1)
+  }, [])
+
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'title',
@@ -192,6 +376,18 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
       options: commodityOptions(translate),
     },
     {
+      id: 'activityType',
+      label: translate('eudr.statements.form.activityType'),
+      type: 'select',
+      options: activityTypeOptions(translate),
+    },
+    {
+      id: 'actorRole',
+      label: translate('eudr.statements.form.actorRole'),
+      type: 'select',
+      options: actorRoleOptions(translate),
+    },
+    {
       id: 'referenceNumber',
       label: translate('eudr.statements.form.referenceNumber'),
       type: 'text',
@@ -202,21 +398,48 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
       type: 'text',
     },
     {
-      id: 'status',
-      label: translate('eudr.statements.form.status'),
-      type: 'select',
-      options: statementStatusOptions(translate),
-    },
-    {
       id: 'quantityKg',
       label: translate('eudr.statements.form.quantityKg'),
       type: 'text',
     },
     {
-      id: 'orderId',
-      label: translate('eudr.statements.form.orderId'),
+      id: 'supplementaryUnit',
+      label: translate('eudr.statements.form.supplementaryUnit'),
       type: 'text',
-      description: translate('eudr.form.orderIdHint'),
+    },
+    {
+      id: 'supplementaryQuantity',
+      label: translate('eudr.statements.form.supplementaryQuantity'),
+      type: 'text',
+    },
+    {
+      id: 'orderId',
+      label: translate('eudr.statements.form.order'),
+      type: 'custom',
+      component: ({ id, value, setValue, setFormValue }) => (
+        <OrderSelectField
+          id={id}
+          value={typeof value === 'string' ? value : null}
+          onChange={(nextValue) => setValue(nextValue ?? '')}
+          onSnapshot={(snapshot) => setFormValue?.('orderSnapshot', snapshot)}
+          placeholder={translate('eudr.statements.form.orderPlaceholder')}
+          emptyLabel={translate('eudr.common.empty')}
+          loadError={translate('eudr.statements.form.orderLoadError')}
+        />
+      ),
+    },
+    {
+      id: 'referencedStatements',
+      label: translate('eudr.statements.form.referencedStatements'),
+      type: 'custom',
+      component: ({ id, value, setValue, disabled }) => (
+        <ReferencedStatementsField
+          id={id}
+          value={value}
+          onChange={(nextValue) => setValue(nextValue)}
+          disabled={disabled}
+        />
+      ),
     },
     {
       id: 'notes',
@@ -230,7 +453,20 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
       id: 'details',
       title: translate('eudr.statements.form.details'),
       column: 1,
-      fields: ['title', 'commodity', 'status', 'referenceNumber', 'verificationNumber', 'quantityKg', 'orderId', 'notes'],
+      fields: [
+        'title',
+        'commodity',
+        'activityType',
+        'actorRole',
+        'referenceNumber',
+        'verificationNumber',
+        'quantityKg',
+        'supplementaryUnit',
+        'supplementaryQuantity',
+        'orderId',
+        'referencedStatements',
+        'notes',
+      ],
     },
   ], [translate])
 
@@ -238,7 +474,7 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
     {
       accessorKey: 'supplierEntityId',
       header: translate('eudr.statements.detail.columns.supplier'),
-      cell: ({ row }) => supplierLabel(row.original),
+      cell: ({ row }) => supplierLabel(row.original, translate('eudr.common.recordUnavailable')),
     },
     {
       accessorKey: 'status',
@@ -264,25 +500,33 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
       commodity: record.commodity,
       referenceNumber: record.referenceNumber ?? '',
       verificationNumber: record.verificationNumber ?? '',
-      status: record.status,
+      activityType: record.activityType ?? '',
+      actorRole: record.actorRole ?? '',
+      referencedStatements: Array.isArray(record.referencedStatements) ? record.referencedStatements : [],
       quantityKg: formatQuantityKg(record.quantityKg),
+      supplementaryUnit: record.supplementaryUnit ?? '',
+      supplementaryQuantity: formatOptionalNumber(record.supplementaryQuantity),
       orderId: record.orderId ?? '',
+      orderSnapshot: record.orderSnapshot,
       notes: record.notes ?? '',
       updatedAt: record.updatedAt,
     }
   }, [record])
 
-  const handleExport = React.useCallback(async () => {
+  const handleExport = React.useCallback(async (format: 'json' | 'geojson') => {
     if (!statementId) return
-    setExporting(true)
+    setExportingFormat(format)
     try {
-      const call = await apiCall<unknown>(`/api/eudr/statements/${encodeURIComponent(statementId)}/export`)
+      const suffix = format === 'geojson' ? '?format=geojson' : ''
+      const call = await apiCall<unknown>(`/api/eudr/statements/${encodeURIComponent(statementId)}/export${suffix}`)
       if (!call.ok) throw new Error('[internal] eudr statement export failed')
-      const blob = new Blob([JSON.stringify(call.result ?? {}, null, 2)], { type: 'application/json' })
+      const blob = new Blob([JSON.stringify(call.result ?? {}, null, 2)], {
+        type: format === 'geojson' ? 'application/geo+json' : 'application/json',
+      })
       const objectUrl = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = objectUrl
-      link.download = `eudr-dds-${statementId}.json`
+      link.download = format === 'geojson' ? `eudr-dds-${statementId}.geojson` : `eudr-dds-${statementId}.json`
       document.body.appendChild(link)
       link.click()
       link.remove()
@@ -290,7 +534,7 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
     } catch {
       flash(translate('eudr.statements.detail.exportError'), 'error')
     } finally {
-      setExporting(false)
+      setExportingFormat(null)
     }
   }, [statementId, translate])
 
@@ -331,6 +575,20 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
   return (
     <Page>
       <PageBody>
+        <StatementLifecycleBar
+          statement={{
+            id: record.id,
+            status: record.status,
+            referenceNumber: record.referenceNumber,
+            verificationNumber: record.verificationNumber,
+            referenceIssuedAt: record.referenceIssuedAt,
+            submittedAt: record.submittedAt,
+            updatedAt: record.updatedAt,
+          }}
+          speciesMissing={speciesMissing}
+          onChanged={refreshRecord}
+        />
+
         <CrudForm<StatementFormValues>
           title={translate('eudr.statements.edit.title')}
           backHref="/backend/eudr/statements"
@@ -340,6 +598,18 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
           fields={fields}
           groups={groups}
           initialValues={initialValues}
+          extraActions={(
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => router.push(
+                `/backend/eudr/statements/create?duplicateFrom=${encodeURIComponent(record.id)}`,
+              )}
+            >
+              <Copy className="mr-2 h-4 w-4" aria-hidden />
+              {translate('eudr.statements.duplicateAction')}
+            </Button>
+          )}
           onSubmit={async (values) => {
             const title = optionalText(values.title)
             if (!title) {
@@ -357,9 +627,14 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
               commodity,
               referenceNumber: optionalText(values.referenceNumber),
               verificationNumber: optionalText(values.verificationNumber),
-              status: optionalText(values.status) ?? 'draft',
+              activityType: optionalText(values.activityType),
+              actorRole: optionalText(values.actorRole),
+              referencedStatements: normalizeReferencedStatements(values.referencedStatements),
               quantityKg: optionalNumber(values.quantityKg, translate),
+              supplementaryUnit: optionalText(values.supplementaryUnit),
+              supplementaryQuantity: optionalSupplementaryNumber(values.supplementaryQuantity, translate),
               orderId: optionalText(values.orderId),
+              orderSnapshot: isOrderSnapshot(values.orderSnapshot) ? values.orderSnapshot : null,
               notes: optionalText(values.notes),
             }, {
               errorMessage: translate('eudr.statements.form.updateError'),
@@ -374,14 +649,13 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
           }}
         />
 
+        <StatementRiskSection
+          statementId={record.id}
+          latestRisk={record.latestRisk}
+        />
+
         <section className="space-y-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-lg font-semibold">{translate('eudr.statements.detail.submissions')}</h2>
-            <Button type="button" variant="outline" onClick={() => void handleExport()} disabled={exporting}>
-              <Download className="mr-2 h-4 w-4" aria-hidden />
-              {translate('eudr.statements.detail.export')}
-            </Button>
-          </div>
+          <h2 className="text-lg font-semibold">{translate('eudr.statements.detail.submissions')}</h2>
           <DataTable<LinkedSubmissionRow>
             title={translate('eudr.statements.detail.submissionsTableTitle')}
             columns={submissionColumns}
@@ -398,6 +672,42 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
             perspective={{ tableId: 'eudr.statements.detail.submissions' }}
             disableRowClick
           />
+        </section>
+
+        {plotFeatures.length > 0 ? (
+          <section className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">{translate('eudr.statements.detail.plotMap')}</h2>
+              {plotsLoading ? (
+                <span className="text-sm text-muted-foreground">{translate('eudr.statements.detail.plotMapLoading')}</span>
+              ) : null}
+            </div>
+            <PlotMapPreview features={plotFeatures} />
+          </section>
+        ) : null}
+
+        <section className="space-y-3 rounded-lg border border-border bg-card p-4">
+          <h2 className="text-lg font-semibold">{translate('eudr.statements.detail.exports')}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleExport('json')}
+              disabled={exportingFormat !== null}
+            >
+              <Download className="mr-2 h-4 w-4" aria-hidden />
+              {translate('eudr.statements.detail.export')}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleExport('geojson')}
+              disabled={exportingFormat !== null}
+            >
+              <Download className="mr-2 h-4 w-4" aria-hidden />
+              {translate('eudr.statements.detail.exportGeoJson')}
+            </Button>
+          </div>
         </section>
       </PageBody>
     </Page>

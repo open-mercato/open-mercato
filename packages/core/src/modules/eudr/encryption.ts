@@ -8,6 +8,24 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'notes' },
     ],
   },
+  {
+    entityId: 'eudr:eudr_plot',
+    fields: [
+      { field: 'producer_name' },
+    ],
+  },
+  {
+    entityId: 'eudr:eudr_risk_assessment',
+    fields: [
+      { field: 'notes' },
+    ],
+  },
+  {
+    entityId: 'eudr:eudr_mitigation_action',
+    fields: [
+      { field: 'notes' },
+    ],
+  },
 ]
 
 export default defaultEncryptionMaps

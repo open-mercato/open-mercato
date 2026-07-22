@@ -54,6 +54,8 @@ type ProductMappingSnapshot = {
   hsCode: string | null
   isInScope: boolean
   notes: string | null
+  speciesScientificName: string | null
+  speciesCommonName: string | null
   createdAt: string
   updatedAt: string
   deletedAt: string | null
@@ -113,6 +115,8 @@ function productMappingSeedFromSnapshot(snapshot: ProductMappingSnapshot): Requi
     hsCode: snapshot.hsCode,
     isInScope: snapshot.isInScope,
     notes: snapshot.notes,
+    speciesScientificName: snapshot.speciesScientificName,
+    speciesCommonName: snapshot.speciesCommonName,
     createdAt: new Date(snapshot.createdAt),
     updatedAt: new Date(snapshot.updatedAt),
     deletedAt: toDate(snapshot.deletedAt),
@@ -138,6 +142,8 @@ async function loadProductMappingSnapshot(em: EntityManager, entityId: string): 
     hsCode: record.hsCode ?? null,
     isInScope: record.isInScope,
     notes: record.notes ?? null,
+    speciesScientificName: record.speciesScientificName ?? null,
+    speciesCommonName: record.speciesCommonName ?? null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     deletedAt: record.deletedAt ? record.deletedAt.toISOString() : null,
@@ -177,6 +183,8 @@ function restoreProductMapping(record: EudrProductMapping, snapshot: ProductMapp
   record.hsCode = snapshot.hsCode
   record.isInScope = snapshot.isInScope
   record.notes = snapshot.notes
+  record.speciesScientificName = snapshot.speciesScientificName
+  record.speciesCommonName = snapshot.speciesCommonName
   record.createdAt = new Date(snapshot.createdAt)
   record.updatedAt = new Date(snapshot.updatedAt)
   record.deletedAt = toDate(snapshot.deletedAt)
@@ -245,6 +253,8 @@ const createProductMappingCommand: CommandHandler<ScopedProductMappingCreateInpu
             hsCode: parsed.hsCode ?? null,
             isInScope: parsed.isInScope ?? true,
             notes: parsed.notes ?? null,
+            speciesScientificName: parsed.commodity === 'wood' ? (parsed.speciesScientificName ?? null) : null,
+            speciesCommonName: parsed.commodity === 'wood' ? (parsed.speciesCommonName ?? null) : null,
           })
           entityManager.persist(record)
         },
@@ -378,6 +388,12 @@ const updateProductMappingCommand: CommandHandler<ScopedProductMappingUpdateInpu
           if (parsed.hsCode !== undefined) record.hsCode = parsed.hsCode ?? null
           if (parsed.isInScope !== undefined) record.isInScope = parsed.isInScope
           if (parsed.notes !== undefined) record.notes = parsed.notes ?? null
+          if (parsed.speciesScientificName !== undefined) record.speciesScientificName = parsed.speciesScientificName ?? null
+          if (parsed.speciesCommonName !== undefined) record.speciesCommonName = parsed.speciesCommonName ?? null
+          if (nextCommodity !== 'wood') {
+            record.speciesScientificName = null
+            record.speciesCommonName = null
+          }
         },
       ],
     })

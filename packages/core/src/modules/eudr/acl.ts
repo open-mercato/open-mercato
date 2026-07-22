@@ -20,6 +20,20 @@ export const features = [
     module: 'eudr',
     dependsOn: ['eudr.statements.view'],
   },
+  { id: 'eudr.plots.view', title: 'View EUDR plots', module: 'eudr' },
+  {
+    id: 'eudr.plots.manage',
+    title: 'Manage EUDR plots',
+    module: 'eudr',
+    dependsOn: ['eudr.plots.view'],
+  },
+  { id: 'eudr.risk.view', title: 'View EUDR risk assessments', module: 'eudr' },
+  {
+    id: 'eudr.risk.manage',
+    title: 'Manage EUDR risk assessments',
+    module: 'eudr',
+    dependsOn: ['eudr.risk.view'],
+  },
 ]
 
 export default features

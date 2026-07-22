@@ -1,3 +1,6 @@
 import './product-mappings'
 import './evidence-submissions'
 import './statements'
+import './plots'
+import './risk-assessments'
+import './mitigation-actions'

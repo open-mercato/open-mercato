@@ -4,16 +4,19 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { CollapsibleSection } from '@open-mercato/ui/backend/SectionHeader'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   CompanySelectField,
+  CountrySelectField,
   MappingSelectField,
+  PlotMultiSelectField,
   StatementSelectField,
   commodityOptions,
-  parseAttachmentIdsInput,
   parseGeolocationInput,
   submissionStatusOptions,
   type CompanySnapshot,
@@ -25,6 +28,7 @@ type EvidenceSubmissionFormValues = {
   commodity: string
   productMappingId: string
   statementId: string
+  plotIds: string[]
   originCountry: string
   geolocation: string
   quantityKg: string
@@ -32,7 +36,6 @@ type EvidenceSubmissionFormValues = {
   harvestFrom: string
   harvestTo: string
   producerName: string
-  attachmentIds: string
   status: string
   notes: string
 } & Record<string, unknown>
@@ -61,6 +64,41 @@ function optionalNumber(value: unknown, translate: ReturnType<typeof useT>): num
 
 function isCompanySnapshot(value: unknown): value is CompanySnapshot {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+}
+
+function EvidenceAdvancedFields({
+  values,
+  setValue,
+  translate,
+}: {
+  values: Record<string, unknown>
+  setValue: (id: string, value: unknown) => void
+  translate: ReturnType<typeof useT>
+}) {
+  return (
+    <CollapsibleSection
+      title={translate('eudr.evidenceSubmissions.form.legacyGeolocation')}
+      defaultCollapsed
+      contentClassName="space-y-4"
+    >
+      <div className="space-y-2" data-crud-field-id="geolocation">
+        <label className="text-sm font-medium" htmlFor="eudr-evidence-geolocation">
+          {translate('eudr.evidenceSubmissions.form.geolocation')}
+        </label>
+        <Textarea
+          id="eudr-evidence-geolocation"
+          rows={8}
+          value={typeof values.geolocation === 'string' ? values.geolocation : ''}
+          onChange={(event) => setValue('geolocation', event.target.value)}
+        />
+      </div>
+    </CollapsibleSection>
+  )
 }
 
 export default function CreateEudrEvidenceSubmissionPage() {
@@ -122,17 +160,32 @@ export default function CreateEudrEvidenceSubmissionPage() {
       ),
     },
     {
-      id: 'originCountry',
-      label: translate('eudr.evidenceSubmissions.form.originCountry'),
-      type: 'text',
-      maxLength: 2,
-      description: translate('eudr.form.originCountryHint'),
+      id: 'plotIds',
+      label: translate('eudr.evidenceSubmissions.form.plots'),
+      type: 'custom',
+      component: ({ id, value, setValue, values }) => (
+        <PlotMultiSelectField
+          id={id}
+          value={stringArray(value)}
+          onChange={(nextValue) => setValue(nextValue)}
+          supplierEntityId={typeof values?.supplierEntityId === 'string' ? values.supplierEntityId : null}
+        />
+      ),
     },
     {
-      id: 'geolocation',
-      label: translate('eudr.evidenceSubmissions.form.geolocation'),
-      type: 'textarea',
-      rows: 8,
+      id: 'originCountry',
+      label: translate('eudr.evidenceSubmissions.form.originCountry'),
+      type: 'custom',
+      description: translate('eudr.form.originCountryHint'),
+      component: ({ id, value, setValue, disabled }) => (
+        <CountrySelectField
+          id={id}
+          value={typeof value === 'string' ? value : null}
+          onChange={(nextValue) => setValue(nextValue ?? '')}
+          disabled={disabled}
+          placeholder={translate('eudr.plots.form.originCountryPlaceholder')}
+        />
+      ),
     },
     {
       id: 'quantityKg',
@@ -160,11 +213,14 @@ export default function CreateEudrEvidenceSubmissionPage() {
       type: 'text',
     },
     {
-      id: 'attachmentIds',
-      label: translate('eudr.evidenceSubmissions.form.attachmentIds'),
-      type: 'textarea',
-      rows: 5,
-      description: translate('eudr.form.attachmentIdsHint'),
+      id: 'attachmentsHint',
+      label: translate('eudr.evidenceSubmissions.form.documents'),
+      type: 'custom',
+      component: () => (
+        <div className="rounded-md border border-dashed border-border/70 bg-muted/30 px-3 py-3 text-sm text-muted-foreground">
+          {translate('eudr.evidenceSubmissions.form.attachmentsAfterSave')}
+        </div>
+      ),
     },
     {
       id: 'status',
@@ -184,13 +240,27 @@ export default function CreateEudrEvidenceSubmissionPage() {
       id: 'details',
       title: translate('eudr.evidenceSubmissions.form.details'),
       column: 1,
-      fields: ['supplierEntityId', 'commodity', 'status', 'productMappingId', 'statementId'],
+      fields: ['supplierEntityId', 'commodity', 'status', 'productMappingId', 'statementId', 'plotIds'],
     },
     {
       id: 'evidence',
       title: translate('eudr.evidenceSubmissions.form.evidence'),
       column: 1,
-      fields: ['originCountry', 'geolocation', 'quantityKg', 'batchNumber', 'harvestFrom', 'harvestTo', 'producerName', 'attachmentIds'],
+      fields: ['originCountry', 'quantityKg', 'batchNumber', 'harvestFrom', 'harvestTo', 'producerName'],
+    },
+    {
+      id: 'documents',
+      title: translate('eudr.evidenceSubmissions.form.documents'),
+      column: 1,
+      fields: ['attachmentsHint'],
+    },
+    {
+      id: 'advanced',
+      column: 1,
+      bare: true,
+      component: ({ values, setValue }) => (
+        <EvidenceAdvancedFields values={values} setValue={setValue} translate={translate} />
+      ),
     },
     {
       id: 'notes',
@@ -216,6 +286,7 @@ export default function CreateEudrEvidenceSubmissionPage() {
             commodity: '',
             productMappingId: '',
             statementId: '',
+            plotIds: [],
             originCountry: '',
             geolocation: '',
             quantityKg: '',
@@ -223,7 +294,6 @@ export default function CreateEudrEvidenceSubmissionPage() {
             harvestFrom: '',
             harvestTo: '',
             producerName: '',
-            attachmentIds: '',
             status: 'draft',
             notes: '',
           }}
@@ -238,12 +308,13 @@ export default function CreateEudrEvidenceSubmissionPage() {
               const message = translate('eudr.evidenceSubmissions.form.commodityRequired')
               throw createCrudFormError(message, { commodity: message })
             }
-            await createCrud('eudr/evidence-submissions', {
+            const call = await createCrud<{ id?: string | null }>('eudr/evidence-submissions', {
               supplierEntityId,
               supplierSnapshot: isCompanySnapshot(values.supplierSnapshot) ? values.supplierSnapshot : null,
               commodity,
               productMappingId: optionalText(values.productMappingId),
               statementId: optionalText(values.statementId),
+              plotIds: stringArray(values.plotIds),
               originCountry: optionalUpperText(values.originCountry),
               geolocation: parseGeolocationInput(typeof values.geolocation === 'string' ? values.geolocation : '', translate),
               quantityKg: optionalNumber(values.quantityKg, translate),
@@ -251,14 +322,19 @@ export default function CreateEudrEvidenceSubmissionPage() {
               harvestFrom: optionalText(values.harvestFrom),
               harvestTo: optionalText(values.harvestTo),
               producerName: optionalText(values.producerName),
-              attachmentIds: parseAttachmentIdsInput(typeof values.attachmentIds === 'string' ? values.attachmentIds : ''),
               status: optionalText(values.status) ?? 'draft',
               notes: optionalText(values.notes),
             }, {
               errorMessage: translate('eudr.evidenceSubmissions.form.createError'),
             })
-            flash(translate('eudr.evidenceSubmissions.form.createSuccess'), 'success')
-            router.push('/backend/eudr/evidence-submissions')
+            const createdId = optionalText(call.result?.id)
+            if (createdId) {
+              flash(translate('eudr.evidence.attachAfterCreateHint'), 'success')
+              router.push(`/backend/eudr/evidence-submissions/${createdId}`)
+            } else {
+              flash(translate('eudr.evidenceSubmissions.form.createSuccess'), 'success')
+              router.push('/backend/eudr/evidence-submissions')
+            }
           }}
         />
       </PageBody>

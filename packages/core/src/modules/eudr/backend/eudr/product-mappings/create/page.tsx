@@ -19,6 +19,8 @@ type ProductMappingFormValues = {
   productSnapshot: ProductSnapshot | null
   commodity: string
   hsCode: string
+  speciesScientificName: string
+  speciesCommonName: string
   isInScope: boolean
   notes: string
 } & Record<string, unknown>
@@ -67,6 +69,22 @@ export default function CreateEudrProductMappingPage() {
       type: 'text',
     },
     {
+      id: 'speciesScientificName',
+      label: translate('eudr.productMappings.speciesScientificName'),
+      type: 'text',
+      description: translate('eudr.productMappings.speciesHint'),
+      maxLength: 256,
+      visibleWhen: { field: 'commodity', equals: 'wood' },
+    },
+    {
+      id: 'speciesCommonName',
+      label: translate('eudr.productMappings.speciesCommonName'),
+      type: 'text',
+      description: translate('eudr.productMappings.speciesHint'),
+      maxLength: 256,
+      visibleWhen: { field: 'commodity', equals: 'wood' },
+    },
+    {
       id: 'isInScope',
       label: translate('eudr.productMappings.form.isInScope'),
       type: 'checkbox',
@@ -84,7 +102,15 @@ export default function CreateEudrProductMappingPage() {
       id: 'details',
       title: translate('eudr.productMappings.form.details'),
       column: 1,
-      fields: ['productId', 'commodity', 'hsCode', 'isInScope', 'notes'],
+      fields: [
+        'productId',
+        'commodity',
+        'hsCode',
+        'speciesScientificName',
+        'speciesCommonName',
+        'isInScope',
+        'notes',
+      ],
     },
   ], [translate])
 
@@ -103,6 +129,8 @@ export default function CreateEudrProductMappingPage() {
             productSnapshot: null,
             commodity: '',
             hsCode: '',
+            speciesScientificName: '',
+            speciesCommonName: '',
             isInScope: true,
             notes: '',
           }}
@@ -121,6 +149,10 @@ export default function CreateEudrProductMappingPage() {
               productId,
               commodity,
               hsCode: optionalText(values.hsCode),
+              ...(commodity === 'wood' ? {
+                speciesScientificName: optionalText(values.speciesScientificName),
+                speciesCommonName: optionalText(values.speciesCommonName),
+              } : {}),
               isInScope: values.isInScope !== false,
               notes: optionalText(values.notes),
               productSnapshot: isProductSnapshot(values.productSnapshot) ? values.productSnapshot : null,
