@@ -40,6 +40,10 @@ Land the `engine.io` 6.6.5 → 6.6.9 update (including its patched `ws` dependen
 - Transitive dependency resolution may differ on `develop`; the lockfile diff and install validation must be inspected before publication.
 - Closing PR #4347 is deferred until the replacement PR exists so the security update remains traceable.
 
+## Outcome
+
+The attempted cherry-pick exposed a lockfile conflict because `develop` already contains the complete dependency remediation in commit `3140fbb3d` (`fix(deps): patch high-severity audit advisories in transitive deps`). After aborting the cherry-pick, the working `yarn.lock` matched `origin/develop` byte-for-byte. No dependency change is required; PR #4351 exists only as the workflow audit trail and should be closed without merge after recording verification.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
