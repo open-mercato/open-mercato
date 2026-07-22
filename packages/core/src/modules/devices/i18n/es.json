@@ -8,6 +8,7 @@
   "devices.errors.not_found": "Dispositivo no encontrado",
   "devices.errors.register_failed": "No se pudo registrar el dispositivo",
   "devices.errors.unauthorized": "No autorizado",
+  "devices.errors.user_not_found": "Usuario de destino no encontrado en este inquilino",
   "devices.errors.update_failed": "No se pudo actualizar el dispositivo",
   "devices.form.appVersion": "Versión de la app",
   "devices.form.createTitle": "Registrar dispositivo",

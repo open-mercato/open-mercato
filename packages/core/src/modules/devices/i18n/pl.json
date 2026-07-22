@@ -8,6 +8,7 @@
   "devices.errors.not_found": "Nie znaleziono urządzenia",
   "devices.errors.register_failed": "Nie udało się zarejestrować urządzenia",
   "devices.errors.unauthorized": "Brak autoryzacji",
+  "devices.errors.user_not_found": "Nie znaleziono użytkownika docelowego w tym najemcy",
   "devices.errors.update_failed": "Nie udało się zaktualizować urządzenia",
   "devices.form.appVersion": "Wersja aplikacji",
   "devices.form.createTitle": "Zarejestruj urządzenie",

@@ -8,6 +8,7 @@
   "devices.errors.not_found": "Gerät nicht gefunden",
   "devices.errors.register_failed": "Gerät konnte nicht registriert werden",
   "devices.errors.unauthorized": "Nicht autorisiert",
+  "devices.errors.user_not_found": "Zielbenutzer in diesem Mandanten nicht gefunden",
   "devices.errors.update_failed": "Gerät konnte nicht aktualisiert werden",
   "devices.form.appVersion": "App-Version",
   "devices.form.createTitle": "Gerät registrieren",

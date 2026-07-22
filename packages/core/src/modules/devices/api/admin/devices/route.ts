@@ -1,9 +1,12 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -78,6 +81,28 @@ export async function POST(req: Request) {
     const body = registerDeviceAdminSchema.parse(await readJsonSafe(req, {}))
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     const organizationId = scope?.selectedId ?? auth.orgId ?? null
+
+    // Validate the on-behalf-of target before registering. `body.userId` is caller-supplied, and the
+    // fan-out delivers by `(tenant, org, user)` — so without this an admin could register their OWN push
+    // token under an arbitrary `userId` (even a non-existent or cross-tenant one) and start receiving that
+    // user's notifications. Require a real, active user in the admin's tenant who is also within the
+    // admin's organization scope (org-restricted admins cannot reach users in orgs they can't access).
+    // Only non-encrypted columns are selected, so no decryption is needed.
+    const em = container.resolve('em') as EntityManager
+    const targetUser = await em.findOne(
+      User,
+      { id: body.userId, tenantId: auth.tenantId, deletedAt: null },
+      { fields: ['id', 'organizationId'] },
+    )
+    if (!targetUser) {
+      return NextResponse.json(
+        { error: translate('devices.errors.user_not_found', 'Target user not found in this tenant') },
+        { status: 400 },
+      )
+    }
+    if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: targetUser.organizationId ?? null })) {
+      return NextResponse.json({ error: translate('devices.errors.forbidden', 'Access denied') }, { status: 403 })
+    }
 
     // Register is an idempotent upsert keyed per (tenant, org, user, device). organizationId is the
     // admin's own resolved scope, so the upsert can only ever touch a row inside an org the admin can
