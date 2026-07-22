@@ -173,6 +173,7 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'supplierEntityId',
+      layout: 'half',
       label: translate('eudr.plots.form.supplier'),
       type: 'custom',
       required: true,
@@ -259,13 +260,11 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
     },
     {
       id: 'producerName',
-      layout: 'half',
       label: translate('eudr.plots.form.producerName'),
       type: 'text',
     },
     {
       id: 'isActive',
-      layout: 'half',
       label: translate('eudr.plots.form.isActive'),
       type: 'custom',
       component: ({ value, setValue, disabled }) => (
@@ -283,7 +282,38 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
       id: 'details',
       title: translate('eudr.plots.form.details'),
       column: 1,
-      fields: ['supplierEntityId', 'name', 'externalId', 'description', 'originCountry', 'geometry', 'areaHa', 'producerName', 'isActive'],
+      fields: [
+        'supplierEntityId',
+        'name',
+        'externalId',
+        'originCountry',
+      ],
+    },
+    {
+      id: 'geometry',
+      title: translate('eudr.plots.form.geometry'),
+      column: 1,
+      fields: [
+        'geometry',
+        'areaHa',
+      ],
+    },
+    {
+      id: 'attributes',
+      title: translate('eudr.common.attributes'),
+      column: 2,
+      fields: [
+        'producerName',
+        'isActive',
+      ],
+    },
+    {
+      id: 'notes',
+      title: translate('eudr.common.notes'),
+      column: 2,
+      fields: [
+        'description',
+      ],
     },
   ], [translate])
 

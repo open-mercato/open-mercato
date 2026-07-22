@@ -392,13 +392,11 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
     },
     {
       id: 'referenceNumber',
-      layout: 'half',
       label: translate('eudr.statements.form.referenceNumber'),
       type: 'text',
     },
     {
       id: 'verificationNumber',
-      layout: 'half',
       label: translate('eudr.statements.form.verificationNumber'),
       type: 'text',
     },
@@ -466,13 +464,48 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
         'commodity',
         'activityType',
         'actorRole',
-        'referenceNumber',
-        'verificationNumber',
+      ],
+    },
+    {
+      id: 'quantities',
+      title: translate('eudr.statements.form.quantities'),
+      column: 1,
+      fields: [
         'quantityKg',
         'supplementaryUnit',
         'supplementaryQuantity',
-        'orderId',
+      ],
+    },
+    {
+      id: 'referenced',
+      title: translate('eudr.statements.form.referencedStatements'),
+      column: 1,
+      fields: [
         'referencedStatements',
+      ],
+    },
+    {
+      id: 'registration',
+      title: translate('eudr.statements.form.registration'),
+      column: 2,
+      fields: [
+        'referenceNumber',
+        'verificationNumber',
+      ],
+    },
+    {
+      id: 'order',
+      title: translate('eudr.statements.form.order'),
+      column: 2,
+      fields: [
+        'orderId',
+      ],
+    },
+    {
+      id: 'notes',
+      title: translate('eudr.common.notes'),
+      column: 2,
+      fields: [
         'notes',
       ],
     },

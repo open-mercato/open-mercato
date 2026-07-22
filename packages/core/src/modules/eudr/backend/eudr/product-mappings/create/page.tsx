@@ -42,6 +42,7 @@ export default function CreateEudrProductMappingPage() {
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'productId',
+      layout: 'half',
       label: translate('eudr.productMappings.form.product'),
       type: 'custom',
       required: true,
@@ -89,7 +90,6 @@ export default function CreateEudrProductMappingPage() {
     },
     {
       id: 'isInScope',
-      layout: 'half',
       label: translate('eudr.productMappings.form.isInScope'),
       type: 'checkbox',
       defaultValue: true,
@@ -112,7 +112,21 @@ export default function CreateEudrProductMappingPage() {
         'hsCode',
         'speciesScientificName',
         'speciesCommonName',
+      ],
+    },
+    {
+      id: 'classification',
+      title: translate('eudr.common.classification'),
+      column: 2,
+      fields: [
         'isInScope',
+      ],
+    },
+    {
+      id: 'notes',
+      title: translate('eudr.common.notes'),
+      column: 2,
+      fields: [
         'notes',
       ],
     },

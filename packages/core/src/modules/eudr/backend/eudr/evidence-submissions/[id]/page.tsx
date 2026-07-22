@@ -208,6 +208,7 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'supplierEntityId',
+      layout: 'half',
       label: translate('eudr.evidenceSubmissions.form.supplier'),
       type: 'custom',
       required: true,
@@ -232,6 +233,7 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
     },
     {
       id: 'productMappingId',
+      layout: 'half',
       label: translate('eudr.evidenceSubmissions.form.productMapping'),
       type: 'custom',
       component: ({ id, value, setValue }) => (
@@ -247,6 +249,7 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
     },
     {
       id: 'statementId',
+      layout: 'half',
       label: translate('eudr.evidenceSubmissions.form.statement'),
       type: 'custom',
       component: ({ id, value, setValue }) => (
@@ -321,7 +324,6 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
     },
     {
       id: 'status',
-      layout: 'half',
       label: translate('eudr.evidenceSubmissions.form.status'),
       type: 'select',
       options: submissionStatusOptions(translate),
@@ -338,27 +340,42 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
       id: 'details',
       title: translate('eudr.evidenceSubmissions.form.details'),
       column: 1,
-      fields: ['supplierEntityId', 'commodity', 'status', 'productMappingId', 'statementId', 'plotIds'],
+      fields: [
+        'supplierEntityId',
+        'commodity',
+        'productMappingId',
+        'statementId',
+        'plotIds',
+      ],
     },
     {
       id: 'evidence',
       title: translate('eudr.evidenceSubmissions.form.evidence'),
       column: 1,
-      fields: ['originCountry', 'quantityKg', 'batchNumber', 'harvestFrom', 'harvestTo', 'producerName'],
+      fields: [
+        'originCountry',
+        'quantityKg',
+        'batchNumber',
+        'harvestFrom',
+        'harvestTo',
+        'producerName',
+      ],
     },
     {
-      id: 'advanced',
-      column: 1,
-      bare: true,
-      component: ({ values, setValue }) => (
-        <EvidenceAdvancedFields values={values} setValue={setValue} translate={translate} />
-      ),
+      id: 'classification',
+      title: translate('eudr.common.classification'),
+      column: 2,
+      fields: [
+        'status',
+      ],
     },
     {
       id: 'notes',
-      title: translate('eudr.evidenceSubmissions.form.notesGroup'),
-      column: 1,
-      fields: ['notes'],
+      title: translate('eudr.common.notes'),
+      column: 2,
+      fields: [
+        'notes',
+      ],
     },
   ], [translate])
 

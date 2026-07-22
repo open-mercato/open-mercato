@@ -93,6 +93,7 @@ export default function CreateEudrRiskAssessmentPage() {
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'statementId',
+      layout: 'half',
       label: translate('eudr.riskAssessments.form.statement'),
       type: 'custom',
       required: true,
@@ -155,7 +156,28 @@ export default function CreateEudrRiskAssessmentPage() {
       id: 'details',
       title: translate('eudr.riskAssessments.form.details'),
       column: 1,
-      fields: ['statementId', 'conclusion', 'assessedAt', 'reviewDueAt', 'criteria', 'notes'],
+      fields: [
+        'statementId',
+        'conclusion',
+        'assessedAt',
+        'reviewDueAt',
+      ],
+    },
+    {
+      id: 'criteria',
+      title: translate('eudr.riskAssessments.form.criteria'),
+      column: 1,
+      fields: [
+        'criteria',
+      ],
+    },
+    {
+      id: 'notes',
+      title: translate('eudr.common.notes'),
+      column: 2,
+      fields: [
+        'notes',
+      ],
     },
   ], [translate])
 
