@@ -93,6 +93,28 @@ describe('shouldDeliver', () => {
     expect(channels).toEqual(['in_app', 'push'])
   })
 
+  it('warns once when an unregistered type escapes governance to user preferences', async () => {
+    jest.resetModules()
+    const warn = jest.fn()
+    jest.doMock('@open-mercato/shared/lib/logger', () => ({
+      createLogger: () => ({ child: () => ({ warn }) }),
+    }))
+    const { shouldDeliver: gate } = require('../shouldDeliver') as typeof import('../shouldDeliver')
+    const params = {
+      typeId: 'security.renamed',
+      type: undefined,
+      scope: SCOPE,
+      registeredChannels: REGISTERED,
+      preferences: prefs(),
+      channel: 'push',
+    }
+    await gate(params)
+    await gate({ ...params, channel: 'in_app' }) // same typeId again → deduped
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][1]).toEqual({ typeId: 'security.renamed' })
+    jest.dontMock('@open-mercato/shared/lib/logger')
+  })
+
   it('empty per-send target resolves to nothing deliverable', async () => {
     const channels = await resolveEffectiveChannels(base({ targetChannels: [] }))
     expect(channels).toEqual([])
