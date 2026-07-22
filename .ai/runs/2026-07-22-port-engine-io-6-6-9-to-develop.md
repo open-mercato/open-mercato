@@ -58,4 +58,4 @@ PR: #4351
 ### Phase 2: Validate and publish
 
 - [x] 2.1 Run targeted checks and the configured validation gate — docs/no-change path; immutable install and lock assertions passed
-- [ ] 2.2 Review, finalize the replacement PR, and close PR #4347
+- [x] 2.2 Review, finalize the replacement PR, and close PR #4347 — no-action review complete; PR #4347 closed
