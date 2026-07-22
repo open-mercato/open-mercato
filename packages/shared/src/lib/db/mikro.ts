@@ -152,6 +152,18 @@ export async function getOrm() {
       options: connectionOptions,
       ssl: sslConfig,
       onPoolCreated: (pool: any) => {
+        // node-postgres re-emits errors from IDLE pooled clients on the pool's
+        // 'error' event. Postgres terminates idle sessions on its own (admin
+        // termination, network drop, and — most relevantly for long-running
+        // daemons like the scheduler — `idle_in_transaction_session_timeout`,
+        // which defaults to 120s above). Without a listener here, such a
+        // termination surfaces as an unhandled 'error' event and crashes the
+        // whole process (e.g. "Scheduler polling engine exited unexpectedly
+        // with exit code 1"). Swallow it: the pool discards the dead client and
+        // opens a fresh connection on the next acquire.
+        pool.on('error', (err: unknown) => {
+          logger.warn('Idle pg pool client error (connection reaped/terminated)', { err })
+        })
         if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
           logger.info('pg pool created with options', {
             max: pool.options?.max,
