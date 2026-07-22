@@ -10,10 +10,42 @@ import type { FormField } from '../components/fields/FormFieldArrayEditor'
 import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { Mapping } from '../components/fields/MappingArrayEditor'
 import type { StartPreCondition } from '../components/fields/StartPreConditionsEditor'
+import type { AgentInvokeConfigValue } from '../components/fields/AgentInvokeConfigField'
+import type { InvokeAgentConfig } from '../data/validators'
 import { sanitizeId } from './graph-utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
+
+// Signal name the INVOKE_AGENT step parks on when a proposal is routed to a
+// human. Mirrors INVOKE_AGENT_SIGNAL_NAME in lib/activity-executor.ts —
+// duplicated here to avoid pulling server-only deps into the client bundle.
+const INVOKE_AGENT_SIGNAL_NAME = 'agent_orchestrator.proposal.ready'
+
+type InvokeAgentActivity = {
+  activityId?: string
+  activityName?: string
+  activityType?: string
+  config?: Partial<InvokeAgentConfig>
+}
+
+function findInvokeAgentActivity(node: Node): InvokeAgentActivity | undefined {
+  const activities = (node.data as any)?.activities as InvokeAgentActivity[] | undefined
+  if (!Array.isArray(activities)) return undefined
+  return activities.find((activity) => activity?.activityType === 'INVOKE_AGENT')
+}
+
+function findInvokeAgentConfig(node: Node): Partial<InvokeAgentConfig> {
+  return findInvokeAgentActivity(node)?.config || {}
+}
+
+function mappingsToRecord(rows: Mapping[] | undefined): Record<string, string> {
+  return (rows || []).reduce<Record<string, string>>((acc, row) => {
+    const key = row.key.trim()
+    if (key) acc[key] = row.value
+    return acc
+  }, {})
+}
 
 /**
  * Form values interface matching CrudForm field structure
@@ -50,6 +82,9 @@ export interface NodeFormValues {
 
   // Start node pre-conditions
   preConditions?: StartPreCondition[]
+
+  // InvokeAgent fields
+  agentConfig?: AgentInvokeConfigValue
 
   // Advanced configuration (JSON)
   advancedConfig?: string
@@ -208,6 +243,31 @@ export function nodeToFormValues(node: Node): NodeFormValues {
     values.preConditions = []
   }
 
+  // InvokeAgent fields. The node stores its config on the single INVOKE_AGENT
+  // activity inside node.data.activities (see formValuesToNodeUpdates).
+  if (node.type === 'invokeAgent') {
+    const config = findInvokeAgentConfig(node)
+    const inputEntries = Object.entries(config.input || {})
+    const onResult = config.onResult
+    values.agentConfig = {
+      agentId: config.agentId || '',
+      inputs:
+        inputEntries.length > 0
+          ? inputEntries.map(([key, value]) => ({
+              key,
+              value: typeof value === 'string' ? value : JSON.stringify(value),
+            }))
+          : [{ key: 'dealId', value: '{{deal.id}}' }],
+      resultMode: onResult && 'alwaysAsk' in onResult ? 'alwaysAsk' : 'autoApprove',
+      autoApproveThreshold:
+        onResult && 'autoApproveThreshold' in onResult ? String(onResult.autoApproveThreshold) : '0.8',
+      outputs: Object.entries(config.outputMapping || {}).map(([key, value]) => ({
+        key,
+        value: String(value),
+      })),
+    }
+  }
+
   // Advanced config (preserve all fields not explicitly handled)
   const advancedFields: any = {}
   if (nodeData?.userTaskConfig) {
@@ -338,6 +398,45 @@ export function formValuesToNodeUpdates(
     } else {
       updates.preConditions = []
     }
+  }
+
+  // InvokeAgent step. Compiles to an AUTOMATED step (mapped in graph-utils)
+  // carrying ONE INVOKE_AGENT activity plus a signalConfig so the step-handler
+  // can park-and-resume the human path. Mirrors the legacy NodeEditDialog.
+  if (node.type === 'invokeAgent') {
+    const agent = values.agentConfig
+    const existingActivity = findInvokeAgentActivity(node)
+    const existingConfig = existingActivity?.config || {}
+    const outputMapping = mappingsToRecord(agent?.outputs)
+
+    const onResult: InvokeAgentConfig['onResult'] =
+      agent?.resultMode === 'alwaysAsk'
+        ? { alwaysAsk: true }
+        : { autoApproveThreshold: Number.parseFloat(agent?.autoApproveThreshold ?? '') || 0 }
+
+    const config: InvokeAgentConfig = {
+      // Preserve config the visual editor does not expose (e.g. `subject`).
+      ...existingConfig,
+      agentId: agent?.agentId || '',
+      input: mappingsToRecord(agent?.inputs),
+      onResult,
+    }
+    if (Object.keys(outputMapping).length > 0) {
+      config.outputMapping = outputMapping
+    } else {
+      delete config.outputMapping
+    }
+
+    updates.agentId = config.agentId || undefined
+    updates.activities = [
+      {
+        activityId: existingActivity?.activityId || 'invoke_agent',
+        activityName: existingActivity?.activityName || 'Invoke Agent',
+        activityType: 'INVOKE_AGENT',
+        config,
+      },
+    ]
+    updates.signalConfig = { signalName: INVOKE_AGENT_SIGNAL_NAME }
   }
 
   // Parse advanced config (JSON) and merge

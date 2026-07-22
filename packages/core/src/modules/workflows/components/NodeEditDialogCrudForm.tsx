@@ -8,12 +8,14 @@ import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Trash2 } from 'lucide-react'
 import { CrudForm, type CrudFormGroup, type CrudField, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { FormFieldArrayEditor } from './fields/FormFieldArrayEditor'
 import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
 import { MappingArrayEditor } from './fields/MappingArrayEditor'
 import { WorkflowSelectorField } from './fields/WorkflowSelectorField'
 import { StartPreConditionsEditor } from './fields/StartPreConditionsEditor'
+import { AgentInvokeConfigField } from './fields/AgentInvokeConfigField'
 import { nodeToFormValues, formValuesToNodeUpdates, isJsonSchemaFormat, type NodeFormValues } from '../lib/nodeFormTransforms'
 import { sanitizeId } from '../lib/graph-utils'
 
@@ -57,6 +59,7 @@ export interface NodeEditDialogCrudFormProps {
  * - decision: Basic fields only
  */
 export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete }: NodeEditDialogCrudFormProps) {
+  const t = useT()
   const [initialValues, setInitialValues] = useState<Partial<NodeFormValues>>({})
   const [showJsonSchemaWarning, setShowJsonSchemaWarning] = useState(false)
 
@@ -260,6 +263,27 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       ]
     }
 
+    // InvokeAgent specific groups
+    if (node.type === 'invokeAgent') {
+      return [
+        ...baseGroups,
+        {
+          id: 'invokeAgent',
+          title: t('workflows.form.invokeAgent.sectionTitle'),
+          column: 1,
+          description: t('workflows.form.invokeAgent.sectionDescription'),
+          fields: ['agentConfig'],
+        },
+        {
+          id: 'advanced',
+          title: 'Advanced Configuration',
+          column: 1,
+          description: 'Additional JSON configuration',
+          fields: ['advancedConfig'],
+        },
+      ]
+    }
+
     // Decision and other types: just basic fields + advanced
     return [
       ...baseGroups,
@@ -271,7 +295,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         fields: ['advancedConfig'],
       },
     ]
-  }, [node])
+  }, [node, t])
 
   // Define all possible form fields (only relevant ones are used based on groups)
   const fields: CrudField[] = useMemo(() => [
@@ -419,6 +443,14 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       type: 'text',
       placeholder: 'PT5M',
       description: 'How long to wait for the signal (ISO 8601 duration)',
+    },
+
+    // InvokeAgent configuration
+    {
+      id: 'agentConfig',
+      label: '',
+      type: 'custom',
+      component: (props) => <AgentInvokeConfigField {...props} value={props.value as any} />,
     },
 
     // Advanced configuration
