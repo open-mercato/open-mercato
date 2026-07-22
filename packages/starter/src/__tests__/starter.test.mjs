@@ -11,7 +11,8 @@ import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '.
 import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, buildToolchainStep, clearConvergenceState, listMigrationModules, migrationsFingerprint, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
+import { StepBlocked, buildToolchainStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
+import { ensureEnvFiles, postgresVolumeName } from '../env-setup.mjs'
 import { checkBuildToolchain } from '../doctor.mjs'
 
 function makeTempDir(prefix) {
@@ -356,4 +357,98 @@ test('buildToolchainStep warns instead of blocking when the workspace install al
   // A pending lockfile change re-arms the hard block.
   fs.writeFileSync(path.join(repo, 'yarn.lock'), 'changed\n')
   await assert.rejects(() => buildToolchainStep.check(ctx), (error) => error instanceof StepBlocked)
+})
+
+test('postgresVolumeName picks the volume the current mode actually mounts', () => {
+  assert.equal(postgresVolumeName('hybrid'), 'mercato-postgres-data')
+  assert.equal(postgresVolumeName('hybrid', 'staging'), 'mercato-postgres-data')
+  assert.equal(postgresVolumeName('docker'), 'mercato-postgres-data-local')
+  assert.equal(postgresVolumeName('docker', 'staging'), 'mercato-postgres-data-staging')
+})
+
+function makeFakeAppRepo() {
+  const repo = makeFakeRepo()
+  fs.mkdirSync(path.join(repo, 'apps', 'mercato'), { recursive: true })
+  fs.writeFileSync(
+    path.join(repo, 'apps', 'mercato', '.env.example'),
+    'DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato\nJWT_SECRET=change-me\nAUTH_SECRET=change-me\nLOOKUP_HASH_PEPPER=change-me\n',
+  )
+  return repo
+}
+
+test('ensureEnvFiles generates postgres credentials on a fresh machine and threads them into DATABASE_URL', () => {
+  const repo = makeFakeAppRepo()
+  ensureEnvFiles(repo, { log: () => {}, warn: () => {}, postgresVolumeExistsImpl: () => false })
+  const password = readEnvValue(path.join(repo, '.env'), 'POSTGRES_PASSWORD')
+  assert.ok(password)
+  assert.equal(
+    readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL'),
+    `postgres://postgres:${password}@127.0.0.1:5432/open-mercato`,
+  )
+})
+
+test('ensureEnvFiles keeps compose defaults for an existing volume but still writes a 127.0.0.1 DATABASE_URL', () => {
+  const repo = makeFakeAppRepo()
+  const warnings = []
+  ensureEnvFiles(repo, { log: () => {}, warn: (line) => warnings.push(line), postgresVolumeExistsImpl: () => true })
+  assert.equal(readEnvValue(path.join(repo, '.env'), 'POSTGRES_PASSWORD'), null)
+  // The .env.example default says localhost, which breaks on Windows (::1);
+  // the rewrite must not depend on a password having been generated.
+  assert.equal(
+    readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL'),
+    'postgres://postgres:postgres@127.0.0.1:5432/open-mercato',
+  )
+  assert.ok(warnings.some((line) => line.includes('mercato-postgres-data')))
+})
+
+test('probePostgresCredentials probes the container IP (not loopback) and classifies password mismatches', () => {
+  const repo = makeFakeRepo()
+  fs.mkdirSync(path.join(repo, 'apps', 'mercato'), { recursive: true })
+  fs.writeFileSync(
+    path.join(repo, 'apps', 'mercato', '.env'),
+    "DATABASE_URL=postgres://app:s3c%40ret@127.0.0.1:5432/open-mercato\n",
+  )
+  const ctx = { repoRoot: repo }
+
+  let seenArgs
+  const okCompose = (root, args) => {
+    seenArgs = args
+    return { status: 0, stdout: '1\n', stderr: '' }
+  }
+  assert.equal(probePostgresCredentials(ctx, { runComposeImpl: okCompose }), 'ok')
+  // Credentials ride in -e env vars (URL-decoded), never in the shell string.
+  assert.ok(seenArgs.includes('PGPASSWORD=s3c@ret'))
+  assert.ok(seenArgs.includes('PGUSER=app'))
+  const shellCmd = seenArgs[seenArgs.length - 1]
+  assert.match(shellCmd, /hostname -i/)
+  assert.doesNotMatch(shellCmd, /127\.0\.0\.1/)
+  assert.doesNotMatch(shellCmd, /s3c@ret/)
+
+  const authFailCompose = () => ({ status: 2, stdout: '', stderr: 'psql: error: FATAL:  password authentication failed for user "app"' })
+  assert.equal(probePostgresCredentials(ctx, { runComposeImpl: authFailCompose }), 'auth-failed')
+
+  const downCompose = () => ({ status: 1, stdout: '', stderr: 'service "postgres" is not running' })
+  assert.equal(probePostgresCredentials(ctx, { runComposeImpl: downCompose }), null)
+
+  const throwingCompose = () => {
+    throw new Error('docker compose could not be executed')
+  }
+  assert.equal(probePostgresCredentials(ctx, { runComposeImpl: throwingCompose }), null)
+
+  // No app .env at all: no verdict, never a block.
+  assert.equal(probePostgresCredentials({ repoRoot: makeFakeRepo() }, { runComposeImpl: okCompose }), null)
+})
+
+test('databaseIsInitialized reads the seeded-users probe and tolerates a missing table or a down probe', () => {
+  const repo = makeFakeRepo()
+  fs.mkdirSync(path.join(repo, 'apps', 'mercato'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/open-mercato\n')
+  const ctx = { repoRoot: repo }
+
+  assert.equal(databaseIsInitialized(ctx, { runComposeImpl: () => ({ status: 0, stdout: '3\n' }) }), true)
+  assert.equal(databaseIsInitialized(ctx, { runComposeImpl: () => ({ status: 0, stdout: '0\n' }) }), false)
+  // to_regclass guard returns -1 when the users table does not exist yet.
+  assert.equal(databaseIsInitialized(ctx, { runComposeImpl: () => ({ status: 0, stdout: '-1\n' }) }), false)
+  assert.equal(databaseIsInitialized(ctx, { runComposeImpl: () => ({ status: 1, stdout: '' }) }), null)
+  assert.equal(databaseIsInitialized(ctx, { runComposeImpl: () => { throw new Error('down') } }), null)
 })
