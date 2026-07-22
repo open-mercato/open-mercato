@@ -238,7 +238,8 @@ overrides: {
 Nulling an ACL feature is a **runtime deny-list**, not just catalog cleanup. Beyond
 hiding the feature from role-management checkboxes and default-role seeding, a
 removed feature is denied by `RbacService.userHasAllFeatures` /
-`tenantHasFeature` for every caller — including super admins, wildcard grants
+`tenantHasFeature` and the portal `CustomerRbacService.userHasAllFeatures`
+for every caller — including super admins, portal admins, wildcard grants
 (`catalog.*`, `*`), and stale explicit grants persisted in existing role/user
 ACLs — mirroring how disabled modules are enforced. To hide a feature from the
 role UI without denying it, replace it instead of nulling it.

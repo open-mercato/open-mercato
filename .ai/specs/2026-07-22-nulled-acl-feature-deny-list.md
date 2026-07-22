@@ -55,21 +55,53 @@ super admins):
     grant list (wildcards pass through; consumers matching against a concrete
     required id go through `userHasAllFeatures` / feature-check for
     authoritative answers).
+- `CustomerRbacService` (core customer_accounts, portal RBAC):
+  - `userHasAllFeatures()` denies removed required features **before** the
+    portal-admin branch, mirroring the backend super-admin handling. (Portal
+    RBAC still has no module-level grant filtering — that pre-existing gap is
+    orthogonal to this spec.)
 
-### Known limitation
+### Residual gaps and why they are out of scope
 
-Pure grant-side matching surfaces (client-side `hasFeature` against
-`BackendChromePayload.grantedFeatures`, guard lists evaluated with the shared
-`hasAllFeatures` against a raw grant array) can still show UI affordances when
-a wildcard grant covers a removed feature — a deny cannot be expressed in
-grant strings alone, and `security/features.ts` must stay isomorphic/pure.
-Server-side enforcement (`userHasAllFeatures`, `/api/auth/feature-check`,
-page/API guards, `tenantHasFeature`) is authoritative, so such affordances
-fail closed with a 403. Shipping a denied-feature list to the client chrome is
-a possible follow-up if the cosmetic gap matters.
+The deny-list lives at the RBAC chokepoints. Two classes of call sites match
+raw grant arrays directly and therefore still let a wildcard grant satisfy a
+removed feature. They were triaged deliberately:
 
-Portal RBAC (`CustomerRbacService`) does not yet apply module-level or
-removed-feature filtering; extending the deny-list there is a follow-up.
+1. **Client-side UI affordances (cosmetic).** Client code matches concrete
+   feature ids against `BackendChromePayload.grantedFeatures` (e.g.
+   `useInjectedMenuItems`, header chrome buttons, per-component `hasFeature`
+   checks). A wildcard grant in the payload can still show an affordance for a
+   removed feature; a deny cannot be expressed in grant strings alone, and
+   `security/features.ts` must stay isomorphic/pure (the module registry and
+   override store are server-populated). Every mutating action behind such an
+   affordance hits a server guard that routes through `userHasAllFeatures`, so
+   these fail closed with a 403. Follow-up if the cosmetic gap matters: add an
+   additive `removedFeatures` field to `BackendChromePayload` and subtract it
+   in the client-side check helpers.
+
+2. **Server-side in-handler fine-grained checks (real but bounded).** Roughly
+   a dozen handlers perform secondary checks like
+   `hasFeature(acl.features, 'dashboards.configure')` against the raw ACL
+   (dashboards routes, `messages/lib/routeHelpers`, `entities/lib/entityAcl`,
+   `communication_channels/lib/access-control`,
+   `customers/lib/visibilityFilter`, `inbox_ops`/`search` AI tools,
+   `workflows/lib/activity-executor`, `ai-assistant/lib/auth`). The route-level
+   `requireFeatures` guard (which routes through `RbacService`) already denies
+   removed features, but when a route requires a broader feature and the
+   handler checks a removed one inline, a wildcard grant still passes.
+   Follow-up: a server-side `hasFeatureRespectingRemovals(granted, required)`
+   helper and a per-site migration of **authorization** checks only.
+
+3. **Why the shared matcher must NOT be made deny-aware globally.** The same
+   `hasFeature`/`hasAllFeatures` helpers also gate **activation** of
+   interceptors (`command-interceptor-runner`, `interceptor-runner`), mutation
+   guards (`mutation-guard-registry`), response enrichers, component
+   overrides, and notification recipients. At those sites `features` means
+   "this component applies when the user holds the feature" — globally denying
+   removed ids would silently *deactivate* security-enforcing components,
+   failing open instead of closed. The deny must therefore stay at
+   authorization chokepoints and be migrated per-site (gap 2), never baked
+   into the pure matcher.
 
 ## Migration & Backward Compatibility
 
@@ -95,6 +127,8 @@ removed-feature filtering; extending the deny-list there is a follow-up.
 - `packages/core/src/modules/auth/services/__tests__/rbacService.test.ts` —
   wildcard-grant denial, stale-explicit-grant denial, super-admin denial,
   `tenantHasFeature` denial, `getGrantedFeatures` filtering.
+- `packages/core/src/modules/customer_accounts/services/__tests__/customerRbacService.test.ts` —
+  portal wildcard-grant denial and portal-admin denial.
 
 Integration coverage: enforcement is fully covered at the unit level against
 the real override store; no HTTP-level flow changes (guards already route
@@ -104,3 +138,7 @@ through `userHasAllFeatures`).
 
 - 2026-07-22: Implemented deny-list enforcement for nulled ACL feature
   overrides across `enabledModulesRegistry` and `RbacService`.
+- 2026-07-22: Extended the deny-list to portal `CustomerRbacService` and
+  replaced the "Known limitation" note with a triage of the residual
+  grant-side gaps (client cosmetic, in-handler fine-grained checks) and the
+  fail-open rationale for keeping the shared matcher deny-unaware.

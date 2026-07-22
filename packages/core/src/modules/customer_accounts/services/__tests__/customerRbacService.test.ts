@@ -1,5 +1,6 @@
 import { CustomerRoleAcl, CustomerUserAcl, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
+import { applyAclFeatureOverrides, resetModuleContractOverridesForTests } from '@open-mercato/shared/modules/overrides'
 
 type MockEm = {
   findOne: jest.Mock
@@ -58,5 +59,41 @@ describe('CustomerRbacService organization scope', () => {
       { populate: ['role'] },
     )
     expect(acl).toEqual({ isPortalAdmin: false, features: ['portal.orders.view'] })
+  })
+})
+
+describe('CustomerRbacService removed ACL features (null overrides)', () => {
+  afterEach(() => {
+    resetModuleContractOverridesForTests()
+  })
+
+  const mockUserAcl = (em: MockEm, userId: string, tenantId: string, acl: Record<string, unknown>) => {
+    em.findOne.mockImplementation(async (entity: unknown, where: Record<string, any>) => (
+      entity === CustomerUserAcl && where?.user === userId && where?.tenantId === tenantId ? acl : null
+    ))
+  }
+
+  it('denies a removed feature even when a wildcard grant matches it', async () => {
+    applyAclFeatureOverrides({ 'portal.orders.reorder': null })
+    const em = createMockEm()
+    mockUserAcl(em, 'customer-user-1', 'tenant-1', { isPortalAdmin: false, featuresJson: ['portal.*'] })
+
+    const service = new CustomerRbacService(em as any)
+    const scope = { tenantId: 'tenant-1', organizationId: 'org-a' }
+
+    expect(await service.userHasAllFeatures('customer-user-1', ['portal.orders.reorder'], scope)).toBe(false)
+    expect(await service.userHasAllFeatures('customer-user-1', ['portal.orders.view'], scope)).toBe(true)
+  })
+
+  it('denies a removed feature for portal admins, mirroring super-admin handling', async () => {
+    applyAclFeatureOverrides({ 'portal.orders.reorder': null })
+    const em = createMockEm()
+    mockUserAcl(em, 'customer-user-1', 'tenant-1', { isPortalAdmin: true, featuresJson: [] })
+
+    const service = new CustomerRbacService(em as any)
+    const scope = { tenantId: 'tenant-1', organizationId: 'org-a' }
+
+    expect(await service.userHasAllFeatures('customer-user-1', ['portal.orders.reorder'], scope)).toBe(false)
+    expect(await service.userHasAllFeatures('customer-user-1', ['portal.orders.view'], scope)).toBe(true)
   })
 })

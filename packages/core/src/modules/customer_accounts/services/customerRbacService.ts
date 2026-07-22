@@ -6,6 +6,7 @@ import {
   CustomerUserRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import { getRemovedAclFeatureIds } from '@open-mercato/shared/security/enabledModulesRegistry'
 
 interface CustomerAclData {
   isPortalAdmin: boolean
@@ -128,6 +129,8 @@ export class CustomerRbacService {
     scope: { tenantId: string; organizationId: string },
   ): Promise<boolean> {
     if (!required.length) return true
+    const removed = getRemovedAclFeatureIds()
+    if (removed.size && required.some((feature) => removed.has(feature))) return false
     const acl = await this.loadAcl(userId, scope)
     if (acl.isPortalAdmin) return true
     return hasAllFeatures(required, acl.features)
