@@ -8,8 +8,8 @@ import { buildApnsNotification, setApnsSenderFactory } from './adapter'
  * Network-free `@parse/node-apn` sender used ONLY by integration tests.
  *
  * Swaps the SDK client behind the adapter's existing seam, so the real adapter still runs its
- * credential resolution and its `Unregistered`/`BadDeviceToken` → `device_unregistered` mapping. The
- * adapter itself is never replaced or re-registered.
+ * credential resolution and its `Unregistered`/`410` → `device_unregistered` mapping. The adapter
+ * itself is never replaced or re-registered.
  *
  * Unlike FCM and Expo, the APNs seam sits *above* the message builder: the sender receives the raw
  * envelope, and `buildApnsNotification(new Notification(), …)` runs inside the real sender factory this

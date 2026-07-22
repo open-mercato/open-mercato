@@ -80,7 +80,9 @@ describe('ApnsChannelAdapter', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it.each(['Unregistered', 'BadDeviceToken'])(
+  // Only 410/Unregistered is a permanent dead-token signal. `'410'` is included so a bare-status
+  // rejection (node-apn couldn't parse a reason from the body) still prunes the device.
+  it.each(['Unregistered', '410'])(
     'maps the %s rejection to the device_unregistered sentinel',
     async (reason) => {
       setApnsSenderFactory(() => async () => ({ ok: false, reason }))
@@ -90,6 +92,17 @@ describe('ApnsChannelAdapter', () => {
       expect(result.metadata?.unregistered).toBe(true)
     },
   )
+
+  it('does NOT unregister on BadDeviceToken (valid token, wrong environment)', async () => {
+    // Apple returns BadDeviceToken for a valid token sent to the wrong environment, not only for a
+    // malformed one. Treating it as permanent would soft-delete every live device on an env-config
+    // mistake, so it must be a transient failure that KEEPS the device.
+    setApnsSenderFactory(() => async () => ({ ok: false, reason: 'BadDeviceToken' }))
+    const result = await getApnsChannelAdapter().sendMessage(buildInput())
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe('BadDeviceToken')
+    expect(result.metadata?.unregistered).toBeUndefined()
+  })
 
   it('treats other rejections as transient failures', async () => {
     setApnsSenderFactory(() => async () => ({ ok: false, reason: 'TooManyRequests' }))
