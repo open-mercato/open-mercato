@@ -257,6 +257,8 @@ export function LookupSelectField<Snapshot extends Record<string, unknown>>({
     selectedOptionRef.current = selectedOption
   }, [selectedOption])
 
+  const setQueryRef = React.useRef<((value: string) => void) | null>(null)
+
   const fetchItems = React.useCallback(async (query: string) => {
     let options: Array<PickerOption<Snapshot>> = []
     try {
@@ -293,6 +295,7 @@ export function LookupSelectField<Snapshot extends Record<string, unknown>>({
         disabled={disabled}
         searchPlaceholder={placeholder}
         fetchItems={fetchItems}
+        onReady={(controls) => { setQueryRef.current = controls.setQuery }}
         onChange={(nextValue) => {
           if (!nextValue) {
             onChange(undefined)
@@ -304,6 +307,9 @@ export function LookupSelectField<Snapshot extends Record<string, unknown>>({
           const nextOption = knownOptionsRef.current.get(nextValue) ?? null
           setSelectedOption(nextOption)
           onSnapshot?.(nextOption?.snapshot ?? null)
+          // Clearing the query drops LookupSelect back below its minQuery, which
+          // collapses the result panel — otherwise it stays open over the form.
+          setQueryRef.current?.('')
         }}
       />
     </div>
