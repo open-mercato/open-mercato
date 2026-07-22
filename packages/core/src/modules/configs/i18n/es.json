@@ -193,5 +193,9 @@
   "configs.upgrades.attachmentsOrgReconcile.cta": "Reconciliar organizaciones de adjuntos",
   "configs.upgrades.attachmentsOrgReconcile.loading": "Reconciliando organizaciones de adjuntos…",
   "configs.upgrades.attachmentsOrgReconcile.message": "La versión {{version}} corrige los adjuntos guardados en la organización incorrecta. Ejecuta la reconciliación para mover los adjuntos existentes a la organización del registro al que pertenecen.",
-  "configs.upgrades.attachmentsOrgReconcile.success": "Organizaciones de adjuntos reconciliadas."
+  "configs.upgrades.attachmentsOrgReconcile.success": "Organizaciones de adjuntos reconciliadas.",
+  "configs.upgrades.devicesPushTokenEncryption.cta": "Cifrar tokens push de dispositivos",
+  "configs.upgrades.devicesPushTokenEncryption.loading": "Creando el mapa de cifrado de tokens push…",
+  "configs.upgrades.devicesPushTokenEncryption.message": "La versión {{version}} añade notificaciones push móviles y cifra los tokens push de los dispositivos en reposo. Los inquilinos existentes no tienen un mapa de cifrado para la nueva entidad de dispositivo, por lo que los tokens registrados tras la actualización se guardarían sin cifrar. Ejecuta esto para crear el mapa y que los tokens push queden cifrados.",
+  "configs.upgrades.devicesPushTokenEncryption.success": "Mapa de cifrado de tokens push creado."
 }

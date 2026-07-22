@@ -193,5 +193,9 @@
   "configs.upgrades.attachmentsOrgReconcile.cta": "Uzgodnij organizacje załączników",
   "configs.upgrades.attachmentsOrgReconcile.loading": "Uzgadnianie organizacji załączników…",
   "configs.upgrades.attachmentsOrgReconcile.message": "Wersja {{version}} naprawia załączniki zapisane pod niewłaściwą organizacją. Uruchom uzgadnianie, aby przenieść istniejące załączniki do organizacji rekordu, do którego należą.",
-  "configs.upgrades.attachmentsOrgReconcile.success": "Organizacje załączników zostały uzgodnione."
+  "configs.upgrades.attachmentsOrgReconcile.success": "Organizacje załączników zostały uzgodnione.",
+  "configs.upgrades.devicesPushTokenEncryption.cta": "Szyfruj tokeny push urządzeń",
+  "configs.upgrades.devicesPushTokenEncryption.loading": "Tworzenie mapy szyfrowania tokenów push…",
+  "configs.upgrades.devicesPushTokenEncryption.message": "Wersja {{version}} dodaje mobilne powiadomienia push i szyfruje tokeny push urządzeń w spoczynku. Istniejący najemcy nie mają mapy szyfrowania dla nowej encji urządzenia, więc tokeny zarejestrowane po aktualizacji byłyby przechowywane bez szyfrowania. Uruchom to, aby utworzyć mapę i zaszyfrować tokeny push.",
+  "configs.upgrades.devicesPushTokenEncryption.success": "Utworzono mapę szyfrowania tokenów push."
 }

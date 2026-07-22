@@ -193,5 +193,9 @@
   "configs.upgrades.attachmentsOrgReconcile.cta": "Reconcile attachment organizations",
   "configs.upgrades.attachmentsOrgReconcile.loading": "Reconciling attachment organizations…",
   "configs.upgrades.attachmentsOrgReconcile.message": "Version {{version}} fixes attachments that were saved under the wrong organization. Run the reconciliation to move existing attachments to the organization of the record they belong to.",
-  "configs.upgrades.attachmentsOrgReconcile.success": "Attachment organizations reconciled."
+  "configs.upgrades.attachmentsOrgReconcile.success": "Attachment organizations reconciled.",
+  "configs.upgrades.devicesPushTokenEncryption.cta": "Encrypt device push tokens",
+  "configs.upgrades.devicesPushTokenEncryption.loading": "Seeding push-token encryption map…",
+  "configs.upgrades.devicesPushTokenEncryption.message": "Version {{version}} adds mobile push and encrypts device push tokens at rest. Existing tenants have no encryption map for the new device entity, so tokens registered after the upgrade would be stored unencrypted. Run this to seed the map so push tokens are encrypted.",
+  "configs.upgrades.devicesPushTokenEncryption.success": "Push-token encryption map seeded."
 }
