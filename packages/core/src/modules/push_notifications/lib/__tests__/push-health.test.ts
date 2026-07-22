@@ -22,10 +22,20 @@ describe('makePushClientConfigHealthCheck', () => {
     expect(result.message).toContain('FAKE mode')
   })
 
-  it('delegates to the config probe when fake providers are disabled', async () => {
+  it('validates credentials with push-appropriate copy when fake providers are disabled', async () => {
     delete process.env[PUSH_FAKE_PROVIDERS_ENV]
     const health = makePushClientConfigHealthCheck({ schema, providerLabel: 'FCM' })
-    expect((await health.check({ token: 'valid' }, scope)).status).toBe('healthy')
-    expect((await health.check({}, scope)).status).toBe('unhealthy')
+
+    const healthy = await health.check({ token: 'valid' }, scope)
+    expect(healthy.status).toBe('healthy')
+    expect(healthy.message).toBe('FCM credentials configured')
+    expect(healthy.details).toMatchObject({ credentialsConfigured: true })
+
+    const unhealthy = await health.check({}, scope)
+    expect(unhealthy.status).toBe('unhealthy')
+    // Push providers have no OAuth client — the copy must not claim one.
+    expect(unhealthy.message).toContain('credentials invalid')
+    expect(unhealthy.message).not.toContain('OAuth')
+    expect(unhealthy.details).toMatchObject({ reason: 'invalid_credentials' })
   })
 })
