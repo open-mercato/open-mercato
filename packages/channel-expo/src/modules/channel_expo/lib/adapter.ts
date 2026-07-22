@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type {
   SendMessageInput,
   SendMessageResult,
@@ -128,8 +129,14 @@ function loadExpoModule(): Promise<ExpoModule> {
   return expoModulePromise
 }
 
+// Key the cache on a hash of the access token, never the raw secret (mirrors the FCM/APNs adapters):
+// a Map key is trivially inspectable in a heap dump, and hashing keeps tenant credential material out
+// of the cache's key space. The empty-token case (Expo allows an unauthenticated client) keeps a stable
+// sentinel so those callers still share one instance.
 function getExpoInstance(accessToken: string | undefined): Promise<ExpoInstance> {
-  const cacheKey = accessToken ?? ''
+  const cacheKey = accessToken
+    ? createHash('sha256').update(accessToken).digest('hex').slice(0, 16)
+    : 'no-access-token'
   const existing = expoInstanceCache.get(cacheKey)
   if (existing) {
     // Refresh recency: delete + re-insert moves the key to the newest position.
