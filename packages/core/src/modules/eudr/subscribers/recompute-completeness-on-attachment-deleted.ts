@@ -1,7 +1,10 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   recomputeSubmissionCompletenessFromAttachmentPayload,
   type AttachmentSubscriberContext,
 } from './recompute-completeness-on-attachment-created'
+
+const logger = createLogger('eudr').child({ component: 'attachment-deleted-completeness' })
 
 export const metadata = {
   event: 'attachments.attachment.deleted',
@@ -23,6 +26,6 @@ export default async function handleAttachmentDeleted(
   try {
     await recomputeSubmissionCompletenessFromAttachmentPayload(payload, ctx)
   } catch (error) {
-    console.warn('[eudr] attachment-deleted completeness recompute failed', error)
+    logger.warn('attachment-deleted completeness recompute failed', { err: error })
   }
 }

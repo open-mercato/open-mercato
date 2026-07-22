@@ -192,6 +192,10 @@ export class EudrEvidenceSubmission {
 }
 
 @Entity({ tableName: 'eudr_due_diligence_statements' })
+@Index({
+  name: 'eudr_dds_tenant_org_submitted_idx',
+  expression: 'create index "eudr_dds_tenant_org_submitted_idx" on "eudr_due_diligence_statements" ("tenant_id", "organization_id", "submitted_at") where "deleted_at" is null',
+})
 export class EudrDueDiligenceStatement {
   [OptionalProps]?: 'status' | 'referencedStatements' | 'createdAt' | 'updatedAt' | 'deletedAt'
 

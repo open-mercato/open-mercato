@@ -204,7 +204,7 @@
   "eudr.evidence_submissions.delete": "EUDR-Nachweiseinreichung löschen",
   "eudr.evidence_submissions.list": "Nachweiseinreichungen",
   "eudr.evidence_submissions.update": "EUDR-Nachweiseinreichung aktualisieren",
-  "eudr.form.originCountryHint": "Verwenden Sie den zweibuchstabigen ISO-Ländercode.",
+  "eudr.form.originCountryHint": "Suchen Sie das Land nach Namen und wählen Sie es aus.",
   "eudr.gate.mitigationIncomplete": "Schließen Sie Minderungsmaßnahmen vor der Einreichung ab",
   "eudr.gate.noSubmissions": "Fügen Sie mindestens eine Nachweiseinreichung hinzu",
   "eudr.gate.originCountryMissing": "Nachweiseinreichungen müssen Ursprungsländer enthalten",

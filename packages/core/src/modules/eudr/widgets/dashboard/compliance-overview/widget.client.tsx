@@ -153,8 +153,7 @@ const EudrComplianceOverviewWidget: React.FC<DashboardWidgetComponentProps<EudrC
     try {
       const data = await loadOverview()
       setOverview(data)
-    } catch (err) {
-      console.error('Failed to load EUDR compliance overview widget data', err)
+    } catch {
       setError(t('eudr.dashboard.error'))
     } finally {
       setLoading(false)

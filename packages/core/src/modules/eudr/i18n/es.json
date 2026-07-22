@@ -204,7 +204,7 @@
   "eudr.evidence_submissions.delete": "Eliminar envío de evidencia EUDR",
   "eudr.evidence_submissions.list": "Envíos de evidencia",
   "eudr.evidence_submissions.update": "Actualizar envío de evidencia EUDR",
-  "eudr.form.originCountryHint": "Usa el código ISO de país de dos letras.",
+  "eudr.form.originCountryHint": "Busca el país por su nombre y selecciónalo.",
   "eudr.gate.mitigationIncomplete": "Completa las acciones de mitigación antes de enviar",
   "eudr.gate.noSubmissions": "Añade al menos un envío de evidencia",
   "eudr.gate.originCountryMissing": "Los envíos de evidencia deben incluir países de origen",

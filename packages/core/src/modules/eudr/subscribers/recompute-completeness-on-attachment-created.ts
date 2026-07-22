@@ -1,8 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { EudrEvidenceSubmission, EudrPlot } from '../data/entities'
 import { computeSubmissionCompleteness } from '../lib/completeness'
+
+const logger = createLogger('eudr').child({ component: 'attachment-created-completeness' })
 
 const EVIDENCE_SUBMISSION_ENTITY_ID = 'eudr:eudr_evidence_submission'
 
@@ -181,6 +184,6 @@ export default async function handleAttachmentCreated(
   try {
     await recomputeSubmissionCompletenessFromAttachmentPayload(payload, ctx)
   } catch (error) {
-    console.warn('[eudr] attachment-created completeness recompute failed', error)
+    logger.warn('attachment-created completeness recompute failed', { err: error })
   }
 }

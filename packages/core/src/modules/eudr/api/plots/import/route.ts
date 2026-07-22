@@ -14,6 +14,8 @@ import {
   type MutationGuard,
   type MutationGuardInput,
 } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { E } from '#generated/entities.ids.generated'
 import { collectFeatures } from '../../../lib/geometry'
 import { plotCreateSchema } from '../../../data/validators'
 
@@ -158,6 +160,31 @@ function errorKeyFromError(error: unknown): string {
   return 'eudr.errors.plot_import_failed'
 }
 
+async function loadSupplierDisplayName(
+  queryEngine: QueryEngine,
+  scope: { tenantId: string; organizationId: string },
+  supplierEntityId: string,
+): Promise<string | null> {
+  // Soft cross-module read (FK-id convention) via the query engine — no direct
+  // customers entity import; degrades to null when the peer is absent so the
+  // import still succeeds without a snapshot.
+  try {
+    const customersEntityId = (E as Record<string, Record<string, string>>).customers?.customer_entity
+    if (!customersEntityId) return null
+    const result = await queryEngine.query<Record<string, unknown>>(customersEntityId, {
+      fields: ['id', 'display_name'],
+      filters: { id: { $in: [supplierEntityId] } },
+      page: { page: 1, pageSize: 1 },
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+    const rawName = result.items[0]?.display_name ?? result.items[0]?.displayName
+    return typeof rawName === 'string' && rawName.length ? rawName : null
+  } catch {
+    return null
+  }
+}
+
 async function createPlotFromFeature(args: {
   commandBus: CommandBus
   ctx: CommandRuntimeContext
@@ -165,6 +192,7 @@ async function createPlotFromFeature(args: {
   input: PlotImportInput
   feature: unknown
   index: number
+  supplierDisplayName: string | null
 }): Promise<{ id: string | null }> {
   const properties = featureProperties(args.feature)
   const name = resolveFeatureName(properties, args.index)
@@ -179,6 +207,7 @@ async function createPlotFromFeature(args: {
     geometry: args.feature,
     producerName: optionalString(properties.ProducerName),
     areaHa: featureGeometryType(args.feature) === 'Point' && area !== null ? area : undefined,
+    supplierSnapshot: args.supplierDisplayName ? { displayName: args.supplierDisplayName } : undefined,
   }
   const parsed = plotCreateSchema.parse(base)
   const { result } = await args.commandBus.execute<typeof parsed & { tenantId: string; organizationId: string }, CommandCreateResult>(
@@ -249,16 +278,24 @@ export async function POST(req: Request) {
       defaultCountry: effectiveDefaultCountry,
     }
 
+    const importScope = { tenantId: requestContext.tenantId, organizationId: requestContext.organizationId }
+    const supplierDisplayName = await loadSupplierDisplayName(
+      requestContext.ctx.container.resolve('queryEngine') as QueryEngine,
+      importScope,
+      effectiveSupplierEntityId,
+    )
+
     for (const [index, feature] of featureResult.features.entries()) {
       const name = resolveFeatureName(featureProperties(feature), index)
       try {
         const created = await createPlotFromFeature({
           commandBus,
           ctx: requestContext.ctx,
-          scope: { tenantId: requestContext.tenantId, organizationId: requestContext.organizationId },
+          scope: importScope,
           input: effectiveInput,
           feature,
           index,
+          supplierDisplayName,
         })
         if (created.id) createdIds.push(created.id)
       } catch (error) {

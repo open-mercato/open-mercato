@@ -1,4 +1,5 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { EudrEventId } from '../events'
 
 const logger = createLogger('eudr').child({ component: 'lifecycle-events' })
 
@@ -10,7 +11,7 @@ type LifecycleContainer = { resolve: (name: string) => unknown }
 
 export async function emitEudrLifecycleEvent(
   container: LifecycleContainer,
-  eventId: string,
+  eventId: EudrEventId,
   payload: Record<string, unknown>,
 ): Promise<void> {
   try {

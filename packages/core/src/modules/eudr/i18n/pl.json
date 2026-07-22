@@ -204,7 +204,7 @@
   "eudr.evidence_submissions.delete": "Usuń zgłoszenie dowodów EUDR",
   "eudr.evidence_submissions.list": "Zgłoszenia dowodów",
   "eudr.evidence_submissions.update": "Zaktualizuj zgłoszenie dowodów EUDR",
-  "eudr.form.originCountryHint": "Użyj dwuliterowego kodu kraju ISO.",
+  "eudr.form.originCountryHint": "Wyszukaj kraj po nazwie i wybierz go z listy.",
   "eudr.gate.mitigationIncomplete": "Ukończ działania ograniczające ryzyko przed przesłaniem",
   "eudr.gate.noSubmissions": "Dodaj co najmniej jedno zgłoszenie dowodów",
   "eudr.gate.originCountryMissing": "Zgłoszenia dowodów muszą zawierać kraje pochodzenia",

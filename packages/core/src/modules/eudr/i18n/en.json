@@ -204,7 +204,7 @@
   "eudr.evidence_submissions.delete": "Delete EUDR evidence submission",
   "eudr.evidence_submissions.list": "Evidence submissions",
   "eudr.evidence_submissions.update": "Update EUDR evidence submission",
-  "eudr.form.originCountryHint": "Use the two-letter ISO country code.",
+  "eudr.form.originCountryHint": "Search for the country by name and select it.",
   "eudr.gate.mitigationIncomplete": "Complete mitigation actions before submitting",
   "eudr.gate.noSubmissions": "Add at least one evidence submission",
   "eudr.gate.originCountryMissing": "Evidence submissions must include origin countries",
