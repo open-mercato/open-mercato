@@ -83,13 +83,18 @@ function makeHarness(opts: {
   const commandBus = { execute: jest.fn(async () => ({})) }
 
   const em = {
-    // Simulate the atomic pending -> sending claim: only mutate + report 1 row when the current
-    // status matches the `where` guard (i.e. the row is still `pending`).
+    // Simulate the atomic claim + every fenced write-back: report 1 row (and mutate) only when BOTH the
+    // status guard AND the `attempts` lease-token guard match. The claim increments `attempts` via a
+    // `raw('"attempts" + 1')` fragment (any non-undefined `data.attempts` here is that fragment), which
+    // this mock models as +1; fenced write-backs carry no `attempts` in their data.
     nativeUpdate: jest.fn(async (entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
       if (entity !== PushNotificationDelivery || !opts.delivery) return 0
       const statusMatches = where.status === undefined || opts.delivery.status === where.status
-      if (!statusMatches) return 0
-      Object.assign(opts.delivery, data)
+      const attemptsMatches = where.attempts === undefined || opts.delivery.attempts === where.attempts
+      if (!statusMatches || !attemptsMatches) return 0
+      const { attempts, ...rest } = data
+      if (attempts !== undefined) opts.delivery.attempts = (opts.delivery.attempts ?? 0) + 1
+      Object.assign(opts.delivery, rest)
       return 1
     }),
     findOne: jest.fn(async (entity: unknown) => {
@@ -138,24 +143,26 @@ describe('processPushDeliveryJob', () => {
     expect(emitMock).toHaveBeenCalledWith('push_notifications.delivery.sent', expect.any(Object), expect.any(Object))
   })
 
-  it('increments and flushes attempts at claim time, before the provider send', async () => {
+  it('increments and persists attempts in the atomic claim, before the provider send', async () => {
     // MAX_ATTEMPTS must cap real provider sends across crashes: the attempt is counted and persisted
-    // right after the atomic claim, BEFORE sendMessage — not just before the send and flushed later.
+    // in the atomic claim itself (a single `nativeUpdate`), BEFORE sendMessage — so a crash after the
+    // send cannot lose the increment and let the reaper re-drive the row past MAX_ATTEMPTS.
     const delivery = makeDelivery({ attempts: 0 })
     const h = makeHarness({ delivery })
     let attemptsAtSend: number | undefined
-    let flushesBeforeSend = 0
+    let nativeUpdatesBeforeSend = 0
     h.sendMessage.mockImplementationOnce(async () => {
       attemptsAtSend = delivery.attempts
-      flushesBeforeSend = (h.em.flush as jest.Mock).mock.calls.length
+      nativeUpdatesBeforeSend = (h.em.nativeUpdate as jest.Mock).mock.calls.length
       return { externalMessageId: 'm1', status: 'sent', metadata: { stub: true } }
     })
 
     await processPushDeliveryJob(h.em as never, job, h.resolve)
 
-    // The increment was already visible AND already flushed by the time the adapter was invoked.
+    // The increment was already visible AND already persisted (via the claim update) when the adapter
+    // was invoked — the flow no longer relies on a separate `em.flush()`.
     expect(attemptsAtSend).toBe(1)
-    expect(flushesBeforeSend).toBeGreaterThanOrEqual(1)
+    expect(nativeUpdatesBeforeSend).toBeGreaterThanOrEqual(1)
   })
 
   it('packs data, options and the silent flag into the send envelope', async () => {
@@ -279,6 +286,49 @@ describe('processPushDeliveryJob', () => {
     expect(exhausted.attempts).toBe(3)
     expect(exhausted.lastError).toBe('boom')
     expect(exhausted.nextRetryAt).toBeNull()
+  })
+
+  it('abandons a delivery whose lease was stolen mid-send (fenced write-back is a no-op)', async () => {
+    // Worker A claims (attempts 0 -> 1, lease token = 1). While A's send is in flight the reaper resets
+    // the row and worker B re-claims it (attempts -> 2). A then returns a retryable failure: its fenced
+    // write-back must MISS (attempts moved past A's lease), so A neither re-enqueues a duplicate job nor
+    // rewinds B's attempt counter. This is the B3 regression guard.
+    const delivery = makeDelivery({ attempts: 0 })
+    const h = makeHarness({ delivery, sendResult: { externalMessageId: '', status: 'failed', error: 'boom' } })
+    h.sendMessage.mockImplementationOnce(async () => {
+      // Simulate reaper reset + worker B re-claim: attempts advances beyond A's lease, status stays sending.
+      delivery.attempts = 2
+      return { externalMessageId: '', status: 'failed', error: 'boom' }
+    })
+
+    await processPushDeliveryJob(h.em as never, job, h.resolve)
+
+    expect(enqueueMock).not.toHaveBeenCalled()
+    expect(delivery.attempts).toBe(2)
+    expect(delivery.status).toBe('sending')
+    expect(delivery.lastError).toBeNull()
+  })
+
+  it('times out a hung provider send and treats it as a retryable failure', async () => {
+    // A send that outlives OM_PUSH_SEND_TIMEOUT_MS must not block the worker (which would let the reaper
+    // steal the lease). It is surfaced as a retryable `send_timeout` and the row is released to pending.
+    const prev = process.env.OM_PUSH_SEND_TIMEOUT_MS
+    process.env.OM_PUSH_SEND_TIMEOUT_MS = '5000'
+    try {
+      const delivery = makeDelivery({ attempts: 0 })
+      const h = makeHarness({ delivery })
+      // Never resolves — the timeout must win.
+      h.sendMessage.mockImplementationOnce(() => new Promise<never>(() => {}))
+
+      await processPushDeliveryJob(h.em as never, job, h.resolve)
+
+      expect(delivery.status).toBe('pending')
+      expect(delivery.lastError).toBe('send_timeout')
+      expect(enqueueMock).toHaveBeenCalledTimes(1)
+    } finally {
+      if (prev === undefined) delete process.env.OM_PUSH_SEND_TIMEOUT_MS
+      else process.env.OM_PUSH_SEND_TIMEOUT_MS = prev
+    }
   })
 
   it('resolves credentials by the channel org context, not the notification org', async () => {
