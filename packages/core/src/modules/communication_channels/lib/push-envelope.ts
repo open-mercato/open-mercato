@@ -53,9 +53,28 @@ function toStringRecord(value: unknown): Record<string, string> {
   return out
 }
 
+const KNOWN_PUSH_OPTION_KEYS = new Set(['sound', 'badge', 'image', 'priority', 'channelId', 'body'])
+
+/**
+ * Normalize caller-supplied push options. The recognized keys are coerced to their declared types and a
+ * malformed value is DROPPED rather than passed through: a bad `priority` (e.g. `'urgent'`) would reach
+ * the provider SDK as an invalid enum and fail every delivery retry with a misleading error. Unknown
+ * keys are preserved verbatim so a provider that understands them can still read them (see PushOptions).
+ */
 function toPushOptions(value: unknown): PushOptions {
   if (!value || typeof value !== 'object') return {}
-  return { ...(value as PushOptions) }
+  const raw = value as Record<string, unknown>
+  const options: PushOptions = {}
+  for (const [key, entry] of Object.entries(raw)) {
+    if (!KNOWN_PUSH_OPTION_KEYS.has(key)) options[key] = entry
+  }
+  if (typeof raw.sound === 'string') options.sound = raw.sound
+  if (typeof raw.image === 'string') options.image = raw.image
+  if (typeof raw.channelId === 'string') options.channelId = raw.channelId
+  if (typeof raw.body === 'string') options.body = raw.body
+  if (typeof raw.badge === 'number' && Number.isFinite(raw.badge)) options.badge = raw.badge
+  if (raw.priority === 'high' || raw.priority === 'normal') options.priority = raw.priority
+  return options
 }
 
 /** Read the normalized push envelope from a hub `MessageContent`. Defensive against missing fields. */

@@ -68,6 +68,27 @@ describe('readPushEnvelope', () => {
   it('is defensive against an undefined content', () => {
     expect(readPushEnvelope(undefined)).toEqual({ title: '', body: '', data: {}, options: {}, silent: false })
   })
+
+  it('drops a malformed priority so it never reaches a provider SDK', () => {
+    // 'urgent' is not a valid PushOptions.priority; passed through it would fail every FCM/APNs retry.
+    expect(readPushEnvelope({ raw: { options: { priority: 'urgent' } } }).options).toEqual({})
+    expect(readPushEnvelope({ raw: { options: { priority: 'high' } } }).options).toEqual({ priority: 'high' })
+  })
+
+  it('coerces/drops malformed known option fields but preserves unknown keys', () => {
+    const options = readPushEnvelope({
+      raw: {
+        options: {
+          sound: 42, // non-string → dropped
+          badge: 'nope', // non-number → dropped
+          image: 'https://cdn/x.png', // valid → kept
+          channelId: 7, // non-string → dropped
+          providerSpecific: { any: 'thing' }, // unknown key → preserved verbatim
+        },
+      },
+    }).options
+    expect(options).toEqual({ image: 'https://cdn/x.png', providerSpecific: { any: 'thing' } })
+  })
 })
 
 describe('resolvePushBody', () => {
