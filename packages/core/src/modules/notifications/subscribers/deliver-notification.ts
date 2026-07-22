@@ -177,11 +177,19 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
           nonOptOutOverride: typeOverrides?.nonOptOut ?? null,
         })
       } catch (err) {
-        // A transient overrides/preference-service failure must not abort delivery on EVERY channel
-        // (everything else here fails per-component). Fall back to null (deliver all, legacy) and
-        // skip the persist below so visibility stays consistent with what was delivered.
-        debug('failed to recompute channels; delivering all channels (legacy fallback)', err)
-        targetChannels = null
+        // Fail CLOSED, not open. Falling back to `null` here means "deliver EVERY registered channel"
+        // — which now includes push and email — for a type the user may have opted out of, so a
+        // transient overrides/preference-service blip would leak a push/email on opt-out. Re-throw
+        // instead: this subscriber is `persistent` (retried with backoff) and the recompute runs
+        // BEFORE any strategy delivers, so the retry recomputes the correct target set with no
+        // double-send. In-app visibility is unaffected meanwhile — the row's `channels` stays null,
+        // which the visibility layer already treats as "visible everywhere".
+        logger.error('failed to recompute delivery channels; retrying via persistent subscriber', {
+          notificationId: notification.id,
+          type: notification.type,
+          err,
+        })
+        throw err
       }
     }
     // Persist the recomputed set back onto a null-channels row so the in-app
