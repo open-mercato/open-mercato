@@ -36,19 +36,32 @@ function makeRow(overrides: Partial<PushNotificationDelivery> = {}): PushNotific
   } as PushNotificationDelivery
 }
 
-// EM stub: `find` applies the status + sentAt-window filter; `findOne` returns the configured channel;
-// `flush` is a no-op (rows are mutated in place).
+// EM stub: `find` models the real query — status + sentAt-window filter, the SQL `workableRow`
+// predicate (non-empty ticket id AND not already receipt-checked), plus `ORDER BY sent_at ASC` and
+// the batch `limit`. `findOne` returns the configured channel; `flush` is a no-op (rows mutate in place).
+function ticketOf(row: PushNotificationDelivery): string {
+  const id = (row.providerResponse as { externalMessageId?: unknown } | null | undefined)?.externalMessageId
+  return typeof id === 'string' ? id : ''
+}
+function alreadyChecked(row: PushNotificationDelivery): boolean {
+  return (row.providerResponse as { receiptChecked?: unknown } | null | undefined)?.receiptChecked === true
+}
 function makeEm(rows: PushNotificationDelivery[], channel: Record<string, unknown> | null) {
   return {
-    find: jest.fn(async (_entity: unknown, where: Record<string, unknown>) => {
+    find: jest.fn(async (_entity: unknown, where: Record<string, unknown>, options?: { limit?: number }) => {
       const window = where.sentAt as { $gte: Date; $lte: Date }
-      return rows.filter(
-        (r) =>
-          r.status === where.status &&
-          r.sentAt instanceof Date &&
-          r.sentAt >= window.$gte &&
-          r.sentAt <= window.$lte,
-      )
+      const matched = rows
+        .filter(
+          (r) =>
+            r.status === where.status &&
+            r.sentAt instanceof Date &&
+            r.sentAt >= window.$gte &&
+            r.sentAt <= window.$lte &&
+            ticketOf(r).length > 0 &&
+            !alreadyChecked(r),
+        )
+        .sort((a, b) => (a.sentAt as Date).getTime() - (b.sentAt as Date).getTime())
+      return typeof options?.limit === 'number' ? matched.slice(0, options.limit) : matched
     }),
     findOne: jest.fn(async () => channel),
     flush: jest.fn(async () => undefined),
@@ -145,6 +158,31 @@ describe('checkPushReceipts', () => {
 
     expect(result).toEqual({ checked: 0, unregistered: 0 })
     expect(checkReceipts).not.toHaveBeenCalled()
+  })
+
+  it('does not let a >batch-limit backlog of checked rows starve a still-unchecked row', async () => {
+    // Regression for the receipt-reaper starvation bug: resolved rows keep `status: 'sent'` (the
+    // marker lives in provider_response JSON), so under the old `LIMIT 500 ORDER BY sent_at ASC`
+    // in-memory filter, once >500 oldest checked rows sat in the window every sweep reloaded the same
+    // 500 and did zero work forever. With the predicate pushed into SQL the batch skips them entirely,
+    // so a newer unchecked row is still reached even behind a huge checked backlog. 600 > default 500.
+    const backlog = Array.from({ length: 600 }, (_, i) =>
+      makeRow({
+        id: `checked-${i}`,
+        sentAt: new Date(NOW.getTime() - (55 * 60 * 1000) + i * 1000), // oldest-first, all in window
+        providerResponse: { externalMessageId: `old-${i}`, receiptChecked: true },
+      }),
+    )
+    const fresh = makeRow({ id: 'unchecked-1', sentAt: IN_WINDOW, providerResponse: { externalMessageId: 'ticket-1' } })
+    const em = makeEm([...backlog, fresh], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null })
+    const checkReceipts = jest.fn(async (ids: string[]) => ids.map((ticketId) => ({ ticketId, unregistered: false })))
+    const { resolve } = makeResolve({ checkReceipts })
+
+    const result = await checkPushReceipts(em as never, { tenantId: TENANT }, resolve as never, NOW)
+
+    expect(result).toEqual({ checked: 1, unregistered: 0 })
+    expect(checkReceipts).toHaveBeenCalledWith(['ticket-1'], expect.anything())
+    expect((fresh.providerResponse as Record<string, unknown>).receiptChecked).toBe(true)
   })
 
   it('never calls a provider whose adapter does not support receipt checking (fcm/apns)', async () => {

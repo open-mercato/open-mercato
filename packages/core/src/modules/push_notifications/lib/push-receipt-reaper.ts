@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { EntityName } from '@mikro-orm/core'
+import { raw, type EntityName } from '@mikro-orm/core'
 import type { ChannelAdapter } from '@open-mercato/core/modules/communication_channels/lib/adapter'
 import {
   DEVICE_UNREGISTERED,
@@ -86,12 +86,24 @@ export async function checkPushReceipts(
   const registry = resolve('channelAdapterRegistry') as ChannelAdapterRegistryLike | undefined
   if (!registry) return { checked: 0, unregistered: 0 }
 
+  // Exclude non-workable rows in SQL, not in memory. A resolved row keeps `status: 'sent'` (the
+  // `receiptChecked` marker lives in the `provider_response` JSON, not the status column), and rows
+  // with no pollable ticket id (fcm/apns report unregistered synchronously and persist an empty
+  // `externalMessageId`) can never be receipt-checked. Filtering those in memory after a
+  // `LIMIT … ORDER BY sent_at ASC` fetch lets an oldest-first backlog of them fill the bounded batch
+  // and starve every still-unchecked Expo row in the tenant — the batch does zero work forever until
+  // the backlog ages past MAX_AGE. Push both predicates into the query so the budget only ever loads
+  // rows that can actually make progress. (`provider_response` is `json`; `->>` reads it as text.)
+  const workableRow = raw(
+    `(nullif(provider_response->>'externalMessageId', '') is not null and coalesce((provider_response->>'receiptChecked')::boolean, false) = false)`,
+  )
   const candidates = await em.find(
     PushNotificationDelivery,
     {
       tenantId: scope.tenantId,
       status: 'sent',
       sentAt: { $gte: new Date(now.getTime() - RECEIPT_MAX_AGE_MS), $lte: new Date(now.getTime() - RECEIPT_MIN_AGE_MS) },
+      [workableRow as unknown as string]: true,
     },
     { limit: RECEIPT_BATCH_LIMIT, orderBy: { sentAt: 'asc' } },
   )
