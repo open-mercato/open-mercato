@@ -20,6 +20,10 @@ import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../../data/entities'
 import * as activityExecutor from '../activity-executor'
 import type { ActivityDefinition, ActivityContext } from '../activity-executor'
+import {
+  clearWorkflowSafeCommandsForTests,
+  registerWorkflowSafeCommands,
+} from '../workflow-safe-commands'
 
 // Mock global fetch
 global.fetch = jest.fn()
@@ -35,6 +39,8 @@ describe('Activity Executor (Unit Tests)', () => {
   const testOrgId = 'test-org-id'
 
   beforeEach(() => {
+    clearWorkflowSafeCommandsForTests()
+
     // Create mock EntityManager
     mockEm = {
       findOne: jest.fn(),
@@ -393,8 +399,19 @@ describe('Activity Executor (Unit Tests)', () => {
           logEntry: { id: 'log-123' },
         }),
       }
+      const mockRbacService = {
+        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+      }
 
-      mockContainer.resolve.mockReturnValue(mockCommandBus)
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'rbacService') return mockRbacService as any
+        if (name === 'commandBus') return mockCommandBus as any
+        throw new Error(`Unexpected service: ${name}`)
+      })
 
       const activity: ActivityDefinition = {
         activityId: 'activity-8',
@@ -419,6 +436,10 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(true)
       expect(result.output.executed).toBe(true)
       expect(result.output.commandId).toBe('sales.orders.update')
+      expect(mockRbacService.getGrantedFeatures).toHaveBeenCalledWith('user-123', {
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
         'sales.orders.update',
         expect.objectContaining({
@@ -426,12 +447,126 @@ describe('Activity Executor (Unit Tests)', () => {
             id: 'order-123',
             statusEntryId: 'status-confirmed-id',
           }),
+          ctx: expect.objectContaining({
+            auth: expect.objectContaining({
+              sub: 'user-123',
+              isSuperAdmin: false,
+            }),
+          }),
         })
       )
     })
 
+    test('should fail UPDATE_ENTITY if command is not workflow-safe', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {} }),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockCommandBus as any)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8b',
+        activityName: 'Delete User',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'auth.users.delete',
+          input: { id: 'user-456' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('command is not allowed')
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
+    test('should fail UPDATE_ENTITY if workflow has no real user context', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {} }),
+      }
+
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+      mockContainer.resolve.mockReturnValue(mockCommandBus as any)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8c',
+        activityName: 'Update Order Status',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'sales.orders.update',
+          input: { id: 'order-123' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        { ...mockContext, userId: undefined }
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('authenticated workflow user')
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
+    test('should fail UPDATE_ENTITY if actor lacks the required command feature', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {} }),
+      }
+      const mockRbacService = {
+        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.view']),
+      }
+
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'rbacService') return mockRbacService as any
+        if (name === 'commandBus') return mockCommandBus as any
+        throw new Error(`Unexpected service: ${name}`)
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8d',
+        activityName: 'Update Order Status',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'sales.orders.update',
+          input: { id: 'order-123' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('command is not authorized')
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
     test('should fail UPDATE_ENTITY if command bus not available', async () => {
-      mockContainer.resolve.mockImplementation(() => {
+      const mockRbacService = {
+        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+      }
+
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'rbacService') return mockRbacService as any
         throw new Error('commandBus not registered')
       })
 
@@ -461,7 +596,7 @@ describe('Activity Executor (Unit Tests)', () => {
         execute: jest.fn().mockResolvedValue({ result: {} }),
       }
 
-      mockContainer.resolve.mockReturnValue(mockCommandBus)
+      mockContainer.resolve.mockReturnValue(mockCommandBus as any)
 
       const activity: ActivityDefinition = {
         activityId: 'activity-10',
@@ -1851,10 +1986,17 @@ describe('Activity Executor (Unit Tests)', () => {
           logEntry: { id: 'log-123' },
         }),
       }
+      const mockRbacService = {
+        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+      }
 
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
       mockContainer.resolve
         .mockReturnValueOnce(mockEventBus) // First activity
-        .mockReturnValueOnce(mockCommandBus) // Second activity
+        .mockReturnValueOnce(mockRbacService) // Second activity authz
+        .mockReturnValueOnce(mockCommandBus) // Second activity command dispatch
 
       const activities: ActivityDefinition[] = [
         {
