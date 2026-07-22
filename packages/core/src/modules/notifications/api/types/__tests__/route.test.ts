@@ -357,6 +357,15 @@ describe('PATCH /api/notifications/types', () => {
     expect(body.item.storedChannels).toEqual(['in_app', 'email', 'push'])
   })
 
+  it('409s (not 500) when a concurrent first-write already inserted the override', async () => {
+    // First save: no existing override, so we take the create path; a concurrent operator inserted
+    // the same (tenant, type) row first, so our flush trips the partial unique index.
+    em.findOne.mockImplementation(async (entity: unknown) => (entity === NotificationType ? typeRow() : null))
+    em.flush.mockRejectedValueOnce(Object.assign(new Error('duplicate key value'), { code: '23505' }))
+    const response = await PATCH(patchRequest({ id: 'a.builtin', channels: ['in_app'] }))
+    expect(response.status).toBe(409)
+  })
+
   it('the echoed item carries the same localized fields as the list route', async () => {
     em.findOne.mockImplementation(async (entity: unknown) =>
       entity === NotificationType ? typeRow({ category: 'a' }) : null,

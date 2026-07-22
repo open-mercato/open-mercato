@@ -90,6 +90,7 @@
   "notifications.toast.dismissed": "Notification dismissed",
   "notifications.toast.new": "New notification",
   "notifications.types.invalidChannels": "Invalid channels payload",
+  "notifications.types.overrideConflict": "Another operator just saved this notification type. Reload and try again.",
   "notifications.types.unknownType": "Unknown notification type",
   "notifications.unreadSummary": "{count} unread"
 }

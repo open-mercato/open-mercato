@@ -7,6 +7,7 @@ import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translat
 import { resolveSupportedLocale } from '@open-mercato/shared/lib/i18n/locale'
 import { resolveLocaleFromRequest } from '../../../translations/lib/locale'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { z } from 'zod'
 import { NotificationType, NotificationTypeOverride } from '../../data/entities'
@@ -205,7 +206,23 @@ export async function PATCH(req: Request) {
           })
           em.persist(override)
         }
-        await em.flush()
+        try {
+          await em.flush()
+        } catch (err) {
+          // Concurrent first-write race: another operator created the override for this (tenant, type)
+          // between our read (existing === null) and this flush, so the partial unique index rejects
+          // ours. There was no version to compare, so the optimistic-lock guard couldn't fire — surface
+          // the same 409 it would rather than letting the unique violation fall through to a generic 500.
+          if (isUniqueViolation(err)) {
+            throw conflict(
+              t(
+                'notifications.types.overrideConflict',
+                'Another operator just saved this notification type. Reload and try again.',
+              ),
+            )
+          }
+          throw err
+        }
         return typeItem(row, override, translate)
       },
     )
