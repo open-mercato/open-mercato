@@ -58,6 +58,7 @@ export default function CreateEudrProductMappingPage() {
     },
     {
       id: 'commodity',
+      layout: 'half',
       label: translate('eudr.productMappings.form.commodity'),
       type: 'select',
       required: true,
@@ -65,11 +66,13 @@ export default function CreateEudrProductMappingPage() {
     },
     {
       id: 'hsCode',
+      layout: 'half',
       label: translate('eudr.productMappings.form.hsCode'),
       type: 'text',
     },
     {
       id: 'speciesScientificName',
+      layout: 'half',
       label: translate('eudr.productMappings.speciesScientificName'),
       type: 'text',
       description: translate('eudr.productMappings.speciesHint'),
@@ -78,14 +81,15 @@ export default function CreateEudrProductMappingPage() {
     },
     {
       id: 'speciesCommonName',
+      layout: 'half',
       label: translate('eudr.productMappings.speciesCommonName'),
       type: 'text',
-      description: translate('eudr.productMappings.speciesHint'),
       maxLength: 256,
       visibleWhen: { field: 'commodity', equals: 'wood' },
     },
     {
       id: 'isInScope',
+      layout: 'half',
       label: translate('eudr.productMappings.form.isInScope'),
       type: 'checkbox',
       defaultValue: true,

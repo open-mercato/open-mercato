@@ -189,12 +189,14 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
     },
     {
       id: 'name',
+      layout: 'half',
       label: translate('eudr.plots.form.name'),
       type: 'text',
       required: true,
     },
     {
       id: 'externalId',
+      layout: 'half',
       label: translate('eudr.plots.form.externalId'),
       type: 'text',
     },
@@ -206,6 +208,7 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
     },
     {
       id: 'originCountry',
+      layout: 'half',
       label: translate('eudr.plots.form.originCountry'),
       type: 'custom',
       required: true,
@@ -235,6 +238,7 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
     },
     {
       id: 'areaHa',
+      layout: 'half',
       label: translate('eudr.plots.form.areaHa'),
       type: 'custom',
       description: translate('eudr.plots.form.areaHaHelp'),
@@ -255,11 +259,13 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
     },
     {
       id: 'producerName',
+      layout: 'half',
       label: translate('eudr.plots.form.producerName'),
       type: 'text',
     },
     {
       id: 'isActive',
+      layout: 'half',
       label: translate('eudr.plots.form.isActive'),
       type: 'custom',
       component: ({ value, setValue, disabled }) => (

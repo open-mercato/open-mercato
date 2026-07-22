@@ -370,6 +370,7 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
     },
     {
       id: 'commodity',
+      layout: 'half',
       label: translate('eudr.statements.form.commodity'),
       type: 'select',
       required: true,
@@ -377,38 +378,45 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
     },
     {
       id: 'activityType',
+      layout: 'half',
       label: translate('eudr.statements.form.activityType'),
       type: 'select',
       options: activityTypeOptions(translate),
     },
     {
       id: 'actorRole',
+      layout: 'half',
       label: translate('eudr.statements.form.actorRole'),
       type: 'select',
       options: actorRoleOptions(translate),
     },
     {
       id: 'referenceNumber',
+      layout: 'half',
       label: translate('eudr.statements.form.referenceNumber'),
       type: 'text',
     },
     {
       id: 'verificationNumber',
+      layout: 'half',
       label: translate('eudr.statements.form.verificationNumber'),
       type: 'text',
     },
     {
       id: 'quantityKg',
+      layout: 'half',
       label: translate('eudr.statements.form.quantityKg'),
       type: 'text',
     },
     {
       id: 'supplementaryUnit',
+      layout: 'half',
       label: translate('eudr.statements.form.supplementaryUnit'),
       type: 'text',
     },
     {
       id: 'supplementaryQuantity',
+      layout: 'half',
       label: translate('eudr.statements.form.supplementaryQuantity'),
       type: 'text',
     },

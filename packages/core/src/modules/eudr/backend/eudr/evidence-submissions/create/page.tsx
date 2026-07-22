@@ -124,6 +124,7 @@ export default function CreateEudrEvidenceSubmissionPage() {
     },
     {
       id: 'commodity',
+      layout: 'half',
       label: translate('eudr.evidenceSubmissions.form.commodity'),
       type: 'select',
       required: true,
@@ -174,6 +175,7 @@ export default function CreateEudrEvidenceSubmissionPage() {
     },
     {
       id: 'originCountry',
+      layout: 'half',
       label: translate('eudr.evidenceSubmissions.form.originCountry'),
       type: 'custom',
       description: translate('eudr.form.originCountryHint'),
@@ -189,26 +191,31 @@ export default function CreateEudrEvidenceSubmissionPage() {
     },
     {
       id: 'quantityKg',
+      layout: 'half',
       label: translate('eudr.evidenceSubmissions.form.quantityKg'),
       type: 'text',
     },
     {
       id: 'batchNumber',
+      layout: 'half',
       label: translate('eudr.evidenceSubmissions.form.batchNumber'),
       type: 'text',
     },
     {
       id: 'harvestFrom',
+      layout: 'half',
       label: translate('eudr.evidenceSubmissions.form.harvestFrom'),
       type: 'date',
     },
     {
       id: 'harvestTo',
+      layout: 'half',
       label: translate('eudr.evidenceSubmissions.form.harvestTo'),
       type: 'date',
     },
     {
       id: 'producerName',
+      layout: 'half',
       label: translate('eudr.evidenceSubmissions.form.producerName'),
       type: 'text',
     },
@@ -224,6 +231,7 @@ export default function CreateEudrEvidenceSubmissionPage() {
     },
     {
       id: 'status',
+      layout: 'half',
       label: translate('eudr.evidenceSubmissions.form.status'),
       type: 'select',
       options: submissionStatusOptions(translate),

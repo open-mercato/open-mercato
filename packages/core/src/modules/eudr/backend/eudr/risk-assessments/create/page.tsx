@@ -122,6 +122,7 @@ export default function CreateEudrRiskAssessmentPage() {
     },
     {
       id: 'conclusion',
+      layout: 'half',
       label: translate('eudr.riskAssessments.form.conclusion'),
       type: 'select',
       required: true,
@@ -129,6 +130,7 @@ export default function CreateEudrRiskAssessmentPage() {
     },
     {
       id: 'assessedAt',
+      layout: 'half',
       label: translate('eudr.riskAssessments.form.assessedAt'),
       type: 'datetime-local',
       required: true,
@@ -136,6 +138,7 @@ export default function CreateEudrRiskAssessmentPage() {
     },
     {
       id: 'reviewDueAt',
+      layout: 'half',
       label: translate('eudr.riskAssessments.form.reviewDueAt'),
       type: 'date',
       description: translate('eudr.riskAssessments.form.reviewDueAtHelp'),

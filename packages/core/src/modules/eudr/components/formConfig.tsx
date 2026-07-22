@@ -290,7 +290,6 @@ export function LookupSelectField<Snapshot extends Record<string, unknown>>({
       ) : null}
       <LookupSelect
         value={selectedValue}
-        minQuery={0}
         disabled={disabled}
         searchPlaceholder={placeholder}
         fetchItems={fetchItems}
