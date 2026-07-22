@@ -6,7 +6,7 @@ import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { matchFeature as sharedMatchFeature, hasAllFeatures as sharedHasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
-import { filterGrantsByEnabledModules, getOwningModuleId, getEnabledModuleIds } from '@open-mercato/shared/security/enabledModulesRegistry'
+import { filterGrantsByEnabledModules, getOwningModuleId, getEnabledModuleIds, getRemovedAclFeatureIds, isAclFeatureRemoved } from '@open-mercato/shared/security/enabledModulesRegistry'
 
 interface AclData {
   isSuperAdmin: boolean
@@ -385,7 +385,10 @@ export class RbacService {
     scope: { tenantId: string | null; organizationId: string | null },
   ): Promise<string[]> {
     const acl = await this.loadAcl(userId, scope)
-    return Array.isArray(acl.features) ? acl.features : []
+    const features = Array.isArray(acl.features) ? acl.features : []
+    const removed = getRemovedAclFeatureIds()
+    if (!removed.size) return features
+    return features.filter((feature) => !removed.has(feature))
   }
 
   /**
@@ -400,6 +403,7 @@ export class RbacService {
     opts?: { organizationId?: string | null },
   ): Promise<boolean> {
     if (!tenantId || !feature) return false
+    if (isAclFeatureRemoved(feature)) return false
 
     const enabledIds = getEnabledModuleIds()
     if (enabledIds.length && !enabledIds.includes(getOwningModuleId(feature))) return false
@@ -427,10 +431,12 @@ export class RbacService {
    *
    * Authorization logic:
    * 1. No features required → always returns true
-   * 2. User is super admin → always returns true
-   * 3. Organization restriction check: If the user's ACL has a restricted organization list
+   * 2. Removed feature check: If any required feature was removed via a `null` ACL
+   *    override → returns false (applies to super admins too, mirroring disabled modules)
+   * 3. User is super admin → returns true when every required feature's owning module is enabled
+   * 4. Organization restriction check: If the user's ACL has a restricted organization list
    *    and the requested organization is not in that list → returns false
-   * 4. Feature matching: User must have all required features (supports wildcards)
+   * 5. Feature matching: User must have all required features (supports wildcards)
    *
    * @param userId - The ID of the user
    * @param required - Array of feature strings to check (e.g., ['users.view', 'users.edit'])
@@ -456,6 +462,8 @@ export class RbacService {
    */
   async userHasAllFeatures(userId: string, required: string[], scope: { tenantId: string | null; organizationId: string | null }): Promise<boolean> {
     if (!required.length) return true
+    const removed = getRemovedAclFeatureIds()
+    if (removed.size && required.some((feature) => removed.has(feature))) return false
     const acl = await this.loadAcl(userId, scope)
     if (acl.isSuperAdmin) {
       const enabledIds = getEnabledModuleIds()

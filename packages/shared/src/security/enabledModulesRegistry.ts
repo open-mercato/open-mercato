@@ -24,6 +24,7 @@
  */
 
 import { getModules } from '../lib/modules/registry'
+import { composeAclFeatureOverrides } from '../modules/overrides'
 import type { Module } from '../modules/registry'
 
 type FeatureRegistry = {
@@ -93,21 +94,54 @@ export function getEnabledModuleIds(): string[] {
   return registry ? [...registry.enabledModuleIds] : []
 }
 
+const EMPTY_REMOVED_FEATURES: ReadonlySet<string> = new Set()
+
+/**
+ * Feature ids removed from the ACL contract via a `null` override
+ * (`entry.overrides.acl.features` or `applyAclFeatureOverrides`).
+ *
+ * Removal is a deny-list, not just catalog cleanup. Nulling a feature reads
+ * as "this feature does not exist in this app", so enforcement must agree:
+ * wildcard grants (`sales.*`, `*`), stale explicit grants persisted in
+ * `role_acls`/`user_acls`, and super-admin access all stop satisfying a
+ * removed feature — mirroring how disabled modules are handled.
+ */
+export function getRemovedAclFeatureIds(): ReadonlySet<string> {
+  const overrides = composeAclFeatureOverrides()
+  const keys = Object.keys(overrides)
+  if (!keys.length) return EMPTY_REMOVED_FEATURES
+  const removed = new Set<string>()
+  for (const key of keys) {
+    if (overrides[key] === null) removed.add(key)
+  }
+  return removed.size ? removed : EMPTY_REMOVED_FEATURES
+}
+
+export function isAclFeatureRemoved(featureId: string): boolean {
+  return getRemovedAclFeatureIds().has(featureId)
+}
+
 /**
  * Filters a raw granted-features list down to the grants whose owning
  * module is currently enabled. Expands `*` (superadmin) into one wildcard
  * per enabled module so the result is still safe to feed into a pure
  * `matchFeature` check, plus one wildcard per off-convention feature
  * prefix (e.g. `analytics.*`) whose declared owning module is enabled.
- * If the module registry is not populated (tests, CLI), returns the input
- * unchanged — preserves legacy behavior.
+ * Explicit grants matching a feature removed via a `null` ACL override are
+ * always dropped (see `getRemovedAclFeatureIds`), even when the module
+ * registry is not populated (tests, CLI) — otherwise the input is returned
+ * unchanged in that case, preserving legacy behavior.
  */
 export function filterGrantsByEnabledModules(granted: readonly string[]): string[] {
+  const removed = getRemovedAclFeatureIds()
   const registry = getRegistry()
-  if (!registry) return [...granted]
+  if (!registry) {
+    return removed.size ? granted.filter((grant) => !removed.has(grant)) : [...granted]
+  }
   const { enabledModuleIds, enabledModuleSet, prefixToModule } = registry
   const result: string[] = []
   for (const grant of granted) {
+    if (removed.has(grant)) continue
     if (grant === '*') {
       for (const id of enabledModuleIds) result.push(`${id}.*`)
       for (const [prefix, owningModule] of prefixToModule) {

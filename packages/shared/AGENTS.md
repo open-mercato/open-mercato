@@ -223,6 +223,7 @@ Downstream apps replace or disable any contract a module presents through a sing
 
 MUST rules:
 - `entry.overrides` is the ONLY canonical override surface — never patch upstream module source.
+- ACL features overridden to `null` are a runtime deny-list, not just catalog removal: `getRemovedAclFeatureIds()` / `isAclFeatureRemoved()` (`@open-mercato/shared/security/enabledModulesRegistry`) feed `RbacService`, which denies removed features even for super admins, wildcard grants, and stale persisted grants (see `.ai/specs/2026-07-22-nulled-acl-feature-deny-list.md`).
 - API-route override keys are `'METHOD /api/path'` (method case-insensitive, path leading slash optional). Trailing slashes are stripped.
 - Page-route override keys are `'/backend/path'` or `'/frontend/path'`.
 - `null` disables the matching method; `{ handler, metadata? }` replaces it. Disabling every method on an entry drops the entry.

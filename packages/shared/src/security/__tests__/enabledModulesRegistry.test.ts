@@ -1,9 +1,15 @@
 import type { Module } from '../../modules/registry'
 import { getModules } from '../../lib/modules/registry'
 import {
+  applyAclFeatureOverrides,
+  resetModuleContractOverridesForTests,
+} from '../../modules/overrides'
+import {
   filterGrantsByEnabledModules,
   getEnabledModuleIds,
   getOwningModuleId,
+  getRemovedAclFeatureIds,
+  isAclFeatureRemoved,
 } from '../enabledModulesRegistry'
 
 jest.mock('../../lib/modules/registry', () => ({
@@ -119,5 +125,51 @@ describe('enabledModulesRegistry', () => {
     })
 
     expect(filterGrantsByEnabledModules(['*', 'search.global'])).toEqual(['*', 'search.global'])
+  })
+
+  describe('removed ACL features (null overrides)', () => {
+    afterEach(() => {
+      resetModuleContractOverridesForTests()
+    })
+
+    it('reports feature ids overridden to null as removed', () => {
+      applyAclFeatureOverrides({ 'sales.documents.number.edit': null })
+
+      expect(isAclFeatureRemoved('sales.documents.number.edit')).toBe(true)
+      expect(isAclFeatureRemoved('sales.documents.view')).toBe(false)
+      expect(getRemovedAclFeatureIds()).toEqual(new Set(['sales.documents.number.edit']))
+    })
+
+    it('does not report a feature as removed when the override replaces it with a value', () => {
+      applyAclFeatureOverrides({ 'sales.documents.number.edit': { id: 'sales.documents.number.edit' } })
+
+      expect(isAclFeatureRemoved('sales.documents.number.edit')).toBe(false)
+      expect(getRemovedAclFeatureIds().size).toBe(0)
+    })
+
+    it('drops explicit grants for removed features while keeping module wildcards', () => {
+      mockGetModules.mockReturnValue([
+        {
+          id: 'sales',
+          features: [{ id: 'sales.documents.view', title: 'View documents' }],
+        } as Module,
+      ])
+      applyAclFeatureOverrides({ 'sales.documents.number.edit': null })
+
+      expect(
+        filterGrantsByEnabledModules(['sales.*', 'sales.documents.number.edit', 'sales.documents.view']),
+      ).toEqual(['sales.*', 'sales.documents.view'])
+    })
+
+    it('drops explicit grants for removed features even when the module registry is unavailable', () => {
+      mockGetModules.mockImplementation(() => {
+        throw new Error('registry not initialized')
+      })
+      applyAclFeatureOverrides({ 'sales.documents.number.edit': null })
+
+      expect(
+        filterGrantsByEnabledModules(['sales.documents.number.edit', 'sales.documents.view']),
+      ).toEqual(['sales.documents.view'])
+    })
   })
 })

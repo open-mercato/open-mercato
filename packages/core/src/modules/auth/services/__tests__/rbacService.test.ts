@@ -4,6 +4,7 @@ import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { createMemoryStrategy } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
 import * as enabledModulesRegistry from '@open-mercato/shared/security/enabledModulesRegistry'
+import { applyAclFeatureOverrides, resetModuleContractOverridesForTests } from '@open-mercato/shared/modules/overrides'
 import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 // Minimal mock of MikroORM EntityManager surface used by RbacService
@@ -450,6 +451,72 @@ describe('RbacService', () => {
 
       const ok = await service.userHasAllFeatures(baseUser.id!, ['entities.records.view'], { tenantId: null, organizationId: 'org-unknown' })
       expect(ok).toBe(true)
+    })
+  })
+
+  describe('removed ACL features (null overrides)', () => {
+    afterEach(() => {
+      resetModuleContractOverridesForTests()
+    })
+
+    const mockUserAcl = (uacl: Partial<UserAcl>) => {
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && where?.user === baseUser.id && where?.tenantId === baseUser.tenantId) return uacl
+        return null
+      })
+    }
+
+    it('denies a removed feature even when a module wildcard grant matches it', async () => {
+      applyAclFeatureOverrides({ 'sales.documents.number.edit': null })
+      mockUserAcl({ isSuperAdmin: false, featuresJson: ['sales.*'], organizationsJson: null })
+
+      const removedAllowed = await service.userHasAllFeatures(baseUser.id!, ['sales.documents.number.edit'], { tenantId: null, organizationId: null })
+      const siblingAllowed = await service.userHasAllFeatures(baseUser.id!, ['sales.documents.view'], { tenantId: null, organizationId: null })
+
+      expect(removedAllowed).toBe(false)
+      expect(siblingAllowed).toBe(true)
+    })
+
+    it('denies a removed feature for an explicit stale grant persisted in the ACL', async () => {
+      applyAclFeatureOverrides({ 'sales.documents.number.edit': null })
+      mockUserAcl({ isSuperAdmin: false, featuresJson: ['sales.documents.number.edit'], organizationsJson: null })
+
+      const ok = await service.userHasAllFeatures(baseUser.id!, ['sales.documents.number.edit'], { tenantId: null, organizationId: null })
+      expect(ok).toBe(false)
+    })
+
+    it('denies a removed feature for super admins, mirroring disabled-module handling', async () => {
+      applyAclFeatureOverrides({ 'sales.documents.number.edit': null })
+      mockUserAcl({ isSuperAdmin: true, featuresJson: [] })
+
+      const ok = await service.userHasAllFeatures(baseUser.id!, ['sales.documents.number.edit'], { tenantId: null, organizationId: null })
+      expect(ok).toBe(false)
+    })
+
+    it('denies a removed feature in tenant-scope checks despite wildcard role grants', async () => {
+      applyAclFeatureOverrides({ 'sales.documents.number.edit': null })
+      const roleAcls: Array<Partial<RoleAcl>> = [
+        { tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['sales.*'], organizationsJson: null },
+      ]
+      em.find.mockImplementation(async (entity: any, where: any) => {
+        if (entity === RoleAcl && where?.tenantId === 'tenant-1') return roleAcls
+        return []
+      })
+
+      const removedAllowed = await service.tenantHasFeature('tenant-1', 'sales.documents.number.edit')
+      const siblingAllowed = await service.tenantHasFeature('tenant-1', 'sales.documents.view')
+
+      expect(removedAllowed).toBe(false)
+      expect(siblingAllowed).toBe(true)
+    })
+
+    it('filters explicit removed grants out of getGrantedFeatures while keeping other grants', async () => {
+      applyAclFeatureOverrides({ 'sales.documents.number.edit': null })
+      mockUserAcl({ isSuperAdmin: false, featuresJson: ['sales.documents.number.edit', 'sales.*'], organizationsJson: null })
+
+      const grants = await service.getGrantedFeatures(baseUser.id!, { tenantId: null, organizationId: null })
+      expect(grants).toEqual(['sales.*'])
     })
   })
 
