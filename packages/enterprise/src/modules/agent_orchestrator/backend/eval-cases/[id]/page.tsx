@@ -16,6 +16,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '../../../components/types'
+import { agentLabelFor, useAgentLabelMap } from '../../../components/useAgentLabels'
 
 type EvalCaseStatus = 'draft' | 'approved' | 'archived'
 type EvalCaseSourceType = 'correction' | 'golden_run'
@@ -106,6 +107,7 @@ export default function EvalCaseDetailPage({ params }: { params?: { id?: string 
   const t = useT()
   const locale = useLocale()
   const router = useRouter()
+  const agentLabels = useAgentLabelMap()
   const caseId = params?.id ?? ''
   const [detail, setDetail] = React.useState<EvalCaseDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -280,9 +282,11 @@ export default function EvalCaseDetailPage({ params }: { params?: { id?: string 
                     </span>
                   </div>
                   <h1 className="mt-2 text-2xl font-bold tracking-tight text-foreground">
-                    {detail.agentDefinitionId}
+                    {agentLabelFor(agentLabels, detail.agentDefinitionId)}
                   </h1>
-                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">{detail.id}</p>
+                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                    {detail.agentDefinitionId} · {detail.id}
+                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {detail.status === 'draft' ? (

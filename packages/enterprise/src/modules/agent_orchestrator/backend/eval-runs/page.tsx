@@ -14,6 +14,7 @@ import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primiti
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { agentLabelFor, useAgentLabelMap } from '../../components/useAgentLabels'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { formatDateTime } from '../../components/types'
 import {
@@ -36,6 +37,7 @@ export default function AgentEvalRunsPage() {
   const t = useT()
   const locale = useLocale()
   const router = useRouter()
+  const agentLabels = useAgentLabelMap()
   const [rows, setRows] = React.useState<EvalRunRow[]>([])
   const [total, setTotal] = React.useState(0)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -100,7 +102,9 @@ export default function AgentEvalRunsPage() {
       enableSorting: false,
       meta: { maxWidth: '220px', truncate: true },
       cell: ({ row }) => (
-        <span className="truncate text-sm font-medium text-foreground">{row.original.agentDefinitionId}</span>
+        <span className="truncate text-sm font-medium text-foreground" title={row.original.agentDefinitionId}>
+          {agentLabelFor(agentLabels, row.original.agentDefinitionId)}
+        </span>
       ),
     },
     {
@@ -182,7 +186,7 @@ export default function AgentEvalRunsPage() {
         )
       },
     },
-  ], [t, locale])
+  ], [t, locale, agentLabels])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const showEmpty = !isLoading && !error && total === 0 && statusFilter === 'all'

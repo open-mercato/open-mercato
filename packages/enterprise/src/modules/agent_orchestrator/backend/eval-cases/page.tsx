@@ -23,6 +23,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '../../components/types'
+import { agentLabelFor } from '../../components/useAgentLabels'
 
 type EvalCaseStatus = 'draft' | 'approved' | 'archived'
 type EvalCaseSourceType = 'correction' | 'golden_run'
@@ -159,6 +160,13 @@ export default function EvalCasesPage() {
     return () => { cancelled = true }
   }, [])
 
+  // Derived from the registry this page already loads for the create form, so the
+  // Agent column costs no extra round-trip.
+  const agentLabels = React.useMemo(
+    () => new Map(agents.map((option) => [option.value, option.label])),
+    [agents],
+  )
+
   const changeStatus = React.useCallback(async (row: EvalCaseRow, action: 'approve' | 'archive') => {
     try {
       await runMutation({
@@ -201,7 +209,14 @@ export default function EvalCasesPage() {
       {
         accessorKey: 'agentDefinitionId',
         header: t('agent_orchestrator.evalCases.col.agent'),
-        cell: ({ row }) => <span className="font-mono text-sm text-foreground">{row.original.agentDefinitionId}</span>,
+        // The registry label, falling back to the id for an agent the registry no
+        // longer knows. The id stays reachable as the title so a case can still be
+        // matched to a definition by key.
+        cell: ({ row }) => (
+          <span className="truncate text-sm text-foreground" title={row.original.agentDefinitionId}>
+            {agentLabelFor(agentLabels, row.original.agentDefinitionId)}
+          </span>
+        ),
       },
       {
         accessorKey: 'sourceType',
@@ -235,7 +250,7 @@ export default function EvalCasesPage() {
         ),
       },
     ],
-    [t, locale],
+    [t, locale, agentLabels],
   )
 
   const formSchema = React.useMemo(

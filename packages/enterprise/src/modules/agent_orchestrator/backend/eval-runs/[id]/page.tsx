@@ -33,6 +33,7 @@ import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useCoalescedReload } from '../../../components/useCoalescedReload'
 import { formatDateTime, formatDurationMs } from '../../../components/types'
+import { agentLabelFor, useAgentLabelMap } from '../../../components/useAgentLabels'
 import {
   evalCaseRunStatusVariant,
   evalSuiteOutcomeVariant,
@@ -314,6 +315,7 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
   const t = useT()
   const locale = useLocale()
   const router = useRouter()
+  const agentLabels = useAgentLabelMap()
   const suiteRunId = params?.id ?? ''
 
   const [run, setRun] = React.useState<EvalRunDetailView | null>(null)
@@ -564,7 +566,10 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
 
                 <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h1 className="text-2xl font-bold tracking-tight text-foreground">{run.agentDefinitionId}</h1>
+                    <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                      {agentLabelFor(agentLabels, run.agentDefinitionId)}
+                    </h1>
+                    <p className="mt-0.5 font-mono text-xs text-muted-foreground">{run.agentDefinitionId}</p>
                     <p className="mt-0.5 text-sm text-muted-foreground">
                       {t('agent_orchestrator.evalRuns.detail.startedAt', undefined, {
                         value: formatDateTime(run.startedAt ?? run.createdAt, locale) ?? '—',
