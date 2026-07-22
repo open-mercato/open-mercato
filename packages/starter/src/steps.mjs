@@ -152,6 +152,71 @@ export function readAppliedMigrationModules(ctx, { runComposeImpl = runCompose }
   )
 }
 
+// The compose healthcheck (pg_isready) never authenticates, so an existing
+// data volume whose password no longer matches the env files still reports
+// healthy — the volume keeps the password it was initialized with, and the
+// run would only die later inside `yarn db:migrate` with a raw FATAL.
+//
+// The postgres image trusts loopback (pg_hba: `host all all 127.0.0.1/32
+// trust`) and only demands a password via the catch-all
+// `host all all all scram-sha-256` rule — i.e. for NON-loopback source
+// addresses. The app hits that rule because it arrives from the docker
+// gateway, so the probe must too: connect to the container's OWN routable IP
+// (hostname -i), not 127.0.0.1, or the check trusts every password. User and
+// password go through `-e` env vars (libpq reads PGUSER/PGPASSWORD) so they
+// never enter the shell string — no injection even with `'`/`$` in a value.
+// Returns 'ok', 'auth-failed', or null when no verdict is possible (URL
+// unparsable, compose unavailable, postgres not managed here).
+export function probePostgresCredentials(ctx, { runComposeImpl = runCompose } = {}) {
+  const dbUrl = readEnvValue(path.join(ctx.repoRoot, 'apps', 'mercato', '.env'), 'DATABASE_URL') ?? ''
+  let parsed
+  try {
+    parsed = new URL(dbUrl)
+  } catch {
+    return null
+  }
+  const user = decodeURIComponent(parsed.username || 'postgres')
+  const password = decodeURIComponent(parsed.password || 'postgres')
+  let result
+  try {
+    result = runComposeImpl(ctx.repoRoot, [
+      'exec', '-T', '-e', `PGPASSWORD=${password}`, '-e', `PGUSER=${user}`, 'postgres',
+      'sh', '-c', `exec psql -h "$(hostname -i | awk '{print $1}')" -d postgres -t -A -c 'select 1'`,
+    ], { stdio: 'pipe' })
+  } catch {
+    return null
+  }
+  if (result.status === 0) return 'ok'
+  const output = `${result.stderr ?? ''}\n${result.stdout ?? ''}`
+  return /password authentication failed|role ".*" does not exist/i.test(output) ? 'auth-failed' : null
+}
+
+// Distinguishes "the data volume already carries a seeded database" from a
+// genuinely empty one. `yarn initialize` hard-aborts when it finds existing
+// users, so on a re-clone (fresh .mercato markers, old postgres volume) the
+// database step must adopt the volume instead of trying to seed it. Queries
+// over the trust-auth socket (no password needed) and guards the users table
+// existence in one round trip. Returns true (seeded), false (empty/no table),
+// or null when the probe cannot run.
+export function databaseIsInitialized(ctx, { runComposeImpl = runCompose } = {}) {
+  const dbUrl = readEnvValue(path.join(ctx.repoRoot, 'apps', 'mercato', '.env'), 'DATABASE_URL') ?? ''
+  const dbName = dbUrl.split('/').pop()?.split('?')[0]?.trim() || 'open-mercato'
+  let result
+  try {
+    result = runComposeImpl(ctx.repoRoot, [
+      'exec', '-T', 'postgres',
+      'psql', '-U', 'postgres', '-d', dbName, '-t', '-A', '-c',
+      "select case when to_regclass('public.users') is null then -1 else (select count(*) from users) end",
+    ], { stdio: 'pipe' })
+  } catch {
+    return null
+  }
+  if (result.status !== 0) return null
+  const value = Number.parseInt(String(result.stdout ?? '').trim(), 10)
+  if (!Number.isFinite(value) || value < 0) return false
+  return value > 0
+}
+
 // `--clean` support: drop the convergence markers (install/build/migrations)
 // so the next `up` re-runs those steps. Keeps the remembered mode AND the
 // db-initialized markers — --clean does not touch data, and `yarn initialize`
@@ -350,7 +415,7 @@ export const envFilesStep = {
     return { ok: false, detail: 'converging (never overwrites existing values)' }
   },
   async apply(ctx) {
-    ensureEnvFiles(ctx.repoRoot, { log: (line) => ctx.log(`   ${line}`), warn: (line) => ctx.log(`   ⚠️ ${line}`), extraDefaults: ctx.company.env })
+    ensureEnvFiles(ctx.repoRoot, { log: (line) => ctx.log(`   ${line}`), warn: (line) => ctx.log(`   ⚠️ ${line}`), extraDefaults: ctx.company.env, mode: ctx.mode })
   },
 }
 
@@ -523,9 +588,28 @@ export const databaseStep = {
     if (initialized && migrated) {
       return { ok: true, detail: 'database initialized, no new migration files' }
     }
+    // Re-clone / wiped-markers with an old data volume still attached: the
+    // schema + seed are already there, so `initialize` would hard-abort on the
+    // existing users. Detect it here so apply adopts the volume (skips the
+    // seed) instead of failing. dbReinitialize (empty volume) is the opposite
+    // case and must still seed, so it is excluded above.
+    if (!initialized && databaseIsInitialized(ctx) === true) {
+      ctx.dbAlreadyInitialized = true
+      return { ok: false, detail: migrated
+        ? 'existing data volume already initialized — recording state, skipping seed'
+        : 'existing data volume already initialized — applying pending migrations, skipping seed' }
+    }
     return { ok: false, detail: initialized ? 'new migration files — applying pending migrations' : 'first run — migrate + initialize' }
   },
   async apply(ctx) {
+    if (probePostgresCredentials(ctx) === 'auth-failed') {
+      throw new Error([
+        'Postgres rejected the credentials from apps/mercato/.env (DATABASE_URL).',
+        'The data volume keeps the password it was initialized with — a regenerated or freshly cloned .env no longer matches it.',
+        'Either restore the original POSTGRES_PASSWORD in .env and in apps/mercato/.env (DATABASE_URL), then re-run,',
+        'or start over with a fresh database (DELETES all local data):  yarn om reset',
+      ].join('\n'))
+    }
     runYarn(ctx, ['db:migrate'])
     writeState(ctx.repoRoot, ctx.dbMigrationsMarker, ctx.migrationsFingerprint)
     const applied = readAppliedMigrationModules(ctx)
@@ -534,7 +618,13 @@ export const databaseStep = {
       writeState(ctx.repoRoot, `${ctx.dbMigrationsMarker}-absent`, stillAbsent.join(','))
     }
     if (readState(ctx.repoRoot, ctx.dbMarker) === null || ctx.dbReinitialize) {
-      runYarn(ctx, ['initialize'])
+      // Adopt an already-seeded volume instead of aborting on its users.
+      const alreadyInitialized = ctx.dbAlreadyInitialized ?? (!ctx.dbReinitialize && databaseIsInitialized(ctx) === true)
+      if (alreadyInitialized) {
+        ctx.log('   database already initialized (existing data volume) — recording state, skipping first-run seed')
+      } else {
+        runYarn(ctx, ['initialize'])
+      }
       writeState(ctx.repoRoot, ctx.dbMarker, new Date().toISOString())
     }
   },
