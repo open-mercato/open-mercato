@@ -90,6 +90,7 @@
   "notifications.toast.dismissed": "Benachrichtigung verworfen",
   "notifications.toast.new": "Neue Benachrichtigung",
   "notifications.types.invalidChannels": "Ungültige Kanal-Daten",
+  "notifications.types.overrideConflict": "Ein anderer Operator hat diesen Benachrichtigungstyp gerade gespeichert. Bitte neu laden und erneut versuchen.",
   "notifications.types.unknownType": "Unbekannter Benachrichtigungstyp",
   "notifications.unreadSummary": "{count} ungelesen"
 }

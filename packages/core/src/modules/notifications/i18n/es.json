@@ -90,6 +90,7 @@
   "notifications.toast.dismissed": "Notificación descartada",
   "notifications.toast.new": "Nueva notificación",
   "notifications.types.invalidChannels": "Payload de canales no válido",
+  "notifications.types.overrideConflict": "Otro operador acaba de guardar este tipo de notificación. Vuelve a cargar e inténtalo de nuevo.",
   "notifications.types.unknownType": "Tipo de notificación desconocido",
   "notifications.unreadSummary": "{count} sin leer"
 }
