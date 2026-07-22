@@ -15,7 +15,11 @@ export type DeviceSnapshot = {
   clientAppVersion: string | null
   osVersion: string | null
   locale: string | null
-  pushToken: string | null
+  // Last-8 fingerprint of the push token — NEVER the plaintext. Audit snapshots and the undo payload
+  // both persist to `action_logs` (no TTL, never purged, and `persistLog` permits a null tenantId the
+  // encryption subscriber skips), so storing the real token there would leak a device credential
+  // forever. The live encrypted column is the single source of truth; undo re-reads it (see applySnapshot).
+  pushTokenFingerprint: string | null
   pushProvider: string | null
   pushTokenUpdatedAt: string | null
   lastSeenAt: string
@@ -48,6 +52,12 @@ function toDate(value: string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
+// Persist at most the last 8 chars of the (long) provider token — never the full secret. Mirrors the
+// delivery log's `token_snapshot` (push-fanout.ts) so audit/undo carry a stable, non-sensitive fingerprint.
+function fingerprintPushToken(token: string | null): string | null {
+  return token ? token.slice(-8) : null
+}
+
 export function serializeDevice(device: UserDevice): DeviceSnapshot {
   return {
     id: device.id,
@@ -59,7 +69,7 @@ export function serializeDevice(device: UserDevice): DeviceSnapshot {
     clientAppVersion: device.clientAppVersion ?? null,
     osVersion: device.osVersion ?? null,
     locale: device.locale ?? null,
-    pushToken: device.pushToken ?? null,
+    pushTokenFingerprint: fingerprintPushToken(device.pushToken ?? null),
     pushProvider: device.pushProvider ?? null,
     pushTokenUpdatedAt: device.pushTokenUpdatedAt ? device.pushTokenUpdatedAt.toISOString() : null,
     lastSeenAt: device.lastSeenAt.toISOString(),
@@ -67,23 +77,16 @@ export function serializeDevice(device: UserDevice): DeviceSnapshot {
   }
 }
 
-// push_token is a secret (see AGENTS.md). The audit-logs API returns snapshotBefore/snapshotAfter
-// (and the changesJson it derives from them) to clients, so the token is stripped from the snapshots
-// stored on the log entry. The real token stays in payload.undo — which the audit API never exposes
-// and the undo handlers read from via extractUndoPayload — so remove/restore puts it back unchanged.
-export function redactSnapshot(snapshot: DeviceSnapshot | null): DeviceSnapshot | null {
-  if (!snapshot) return null
-  return { ...snapshot, pushToken: snapshot.pushToken === null ? null : '[redacted]' }
-}
-
 export function applySnapshot(device: UserDevice, snapshot: DeviceSnapshot): void {
   device.platform = snapshot.platform as UserDevice['platform']
   device.clientAppVersion = snapshot.clientAppVersion
   device.osVersion = snapshot.osVersion
   device.locale = snapshot.locale
-  device.pushToken = snapshot.pushToken
-  device.pushProvider = snapshot.pushProvider
-  device.pushTokenUpdatedAt = toDate(snapshot.pushTokenUpdatedAt)
+  // The push credential triple (token, provider, token_updated_at) is deliberately NOT restored from a
+  // snapshot. The snapshot carries only a fingerprint, and the token is a device-issued credential whose
+  // live encrypted column is authoritative — undo preserves whatever token the device currently holds.
+  // Restoring a stale token, or the redacted/undecryptable placeholder a snapshot could otherwise carry,
+  // would unrecoverably brick delivery. Reverting metadata is safe; reverting the secret is not.
   device.lastSeenAt = toDate(snapshot.lastSeenAt) ?? new Date()
   device.deletedAt = toDate(snapshot.deletedAt)
 }

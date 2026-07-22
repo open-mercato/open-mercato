@@ -16,7 +16,6 @@ import {
   deviceIndexer,
   isDeviceUniqueViolation,
   loadExistingDevice,
-  redactSnapshot,
   serializeDevice,
   type DeviceSnapshot,
   type DeviceUndoPayload,
@@ -149,8 +148,8 @@ const registerDeviceCommand: CommandHandler<RegisterDeviceCommandInput, { id: st
       resourceId: result.id,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
       organizationId: after?.organizationId ?? before?.organizationId ?? null,
-      snapshotBefore: redactSnapshot(before),
-      snapshotAfter: redactSnapshot(after),
+      snapshotBefore: before,
+      snapshotAfter: after,
       payload: {
         undo: { before, after } satisfies DeviceUndoPayload,
       },

@@ -1,4 +1,5 @@
-export {}
+import { applySnapshot, serializeDevice, type DeviceSnapshot } from '../commands/shared'
+import type { UserDevice } from '../data/entities'
 
 const registerCommand = jest.fn()
 
@@ -30,7 +31,7 @@ function loadCommand(id: string): CommandLike {
   return command as CommandLike
 }
 
-function deviceSnapshot(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function makeDevice(overrides: Partial<UserDevice> = {}): UserDevice {
   return {
     id: DEVICE_ID,
     tenantId: TENANT,
@@ -40,70 +41,68 @@ function deviceSnapshot(overrides: Record<string, unknown> = {}): Record<string,
     platform: 'ios',
     clientAppVersion: '1.0.0',
     osVersion: '17.0',
+    locale: 'en-US',
     pushToken: SECRET_TOKEN,
     pushProvider: 'apns',
-    pushTokenUpdatedAt: '2026-06-26T00:00:00.000Z',
-    lastSeenAt: '2026-06-26T00:00:00.000Z',
+    pushTokenUpdatedAt: new Date('2026-06-26T00:00:00.000Z'),
+    lastSeenAt: new Date('2026-06-26T00:00:00.000Z'),
     deletedAt: null,
     ...overrides,
-  }
+  } as unknown as UserDevice
 }
 
-describe('devices command audit-log redaction', () => {
-  it('redacts push_token from register snapshots while retaining it in the undo payload', async () => {
-    const command = loadCommand('devices.user_devices.register')
-    const before = deviceSnapshot()
-    const after = deviceSnapshot({ clientAppVersion: '1.1.0' })
+describe('device snapshots never carry the plaintext push_token', () => {
+  it('serializeDevice stores only the last-8 fingerprint, never the token', () => {
+    const snap = serializeDevice(makeDevice())
+    expect(snap.pushTokenFingerprint).toBe(SECRET_TOKEN.slice(-8))
+    expect('pushToken' in snap).toBe(false)
+    expect(JSON.stringify(snap)).not.toContain(SECRET_TOKEN)
+  })
+
+  it('serializeDevice maps a null token to a null fingerprint', () => {
+    expect(serializeDevice(makeDevice({ pushToken: null })).pushTokenFingerprint).toBeNull()
+  })
+
+  it.each([
+    'devices.user_devices.register',
+    'devices.user_devices.update',
+    'devices.user_devices.deactivate',
+  ])('%s buildLog leaks the token into neither the snapshots nor the undo payload', async (id) => {
+    const command = loadCommand(id)
+    const before = serializeDevice(makeDevice())
+    const after = serializeDevice(makeDevice({ clientAppVersion: '1.1.0' }))
 
     const log = await command.buildLog({ result: { id: DEVICE_ID }, snapshots: { before, after } })
 
     expect(log).not.toBeNull()
-    // Audit-log API returns snapshotBefore/snapshotAfter (and derives changesJson from them).
-    expect(log!.snapshotBefore?.pushToken).toBe('[redacted]')
-    expect(log!.snapshotAfter?.pushToken).toBe('[redacted]')
-    expect(JSON.stringify(log!.snapshotBefore)).not.toContain(SECRET_TOKEN)
-    expect(JSON.stringify(log!.snapshotAfter)).not.toContain(SECRET_TOKEN)
-    // The real token survives only in the non-exposed undo payload so remove/restore is lossless.
-    expect(log!.payload?.undo?.before?.pushToken).toBe(SECRET_TOKEN)
-    expect(log!.payload?.undo?.after?.pushToken).toBe(SECRET_TOKEN)
+    // The full blob covers snapshotBefore/After (client-facing) AND payload.undo (internal, persisted
+    // to action_logs with no TTL) — the token must appear in none of them.
+    expect(JSON.stringify(log)).not.toContain(SECRET_TOKEN)
+    // Only the safe last-8 fingerprint survives, in both the snapshot and the undo payload.
+    expect(log!.snapshotBefore?.pushTokenFingerprint).toBe(SECRET_TOKEN.slice(-8))
+    expect(log!.payload?.undo?.before?.pushTokenFingerprint).toBe(SECRET_TOKEN.slice(-8))
+  })
+})
+
+describe('applySnapshot preserves the live push credential (never restores it from audit data)', () => {
+  it('restores metadata but keeps the device’s current token/provider', () => {
+    const device = makeDevice({ pushToken: 'LIVE-TOKEN-abcdefgh', pushProvider: 'fcm', platform: 'android', locale: 'de-DE' })
+    const snapshot = serializeDevice(makeDevice({ pushToken: SECRET_TOKEN, pushProvider: 'apns', platform: 'ios', locale: 'en-US' }))
+
+    applySnapshot(device, snapshot)
+
+    expect(device.platform).toBe('ios') // metadata reverted
+    expect(device.locale).toBe('en-US') // metadata reverted
+    expect(device.pushToken).toBe('LIVE-TOKEN-abcdefgh') // credential preserved, NOT restored to the snapshot's
+    expect(device.pushProvider).toBe('fcm')
   })
 
-  it('keeps a null push_token as null (not "[redacted]") in register snapshots', async () => {
-    const command = loadCommand('devices.user_devices.register')
-    const after = deviceSnapshot({ pushToken: null })
-
-    const log = await command.buildLog({ result: { id: DEVICE_ID }, snapshots: { after } })
-
-    expect(log!.snapshotBefore).toBeNull()
-    expect(log!.snapshotAfter?.pushToken).toBeNull()
-  })
-
-  it('redacts push_token from update snapshots while retaining it in the undo payload', async () => {
-    const command = loadCommand('devices.user_devices.update')
-    const before = deviceSnapshot()
-    const after = deviceSnapshot({ pushToken: 'rotated-secret-token-9876543210fedcba' })
-
-    const log = await command.buildLog({ result: { id: DEVICE_ID }, snapshots: { before, after } })
-
-    expect(log!.snapshotBefore?.pushToken).toBe('[redacted]')
-    expect(log!.snapshotAfter?.pushToken).toBe('[redacted]')
-    expect(JSON.stringify({ a: log!.snapshotBefore, b: log!.snapshotAfter })).not.toContain(SECRET_TOKEN)
-    expect(JSON.stringify({ a: log!.snapshotBefore, b: log!.snapshotAfter })).not.toContain(
-      'rotated-secret-token-9876543210fedcba',
-    )
-    expect(log!.payload?.undo?.before?.pushToken).toBe(SECRET_TOKEN)
-    expect(log!.payload?.undo?.after?.pushToken).toBe('rotated-secret-token-9876543210fedcba')
-  })
-
-  it('redacts push_token from the deactivate before-snapshot', async () => {
-    const command = loadCommand('devices.user_devices.deactivate')
-    const before = deviceSnapshot()
-
-    const log = await command.buildLog({ result: { id: DEVICE_ID }, snapshots: { before } })
-
-    expect(log!.snapshotBefore?.pushToken).toBe('[redacted]')
-    expect(JSON.stringify(log!.snapshotBefore)).not.toContain(SECRET_TOKEN)
-    expect(log!.payload?.undo?.before?.pushToken).toBe(SECRET_TOKEN)
+  it('cannot brick the token even when a snapshot carries a placeholder fingerprint', () => {
+    // Simulates a legacy/undecryptable payload whose fingerprint field holds junk — undo must still
+    // leave the live token intact rather than writing the placeholder into the credential column (M7).
+    const device = makeDevice({ pushToken: 'LIVE-TOKEN-abcdefgh' })
+    applySnapshot(device, { ...serializeDevice(makeDevice()), pushTokenFingerprint: '[redacted]' } as DeviceSnapshot)
+    expect(device.pushToken).toBe('LIVE-TOKEN-abcdefgh')
   })
 })
 
