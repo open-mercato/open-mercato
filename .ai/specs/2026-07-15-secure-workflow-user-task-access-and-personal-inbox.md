@@ -27,7 +27,7 @@ This specification is intentionally delta-first. Durable post-completion progres
 
 ## Current Baseline and Delta
 
-Baseline reviewed: `open-mercato/open-mercato` `develop` at `28649ddec6dd26c15244f4b4264117c8e645a368` on 2026-07-21.
+Baseline reviewed: `open-mercato/open-mercato` `develop` at `39ab1d9e62950e84a5acfb10f2925a3ac41ec328` on 2026-07-22.
 
 | Existing capability | Keep | Missing delta |
 | --- | --- | --- |
@@ -40,7 +40,7 @@ Baseline reviewed: `open-mercato/open-mercato` `develop` at `28649ddec6dd26c1524
 | `workflows.task.assigned` notification type/subscriber | Type ID remains | Declare and emit event; fix `/backend/workflows/tasks/{id}` deep link |
 | Workflow task integration coverage | Existing happy paths remain | Adversarial actor, scope, race, navigation, and notification coverage |
 
-Concurrent work must be rechecked before implementation. [PR #4019](https://github.com/open-mercato/open-mercato/pull/4019) owns visual-editor persistence, [PR #4085](https://github.com/open-mercato/open-mercato/pull/4085) owns user-task form normalization, and [PR #4291](https://github.com/open-mercato/open-mercato/pull/4291) owns role selection in the editor. None currently implements this access or navigation contract.
+Concurrent work must be rechecked before implementation. As of the baseline above, [PR #4019](https://github.com/open-mercato/open-mercato/pull/4019) remains an open draft for visual-editor persistence, [PR #4085](https://github.com/open-mercato/open-mercato/pull/4085) remains open for user-task form normalization, and [PR #4291](https://github.com/open-mercato/open-mercato/pull/4291) remains open for role selection in the editor. None implements this access or navigation contract. Their merged replacements, if any, become the compatibility baseline; this specification does not modify their implementation branches.
 
 ## Problem Statement
 
@@ -147,7 +147,9 @@ type UserTaskActor = {
 }
 ```
 
-The actor is constructed from authenticated server state and the selected organization. Feature checks use the shared wildcard-aware matcher. The resolver rejects `auth.isApiKey` and every other non-interactive principal with `403`; it never substitutes an API key's backing `userId` or treats API-key roles as human candidate-role membership. `userId` is the canonical session user ID.
+The actor is constructed from authenticated server state and one explicitly selected organization. Feature checks use the shared wildcard-aware matcher. The module-local resolver is fail-closed: if neither the validated request selection nor authenticated organization supplies exactly one in-scope organization ID, list/detail/claim/complete return `400 MISSING_ORGANIZATION_CONTEXT` before any task or definition query. It never accepts `resolveOrganizationScopeFilter(...).where === {}` as a task scope. The same resolved `{ tenantId, organizationId }` tuple is passed to every route, helper, locked command, task/step/instance lookup, and definition lookup.
+
+The resolver rejects `auth.isApiKey` and every other non-interactive principal with `403`; it never substitutes an API key's backing `userId` or treats API-key roles as human candidate-role membership. `userId` is the canonical session user ID.
 
 When a new task has a direct assignment, task creation resolves the configured reference to exactly one active human in tenant/organization scope and persists the canonical user ID. A canonical user ID or email may be accepted as definition configuration input for that creation-time resolution, but email is never compared to the current actor at read or mutation time. Missing, inactive, foreign-scope, ambiguous, and non-email legacy aliases fail task creation with `USER_TASK_ASSIGNEE_UNRESOLVED` instead of persisting a non-canonical assignment.
 
@@ -165,7 +167,7 @@ Before canonical-only execution is enabled, `corepack yarn mercato workflows aud
 
 The report names definition/version/task IDs, classification, and remediation without logging decrypted emails in normal output. `--apply-task-map <user-owned-json>` accepts exact task-ID-to-canonical-user-ID mappings, requires tenant/organization flags, verifies the target user is active/in scope, locks an unclaimed pending task, rewrites only `assignedTo`, and appends a user-task assignment-repaired audit event. It never guesses from current email ownership, never edits completed/claimed tasks, and never rewrites versioned definitions. Definitions are corrected through their existing editor/API by selecting a canonical user ID or intentional `assignedToRoles` value.
 
-Implementation updates repository-owned examples, seeds, and integration fixtures that currently use aliases such as `approver` or `admin`. `UPGRADE_NOTES.md` requires a dry run and zero unresolved active definitions before deployment; unresolved production definitions fail validation/preflight before entering `USER_TASK`, not silently after creating a stranded row.
+Implementation updates repository-owned examples, seeds, and integration fixtures that currently use aliases such as `approver` or `admin`. `UPGRADE_NOTES.md` requires a dry run and two independently measured rollout gates before deployment: zero unresolved direct assignments in active definitions, and zero unresolved `PENDING`/`IN_PROGRESS` legacy tasks unless an explicitly reviewed manual-repair inventory accepts their temporary fail-closed availability impact. Unresolved production definitions fail validation/preflight before entering `USER_TASK`, not silently after creating a stranded row. Pending task repair is never inferred from the definition gate.
 
 ### Personal Visibility and Capabilities
 
@@ -236,7 +238,7 @@ For an already-completed task, the access layer exposes a separate replay branch
 
 Only an authorized first completion or replay may invoke the transaction and continuation contract in the durable-continuation specification. A manager who is neither assignee, claimant, nor the original completing actor receives `404`, not an execution override.
 
-Custom claim/complete routes run mutation guards before the command and after-success callbacks only after a successful commit.
+Custom claim/complete routes gain the repository mutation-guard sequence; this is new work, not existing behavior. Each route maps the action to `update`, collects registered guards plus the legacy bridge, runs guards before the command with actor features and scoped payload, applies any allowed payload modification before validation/command execution, and invokes returned after-success callbacks only after a successful commit while isolating callback failure from the committed task state.
 
 ## Events and Notifications
 
@@ -263,13 +265,35 @@ No schema change is required.
 
 No new PII is stored. Task APIs do not return decrypted auth fields or raw feature grants.
 
+The frozen server projection shared with optional adapters is defined structurally rather than by a route-schema alias:
+
+```ts
+type AuthorizedUserTaskProjection = {
+  id: string
+  taskName: string
+  description: string | null
+  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'ESCALATED'
+  formSchema: unknown | null
+  dueDate: string | null
+  createdAt: string
+  updatedAt: string
+  claimedAt: string | null
+  completedAt: string | null
+  canClaim: boolean
+  canComplete: boolean
+  canRetryContinuation: boolean
+}
+```
+
+The implementation derives these base fields from the existing `userTaskSchema` names and adds only the three booleans; the structural contract above freezes the minimum adapter-safe subset. Nullable optional route values are normalized to explicit `null` for this DI projection. It intentionally excludes `workflowInstanceId`, `stepInstanceId`, `formData`, `assignedTo`, `assignedToRoles`, `claimedBy`, `completedBy`, tenant/organization IDs, actor roles/features, workflow context/metadata, and business-source identifiers. `canRetryContinuation` is introduced only in the atomic delivery group that lands the durable continuation state that makes it computable.
+
 ## API Contracts
 
 All current URLs and methods remain, and every route keeps an `openApi` export.
 
 ### `GET /api/workflows/tasks`
 
-- Parse and clamp `limit` to `1..100`; preserve `offset`.
+- Align runtime parsing with the existing OpenAPI `limit` contract (`1..100`) instead of the current raw `parseInt` divergence; reject non-numeric/out-of-range values with `400` and preserve valid `offset` behavior.
 - `myTasks=true` defaults to active `PENDING,IN_PROGRESS` states when status is omitted.
 - `myTasks=false`/omitted is manager-only broad inspection.
 - Existing filters remain.
@@ -313,13 +337,20 @@ Desktop and narrow headed tests must assert stable item IDs and route destinatio
 
 ## Frontend Architecture Contract
 
-| Surface | Server boundary | Client island | Guardrail |
-| --- | --- | --- | --- |
-| `/backend/tasks` | generated backend route metadata | existing DataTable page | no new provider; split touched file if it remains over 300 LOC |
-| `/backend/tasks/{id}` | generated backend route metadata | existing form/actions | reuse canonical form normalizer |
-| sidebar | existing AppShell/menu injection | existing injected-menu consumer | static items only; stable IDs and wildcard-aware features |
+| Surface | Server root after implementation | Client island | Data owner | Guardrail |
+| --- | --- | --- | --- | --- |
+| `/backend/tasks` | `backend/tasks/page.tsx` server wrapper plus generated route metadata | `UserTaskInboxClient` | workflows task API | extract the existing 300+ LOC page-root client; preserve DataTable extension IDs |
+| `/backend/tasks/{id}` | `backend/tasks/[id]/page.tsx` server wrapper plus generated route metadata | `UserTaskDetailClient` and focused form/action leaves | workflows task API/form normalizer | extract the existing 500+ LOC page-root client; no duplicate schema logic |
+| sidebar | existing AppShell/menu injection | existing injected-menu consumer | static widget metadata | static items only; stable IDs and wildcard-aware features |
 
-No new page-root client component, global provider, editor/graph dependency, or navigation data endpoint is introduced. `yarn check:client-boundaries` and hydration smoke tests remain required for implementation.
+`"use client"` ledger:
+
+| File | Exact browser capability | Imported by | Heavy dependency / cleanup risk | Alternative rejected |
+| --- | --- | --- | --- | --- |
+| `backend/tasks/UserTaskInboxClient.tsx` | DataTable state, filters, pagination, router links, guarded Claim | server inbox page | existing table dependency only; target below 300 LOC | server-only table cannot own interactive filters/actions |
+| `backend/tasks/[id]/UserTaskDetailClient.tsx` | task form state, canonical validation, guarded Claim/Complete/Retry | server detail page | existing form dependencies; split focused leaves before 300 LOC | server action would duplicate the existing task API/form contract |
+
+Budgets: zero page-root `"use client"` directives after extraction, zero touched client leaves over 300 LOC, zero new heavy browser libraries, zero global providers, and the existing one-list-query/one-detail-query behavior. No provider/bootstrap registry changes. Implementation must pass `yarn check:client-boundaries`, hydration smokes for both routes, DataTable/filter/pagination interaction coverage, task form/action tests, and one build/runtime signal showing no new route-level heavy dependency.
 
 ## Internationalization
 
@@ -333,7 +364,7 @@ Add or update keys for top-level My Tasks, administrative User Tasks, personal/h
 - Response capability fields are additive.
 - Existing broad callers without `workflows.manage` begin receiving `403`; this intentional security hardening must appear in release notes.
 - Existing canonical `assignedTo` IDs remain actionable. Legacy email/alias tasks become manager-readable but fail closed for personal access/execution until an explicit scoped task mapping is applied.
-- Active definition versions are inventoried before rollout. Canonical IDs remain unchanged; emails resolve only for future task creation; non-email aliases must be replaced explicitly with a canonical user or `assignedToRoles` configuration.
+- Active definition versions and unresolved pending/in-progress tasks are inventoried as separate rollout gates. Canonical IDs remain unchanged; emails resolve only for future task creation; non-email aliases must be replaced explicitly with a canonical user or `assignedToRoles` configuration.
 - The compatibility CLI is dry-run by default, never infers historical identity, never changes versioned definitions, and applies only exact operator-provided pending-task mappings under lock with an audit event.
 - `UPGRADE_NOTES.md` documents classification, command examples, repository example changes, rollout order, and rollback (restore the previous application version; repair writes remain canonical and safe).
 - New default employee grants require `yarn mercato auth sync-role-acls` for existing tenants during implementation rollout.
@@ -349,6 +380,14 @@ Add or update keys for top-level My Tasks, administrative User Tasks, personal/h
 - If the existing indexes cannot meet the target, implementation stops for a separately reviewed additive-index design rather than weakening authorization.
 
 ## Implementation Plan
+
+### Cross-Spec Implementation Order and Atomic Delivery Groups
+
+1. Land this access/inbox capability as one release unit: required organization scope, actor policy, assignment audit/repair gate, secure projections, inbox `myTasks=true` requests, ACL/default grants, dual navigation, scoped Claim/Complete authorization, mutation guards, and direct-assignment notification/link repair. Do not activate broad-list gating while the inbox can omit `myTasks=true`, and never ship `navHidden` without both operator and manager entries.
+2. Land the durable continuation capability as one release unit: journal, canonical digest, new locks, atomic completion, resume/reconcile paths, additive response, and `canRetryContinuation` UI. Do not expose a continuation capability before durable state exists.
+3. Land contextual source binding, source-authorized routes, and widgets only after both companion contracts exist. If #4019, #4085, or #4291 merges first, rebase and preserve its editor/form-schema semantics rather than duplicating them.
+
+The phases below are implementation sequencing inside the single access/inbox release, not independently deployable product capabilities. Across all three specs, every release unit must be independently green and deployable; commits within a unit must not create an intermediate deploy that broadens visibility, hides both task destinations, advertises an unavailable capability, or strands an accepted completion.
 
 ### Phase 1: Actor Policy and Secure Reads
 
@@ -379,14 +418,16 @@ Add or update keys for top-level My Tasks, administrative User Tasks, personal/h
 | workflows task-creation/definition validation paths | Modify canonical direct-assignee resolution and structured preflight error |
 | `packages/core/src/modules/workflows/cli.ts` and focused command | Modify/Add dry-run assignment audit and explicit task-map repair |
 | `packages/core/src/modules/workflows/workflows.ts` and affected fixtures/examples | Modify remove repository-owned non-canonical aliases |
-| `packages/core/src/modules/workflows/api/tasks/**` | Modify parsing, access, projections, OpenAPI |
+| `packages/core/src/modules/workflows/api/tasks/route.ts` and `api/tasks/[id]/route.ts` | Modify required scope, runtime query validation, access, projections, OpenAPI |
+| `packages/core/src/modules/workflows/api/tasks/[id]/claim/route.ts` and `complete/route.ts` | Modify required scope, new mutation guards, access, projections, OpenAPI |
 | `packages/core/src/modules/workflows/acl.ts` / `setup.ts` | Modify compatibility dependency/default grants |
-| `packages/core/src/modules/workflows/backend/tasks/**` | Modify personal inbox/detail UX and metadata |
+| `packages/core/src/modules/workflows/backend/tasks/**` | Modify personal inbox/detail UX and metadata; extract server page roots plus bounded client islands required by the frontend contract |
 | `packages/core/src/modules/workflows/widgets/injection/**` | Add two static navigation items |
 | `packages/core/src/modules/workflows/events.ts` / `subscribers/**` | Declare/emit notification event and fix subscriber |
 | `packages/core/src/modules/workflows/notifications.ts` | Fix canonical deep link |
 | `packages/core/src/modules/workflows/i18n/*.json` | Update copy |
-| workflow unit/integration tests | Add actor, race, navigation, notification coverage |
+| `packages/core/src/modules/workflows/__tests__/acl-dependencies.test.ts` | Modify pinned legacy/current dependency expectations |
+| workflow unit/integration tests | Add actor, missing-organization, race, navigation, notification coverage |
 | `UPGRADE_NOTES.md` | Modify direct-assignment inventory, repair, rollout, and rollback guidance |
 
 ## Testing Strategy
@@ -401,7 +442,7 @@ Fixtures create users, roles, workflow definitions, instances, and tasks through
 | Principal type | human session succeeds; API key with matching role/features receives `403` and writes no audit/task state |
 | Personal list/detail | direct, candidate role, claimant, peer disappearance, completed history, original completer can view/retry pending continuation |
 | Features | legacy/current read bridge, claim/complete independently, manager inspect without execute, wildcards |
-| Scope | foreign tenant/organization absent on list and `404` on detail/mutations |
+| Scope | missing selected/auth organization fails before querying; foreign tenant/organization is absent on list and `404` on detail/mutations; no path receives an empty organization predicate |
 | Claim race | two eligible users, one success, one `409`, one audit event |
 | Navigation | operator exactly one item; manager grouped item; wildcard admin; no global-hide regression |
 | Notification | one direct recipient, valid `/backend/tasks/{id}` link, no role fan-out |
@@ -478,7 +519,7 @@ Fixtures create users, roles, workflow definitions, instances, and tasks through
 
 | Requirement | Planned compliance |
 | --- | --- |
-| Tenant/organization isolation | Mandatory in all reads and locks |
+| Tenant/organization isolation | One required scope resolver fails closed; the exact tuple is mandatory in all reads, definition lookups, and locks |
 | Wildcard-aware RBAC | Shared feature matcher only |
 | Human principal boundary | API keys/non-interactive principals rejected; canonical session user IDs only |
 | Assignment backward compatibility | UUID/email/alias inventory, explicit repair, preflight, examples, and upgrade notes required |
@@ -493,6 +534,13 @@ Fixtures create users, roles, workflow definitions, instances, and tasks through
 Implementation remains blocked until this specification is merged and the public feature-claim admission gate is satisfied.
 
 ## Changelog
+
+### 2026-07-22
+
+- Rebased the specification baseline onto current `develop`, preserving the merged stable-activity-output specification.
+- Made organization resolution fail closed, separated definition and pending-task upgrade gates, and defined the frozen authorized task projection.
+- Corrected mutation-guard and query-validation descriptions to match the current implementation delta and named the ACL dependency test.
+- Added security-preserving cross-spec delivery ordering and current overlap handling for #4019, #4085, and #4291.
 
 ### 2026-07-21
 

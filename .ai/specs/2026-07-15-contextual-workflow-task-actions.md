@@ -24,20 +24,21 @@ Authorization and server capabilities come from [`2026-07-15-secure-workflow-use
 
 ## Current Baseline and Delta
 
-Baseline reviewed: `open-mercato/open-mercato` `develop` at `28649ddec6dd26c15244f4b4264117c8e645a368` on 2026-07-21.
+Baseline reviewed: `open-mercato/open-mercato` `develop` at `39ab1d9e62950e84a5acfb10f2925a3ac41ec328` on 2026-07-22.
 
 | Existing capability | Keep | Missing delta |
 | --- | --- | --- |
 | `WorkflowInstance.metadata.entityType/entityId` | Preserve as opaque legacy/general metadata | Never treat caller-supplied values as trusted task context |
 | Public workflow start with arbitrary metadata | Preserve unchanged | Caller-provided `taskSource` remains opaque and never satisfies trusted provenance |
+| `GET /api/workflows/instances` metadata and association filters | Preserve route, parameters, and response shape for workflow administrators | Require wildcard-aware `workflows.manage` plus exact organization scope so task-only/instance-view actors cannot probe source associations |
 | Event-trigger service derives entity ID/type from trusted event context | Preserve | Pass an explicit server-only source option and persist provenance |
 | `UserTask.workflowInstanceId` | Preserve | Focused scoped lookup by a trusted source binding |
 | `detail:customers.deal:header` | Preserve frozen spot | Customers-owned task CTA widget |
-| Task detail page | Preserve route and form | Add one frozen context injection spot that passes task identity only |
+| Task detail page | Preserve route and form | Make it an injection host at the standard frozen `detail:workflows.user_task:sidebar` spot and pass task identity only |
 | Task claim/complete APIs | Preserve | Consume companion capabilities and durable response |
 | Specialized order-approval widget | Preserve unchanged | Do not generalize its workflow-specific assumptions |
 
-[PR #4019](https://github.com/open-mercato/open-mercato/pull/4019) owns visual-editor persistence, [PR #4085](https://github.com/open-mercato/open-mercato/pull/4085) owns user-task form normalization, and [PR #4291](https://github.com/open-mercato/open-mercato/pull/4291) owns role selection in the editor. Implementation must re-check their live replacements/merge state. None currently provides trusted task-source provenance, source-authorized contextual routes, a generic deal CTA, or task-detail business context.
+As of the baseline above, [PR #4019](https://github.com/open-mercato/open-mercato/pull/4019) remains an open draft for visual-editor persistence, [PR #4085](https://github.com/open-mercato/open-mercato/pull/4085) remains open for user-task form normalization/rendering, and [PR #4291](https://github.com/open-mercato/open-mercato/pull/4291) remains open for role selection in the editor. Implementation must re-check their live replacements/merge state. None provides trusted task-source provenance, source-authorized contextual routes, a generic deal CTA, or task-detail business context. This specification consumes the canonical form normalizer after #4085 (or its replacement) lands; it does not normatively own or duplicate #4085's exact `formSchema.fields[]` runtime behavior.
 
 ## Problem Statement
 
@@ -59,6 +60,7 @@ The specialized order widget cannot become the generic solution because it is co
 5. Provide a reusable server-side lookup contract and one complete `customers.deal` reference adapter.
 6. Degrade to no widget when the peer module, trusted binding, record, or permission is absent.
 7. Preserve existing task and workflow-start URLs and arbitrary metadata behavior.
+8. Close the existing workflow-instance association-probing channel for actors who are not workflow managers.
 
 ## Non-Goals
 
@@ -71,6 +73,7 @@ The specialized order widget cannot become the generic solution because it is co
 - Refactoring the specialized order-approval widget.
 - Replacing the personal inbox or task detail form.
 - A database migration or backfill.
+- Redefining the exact `formSchema.fields[]` normalization/rendering contract owned by #4085 or its replacement.
 
 ## Proposed Solution
 
@@ -86,6 +89,7 @@ The specialized order widget cannot become the generic solution because it is co
 | Workflows owns the task-detail injection spot | Future optional source modules receive a stable host without workflow importing them |
 | Customers owns both reference widgets and routes | Optional consumer owns integration glue and disappears cleanly |
 | Inline Complete is limited to canonically fieldless tasks | Convenience never bypasses form validation |
+| Generic workflow-instance metadata inspection requires `workflows.manage` | Existing route/query/response shapes remain, but task-only or custom instance-view roles cannot use them as a source-association oracle |
 
 ### Alternatives Considered
 
@@ -120,18 +124,18 @@ trusted module event
 workflows
   |- workflowTaskSourceQuery DI service (server only)
   |- task API remains source-ID-free
-  `- task detail host: detail:workflows.user_task:context
+  `- task detail host: detail:workflows.user_task:sidebar
 
 customers (optional consumer)
   |- deal-scoped contextual routes check customers ACL/record scope
   |- resolves workflowTaskSourceQuery with tryResolve
   |- deal task CTA -> detail:customers.deal:header
-  `- task deal context -> detail:workflows.user_task:context
+  `- task deal context -> detail:workflows.user_task:sidebar
 ```
 
 Workflows has no import, ORM relation, or hard `requires` edge to customers. Customers uses a documented optional DI key through `tryResolve`; absence returns an empty/not-applicable response and never breaks deal or task detail.
 
-The new DI key is justified because browser-visible source filters would cross the customers authorization boundary. It has two current call sites in the reference adapter and replaces, rather than supplements, a public raw-ID API.
+The new DI key is justified because adding browser-visible task-source filters would cross the customers authorization boundary. It has two current call sites in the reference adapter and prevents a new task-source raw-ID API; the legacy workflow-instance inspection API remains a separate manager-only administrative surface.
 
 ### Trusted Source Binding
 
@@ -148,11 +152,11 @@ type TrustedWorkflowTaskSource = {
 }
 ```
 
-The persisted location is `WorkflowInstance.metadata.taskSource`. Both strings are trimmed and bounded to 100/255 characters before persistence. A binding is trusted only when its provenance trigger ID matches the server-authored `metadata.initiatedBy = trigger:{id}` value and its event/entity declaration matches the generated module event catalog.
+The persisted location is `WorkflowInstance.metadata.taskSource`. Both strings are trimmed and bounded to 100/255 characters before persistence. A binding is trusted only when its provenance trigger ID matches the server-authored `metadata.initiatedBy = trigger:{id}` value and its event/entity declaration matches the generated module event catalog. Provenance-bearing metadata is immutable after instance creation: the current API has no metadata update method, and any future mutation route must preserve this invariant and receive a security review. The `trigger:` prefix is a reserved producer namespace; only the catalog-validated event-trigger service may write `initiatedBy` values in that namespace. Public/manual starts always overwrite caller input with a non-`trigger:` authenticated-user value.
 
 The public start schema continues accepting arbitrary metadata unchanged. Its route still overwrites `initiatedBy` with the authenticated caller and never maps client input into the server-only `trustedTaskSource` executor option. Therefore a caller may persist a lookalike `taskSource` value for backward-compatible opaque metadata use, but it cannot satisfy the trusted provenance invariant or appear in contextual lookup.
 
-The first producer is the existing event-trigger service. It may pass `trustedTaskSource` only when the consumed event is present in the generated module event catalog, carries trusted tenant/organization scope, declares an entity, and provides the entity ID through the event contract. The producer copies the catalog identity; it does not infer type by parsing an event name. For the reference adapter, catalog-declared customers deal events produce `entityType='customers.deal'`.
+The first producer is the existing event-trigger service. It may pass `trustedTaskSource` only when `isEventDeclared` confirms the consumed event in generated `allEvents`, trusted tenant/organization scope exists, the declaration supplies an entity, and the event contract supplies the entity ID. The producer deterministically composes `entityType` from `declaringModuleId + '.' + event.entity` after validating both generated catalog fields; it never parses an event-name string. For the reference adapter, catalog-declared customers deal events therefore produce `entityType='customers.deal'`.
 
 Raw legacy `metadata.entityType/entityId` remains untouched for backward compatibility and specialized features, but the new contextual service ignores it.
 
@@ -163,7 +167,7 @@ The workflows module registers one optional DI service:
 ```ts
 type WorkflowTaskSourceQuery = {
   listForSource(input: {
-    actor: UserTaskActor
+    request: Request
     source: { entityType: string; entityId: string }
     statuses: Array<'PENDING' | 'IN_PROGRESS'>
     limit: number
@@ -171,13 +175,15 @@ type WorkflowTaskSourceQuery = {
   }): Promise<{ items: AuthorizedUserTaskProjection[]; total: number }>
 
   resolveForTask(input: {
-    actor: UserTaskActor
+    request: Request
     taskId: string
   }): Promise<TrustedWorkflowTaskSource | null>
 }
 ```
 
-Both methods reuse the secure-access companion's human actor, tenant/organization scope, personal predicate, and server-derived capabilities. `listForSource` matches only a provenance-valid binding through a parameterized same-module `EXISTS` query before count/order/limit. `resolveForTask` first proves task visibility, then loads and validates its instance binding. Neither method is directly callable over HTTP and neither authorizes the source record; that remains the source route's responsibility.
+`AuthorizedUserTaskProjection` is the concrete adapter-safe structural type frozen in the access companion; it is not an alias for the complete database entity or route response. The consumer supplies only the original authenticated Web `Request` plus non-authoritative query inputs; it cannot supply roles, features, principal kind, tenant, or organization assertions. On every call, the workflows-owned service validates the session from the request, rejects API keys/non-human principals, resolves exactly one selected in-scope organization with the access companion's module-local fail-closed resolver, reloads wildcard-aware features/roles, constructs `UserTaskActor` internally, and then applies the shared personal predicate/capabilities. Any query/header organization selection is treated only as a requested selection and must be validated against authenticated scope. The service ignores or rejects caller-supplied authorization-shaped fields and exposes neither a `UserTaskActor` constructor nor an authorization-bearing public token.
+
+`listForSource` matches only a provenance-valid binding through a parameterized same-module `EXISTS` query before count/order/limit. `resolveForTask` first proves task visibility, then loads and validates its instance binding. Neither method is directly callable over HTTP and neither authorizes the source record; that remains the source route's responsibility. Contract tests prove fabricated role/feature/tenant/organization values cannot be passed to or interpreted by the service, alongside API-key rejection, wildcard feature resolution, and missing/foreign-organization denial.
 
 ### Customers Reference Routes
 
@@ -205,12 +211,12 @@ All missing, wrong-type, inaccessible, and foreign-scope outcomes return the sam
 
 ### Widget Contracts
 
-The deal CTA maps a customers-owned widget to the frozen existing `detail:customers.deal:header` spot. It calls only the customers deal-task route. The oldest actionable task is primary; additional count links to `/backend/tasks?myTasks=true`.
+The deal CTA maps a customers-owned widget to the frozen existing `detail:customers.deal:header` spot at priority `110`, ahead of the existing priority-`100` AI deal trigger. The injection-table test fixes this deterministic order. It calls only the customers deal-task route. The oldest actionable task is primary; additional count links to `/backend/tasks?myTasks=true`.
 
-Workflows adds the frozen spot:
+Workflows makes task detail an injection host at `DetailInjectionSpots.sidebar('workflows.user_task')`, the existing standard detail zone:
 
 ```text
-detail:workflows.user_task:context
+detail:workflows.user_task:sidebar
 ```
 
 Its public context contains the authorized task ID and route-local retry callback only, never source type/ID. The customers-owned widget calls its task-context route and renders `null` for `404`/absent-module/not-applicable outcomes.
@@ -218,7 +224,7 @@ Its public context contains the authorized task ID and route-local retry callbac
 ### Action Rules
 
 - `canClaim=true`: render Claim. After success, refetch; complete may become available.
-- `canComplete=true` and the canonical normalized form has no user-editable fields: render confirmed Complete inline.
+- `canComplete=true` and the canonical normalized form supplied by #4085 or its merged replacement has no user-editable fields: render confirmed Complete inline. This spec does not redefine `formSchema.fields[]` normalization/rendering.
 - `canComplete=true` and input is required: render Open task linking to `/backend/tasks/{id}`.
 - `canRetryContinuation=true`: render the durable companion's non-destructive Retry continuation action.
 - no capability: show status only when the task is otherwise personally visible.
@@ -242,6 +248,20 @@ No customer names, company/person snapshots, or source labels are stored on work
 ### Existing workflows task API
 
 No source query parameter or source record field is added. Task projections consume only the capability additions owned by the secure-access companion. Claim/complete routes and bodies remain unchanged; completion response additions are owned by the durable companion.
+
+### Existing workflow instance and event inspection APIs
+
+Every existing generic read surface that returns raw workflow instance metadata/context or event payloads remains an administrative inspection surface with its stable URL, parameters, and response shape. The following GET routes require both `workflows.instances.view` and wildcard-aware `workflows.manage`, and use the same fail-closed exact tenant/organization resolver as the task-access companion:
+
+- `/api/workflows/instances`
+- `/api/workflows/instances/{id}`
+- `/api/workflows/instances/{id}/events`
+- `/api/workflows/events`
+- `/api/workflows/events/{id}`
+
+An actor with `workflows.instances.view` alone receives `403` before an ID/filter is interpreted or a database query runs. This closes both direct instance metadata lookup and indirect association discovery through `WORKFLOW_STARTED.eventData`, event detail context, or event-list enumeration. Per-method route metadata preserves non-GET behavior: `POST /api/workflows/instances` retains its existing create permission and public-start contract, and action endpoints retain their existing mutation permissions.
+
+This is intentional authorization hardening: raw workflow metadata/context/event associations remain available to workflow managers as administrative workflow data, while operational task rights and a custom instance-view grant no longer form an association oracle. Release notes call out the stricter GET permissions. Source record content and contextual actions still require source-owned authorization; `workflows.manage` does not grant customers data access.
 
 ### Public workflow start
 
@@ -275,7 +295,14 @@ The task detail widget renders a small `SectionHeader` context section with link
 | deal detail | existing customers route host | customers task CTA widget | customers deal-task route | optional widget, one query |
 | task detail | existing workflows route host | customers context widget | customers task-context route | task ID only in injection context |
 
-No new page-root client component or provider is introduced. Widget files use `apiCall`, React Query, shared UI primitives, localized strings, route-local guarded mutations, and existing injection-table discovery. Runtime network budget is one contextual GET per mounted widget plus requested mutations; absent peer modules do not trigger retry loops.
+`"use client"` ledger:
+
+| File | Exact browser capability | Imported by | Heavy dependency / risk | Alternative rejected |
+| --- | --- | --- | --- | --- |
+| `workflow-deal-task-actions/widget.client.tsx` | React Query state plus Claim/Complete/Retry guarded mutations and confirmation dialog | customers deal header injection | no heavy dependency; one abortable query; clean mutation state on unmount | server-only widget cannot perform interactive mutations/refetch |
+| `workflow-deal-task-context/widget.client.tsx` | React Query loading/error/refetch for authorized context | workflow task sidebar injection | no heavy dependency; one abortable query | server rendering would couple the optional customers adapter into the workflows page request |
+
+Budgets: zero new page-root client components, zero touched client roots over 300 LOC, zero heavy browser libraries/providers, one contextual GET per mounted widget, and no retry loop for normal `404`/module absence. No global provider/bootstrap registry is added; only module-local injection-table discovery changes. Implementation must pass `yarn check:client-boundaries`, route hydration smokes, Claim/Complete/Retry interaction tests, and one build/runtime network trace proving the stated query budget.
 
 ## Internationalization
 
@@ -286,6 +313,7 @@ Add deal-task and task-context strings to customers dictionaries for every suppo
 - No schema migration or backfill.
 - Existing workflow/task routes, bodies, IDs, metadata, and specialized widgets remain.
 - Existing raw `metadata.entityType/entityId` is not rewritten and does not gain new UI meaning.
+- Existing workflow instance/event inspection GET parameters and response fields remain, but callers now need `workflows.manage` in addition to `workflows.instances.view`; this intentional security hardening is documented in release notes and authorization tests for every raw inspection route.
 - Existing instances without a trusted `metadata.taskSource` binding render no contextual widgets.
 - Public start keeps arbitrary metadata unchanged; lookalike caller values remain opaque and fail trusted-provenance checks.
 - Disabling customers leaves workflows tasks functional; disabling workflows leaves deal detail functional with no task widget.
@@ -303,12 +331,21 @@ Add deal-task and task-context strings to customers dictionaries for every suppo
 
 ## Implementation Plan
 
+### Cross-Spec Implementation Order and Atomic Delivery Groups
+
+1. Land the access/inbox capability as one release unit: required organization scope, actor policy, assignment audit/repair gate, secure projections, inbox `myTasks=true` requests, ACL/default grants, dual navigation, scoped Claim/Complete authorization, mutation guards, and direct-assignment notification/link repair. Do not activate broad-list gating while the inbox can omit `myTasks=true`, and never ship `navHidden` without both operator and manager entries.
+2. Land the durable continuation capability as one release unit: journal, canonical digest, new locks, atomic completion, resume/reconcile paths, additive response, and `canRetryContinuation` UI. Do not expose a continuation capability before durable state exists.
+3. Land this contextual capability as one release unit only after both companion contracts exist: trusted source binding, manager-only generic instance/event inspection, source-authorized routes, and widgets. If #4019, #4085, or #4291 merges first, rebase and preserve its editor/form-schema semantics rather than duplicating them.
+
+The phases below are implementation sequencing inside the single contextual release, not independently deployable product capabilities. Across all three specs, every release unit must be independently green and deployable; commits within a unit must not create an intermediate deploy that broadens visibility, hides both task destinations, advertises an unavailable capability, or strands an accepted completion.
+
 ### Phase 1: Trusted Binding and Server Query
 
-1. Add the server-only executor option and provenance validator without narrowing public metadata.
-2. Persist catalog-validated event-trigger provenance and ignore raw legacy source metadata.
-3. Add the focused `workflowTaskSourceQuery` DI contract/service with scoped source/task lookup.
-4. Add spoofing, provenance, scope, optional-service, query-count, and performance tests.
+1. Add the server-only executor option and provenance validator without narrowing public-start metadata.
+2. Reserve trigger provenance, persist catalog-validated event-trigger identity, and ignore raw legacy source metadata.
+3. Require workflow-manager permission and exact organization scope for every existing raw workflow instance/event GET inspection surface.
+4. Add the focused `workflowTaskSourceQuery` DI contract/service with scoped source/task lookup.
+5. Add spoofing, provenance, instance/event-oracle, scope, optional-service, query-count, and performance tests.
 
 ### Phase 2: Customers Reference Adapter
 
@@ -333,8 +370,9 @@ Add deal-task and task-context strings to customers dictionaries for every suppo
 | `packages/core/src/modules/workflows/di.ts` | Modify | Register `workflowTaskSourceQuery` |
 | `packages/core/src/modules/workflows/lib/workflow-executor.ts` | Modify | Server-only trusted source option/persistence |
 | `packages/core/src/modules/workflows/lib/event-trigger-service.ts` | Modify | Catalog-backed module-event provenance |
-| `packages/core/src/modules/workflows/api/instances/route.ts` / OpenAPI validators | Modify/Test | Preserve caller metadata while proving it cannot set trusted provenance |
-| `packages/core/src/modules/workflows/backend/tasks/[id]/page.tsx` | Modify | Task-ID-only context InjectionSpot |
+| `packages/core/src/modules/workflows/api/instances/route.ts`, `instances/[id]/route.ts`, `instances/[id]/events/route.ts` / OpenAPI validators | Modify/Test | Per-method manager permissions and fail-closed GET scope; preserve POST/action permissions and stable response shapes |
+| `packages/core/src/modules/workflows/api/events/route.ts`, `events/[id]/route.ts` / OpenAPI validators | Modify/Test | Close raw event-payload/context association enumeration to non-managers while preserving manager responses |
+| `packages/core/src/modules/workflows/backend/tasks/[id]/page.tsx` | Modify | Task-ID-only standard sidebar `InjectionSpot` host |
 | `packages/core/src/modules/customers/api/deals/[id]/workflow-tasks/route.ts` | Create | Deal-authorized task list |
 | `packages/core/src/modules/customers/api/workflow-task-context/[taskId]/route.ts` | Create | Task + source-authorized context |
 | `packages/core/src/modules/customers/widgets/injection/workflow-deal-task-actions/**` | Create | Deal CTA adapter |
@@ -351,9 +389,10 @@ Add deal-task and task-context strings to customers dictionaries for every suppo
 | Public start | arbitrary/lookalike metadata remains accepted but cannot activate contextual lookup |
 | Server query | trusted pair only, personal task predicate, ascending order, bounded count |
 | Source disclosure | task-only actor without customers read receives no source ID/context |
-| Authorization | wrong task actor and wrong source reader collapse to `404`; manager inspection grants no action |
-| Principal type | API key with matching features/role cannot use contextual or task mutations |
-| Scope | same IDs in foreign tenant/organization never match |
+| Existing association oracles | `workflows.instances.view` without `workflows.manage` cannot use instance list/detail, instance events, event list, or event detail to read metadata/context/event payload associations; manager remains exactly organization-scoped and receives each stable response |
+| Authorization | wrong task actor and wrong source reader collapse to `404`; manager inspection grants no action; caller cannot inject roles/features/scope into the DI service |
+| Principal type | workflows service revalidates the original request; API key with matching features/role cannot use contextual or task mutations |
+| Scope | missing organization fails before query; requested selection is authenticated; same IDs in foreign tenant/organization never match |
 | Deal CTA | empty, claimable, directly completable fieldless, claimed, input form, retry pending |
 | Task context | authorized deal/company/person summary; deleted/hidden/untrusted source renders nothing |
 | Optional modules | either module disabled leaves the host route/page functional |
@@ -377,8 +416,8 @@ Fixtures create a deal through customers APIs, emit a real scoped customers deal
 - **Scenario:** a task-only actor learns customer record IDs/associations before customers ACL approves them.
 - **Severity:** High.
 - **Affected area:** customer metadata confidentiality and object enumeration.
-- **Mitigation:** generic task API/injection context contains no source ID; source-owned routes check customers feature and scoped record before responding; hidden outcomes share `404`.
-- **Residual risk:** authorized source readers can see associations by design.
+- **Mitigation:** generic task API/injection context contains no source ID; every generic instance/event GET that returns raw metadata, context, or event payloads requires scoped `workflows.manage`; source-owned routes check customers feature and scoped record before responding; hidden outcomes share `404`.
+- **Residual risk:** workflow managers can inspect raw workflow metadata associations by design, while authorized source readers can see contextual associations and source data.
 
 ### Cross-Module Authorization Bypass
 
@@ -436,7 +475,7 @@ Fixtures create a deal through customers APIs, emit a real scoped customers deal
 | core | Optional consumer owns integration glue | Compliant | Customers owns both routes/widgets and uses `tryResolve` |
 | workflows | Scope all task queries | Compliant | Human actor + tenant/org + personal policy precede source predicate |
 | companion specs | Reuse access and completion contracts | Compliant | Widgets consume capabilities/status; no duplicate auth/resume logic |
-| auth/security | Do not cross privilege boundaries with opaque IDs | Compliant | Source IDs remain server-side until customers authorizes the record |
+| auth/security | Do not cross privilege boundaries with opaque IDs | Compliant | Task operators cannot query source IDs; workflow-instance metadata is manager-only; customers authorizes source content |
 | core | Stable DI/widget/API contracts | Compliant | One justified DI key, one frozen task spot, additive customers routes |
 | UI/backend | `apiCall`, guarded mutations, shared states | Compliant | Reference widgets use canonical helpers |
 | shared | i18n and bounded input | Compliant | Localized strings and bounded trusted binding |
@@ -462,6 +501,13 @@ None identified.
 Implementation is ready for upstream review only together with both companion user-task specifications. Coding remains blocked until the merged-spec and public feature-claim admission gates are satisfied.
 
 ## Changelog
+
+### 2026-07-22
+
+- Rebased the specification baseline onto current `develop` and preserved #4019/#4085/#4291 as compatibility baselines rather than duplicated scope.
+- Closed every existing raw workflow instance/event association-probing channel for non-managers while preserving administrative route/query/response shapes.
+- Declared provenance immutability and the reserved `trigger:` namespace, and made entity type composition explicitly catalog-based.
+- Reused the standard task-detail sidebar zone, defined deterministic deal-header widget ordering, and added cross-spec delivery ordering.
 
 ### 2026-07-21
 
