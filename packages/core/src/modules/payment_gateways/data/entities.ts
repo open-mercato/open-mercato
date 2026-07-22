@@ -75,6 +75,65 @@ export class GatewayTransaction {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'gateway_payment_operations' })
+@Unique({
+  name: 'gateway_payment_operations_scope_operation_unique',
+  properties: ['operationId', 'organizationId', 'tenantId'],
+})
+@Index({ properties: ['transactionId', 'operationType', 'organizationId', 'tenantId'] })
+@Index({ properties: ['status', 'leaseExpiresAt'] })
+export class GatewayPaymentOperation {
+  [OptionalProps]?: 'status' | 'attemptCount' | 'result' | 'leaseExpiresAt' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'operation_id', type: 'text' })
+  operationId!: string
+
+  @Property({ name: 'transaction_id', type: 'uuid' })
+  transactionId!: string
+
+  @Property({ name: 'operation_type', type: 'text' })
+  operationType!: string
+
+  @Property({ name: 'provider_key', type: 'text' })
+  providerKey!: string
+
+  @Property({ name: 'request_hash', type: 'text' })
+  requestHash!: string
+
+  @Property({ name: 'provider_idempotency_key', type: 'text' })
+  providerIdempotencyKey!: string
+
+  @Property({ name: 'status', type: 'text' })
+  status: string = 'in_progress'
+
+  @Property({ name: 'attempt_token', type: 'text' })
+  attemptToken!: string
+
+  @Property({ name: 'attempt_count', type: 'integer' })
+  attemptCount: number = 1
+
+  @Property({ name: 'result', type: 'jsonb', nullable: true })
+  result?: Record<string, unknown> | null
+
+  @Property({ name: 'lease_expires_at', type: Date, nullable: true })
+  leaseExpiresAt?: Date | null
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
 @Entity({ tableName: 'gateway_session_initializations' })
 @Unique({
   name: 'gateway_session_initializations_scope_operation_unique',

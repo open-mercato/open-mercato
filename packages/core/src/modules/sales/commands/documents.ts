@@ -151,6 +151,7 @@ const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
     id: ctx.identifiers.id,
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
+    userId: ctx.actorUserId ?? null,
   }),
 };
 
@@ -162,6 +163,7 @@ const quoteCrudEvents: CrudEventsConfig<SalesQuote> = {
     id: ctx.identifiers.id,
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
+    userId: ctx.actorUserId ?? null,
   }),
 };
 
@@ -4766,6 +4768,7 @@ const createQuoteCommand: CommandHandler<
       },
       events: quoteCrudEvents,
       indexer: { entityType: E.sales.sales_quote },
+      actorUserId: ctx.auth?.sub ?? null,
     });
 
     // Invalidate cache
@@ -5773,6 +5776,7 @@ const createOrderCommand: CommandHandler<
       },
       events: orderCrudEvents,
       indexer: { entityType: E.sales.sales_order },
+      actorUserId: ctx.auth?.sub ?? null,
     });
 
     // Invalidate cache

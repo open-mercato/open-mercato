@@ -106,6 +106,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Scoped Staff Member Directory](2026-07-15-staff-member-directory.md) | 2026-07-15 | Scoped Staff Member Directory | Narrow optional-module DI contract for resolving active, tenant- and organization-scoped staff scheduling references from trusted user IDs |
 | [Warranty & RMA Claims Desk](2026-07-03-warranty-rma-claims-desk.md) | 2026-07-03 | Warranty & RMA Claims Desk | Core `warranty_claims` module: one claim aggregate with a type discriminator, line-level dispositions and grading, SLA/escalation, risk signals and adjudication, registrations and vendor policies, portal and API-key intake, and three resolution-execution bridges into `sales` (return, replacement order, credit memo) |
 | [Warranty & RMA Roadmap](2026-07-16-warranty-rma-roadmap.md) | 2026-07-16 | Warranty & RMA Claims Desk — Roadmap | Competitive benchmark (19 products) plus the triaged candidate list and deferred items for the claims desk — research and triage only, no committed design |
+| [Stable Workflow Activity Outputs](2026-07-20-stable-workflow-activity-outputs.md) | 2026-07-20 | Stable Workflow Activity Outputs | Additive `activities.<activityId>` result addressing across synchronous and asynchronous workflow activities |
 
 ### Implemented Specifications
 
