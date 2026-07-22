@@ -58,6 +58,7 @@ const moduleEntities: Record<string, string[]> = {
   workflows: ['WorkflowDefinition'],
   directory: ['Organization', 'Tenant'],
   messages: ['Message'],
+  notifications: ['NotificationTypeOverride', 'NotificationPreference'],
 }
 
 function readEntitySource(moduleId: string): string {
