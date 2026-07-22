@@ -204,6 +204,8 @@ No HTTP route, request/response schema, OpenAPI document, page, component, clien
 
 The existing `GET/POST/PUT/DELETE /api/feature_toggles/global` routes retain their contracts. Their command implementation produces a corrected internal index scope only. Consequently, `CrudForm`, `DataTable`, `apiCall`, `useGuardedMutation`, i18n, and the Frontend Architecture Contract are not applicable.
 
+The global list route keeps the authenticated tenant value only to satisfy the query engine's required request context, but sets `omitAutomaticTenantOrgScope: true`: `FeatureToggle` has no tenant or organization column, and its query-index row is explicitly null/null. In that documented direct-query mode, `BasicQueryEngine` must bypass scope-bound `search_tokens` filtering and apply the endpoint's existing SQL filters directly; otherwise a correct global projection is hidden by the actor's tenant filter.
+
 ## Performance, cache, and scale
 
 | Concern | Design |
@@ -255,6 +257,9 @@ The existing `GET/POST/PUT/DELETE /api/feature_toggles/global` routes retain the
 | `packages/core/src/modules/feature_toggles/commands/global.ts` | Modify | Emit global identifiers through the existing shared helper path. |
 | `packages/core/src/modules/feature_toggles/commands/__tests__/global.test.ts` | Modify | Assert global command side effects are independent of actor tenant scope. |
 | `packages/core/src/modules/feature_toggles/__integration__/TC-FT-001.spec.ts` | Modify | Assert index projection scope through the existing self-cleaning API lifecycle test. |
+| `packages/core/src/modules/feature_toggles/api/global/route.ts` | Modify | List global toggles without automatic tenant/org filtering while retaining required query context. |
+| `packages/shared/src/lib/query/engine.ts` | Modify | Skip scope-bound token filtering for the documented direct-query scope mode. |
+| `packages/shared/src/lib/query/__tests__/engine.test.ts` | Modify | Prove direct-query mode applies the original SQL filter rather than a tenant-scoped token filter. |
 
 ## Testing strategy
 
@@ -270,6 +275,7 @@ The existing `GET/POST/PUT/DELETE /api/feature_toggles/global` routes retain the
 | `TC-QI-UPSERT-001` | Global upsert subscriber | Calls `upsertIndexRow` with null/null and does not record a missing-column source-read error. |
 | `TC-QI-DELETE-001` | Global delete subscriber | Coverage source probe includes only ID (no organization/tenant predicate); global `markDeleted` scope is null/null. |
 | `TC-FT-SCOPE-001` | Create/update/delete and undo/redo command paths | Every `markOrmEntityChange` identifier set is null/null even when the actor has a tenant ID. |
+| `TC-QI-LIST-SCOPE-001` | Direct global-list query | `omitAutomaticTenantOrgScope` bypasses scope-bound search tokens and retains the endpoint's SQL `ilike` filter. |
 
 ### Integration coverage
 
@@ -281,6 +287,8 @@ Extend `packages/core/src/modules/feature_toggles/__integration__/TC-FT-001.spec
 4. Delete through the existing API, assert the projection has no remaining row, then use the test's current `finally` cleanup path.
 
 The test creates data through the API, reuses its existing `finally` cleanup, and reads only its own generated record ID. It needs no seeded feature toggle, no migration, no external service, or UI path because this is an internal index-side-effect correction with no customer-facing UI change.
+
+Run the existing `TC-FT-008` list/pagination scenario as well: it creates three global toggles and proves identifier, search, category, type, name, sort, and pagination filters can retrieve the null/null indexed records.
 
 ### Validation commands
 
@@ -296,6 +304,8 @@ yarn workspace @open-mercato/core test --runInBand --runTestsByPath \
 
 OM_INTEGRATION_MODULES=feature_toggles npx playwright test --config .ai/qa/tests/playwright.config.ts TC-FT-001
 yarn workspace @open-mercato/core typecheck
+yarn workspace @open-mercato/shared test --runInBand --runTestsByPath src/lib/query/__tests__/engine.test.ts
+yarn test:integration:ephemeral feature_toggles
 git diff --check
 ```
 
@@ -318,6 +328,14 @@ In Docker mode, replace each `yarn …` gate with `node scripts/docker-exec.mjs 
 - **Affected area**: `entity_indexes`, coverage, and downstream search/index events.
 - **Mitigation**: The global producer emits null/null; the metadata-declared global resolver requires exactly null/null; integration coverage observes the persisted projection after all three API mutations.
 - **Residual risk**: Legacy rows may retain an old non-null tenant until the record changes or is reindexed. No schema or API data is exposed through this correction, and the next lifecycle event corrects the row.
+
+#### Correct global projection is hidden by a scoped list filter
+
+- **Scenario**: The producer and index projection are corrected to null/null, but `GET /api/feature_toggles/global` routes `ilike` filters through `search_tokens` scoped to the request tenant, returning an empty result.
+- **Severity**: High
+- **Affected area**: Global feature-toggle list, filtering, and pagination.
+- **Mitigation**: The route opts into the existing direct-query scope mode; `BasicQueryEngine` disables scope-bound token filtering in that mode and unit plus feature-toggle integration coverage verifies the direct SQL filters.
+- **Residual risk**: Direct-query mode is reserved for globally visible routes; tenant-scoped callers retain automatic scope and token filtering.
 
 #### Delete path still queries missing columns
 
@@ -418,10 +436,15 @@ None.
 - Corrected the integration delete expectation to match the established physical removal of `entity_indexes` rows by `markDeleted()`; this avoids an unrelated projection-storage semantics change.
 - Required exact generated entity-ID membership before resolving MikroORM metadata, because table resolution alone can match a class-name collision under another module prefix.
 
+### 2026-07-22
+
+- Fixed the global feature-toggle list after its projection scope became null/null: retained the query context but opted the route into documented global direct-query scope, and made that mode bypass scope-bound search-token filters.
+- Added query-engine regression coverage and ran the complete self-cleaning feature-toggle integration suite.
+
 ## Implementation Status
 
 | Phase | Status | Date | Notes |
 |---|---|---|---|
 | Phase 1 — Establish the global producer contract | Done | 2026-07-18 | All feature-toggle lifecycle side effects now emit explicit null/null identifiers; unit and integration assertions were added. |
 | Phase 2 — Make query-index scope resolution metadata-aware | Done | 2026-07-18 | Registered entity-ID and metadata resolution distinguish global, row, and missing scope state; delete coverage uses declared predicates only. |
-| Phase 3 — Prove event paths and validate | Blocked | 2026-07-18 | Focused Jest suites, full local validation, and the managed `TC-FT-001` scenario pass. The repository-wide managed suite is blocked before test execution by stale sibling `.worktrees` that discovery does not ignore. |
+| Phase 3 — Prove event paths and validate | In review | 2026-07-22 | The shared query regression and all 22 managed feature-toggle integration tests pass. The full repository integration suite remains pending CI because local stale `.worktrees` interfere with Playwright discovery. |
