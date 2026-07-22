@@ -1,5 +1,12 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
 import type { NotificationPreferenceScope } from './notificationPreferenceService'
+
+const logger = createLogger('notifications').child({ component: 'delivery-gate' })
+
+// One warning per unregistered type id per process — unregistered ids are rare (a renamed/removed type
+// still referenced by an in-flight notification), so the set stays tiny and the log never floods.
+const warnedUnregisteredTypes = new Set<string>()
 
 /**
  * The single per-channel delivery gate. Every channel (`in_app`, `email`, `push`, custom) is
@@ -70,6 +77,18 @@ export async function shouldDeliver(params: ShouldDeliverParams): Promise<boolea
   if (eligible && !eligible.includes(channel)) return false
   if (targetChannels && !targetChannels.includes(channel)) return false
   if ((nonOptOutOverride ?? type?.nonOptOut) === true) return true
+
+  // The type id resolved to no registered definition (renamed/removed type), so its code-declared
+  // `nonOptOut` and eligibility cannot be enforced here — a security type that was `nonOptOut` becomes
+  // silently user-suppressible. Surface that once so it is not invisible (there is no operator override
+  // in play either, else the branch above would have returned).
+  if (!type && nonOptOutOverride == null && !warnedUnregisteredTypes.has(typeId)) {
+    warnedUnregisteredTypes.add(typeId)
+    logger.warn(
+      'Delivery gate evaluated an unregistered notification type; its code-declared nonOptOut/eligibility cannot be enforced and it is subject to user opt-out',
+      { typeId },
+    )
+  }
 
   return preferences.isChannelEnabled(scope, typeId, channel)
 }
