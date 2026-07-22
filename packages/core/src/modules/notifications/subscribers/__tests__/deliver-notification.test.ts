@@ -262,9 +262,11 @@ describe('deliver-notification subscriber', () => {
       expect(nativeUpdate).not.toHaveBeenCalled()
     })
 
-    it('falls back to delivering all channels (and skips persist) when the recompute throws', async () => {
-      // A transient overrides/preference-service failure must not abort delivery on every channel —
-      // fall back to null (deliver all, legacy) and skip the persist so visibility stays consistent.
+    it('re-throws (fail-closed, retry) instead of delivering all channels when the recompute throws', async () => {
+      // Fail CLOSED: a transient overrides/preference-service failure must NOT fall back to "deliver
+      // every channel" (which now includes push/email) for a possibly-opted-out type. The persistent
+      // subscriber re-throws so it retries with the correct set — nothing is delivered and nothing is
+      // persisted on the failing attempt (recompute runs before any strategy fires).
       resolveEffectiveChannelsMock.mockRejectedValue(new Error('overrides service unavailable'))
       const nativeUpdate = jest.fn(async () => 1)
       const em = { fork: () => ({ nativeUpdate }) }
@@ -275,8 +277,8 @@ describe('deliver-notification subscriber', () => {
         },
       }
 
-      await expect(handle(basePayload, ctx as never)).resolves.toBeUndefined()
-      expect(pushDeliver).toHaveBeenCalledTimes(1)
+      await expect(handle(basePayload, ctx as never)).rejects.toThrow('overrides service unavailable')
+      expect(pushDeliver).not.toHaveBeenCalled()
       expect(nativeUpdate).not.toHaveBeenCalled()
     })
   })
