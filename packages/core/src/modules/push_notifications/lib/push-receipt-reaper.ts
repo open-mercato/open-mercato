@@ -37,7 +37,11 @@ function envInt(name: string, fallback: number): number {
   const parsed = Number.parseInt(process.env[name] ?? '', 10)
   return Number.isFinite(parsed) ? parsed : fallback
 }
-const RECEIPT_MIN_AGE_MS = Math.max(0, envInt('OM_PUSH_RECEIPT_MIN_AGE_MINUTES', 15) * 60 * 1000)
+// A negative value must NOT collapse to 0 (that would poll before any receipt exists and mark the
+// delivery `receiptChecked` forever). Preserve a legitimately-configured 0 but floor a negative back to
+// the default — mirroring the reaper's `raw >= MIN ? raw : DEFAULT` guard (resolveReclaimBatchLimit).
+const RECEIPT_MIN_AGE_MINUTES_RAW = envInt('OM_PUSH_RECEIPT_MIN_AGE_MINUTES', 15)
+const RECEIPT_MIN_AGE_MS = (RECEIPT_MIN_AGE_MINUTES_RAW >= 0 ? RECEIPT_MIN_AGE_MINUTES_RAW : 15) * 60 * 1000
 const RECEIPT_MAX_AGE_MS = Math.max(
   RECEIPT_MIN_AGE_MS + 60 * 1000,
   envInt('OM_PUSH_RECEIPT_MAX_AGE_MINUTES', 60) * 60 * 1000,
