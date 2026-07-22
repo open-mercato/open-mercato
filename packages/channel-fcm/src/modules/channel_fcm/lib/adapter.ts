@@ -9,6 +9,7 @@ import {
   MISSING_PUSH_TOKEN_RESULT,
   readPushToken,
 } from '@open-mercato/core/modules/communication_channels/lib/push-adapter'
+import { createRefCountedClientCache } from '@open-mercato/core/modules/communication_channels/lib/refcounted-client-cache'
 import { readPushEnvelope, resolvePushBody, type PushEnvelope } from '@open-mercato/core/modules/communication_channels/lib/push-envelope'
 import {
   fcmCredentialsSchema,
@@ -51,7 +52,7 @@ export function setFcmMessagingFactory(factory: FcmMessagingFactory | null): voi
   messagingFactory = factory
 }
 
-function appNameForServiceAccount(serviceAccount: FcmServiceAccount): string {
+function cacheKeyForServiceAccount(serviceAccount: FcmServiceAccount): string {
   const hash = createHash('sha256')
     .update(`${serviceAccount.projectId}:${serviceAccount.clientEmail}:${serviceAccount.privateKey}`)
     .digest('hex')
@@ -75,66 +76,37 @@ type FcmAppLike = {
  * unbounded cache would leak an app (and its timer) every time a tenant rotates
  * their service account (the hash changes → a new app, while the stale app never
  * gets deleted). LRU-evicting the least-recently used app and calling `delete()`
- * keeps the app and timer count bounded.
+ * keeps the app and timer count bounded. Disposal is fenced on in-flight sends: an
+ * evicted app is deleted only once its last concurrent `send` releases (see
+ * refcounted-client-cache), so eviction never tears an app out from under a send.
  */
 const APP_CACHE_MAX = 32
-const appCache = new Map<string, Promise<FcmAppLike>>()
+const appCache = createRefCountedClientCache<FcmAppLike>({
+  max: APP_CACHE_MAX,
+  dispose: (app) => {
+    void app.delete().catch(() => {})
+  },
+})
 
-async function getApp(serviceAccount: FcmServiceAccount): Promise<FcmAppLike> {
-  const key = appNameForServiceAccount(serviceAccount)
-  const existing = appCache.get(key)
-  if (existing) {
-    // Refresh recency: delete + re-insert moves the key to the newest position.
-    appCache.delete(key)
-    appCache.set(key, existing)
-    return existing
-  }
+// firebase-admin registers every app by name in a process-global registry and throws on a duplicate
+// name. Cache keys are per-credential-identity (a rotated service account churns keys in and out), so a
+// stable name-per-credential would let a re-created entry reuse — via getApps() — an app a still-in-flight
+// evicted entry is about to delete(). A monotonic suffix makes every initialized app name unique, so each
+// cache entry owns exactly one app and disposing an evicted app can never affect a live one.
+let appInitSeq = 0
 
-  const pending = (async () => {
-    const { initializeApp, getApps, cert } = await import('firebase-admin/app')
-    const registered = getApps().find((app) => app?.name === key)
-    return (
-      registered ??
-      initializeApp(
-        {
-          credential: cert({
-            projectId: serviceAccount.projectId,
-            clientEmail: serviceAccount.clientEmail,
-            privateKey: serviceAccount.privateKey,
-          }),
-        },
-        key,
-      )
-    ) as unknown as FcmAppLike
-  })()
-  appCache.set(key, pending)
-  // Drop a rejected init (e.g. invalid service-account cert) from the cache so the
-  // next call can re-initialize instead of forever returning the cached rejection.
-  pending.catch(() => {
-    if (appCache.get(key) === pending) appCache.delete(key)
-  })
-
-  if (appCache.size > APP_CACHE_MAX) {
-    const oldestKey = appCache.keys().next().value as string | undefined
-    if (oldestKey != null) {
-      const evicted = appCache.get(oldestKey)
-      appCache.delete(oldestKey)
-      void evicted?.then((app) => app.delete()).catch(() => {})
-    }
-  }
-
-  return pending
-}
-
-async function defaultMessagingFactory(serviceAccount: FcmServiceAccount): Promise<FirebaseMessaging> {
-  const { getMessaging } = await import('firebase-admin/messaging')
-  const app = await getApp(serviceAccount)
-  return getMessaging(app as never) as unknown as FirebaseMessaging
-}
-
-async function resolveMessaging(serviceAccount: FcmServiceAccount): Promise<FirebaseMessaging> {
-  if (messagingFactory) return messagingFactory(serviceAccount)
-  return defaultMessagingFactory(serviceAccount)
+async function createFirebaseApp(serviceAccount: FcmServiceAccount, appName: string): Promise<FcmAppLike> {
+  const { initializeApp, cert } = await import('firebase-admin/app')
+  return initializeApp(
+    {
+      credential: cert({
+        projectId: serviceAccount.projectId,
+        clientEmail: serviceAccount.clientEmail,
+        privateKey: serviceAccount.privateKey,
+      }),
+    },
+    appName,
+  ) as unknown as FcmAppLike
 }
 
 /**
@@ -199,24 +171,61 @@ class FcmChannelAdapter extends BasePushChannelAdapter {
     }
 
     const envelope = readPushEnvelope(input.content)
-    let messaging: FirebaseMessaging
+    let serviceAccount: FcmServiceAccount
     try {
-      messaging = await resolveMessaging(parseFcmServiceAccount(parsedCredentials.data))
+      serviceAccount = parseFcmServiceAccount(parsedCredentials.data)
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return { externalMessageId: '', status: 'failed', error: message }
+      return { externalMessageId: '', status: 'failed', error: err instanceof Error ? err.message : String(err) }
+    }
+    const message = buildFcmMessage(token, envelope)
+
+    // Test seam: an injected factory bypasses the app cache entirely.
+    if (messagingFactory) {
+      let messaging: FirebaseMessaging
+      try {
+        messaging = messagingFactory(serviceAccount)
+      } catch (err) {
+        return { externalMessageId: '', status: 'failed', error: err instanceof Error ? err.message : String(err) }
+      }
+      return this.performSend(messaging, message)
     }
 
+    // Production path: borrow a cached firebase-admin app for the duration of the send. Holding the
+    // lease keeps an evicted app alive until the send completes (release() in finally).
+    const cacheKey = cacheKeyForServiceAccount(serviceAccount)
+    let lease
     try {
-      const externalMessageId = await messaging.send(buildFcmMessage(token, envelope))
+      appInitSeq += 1
+      const appName = `${cacheKey}-${appInitSeq}`
+      lease = await appCache.acquire(cacheKey, () => createFirebaseApp(serviceAccount, appName))
+    } catch (err) {
+      return { externalMessageId: '', status: 'failed', error: err instanceof Error ? err.message : String(err) }
+    }
+    try {
+      const { getMessaging } = await import('firebase-admin/messaging')
+      const messaging = getMessaging(lease.client as never) as unknown as FirebaseMessaging
+      return await this.performSend(messaging, message)
+    } catch (err) {
+      return { externalMessageId: '', status: 'failed', error: err instanceof Error ? err.message : String(err) }
+    } finally {
+      lease.release()
+    }
+  }
+
+  private async performSend(
+    messaging: FirebaseMessaging,
+    message: Record<string, unknown>,
+  ): Promise<SendMessageResult> {
+    try {
+      const externalMessageId = await messaging.send(message)
       return { externalMessageId, status: 'sent' }
     } catch (err) {
       const code = typeof (err as { code?: unknown }).code === 'string' ? (err as { code: string }).code : undefined
-      const message = err instanceof Error ? err.message : String(err)
+      const errorMessage = err instanceof Error ? err.message : String(err)
       if (code && PERMANENT_FCM_ERROR_CODES.has(code)) {
         return deviceUnregisteredResult({ code })
       }
-      return { externalMessageId: '', status: 'failed', error: message }
+      return { externalMessageId: '', status: 'failed', error: errorMessage }
     }
   }
 }
