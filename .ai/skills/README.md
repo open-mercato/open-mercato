@@ -68,7 +68,7 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 
 | Tier | Default? | Skills | What's inside |
 |------|----------|--------|---------------|
-| `core` | yes | 11 | Daily-driver skills installed by default. |
+| `core` | yes | 12 | Daily-driver skills installed by default. |
 | `automation` | opt-in | 2 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
 | `migration` | opt-in | 1 | One-shot, version-pinned migrations. Install only when needed. |
@@ -191,6 +191,7 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 |-------|-------------|
 | `om-ds-guardian` | Design System Guardian for Open Mercato. Enforces DS compliance, migrates hardcoded colors and typography, scaffolds DS-compliant pages, and reviews code against design principles. Activates on: 'design system', 'DS', 'migrate colors', 'fix colors', 'hardcoded colors', 'semantic tokens', 'scaffold page', 'new page', 'create page', 'DS review', 'DS check', 'DS health', 'health check', 'design system compliance', 'StatusBadge', 'FormField', 'SectionHeader', 'text-red-', 'bg-green-', 'text-[11px]', 'arbitrary text', 'empty state', 'loading state', or when a developer is building UI, creating new modules, reviewing PRs, or fixing DS violations in Open Mercato. Always use this skill when working on frontend UI in Open Mercato — it ensures every change follows the design system. |
 | `om-backend-ui-design` | Design and implement consistent, production-grade backend/backoffice interfaces using the @open-mercato/ui component library. Use this skill when building admin pages, CRUD interfaces, data tables, forms, detail pages, or any backoffice UI components. Ensures visual consistency and UX patterns across all application modules. |
+| `om-mockup-prototype` | Buduje klikalny prototyp UI z komentarzami na podstawie dokumentu wymagań — makiety ekranów w Open Mercato DS, tryb klikalny do przeklikania przepływu i tryb komentarzy do dyskusji przed implementacją. Najpierw sprawdza, czy wymagania zawierają historyjki użytkownika, a gdy ich brak — proponuje wygenerowanie mapy US. Triggers on "mockup", "makieta", "prototyp", "wireframe", "podgląd ekranów", "feedback do wymagań". |
 | `om-implement-spec` | Implement a specification (or specific phases) using coordinated subagents with unit tests, integration tests, docs, and code-review compliance. Tracks progress by updating the spec. Triggers on "implement spec", "implement phases", "build from spec", "code the spec". |
 | `om-pre-implement-spec` | Analyze a spec before implementation: BC audit, risk assessment, gap analysis. Produces a readiness report with BC violations, missing sections, and suggested improvements. Triggers on "analyze spec", "pre-implement", "spec readiness", "BC analysis", "spec gap analysis". |
 | `om-smart-test` | Run only the tests affected by changed code. Use when the user says "run affected tests", "run smart tests", "test only what changed", "run tests for this PR", "run tests for my changes", "selective tests", or asks to run tests without running the full suite. |
