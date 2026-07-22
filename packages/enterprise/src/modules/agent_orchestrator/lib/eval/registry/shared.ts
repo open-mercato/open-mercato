@@ -88,6 +88,28 @@ export function jsonEquals(left: Json | null, right: Json | null): boolean {
   return false
 }
 
+/** One diverging path with both sides, so a failure is readable without the trace. */
+export type JsonMismatch = { path: string; expected: Json | null; actual: Json | null }
+
+/** Evidence is persisted (encrypted) per result, so a quoted value is bounded. */
+const MISMATCH_VALUE_MAX_CHARS = 200
+
+/**
+ * Bounded rendering of a mismatched value. Scalars pass through untouched so the
+ * UI can still show `null` vs `"unknown"` as distinct; only oversized strings and
+ * containers collapse to a truncated preview.
+ */
+export function summarizeJsonValue(value: Json | null): Json | null {
+  if (value === null || typeof value === 'number' || typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    return value.length > MISMATCH_VALUE_MAX_CHARS ? `${value.slice(0, MISMATCH_VALUE_MAX_CHARS)}…` : value
+  }
+  const serialized = JSON.stringify(value) ?? ''
+  return serialized.length > MISMATCH_VALUE_MAX_CHARS
+    ? `${serialized.slice(0, MISMATCH_VALUE_MAX_CHARS)}…`
+    : value
+}
+
 /**
  * Subset match: every key present in `expected` must match in `actual`; extra keys
  * in `actual` are ignored. This is the default for `json_match` because an expected
@@ -98,8 +120,15 @@ export function jsonSubsetMatch(
   actual: Json | null,
   expected: Json | null,
   ignore: ReadonlyArray<string> = [],
-): { matched: boolean; mismatches: string[]; mismatchedLeaves: number; comparedLeaves: number } {
+): {
+  matched: boolean
+  mismatches: string[]
+  mismatchDetails: JsonMismatch[]
+  mismatchedLeaves: number
+  comparedLeaves: number
+} {
   const mismatches: string[] = []
+  const mismatchDetails: JsonMismatch[] = []
   const ignored = new Set(ignore)
   let mismatchedLeaves = 0
   // Counted DURING the walk, not from the target tree: `walk` descends only into
@@ -109,11 +138,21 @@ export function jsonSubsetMatch(
   // 10-element array as 0.9.
   let comparedLeaves = 0
 
+  const record = (path: string, left: Json | null, right: Json | null): void => {
+    const label = path || '.'
+    mismatches.push(label)
+    mismatchDetails.push({
+      path: label,
+      expected: summarizeJsonValue(right),
+      actual: summarizeJsonValue(left),
+    })
+  }
+
   const walk = (left: Json | null, right: Json | null, path: string): void => {
     if (ignored.has(path)) return
     if (right !== null && typeof right === 'object' && !Array.isArray(right)) {
       if (left === null || typeof left !== 'object' || Array.isArray(left)) {
-        mismatches.push(path || '.')
+        record(path, left, right)
         // A diverging SUBTREE counts as all of its leaves, not as one mismatch:
         // otherwise `{a:{x,y,z}}` vs `{a:5}` scores 0.67 while matching nothing.
         const leaves = countLeaves(right)
@@ -133,13 +172,13 @@ export function jsonSubsetMatch(
     }
     comparedLeaves += 1
     if (!jsonEquals(left, right)) {
-      mismatches.push(path || '.')
+      record(path, left, right)
       mismatchedLeaves += 1
     }
   }
 
   walk(actual, expected, '')
-  return { matched: mismatches.length === 0, mismatches, mismatchedLeaves, comparedLeaves }
+  return { matched: mismatches.length === 0, mismatches, mismatchDetails, mismatchedLeaves, comparedLeaves }
 }
 
 /** Scores a partial match as the fraction of compared leaves that agreed. */

@@ -45,11 +45,15 @@ import {
   isActiveSuiteStatus,
   isTerminalCaseRunStatus,
   mapEvalAssertionResult,
+  mapEvalCase,
   mapEvalCaseRun,
   mapEvalRunDetail,
   parseCaseRunStatus,
+  readEvidenceMismatches,
+  residualEvidence,
   type EvalAssertionResultRow,
   type EvalCaseRunRow,
+  type EvalCaseView,
   type EvalRunDetailView,
 } from '../../../components/evalRunTypes'
 
@@ -67,6 +71,11 @@ type ResultsResponse = { items?: Array<Record<string, unknown>> }
 type ResultsState = {
   status: 'loading' | 'ready' | 'error'
   items: EvalAssertionResultRow[]
+}
+
+type EvalCaseState = {
+  status: 'loading' | 'ready' | 'error'
+  evalCase: EvalCaseView | null
 }
 
 function readEventString(payload: Record<string, unknown>, key: string): string | null {
@@ -121,6 +130,131 @@ function HeaderStat({
   )
 }
 
+/**
+ * A mismatched value, rendered so `null`, `""` and a missing key stay
+ * distinguishable — the whole point of reading a diff.
+ */
+function MismatchValue({ value }: { value: unknown }) {
+  const t = useT()
+  if (value === undefined) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  if (value === null) {
+    return <span className="italic text-muted-foreground">{t('agent_orchestrator.evalRuns.detail.valueNull')}</span>
+  }
+  if (typeof value === 'string' && value.length === 0) {
+    return <span className="italic text-muted-foreground">{t('agent_orchestrator.evalRuns.detail.valueEmpty')}</span>
+  }
+  const text = typeof value === 'string' ? value : JSON.stringify(value)
+  return <span className="font-mono text-xs break-words">{text}</span>
+}
+
+/**
+ * Expected-vs-actual per diverging path. Without it the operator sees only WHICH
+ * fields disagreed and has to open the trace and the eval case side by side to
+ * learn HOW.
+ */
+function MismatchTable({ evidence }: { evidence: unknown }) {
+  const t = useT()
+  const { rows, omitted } = readEvidenceMismatches(evidence)
+  if (rows.length === 0) return null
+  const hasValues = rows.some((row) => row.expected !== undefined || row.actual !== undefined)
+  return (
+    <div className="mt-2 overflow-x-auto rounded-lg border border-border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('agent_orchestrator.evalRuns.detail.mismatchPath')}</TableHead>
+            {hasValues ? (
+              <>
+                <TableHead>{t('agent_orchestrator.evalRuns.detail.mismatchExpected')}</TableHead>
+                <TableHead>{t('agent_orchestrator.evalRuns.detail.mismatchActual')}</TableHead>
+              </>
+            ) : null}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.path}>
+              <TableCell className="align-top font-mono text-xs">{row.path}</TableCell>
+              {hasValues ? (
+                <>
+                  <TableCell className="align-top text-status-success-text">
+                    <MismatchValue value={row.expected} />
+                  </TableCell>
+                  <TableCell className="align-top text-status-error-text">
+                    <MismatchValue value={row.actual} />
+                  </TableCell>
+                </>
+              ) : null}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      {omitted > 0 ? (
+        <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+          {t('agent_orchestrator.evalRuns.detail.mismatchOmitted', undefined, { count: omitted })}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * The golden record the case run was scored against. Fetched per expanded row
+ * from the single-case route, because `input`/`expected` are encrypted at rest
+ * and are never projected into a list response.
+ */
+function GoldenCase({ state, evalCaseId }: { state: EvalCaseState; evalCaseId: string }) {
+  const t = useT()
+  if (state.status === 'loading') {
+    return (
+      <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+        <Spinner className="size-4" />
+        {t('agent_orchestrator.evalRuns.detail.goldenLoading')}
+      </div>
+    )
+  }
+  if (state.status === 'error' || !state.evalCase) {
+    return <p className="py-2 text-sm text-muted-foreground">{t('agent_orchestrator.evalRuns.detail.goldenError')}</p>
+  }
+  const evalCase = state.evalCase
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge variant="neutral">{evalCase.status}</StatusBadge>
+        <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+          {evalCase.sourceType}
+        </span>
+        {evalCase.processType ? (
+          <span className="font-mono text-xs text-muted-foreground">{evalCase.processType}</span>
+        ) : null}
+        <Button asChild variant="ghost" size="sm" className="ml-auto">
+          <Link href={`/backend/eval-cases/${encodeURIComponent(evalCaseId)}`}>
+            {t('agent_orchestrator.evalRuns.detail.openEvalCase')}
+          </Link>
+        </Button>
+      </div>
+      {evalCase.expected != null ? (
+        <JsonDisplay
+          data={evalCase.expected}
+          title={t('agent_orchestrator.evalRuns.detail.goldenExpected')}
+          maxHeight="20rem"
+        />
+      ) : (
+        <p className="text-sm text-muted-foreground">{t('agent_orchestrator.evalRuns.detail.goldenNoExpected')}</p>
+      )}
+      {evalCase.input != null ? (
+        <JsonDisplay
+          data={evalCase.input}
+          title={t('agent_orchestrator.evalRuns.detail.goldenInput')}
+          maxHeight="16rem"
+        />
+      ) : null}
+    </div>
+  )
+}
+
 function AssertionResults({ state }: { state: ResultsState }) {
   const t = useT()
   const locale = useLocale()
@@ -140,34 +274,38 @@ function AssertionResults({ state }: { state: ResultsState }) {
   }
   return (
     <ul className="space-y-1.5">
-      {state.items.map((result) => (
-        <li key={result.id} className="rounded-lg border border-border bg-background px-3 py-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <VerdictBadge passed={result.passed} />
-            <span className="font-mono text-xs text-foreground">{result.assertionKey}</span>
-            <StatusBadge variant={result.severity === 'gate' ? 'error' : 'warning'}>
-              {t(`agent_orchestrator.evalRuns.severity.${result.severity}`)}
-            </StatusBadge>
-            {result.score != null ? (
-              <span className="text-xs tabular-nums text-muted-foreground">
-                {t('agent_orchestrator.evalRuns.detail.resultScore', undefined, { value: result.score.toFixed(2) })}
+      {state.items.map((result) => {
+        const residual = residualEvidence(result.evidence)
+        return (
+          <li key={result.id} className="rounded-lg border border-border bg-background px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <VerdictBadge passed={result.passed} />
+              <span className="font-mono text-xs text-foreground">{result.assertionKey}</span>
+              <StatusBadge variant={result.severity === 'gate' ? 'error' : 'warning'}>
+                {t(`agent_orchestrator.evalRuns.severity.${result.severity}`)}
+              </StatusBadge>
+              {result.score != null ? (
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {t('agent_orchestrator.evalRuns.detail.resultScore', undefined, { value: result.score.toFixed(2) })}
+                </span>
+              ) : null}
+              <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+                {formatDateTime(result.evaluatedAt, locale) ?? '—'}
               </span>
-            ) : null}
-            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-              {formatDateTime(result.evaluatedAt, locale) ?? '—'}
-            </span>
-          </div>
-          {result.evidence != null ? (
-            <div className="mt-2">
-              <JsonDisplay
-                data={result.evidence}
-                title={t('agent_orchestrator.evalRuns.detail.resultEvidence')}
-                maxHeight="16rem"
-              />
             </div>
-          ) : null}
-        </li>
-      ))}
+            <MismatchTable evidence={result.evidence} />
+            {residual != null ? (
+              <div className="mt-2">
+                <JsonDisplay
+                  data={residual}
+                  title={t('agent_orchestrator.evalRuns.detail.resultEvidence')}
+                  maxHeight="16rem"
+                />
+              </div>
+            ) : null}
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -187,6 +325,7 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
   const [reloadToken, setReloadToken] = React.useState(0)
   const [expandedId, setExpandedId] = React.useState<string | null>(null)
   const [results, setResults] = React.useState<Record<string, ResultsState>>({})
+  const [evalCases, setEvalCases] = React.useState<Record<string, EvalCaseState>>({})
   const [isCancelling, setIsCancelling] = React.useState(false)
   const loadedRunRef = React.useRef<string | null>(null)
 
@@ -255,9 +394,37 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
    * makes that "first" exact — a re-expand never refires an in-flight request.
    */
   const requestedResultsRef = React.useRef<Set<string>>(new Set())
+  /**
+   * The golden case is fetched per eval case, NOT per case run: a suite at
+   * repeatCount 3 expands three rows that share one case, and refetching the same
+   * encrypted payload per trial buys nothing.
+   */
+  const requestedCasesRef = React.useRef<Set<string>>(new Set())
 
-  const toggleExpanded = React.useCallback((caseRunId: string) => {
+  const loadEvalCase = React.useCallback((evalCaseId: string) => {
+    if (!evalCaseId || requestedCasesRef.current.has(evalCaseId)) return
+    requestedCasesRef.current.add(evalCaseId)
+    setEvalCases((current) => ({ ...current, [evalCaseId]: { status: 'loading', evalCase: null } }))
+    void (async () => {
+      const call = await apiCall<Record<string, unknown>>(
+        `/api/agent_orchestrator/eval-cases/${encodeURIComponent(evalCaseId)}`,
+        undefined,
+        { fallback: {} },
+      )
+      const mapped = call.ok && call.result ? mapEvalCase(call.result) : null
+      if (!mapped) {
+        // Dropped from the requested set so collapsing and re-expanding retries.
+        requestedCasesRef.current.delete(evalCaseId)
+        setEvalCases((current) => ({ ...current, [evalCaseId]: { status: 'error', evalCase: null } }))
+        return
+      }
+      setEvalCases((current) => ({ ...current, [evalCaseId]: { status: 'ready', evalCase: mapped } }))
+    })()
+  }, [])
+
+  const toggleExpanded = React.useCallback((caseRunId: string, evalCaseId: string) => {
     setExpandedId((current) => (current === caseRunId ? null : caseRunId))
+    loadEvalCase(evalCaseId)
     if (requestedResultsRef.current.has(caseRunId)) return
     requestedResultsRef.current.add(caseRunId)
     setResults((current) => ({ ...current, [caseRunId]: { status: 'loading', items: [] } }))
@@ -285,7 +452,7 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
         },
       }))
     })()
-  }, [suiteRunId])
+  }, [suiteRunId, loadEvalCase])
 
   // Live progress: case-run events patch the loaded rows in place (no refetch of
   // a list the very run is still writing). The suite-completion event refreshes
@@ -533,7 +700,7 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
                                       ? t('agent_orchestrator.evalRuns.detail.collapseResults')
                                       : t('agent_orchestrator.evalRuns.detail.expandResults')
                                   }
-                                  onClick={() => toggleExpanded(caseRun.id)}
+                                  onClick={() => toggleExpanded(caseRun.id, caseRun.evalCaseId)}
                                 >
                                   <ChevronDown className={cn('size-4 transition-transform', !expanded && '-rotate-90')} />
                                 </IconButton>
@@ -597,6 +764,19 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
                                   <AssertionResults
                                     state={results[caseRun.id] ?? { status: 'loading', items: [] }}
                                   />
+                                  <div className="mt-3">
+                                    <CollapsibleSection
+                                      title={t('agent_orchestrator.evalRuns.detail.goldenCase')}
+                                      defaultCollapsed
+                                    >
+                                      <GoldenCase
+                                        state={
+                                          evalCases[caseRun.evalCaseId] ?? { status: 'loading', evalCase: null }
+                                        }
+                                        evalCaseId={caseRun.evalCaseId}
+                                      />
+                                    </CollapsibleSection>
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             ) : null}

@@ -8,7 +8,9 @@ import {
   resolvePath,
   sourceSchema,
   subsetScore,
+  summarizeJsonValue,
   verdict,
+  type JsonMismatch,
 } from './shared'
 
 const I18N = 'agent_orchestrator.evalAssertions.scorer'
@@ -184,18 +186,44 @@ export const jsonMatch: ScorerDefinition<JsonMatchConfig> = {
 
     if (config.mode === 'exact') {
       const matched = jsonEquals(actual, target)
-      return verdict(matched, matched ? 1 : 0, matched ? undefined : { reason: 'values differ' })
+      return verdict(
+        matched,
+        matched ? 1 : 0,
+        matched
+          ? undefined
+          : {
+              reason: 'values differ',
+              expected: summarizeJsonValue(target),
+              actual: summarizeJsonValue(actual),
+            },
+      )
     }
 
-    const { matched, mismatches, mismatchedLeaves, comparedLeaves } = jsonSubsetMatch(actual, target, config.ignore)
+    const { matched, mismatches, mismatchDetails, mismatchedLeaves, comparedLeaves } = jsonSubsetMatch(
+      actual,
+      target,
+      config.ignore,
+    )
     return {
       passed: matched,
       // Denominator is what was actually COMPARED, not the target's leaf count:
       // arrays compare as one unit and ignored paths are not compared at all.
       score: subsetScore(mismatchedLeaves, comparedLeaves),
-      evidence: mismatches.length ? { mismatches } : undefined,
+      // `mismatches` (paths only) is kept for callers that already read it;
+      // `diff` adds the expected/actual pair so a failure is diagnosable without
+      // opening the trace and re-deriving the golden value by hand.
+      evidence: mismatches.length ? { mismatches, ...diffEvidence(mismatchDetails) } : undefined,
     }
   },
+}
+
+/** Evidence is stored per result, so the diff is capped — and says so when cut. */
+const MAX_DIFF_ENTRIES = 25
+
+function diffEvidence(details: JsonMismatch[]): Record<string, Json> {
+  const diff = details.slice(0, MAX_DIFF_ENTRIES) as unknown as Json
+  const omitted = details.length - MAX_DIFF_ENTRIES
+  return omitted > 0 ? { diff, diffOmitted: omitted } : { diff }
 }
 
 const jsonPathCompareConfig = baseConfigSchema.extend({

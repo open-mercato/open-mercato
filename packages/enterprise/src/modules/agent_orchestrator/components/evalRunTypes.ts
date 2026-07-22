@@ -60,6 +60,29 @@ export type EvalCaseRunRow = {
   createdAt: string | null
 }
 
+/**
+ * The golden record a case run was scored against. Read per expanded case run
+ * from `/api/agent_orchestrator/eval-cases/:id` — the only route that returns a
+ * case payload, since `input`/`expected` are encrypted at rest and the list
+ * projection deliberately omits them.
+ */
+export type EvalCaseView = {
+  id: string
+  status: string
+  sourceType: string
+  processType: string | null
+  input: unknown
+  expected: unknown
+  updatedAt: string | null
+}
+
+/** One diverging path from a `json_match` result, with both sides. */
+export type EvalMismatchRow = {
+  path: string
+  expected: unknown
+  actual: unknown
+}
+
 export type EvalAssertionResultRow = {
   id: string
   assertionId: string
@@ -172,6 +195,64 @@ export function mapEvalAssertionResult(item: Record<string, unknown>): EvalAsser
     evidence: item.evidence ?? null,
     evaluatedAt: readString(item, 'evaluated_at'),
   }
+}
+
+export function mapEvalCase(item: Record<string, unknown>): EvalCaseView | null {
+  const id = readString(item, 'id')
+  if (!id) return null
+  return {
+    id,
+    status: readString(item, 'status') ?? '',
+    sourceType: readString(item, 'source_type') ?? '',
+    processType: readString(item, 'process_type'),
+    input: item.input ?? null,
+    expected: item.expected ?? null,
+    updatedAt: readString(item, 'updated_at'),
+  }
+}
+
+/**
+ * Reads the structured diff a `json_match` result carries. Results written before
+ * the diff existed only have `mismatches` (paths), so those render as rows with no
+ * expected/actual rather than disappearing.
+ */
+export function readEvidenceMismatches(evidence: unknown): {
+  rows: EvalMismatchRow[]
+  omitted: number
+} {
+  if (evidence === null || typeof evidence !== 'object' || Array.isArray(evidence)) {
+    return { rows: [], omitted: 0 }
+  }
+  const record = evidence as Record<string, unknown>
+  const omitted = readNumber(record, 'diffOmitted') ?? 0
+  const diff = record.diff
+  if (Array.isArray(diff)) {
+    const rows = diff.flatMap((entry) => {
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return []
+      const path = readString(entry as Record<string, unknown>, 'path')
+      if (!path) return []
+      const detail = entry as Record<string, unknown>
+      return [{ path, expected: detail.expected ?? null, actual: detail.actual ?? null }]
+    })
+    return { rows, omitted }
+  }
+  const paths = readStringList(record.mismatches)
+  return {
+    rows: paths.map((path) => ({ path, expected: undefined, actual: undefined })),
+    omitted,
+  }
+}
+
+/** Evidence keys already rendered by the mismatch table — not repeated as raw JSON. */
+const RENDERED_EVIDENCE_KEYS = new Set(['mismatches', 'diff', 'diffOmitted'])
+
+/** The evidence left over once the mismatch table has consumed its own keys. */
+export function residualEvidence(evidence: unknown): unknown {
+  if (evidence === null || typeof evidence !== 'object' || Array.isArray(evidence)) return evidence
+  const entries = Object.entries(evidence as Record<string, unknown>).filter(
+    ([key]) => !RENDERED_EVIDENCE_KEYS.has(key),
+  )
+  return entries.length > 0 ? Object.fromEntries(entries) : null
 }
 
 /** Narrows a case-run status arriving from an SSE payload (untyped `unknown`). */

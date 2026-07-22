@@ -227,6 +227,36 @@ describe('scorer registry — new catalog behaviour', () => {
     expect(verdict.passed).toBe(false)
   })
 
+  it('json_match evidence carries expected vs actual per diverging path', () => {
+    const verdict = runScorer(
+      'json_match',
+      runView({ output: { legalForm: 'GmbH', amlStatus: null } }),
+      { legalForm: 'sp. z o.o.', amlStatus: 'cleared' },
+      {},
+    )
+    expect(verdict.passed).toBe(false)
+    expect(verdict.evidence).toMatchObject({
+      mismatches: ['legalForm', 'amlStatus'],
+      diff: [
+        { path: 'legalForm', expected: 'sp. z o.o.', actual: 'GmbH' },
+        { path: 'amlStatus', expected: 'cleared', actual: null },
+      ],
+    })
+  })
+
+  it('json_match exact mode reports both sides, not just "values differ"', () => {
+    const verdict = runScorer('json_match', runView({ output: { a: 2 } }), { a: 1 }, { mode: 'exact' })
+    expect(verdict.evidence).toMatchObject({ expected: { a: 1 }, actual: { a: 2 } })
+  })
+
+  it('truncates an oversized mismatch value instead of storing it whole', () => {
+    const long = 'x'.repeat(500)
+    const verdict = runScorer('json_match', runView({ output: { note: long } }), { note: 'short' }, {})
+    const diff = (verdict.evidence as { diff: Array<{ actual: string }> }).diff
+    expect(diff[0].actual.length).toBeLessThan(long.length)
+    expect(diff[0].actual.endsWith('…')).toBe(true)
+  })
+
   it('compares against a fixed config value on the online plane', () => {
     const verdict = runScorer('contains', runView({ output: 'hello world' }), null, {
       source: 'config',
