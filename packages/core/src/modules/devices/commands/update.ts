@@ -13,7 +13,6 @@ import {
   applySnapshot,
   deviceEvents,
   deviceIndexer,
-  redactSnapshot,
   serializeDevice,
   type DeviceSnapshot,
   type DeviceUndoPayload,
@@ -107,8 +106,8 @@ const updateDeviceCommand: CommandHandler<UpdateDeviceCommandInput, { id: string
       resourceId: before.id,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
-      snapshotBefore: redactSnapshot(before),
-      snapshotAfter: redactSnapshot(after),
+      snapshotBefore: before,
+      snapshotAfter: after,
       payload: {
         undo: { before, after } satisfies DeviceUndoPayload,
       },
