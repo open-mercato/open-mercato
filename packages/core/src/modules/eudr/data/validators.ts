@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { ISO_COUNTRIES } from '@open-mercato/shared/lib/location/countries'
 
 import { EUDR_RISK_CRITERIA_KEYS } from '../lib/reference-data'
 
@@ -118,13 +117,32 @@ const pastOrNowIsoDateTimeSchema = () => isoDateTimeSchema().refine((value) => v
 
 const isoDateOrDateTimeSchema = () => z.union([isoDateSchema(), isoDateTimeSchema()])
 
-const ISO_COUNTRY_CODES = new Set(ISO_COUNTRIES.map((country) => country.code))
+// Country codes are validated through ICU rather than the shared country helper.
+// That helper imports language-subtag-registry's JSON, and the build strips the
+// import attribute Node's ESM loader requires, so importing it from server-side
+// code (CLI, workers) fails with ERR_IMPORT_ATTRIBUTE_MISSING. UI components can
+// keep using the helper because bundlers resolve the JSON themselves.
+const countryDisplayNames = typeof Intl !== 'undefined' && typeof Intl.DisplayNames !== 'undefined'
+  ? new Intl.DisplayNames(['en'], { type: 'region' })
+  : null
+
+function isIsoCountryCode(value: string): boolean {
+  // Without ICU data there is nothing to check against, so accept the shape.
+  if (!countryDisplayNames) return true
+  try {
+    // Intl echoes the input back when it cannot resolve the region.
+    const label = countryDisplayNames.of(value)
+    return typeof label === 'string' && label !== value
+  } catch {
+    return false
+  }
+}
 
 const countryCodeSchema = () => z
   .string()
   .regex(/^[A-Za-z]{2}$/)
   .transform((value) => value.toUpperCase())
-  .refine((value) => ISO_COUNTRY_CODES.has(value), { message: 'eudr.errors.invalidCountry' })
+  .refine(isIsoCountryCode, { message: 'eudr.errors.invalidCountry' })
 
 const referencedStatementCodeSchema = (maxLength: number) => z
   .string()
