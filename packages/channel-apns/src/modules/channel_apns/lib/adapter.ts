@@ -17,15 +17,27 @@ import {
 } from './credentials'
 
 /**
- * APNs rejection reasons that mean the device token is permanently invalid.
- * Mapped to the uniform `device_unregistered` sentinel so the push worker
- * soft-deletes the device (identical contract across fcm/apns/expo).
+ * The ONLY APNs signal that a device token is permanently dead: HTTP 410 with reason `Unregistered`
+ * (the two always travel together — 410 is Apple's irrecoverable "remove this token" status). A bare
+ * `410` status whose reason node-apn could not parse means the same thing, so it is included. Both map
+ * to the uniform `device_unregistered` sentinel so the push worker soft-deletes the device (identical
+ * contract across fcm/apns/expo).
+ *
+ * `BadDeviceToken` is deliberately EXCLUDED. Apple returns it for a VALID token presented to the wrong
+ * environment (a production token hitting the sandbox host, or vice-versa — and `production` defaults
+ * to false), not only for a malformed token, and APNs gives no code to disambiguate the two. Treating
+ * it as permanent would soft-delete every live iOS device in a tenant on a single environment
+ * misconfiguration, with no recovery path. It — like the other non-410 reasons (`DeviceTokenNotForTopic`,
+ * `TopicDisallowed`, `PayloadTooLarge`, `TooManyRequests`, `InternalServerError`, `ServiceUnavailable`,
+ * `ExpiredProviderToken`) — is a transient/config failure: the delivery retries then expires, but the
+ * device is KEPT so it recovers once the sender-side config is fixed.
  */
-const PERMANENT_APNS_REASONS = new Set(['Unregistered', 'BadDeviceToken'])
+const PERMANENT_APNS_REASONS = new Set(['Unregistered', '410'])
 
 export interface ApnsSendOutcome {
   ok: boolean
-  /** Provider rejection reason (e.g. `Unregistered`, `BadDeviceToken`). */
+  /** Provider rejection reason (e.g. `Unregistered`, `BadDeviceToken`), or the stringified HTTP status
+   * (e.g. `410`) when node-apn could not parse a reason from the response body. */
   reason?: string
   /** Transport-level error message (network/auth), distinct from a provider rejection. */
   error?: string
