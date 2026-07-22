@@ -9,6 +9,7 @@ import {
   MISSING_PUSH_TOKEN_RESULT,
   readPushToken,
 } from '@open-mercato/core/modules/communication_channels/lib/push-adapter'
+import { createRefCountedClientCache } from '@open-mercato/core/modules/communication_channels/lib/refcounted-client-cache'
 import { readPushEnvelope, resolvePushBody, type PushEnvelope } from '@open-mercato/core/modules/communication_channels/lib/push-envelope'
 import {
   apnsCredentialsSchema,
@@ -79,47 +80,31 @@ function credentialsHash(credentials: ApnsResolvedCredentials): string {
  * open socket to Apple, so an unbounded cache would leak a connection every time a
  * tenant rotates their `.p8` key or toggles `production` (the hash changes → a new
  * entry, while the stale provider never shuts down). LRU-evicting the least-recently
- * used provider and calling `shutdown()` keeps the connection count bounded.
+ * used provider and calling `shutdown()` keeps the connection count bounded. Disposal
+ * is fenced on in-flight sends: an evicted provider is shut down only once its last
+ * concurrent `send` releases (see refcounted-client-cache), so eviction never closes
+ * the HTTP/2 socket out from under a send.
  */
 const PROVIDER_CACHE_MAX = 32
-const providerCache = new Map<string, Promise<ApnsProviderLike>>()
-
-async function getProvider(credentials: ApnsResolvedCredentials): Promise<ApnsProviderLike> {
-  const key = credentialsHash(credentials)
-  const existing = providerCache.get(key)
-  if (existing) {
-    // Refresh recency: delete + re-insert moves the key to the newest position.
-    providerCache.delete(key)
-    providerCache.set(key, existing)
-    return existing
-  }
-
-  const pending = (async () => {
-    const apnModule = await import('@parse/node-apn')
-    const apn = (apnModule as { default?: unknown }).default ?? apnModule
-    const Provider = (apn as { Provider: new (options: unknown) => ApnsProviderLike }).Provider
-    return new Provider({
-      token: { key: credentials.p8Key, keyId: credentials.keyId, teamId: credentials.teamId },
-      production: credentials.production,
-    })
-  })()
-  providerCache.set(key, pending)
-  // Drop a rejected init (e.g. invalid p8 key) from the cache so the next call can
-  // re-initialize instead of forever returning the cached rejection.
-  pending.catch(() => {
-    if (providerCache.get(key) === pending) providerCache.delete(key)
-  })
-
-  if (providerCache.size > PROVIDER_CACHE_MAX) {
-    const oldestKey = providerCache.keys().next().value as string | undefined
-    if (oldestKey != null) {
-      const evicted = providerCache.get(oldestKey)
-      providerCache.delete(oldestKey)
-      void evicted?.then((provider) => provider.shutdown?.()).catch(() => {})
+const providerCache = createRefCountedClientCache<ApnsProviderLike>({
+  max: PROVIDER_CACHE_MAX,
+  dispose: (provider) => {
+    try {
+      provider.shutdown?.()
+    } catch {
+      // shutdown is best-effort; a throwing/absent shutdown must not break eviction.
     }
-  }
+  },
+})
 
-  return pending
+async function createProvider(credentials: ApnsResolvedCredentials): Promise<ApnsProviderLike> {
+  const apnModule = await import('@parse/node-apn')
+  const apn = (apnModule as { default?: unknown }).default ?? apnModule
+  const Provider = (apn as { Provider: new (options: unknown) => ApnsProviderLike }).Provider
+  return new Provider({
+    token: { key: credentials.p8Key, keyId: credentials.keyId, teamId: credentials.teamId },
+    production: credentials.production,
+  })
 }
 
 /**
@@ -154,14 +139,20 @@ function defaultSenderFactory(credentials: ApnsResolvedCredentials): ApnsSender 
     const Notification = (apn as { Notification: new () => Record<string, unknown> }).Notification
     const note = buildApnsNotification(new Notification(), payload)
 
-    const provider = await getProvider(credentials)
-    const result = await provider.send(note, token)
-    if (result.sent && result.sent.length > 0) return { ok: true }
-    const failure = result.failed?.[0]
-    if (!failure) return { ok: false, error: 'no_response' }
-    if (failure.error) return { ok: false, error: failure.error.message }
-    const reason = failure.response?.reason ?? (failure.status != null ? String(failure.status) : undefined)
-    return { ok: false, reason }
+    // Borrow a cached provider for the duration of the send; release() in finally keeps an evicted
+    // provider's socket open until this send completes.
+    const lease = await providerCache.acquire(credentialsHash(credentials), () => createProvider(credentials))
+    try {
+      const result = await lease.client.send(note, token)
+      if (result.sent && result.sent.length > 0) return { ok: true }
+      const failure = result.failed?.[0]
+      if (!failure) return { ok: false, error: 'no_response' }
+      if (failure.error) return { ok: false, error: failure.error.message }
+      const reason = failure.response?.reason ?? (failure.status != null ? String(failure.status) : undefined)
+      return { ok: false, reason }
+    } finally {
+      lease.release()
+    }
   }
 }
 
