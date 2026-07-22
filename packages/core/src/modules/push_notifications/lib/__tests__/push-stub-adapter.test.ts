@@ -58,11 +58,17 @@ function makeHarness(delivery: PushNotificationDelivery, pushToken: string) {
   const channel = { providerKey: PUSH_STUB_PROVIDER_KEY, credentialsRef: null, userId: null }
   const commandBus = { execute: jest.fn(async () => ({})) }
   const em = {
+    // Mirror the real fenced claim/write-backs: match on BOTH the status guard AND the `attempts`
+    // lease token, and model the claim's `raw('"attempts" + 1')` fragment as a +1 increment (fenced
+    // write-backs carry no `attempts` in their data).
     nativeUpdate: jest.fn(async (entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
       if (entity !== PushNotificationDelivery) return 0
       const statusMatches = where.status === undefined || delivery.status === where.status
-      if (!statusMatches) return 0
-      Object.assign(delivery, data)
+      const attemptsMatches = where.attempts === undefined || delivery.attempts === where.attempts
+      if (!statusMatches || !attemptsMatches) return 0
+      const { attempts, ...rest } = data
+      if (attempts !== undefined) delivery.attempts = (delivery.attempts ?? 0) + 1
+      Object.assign(delivery, rest)
       return 1
     }),
     findOne: jest.fn(async (entity: unknown) => {

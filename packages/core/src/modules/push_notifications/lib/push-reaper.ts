@@ -2,24 +2,18 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { PushNotificationDelivery } from '../data/entities'
 import { emitPushNotificationsEvent } from '../events'
 import { MAX_ATTEMPTS } from './push-delivery'
+import { resolveStuckThresholdMs } from './reclaim-window'
 import { enqueuePushDelivery } from './queue'
 
-// Minutes a row may sit in `sending`/`pending` before it is treated as abandoned by a dead worker.
-// Tunable via OM_PUSH_STUCK_RECLAIM_MINUTES (values below MIN_STUCK_MINUTES, negative, or non-numeric
-// → default).
+// The stuck-reclaim window (minutes a row may sit in `sending`/`pending` before a dead-worker reclaim)
+// lives in ./reclaim-window so the send-path timeout shares the same source of truth.
 //
 // INVARIANT: this window MUST exceed the worst-case single provider send time. `updated_at` is stamped
 // once when the row is claimed (`pending` → `sending`) and is NOT refreshed mid-send (no heartbeat), so
 // a legitimate send that runs longer than the window would be reclaimed and re-enqueued → a duplicate
-// push. The default (5m) is comfortably above any adapter's send/HTTP timeout; if you lower it, keep it
-// above the adapter timeout. Duplicates are otherwise bounded by MAX_ATTEMPTS (now incremented at claim
-// time — see push-delivery.ts) and inherent to at-least-once delivery.
-//
-// A floor of MIN_STUCK_MINUTES is enforced: `0` (the old "reclaim on the next tick") is UNSAFE because
-// `cutoff = now` matches an actively-`sending` row whose `updated_at` was stamped at claim, re-opening
-// an in-flight send and causing a genuine duplicate push. Sub-floor values fall back to the default.
-const DEFAULT_STUCK_MINUTES = 5
-const MIN_STUCK_MINUTES = 1
+// push. The send path caps each provider send below this window (see push-delivery.ts
+// `resolvePushSendTimeoutMs`), and duplicates are otherwise bounded by MAX_ATTEMPTS (incremented at
+// claim time) and inherent to at-least-once delivery.
 
 // Bound the per-tick scan so a stranded backlog (provider/queue outage) cannot load an unbounded row
 // set into memory and re-enqueue it serially in one tick. Oldest-stuck rows are drained first; the
@@ -30,12 +24,6 @@ const DEFAULT_RECLAIM_BATCH_LIMIT = 500
 const MIN_RECLAIM_BATCH_LIMIT = 1
 
 export type ReclaimStuckResult = { reEnqueued: number; expired: number }
-
-function resolveStuckThresholdMs(): number {
-  const raw = Number.parseInt(process.env.OM_PUSH_STUCK_RECLAIM_MINUTES ?? '', 10)
-  const minutes = Number.isFinite(raw) && raw >= MIN_STUCK_MINUTES ? raw : DEFAULT_STUCK_MINUTES
-  return minutes * 60 * 1000
-}
 
 function resolveReclaimBatchLimit(): number {
   const raw = Number.parseInt(process.env.OM_PUSH_STUCK_RECLAIM_BATCH_LIMIT ?? '', 10)
