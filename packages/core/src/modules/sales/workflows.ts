@@ -5,6 +5,11 @@
  */
 
 import { defineWorkflow, createWorkflowsModuleConfig } from '@open-mercato/shared/modules/workflows'
+import { registerWorkflowSafeCommands } from '@open-mercato/core/modules/workflows/lib/workflow-safe-commands'
+
+registerWorkflowSafeCommands([
+  { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+])
 
 const orderApproval = defineWorkflow({
   workflowId: 'sales.order-approval',
