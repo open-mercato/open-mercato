@@ -98,6 +98,18 @@ Two additional heal paths are available if you need them:
 
 Note: only push tokens **written after** the map exists are encrypted. If a tenant already ran a build that wrote plaintext tokens before the map was present, those rows stay plaintext until the device re-registers (or you run `entities rotate-encryption` / `decrypt-database` tooling). The map is a declaration only — the tenant DEK drives the actual crypto, so seeding it is safe even when encryption is currently disabled; it simply activates once encryption is enabled.
 
+### Run `yarn mercato auth sync-role-acls` after upgrading — new devices/push ACL features
+
+This release adds new ACL feature IDs across the devices/push stack: `devices.*` (`view`/`manage`/`admin`), `push_notifications.view_deliveries` / `push_notifications.send_custom`, the tenant push-channel grants `communication_channels.connect_tenant_channel` / `communication_channels.channel.push.manage`, `notifications.manage_preferences` / `notifications.manage_user_preferences`, and the per-provider `channel_{fcm,apns,expo}.{view,configure}` features.
+
+New tenants receive these through each module's `setup.ts` `defaultRoleFeatures` at creation. **Existing tenants do not** — their role ACLs were written before these features existed, so until you sync them an admin gets `403`/blank UI on the new **Devices** page, the **Push Delivery Log**, the notification-preferences grid, and the push-channel connect flow. Run the idempotent sync once per upgrade:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+It only *adds* the newly declared default grants to existing roles and never removes an operator's customizations. Target one tenant with `--tenant <tenantId>` if you prefer a staged rollout.
+
 ### New root `resolutions` entry: `node-forge@1.4.0`
 
 The new `@open-mercato/channel-apns` package depends on `@parse/node-apn@6.5.0`, which declares `node-forge` as an **exact** version (`node-forge: "npm:1.3.1"`) rather than a range — so no install can ever pick up a patched `node-forge`, including a security patch. The root `package.json` now pins `node-forge` to `1.4.0` in `resolutions`, alongside the other security-hygiene pins there.
