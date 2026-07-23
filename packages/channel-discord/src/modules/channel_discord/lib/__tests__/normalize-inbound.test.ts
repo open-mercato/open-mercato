@@ -55,8 +55,11 @@ describe('isAuthoredByBot', () => {
   it('is true when the author id matches the bot user id', () => {
     expect(isAuthoredByBot(makeMessage({ author: { id: 'bot-1', username: 'bot' } }), 'bot-1')).toBe(true)
   })
-  it('is false for a different author', () => {
+  it('is false for a non-bot human author', () => {
     expect(isAuthoredByBot(makeMessage({ author: { id: 'user-42', username: 'alice' } }), 'bot-1')).toBe(false)
+  })
+  it('is true for ANY bot author, not just our own bot (cross-bot loop guard)', () => {
+    expect(isAuthoredByBot(makeMessage({ author: { id: 'other-bot', username: 'webhook', bot: true } }), 'bot-1')).toBe(true)
   })
   it('falls back to the bot flag when no bot id is known', () => {
     expect(isAuthoredByBot(makeMessage({ author: { id: 'x', username: 'x', bot: true } }), undefined)).toBe(true)
