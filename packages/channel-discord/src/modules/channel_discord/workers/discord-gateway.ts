@@ -37,8 +37,11 @@ const logger = createLogger('channel_discord').child({ component: 'gateway-worke
  * Set `OM_CHANNEL_DISCORD_GATEWAY_DISABLED=1` to skip opening sockets (CI /
  * send-only deployments).
  */
+/** Queue that the gateway bridge consumes. Shared with `cli.ts` (start-gateway). */
+export const CHANNEL_DISCORD_GATEWAY_QUEUE = 'channel_discord_gateway'
+
 export const metadata: WorkerMeta = {
-  queue: 'channel_discord_gateway',
+  queue: CHANNEL_DISCORD_GATEWAY_QUEUE,
   id: 'channel_discord:gateway',
   concurrency: 1,
 }
@@ -53,9 +56,44 @@ type GatewayJobPayload = {
   organizationId?: string | null
 }
 
+export interface GatewayConnectionEntry {
+  handle: DiscordGatewayHandle
+  tenantId: string
+}
+
 // Module-level registry so a re-run replaces an existing connection instead of
 // opening a second socket for the same channel (single-identify discipline).
-const activeConnections = new Map<string, DiscordGatewayHandle>()
+// Keyed by channel id; carries tenantId so a per-tenant reconciliation never
+// tears down another tenant's sockets.
+const activeConnections = new Map<string, GatewayConnectionEntry>()
+
+/**
+ * Close + drop any live connection whose channel is no longer in the active set
+ * (deactivated / soft-deleted / re-scoped). Without this the socket + heartbeat
+ * timer would leak forever after a channel is disconnected. When `tenantFilter`
+ * is set, only that tenant's connections are eligible for teardown (a scoped
+ * refresh must not touch other tenants' sockets). Returns the ids reconciled
+ * away. Pure over its arguments so it is unit-testable.
+ */
+export function reconcileGatewayConnections(
+  activeChannelIds: Set<string>,
+  connections: Map<string, GatewayConnectionEntry> = activeConnections,
+  tenantFilter?: string,
+): string[] {
+  const removed: string[] = []
+  for (const [channelId, entry] of connections) {
+    if (activeChannelIds.has(channelId)) continue
+    if (tenantFilter && entry.tenantId !== tenantFilter) continue
+    try {
+      entry.handle.close()
+    } catch {
+      /* best-effort close */
+    }
+    connections.delete(channelId)
+    removed.push(channelId)
+  }
+  return removed
+}
 
 type CredentialsServiceLike = {
   resolve: (
@@ -88,6 +126,16 @@ export default async function handle(job: QueuedJob<GatewayJobPayload>, ctx: Han
   const channels = (await findWithDecryption(em, CommunicationChannel, filter)) as CommunicationChannel[]
   for (const channel of channels) {
     await startChannelConnection(channel, credentialsService, em)
+  }
+
+  // Full reconciliation: close sockets for channels that dropped out of the
+  // active set since the last run (deactivated / soft-deleted). A scoped run
+  // (tenant filter) only reconciles within that tenant so a per-tenant refresh
+  // never tears down another tenant's live sockets.
+  const activeIds = new Set(channels.map((channel) => channel.id))
+  const removed = reconcileGatewayConnections(activeIds, activeConnections, job.payload?.tenantId)
+  if (removed.length > 0) {
+    logger.info('reconciled away stale discord gateway connections', { channelIds: removed })
   }
 }
 
@@ -132,7 +180,7 @@ async function startChannelConnection(
   }
 
   // Replace any existing socket for this channel.
-  activeConnections.get(channel.id)?.close()
+  activeConnections.get(channel.id)?.handle.close()
 
   const inboundQueue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.inbound)
   const reactionsQueue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.reactions)
@@ -173,7 +221,7 @@ async function startChannelConnection(
       activeConnections.delete(channel.id)
     },
   })
-  activeConnections.set(channel.id, handle)
+  activeConnections.set(channel.id, { handle, tenantId: channel.tenantId })
 }
 
 async function persistChannelState(
