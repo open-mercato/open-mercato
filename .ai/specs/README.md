@@ -107,6 +107,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Secure Workflow User-Task Access and Personal Inbox](2026-07-15-secure-workflow-user-task-access-and-personal-inbox.md) | 2026-07-15 | Secure Workflow User-Task Access and Personal Inbox | Scoped personal task visibility, assignment-safe claim/complete, separate operator and manager navigation, and direct-assignment notifications |
 | [Durable Workflow User-Task Continuation](2026-07-15-durable-workflow-user-task-continuation.md) | 2026-07-15 | Durable Workflow User-Task Continuation | Atomic completion intent, replay-safe root/branch continuation, persistent retry, and explicit reconciliation with at-least-once activity semantics |
 | [Contextual Workflow Task Actions](2026-07-15-contextual-workflow-task-actions.md) | 2026-07-15 | Contextual Workflow Task Actions | Provenance-checked task source context, source-owned authorization routes, stable widget seams, and a `customers.deal` reference adapter |
+| [Customer Interaction Completion Event Reliability](2026-07-20-customer-interaction-completion-event-reliability.md) | 2026-07-20 | Customer Interaction Completion Event Reliability | Reliable scoped persistent publication with retry-safe per-interaction delivery state |
 | [Stable Workflow Activity Outputs](2026-07-20-stable-workflow-activity-outputs.md) | 2026-07-20 | Stable Workflow Activity Outputs | Additive `activities.<activityId>` result addressing across synchronous and asynchronous workflow activities |
 
 ### Implemented Specifications
