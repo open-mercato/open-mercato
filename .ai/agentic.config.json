@@ -2,6 +2,9 @@
   "version": 1,
   "baseBranch": "develop",
   "tracker": "github",
+  "browser": {
+    "provider": "playwright"
+  },
   "validation": {
     "commands": [
       "yarn build:packages",
