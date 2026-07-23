@@ -10,6 +10,7 @@ import {
   runCrudMutationGuardAfterSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { resolveAuthActorId } from '../../../../lib/interactionRequestContext'
 import { CustomerEntity } from '../../../../data/entities'
 import type { SendAsUserService } from '@open-mercato/core/modules/communication_channels/lib/send-as-user'
@@ -66,7 +67,33 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   const container = await createRequestContainer()
   const userId = resolveAuthActorId(auth)
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? (auth as { orgId?: string | null }).orgId ?? null
+
+  const em = (container.resolve('em') as EntityManager).fork()
+
+  // 1. Verify the Person exists in the caller's tenant, then fail-closed on the
+  //    record's own organization — same pattern as the [id]/route.ts GET handler.
+  //    Loading by tenant + id (not a hand-rolled selected org) keeps this working
+  //    under the "All organizations" scope; the record's own org then becomes the
+  //    concrete org the guard and the outbound message are attributed to.
+  const person = await findOneWithDecryption(
+    em,
+    CustomerEntity,
+    {
+      id: personId,
+      kind: 'person',
+      tenantId: auth.tenantId,
+      deletedAt: null,
+    } as never,
+    undefined,
+    { tenantId: auth.tenantId as string, organizationId: scope?.selectedId ?? (auth as { orgId?: string | null }).orgId ?? null },
+  )
+  if (!person) {
+    return NextResponse.json({ error: 'Person not found' }, { status: 404 })
+  }
+  const organizationId = (person as { organizationId?: string | null }).organizationId ?? null
+  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId })) {
+    return NextResponse.json({ error: 'Person not found' }, { status: 404 })
+  }
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
@@ -80,29 +107,6 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   })
   if (guardResult && !guardResult.ok) {
     return NextResponse.json(guardResult.body, { status: guardResult.status })
-  }
-
-  const em = (container.resolve('em') as EntityManager).fork()
-  const dscope = { tenantId: auth.tenantId as string, organizationId }
-
-  // 1. Verify the Person exists in the caller's tenant.
-  //    Uses CustomerEntity (kind='person') as the canonical ownership check —
-  //    the same pattern as the existing [id]/route.ts GET handler.
-  const person = await findOneWithDecryption(
-    em,
-    CustomerEntity,
-    {
-      id: personId,
-      kind: 'person',
-      tenantId: auth.tenantId,
-      organizationId,
-      deletedAt: null,
-    } as never,
-    undefined,
-    dscope,
-  )
-  if (!person) {
-    return NextResponse.json({ error: 'Person not found' }, { status: 404 })
   }
 
   // 2. Call the hub's send-as-user facade in-process (resolved via DI) so the

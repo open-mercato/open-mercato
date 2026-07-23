@@ -20,6 +20,7 @@ import { PATCH } from '../route'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 const mockAuth = getAuthFromRequest as jest.MockedFunction<typeof getAuthFromRequest>
 const mockContainer = createRequestContainer as jest.MockedFunction<typeof createRequestContainer>
@@ -106,5 +107,24 @@ describe('PATCH visibility — authorization', () => {
 
     const res = await PATCH(mockRequest({ visibility: 'shared' }), routeCtx())
     expect(res.status).toBe(404)
+  })
+
+  it('under "All organizations" loads by tenant+id (no org filter) and attributes the write to the record\'s org', async () => {
+    mockAuth.mockResolvedValue({ sub: 'user-A', tenantId: TENANT_ID, orgId: null, isSuperAdmin: true } as never)
+    ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValueOnce({ selectedId: null, filterIds: null })
+    setupContainer([])
+    mockFindOne.mockResolvedValue({ id: INTERACTION_ID, organizationId: 'org-9', authorUserId: 'user-A', visibility: 'private' } as never)
+
+    const res = await PATCH(mockRequest({ visibility: 'shared' }), routeCtx())
+
+    expect(res.status).toBe(200)
+    // Lookup is tenant-scoped, not filtered by a (null) selected org.
+    const where = mockFindOne.mock.calls[0][2] as Record<string, unknown>
+    expect(where).not.toHaveProperty('organizationId')
+    // The command is scoped to the interaction's real org, not the null selection.
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'customers.interactions.update',
+      expect.objectContaining({ ctx: expect.objectContaining({ selectedOrganizationId: 'org-9' }) }),
+    )
   })
 })
