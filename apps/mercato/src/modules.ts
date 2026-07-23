@@ -111,6 +111,10 @@ export const enabledModules: ModuleEntry[] = [
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.
   { id: 'channel_imap', from: '@open-mercato/channel-imap' },
   { id: 'channel_gmail', from: '@open-mercato/channel-gmail' },
+  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
+  // provider-owned Gateway worker + a signed Interactions endpoint, plus an
+  // optional AI auto-reply subscriber.
+  { id: 'channel_discord', from: '@open-mercato/channel-discord' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
