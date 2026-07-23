@@ -566,6 +566,23 @@ export async function executeEmitEvent(
   return { emitted: true, eventName, payload: enrichedPayload }
 }
 
+const UNRESOLVED_TEMPLATE_PATTERN = /\{\{[^}]+\}\}/
+
+function findUnresolvedTemplateKeys(value: unknown, path = ''): string[] {
+  if (typeof value === 'string') {
+    return UNRESOLVED_TEMPLATE_PATTERN.test(value) ? [path] : []
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => findUnresolvedTemplateKeys(item, `${path}[${index}]`))
+  }
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([key, nested]) =>
+      findUnresolvedTemplateKeys(nested, path ? `${path}.${key}` : key)
+    )
+  }
+  return []
+}
+
 /**
  * UPDATE_ENTITY activity handler
  *
@@ -588,11 +605,14 @@ export async function executeEmitEvent(
  *   "commandId": "sales.orders.update",
  *   "statusDictionary": "sales.order_status",
  *   "input": {
- *     "id": "{{context.id}}",
+ *     "id": "{{context.orderId}}",
  *     "statusValue": "pending_approval"
  *   }
  * }
  * ```
+ *
+ * Every `{{...}}` reference in `input` must resolve against the workflow context —
+ * an unresolved reference is rejected rather than forwarded to the command bus.
  */
 export async function executeUpdateEntity(
   em: EntityManager,
@@ -615,6 +635,14 @@ export async function executeUpdateEntity(
 
   if (!commandBus || typeof commandBus.execute !== 'function') {
     throw new Error('CommandBus not available in container')
+  }
+
+  const unresolvedKeys = findUnresolvedTemplateKeys(input)
+  if (unresolvedKeys.length > 0) {
+    throw new Error(
+      `UPDATE_ENTITY input contains unresolved template variables for: ${unresolvedKeys.join(', ')}. ` +
+        `Check that the workflow context provides these keys.`
+    )
   }
 
   // Prepare final input, resolving statusValue if provided
