@@ -15,7 +15,7 @@ import {
   resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
@@ -196,7 +196,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
     const parsed = commentUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const comment = await em.findOne(CustomerComment, { id: parsed.id })
-    if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
+    if (!comment) throw notFound('Comment not found')
     ensureTenantScope(ctx, comment.tenantId)
     ensureOrganizationScope(ctx, comment.organizationId)
 
@@ -332,7 +332,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const id = requireId(input, 'Comment id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const comment = await em.findOne(CustomerComment, { id })
-      if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
+      if (!comment) throw notFound('Comment not found')
       ensureTenantScope(ctx, comment.tenantId)
       ensureOrganizationScope(ctx, comment.organizationId)
       em.remove(comment)

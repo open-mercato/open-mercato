@@ -24,6 +24,26 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.5 → 0.6.6 (unreleased)
 
+### Skills install into the canonical `.agents/skills/` directory (#4155)
+
+`yarn install-skills` (monorepo) and `mercato agentic:init` / `yarn install-skills` (standalone apps) used to write every skill into each agent's own folder — local tier skills were symlinked into both `.claude/skills/` and `.codex/skills/`, and external skills landed in `.agents/skills/` **plus** `.claude/skills/` **plus** a hand-made `.codex/skills/` mirror: three copies of the same skill.
+
+Skills now install **once**, into the canonical cross-agent directory `.agents/skills/`. An agent only gets its own per-skill symlinks when it cannot read that directory: Claude Code does (automatic, unchanged for its users), while Codex and Cursor read `.agents/skills/` natively and no longer get a `.codex/skills/` or `.cursor/skills/` directory at all. Scaffolded apps no longer seed `.codex/skills` / `.cursor/skills` symlinks either.
+
+All existing flags and exit behavior of `yarn install-skills` are unchanged; the new flags are additive. Only gitignored dev-tooling directories are affected — no application code, no committed files.
+
+Contributor action:
+
+- Re-run the installer once so stale `.codex/skills/` (and any `.cursor/skills/`) links from the old layout are swept away:
+
+  ```bash
+  yarn install-skills --clean && yarn install-skills
+  ```
+
+  A plain `yarn install-skills` also self-heals (it sweeps the legacy per-agent links); the `--clean` form just makes it explicit.
+- If a setup still depends on the old layout, `yarn install-skills --legacy-links` restores it.
+- To keep an agent's directory from being written at all, pass `--ignore-agents <csv>` or add a persistent `{ "agents": { "ignore": ["cursor"] } }` block to `.ai/skills/tiers.json`.
+
 ### Shared `om-*` pipeline skills now come from open-mercato/skills
 
 The generalized agent-pipeline skills (`om-code-review`, `om-auto-create-pr`, `om-auto-review-pr`, `om-merge-buddy`, `om-spec-writing`, the `-loop` variants, `om-prepare-issue`, and 15 more — see the `external` block in [`.ai/skills/tiers.json`](.ai/skills/tiers.json)) were removed from `.ai/skills/` and are now installed from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection. `yarn install-skills` runs `npx -y skills add open-mercato/skills --skill '*'` after the local tier symlinks, placing the skills under `.agents/skills/` (gitignored), then `npx -y skills update --project` so re-running the installer refreshes the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current).
@@ -93,23 +113,53 @@ yarn dev:greenfield --watch=popular
 
 Additional knobs: `OM_WATCH_GIT_STATUS`, `OM_WATCH_GIT_BRANCH`, `OM_WATCH_BASE_REF`, `OM_WATCH_POPULAR_LIMIT`. This is purely a local dev-DX feature: no API, event-ID, DI, ACL, or DB-schema contract changed, and the app source is still fully watched by Next.js/Turbopack regardless of scope. Standalone create-app projects do not run the workspace-package watcher in normal use. See [the troubleshooting guide](apps/docs/docs/appendix/troubleshooting.mdx) for the full reference.
 
-### Deprecated — `MODULE_FACTS_ALLOWLIST` export (module fact-sheet auto-discovery) (#3752, #3798)
+### Attachment organization fix ships with an opt-in reconciliation you must enable to heal existing data (#3765)
+
+`POST/GET/DELETE /api/attachments` and the file/image serve routes now scope by the **currently selected** organization instead of the uploader's pinned home organization. This is a forward-only bug fix — new uploads land under the right org. **Attachments that were already written under the wrong organization while the bug was live are not healed automatically**, and because reads are now scoped to the selected org they become *invisible* to org-scoped surfaces (product/variant media aggregation, list, file/image serve) until reconciled.
+
+The heal is delivered as a version-gated **Upgrade Action** (`attachments.reconcile-organization`, version `0.6.6`) that resets each attachment's `organization_id` to its parent record's org. **Upgrade Actions are disabled by default**, so no data changes on deploy — you must opt in:
+
+1. **Enable Upgrade Actions.** Set the server flag so the action can run, and the public flag so the admin banner renders:
+
+   ```bash
+   UPGRADE_ACTIONS_ENABLED=true            # server: required to list + execute actions
+   NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED=true # client: required for the admin CTA banner to appear (build-time inlined)
+   ```
+
+   The action is also gated on the running app version being ≥ `0.6.6`.
+
+2. **Run it, one of two ways** (both require the `configs.manage` feature and act **per tenant**; the pass is idempotent, tenant-scoped, and only ever changes `organization_id` — never `tenant_id`, so nothing moves across tenants):
+   - **UI:** a `configs.manage` admin clicks the **"Reconcile attachment organizations"** CTA in the upgrade banner.
+   - **Manually via the API** (only `UPGRADE_ACTIONS_ENABLED=true` is needed for this path — the public flag is only for the banner):
+
+     ```bash
+     curl -X POST https://<host>/api/configs/upgrade-actions \
+       -H 'content-type: application/json' \
+       --cookie '<authenticated configs.manage session>' \
+       -d '{"actionId":"attachments.reconcile-organization"}'
+     ```
+
+   Attachments whose parent record's org cannot be resolved (custom/legacy `entityId`s, hard-deleted parents, the virtual `attachments:library` entity) are counted and **left untouched** — nothing is deleted or blanked. Re-running after already-correct data is a no-op (`already_completed`).
+
+*Action for downstream:* if you ran a multi-org setup on an affected build, enable Upgrade Actions and run `attachments.reconcile-organization` once per tenant to heal misfiled attachments; a self-hoster with single-org or clean data can leave Upgrade Actions off. No contract surface changed (the reconciliation helper and upgrade-action entry are additive). See [`.ai/specs`](.ai/specs/) and issue #3765.
+
+### Removed — `MODULE_FACTS_ALLOWLIST` export (module fact-sheet auto-discovery) (#3752, #3798, #3754)
 
 The module fact-sheet generator no longer gates on a hard-coded 9-module allowlist. It now **auto-discovers** every source-available package module: the `create-app` build (and `mercato agentic:init`) bundle a fact-sheet for every package-provided module (`discoverPackageModuleSources`), shipped to scaffolded apps as `.ai/guides/module-facts.json` + per-module sheets. The monorepo no longer emits a committed `apps/mercato/src/module-facts.generated.json` — that artifact had no runtime or test consumer and has been removed along with its generator (`generateModuleFacts`) and the unused registry-driven `discoverEnabledModuleSources` path.
 
-- **Deprecated:** `MODULE_FACTS_ALLOWLIST` and `ModuleFactsModuleId` (exported from `@open-mercato/cli/lib/generators/module-facts`). They are retained (`@deprecated`, values unchanged) for **at least one minor version** and still drive the legacy `core.<module>.md` redirect-stub bridge, but no longer gate which modules receive fact-sheets. They will be removed in a future release.
-- **Additive, non-breaking API:** `extractModuleFacts` gained an optional `moduleRoot`, and `extractAllModuleFacts` gained an optional `sources`. The legacy `{ coreSrcRoot, moduleIds? }` call shape still works and still defaults to the allowlist.
+- **Removed (#3754):** `MODULE_FACTS_ALLOWLIST` and `ModuleFactsModuleId` (previously exported from `@open-mercato/cli/lib/generators/module-facts`) are **gone**. Their only remaining runtime consumer was the legacy `core.<module>.md` redirect-stub loop, retired in the same change. Because the whole fact-sheet auto-discovery layer is still `Unreleased` (it never shipped in a tagged release), the exports are removed outright with no deprecation window.
+- **Additive, non-breaking API:** `extractModuleFacts` gained an optional `moduleRoot`, and `extractAllModuleFacts` gained an optional `sources`. The legacy `{ coreSrcRoot, moduleIds? }` call shape still works, but with `MODULE_FACTS_ALLOWLIST` gone it no longer falls back to the historical 9-module list — pass an explicit `moduleIds` (or the preferred `sources`) instead.
 
-*Action for downstream:* callers that iterate `MODULE_FACTS_ALLOWLIST` to enumerate documented modules should instead read the keys of the bundled `.ai/guides/module-facts.json` (or call `discoverPackageModuleSources` from `@open-mercato/cli/lib/generators/module-facts-discovery`). No action is required to keep existing calls working during the deprecation window. See [`.ai/specs/2026-07-06-module-facts-auto-discovery.md`](.ai/specs/2026-07-06-module-facts-auto-discovery.md).
+*Action for downstream:* callers that imported `MODULE_FACTS_ALLOWLIST` to enumerate documented modules must instead read the keys of the bundled `.ai/guides/module-facts.json` (or call `discoverPackageModuleSources` from `@open-mercato/cli/lib/generators/module-facts-discovery`). No tagged release ever exported these names, so no in-the-wild code depends on them. See [`.ai/specs/2026-07-06-module-facts-auto-discovery.md`](.ai/specs/2026-07-06-module-facts-auto-discovery.md).
 
-### Deprecated — per-module standalone AI guides → generated fact-sheets (#3715)
+### Removed — per-module standalone AI guides → generated fact-sheets (#3715, #3754)
 
 The hand-written per-module standalone guides that shipped into scaffolded apps as `.ai/guides/core.<module>.md` (for the user-facing core modules `auth`, `catalog`, `currencies`, `customer_accounts`, `customers`, `data_sync`, `integrations`, `sales`, `workflows`) are replaced by two layers:
 
 - **Generated per-module fact-sheets** — `.ai/guides/modules/<module>.md` plus a combined `.ai/guides/module-facts.json` sidecar, extracted from module source (entities, events, ACL features, API routes with per-method auth, DI service tokens, searchable entities, host extension tokens, notifications, CLI) at build time.
 - **One hand-written conceptual guide** — `.ai/guides/module-system.md`, covering the timeless module-system concepts (anatomy, auto-discovery, naming, mandatory mechanisms, data integrity, migrations).
 
-*Action for downstream:* reference `.ai/guides/modules/<module>.md` for a module's concrete facts and `.ai/guides/module-system.md` for conceptual guidance. For backward compatibility, the legacy `.ai/guides/core.<module>.md` names remain bundled as thin redirect stubs that point at the new fact-sheets for **at least one minor version**; freshly scaffolded apps link only the new paths. The redirect stubs will be removed in a future release. See [`.ai/specs/2026-06-27-ts-morph-module-fact-sheets.md`](.ai/specs/2026-06-27-ts-morph-module-fact-sheets.md).
+*Action for downstream:* reference `.ai/guides/modules/<module>.md` for a module's concrete facts and `.ai/guides/module-system.md` for conceptual guidance. The legacy `.ai/guides/core.<module>.md` redirect stubs that briefly bridged the old names were **retired outright in #3754**: because they never shipped in a tagged release (the whole layer is still `Unreleased`), they were removed with no deprecation window rather than kept for a minor. Freshly scaffolded apps already link only the new paths. See [`.ai/specs/2026-06-27-ts-morph-module-fact-sheets.md`](.ai/specs/2026-06-27-ts-morph-module-fact-sheets.md).
 
 ---
 
