@@ -59,6 +59,39 @@ export function shouldResumeAfterClose(code: number | undefined): boolean {
   return code !== 4007 && code !== 4009 && code !== 1000 && code !== 1001
 }
 
+/**
+ * Heartbeat/ACK zombie detector. Discord expects a Heartbeat ACK (opcode 11)
+ * after every heartbeat we send; a missing ACK before the next heartbeat means
+ * the connection is a zombie (TCP up, gateway dead) and MUST be torn down +
+ * reconnected rather than left silently deaf. Pure + unit-testable.
+ *
+ * Contract: call `onBeat()` on each heartbeat-interval tick — it returns
+ * `'reconnect'` when the previous beat was never acked, else `'send'` (and marks
+ * the new beat pending). Call `onAck()` on opcode 11. `reset()` re-arms after a
+ * fresh (re)connect.
+ */
+export function createHeartbeatMonitor() {
+  let acked = true
+  return {
+    onBeat(): 'send' | 'reconnect' {
+      if (!acked) return 'reconnect'
+      acked = false
+      return 'send'
+    },
+    onAck(): void {
+      acked = true
+    },
+    reset(): void {
+      acked = true
+    },
+    isAcked(): boolean {
+      return acked
+    },
+  }
+}
+
+export type HeartbeatMonitor = ReturnType<typeof createHeartbeatMonitor>
+
 /** Exponential backoff with jitter, capped, for reconnect attempts. */
 export function computeReconnectDelayMs(attempt: number): number {
   const base = 1000 * Math.pow(2, Math.min(attempt, 5))
@@ -159,6 +192,7 @@ class NativeDiscordGatewayClient implements DiscordGatewayClient {
 class GatewaySession {
   private ws: GatewayWebSocketLike | null = null
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  private readonly heartbeat = createHeartbeatMonitor()
   private sequence: number | null = null
   private sessionId: string | undefined
   private resumeGatewayUrl: string | undefined
@@ -229,7 +263,12 @@ class GatewaySession {
         break
       }
       case GatewayOpcode.HEARTBEAT: {
+        // Server-requested immediate heartbeat.
         this.sendJson(buildHeartbeatPayload(this.sequence))
+        break
+      }
+      case GatewayOpcode.HEARTBEAT_ACK: {
+        this.heartbeat.onAck()
         break
       }
       case GatewayOpcode.INVALID_SESSION: {
@@ -304,7 +343,19 @@ class GatewaySession {
 
   private startHeartbeat(intervalMs: number): void {
     this.clearHeartbeat()
+    this.heartbeat.reset()
     this.heartbeatTimer = setInterval(() => {
+      if (this.heartbeat.onBeat() === 'reconnect') {
+        // Previous heartbeat was never ACKed → zombie connection. Force a close
+        // so the close handler reconnects (with resume) instead of staying deaf.
+        this.clearHeartbeat()
+        try {
+          this.ws?.close(4000, 'heartbeat ack timeout')
+        } catch {
+          /* the close handler reconnects */
+        }
+        return
+      }
       this.sendJson(buildHeartbeatPayload(this.sequence))
     }, intervalMs)
   }
