@@ -26,12 +26,34 @@ export default async function handle(
   try {
     const user = await findOneWithDecryption(em, CustomerUser, { id: userId, tenantId, deletedAt: null }, undefined, { tenantId, organizationId })
     if (!user) return
+
+    const { CustomerEntity, CustomerPersonProfile } = await import('@open-mercato/core/modules/customers/data/entities')
+
+    // Defensive normalization: customerEntityId is the CRM company FK. Earlier
+    // invite flows (#4362) could poison it with a person entity id, which then
+    // breaks every later user edit ("Company not found"). If the linked entity
+    // is a person (not a company), drop it — or recover the person's real
+    // company from their profile. Correct company links are left untouched.
+    if (user.customerEntityId) {
+      const linked = await findOneWithDecryption(
+        em,
+        CustomerEntity,
+        { id: user.customerEntityId, tenantId, deletedAt: null } as any,
+        undefined,
+        { tenantId, organizationId },
+      ) as any
+      if (linked && linked.kind === 'person') {
+        const profile = await em.findOne(CustomerPersonProfile as any, { entity: user.customerEntityId } as any) as any
+        const replacement = (profile?.companyEntityId as string | undefined) || null
+        await em.nativeUpdate(CustomerUser, { id: userId }, { customerEntityId: replacement })
+        user.customerEntityId = replacement
+      }
+    }
+
     if (user.personEntityId) return
 
     const email = (data?.email ? (data.email as string) : user.email)?.toLowerCase().trim()
     if (!email) return
-
-    const { CustomerEntity } = await import('@open-mercato/core/modules/customers/data/entities')
 
     const personEntities = await findWithDecryption(
       em,
@@ -47,7 +69,6 @@ export default async function handle(
 
     if (!matchingEntity) return
 
-    const { CustomerPersonProfile } = await import('@open-mercato/core/modules/customers/data/entities')
     const profile = await em.findOne(CustomerPersonProfile as any, { entity: matchingEntity.id } as any) as any
     const companyEntityId = profile?.companyEntityId as string | undefined
 

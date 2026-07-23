@@ -7,6 +7,7 @@ import { RbacService } from '@open-mercato/core/modules/auth/services/rbacServic
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
+import { isOwnedCompanyEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
   checkAuthRateLimit,
@@ -51,6 +52,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 400 })
   }
 
+  // Reject a customerEntityId the caller does not own. customerEntityId is the
+  // CRM company FK; without this check a non-company (e.g. a person) entity id
+  // or a company from another org poisons the invitation and every later user
+  // edit fails with "Company not found" (#4362, #2693).
+  if (parsed.data.customerEntityId) {
+    const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+    const owned = await isOwnedCompanyEntity(em, parsed.data.customerEntityId, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+    })
+    if (!owned) {
+      return NextResponse.json({ ok: false, error: 'Company not found' }, { status: 400 })
+    }
+  }
+
   const customerInvitationService = container.resolve('customerInvitationService') as CustomerInvitationService
 
   const { invitation } = await customerInvitationService.createInvitation(
@@ -58,6 +74,7 @@ export async function POST(req: Request) {
     { tenantId: auth.tenantId!, organizationId: auth.orgId! },
     {
       customerEntityId: parsed.data.customerEntityId || null,
+      personEntityId: parsed.data.personEntityId || null,
       roleIds: parsed.data.roleIds,
       invitedByUserId: auth.sub,
       displayName: parsed.data.displayName || null,
