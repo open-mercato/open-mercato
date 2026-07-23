@@ -13,6 +13,7 @@ function makeSigner() {
 }
 
 const timestamp = '1700000000'
+const freshness = { nowEpochSeconds: Number(timestamp) }
 
 describe('handleDiscordInteraction', () => {
   it('answers PING with a synchronous PONG for a verified request', () => {
@@ -28,6 +29,7 @@ describe('handleDiscordInteraction', () => {
       rawBody,
       signatureHex: signer.sign(timestamp + rawBody),
       timestamp,
+      freshness,
       candidates: [candidate],
     })
     expect(result.status).toBe(200)
@@ -48,6 +50,7 @@ describe('handleDiscordInteraction', () => {
       rawBody,
       signatureHex: signer.sign(timestamp + '{"type":999}'),
       timestamp,
+      freshness,
       candidates: [candidate],
     })
     expect(result.status).toBe(401)
@@ -64,11 +67,32 @@ describe('handleDiscordInteraction', () => {
       { channelId: 'ch-a', tenantId: 't-a', organizationId: null, publicKey: tenantA.publicKeyHex },
       { channelId: 'ch-b', tenantId: 't-b', organizationId: null, publicKey: tenantB.publicKeyHex },
     ]
-    const result = handleDiscordInteraction({ rawBody, signatureHex, timestamp, candidates })
+    const result = handleDiscordInteraction({ rawBody, signatureHex, timestamp, candidates, freshness })
     expect(result.status).toBe(200)
     expect(result.matchedChannel?.channelId).toBe('ch-b')
     expect(result.matchedChannel?.tenantId).toBe('t-b')
     expect(result.body).toEqual({ type: DiscordInteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE })
+  })
+
+  it('rejects a replayed capture (valid signature, stale timestamp) BEFORE any verify work', () => {
+    const signer = makeSigner()
+    const rawBody = JSON.stringify({ type: DiscordInteractionType.PING })
+    const candidate: InteractionCandidate = {
+      channelId: 'ch-1',
+      tenantId: 't-1',
+      organizationId: null,
+      publicKey: signer.publicKeyHex,
+    }
+    const result = handleDiscordInteraction({
+      rawBody,
+      signatureHex: signer.sign(timestamp + rawBody),
+      timestamp,
+      candidates: [candidate],
+      freshness: { nowEpochSeconds: Number(timestamp) + 3600 },
+    })
+    expect(result.status).toBe(401)
+    expect(result.body).toEqual({ error: 'stale_timestamp' })
+    expect(result.matchedChannel).toBeNull()
   })
 
   it('rejects when no candidate verifies', () => {
@@ -79,6 +103,7 @@ describe('handleDiscordInteraction', () => {
       rawBody,
       signatureHex: signer.sign(timestamp + rawBody),
       timestamp,
+      freshness,
       candidates: [{ channelId: 'ch', tenantId: 't', organizationId: null, publicKey: other.publicKeyHex }],
     })
     expect(result.status).toBe(401)

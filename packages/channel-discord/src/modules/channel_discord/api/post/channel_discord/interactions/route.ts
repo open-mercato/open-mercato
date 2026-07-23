@@ -105,7 +105,7 @@ export const openApi = {
       responses: [
         { status: 200, description: 'Verified interaction — PONG or deferred ack' },
         { status: 400, description: 'Verified but malformed interaction body' },
-        { status: 401, description: 'Signature verification failed against every candidate channel' },
+        { status: 401, description: 'Signature verification failed against every candidate channel, or the signed timestamp is outside the replay window' },
       ],
     },
   },

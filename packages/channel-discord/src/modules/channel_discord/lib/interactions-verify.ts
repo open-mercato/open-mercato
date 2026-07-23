@@ -58,6 +58,34 @@ export function verifyDiscordSignature(input: VerifyDiscordSignatureInput): bool
   }
 }
 
+/**
+ * Replay guard. Discord signs `timestamp + body`, but a captured request stays
+ * cryptographically valid forever — freshness has to be enforced separately.
+ * A timestamp outside the ± skew window (or missing / non-numeric) is rejected,
+ * fail-closed, so a recorded interaction cannot be replayed later.
+ */
+export const DISCORD_SIGNATURE_MAX_SKEW_SECONDS = 300
+
+export interface TimestampFreshnessOptions {
+  maxSkewSeconds?: number
+  /** Injectable clock (epoch seconds) for tests; defaults to the real clock. */
+  nowEpochSeconds?: number
+}
+
+export function isSignatureTimestampFresh(
+  timestamp: string | undefined | null,
+  options?: TimestampFreshnessOptions,
+): boolean {
+  if (!timestamp) return false
+  const value = String(timestamp).trim()
+  if (!/^\d{1,12}$/.test(value)) return false
+  const parsedSeconds = Number(value)
+  if (!Number.isSafeInteger(parsedSeconds)) return false
+  const maxSkewSeconds = options?.maxSkewSeconds ?? DISCORD_SIGNATURE_MAX_SKEW_SECONDS
+  const nowSeconds = options?.nowEpochSeconds ?? Math.floor(Date.now() / 1000)
+  return Math.abs(nowSeconds - parsedSeconds) <= maxSkewSeconds
+}
+
 /** Discord interaction types. */
 export const DiscordInteractionType = {
   PING: 1,
