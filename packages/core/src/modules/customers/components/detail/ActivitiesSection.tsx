@@ -36,6 +36,8 @@ export type ActivitiesSectionProps = {
   runGuardedMutation?: GuardedMutationRunner
   refreshKey?: number
   onEditActivity?: (activity: InteractionSummary) => void
+  /** Interaction type hidden from the timeline by default ('task' unless overridden); pass null to show every type. */
+  excludeInteractionType?: string | null
 }
 
 function toDateOnly(value: string | null | undefined): string {
@@ -109,6 +111,7 @@ export function ActivitiesSection({
   refreshKey = 0,
   onEditActivity,
   runGuardedMutation,
+  excludeInteractionType = 'task',
 }: ActivitiesSectionProps) {
   const t = useT()
   const [filterTypes, setFilterTypes] = React.useState<string[]>([])
@@ -169,17 +172,18 @@ export function ActivitiesSection({
     setLoading(true)
     try {
       // Always fetch canonical interactions (new activities are always created here)
-      const taskFilterActive = filterTypes.includes('task')
+      const excludedFilterActive = excludeInteractionType ? filterTypes.includes(excludeInteractionType) : true
       const canonicalParams = new URLSearchParams({
         entityId,
         limit: '50',
         sortField: 'occurredAt',
         sortDir: 'desc',
       })
-      // Hide tasks from the activity timeline by default — they have their own tab —
-      // but lift the exclusion when the user explicitly toggled the Task chip on
-      // (mirrors `ActivityHistorySection.tsx` after the #1805 fix).
-      if (!taskFilterActive) canonicalParams.set('excludeInteractionType', 'task')
+      // Hide the configured type (tasks by default — they have their own tab)
+      // from the activity timeline, but lift the exclusion when the user
+      // explicitly toggled that type's chip on (mirrors
+      // `ActivityHistorySection.tsx` after the #1805 fix).
+      if (excludeInteractionType && !excludedFilterActive) canonicalParams.set('excludeInteractionType', excludeInteractionType)
       if (dealId) canonicalParams.set('dealId', dealId)
       if (filterTypes.length > 0) canonicalParams.set('type', filterTypes.join(','))
       if (filterDateFrom) canonicalParams.set('from', filterDateFrom)
@@ -261,7 +265,7 @@ export function ActivitiesSection({
     } finally {
       setLoading(false)
     }
-  }, [dealId, entityId, filterDateFrom, filterDateTo, filterTypes, loadedPages, useCanonicalInteractions, refreshKey, t])
+  }, [dealId, entityId, excludeInteractionType, filterDateFrom, filterDateTo, filterTypes, loadedPages, useCanonicalInteractions, refreshKey, t])
 
   React.useEffect(() => {
     setLoadedPages(1)
