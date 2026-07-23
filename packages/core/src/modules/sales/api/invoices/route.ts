@@ -12,6 +12,7 @@ import {
   defaultDeleteRequestSchema,
 } from '../openapi'
 import { E } from '#generated/entities.ids.generated'
+import { normalizeInvoiceListItem } from './normalize'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -91,6 +92,7 @@ const crud = makeCrudRoute({
       }
       return filters
     },
+    transformItem: normalizeInvoiceListItem,
   },
   actions: {
     create: {
