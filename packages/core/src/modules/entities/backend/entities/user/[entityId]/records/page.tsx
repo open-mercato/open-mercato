@@ -170,16 +170,96 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     return () => { cancelled = true }
   }, [entityId, page, pageSize, sorting, filterValues, scopeVersion, search, searchableFields])
 
+  // Resolve display labels for relation columns. Relation cells store raw related-record
+  // ids; rendering them verbatim is unreadable (GOAL Phase 2A gap). One batched fetch per
+  // related entity (never per row): ids -> related records -> labelField/name/title.
+  const relationDefs = React.useMemo(
+    () => (filterCustomFieldDefs(cfDefs, 'list') as any[]).filter(
+      (d: any) => d.kind === 'relation' && typeof d.relatedEntityId === 'string' && d.relatedEntityId,
+    ),
+    [cfDefs],
+  )
+  const [relationLabels, setRelationLabels] = React.useState<Record<string, string>>({})
+  React.useEffect(() => {
+    if (!relationDefs.length || !rawData.length) return
+    let cancelled = false
+    const run = async () => {
+      const wanted = new Map<string, Set<string>>()
+      for (const def of relationDefs) {
+        const target = def.relatedEntityId as string
+        const set = wanted.get(target) ?? new Set<string>()
+        for (const row of rawData) {
+          const v = (row as any)?.[def.key]
+          for (const id of Array.isArray(v) ? v : [v]) {
+            if (typeof id === 'string' && id && relationLabels[id] === undefined) set.add(id)
+          }
+        }
+        if (set.size) wanted.set(target, set)
+      }
+      if (!wanted.size) return
+      // labelField per related entity (single definitions fetch covers all targets)
+      let labelFieldByEntity = new Map<string, string>()
+      try {
+        const defsRes = await readApiResultOrThrow<{ items?: Array<{ entityId: string; labelField?: string }> }>(
+          '/api/entities/entities',
+          undefined,
+          { errorMessage: 'Failed to load entity definitions', fallback: { items: [] } },
+        )
+        labelFieldByEntity = new Map((defsRes.items ?? []).map((e) => [e.entityId, e.labelField || '']))
+      } catch {
+        // label resolution is progressive enhancement — fall back to generic fields below
+      }
+      const next: Record<string, string> = {}
+      await Promise.all(Array.from(wanted.entries()).map(async ([target, ids]) => {
+        try {
+          const params = new URLSearchParams()
+          params.set('entityId', target)
+          params.set('id', Array.from(ids).join(','))
+          params.set('pageSize', String(Math.min(ids.size, 200)))
+          const res = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+            `/api/entities/records?${params.toString()}`,
+            undefined,
+            { errorMessage: 'Failed to load related records', fallback: { items: [] } },
+          )
+          const labelField = labelFieldByEntity.get(target) || ''
+          for (const item of res.items ?? []) {
+            const id = typeof item.id === 'string' ? item.id : null
+            if (!id) continue
+            const label = [labelField ? item[labelField] : null, item.name, item.title, item.label]
+              .find((v) => typeof v === 'string' && (v as string).trim().length > 0) as string | undefined
+            if (label) next[id] = label
+          }
+        } catch {
+          // leave unresolved ids as-is (cell falls back to the raw value)
+        }
+      }))
+      if (!cancelled && Object.keys(next).length) setRelationLabels((prev) => ({ ...prev, ...next }))
+    }
+    void run()
+    return () => { cancelled = true }
+    // relationLabels intentionally read (skip already-resolved ids) but not a retrigger source
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [relationDefs, rawData])
+
   // Build columns from custom field definitions only (no data round-trip)
   React.useEffect(() => {
     const visibleDefs = filterCustomFieldDefs(cfDefs, 'list') as any
     const maxVisible = 10
+    const relationKeys = new Set(relationDefs.map((d: any) => d.key))
     const cols: ColumnDef<any>[] = visibleDefs.map((d: any, idx: number) => ({
       accessorKey: d.key,
       header: d.label || d.key,
       meta: { priority: idx < 4 ? 1 : idx < 6 ? 2 : idx < 8 ? 3 : idx < maxVisible ? 4 : 5 },
       cell: ({ getValue }: { getValue: () => unknown }) => {
         const v = getValue() as any
+        if (relationKeys.has(d.key)) {
+          const resolved = (Array.isArray(v) ? v : [v])
+            .filter((id: unknown) => typeof id === 'string' && id)
+            .map((id: string) => relationLabels[id] ?? id)
+            .join(', ')
+          // title keeps the raw id(s) so operators can still copy them
+          return <span className="truncate max-w-[24ch] inline-block align-top" title={normalizeCell(v)}>{resolved || normalizeCell(v)}</span>
+        }
         return <span className="truncate max-w-[24ch] inline-block align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
       },
     }))
@@ -187,7 +267,7 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     const hasIdCol = cols.some((c) => (c as any).accessorKey === 'id' || (c as any).id === 'id')
     if (!hasIdCol) cols.unshift({ accessorKey: 'id', header: 'ID', meta: { hidden: true, priority: 6 } } as any)
     setColumns(cols)
-  }, [cfDefs])
+  }, [cfDefs, relationDefs, relationLabels])
 
   // Search is server-side (see fetch effect); render the fetched page as-is so
   // pagination totals and exports stay consistent with the active search (#3229).

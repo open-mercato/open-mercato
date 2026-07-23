@@ -37,6 +37,8 @@ export type CustomFieldDefDto = {
   dictionaryId?: string
   dictionaryInlineCreate?: boolean
   defaultValue?: string | number | boolean | null
+  // relation kind: target entity id (e.g. `custom:goods`) for display-label resolution
+  relatedEntityId?: string
 }
 
 export type CustomFieldsetGroupDto = {

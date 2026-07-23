@@ -148,6 +148,51 @@ describe('entities/definitions API', () => {
     expect(notes?.defaultValue).toBeUndefined()
   })
 
+  it('exposes relatedEntityId for relation-kind fields only', async () => {
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          key: 'goods',
+          kind: 'relation',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Goods', relatedEntityId: 'custom:goods' },
+        },
+        {
+          key: 'broken_relation',
+          kind: 'relation',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Broken' }, // relation without a target
+        },
+        {
+          key: 'notes',
+          kind: 'text',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          // non-relation kinds must not leak the field even if config carries it
+          configJson: { label: 'Notes', relatedEntityId: 'custom:goods' },
+        },
+      ])
+      .mockResolvedValueOnce([]) // tombstones
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=custom:stock_in'),
+    )
+
+    expect(response.status).toBe(200)
+    const items = (await response.json()).items as Array<Record<string, unknown>>
+    expect(items.find((i) => i.key === 'goods')?.relatedEntityId).toBe('custom:goods')
+    expect(items.find((i) => i.key === 'broken_relation')?.relatedEntityId).toBeUndefined()
+    expect(items.find((i) => i.key === 'notes')?.relatedEntityId).toBeUndefined()
+  })
+
   it('hides inherited definitions that have a scoped tombstone', async () => {
     mockEm.find
       .mockResolvedValueOnce([
