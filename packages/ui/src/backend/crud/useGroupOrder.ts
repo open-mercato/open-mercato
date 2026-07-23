@@ -31,41 +31,38 @@ function arraysEqual(a: string[], b: string[]): boolean {
 /**
  * Returns the group IDs in the user's preferred order.
  * Falls back to the default order when no preference is stored.
+ *
+ * State holds only the saved preference; the visible order is derived during
+ * render. Syncing derived order back into state via an effect looped forever
+ * when a host recreated `defaultGroupIds` with different content on every
+ * render (#4386), so no effect writes state from `defaultGroupIds` here.
  */
 export function useGroupOrder(pageType: string, defaultGroupIds: string[]) {
-  const [orderedIds, setOrderedIds] = React.useState<string[]>(defaultGroupIds)
-  const mounted = React.useRef(false)
+  const [savedOrder, setSavedOrder] = React.useState<string[] | null>(null)
 
   React.useEffect(() => {
-    mounted.current = true
     const saved = readJsonFromLocalStorage<string[] | null>(getStorageKey(pageType), null)
-    if (Array.isArray(saved)) {
-      setOrderedIds(mergeOrder(saved, defaultGroupIds))
-    }
-    // Intentionally only runs on mount (per pageType); defaultGroupIds changes are
-    // handled by the sync effect below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setSavedOrder(Array.isArray(saved) ? saved : null)
   }, [pageType])
 
-  // Sync when defaultGroupIds changes (e.g. new groups added dynamically)
-  React.useEffect(() => {
-    setOrderedIds((prev) => {
-      const merged = mergeOrder(prev, defaultGroupIds)
-      return arraysEqual(prev, merged) ? prev : merged
-    })
-  }, [defaultGroupIds])
+  const mergedIds = React.useMemo(
+    () => (savedOrder ? mergeOrder(savedOrder, defaultGroupIds) : defaultGroupIds),
+    [defaultGroupIds, savedOrder],
+  )
+
+  const stableIdsRef = React.useRef(mergedIds)
+  if (!arraysEqual(stableIdsRef.current, mergedIds)) {
+    stableIdsRef.current = mergedIds
+  }
+  const orderedIds = stableIdsRef.current
 
   const reorder = React.useCallback(
     (fromIndex: number, toIndex: number) => {
-      setOrderedIds((prev) => {
-        const next = [...prev]
-        const [moved] = next.splice(fromIndex, 1)
-        next.splice(toIndex, 0, moved)
-        if (mounted.current) {
-          writeJsonToLocalStorage(getStorageKey(pageType), next)
-        }
-        return next
-      })
+      const next = [...stableIdsRef.current]
+      const [moved] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, moved)
+      writeJsonToLocalStorage(getStorageKey(pageType), next)
+      setSavedOrder(next)
     },
     [pageType],
   )
