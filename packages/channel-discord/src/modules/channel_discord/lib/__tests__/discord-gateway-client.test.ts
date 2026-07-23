@@ -5,6 +5,7 @@ import {
   buildResumePayload,
   buildHeartbeatPayload,
   computeReconnectDelayMs,
+  createHeartbeatMonitor,
   isFatalGatewayCloseCode,
   shouldResumeAfterClose,
 } from '../discord-gateway-client'
@@ -52,5 +53,31 @@ describe('discord gateway state-machine helpers', () => {
     expect(computeReconnectDelayMs(0)).toBeGreaterThanOrEqual(1000)
     expect(computeReconnectDelayMs(0)).toBeLessThanOrEqual(1500)
     expect(computeReconnectDelayMs(100)).toBeLessThanOrEqual(30_000)
+  })
+})
+
+describe('createHeartbeatMonitor (zombie detection)', () => {
+  it('sends the first beat and reconnects when the previous beat was never ACKed', () => {
+    const monitor = createHeartbeatMonitor()
+    expect(monitor.onBeat()).toBe('send') // first beat armed, awaiting ACK
+    expect(monitor.onBeat()).toBe('reconnect') // no ACK arrived → zombie
+  })
+
+  it('keeps sending while ACKs arrive between beats', () => {
+    const monitor = createHeartbeatMonitor()
+    expect(monitor.onBeat()).toBe('send')
+    monitor.onAck()
+    expect(monitor.onBeat()).toBe('send')
+    monitor.onAck()
+    expect(monitor.onBeat()).toBe('send')
+  })
+
+  it('re-arms after reset (fresh reconnect)', () => {
+    const monitor = createHeartbeatMonitor()
+    expect(monitor.onBeat()).toBe('send')
+    expect(monitor.onBeat()).toBe('reconnect')
+    monitor.reset()
+    expect(monitor.isAcked()).toBe(true)
+    expect(monitor.onBeat()).toBe('send')
   })
 })
