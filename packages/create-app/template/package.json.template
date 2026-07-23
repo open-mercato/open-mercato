@@ -45,6 +45,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@open-mercato/ai-assistant": "{{PACKAGE_VERSION}}",
     "@open-mercato/cache": "{{PACKAGE_VERSION}}",
+    "@open-mercato/channel-discord": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-gmail": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-imap": "{{PACKAGE_VERSION}}",
     "@open-mercato/checkout": "{{PACKAGE_VERSION}}",
