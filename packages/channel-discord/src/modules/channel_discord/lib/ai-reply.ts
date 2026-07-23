@@ -38,20 +38,87 @@ const COMPLEX_SIGNALS = [
   /\bdiscount\b/i,
 ]
 
+// Signals that a message is trying to steer the model rather than ask a
+// question (prompt injection). Always propose-only — a human sees the attempt
+// before anything is sent.
+const INJECTION_SIGNALS = [
+  /\bignore\b[\s\S]{0,60}\b(instructions?|prompts?|rules?)\b/i,
+  /\bdisregard\b/i,
+  /\bsystem\s*prompt\b/i,
+  /\bjailbreak/i,
+  /\bdeveloper\s+mode\b/i,
+  /\byou\s+are\s+now\b/i,
+  /\bnew\s+instructions?\b/i,
+  /\bpretend\s+(to\s+be|you)\b/i,
+  /\bact\s+as\b/i,
+  /\brole\s*-?\s*play\b/i,
+  /^\s*(system|assistant)\s*:/im,
+]
+
+// The bot must never act on content it would have to fetch — a link is a
+// second, unvetted instruction channel.
+const LINK_SIGNAL = /\bhttps?:\/\/|\bwww\.|\bdiscord\.gg\//i
+
+// Zero-width, bidi-override, and word-joiner characters have no place in a
+// legitimate support question; their presence means someone is hiding content
+// from pattern matching (e.g. `re​fund`).
+const INVISIBLE_CHARS = /[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/
+
+/**
+ * Build the copy of the text that signals are matched against. Defeats the
+ * cheap obfuscations of a regex gate: compatibility forms (`ｒｅｆｕｎｄ` →
+ * `refund`, NFKC), invisible characters, markdown emphasis/spoilers splitting a
+ * keyword (`**ref**und`, `||refund||`), and combining-mark zalgo (NFKD + strip).
+ */
+function normalizeForClassification(text: string): string {
+  return text
+    .normalize('NFKC')
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/g, '')
+    .replace(/[`*_~|]/g, '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\S\n]+/g, ' ')
+    .trim()
+}
+
+function matchSignal(signals: RegExp[], raw: string, normalized: string): RegExp | null {
+  for (const signal of signals) {
+    if (signal.test(raw) || signal.test(normalized)) return signal
+  }
+  return null
+}
+
 /**
  * Classify an inbound Discord message as "easy" (bot may answer directly) vs
  * "complex" (propose-only, human approves). A deliberately conservative
  * heuristic — when in doubt it returns `complex` so nothing risky auto-sends.
+ *
+ * Hardening note: signals are matched against a normalized copy as well as the
+ * raw text, and injection/link/obfuscation attempts force `complex`. This is
+ * defense-in-depth layering, not a proof — the real containment for anything
+ * that slips through is downstream: propose-only for complex, `features: []`,
+ * `isSuperAdmin: false`, `allowed_mentions: { parse: [] }`, and the audited
+ * outbound path.
  */
 export function classifyDiscordMessage(body: string): ClassificationResult {
   const text = (body ?? '').trim()
   if (text.length === 0) {
     return { tier: 'complex', confidence: 0, reason: 'empty-body' }
   }
-  for (const signal of COMPLEX_SIGNALS) {
-    if (signal.test(text)) {
-      return { tier: 'complex', confidence: 0.9, reason: `matched:${signal.source}` }
-    }
+  if (INVISIBLE_CHARS.test(text)) {
+    return { tier: 'complex', confidence: 0.95, reason: 'obfuscation-suspect' }
+  }
+  const normalized = normalizeForClassification(text)
+  const injection = matchSignal(INJECTION_SIGNALS, text, normalized)
+  if (injection) {
+    return { tier: 'complex', confidence: 0.95, reason: `injection-suspect:${injection.source}` }
+  }
+  if (LINK_SIGNAL.test(text) || LINK_SIGNAL.test(normalized)) {
+    return { tier: 'complex', confidence: 0.9, reason: 'contains-link' }
+  }
+  const complexSignal = matchSignal(COMPLEX_SIGNALS, text, normalized)
+  if (complexSignal) {
+    return { tier: 'complex', confidence: 0.9, reason: `matched:${complexSignal.source}` }
   }
   // Long messages or multi-question threads are more likely to need nuance.
   const questionCount = (text.match(/\?/g) ?? []).length
