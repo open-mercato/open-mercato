@@ -132,6 +132,15 @@ export function resetBootstrapCache(): void {
   ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
 }
 
+function isAppDiModuleNotFound(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { code, message } = error as { code?: unknown; message?: unknown }
+  const text = typeof message === 'string' ? message : ''
+  const moduleNotFound =
+    code === 'MODULE_NOT_FOUND' || code === 'ERR_MODULE_NOT_FOUND' || text.startsWith('Cannot find module')
+  return moduleNotFound && text.includes('@/di')
+}
+
 function isAwilixResolver(value: unknown): value is Resolver<unknown> {
   return Boolean(value && typeof value === 'object' && typeof (value as { resolve?: unknown }).resolve === 'function')
 }
@@ -224,9 +233,24 @@ export async function createRequestContainer(): Promise<AppContainer> {
       try {
         const maybe = appDi.register(container)
         if (maybe && typeof maybe.then === 'function') await maybe
-      } catch {}
+      } catch (err) {
+        logger.warn('App-level DI override (src/di.ts register()) threw; its registrations are skipped', { err })
+      }
     }
-  } catch {}
+  } catch (err) {
+    if (isAppDiModuleNotFound(err)) {
+      // Optional hook: most apps have no src/di.ts, so an unresolvable @/di is
+      // the normal case and must stay quiet. CAVEAT: apps consuming this file
+      // as a precompiled package (npm install instead of the monorepo) cannot
+      // resolve the @/di alias from package context either, so this branch
+      // also fires when src/di.ts EXISTS — the debug line keeps that failure
+      // mode diagnosable via OM_LOG_LEVEL=debug. Such apps should register
+      // overrides through modules.ts (`entry.overrides`) instead.
+      logger.debug('App-level DI override module (@/di) not resolvable; skipping', { err })
+    } else {
+      logger.warn('App-level DI override module (@/di) failed to load; its registrations are skipped', { err })
+    }
+  }
   applyDiOverridesToContainer({
     register: (registrations) => container.register(toAwilixRegistrations(registrations)),
     unregister: (key) => container.register({ [key]: asValue(undefined) }),
