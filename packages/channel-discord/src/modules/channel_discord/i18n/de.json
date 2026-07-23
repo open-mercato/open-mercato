@@ -1,0 +1,17 @@
+{
+  "channel_discord.provider.label": "Discord",
+  "channel_discord.connect.button": "Discord verbinden",
+  "channel_discord.connect.title": "Discord-Bot verbinden",
+  "channel_discord.connect.blocked": "Verbindung durch Validierung blockiert",
+  "channel_discord.connect.failed": "Discord-Bot konnte nicht verbunden werden.",
+  "channel_discord.connect.connected": "Discord-Kanal verbunden.",
+  "channel_discord.connect.cancel": "Abbrechen",
+  "channel_discord.connect.save": "Verbinden",
+  "channel_discord.connect.connecting": "Verbinde...",
+  "channel_discord.connect.fields.displayName": "Anzeigename",
+  "channel_discord.connect.fields.botToken": "Bot-Token",
+  "channel_discord.connect.fields.applicationId": "Anwendungs-ID",
+  "channel_discord.connect.fields.publicKey": "Öffentlicher Schlüssel",
+  "channel_discord.connect.fields.guildId": "Server-ID (Guild)",
+  "channel_discord.connect.fields.defaultChannelId": "Standard-Kanal-ID"
+}
