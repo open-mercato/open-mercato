@@ -53,6 +53,7 @@ export function resolveCustomFieldLabel(label: string | null | undefined, key: s
 
 export function isEmptyCustomValue(value: unknown): boolean {
   if (value === null || value === undefined) return true
+  if (value === false) return true
   if (typeof value === 'string') return value.trim().length === 0
   if (Array.isArray(value)) return value.length === 0 || value.every((entry) => isEmptyCustomValue(entry))
   if (typeof value === 'object') {
@@ -65,11 +66,14 @@ export function isEmptyCustomValue(value: unknown): boolean {
   return false
 }
 
-export function stringifyCustomValue(value: unknown): string {
+const DATE_FIELD_KINDS = new Set(['date', 'datetime'])
+const ISO_DATE_PREFIX_RE = /^\d{4}-\d{2}-\d{2}([T ]|$)/
+
+export function stringifyCustomValue(value: unknown, options?: { kind?: string }): string {
   if (value === null || value === undefined) return ''
   if (Array.isArray(value)) {
     const parts = value
-      .map((entry) => stringifyCustomValue(entry))
+      .map((entry) => stringifyCustomValue(entry, options))
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0)
     return parts.join(', ')
@@ -81,7 +85,15 @@ export function stringifyCustomValue(value: unknown): string {
   if (typeof value === 'string') {
     const trimmed = value.trim()
     if (!trimmed.length) return ''
-    return formatDateTime(trimmed) ?? trimmed
+    // Date-format strings only when the definition says the field is a date,
+    // or (for definition-less extras) when the value is unambiguously ISO-like.
+    // `new Date(...)` parses far too loosely to run on every string — it used
+    // to mangle plain text such as "Report 2024" into a date.
+    const kind = options?.kind
+    if (kind ? DATE_FIELD_KINDS.has(kind) : ISO_DATE_PREFIX_RE.test(trimmed)) {
+      return formatDateTime(trimmed) ?? trimmed
+    }
+    return trimmed
   }
   if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
     return String(value)
