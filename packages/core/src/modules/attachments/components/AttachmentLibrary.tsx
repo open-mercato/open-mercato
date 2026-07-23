@@ -961,7 +961,12 @@ export function AttachmentLibrary() {
           const absolute = resolveAbsoluteUrl(downloadPath)
           return (
             <Button variant="ghost" size="icon" asChild>
-              <a href={absolute} download aria-label={t('attachments.library.table.download', 'Download')}>
+              <a
+                href={absolute}
+                download
+                aria-label={t('attachments.library.table.download', 'Download')}
+                onClick={(event) => event.stopPropagation()}
+              >
                 <Download className="h-4 w-4" />
               </a>
             </Button>
