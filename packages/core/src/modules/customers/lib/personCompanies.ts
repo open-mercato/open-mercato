@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   CustomerEntity,
@@ -48,7 +48,7 @@ async function requireCompany(
 ): Promise<CustomerEntity> {
   const company = await findOneWithDecryption(em, CustomerEntity, { id: companyId, kind: 'company', deletedAt: null }, {}, { tenantId, organizationId })
   if (!company) {
-    throw new CrudHttpError(404, { error: 'Company not found' })
+    throw notFound('Company not found')
   }
   if (company.organizationId !== organizationId || company.tenantId !== tenantId) {
     throw new CrudHttpError(403, { error: 'Cannot link company outside current scope' })
@@ -260,7 +260,7 @@ export async function updatePersonCompanyLink(
   }
 
   if (!link) {
-    throw new CrudHttpError(404, { error: 'Company link not found' })
+    throw notFound('Company link not found')
   }
 
   if (patch.isPrimary === true) {
@@ -301,7 +301,7 @@ export async function removePersonCompanyLink(
       profile.company = null
       return
     }
-    throw new CrudHttpError(404, { error: 'Company link not found' })
+    throw notFound('Company link not found')
   }
 
   const removedCompanyId = typeof link.company === 'string' ? link.company : link.company.id

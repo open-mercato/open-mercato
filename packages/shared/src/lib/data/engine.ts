@@ -57,6 +57,7 @@ type QueuedCrudSideEffect = {
   entity: unknown
   identifiers: CrudEntityIdentifiers
   syncOrigin?: string | null
+  actorUserId?: string | null
   events?: CrudEventsConfig<unknown>
   indexer?: CrudIndexerConfig<unknown>
 }
@@ -125,6 +126,7 @@ export interface DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
     /** Bulk-import deferral: skip the domain event and/or inline reindex for this emit. */
     suppress?: BulkImportSuppression
   }): Promise<void>
@@ -136,6 +138,7 @@ export interface DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
   }): void
 
   /**
@@ -561,6 +564,7 @@ export class DefaultDataEngine implements DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
     suppress?: BulkImportSuppression
   }): Promise<void> {
     const { action, entity, events, indexer, identifiers, syncOrigin, suppress } = opts
@@ -588,6 +592,7 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: identifiers.tenantId ?? null,
       },
       syncOrigin: syncOrigin ?? null,
+      actorUserId: opts.actorUserId ?? null,
     }
 
     if (events && !suppress?.skipEvents) {
@@ -681,6 +686,7 @@ export class DefaultDataEngine implements DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
   }): void {
     const { entity, identifiers } = opts
     if (!entity) return
@@ -695,6 +701,7 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: identifiers.tenantId ?? null,
       }
       existing.syncOrigin = opts.syncOrigin ?? null
+      existing.actorUserId = opts.actorUserId ?? null
       if (opts.events) existing.events = opts.events as CrudEventsConfig<unknown>
       if (opts.indexer) existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
       this.pendingSideEffects.set(key, existing)
@@ -709,6 +716,7 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: identifiers.tenantId ?? null,
       },
       syncOrigin: opts.syncOrigin ?? null,
+      actorUserId: opts.actorUserId ?? null,
     }
     if (opts.events) entry.events = opts.events as CrudEventsConfig<unknown>
     if (opts.indexer) entry.indexer = opts.indexer as CrudIndexerConfig<unknown>
@@ -726,6 +734,7 @@ export class DefaultDataEngine implements DataEngine {
           entity: entry.entity,
           identifiers: entry.identifiers,
           syncOrigin: entry.syncOrigin ?? null,
+          actorUserId: entry.actorUserId ?? null,
           events: entry.events as CrudEventsConfig<unknown>,
           indexer: entry.indexer as CrudIndexerConfig<unknown>,
           suppress,

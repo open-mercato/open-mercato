@@ -15,6 +15,7 @@ import {
   canRenderInlineAttachment,
 } from "@open-mercato/core/modules/attachments/lib/security";
 import { StorageDriverFactory } from '../../../lib/drivers';
+import { resolveAttachmentOrganizationId } from '@open-mercato/core/modules/attachments/lib/requestScope';
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -32,16 +33,19 @@ export async function GET(
     );
   }
   const auth = await getAuthFromRequest(req);
-  const { resolve } = await createRequestContainer();
-  const em = resolve("em") as EntityManager;
+  const container = await createRequestContainer();
+  const em = container.resolve("em") as EntityManager;
   const storageDriverFactory =
-    (resolve("storageDriverFactory") as StorageDriverFactory | null) ??
+    (container.resolve("storageDriverFactory") as StorageDriverFactory | null) ??
     new StorageDriverFactory(em);
 
+  const scopedAuth = auth
+    ? { ...auth, orgId: await resolveAttachmentOrganizationId(container, auth, req) }
+    : auth;
   const findFilter: Record<string, unknown> = { id };
-  if (auth && !isSuperAdminAuth(auth)) {
-    if (auth.tenantId) findFilter.tenantId = auth.tenantId;
-    if (auth.orgId) findFilter.organizationId = auth.orgId;
+  if (scopedAuth && !isSuperAdminAuth(scopedAuth)) {
+    if (scopedAuth.tenantId) findFilter.tenantId = scopedAuth.tenantId;
+    if (scopedAuth.orgId) findFilter.organizationId = scopedAuth.orgId;
   }
   const attachment = await em.findOne(Attachment, findFilter);
   if (!attachment) {
@@ -60,7 +64,7 @@ export async function GET(
     );
   }
 
-  const access = checkAttachmentAccess(auth, attachment, partition);
+  const access = checkAttachmentAccess(scopedAuth, attachment, partition);
   if (!access.ok) {
     const message = access.status === 401 ? "Unauthorized" : "Forbidden";
     return NextResponse.json({ error: message }, { status: access.status });

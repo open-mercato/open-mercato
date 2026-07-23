@@ -49,6 +49,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   const role = await em.findOne(CustomerRole, {
     id: params.id,
     tenantId,
+    organizationId: auth.orgId,
     deletedAt: null,
   })
   if (!role) {

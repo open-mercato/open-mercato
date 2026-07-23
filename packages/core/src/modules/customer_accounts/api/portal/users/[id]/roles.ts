@@ -60,7 +60,12 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     ? await findWithDecryption(
         em,
         CustomerRole,
-        { id: { $in: requestedRoleIds }, tenantId: auth.tenantId, deletedAt: null } as any,
+        {
+          id: { $in: requestedRoleIds },
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId,
+          deletedAt: null,
+        } as any,
         undefined,
         { tenantId: auth.tenantId, organizationId: auth.orgId },
       )

@@ -4,7 +4,7 @@ import { labelUnassignCommandSchema, labelAssignmentSchema, type LabelUnassignCo
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
       { tenantId: auth.tenantId, organizationId },
     )
     if (!targetEntity) {
-      throw new CrudHttpError(404, { error: translate('customers.errors.entity_not_found', 'Entity not found') })
+      throw notFound(translate('customers.errors.entity_not_found', 'Entity not found'))
     }
     const entityKind = targetEntity.kind === 'person' || targetEntity.kind === 'company' ? targetEntity.kind : null
     const resourceKind = resolveResourceKind(entityKind)

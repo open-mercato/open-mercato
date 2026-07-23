@@ -15,7 +15,7 @@ import { getDeclaredEvents } from '@open-mercato/shared/modules/events'
 
 export const metadata = {
   path: '/events',
-  GET: { requireAuth: true },
+  GET: { requireAuth: true, requireFeatures: ['workflows.view'] },
 }
 
 const eventDefinitionSchema = z.object({
