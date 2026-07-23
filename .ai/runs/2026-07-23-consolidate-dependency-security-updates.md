@@ -43,8 +43,8 @@ Goal: consolidate the dependency fixes proposed by PRs #4344, #4345, and #4346 i
 
 ### Phase 1: Consolidate lockfile fixes
 
-- [ ] 1.1 Compare source PRs with develop and preserve satisfied updates
-- [ ] 1.2 Apply remaining dependency resolutions and verify the lockfile diff
+- [x] 1.1 Compare source PRs with develop and preserve satisfied updates — dbf790b9b
+- [x] 1.2 Apply remaining dependency resolutions and verify the lockfile diff — dbf790b9b
 
 ### Phase 2: Verify and publish
 
