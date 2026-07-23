@@ -87,5 +87,76 @@ describe('LocalLockStrategy', () => {
       await expect(strategy.runWithLock('test-key', fn)).rejects.toThrow(fnError)
       expect(fn).toHaveBeenCalledTimes(1)
     })
+
+    it('should run fn outside the claim transaction', async () => {
+      ;(mockConnection.execute as any).mockResolvedValue([{ acquired: true }])
+
+      let transactionOpen = false
+      transactionalImpl.mockImplementation(async (cb: any) => {
+        transactionOpen = true
+        const result = await cb(mockForkedEm)
+        transactionOpen = false
+        return result
+      })
+
+      let openDuringFn: boolean | null = null
+      const fn = jest.fn(async () => {
+        openDuringFn = transactionOpen
+        return 'ok'
+      })
+
+      const result = await strategy.runWithLock('test-key', fn)
+
+      expect(result).toEqual({ acquired: true, result: 'ok' })
+      expect(openDuringFn).toBe(false)
+    })
+
+    it('should reject a concurrent run for the same key without touching the database', async () => {
+      ;(mockConnection.execute as any).mockResolvedValue([{ acquired: true }])
+
+      let releaseFirst: () => void = () => {}
+      const firstDone = new Promise<void>((resolve) => {
+        releaseFirst = resolve
+      })
+      const firstRun = strategy.runWithLock('test-key', async () => {
+        await firstDone
+        return 'first'
+      })
+      await Promise.resolve()
+
+      const secondFn = jest.fn(async () => 'second')
+      const secondRun = await strategy.runWithLock('test-key', secondFn)
+
+      expect(secondRun).toEqual({ acquired: false })
+      expect(secondFn).not.toHaveBeenCalled()
+      expect(mockConnection.execute).toHaveBeenCalledTimes(1)
+
+      releaseFirst()
+      await expect(firstRun).resolves.toEqual({ acquired: true, result: 'first' })
+    })
+
+    it('should release the key after fn completes or throws', async () => {
+      ;(mockConnection.execute as any).mockResolvedValue([{ acquired: true }])
+
+      await expect(
+        strategy.runWithLock('test-key', async () => {
+          throw new Error('Callback failed')
+        }),
+      ).rejects.toThrow('Callback failed')
+
+      const fn = jest.fn(async () => 'ok')
+      await expect(strategy.runWithLock('test-key', fn)).resolves.toEqual({ acquired: true, result: 'ok' })
+      expect(fn).toHaveBeenCalledTimes(1)
+    })
+
+    it('should release the key when the claim is not acquired', async () => {
+      ;(mockConnection.execute as any).mockResolvedValueOnce([{ acquired: false }])
+      ;(mockConnection.execute as any).mockResolvedValueOnce([{ acquired: true }])
+
+      await expect(strategy.runWithLock('test-key', async () => 'ok')).resolves.toEqual({ acquired: false })
+
+      const fn = jest.fn(async () => 'ok')
+      await expect(strategy.runWithLock('test-key', fn)).resolves.toEqual({ acquired: true, result: 'ok' })
+    })
   })
 })
