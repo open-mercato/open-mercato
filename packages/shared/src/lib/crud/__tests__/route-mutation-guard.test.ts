@@ -22,6 +22,7 @@ type Registrations = Record<string, unknown>
 
 function makeContainer(registrations: Registrations = {}): AwilixContainer {
   return {
+    hasRegistration: (name: string) => Object.prototype.hasOwnProperty.call(registrations, name),
     resolve: (name: string) => {
       if (Object.prototype.hasOwnProperty.call(registrations, name)) return registrations[name]
       throw new Error(`[test] no registration for ${name}`)

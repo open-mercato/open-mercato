@@ -1,5 +1,17 @@
-import { matchesEntity, runMutationGuards } from '../mutation-guard-registry'
+import { asFunction, asValue, createContainer, InjectionMode } from 'awilix'
+import { bridgeLegacyGuard, matchesEntity, runMutationGuards } from '../mutation-guard-registry'
 import type { MutationGuard, MutationGuardInput } from '../mutation-guard-registry'
+
+const mockWarn = jest.fn()
+jest.mock('../../logger', () => ({
+  createLogger: () => ({
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: (...args: unknown[]) => mockWarn(...args),
+    error: jest.fn(),
+    child() { return this },
+  }),
+}))
 
 describe('matchesEntity', () => {
   it('matches wildcard "*" against any entity', () => {
@@ -167,5 +179,46 @@ describe('runMutationGuards', () => {
     const result = await runMutationGuards([guard], baseInput, { userFeatures: [] })
     expect(result.ok).toBe(false)
     expect(result.errorBody).toEqual({ custom: 'error' })
+  })
+})
+
+describe('bridgeLegacyGuard', () => {
+  beforeEach(() => {
+    mockWarn.mockClear()
+  })
+
+  it('returns null without warning when crudMutationGuardService is not registered', () => {
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    expect(bridgeLegacyGuard(container)).toBeNull()
+    expect(mockWarn).not.toHaveBeenCalled()
+  })
+
+  it('bridges a resolvable legacy service', () => {
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      crudMutationGuardService: asValue({
+        validateMutation: async () => null,
+        afterMutationSuccess: async () => {},
+      }),
+    })
+    const guard = bridgeLegacyGuard(container)
+    expect(guard).not.toBeNull()
+    expect(mockWarn).not.toHaveBeenCalled()
+  })
+
+  it('warns instead of silently skipping when a registered service fails to resolve', () => {
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      em: asValue({}),
+      // CLASSIC mode resolves by parameter name: the destructured rename is
+      // parsed as an unregistered dependency `scopedEm`, so resolution throws.
+      crudMutationGuardService: asFunction(({ em: scopedEm }: { em: unknown }) => ({
+        validateMutation: async () => null,
+        afterMutationSuccess: async () => {},
+        scopedEm,
+      })).scoped(),
+    })
+    expect(bridgeLegacyGuard(container)).toBeNull()
+    expect(mockWarn).toHaveBeenCalledTimes(1)
   })
 })
