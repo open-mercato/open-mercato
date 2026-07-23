@@ -62,11 +62,16 @@ export function normalizeInboundDiscordMessage(message: DiscordMessageObject): N
 }
 
 /**
- * True when a raw message was authored by the given bot user id. The gateway
- * worker and the ingest path both use this to drop the bot's own messages and
- * avoid a feedback loop (bot answering itself).
+ * True when a raw message must be dropped as bot-authored. The gateway worker
+ * uses this as the feedback-loop guard.
+ *
+ * We drop ANY message flagged `author.bot` (not just our own bot's user id):
+ * other bots/webhooks in the channel would otherwise be ingested and could
+ * trigger the AI auto-reply, creating cross-bot loops and noise. The explicit
+ * `botUserId` check is retained as a belt-and-suspenders guard for the rare case
+ * where our own bot's `author.bot` flag is absent from a payload.
  */
 export function isAuthoredByBot(message: DiscordMessageObject, botUserId: string | undefined): boolean {
-  if (!botUserId) return Boolean(message.author?.bot)
-  return message.author?.id === botUserId
+  if (message.author?.bot) return true
+  return botUserId ? message.author?.id === botUserId : false
 }
