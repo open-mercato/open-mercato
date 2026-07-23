@@ -40,6 +40,7 @@ import type {
 } from '@open-mercato/ui/backend/CrudForm'
 import {
   DictionaryEntrySelect,
+  DictionaryOptionsUnavailableError,
   type DictionarySelectLabels,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { RolesSection } from './detail/RolesSection'
@@ -188,14 +189,27 @@ export function DictionarySelectField({
   )
 
   const fetchOptions = React.useCallback(async () => {
-    const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
-    return data.entries.map((entry) => ({
-      value: entry.value,
-      label: entry.label,
-      color: entry.color ?? null,
-      icon: entry.icon ?? null,
-    }))
-  }, [kind, queryClient, scopeVersion])
+    try {
+      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
+      return data.entries.map((entry) => ({
+        value: entry.value,
+        label: entry.label,
+        color: entry.color ?? null,
+        icon: entry.icon ?? null,
+      }))
+    } catch (err) {
+      const status = (err as { status?: unknown } | null)?.status
+      if (status === 400) {
+        const serverMessage = err instanceof Error ? err.message.trim() : ''
+        throw new DictionaryOptionsUnavailableError(
+          serverMessage.length
+            ? serverMessage
+            : translate('customers.errors.organization_required', 'Organization context is required'),
+        )
+      }
+      throw err
+    }
+  }, [kind, queryClient, scopeVersion, translate])
 
   const createOption = React.useCallback(
     async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
