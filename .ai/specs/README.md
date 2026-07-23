@@ -105,6 +105,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Bulk-Import Side-Effect Suppression](2026-07-08-bulk-import-side-effect-suppression.md) | 2026-07-08 | Bulk-Import Side-Effect Suppression | Opt-in `ctx.bulkImport` flag lets a backfill defer per-record reindex/events/notifications (rebuilt in one batched pass); concurrency-safe via parameter threading, no shared engine state |
 | [Scoped Staff Member Directory](2026-07-15-staff-member-directory.md) | 2026-07-15 | Scoped Staff Member Directory | Narrow optional-module DI contract for resolving active, tenant- and organization-scoped staff scheduling references from trusted user IDs |
 | [Customer Interaction Completion Event Reliability](2026-07-20-customer-interaction-completion-event-reliability.md) | 2026-07-20 | Customer Interaction Completion Event Reliability | Reliable scoped persistent publication with retry-safe per-interaction delivery state |
+| [Stable Workflow Activity Outputs](2026-07-20-stable-workflow-activity-outputs.md) | 2026-07-20 | Stable Workflow Activity Outputs | Additive `activities.<activityId>` result addressing across synchronous and asynchronous workflow activities |
 
 ### Implemented Specifications
 

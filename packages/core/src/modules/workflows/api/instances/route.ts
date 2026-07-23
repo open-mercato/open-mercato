@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
 
     const input: StartWorkflowApiInput = validation.data
 
-    // User-started instances must always record the authenticated caller.
+    // Server-authoritative actor; do not trust client-supplied metadata.initiatedBy.
     const metadata = {
       ...input.metadata,
       initiatedBy: auth.sub,
@@ -220,7 +220,9 @@ export async function POST(request: NextRequest) {
         // Create new container and EM for background execution
         const bgContainer = await createRequestContainer()
         const bgEm = bgContainer.resolve('em')
-        await workflowExecutor.executeWorkflow(bgEm, bgContainer, instance.id)
+        await workflowExecutor.executeWorkflow(bgEm, bgContainer, instance.id, {
+          userId: auth.sub,
+        })
       } catch (error) {
         logger.error('Background workflow execution error', { err: error })
       }

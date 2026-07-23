@@ -352,9 +352,7 @@ describe('init command failure output', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateEntityIds: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
@@ -400,9 +398,7 @@ describe('init command failure output', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateEntityIds: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
@@ -451,9 +447,7 @@ describe('init command failure output', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateEntityIds: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
@@ -553,9 +547,7 @@ describe('generate post-step structural invalidation', () => {
       filesUnchanged: [],
       errors: [],
     })
-    const generateModuleRegistry = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryApp = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryCli = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistries = jest.fn().mockResolvedValue([])
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
@@ -569,9 +561,7 @@ describe('generate post-step structural invalidation', () => {
 
     jest.doMock('../lib/generators', () => ({
       generateEntityIds,
-      generateModuleRegistry,
-      generateModuleRegistryApp,
-      generateModuleRegistryCli,
+      generateModuleRegistries,
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
@@ -595,6 +585,7 @@ describe('generate post-step structural invalidation', () => {
 
     expect(exitCode).toBe(0)
     expect(generateEntityIds).toHaveBeenCalled()
+    expect(generateModuleRegistries).toHaveBeenCalledTimes(1)
     expect(invalidate).toHaveBeenCalledWith('/tmp/test-app')
 
     consoleErrorSpy.mockRestore()
@@ -611,9 +602,7 @@ describe('generate post-step structural invalidation', () => {
     }
     const generators = {
       generateEntityIds: jest.fn().mockResolvedValue(unchangedResult),
-      generateModuleRegistry: jest.fn().mockResolvedValue(unchangedResult),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(unchangedResult),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(unchangedResult),
+      generateModuleRegistries: jest.fn().mockResolvedValue([unchangedResult, unchangedResult, unchangedResult]),
       generateModuleEntities: jest.fn().mockResolvedValue(unchangedResult),
       generateModuleDi: jest.fn().mockResolvedValue(unchangedResult),
       generateModulePackageSources: jest.fn().mockResolvedValue(unchangedResult),
@@ -653,9 +642,7 @@ describe('generate post-step structural invalidation', () => {
       filesUnchanged: [],
       errors: [],
     })
-    const generateModuleRegistry = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryApp = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryCli = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistries = jest.fn().mockResolvedValue([])
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
@@ -664,9 +651,7 @@ describe('generate post-step structural invalidation', () => {
 
     jest.doMock('../lib/generators', () => ({
       generateEntityIds,
-      generateModuleRegistry,
-      generateModuleRegistryApp,
-      generateModuleRegistryCli,
+      generateModuleRegistries,
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
@@ -687,6 +672,7 @@ describe('generate post-step structural invalidation', () => {
 
     expect(exitCode).toBe(0)
     expect(generateEntityIds).toHaveBeenCalled()
+    expect(generateModuleRegistries).toHaveBeenCalledTimes(1)
     expect(invalidate).toHaveBeenCalledWith('/tmp/test-app')
 
     consoleErrorSpy.mockRestore()
@@ -697,12 +683,11 @@ describe('generate post-step structural invalidation', () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
     const generate = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistries = jest.fn().mockResolvedValue([])
 
     jest.doMock('../lib/generators', () => ({
       generateEntityIds: generate,
-      generateModuleRegistry: generate,
-      generateModuleRegistryApp: generate,
-      generateModuleRegistryCli: generate,
+      generateModuleRegistries,
       generateModuleEntities: generate,
       generateModuleDi: generate,
       generateModulePackageSources: generate,
@@ -723,6 +708,7 @@ describe('generate post-step structural invalidation', () => {
 
     expect(exitCode).toBe(0)
     expect(generate).toHaveBeenCalled()
+    expect(generateModuleRegistries).toHaveBeenCalledTimes(1)
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()

@@ -8,6 +8,7 @@ import {
   type CaptureResult,
   type RefundResult,
   type CancelResult,
+  type GatewayAdapter,
   type GatewayPaymentStatus,
   type PaymentGatewayPresentationRequest,
   type UnifiedPaymentStatus,
@@ -20,6 +21,11 @@ import { GatewaySessionInitialization, GatewayTransaction } from '../data/entiti
 import { canApplyManualAction, isValidTransition, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
+import {
+  completePaymentOperation,
+  failPaymentOperation,
+  preparePaymentOperation,
+} from './payment-operation-idempotency'
 import {
   buildPaymentSessionOperationKey,
   claimPaymentSessionInitialization,
@@ -46,6 +52,7 @@ function applyAdapterResultStatus(
 ): boolean {
   const current = transaction.unifiedStatus as UnifiedPaymentStatus
   if (resultStatus === current) return false
+  if (isValidTransition(resultStatus, current)) return false
   if (!isValidTransition(current, resultStatus)) {
     throw conflict(
       `Gateway returned status "${resultStatus}" which is not a valid transition from "${current}" for ${action}`,
@@ -97,9 +104,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
   async function findTransactionOrThrow(
     transactionId: string,
     scope: { organizationId: string; tenantId: string },
+    targetEm: EntityManager = em,
   ): Promise<GatewayTransaction> {
     const transaction = await findOneWithDecryption(
-      em,
+      targetEm,
       GatewayTransaction,
       {
         id: transactionId,
@@ -174,6 +182,82 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     const credentials = await integrationCredentialsService.resolve(integrationId, scope) ?? {}
 
     return { adapter, credentials }
+  }
+
+  type ManualOperationResult = CaptureResult | RefundResult | CancelResult
+
+  async function executeManualOperation<TResult extends ManualOperationResult>(input: {
+    action: ManualGatewayAction
+    transactionId: string
+    operationId?: string
+    payload: Record<string, unknown>
+    scope: { organizationId: string; tenantId: string }
+    invoke: (context: {
+      adapter: GatewayAdapter
+      credentials: Record<string, unknown>
+      transaction: GatewayTransaction
+      idempotencyKey: string
+    }) => Promise<TResult>
+    applyResult: (transaction: GatewayTransaction, result: TResult) => void
+    afterCommit: (transaction: GatewayTransaction, result: TResult) => Promise<void>
+  }): Promise<TResult> {
+    const transaction = await findTransactionOrThrow(input.transactionId, input.scope)
+    const prepared = await preparePaymentOperation({
+      em,
+      transactionId: transaction.id,
+      providerKey: transaction.providerKey,
+      action: input.action,
+      operationId: input.operationId,
+      payload: input.payload,
+      scope: input.scope,
+      assertInitialAllowed: () => assertManualActionAllowed(input.action, transaction),
+    })
+    if (prepared.kind === 'completed') {
+      if (prepared.result.status !== transaction.unifiedStatus) {
+        throw conflict(
+          `Cannot replay ${input.action} because the payment status has changed since the operation completed`,
+        )
+      }
+      return prepared.result as unknown as TResult
+    }
+
+    try {
+      const { adapter, credentials } = await resolveAdapterAndCredentials(
+        transaction.providerKey,
+        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+      )
+      const result = await input.invoke({
+        adapter,
+        credentials,
+        transaction,
+        idempotencyKey: prepared.claim.providerIdempotencyKey,
+      })
+      const statusChanged = await completePaymentOperation(
+        em,
+        prepared.claim,
+        result as unknown as Record<string, unknown>,
+        async (tx) => {
+          const current = await findTransactionOrThrow(input.transactionId, input.scope, tx)
+          const changed = applyAdapterResultStatus(input.action, current, result.status)
+          input.applyResult(current, result)
+          return changed
+        },
+      )
+      if (statusChanged) {
+        await emitStatusEvent(result.status, {
+          transactionId: transaction.id,
+          paymentId: transaction.paymentId,
+          providerKey: transaction.providerKey,
+          organizationId: transaction.organizationId,
+          tenantId: transaction.tenantId,
+        })
+      }
+      await input.afterCommit(transaction, result)
+      return result
+    } catch (error: unknown) {
+      await Promise.allSettled([failPaymentOperation(em, prepared.claim)])
+      throw error
+    }
   }
 
   function createGatewayTransaction(
@@ -391,46 +475,39 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       }
     },
 
-    async capturePayment(transactionId: string, amount: number | undefined, scope: { organizationId: string; tenantId: string }): Promise<CaptureResult> {
-      const transaction = await findTransactionOrThrow(transactionId, scope)
-      assertManualActionAllowed('capture', transaction)
-      const { adapter, credentials } = await resolveAdapterAndCredentials(
-        transaction.providerKey,
-        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
-      )
-
-      const result = await adapter.capture({
-        sessionId: readProviderSessionId(transaction),
-        amount,
-        credentials,
-      })
-
-      const statusChanged = applyAdapterResultStatus('capture', transaction, result.status)
-      transaction.gatewayMetadata = { ...readGatewayMetadata(transaction.gatewayMetadata), captureResult: result.providerData }
-      await em.flush()
-      if (statusChanged) {
-        await emitStatusEvent(result.status, {
-          transactionId: transaction.id,
-          paymentId: transaction.paymentId,
-          providerKey: transaction.providerKey,
-          organizationId: transaction.organizationId,
-          tenantId: transaction.tenantId,
-        })
-      }
-      await writeTransactionLog(
-        transaction.providerKey,
-        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
-        transaction.id,
-        'info',
-        'Payment captured',
-        {
-          amount: amount ?? null,
-          status: result.status,
-          capturedAmount: result.capturedAmount,
+    async capturePayment(
+      transactionId: string,
+      amount: number | undefined,
+      scope: { organizationId: string; tenantId: string },
+      operationId?: string,
+    ): Promise<CaptureResult> {
+      return executeManualOperation({
+        action: 'capture',
+        transactionId,
+        operationId,
+        payload: { amount: amount ?? null },
+        scope,
+        invoke: ({ adapter, credentials, transaction, idempotencyKey }) => adapter.capture({
+          sessionId: readProviderSessionId(transaction),
+          amount,
+          credentials,
+          idempotencyKey,
+        }),
+        applyResult: (transaction, result) => {
+          transaction.gatewayMetadata = {
+            ...readGatewayMetadata(transaction.gatewayMetadata),
+            captureResult: result.providerData,
+          }
         },
-      )
-
-      return result
+        afterCommit: (transaction, result) => writeTransactionLog(
+          transaction.providerKey,
+          { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+          transaction.id,
+          'info',
+          'Payment captured',
+          { amount: amount ?? null, status: result.status, capturedAmount: result.capturedAmount },
+        ),
+      })
     },
 
     async refundPayment(
@@ -438,93 +515,67 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       amount: number | undefined,
       reason: string | undefined,
       scope: { organizationId: string; tenantId: string },
+      operationId?: string,
     ): Promise<RefundResult> {
-      const transaction = await findTransactionOrThrow(transactionId, scope)
-      assertManualActionAllowed('refund', transaction)
-      const { adapter, credentials } = await resolveAdapterAndCredentials(
-        transaction.providerKey,
-        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
-      )
-
-      const result = await adapter.refund({
-        sessionId: readProviderSessionId(transaction),
-        amount,
-        reason,
-        credentials,
-      })
-
-      const statusChanged = applyAdapterResultStatus('refund', transaction, result.status)
-      transaction.gatewayRefundId = result.refundId
-      transaction.gatewayMetadata = { ...readGatewayMetadata(transaction.gatewayMetadata), refundResult: result.providerData }
-      await em.flush()
-      if (statusChanged) {
-        await emitStatusEvent(result.status, {
-          transactionId: transaction.id,
-          paymentId: transaction.paymentId,
-          providerKey: transaction.providerKey,
-          organizationId: transaction.organizationId,
-          tenantId: transaction.tenantId,
-        })
-      }
-      await writeTransactionLog(
-        transaction.providerKey,
-        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
-        transaction.id,
-        'info',
-        'Payment refunded',
-        {
-          amount: amount ?? null,
-          reason: reason ?? null,
-          status: result.status,
-          refundId: result.refundId,
+      return executeManualOperation({
+        action: 'refund',
+        transactionId,
+        operationId,
+        payload: { amount: amount ?? null, reason: reason ?? null },
+        scope,
+        invoke: ({ adapter, credentials, transaction, idempotencyKey }) => adapter.refund({
+          sessionId: readProviderSessionId(transaction),
+          amount,
+          reason,
+          credentials,
+          idempotencyKey,
+        }),
+        applyResult: (transaction, result) => {
+          transaction.gatewayRefundId = result.refundId
+          transaction.gatewayMetadata = {
+            ...readGatewayMetadata(transaction.gatewayMetadata),
+            refundResult: result.providerData,
+          }
         },
-      )
-
-      return result
+        afterCommit: (transaction, result) => writeTransactionLog(
+          transaction.providerKey,
+          { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+          transaction.id,
+          'info',
+          'Payment refunded',
+          { amount: amount ?? null, reason: reason ?? null, status: result.status, refundId: result.refundId },
+        ),
+      })
     },
 
     async cancelPayment(
       transactionId: string,
       reason: string | undefined,
       scope: { organizationId: string; tenantId: string },
+      operationId?: string,
     ): Promise<CancelResult> {
-      const transaction = await findTransactionOrThrow(transactionId, scope)
-      assertManualActionAllowed('cancel', transaction)
-      const { adapter, credentials } = await resolveAdapterAndCredentials(
-        transaction.providerKey,
-        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
-      )
-
-      const result = await adapter.cancel({
-        sessionId: readProviderSessionId(transaction),
-        reason,
-        credentials,
+      return executeManualOperation({
+        action: 'cancel',
+        transactionId,
+        operationId,
+        payload: { reason: reason ?? null },
+        scope,
+        invoke: ({ adapter, credentials, transaction, idempotencyKey }) => adapter.cancel({
+          sessionId: readProviderSessionId(transaction),
+          reason,
+          credentials,
+          idempotencyKey,
+        }),
+        applyResult: () => {},
+        afterCommit: (transaction, result) => writeTransactionLog(
+          transaction.providerKey,
+          { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+          transaction.id,
+          'info',
+          'Payment cancelled',
+          { reason: reason ?? null, status: result.status },
+        ),
       })
-
-      const statusChanged = applyAdapterResultStatus('cancel', transaction, result.status)
-      await em.flush()
-      if (statusChanged) {
-        await emitStatusEvent(result.status, {
-          transactionId: transaction.id,
-          paymentId: transaction.paymentId,
-          providerKey: transaction.providerKey,
-          organizationId: transaction.organizationId,
-          tenantId: transaction.tenantId,
-        })
-      }
-      await writeTransactionLog(
-        transaction.providerKey,
-        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
-        transaction.id,
-        'info',
-        'Payment cancelled',
-        {
-          reason: reason ?? null,
-          status: result.status,
-        },
-      )
-
-      return result
     },
 
     async getPaymentStatus(transactionId: string, scope: { organizationId: string; tenantId: string }): Promise<GatewayPaymentStatus> {
