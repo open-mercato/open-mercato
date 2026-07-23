@@ -64,9 +64,11 @@ import { CurrencyFilterPopover } from './components/CurrencyFilterPopover'
 import { AddStageLane } from './components/AddStageLane'
 import type { DealCardData } from './components/DealCard'
 import {
-  QuickDealDialog,
+  QuickDealDialog as DefaultQuickDealDialog,
+  QUICK_DEAL_DIALOG_COMPONENT_ID,
   type QuickDealContext,
   type QuickDealCompanyOption,
+  type QuickDealDialogProps,
 } from './components/QuickDealDialog'
 import { AddStageDialog, type AddStageContext } from './components/AddStageDialog'
 import { StatusFilterPopover } from './components/StatusFilterPopover'
@@ -80,6 +82,7 @@ import {
   type ActivityComposerContext,
 } from './components/ActivityComposerDialog'
 import { BulkActionsBar } from './components/BulkActionsBar'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { ChangeStageDialog } from './components/ChangeStageDialog'
 import { ChangeOwnerDialog } from './components/ChangeOwnerDialog'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -410,6 +413,12 @@ function sortDeals(deals: DealCardData[], option: SortOption): DealCardData[] {
 
 export default function DealsKanbanPage(): React.ReactElement {
   const t = useT()
+  // Resolved through the component registry so downstream apps can replace,
+  // wrap, or props-transform the quick-add dialog without forking this page.
+  const QuickDealDialog = useRegisteredComponent<QuickDealDialogProps>(
+    QUICK_DEAL_DIALOG_COMPONENT_ID,
+    DefaultQuickDealDialog,
+  )
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
