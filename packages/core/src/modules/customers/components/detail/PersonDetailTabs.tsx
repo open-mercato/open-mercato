@@ -39,6 +39,7 @@ type PersonDetailTabsProps = {
   activeTab: PersonTabId
   onTabChange: (tab: PersonTabId) => void
   injectedTabs?: Array<{ id: string; label: string }>
+  hiddenTabIds?: string[]
   activitiesCount?: number
   dealsCount?: number
   companiesCount?: number
@@ -51,9 +52,11 @@ type PersonDetailTabsProps = {
 
 const SUPPORTED_TAB_IDS = new Set<PersonTabId>(['activities', 'emails', 'deals', 'companies', 'addresses', 'tasks', 'changelog', 'files'])
 
-export function resolveLegacyTab(tab: string | null | undefined): PersonTabId {
+export function resolveLegacyTab(tab: string | null | undefined, knownTabIds?: Iterable<string>): PersonTabId {
   if (!tab) return 'activities'
-  return SUPPORTED_TAB_IDS.has(tab as PersonTabId) ? (tab as PersonTabId) : 'activities'
+  if (SUPPORTED_TAB_IDS.has(tab as PersonTabId)) return tab as PersonTabId
+  if (knownTabIds && new Set(knownTabIds).has(tab)) return tab
+  return 'activities'
 }
 
 function formatTabCount(count: number): string | number | undefined {
@@ -65,6 +68,7 @@ export function PersonDetailTabs({
   activeTab,
   onTabChange,
   injectedTabs = [],
+  hiddenTabIds = [],
   activitiesCount = 0,
   dealsCount = 0,
   companiesCount = 0,
@@ -129,16 +133,16 @@ export function PersonDetailTabs({
     [t, activitiesCount, dealsCount, companiesCount, addressesCount, tasksCount, filesCount],
   )
 
-  const allTabs: TabDef[] = React.useMemo(
-    () => [
+  const allTabs: TabDef[] = React.useMemo(() => {
+    const hidden = new Set(hiddenTabIds)
+    return [
       ...builtInTabs,
       ...injectedTabs.map((tab) => ({
         id: tab.id as PersonTabId,
         label: tab.label,
       })),
-    ],
-    [builtInTabs, injectedTabs],
-  )
+    ].filter((tab) => !hidden.has(tab.id))
+  }, [builtInTabs, hiddenTabIds, injectedTabs])
 
   return (
     <div>
