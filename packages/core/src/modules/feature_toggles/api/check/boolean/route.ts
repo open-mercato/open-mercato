@@ -18,21 +18,6 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: 'Missing required parameter: identifier' }, { status: 400 })
     }
 
-    if (auth.isSuperAdmin === true) {
-        return NextResponse.json({
-            ok: true,
-            value: true,
-            resolution: {
-                valueType: "boolean",
-                value: true,
-                source: "override",
-                toggleId: "superadmin",
-                identifier,
-                tenantId: "superadmin"
-            }
-        })
-    }
-
     const container = await createRequestContainer()
     const { scope } = await resolveFeatureCheckContext({
         container,

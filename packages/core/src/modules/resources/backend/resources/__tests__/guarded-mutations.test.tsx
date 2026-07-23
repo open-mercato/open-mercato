@@ -462,7 +462,10 @@ it('wraps resource notes and activities adapter writes in the guarded mutation p
   fireEvent.click(await screen.findByTestId('note-update'))
   fireEvent.click(await screen.findByTestId('note-delete'))
 
-  fireEvent.click(screen.getByRole('button', { name: 'Activities' }))
+  const activitiesTab = screen.getByRole('tab', { name: 'Activities' })
+  expect(activitiesTab).toHaveAttribute('data-slot', 'tabs-trigger')
+  expect(activitiesTab).toHaveAttribute('data-variant', 'underline')
+  fireEvent.click(activitiesTab)
   fireEvent.click(await screen.findByTestId('activity-create'))
   fireEvent.click(await screen.findByTestId('activity-update'))
   fireEvent.click(await screen.findByTestId('activity-delete'))

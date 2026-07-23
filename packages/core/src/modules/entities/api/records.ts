@@ -8,6 +8,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { resolveOrganizationScope, getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { setRecordCustomFields } from '../lib/helpers'
 import { CustomFieldValue } from '../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -131,10 +132,7 @@ export async function GET(req: Request) {
   const sortDir = (url.searchParams.get('sortDir') || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc'
   const withDeleted = parseBooleanWithDefault(url.searchParams.get('withDeleted'), false)
   const searchTerm = (url.searchParams.get('search') || '').trim()
-  const searchFields = (url.searchParams.get('searchFields') || '')
-    .split(',')
-    .map((field) => field.trim())
-    .filter(Boolean)
+  const searchFields = parseCommaSeparatedList(url.searchParams.get('searchFields'))
 
   const qpEntries: Array<[string, string]> = []
   for (const [key, val] of url.searchParams.entries()) {
@@ -191,11 +189,11 @@ export async function GET(req: Request) {
       if (key.startsWith('cf_')) {
         if (key.endsWith('In')) {
           const base = key.slice(0, -2)
-          const values = val.split(',').map((s) => s.trim()).filter(Boolean)
+          const values = parseCommaSeparatedList(val)
           ;(filtersObj as any)[base] = { $in: values }
         } else {
           if (val.includes(',')) {
-            const values = val.split(',').map((s) => s.trim()).filter(Boolean)
+            const values = parseCommaSeparatedList(val)
             ;(filtersObj as any)[key] = { $in: values }
           } else {
             const parsed = parseBooleanToken(val)
@@ -204,7 +202,7 @@ export async function GET(req: Request) {
         }
       } else if (allowAnyKey) {
         if (val.includes(',')) {
-          const values = val.split(',').map((s) => s.trim()).filter(Boolean)
+          const values = parseCommaSeparatedList(val)
           ;(filtersObj as any)[key] = { $in: values }
         } else {
           const parsed = parseBooleanToken(val)
