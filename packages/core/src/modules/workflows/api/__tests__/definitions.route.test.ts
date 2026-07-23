@@ -12,6 +12,9 @@ import {
   DELETE as deleteDefinition,
 } from '../definitions/[id]/route'
 import { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
+import { registerCodeWorkflows, clearCodeWorkflowRegistry } from '../../lib/code-registry'
+import { codeWorkflowUuid } from '../../lib/find-definition'
+import { workflowsConfig } from '../../workflows'
 
 // Mock dependencies
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -501,6 +504,29 @@ describe('Workflow Definitions API', () => {
       const response = await getDefinition(request, { params: Promise.resolve({ id: 'non-existent' }) })
 
       expect(response.status).toBe(404)
+    })
+
+    test('should resolve the synthetic code-definition UUID stored on instances', async () => {
+      // Instances of unpersisted code workflows carry codeWorkflowUuid(workflowId)
+      // as definitionId; looking that raw UUID up must hit the code registry
+      // instead of returning 404 (issue #4323).
+      mockEm.findOne.mockResolvedValue(null)
+      const codeDef = workflowsConfig.workflows[0]
+      registerCodeWorkflows([codeDef])
+
+      try {
+        const syntheticId = codeWorkflowUuid(codeDef.workflowId)
+        const request = new NextRequest(`http://localhost/api/workflows/definitions/${syntheticId}`)
+        const response = await getDefinition(request, { params: Promise.resolve({ id: syntheticId }) })
+        const data = await response.json()
+
+        expect(response.status).toBe(200)
+        expect(data.data.id).toBe(`code:${codeDef.workflowId}`)
+        expect(data.data.workflowId).toBe(codeDef.workflowId)
+        expect(data.data.isCodeBased).toBe(true)
+      } finally {
+        clearCodeWorkflowRegistry()
+      }
     })
 
     test('should enforce tenant isolation', async () => {
