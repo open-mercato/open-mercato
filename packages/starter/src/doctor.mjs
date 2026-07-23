@@ -313,6 +313,60 @@ export function checkClonePath(repoRoot) {
   })
 }
 
+function normalizeWindowsPath(value) {
+  return String(value ?? '').trim().replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+}
+
+export function defenderExclusionCovers(repoRoot, exclusionPaths) {
+  const repo = normalizeWindowsPath(repoRoot)
+  if (!repo) return false
+  return (exclusionPaths ?? []).some((entry) => {
+    const exclusion = normalizeWindowsPath(entry)
+    if (!exclusion) return false
+    return repo === exclusion || repo.startsWith(`${exclusion}\\`)
+  })
+}
+
+// EPERM renames during compilation and slow installs are almost always
+// Defender's real-time scan holding a handle on freshly written files. The
+// bootstrap only adds an exclusion when it can elevate, so audit it here.
+// Non-admin sessions may see exclusions redacted ("N/A: Must be an
+// administrator…") — surfaced as an unverifiable warn, not a pass.
+export function checkDefenderExclusion(repoRoot) {
+  if (process.platform !== 'win32') return null
+  const script =
+    "$ErrorActionPreference='Stop'; try { $status = Get-MpComputerStatus; $prefs = Get-MpPreference; @{ rtp = [bool]$status.RealTimeProtectionEnabled; exclusions = @($prefs.ExclusionPath | ForEach-Object { [string]$_ }) } | ConvertTo-Json -Compress } catch { exit 1 }"
+  const output = commandOutput('powershell', ['-NoProfile', '-NonInteractive', '-Command', script])
+  if (!output) return null
+  let parsed
+  try {
+    parsed = JSON.parse(output.trim())
+  } catch {
+    return null
+  }
+  if (!parsed.rtp) {
+    return result('defender', 'Microsoft Defender', 'pass', 'real-time protection is off (or another security product manages this device)')
+  }
+  const exclusions = Array.isArray(parsed.exclusions) ? parsed.exclusions : []
+  if (defenderExclusionCovers(repoRoot, exclusions)) {
+    return result('defender', 'Microsoft Defender', 'pass', 'repo is excluded from real-time scanning')
+  }
+  const addCommand = `Add-MpPreference -ExclusionPath '${repoRoot.replace(/'/g, "''")}'`
+  const redacted = exclusions.some((entry) => /administrator/i.test(String(entry)))
+  return result(
+    'defender',
+    'Microsoft Defender',
+    'warn',
+    redacted
+      ? 'real-time protection is on and the exclusion list is hidden from non-admins — cannot verify this repo is excluded (unexcluded checkouts hit EPERM renames during builds and slow installs)'
+      : 'real-time protection is on with no exclusion for this repo — the scanner locks freshly written build output mid-rename (EPERM) and slows installs',
+    {
+      guide: [`Exclude the repo (elevated PowerShell): ${addCommand}`],
+      it: [`Microsoft Defender exclusion for the dev checkout:  ${addCommand}`],
+    },
+  )
+}
+
 // Verifies a container can reach a host port through host.docker.internal —
 // the linchpin of the hybrid topology (OpenCode container -> host MCP). Two
 // probes: (1) with the same extra_hosts pin compose.infra.yml uses (unless
@@ -387,6 +441,7 @@ export async function runDoctor(repoRoot, { company = null, stackRunning = false
     await checkTlsInterception(repoRoot),
     await checkPorts(repoRoot, { stackRunning }),
     checkClonePath(repoRoot),
+    checkDefenderExclusion(repoRoot),
   ]
   if (includeContainerProbe) checks.push(checkContainerToHost(repoRoot, { mcpPort: ports.mcp }))
   for (const custom of company?.checks ?? []) {

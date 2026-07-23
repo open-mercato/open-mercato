@@ -415,7 +415,7 @@ export const envFilesStep = {
     return { ok: false, detail: 'converging (never overwrites existing values)' }
   },
   async apply(ctx) {
-    ensureEnvFiles(ctx.repoRoot, { log: (line) => ctx.log(`   ${line}`), warn: (line) => ctx.log(`   ⚠️ ${line}`), extraDefaults: ctx.company.env, mode: ctx.mode })
+    ensureEnvFiles(ctx.repoRoot, { log: (line) => ctx.log(`   ${line}`), warn: (line) => ctx.log(`   ⚠️ ${line}`), extraDefaults: ctx.company.env })
   },
 }
 
