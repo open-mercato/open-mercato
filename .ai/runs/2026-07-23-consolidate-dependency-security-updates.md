@@ -48,6 +48,6 @@ Goal: consolidate the dependency fixes proposed by PRs #4344, #4345, and #4346 i
 
 ### Phase 2: Verify and publish
 
-- [ ] 2.1 Run validation and compatibility reviews
+- [x] 2.1 Run validation and compatibility reviews — dbf790b9b
 - [ ] 2.2 Open, label, and auto-review the consolidated PR
 - [ ] 2.3 Close superseded PRs 4344 through 4346
