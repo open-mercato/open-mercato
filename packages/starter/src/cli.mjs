@@ -22,6 +22,7 @@ import path from 'node:path'
 import readline from 'node:readline'
 
 import { detectDocker, resolveRepoRoot, runCompose, runStreamingSync, spawnStreaming } from './compose.mjs'
+import { readEnvValue } from './env-file.mjs'
 import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUrls } from './constants.mjs'
 import { loadCompanyConfig } from './company.mjs'
 import { printDoctorReport, runDoctor } from './doctor.mjs'
@@ -187,7 +188,7 @@ async function commandUp(flags) {
   console.log(`  App:      ${color.cyan(urls.app)}   ${color.dim('(login page appears once the app finishes booting)')}`)
   console.log(`  MCP:      ${color.cyan(urls.mcp)}`)
   console.log(`  OpenCode: ${color.cyan(`http://127.0.0.1:${ports.opencode}`)}`)
-  console.log(color.dim('  Superadmin credentials: OM_INIT_SUPERADMIN_EMAIL / OM_INIT_SUPERADMIN_PASSWORD in .env'))
+  console.log(color.dim(`  Superadmin sign-in: ${readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_EMAIL')?.trim() || 'superadmin@acme.com'} / ${readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD')?.trim() || 'secret'}`))
   console.log(color.dim('  Stop: Ctrl+C (infra containers keep running; `stop` shuts everything down)'))
   console.log('')
 
@@ -242,7 +243,9 @@ async function commandUpDocker(ctx, flags) {
   }
   console.log('')
   console.log(color.bold(color.green('Stack is up.')))
-  console.log(`  App:      ${color.cyan(urls.app)}  ${color.dim('(superadmin credentials: OM_INIT_SUPERADMIN_EMAIL / _PASSWORD in .env)')}`)
+  const superEmail = readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_EMAIL')?.trim() || 'superadmin@acme.com'
+  const superPassword = readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD')?.trim() || 'secret'
+  console.log(`  App:      ${color.cyan(urls.app)}  ${color.dim(`(sign in: ${superEmail} / ${superPassword})`)}`)
   console.log(`  OpenCode: ${color.cyan(`http://127.0.0.1:${ports.opencode}`)}`)
   console.log(color.dim('  Manage it with the stop / status / logs subcommands.'))
 }
@@ -295,12 +298,24 @@ async function commandReset(flags) {
     console.log('Aborted.')
     return
   }
+  // Kept env files can disagree with the recreated database (a stale
+  // POSTGRES_PASSWORD / DATABASE_URL from a previous volume), but they also
+  // hold the pasted LLM provider API key — so removal stays an explicit
+  // opt-in and --yes alone never deletes them.
+  const removeEnvFiles = flags.yes
+    ? false
+    : await confirm('Also remove the generated env files (.env, apps/mercato/.env)? They are regenerated with dev defaults on the next run, but the saved LLM API key goes with them.', flags)
   await stopDetached(repoRoot)
   const docker = detectDocker()
   if (docker.ok) {
     runCompose(repoRoot, ['down', '--volumes'], { composeFile: mode === 'docker' ? FULLAPP_DEV_COMPOSE_FILE : undefined })
   }
   fs.rmSync(path.join(repoRoot, STARTER_STATE_DIR), { recursive: true, force: true })
+  if (removeEnvFiles) {
+    fs.rmSync(path.join(repoRoot, '.env'), { force: true })
+    fs.rmSync(path.join(repoRoot, 'apps', 'mercato', '.env'), { force: true })
+    console.log('   removed .env and apps/mercato/.env')
+  }
   console.log('✅ Reset complete. Run the starter again for a fresh environment.')
 }
 

@@ -12,8 +12,8 @@ import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
 import { StepBlocked, buildToolchainStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
-import { ensureEnvFiles, postgresVolumeName } from '../env-setup.mjs'
-import { checkBuildToolchain } from '../doctor.mjs'
+import { ensureEnvFiles } from '../env-setup.mjs'
+import { checkBuildToolchain, defenderExclusionCovers } from '../doctor.mjs'
 
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -359,11 +359,13 @@ test('buildToolchainStep warns instead of blocking when the workspace install al
   await assert.rejects(() => buildToolchainStep.check(ctx), (error) => error instanceof StepBlocked)
 })
 
-test('postgresVolumeName picks the volume the current mode actually mounts', () => {
-  assert.equal(postgresVolumeName('hybrid'), 'mercato-postgres-data')
-  assert.equal(postgresVolumeName('hybrid', 'staging'), 'mercato-postgres-data')
-  assert.equal(postgresVolumeName('docker'), 'mercato-postgres-data-local')
-  assert.equal(postgresVolumeName('docker', 'staging'), 'mercato-postgres-data-staging')
+test('defenderExclusionCovers matches the repo or an ancestor, case-insensitively', () => {
+  assert.equal(defenderExclusionCovers('C:\\dev\\open-mercato', ['C:\\dev']), true)
+  assert.equal(defenderExclusionCovers('C:\\dev\\open-mercato', ['c:\\DEV\\open-mercato\\']), true)
+  assert.equal(defenderExclusionCovers('C:\\dev\\open-mercato', ['C:/dev/open-mercato']), true)
+  assert.equal(defenderExclusionCovers('C:\\dev\\open-mercato', ['C:\\dev\\open']), false)
+  assert.equal(defenderExclusionCovers('C:\\dev\\open-mercato', ['D:\\other', null, '']), false)
+  assert.equal(defenderExclusionCovers('C:\\dev\\open-mercato', []), false)
 })
 
 function makeFakeAppRepo() {
@@ -376,29 +378,30 @@ function makeFakeAppRepo() {
   return repo
 }
 
-test('ensureEnvFiles generates postgres credentials on a fresh machine and threads them into DATABASE_URL', () => {
+test('ensureEnvFiles writes the documented dev credentials and threads them into DATABASE_URL', () => {
   const repo = makeFakeAppRepo()
-  ensureEnvFiles(repo, { log: () => {}, warn: () => {}, postgresVolumeExistsImpl: () => false })
-  const password = readEnvValue(path.join(repo, '.env'), 'POSTGRES_PASSWORD')
-  assert.ok(password)
-  assert.equal(
-    readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL'),
-    `postgres://postgres:${password}@127.0.0.1:5432/open-mercato`,
-  )
-})
-
-test('ensureEnvFiles keeps compose defaults for an existing volume but still writes a 127.0.0.1 DATABASE_URL', () => {
-  const repo = makeFakeAppRepo()
-  const warnings = []
-  ensureEnvFiles(repo, { log: () => {}, warn: (line) => warnings.push(line), postgresVolumeExistsImpl: () => true })
-  assert.equal(readEnvValue(path.join(repo, '.env'), 'POSTGRES_PASSWORD'), null)
-  // The .env.example default says localhost, which breaks on Windows (::1);
-  // the rewrite must not depend on a password having been generated.
+  ensureEnvFiles(repo, { log: () => {}, warn: () => {} })
+  assert.equal(readEnvValue(path.join(repo, '.env'), 'POSTGRES_PASSWORD'), 'postgres')
+  assert.equal(readEnvValue(path.join(repo, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'), 'secret')
+  assert.equal(readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'), 'secret')
+  // The .env.example default says localhost, which breaks on Windows (::1).
   assert.equal(
     readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL'),
     'postgres://postgres:postgres@127.0.0.1:5432/open-mercato',
   )
-  assert.ok(warnings.some((line) => line.includes('mercato-postgres-data')))
+})
+
+test('ensureEnvFiles never overwrites credentials already present in .env', () => {
+  const repo = makeFakeAppRepo()
+  fs.writeFileSync(path.join(repo, '.env'), 'POSTGRES_PASSWORD=custom-pass\nOM_INIT_SUPERADMIN_PASSWORD=custom-admin\n')
+  ensureEnvFiles(repo, { log: () => {}, warn: () => {} })
+  assert.equal(readEnvValue(path.join(repo, '.env'), 'POSTGRES_PASSWORD'), 'custom-pass')
+  assert.equal(readEnvValue(path.join(repo, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'), 'custom-admin')
+  assert.equal(readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'), 'custom-admin')
+  assert.equal(
+    readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL'),
+    'postgres://postgres:custom-pass@127.0.0.1:5432/open-mercato',
+  )
 })
 
 test('probePostgresCredentials probes the container IP (not loopback) and classifies password mismatches', () => {
