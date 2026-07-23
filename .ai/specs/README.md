@@ -105,6 +105,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Bulk-Import Side-Effect Suppression](2026-07-08-bulk-import-side-effect-suppression.md) | 2026-07-08 | Bulk-Import Side-Effect Suppression | Opt-in `ctx.bulkImport` flag lets a backfill defer per-record reindex/events/notifications (rebuilt in one batched pass); concurrency-safe via parameter threading, no shared engine state |
 | [Scoped Staff Member Directory](2026-07-15-staff-member-directory.md) | 2026-07-15 | Scoped Staff Member Directory | Narrow optional-module DI contract for resolving active, tenant- and organization-scoped staff scheduling references from trusted user IDs |
 | [Stable Workflow Activity Outputs](2026-07-20-stable-workflow-activity-outputs.md) | 2026-07-20 | Stable Workflow Activity Outputs | Additive `activities.<activityId>` result addressing across synchronous and asynchronous workflow activities |
+| [Backend Route Collision Guard](2026-07-23-backend-route-collision-guard.md) | 2026-07-23 | Backend Route Collision Guard | Build-time `mercato generate` guard that fails loud when two modules emit the same backend page URL (folder-derived), mirroring the duplicate-command-id guard; route overrides unaffected |
 
 ### Implemented Specifications
 
