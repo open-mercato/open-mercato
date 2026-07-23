@@ -5,6 +5,9 @@ import type { IntegrationLogService } from '@open-mercato/core/modules/integrati
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { claimWebhookProcessing, releaseWebhookClaim } from '@open-mercato/core/modules/payment_gateways/lib/webhook-utils'
 import { mapWebhookEventToStatus, mapStripeStatus } from '../lib/status-map'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('gateway_stripe').child({ component: 'webhook-processor' })
 
 type WebhookJobPayload = {
   providerKey: string
@@ -39,8 +42,9 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
   const paymentGatewayService = ctx.resolve<PaymentGatewayService>('paymentGatewayService')
   const integrationLogService = ctx.resolve<IntegrationLogService>('integrationLogService')
   const event = job.payload.event
+  // Scope MUST come from the trusted enqueuer (a signature-verified transaction), never from
+  // attacker-controlled `event.data.metadata` — that fallback was the cross-tenant-write vector.
   const scope = job.payload.scope ?? null
-  if (!scope) return
 
   try {
     let transaction = job.payload.transactionId && scope
@@ -84,18 +88,26 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Stripe webhook processing failed'
-    await releaseWebhookClaim(em, event.idempotencyKey, 'stripe', scope)
-    await integrationLogService.write({
-      integrationId: 'gateway_stripe',
-      level: 'error',
-      message: 'Stripe webhook processing failed',
-      code: 'stripe_webhook_processing_failed',
-      payload: {
-        error: message,
+    if (scope) {
+      await releaseWebhookClaim(em, event.idempotencyKey, 'stripe', scope)
+      await integrationLogService.write({
+        integrationId: 'gateway_stripe',
+        level: 'error',
+        message: 'Stripe webhook processing failed',
+        code: 'stripe_webhook_processing_failed',
+        payload: {
+          error: message,
+          eventType: event.eventType,
+          transactionId: job.payload.transactionId ?? null,
+        },
+      }, scope)
+    } else {
+      logger.error('Stripe webhook processing failed', {
         eventType: event.eventType,
         transactionId: job.payload.transactionId ?? null,
-      },
-    }, scope)
+        err: error,
+      })
+    }
     throw error
   }
 }

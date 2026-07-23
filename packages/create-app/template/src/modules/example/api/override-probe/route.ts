@@ -3,6 +3,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { exampleTag } from '../openapi'
 
 export const metadata = {
+  // Test-only public probe: do not copy `requireAuth: false` to data-bearing routes.
   GET: { requireAuth: false },
 }
 
@@ -35,4 +36,3 @@ export const openApi: OpenApiRouteDoc = {
     },
   },
 }
-

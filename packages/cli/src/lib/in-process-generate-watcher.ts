@@ -1,15 +1,16 @@
 /**
  * In-process generate watcher.
  *
- * Polls a structural-fingerprint function on a configurable interval and
- * invokes the supplied generator callback whenever the fingerprint changes.
+ * Coalesces filesystem events on a configurable interval, then verifies them
+ * with the existing structural fingerprint before invoking the generator.
+ * If filesystem watching is unavailable, it falls back to fingerprint polling.
  * The polling loop is identical to the legacy standalone watcher; the only
  * difference is that it now runs inside whatever process calls it
  * (typically `mercato server dev`), so the dev runtime no longer needs a
  * sidecar `mercato generate watch` Node process.
  *
- * Contract preserved 1:1 with the prior standalone watcher:
- *   - Default poll interval 1000 ms (minimum 250 ms).
+ * Contract preserved from the prior standalone watcher:
+ *   - Default debounce/fallback poll interval 1000 ms (minimum 250 ms).
  *   - One initial generator run unless `skipInitial` is true.
  *   - Concurrent regeneration requests are coalesced (running + pending).
  *   - Generator errors are logged but never crash the watcher.
@@ -18,12 +19,25 @@
 
 export type GenerateWatcherLogger = Pick<Console, 'log' | 'error'>
 
+export type GenerateWatcherChangeSignal = {
+  /** Monotonic event generation. Changes indicate that a checksum may be stale. */
+  currentVersion(): number
+  /** Refresh filesystem subscriptions after module configuration changes. */
+  refresh(): Promise<void> | void
+  /** When true, preserve the legacy full-checksum-on-every-poll behavior. */
+  usesPollingFallback(): boolean
+  /** Close filesystem subscriptions. Idempotent. */
+  close(): Promise<void> | void
+}
+
 export type GenerateWatcherOptions = {
   /**
    * Function that returns the current structural fingerprint of the module
    * tree. The watcher re-runs `runGenerators` whenever this value changes.
    */
   computeStructureChecksum: () => Promise<string> | string
+  /** Optional event signal that avoids full checksum work during idle polls. */
+  changeSignal?: GenerateWatcherChangeSignal
   /**
    * Function that performs the actual regeneration work. Called once on
    * startup (unless `skipInitial`) and again whenever the checksum changes.
@@ -69,13 +83,14 @@ export function startInProcessGenerateWatcher(
   const quiet = options.quiet === true
   const pollMs = resolvePollMs(options.pollMs)
   const skipInitial = options.skipInitial === true
-  const { computeStructureChecksum, runGenerators } = options
+  const { changeSignal, computeStructureChecksum, runGenerators } = options
 
   let stopping = false
   let pollTimer: ReturnType<typeof setTimeout> | null = null
   let running = false
   let pendingReason: string | null = null
   let previousChecksum = ''
+  let observedChangeVersion = -1
   let doneResolve: (() => void) | null = null
   const done = new Promise<void>((resolve) => {
     doneResolve = resolve
@@ -114,7 +129,17 @@ export function startInProcessGenerateWatcher(
       void (async () => {
         if (stopping) return
         try {
+          const changeVersion = changeSignal?.currentVersion() ?? 0
+          if (
+            changeSignal
+            && !changeSignal.usesPollingFallback()
+            && changeVersion === observedChangeVersion
+          ) {
+            return
+          }
           const nextChecksum = await computeStructureChecksum()
+          observedChangeVersion = changeVersion
+          await changeSignal?.refresh()
           if (nextChecksum !== previousChecksum) {
             previousChecksum = nextChecksum
             await runOnce('structure change')
@@ -132,15 +157,18 @@ export function startInProcessGenerateWatcher(
 
   void (async () => {
     try {
+      await changeSignal?.refresh()
+      const initialChangeVersion = changeSignal?.currentVersion() ?? 0
       if (!skipInitial) {
         await runOnce('initial')
       }
       previousChecksum = await computeStructureChecksum()
+      observedChangeVersion = initialChangeVersion
       if (!quiet) {
         if (skipInitial) {
           logger.log('[generate:watch] Skipping initial regeneration and watching the current generated state.')
         }
-        logger.log(`[generate:watch] Watching structural module files every ${pollMs}ms (in-process).`)
+        logger.log(`[generate:watch] Watching structural module files with a ${pollMs}ms debounce (in-process).`)
       }
       scheduleNext()
     } catch (error) {
@@ -162,6 +190,7 @@ export function startInProcessGenerateWatcher(
       clearTimeout(pollTimer)
       pollTimer = null
     }
+    await changeSignal?.close()
     if (doneResolve) {
       doneResolve()
       doneResolve = null

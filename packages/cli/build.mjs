@@ -36,10 +36,11 @@ await buildPackage(packageDir, {
     mkdirSync(guidesDestDir, { recursive: true })
 
     // Clean stale per-module artifacts before regenerating so an incremental dist never
-    // retains a removed module's full guide or fact-sheet — a removed `core.<module>.md`
-    // (two-dot, per-module) must come back as a redirect stub, not linger as a full guide.
-    // Mirrors packages/create-app/build.mjs; the conceptual `module-system.md` and the
-    // single-dot package guides are re-copied/re-discovered below.
+    // retains a removed module's full guide or fact-sheet. The legacy `core.<module>.md`
+    // redirect stubs are no longer emitted (#3754); this purge also deletes any that linger
+    // in an incremental `dist/` from an older build. Mirrors packages/create-app/build.mjs;
+    // the conceptual `module-system.md` and the single-dot package guides are
+    // re-copied/re-discovered below.
     rmSync(join(guidesDestDir, 'modules'), { recursive: true, force: true })
     for (const entry of readdirSync(guidesDestDir)) {
       if (/^core\..+\.md$/.test(entry)) {
@@ -76,7 +77,7 @@ await buildPackage(packageDir, {
     // `mercato agentic:init` bundles the same guides as a create-mercato-app scaffold
     // (packages/create-app/build.mjs). Discovery goes through the resolver, never a
     // hardcoded packages/* path (.ai/lessons.md §161-169).
-    const { extractAllModuleFacts, renderModuleFactsJson, MODULE_FACTS_ALLOWLIST } = await import(
+    const { extractAllModuleFacts, renderModuleFactsJson } = await import(
       pathToFileURL(join(outdir, 'lib', 'generators', 'module-facts.js')).href
     )
     const { discoverPackageModuleSources } = await import(
@@ -109,30 +110,6 @@ await buildPackage(packageDir, {
 
       for (const warning of warnings) console.warn(warning)
       console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic/guides/modules/`)
-
-      // BC bridge (spec §7 generated-file contract): the legacy hand-written guides
-      // existed only for the historical allowlisted modules, so redirect stubs are
-      // emitted for that set alone — never for auto-discovered modules that never had a
-      // `core.<module>.md`. Fresh scaffolds never link these names; they exist only for
-      // apps upgrading in place.
-      const bundled = new Set(Object.keys(markdownByModule))
-      let stubsWritten = 0
-      for (const moduleId of MODULE_FACTS_ALLOWLIST) {
-        if (!bundled.has(moduleId)) continue
-        const legacyGuidePath = join(guidesDestDir, `core.${moduleId}.md`)
-        if (!existsSync(legacyGuidePath)) {
-          writeFileSync(
-            legacyGuidePath,
-            `# core.${moduleId} — moved\n\n` +
-              `> This guide has moved. See [\`modules/${moduleId}.md\`](modules/${moduleId}.md) for the generated ` +
-              `\`${moduleId}\` fact-sheet, and [\`module-system.md\`](module-system.md) for conceptual module guidance.\n`,
-          )
-          stubsWritten++
-        }
-      }
-      if (stubsWritten > 0) {
-        console.log(`Wrote ${stubsWritten} legacy core.<module>.md redirect stubs → dist/agentic/guides/`)
-      }
     } else {
       console.warn('[module-facts] no package modules discovered; skipping fact-sheet generation')
     }
