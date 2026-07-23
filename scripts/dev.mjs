@@ -1,4 +1,5 @@
 import { createServer } from 'node:http'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import spawn from 'cross-spawn'
@@ -1850,8 +1851,9 @@ async function provisionMcpApiKey() {
 
     if (resolveChildExitCode(result) === 0) {
       if (isKeyRotationOutput(capturedLines)) {
-        const rotationHint = 'MCP API key rotated — restart the OpenCode container to pick it up'
-        console.warn(`🔑 ${rotationHint} (docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode)`)
+        opencodeKeyRefreshNeeded = true
+        const rotationHint = 'MCP API key rotated — OpenCode restarts automatically once the MCP server is up'
+        console.log(`🔑 ${rotationHint}`)
         updateSplashState({ activity: rotationHint })
       }
       return true
@@ -1895,19 +1897,58 @@ async function waitForMcpHealthy() {
   return false
 }
 
-async function checkOpencodeMcpWiring() {
+async function fetchOpencodeMcpStatus() {
   const baseUrl = (process.env.OPENCODE_URL?.trim() || 'http://localhost:4096').replace(/\/+$/, '')
   try {
     const response = await fetch(`${baseUrl}/mcp`, { signal: AbortSignal.timeout(3000) })
-    if (!response.ok) return
+    if (!response.ok) return null
     const body = await response.json().catch(() => null)
     const status = body?.['open-mercato']?.status
-    if (typeof status === 'string' && status !== 'connected') {
-      console.warn('⚠️ OpenCode is running but not connected to the MCP server (it may hold a stale key).')
-      console.warn('   ↳ restart it with: docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode')
-    }
+    return typeof status === 'string' ? status : null
   } catch {
-    // OpenCode container not running — a legitimate state, stay silent.
+    // OpenCode container not running (or mid-restart) — a legitimate state.
+    return null
+  }
+}
+
+// The OpenCode entrypoint reads the MCP key ONCE at container start. When the
+// key appears or rotates after that (headerless start on a slow first run, a
+// reseeded database), the container holds a stale binding until restarted —
+// do it automatically, once per dev session so a broken hop can't loop it.
+let opencodeKeyRefreshNeeded = false
+let opencodeRestartAttempted = false
+
+function restartOpencodeContainer(reason) {
+  if (opencodeRestartAttempted || shuttingDown) return false
+  opencodeRestartAttempted = true
+  const running = spawnSync('docker', ['ps', '--format', '{{.Names}}'], { encoding: 'utf8' })
+  const names = running.error || running.status !== 0 ? [] : String(running.stdout ?? '').split('\n').map((line) => line.trim())
+  if (!names.includes('mercato-opencode')) return false
+  console.log(`🔄 ${reason} — restarting the OpenCode container to pick up the fresh MCP key...`)
+  updateSplashState({ activity: 'Restarting OpenCode to pick up the fresh MCP key' })
+  const restart = spawnSync('docker', ['restart', 'mercato-opencode'], { encoding: 'utf8', timeout: 120_000 })
+  if (restart.error || restart.status !== 0) {
+    console.warn('⚠️ Could not restart the OpenCode container automatically.')
+    console.warn('   ↳ restart it manually: docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode')
+    return false
+  }
+  return true
+}
+
+async function checkOpencodeMcpWiring() {
+  const status = await fetchOpencodeMcpStatus()
+  if (status === null || status === 'connected') return
+  if (!restartOpencodeContainer('OpenCode is not connected to the MCP server')) {
+    console.warn('⚠️ OpenCode is running but not connected to the MCP server (it may hold a stale key).')
+    console.warn('   ↳ restart it with: docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode')
+    return
+  }
+  await sleepUnlessShuttingDown(30_000)
+  const rechecked = await fetchOpencodeMcpStatus()
+  if (rechecked === 'connected') {
+    console.log('🔌 OpenCode reconnected to the MCP server.')
+  } else if (rechecked !== null) {
+    console.warn('⚠️ OpenCode is still not connected after a restart — check `docker logs mercato-opencode` and the container→host hop (yarn om doctor).')
   }
 }
 
@@ -1924,11 +1965,17 @@ async function runMcpLifecycle() {
       if (capturedLines.length > 200) capturedLines.shift()
     })
 
-    void waitForMcpHealthy().then((healthy) => {
+    void waitForMcpHealthy().then(async (healthy) => {
       if (!healthy || shuttingDown) return
       const readyMessage = `MCP server ready on http://localhost:${mcpPort}/mcp`
       console.log(`🔌 ${readyMessage}`)
       updateSplashState({ activity: readyMessage })
+      if (opencodeKeyRefreshNeeded) {
+        opencodeKeyRefreshNeeded = false
+        if (restartOpencodeContainer('MCP API key was rotated')) {
+          await sleepUnlessShuttingDown(30_000)
+        }
+      }
       void checkOpencodeMcpWiring()
     })
 

@@ -26,7 +26,7 @@ import { readEnvValue } from './env-file.mjs'
 import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUrls } from './constants.mjs'
 import { loadCompanyConfig } from './company.mjs'
 import { printDoctorReport, runDoctor } from './doctor.mjs'
-import { infraDown, infraUp, ensureMcpSharedDir } from './infra.mjs'
+import { infraDown, infraUp, ensureMcpSharedDir, removeLeftoverComposeResources } from './infra.mjs'
 import { buildUpSteps, clearConvergenceState, createStepContext, ensureOpencodeImage, runSteps, yarnInvocation } from './steps.mjs'
 import { collectStatus, printStatus, readRunState, isPidAlive, startDetached, stopDetached, tailLogs } from './supervise.mjs'
 import { ensureWindowsUtf8Console } from './spawn.mjs'
@@ -308,7 +308,13 @@ async function commandReset(flags) {
   await stopDetached(repoRoot)
   const docker = detectDocker()
   if (docker.ok) {
-    runCompose(repoRoot, ['down', '--volumes'], { composeFile: mode === 'docker' ? FULLAPP_DEV_COMPOSE_FILE : undefined })
+    const composeFile = mode === 'docker' ? FULLAPP_DEV_COMPOSE_FILE : undefined
+    runCompose(repoRoot, ['down', '--volumes'], { composeFile })
+    // down only sees THIS project's resources; fixed-name containers/volumes
+    // created by another checkout of the repo survive it — sweep by name.
+    if (!removeLeftoverComposeResources(repoRoot, { composeFile })) {
+      console.warn('⚠️ Some volumes could not be removed — the next run would reuse the old data. Fix the items above and re-run reset.')
+    }
   }
   fs.rmSync(path.join(repoRoot, STARTER_STATE_DIR), { recursive: true, force: true })
   if (removeEnvFiles) {

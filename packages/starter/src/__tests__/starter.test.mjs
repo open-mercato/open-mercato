@@ -13,6 +13,7 @@ import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
 import { StepBlocked, buildToolchainStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
 import { ensureEnvFiles } from '../env-setup.mjs'
+import { removeLeftoverComposeResources } from '../infra.mjs'
 import { checkBuildToolchain, defenderExclusionCovers } from '../doctor.mjs'
 
 function makeTempDir(prefix) {
@@ -357,6 +358,48 @@ test('buildToolchainStep warns instead of blocking when the workspace install al
   // A pending lockfile change re-arms the hard block.
   fs.writeFileSync(path.join(repo, 'yarn.lock'), 'changed\n')
   await assert.rejects(() => buildToolchainStep.check(ctx), (error) => error instanceof StepBlocked)
+})
+
+test('removeLeftoverComposeResources sweeps fixed-name containers and volumes down cannot see', () => {
+  const calls = []
+  const runComposeImpl = () => ({
+    status: 0,
+    stdout: JSON.stringify({
+      services: { postgres: { container_name: 'mercato-postgres' } },
+      volumes: { postgres_data: { name: 'mercato-postgres-data' } },
+    }),
+  })
+  const runCaptureImpl = (command, args) => {
+    const key = args.join(' ')
+    calls.push(key)
+    if (key === 'ps -a --format {{.Names}}') return { status: 0, stdout: 'mercato-postgres\nunrelated-container\n' }
+    if (key === 'volume ls --format {{.Name}}') return { status: 0, stdout: 'mercato-postgres-data\nunrelated-volume\n' }
+    return { status: 0, stdout: '' }
+  }
+  const clean = removeLeftoverComposeResources('/repo', { runComposeImpl, runCaptureImpl, log: () => {}, warn: () => {} })
+  assert.equal(clean, true)
+  assert.ok(calls.includes('rm -f mercato-postgres'))
+  assert.ok(calls.includes('volume rm mercato-postgres-data'))
+  assert.ok(!calls.some((key) => key.includes('unrelated')))
+})
+
+test('removeLeftoverComposeResources reports in-use volumes with their holders and returns false', () => {
+  const warnings = []
+  const runComposeImpl = () => ({
+    status: 0,
+    stdout: JSON.stringify({ services: {}, volumes: { postgres_data: { name: 'mercato-postgres-data' } } }),
+  })
+  const runCaptureImpl = (command, args) => {
+    const key = args.join(' ')
+    if (key === 'ps -a --format {{.Names}}') return { status: 0, stdout: '' }
+    if (key === 'volume ls --format {{.Name}}') return { status: 0, stdout: 'mercato-postgres-data\n' }
+    if (key === 'volume rm mercato-postgres-data') return { status: 1, stderr: 'volume is in use' }
+    if (key.startsWith('ps -a --filter')) return { status: 0, stdout: 'old-checkout-postgres\n' }
+    return { status: 0, stdout: '' }
+  }
+  const clean = removeLeftoverComposeResources('/repo', { runComposeImpl, runCaptureImpl, log: () => {}, warn: (line) => warnings.push(line) })
+  assert.equal(clean, false)
+  assert.ok(warnings.some((line) => line.includes('old-checkout-postgres')))
 })
 
 test('defenderExclusionCovers matches the repo or an ancestor, case-insensitively', () => {
