@@ -15,6 +15,9 @@ import {
 } from '../openapi'
 import { CatalogOffer } from '@open-mercato/core/modules/catalog/data/entities'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -248,6 +251,6 @@ export async function decorateChannelsWithOfferCounts(
       ;(item as Record<string, unknown>).offerCount = countMap.get(id) ?? 0
     })
   } catch (err) {
-    console.warn('[sales.channels] failed to resolve channel offer counts', err)
+    logger.warn('sales.channels failed to resolve channel offer counts', { err })
   }
 }

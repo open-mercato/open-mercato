@@ -14,7 +14,11 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOllama } from 'ai-sdk-ollama'
 import type { EmbeddingProviderId, EmbeddingProviderConfig } from '../types'
 import { EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG } from '../types'
-import { assertSafeOllamaBaseUrl, UnsafeOllamaBaseUrlError } from '../lib/ollama-url-safety'
+import {
+  assertSafeOllamaBaseUrl,
+  safeOllamaFetch,
+  UnsafeOllamaBaseUrlError,
+} from '../lib/ollama-url-safety'
 
 export type EmbeddingServiceOptions = {
   apiKey?: string
@@ -68,6 +72,15 @@ export class EmbeddingService {
   }
 
   updateConfig(config: EmbeddingProviderConfig): void {
+    if (
+      config.providerId === this.config.providerId &&
+      config.model === this.config.model &&
+      config.dimension === this.config.dimension &&
+      config.outputDimensionality === this.config.outputDimensionality &&
+      config.baseUrl === this.config.baseUrl
+    ) {
+      return
+    }
     this.config = config
     this.clientCache.clear()
   }
@@ -168,7 +181,7 @@ export class EmbeddingService {
           }
           throw err
         }
-        client = createOllama({ baseURL })
+        client = createOllama({ baseURL, fetch: safeOllamaFetch })
         break
       }
       default:

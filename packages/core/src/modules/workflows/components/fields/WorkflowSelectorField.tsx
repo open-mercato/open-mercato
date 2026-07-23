@@ -10,6 +10,9 @@ import { Search, X, Loader2, AlertCircle, Workflow } from 'lucide-react'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { WorkflowSelector, type WorkflowDefinition } from '../WorkflowSelector'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 interface WorkflowSelectorFieldProps extends CrudCustomFieldRenderProps {
   value: string
@@ -90,7 +93,7 @@ export function WorkflowSelectorField({
         })
       }
     } catch (err) {
-      console.error(`Failed to fetch workflow details for ${wfId}:`, err)
+      logger.error('Failed to fetch workflow details', { workflowId: wfId, err })
       setWorkflowDetails({
         workflowId: wfId,
         loading: false,

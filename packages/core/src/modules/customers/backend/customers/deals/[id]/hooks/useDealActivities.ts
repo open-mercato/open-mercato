@@ -3,6 +3,9 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { InteractionSummary } from '../../../../../components/detail/types'
 import { useInteractionMutations } from '../../../../../components/detail/hooks/useInteractionMutations'
 import type { GuardedMutationRunner } from './types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type LoadPlannedActivitiesOptions = {
   cache?: boolean
@@ -55,7 +58,7 @@ export function useDealActivities({
       const items = await fetchPlannedActivities(dealId, options.cache === true)
       setPlannedActivities(items)
     } catch (err) {
-      console.warn('[customers.deals.detail] load planned activities failed', err)
+      logger.warn('load planned activities failed', { component: 'deals.detail', err })
       setPlannedActivities([])
     }
   }, [dealId])

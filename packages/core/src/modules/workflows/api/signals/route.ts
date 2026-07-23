@@ -11,6 +11,9 @@ import {
   sendSignalByCorrelationResponseSchema,
   workflowErrorSchema,
 } from '../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -79,7 +82,7 @@ export async function POST(request: NextRequest) {
       count,
     })
   } catch (error: any) {
-    console.error('Signal error:', error)
+    logger.error('Signal error', { err: error })
     return NextResponse.json(
       { error: error.message || 'Failed to send signal' },
       { status: 500 }

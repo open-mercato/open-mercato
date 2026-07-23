@@ -1,4 +1,7 @@
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 export type ProductSeoValidationPayload = {
   ok: boolean
@@ -30,7 +33,7 @@ export function publishProductSeoValidation(payload: ProductSeoValidationPayload
     try {
       listener(payload)
     } catch (err) {
-      console.error('[product-seo] Failed to notify listener', err)
+      logger.error('product-seo Failed to notify listener', { err })
     }
   })
 }

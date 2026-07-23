@@ -1,10 +1,13 @@
 import type { EntityMetadata, EventArgs, EventSubscriber } from '@mikro-orm/core'
 import { ReferenceKind } from '@mikro-orm/core'
 import { resolveEntityIdFromMetadata } from './entityIds'
-import { TenantDataEncryptionService } from './tenantDataEncryptionService'
+import { TenantDataEncryptionService, parseDecryptedFieldValue } from './tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'encryption' })
 
 type Scoped = {
   tenantId?: string | null
@@ -29,11 +32,21 @@ function resolveScope(entity: Scoped): Scope {
 function debug(event: string, payload: Record<string, unknown>) {
   if (!isEncryptionDebugEnabled()) return
   try {
-    // eslint-disable-next-line no-console
-    console.debug(event, payload)
+    logger.debug(event, payload)
   } catch {
     // ignore
   }
+}
+
+function isJsonColumnProperty(prop: unknown): boolean {
+  if (!prop || typeof prop !== 'object') return false
+  const candidate = prop as Record<string, unknown>
+  const type = typeof candidate.type === 'string' ? candidate.type.toLowerCase() : ''
+  if (type === 'json' || type === 'jsonb') return true
+  const columnTypes = Array.isArray(candidate.columnTypes) ? candidate.columnTypes : []
+  if (columnTypes.some((value) => typeof value === 'string' && value.toLowerCase().includes('json'))) return true
+  const customTypeName = (candidate.customType as { constructor?: { name?: string } } | undefined)?.constructor?.name
+  return typeof customTypeName === 'string' && customTypeName.toLowerCase().includes('json')
 }
 
 const registeredEventManagers = new WeakSet<object>()
@@ -99,6 +112,21 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       return resolveEntityIdFromMetadata(meta)
     } catch {
       return null
+    }
+  }
+
+  private restoreDecryptedJsonColumns(
+    target: Record<string, unknown>,
+    meta: EntityMetadata<any> | undefined,
+  ) {
+    const properties = meta?.properties
+    if (!properties || typeof properties !== 'object') return
+    for (const [propertyName, prop] of Object.entries(properties)) {
+      if (!isJsonColumnProperty(prop)) continue
+      const value = target[propertyName]
+      if (typeof value !== 'string') continue
+      const parsed = parseDecryptedFieldValue(value)
+      if (parsed !== value) target[propertyName] = parsed
     }
   }
 
@@ -308,6 +336,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     const hadPendingChanges = syncOriginal ? this.hasPendingChanges(target, resolvedMeta, em as any) : false
     const decrypted = await this.service.decryptEntityPayload(entityId, target, scopedTenantId, scopedOrgId)
     Object.assign(target, decrypted)
+    this.restoreDecryptedJsonColumns(target, resolvedMeta)
     if (syncOriginal && !hadPendingChanges) {
       this.syncOriginalEntityData(target, resolvedMeta, em as any)
     }

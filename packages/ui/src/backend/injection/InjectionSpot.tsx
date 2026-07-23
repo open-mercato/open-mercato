@@ -18,6 +18,9 @@ import {
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { useBackendChrome } from '../BackendChromeProvider'
 import { getWidgetSharedState } from './WidgetSharedState'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'InjectionSpot' })
 
 export type InjectionSpotProps<TContext = unknown, TData = unknown> = {
   spotId: InjectionSpotId
@@ -186,14 +189,14 @@ export function useInjectionWidgets<TContext = unknown>(
                 await widget.module.eventHandlers.onLoad(widgetContext)
                 onEventRef.current?.('onLoad', widget.widgetId)
               } catch (err) {
-                console.error(`[InjectionSpot] Error in onLoad for widget ${widget.widgetId}:`, err)
+                logger.error('Error in onLoad for widget', { widgetId: widget.widgetId, err })
               }
             }
           }
         }
       } catch (err) {
         if (!mounted) return
-        console.error(`[InjectionSpot] Failed to load widgets for spot ${spotId}:`, err)
+        logger.error('Failed to load widgets for spot', { spotId, err })
         setError(err instanceof Error ? err.message : String(err))
       } finally {
         if (mounted) setLoading(false)
@@ -263,7 +266,7 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
   }
 
   if (effectiveError) {
-    console.error(`[InjectionSpot] Error loading widgets for spot ${spotId}:`, effectiveError)
+    logger.error('Error loading widgets for spot', { spotId, err: effectiveError })
     return null
   }
 
@@ -334,7 +337,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
           )
         )
       } catch (err) {
-        console.error(`[useInjectionSpotEvents] Failed to load widgets for spot ${spotId}:`, err)
+        logger.error('Failed to load widgets for spot', { hook: 'useInjectionSpotEvents', spotId, err })
       }
     }
     load()
@@ -451,7 +454,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
               pipelineData = handlerResult as TData
             }
           } catch (err) {
-            console.error(`[useInjectionSpotEvents] Error in ${event} for widget ${widget.widgetId}:`, err)
+            logger.error('Error in event handler for widget', { hook: 'useInjectionSpotEvents', event, widgetId: widget.widgetId, err })
           }
         }
         return { ok: true, data: pipelineData, applyToForm }
@@ -497,7 +500,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
             if (event === 'onBeforeSave') {
               const normalized = normalizeBeforeSave(result as WidgetBeforeSaveResult)
               if (!normalized.ok) {
-                console.log(`[useInjectionSpotEvents] Widget ${widget.widgetId} prevented ${event}`)
+                logger.info('Widget prevented event', { hook: 'useInjectionSpotEvents', widgetId: widget.widgetId, event })
                 return normalized
               }
               if (normalized.requestHeaders && Object.keys(normalized.requestHeaders).length > 0) {
@@ -508,7 +511,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
             if (event === 'onBeforeDelete') {
               const normalized = normalizeBeforeDelete(result as WidgetBeforeDeleteResult)
               if (!normalized.ok) {
-                console.log(`[useInjectionSpotEvents] Widget ${widget.widgetId} prevented ${event}`)
+                logger.info('Widget prevented event', { hook: 'useInjectionSpotEvents', widgetId: widget.widgetId, event })
                 return normalized
               }
               if (normalized.requestHeaders && Object.keys(normalized.requestHeaders).length > 0) {
@@ -535,7 +538,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
               }
             }
           } catch (err) {
-            console.error(`[useInjectionSpotEvents] Error in ${event} for widget ${widget.widgetId}:`, err)
+            logger.error('Error in event handler for widget', { hook: 'useInjectionSpotEvents', event, widgetId: widget.widgetId, err })
             if (event === 'onBeforeSave' || event === 'onBeforeDelete' || event === 'onBeforeNavigate') {
               const message =
                 err instanceof Error

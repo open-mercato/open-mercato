@@ -14,6 +14,9 @@ import type {
   MfaEnforcementService,
 } from '../../services/MfaEnforcementService'
 import { localizeSecurityApiBody, securityApiError } from '../i18n'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('security').child({ component: 'enforcement' })
 
 type RequestContainer = Awaited<ReturnType<typeof createRequestContainer>>
 type Auth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
@@ -128,7 +131,7 @@ export async function mapEnforcementError(error: unknown): Promise<NextResponse>
   if (isMfaEnforcementServiceError(error)) {
     return securityApiError(error.statusCode, error.message)
   }
-  console.error('security.enforcement.route failure', error)
+  logger.error('Enforcement route failure', { err: error })
   return securityApiError(500, 'Failed to process enforcement request.')
 }
 
