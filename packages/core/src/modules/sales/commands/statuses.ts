@@ -1,6 +1,6 @@
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { registerDictionaryEntryCommands } from '@open-mercato/core/modules/dictionaries/commands/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
   ensureSalesDictionary,
   getSalesDictionaryDefinition,
@@ -70,7 +70,7 @@ function registerStatusDictionaryCommands(kind: SalesDictionaryKind): void {
     resolveEntry: async ({ em, ctx, id }) => {
       const entry = await findOneWithDecryption(em, DictionaryEntry, id, { populate: ['dictionary'] })
       if (!entry) {
-        throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
+        throw notFound('Dictionary entry not found')
       }
       if (entry.dictionary.key !== definition.key) {
         throw new CrudHttpError(400, { error: 'Entry does not belong to this dictionary.' })
