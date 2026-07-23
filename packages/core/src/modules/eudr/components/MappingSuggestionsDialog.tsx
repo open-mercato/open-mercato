@@ -272,11 +272,12 @@ export function MappingSuggestionsDialog({
       const result = call.result ?? { created: 0, failed: [] }
       appliedDuringSessionRef.current = true
       flash(t('eudr.suggestions.applySuccess', { count: result.created }), result.created > 0 ? 'success' : 'warning')
-      setFailures(Array.isArray(result.failed) ? result.failed : [])
-      if (!result.failed.length) {
+      const failures = Array.isArray(result.failed) ? result.failed : []
+      setFailures(failures)
+      if (!failures.length) {
         closeDialog(false)
       } else {
-        setSelectedIds(new Set(result.failed.map((failure) => failure.productId)))
+        setSelectedIds(new Set(failures.map((failure) => failure.productId)))
       }
     } catch {
       flash(t('eudr.suggestions.applyError'), 'error')

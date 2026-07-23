@@ -8,6 +8,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
 import { EudrDueDiligenceStatement, EudrRiskAssessment } from '../../data/entities'
+import { resolveDetailReadScope } from '../../lib/detail-read-scope'
 import {
   EUDR_RISK_CONCLUSIONS,
   EUDR_RISK_TIERS,
@@ -237,8 +238,8 @@ const crud = makeCrudRoute({
       const detailRead = (typeof ctx.query.id === 'string' && ctx.query.id.length > 0)
         || (typeof ctx.query.ids === 'string' && ctx.query.ids.length > 0)
       if (!detailRead) return
-      const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-      if (!tenantId || !organizationId) return
+      const scope = resolveDetailReadScope(ctx)
+      if (!scope) return
       const ids = items
         .map((item) => (item && typeof item === 'object' ? asStringOrNull((item as Record<string, unknown>).id) : null))
         .filter((id): id is string => id !== null)
@@ -247,15 +248,15 @@ const crud = makeCrudRoute({
       const where: FilterQuery<EudrRiskAssessment> = {
         id: { $in: ids },
         deletedAt: null,
-        tenantId,
-        organizationId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationFilter,
       }
       const decrypted = await findWithDecryption(
         em,
         EudrRiskAssessment,
         where,
         {},
-        { tenantId, organizationId },
+        { tenantId: scope.tenantId, organizationId: scope.decryptionOrganizationId },
       )
       const byId = new Map(decrypted.map((assessment) => [assessment.id, assessment]))
       for (const item of items) {

@@ -10,6 +10,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
 import { EudrPlot } from '../../data/entities'
+import { resolveDetailReadScope } from '../../lib/detail-read-scope'
 import {
   EUDR_PLOT_TYPES,
   plotCreateSchema,
@@ -213,9 +214,8 @@ const crud = makeCrudRoute({
       if (!detailRead) return
       const items: unknown[] = Array.isArray(payload?.items) ? payload.items : []
       if (!items.length) return
-      const tenantId = ctx.auth?.tenantId ?? null
-      const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-      if (!tenantId || !organizationId) return
+      const scope = resolveDetailReadScope(ctx)
+      if (!scope) return
       const ids = items
         .map((item) => (item && typeof item === 'object' ? asStringOrNull((item as Record<string, unknown>).id) : null))
         .filter((id): id is string => id !== null)
@@ -224,15 +224,15 @@ const crud = makeCrudRoute({
       const where: FilterQuery<EudrPlot> = {
         id: { $in: ids },
         deletedAt: null,
-        tenantId,
-        organizationId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationFilter,
       }
       const decrypted = await findWithDecryption(
         em,
         EudrPlot,
         where,
         {},
-        { tenantId, organizationId },
+        { tenantId: scope.tenantId, organizationId: scope.decryptionOrganizationId },
       )
       const byId = new Map(decrypted.map((plot) => [plot.id, plot]))
       for (const item of items) {

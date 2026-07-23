@@ -1,5 +1,6 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { z } from 'zod'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
@@ -53,16 +54,18 @@ type ReadinessGap = {
   missingFields: string[]
 }
 
+const logger = createLogger('eudr').child({ component: 'ai-tools/compliance-pack' })
+
 const DAY_MS = 24 * 60 * 60 * 1000
 
-const overviewInput = z.object({}).passthrough()
+const overviewInput = z.object({}).strict()
 
 const listStatementReadinessInput = z
   .object({
     statementId: z.string().uuid().optional(),
     limit: z.coerce.number().int().min(1).max(50).default(10),
   })
-  .passthrough()
+  .strict()
 
 const listEvidenceGapsInput = z
   .object({
@@ -70,14 +73,14 @@ const listEvidenceGapsInput = z
     supplierEntityId: z.string().uuid().optional(),
     limit: z.coerce.number().int().min(1).max(100).default(25),
   })
-  .passthrough()
+  .strict()
 
 const checkProductScopeInput = z
   .object({
     productId: z.string().uuid().optional(),
     hsCode: z.string().trim().min(1).max(20).optional(),
   })
-  .passthrough()
+  .strict()
   .refine((input) => input.productId !== undefined || input.hsCode !== undefined, {
     message: 'Provide productId or hsCode',
   })
@@ -92,10 +95,19 @@ const getCountryRiskInput = z
       .optional(),
     includeLowList: z.boolean().optional(),
   })
-  .passthrough()
+  .strict()
 
 function resolveEm(ctx: EudrToolContext): EntityManager {
   return ctx.container.resolve<EntityManager>('em')
+}
+
+/**
+ * A MikroORM EntityManager is not concurrency-safe: parallel work on one
+ * instance shares its identity map and unit of work. Every branch that runs
+ * inside a `Promise.all` here gets its own fork.
+ */
+function forked(em: EntityManager): EntityManager {
+  return em.fork()
 }
 
 function toIsoString(value: Date | string | null | undefined): string | null {
@@ -137,7 +149,7 @@ function countRowsByStatus<T extends object>(
 ): Promise<Record<string, number>> {
   return Promise.all(
     statuses.map(async (status) => {
-      const count = await em.count(entity, {
+      const count = await forked(em).count(entity, {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         deletedAt: null,
@@ -314,8 +326,11 @@ async function loadCatalogProductById(
       sku: readString(product.sku),
       hsCode: readString(product.hs_code),
     }
-  } catch {
-    return null
+  } catch (err) {
+    // A lookup failure is not the same as "product does not exist"; surface it so
+    // check_product_scope cannot report an absent product on an infra error.
+    logger.warn('catalog product lookup failed', { err })
+    throw err
   }
 }
 
@@ -347,25 +362,25 @@ const getComplianceOverviewTool: EudrAiToolDefinition = {
       missingReference,
       riskReviewsDueSoon,
     ] = await Promise.all([
-      em.count(EudrProductMapping, { ...scope, deletedAt: null, isInScope: true }),
-      em.count(EudrEvidenceSubmission, { ...scope, deletedAt: null }),
+      forked(em).count(EudrProductMapping, { ...scope, deletedAt: null, isInScope: true }),
+      forked(em).count(EudrEvidenceSubmission, { ...scope, deletedAt: null }),
       countRowsByStatus(em, EudrEvidenceSubmission, EUDR_SUBMISSION_STATUSES, scope),
-      fetchAverageCompleteness(em, scope),
-      em.count(EudrEvidenceSubmission, {
+      fetchAverageCompleteness(forked(em), scope),
+      forked(em).count(EudrEvidenceSubmission, {
         ...scope,
         deletedAt: null,
         completenessScore: { $lt: 100 },
       } as FilterQuery<EudrEvidenceSubmission>),
-      em.count(EudrDueDiligenceStatement, { ...scope, deletedAt: null }),
+      forked(em).count(EudrDueDiligenceStatement, { ...scope, deletedAt: null }),
       countRowsByStatus(em, EudrDueDiligenceStatement, EUDR_STATEMENT_STATUSES, scope),
-      em.count(EudrDueDiligenceStatement, { ...scope, deletedAt: null, status: 'draft' }),
-      em.count(EudrDueDiligenceStatement, {
+      forked(em).count(EudrDueDiligenceStatement, { ...scope, deletedAt: null, status: 'draft' }),
+      forked(em).count(EudrDueDiligenceStatement, {
         ...scope,
         deletedAt: null,
         status: { $in: ['submitted', 'available'] },
         referenceNumber: null,
       } as FilterQuery<EudrDueDiligenceStatement>),
-      em.count(EudrRiskAssessment, {
+      forked(em).count(EudrRiskAssessment, {
         ...scope,
         deletedAt: null,
         reviewDueAt: { $gte: now, $lte: reviewWindowEnd },
@@ -445,7 +460,7 @@ const listStatementReadinessTool: EudrAiToolDefinition = {
             ? statement.referencedStatements.length
             : 0,
           submissions: gateSubmissions,
-          latestAssessment: await buildGateAssessment(em, latestAssessment, scope),
+          latestAssessment: await buildGateAssessment(forked(em), latestAssessment, scope),
         })
 
         return {
@@ -569,7 +584,9 @@ const getCountryRiskTool: EudrAiToolDefinition = {
   description:
     'Returns the current EUDR country-risk tier from the module reference data. Use this when the operator asks whether a specific origin country is low, standard, high, or unknown risk, or when they need the compact high-risk list. With country, returns { country, tier }. Without country, returns { high, lowCount, note } and only includes the low-risk list when includeLowList is true.',
   inputSchema: getCountryRiskInput,
-  requiredFeatures: ['eudr.submissions.view'],
+  // Static, law-versioned reference data — no tenant rows are read, so this is
+  // gated on the module's lowest-privilege view feature rather than submissions.
+  requiredFeatures: ['eudr.mappings.view'],
   tags: ['read', 'eudr', 'country-risk', 'reference-data'],
   isMutation: false,
   handler: async (rawInput, ctx) => {

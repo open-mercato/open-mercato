@@ -592,6 +592,8 @@ export function parseGeolocationInput(raw: string, translate: Translator): Recor
   return parsed
 }
 
+let referencedStatementRowKeySeq = 0
+
 function normalizeReferencedStatements(value: unknown): ReferencedStatementValue[] {
   if (!Array.isArray(value)) return []
   return value
@@ -633,7 +635,25 @@ export function ReferencedStatementsField({
     onChange(nextRows)
   }, [onChange, rows])
 
+  // Row identity lives outside the persisted value (which is the API's
+  // [{referenceNumber, verificationNumber?}] contract), so keys are tracked
+  // alongside it. Indexes as keys make React reuse the wrong input when a middle
+  // row is removed, which steals focus from the row that shifts up.
+  const rowKeysRef = React.useRef<string[]>([])
+  if (rowKeysRef.current.length < rows.length) {
+    const nextKeys = [...rowKeysRef.current]
+    while (nextKeys.length < rows.length) {
+      referencedStatementRowKeySeq += 1
+      nextKeys.push(`referenced-statement-${referencedStatementRowKeySeq}`)
+    }
+    rowKeysRef.current = nextKeys
+  } else if (rowKeysRef.current.length > rows.length) {
+    rowKeysRef.current = rowKeysRef.current.slice(0, rows.length)
+  }
+  const rowKeys = rowKeysRef.current
+
   const removeRow = React.useCallback((index: number) => {
+    rowKeysRef.current = rowKeysRef.current.filter((_, keyIndex) => keyIndex !== index)
     onChange(rows.filter((_, rowIndex) => rowIndex !== index))
   }, [onChange, rows])
 
@@ -642,7 +662,7 @@ export function ReferencedStatementsField({
       {rows.length > 0 ? (
         <div className="space-y-2">
           {rows.map((row, index) => (
-            <div key={index} className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+            <div key={rowKeys[index]} className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
               <Input
                 value={row.referenceNumber}
                 disabled={disabled}

@@ -6,12 +6,11 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import {
   Alert,
   AlertTitle,

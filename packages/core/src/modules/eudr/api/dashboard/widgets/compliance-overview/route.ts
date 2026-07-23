@@ -355,7 +355,9 @@ export async function GET(req: Request) {
         ? ctx.em.count(EudrRiskAssessment, {
             ...scope,
             deletedAt: null,
-            reviewDueAt: { $gte: now, $lte: reviewWindowEnd },
+            // Same predicate as fetchReviewsDueQueue: overdue reviews are still
+            // due, so the headline count and the queue list cannot disagree.
+            reviewDueAt: { $ne: null, $lte: reviewWindowEnd },
           } as FilterQuery<EudrRiskAssessment>)
         : Promise.resolve(null),
       canViewSubmissionsQueue ? fetchIncompleteSubmissionsQueue(ctx.em, scope) : Promise.resolve(null),

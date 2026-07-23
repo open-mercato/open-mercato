@@ -6,9 +6,10 @@ import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fi
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
 import { EudrEvidenceSubmission } from '../../data/entities'
+import { resolveDetailReadScope } from '../../lib/detail-read-scope'
 import { computeHarvestCutoffWarning } from '../../lib/completeness'
 import {
   EUDR_COMMODITIES,
@@ -243,34 +244,39 @@ const crud = makeCrudRoute({
   hooks: {
     afterList: async (payload, ctx) => {
       if (typeof ctx.query.id !== 'string' || ctx.query.id.length === 0) return
-      const items = Array.isArray(payload?.items) ? payload.items : []
+      const items: unknown[] = Array.isArray(payload?.items) ? payload.items : []
       if (!items.length) return
+      // Fails closed: without tenant + organization scope the re-fetch is skipped
+      // rather than widened to the whole tenant.
+      const scope = resolveDetailReadScope(ctx)
+      if (!scope) return
+      const ids = items
+        .map((item) => (item && typeof item === 'object' ? asStringOrNull((item as Record<string, unknown>).id) : null))
+        .filter((id): id is string => id !== null)
+      if (!ids.length) return
       const em = ctx.container.resolve('em') as EntityManager
-      const decryptionScope = {
-        tenantId: ctx.auth?.tenantId ?? null,
-        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      const where: FilterQuery<EudrEvidenceSubmission> = {
+        id: { $in: ids },
+        deletedAt: null,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationFilter,
       }
+      const decrypted = await findWithDecryption(
+        em,
+        EudrEvidenceSubmission,
+        where,
+        {},
+        { tenantId: scope.tenantId, organizationId: scope.decryptionOrganizationId },
+      )
+      const byId = new Map(decrypted.map((submission) => [submission.id, submission]))
       for (const item of items) {
         if (!item || typeof item !== 'object') continue
         const record = item as Record<string, unknown>
         const submissionId = asStringOrNull(record.id)
-        if (!submissionId) continue
-        const where: FilterQuery<EudrEvidenceSubmission> = {
-          id: submissionId,
-          deletedAt: null,
-        }
-        if (decryptionScope.tenantId) where.tenantId = decryptionScope.tenantId
-        if (decryptionScope.organizationId) where.organizationId = decryptionScope.organizationId
-        const decrypted = await findOneWithDecryption(
-          em,
-          EudrEvidenceSubmission,
-          where,
-          {},
-          decryptionScope,
-        )
-        if (!decrypted) continue
-        record.producerName = decrypted.producerName ?? null
-        record.notes = decrypted.notes ?? null
+        const submission = submissionId ? byId.get(submissionId) : null
+        if (!submission) continue
+        record.producerName = submission.producerName ?? null
+        record.notes = submission.notes ?? null
       }
     },
   },

@@ -295,7 +295,7 @@ export default function EudrOverviewPage() {
         if (!cancelled) setLoading(false)
       }
     }
-    loadOverview()
+    void loadOverview()
     return () => {
       cancelled = true
     }

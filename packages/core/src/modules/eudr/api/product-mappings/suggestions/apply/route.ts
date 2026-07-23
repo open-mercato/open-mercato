@@ -24,6 +24,8 @@ import { suggestCommodityForHsCode } from '../../../../lib/reference-data'
 
 const logger = createLogger('eudr').child({ component: 'api/product-mappings/suggestions/apply' })
 
+const CATALOG_LOOKUP_PAGE_SIZE = 100
+
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['eudr.mappings.manage'] },
 }
@@ -156,14 +158,24 @@ async function loadCatalogProductInfo(ctx: RequestContext, productIds: string[])
 
   try {
     const queryEngine = ctx.ctx.container.resolve('queryEngine') as QueryEngine
-    const result = await queryEngine.query<CatalogProductRecord>(E.catalog.catalog_product, {
-      fields: ['id', 'title', 'name', 'sku', 'hs_code'],
-      filters: { id: { $in: productIds } },
-      page: { page: 1, pageSize: productIds.length },
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-    })
-    for (const product of result.items) {
+    // `items` and `productIds` are capped at 100 each, so their union can reach
+    // 200 — chunk the lookup to keep every page within the pageSize <= 100 rule.
+    const chunks: string[][] = []
+    for (let index = 0; index < productIds.length; index += CATALOG_LOOKUP_PAGE_SIZE) {
+      chunks.push(productIds.slice(index, index + CATALOG_LOOKUP_PAGE_SIZE))
+    }
+    const products: CatalogProductRecord[] = []
+    for (const chunk of chunks) {
+      const result = await queryEngine.query<CatalogProductRecord>(E.catalog.catalog_product, {
+        fields: ['id', 'title', 'name', 'sku', 'hs_code'],
+        filters: { id: { $in: chunk } },
+        page: { page: 1, pageSize: chunk.length },
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+      })
+      products.push(...result.items)
+    }
+    for (const product of products) {
       const id = readString(product.id)
       if (!id) continue
       info.set(id, {
