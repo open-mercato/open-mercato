@@ -14,7 +14,7 @@ import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
 import { StepBlocked, buildToolchainStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
 import { ensureEnvFiles } from '../env-setup.mjs'
 import { removeLeftoverComposeResources } from '../infra.mjs'
-import { checkBuildToolchain, defenderExclusionCovers } from '../doctor.mjs'
+import { checkBuildToolchain, defenderExclusionCovers, detectHostGateway, hostIpCandidates } from '../doctor.mjs'
 
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -400,6 +400,40 @@ test('removeLeftoverComposeResources reports in-use volumes with their holders a
   const clean = removeLeftoverComposeResources('/repo', { runComposeImpl, runCaptureImpl, log: () => {}, warn: (line) => warnings.push(line) })
   assert.equal(clean, false)
   assert.ok(warnings.some((line) => line.includes('old-checkout-postgres')))
+})
+
+test('detectHostGateway prefers the default pin, falls back to host IPs, and reports unreachable', () => {
+  const pinOk = detectHostGateway(3001, { probeImpl: () => ({ ran: true, mcpAnswered: true, output: '{"status":"ok"}' }), candidates: [] })
+  assert.deepEqual(pinOk, { status: 'pin-ok' })
+
+  const probes = []
+  const secondCandidateWins = detectHostGateway(3001, {
+    probeImpl: (port, addHost) => {
+      probes.push(addHost)
+      return { ran: true, mcpAnswered: addHost === 'host.docker.internal:172.20.0.1', output: '' }
+    },
+    candidates: ['192.168.1.10', '172.20.0.1'],
+  })
+  assert.deepEqual(secondCandidateWins, { status: 'use-ip', ip: '172.20.0.1' })
+  assert.deepEqual(probes, ['host.docker.internal:host-gateway', 'host.docker.internal:192.168.1.10', 'host.docker.internal:172.20.0.1'])
+
+  const unreachable = detectHostGateway(3001, { probeImpl: () => ({ ran: true, mcpAnswered: false, output: '' }), candidates: ['192.168.1.10'] })
+  assert.deepEqual(unreachable, { status: 'unreachable' })
+
+  const pullBlocked = detectHostGateway(3001, {
+    probeImpl: () => ({ ran: true, mcpAnswered: false, output: 'Unable to find image busybox:1.37 locally' }),
+    candidates: ['192.168.1.10'],
+  })
+  assert.deepEqual(pullBlocked, { status: 'skip' })
+})
+
+test('hostIpCandidates lists external IPv4s with WSL adapters first', () => {
+  const candidates = hostIpCandidates({
+    'Ethernet': [{ family: 'IPv4', internal: false, address: '192.168.1.10' }],
+    'vEthernet (WSL (Hyper-V firewall))': [{ family: 'IPv4', internal: false, address: '172.20.0.1' }],
+    'Loopback Pseudo-Interface 1': [{ family: 'IPv4', internal: true, address: '127.0.0.1' }],
+  })
+  assert.deepEqual(candidates, ['172.20.0.1', '192.168.1.10'])
 })
 
 test('defenderExclusionCovers matches the repo or an ancestor, case-insensitively', () => {

@@ -387,6 +387,36 @@ function probeContainerToHost(mcpPort, addHost) {
   }
 }
 
+export function hostIpCandidates(interfaces = os.networkInterfaces()) {
+  const named = Object.entries(interfaces ?? {})
+  // WSL vEthernet adapters first — the usual winner on Rancher Desktop/WSL2.
+  named.sort(([a], [b]) => Number(/wsl/i.test(b)) - Number(/wsl/i.test(a)))
+  const ips = []
+  for (const [, addresses] of named) {
+    for (const address of addresses ?? []) {
+      const family = address?.family
+      if ((family === 'IPv4' || family === 4) && !address.internal) ips.push(address.address)
+    }
+  }
+  return [...new Set(ips)]
+}
+
+// Find a host.docker.internal mapping that actually reaches this machine:
+// the compose default pin first (correct on Docker Desktop and native Linux),
+// then every host IPv4. Callers must ensure something answers on mcpPort.
+export function detectHostGateway(mcpPort, { probeImpl = probeContainerToHost, candidates = hostIpCandidates() } = {}) {
+  const pinned = probeImpl(mcpPort, 'host.docker.internal:host-gateway')
+  if (!pinned.ran || /unable to find image|error response from daemon|cannot connect to the docker daemon/i.test(pinned.output ?? '')) {
+    return { status: 'skip' }
+  }
+  if (pinned.mcpAnswered) return { status: 'pin-ok' }
+  for (const ip of candidates) {
+    const probe = probeImpl(mcpPort, `host.docker.internal:${ip}`)
+    if (probe.mcpAnswered) return { status: 'use-ip', ip }
+  }
+  return { status: 'unreachable' }
+}
+
 export function checkContainerToHost(repoRoot, { mcpPort }) {
   const docker = detectDocker()
   if (!docker.ok) return null
