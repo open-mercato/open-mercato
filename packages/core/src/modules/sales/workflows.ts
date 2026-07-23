@@ -174,7 +174,7 @@ const orderApproval = defineWorkflow({
     triggerId: 'order_approval_trigger',
     name: 'Order Approval Trigger',
     description: 'Triggers when a new sales order is created',
-    eventPattern: 'sales.orders.created',
+    eventPattern: 'sales.order.created',
     config: { entityType: 'SalesOrder' },
     enabled: true,
     priority: 0,
