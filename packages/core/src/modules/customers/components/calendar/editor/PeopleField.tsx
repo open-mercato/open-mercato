@@ -9,7 +9,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import type { EditorParticipant } from '../../../lib/calendar/editorPayload'
 import { composeAccessibleName } from '../../../lib/calendar/labels'
 import { searchPeopleOptions, type PersonOption } from './lookups'
-import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge } from './inputs'
+import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge, useDropdownDismiss } from './inputs'
 
 export function PeopleField({
   mode,
@@ -18,6 +18,7 @@ export function PeopleField({
   value,
   onChange,
   includeCustomers,
+  includeStaff = true,
 }: {
   mode: 'multi' | 'single'
   placeholder: string
@@ -25,12 +26,16 @@ export function PeopleField({
   value: EditorParticipant[]
   onChange(next: EditorParticipant[]): void
   includeCustomers: boolean
+  /** Pass false when the staff module is not loaded — customer-only options. */
+  includeStaff?: boolean
 }) {
   const t = useT()
   const [query, setQuery] = React.useState('')
   const [open, setOpen] = React.useState(false)
   const [options, setOptions] = React.useState<PersonOption[]>([])
   const [loading, setLoading] = React.useState(false)
+  const close = React.useCallback(() => setOpen(false), [])
+  const rootRef = useDropdownDismiss(open, close)
 
   React.useEffect(() => {
     if (!open) return
@@ -39,7 +44,7 @@ export function PeopleField({
     const timer = window.setTimeout(async () => {
       setLoading(true)
       try {
-        const results = await searchPeopleOptions(query.trim(), { includeCustomers, signal: controller.signal })
+        const results = await searchPeopleOptions(query.trim(), { includeCustomers, includeStaff, signal: controller.signal })
         if (cancelled) return
         setOptions(results)
       } catch {
@@ -53,7 +58,7 @@ export function PeopleField({
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [open, query, includeCustomers])
+  }, [open, query, includeCustomers, includeStaff])
 
   const selectedIds = new Set(value.map((participant) => participant.userId))
   const visibleOptions = options.filter((option) => !selectedIds.has(option.userId))
@@ -66,6 +71,7 @@ export function PeopleField({
 
   return (
     <div
+      ref={rootRef}
       className="relative w-full"
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false)
@@ -74,7 +80,7 @@ export function PeopleField({
       <div
         className={cn(
           'flex w-full flex-wrap content-center items-center gap-2 rounded-md bg-background px-2.5 py-2',
-          mode === 'multi' ? 'min-h-24' : 'min-h-14',
+          'min-h-14',
           CONTROL_BORDER,
         )}
       >
@@ -125,6 +131,7 @@ export function PeopleField({
                     option.email,
                     option.isCustomer ? t('customers.calendar.editor.customerBadge', 'Customer') : null,
                   ])}
+                  title={composeAccessibleName([option.name, option.email])}
                   onClick={() => {
                     const participant: EditorParticipant = {
                       userId: option.userId,

@@ -1,13 +1,14 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
-import ts from 'typescript'
+import ts from 'typescript-js'
 import { MikroORM, MetadataStorage, type Logger } from '@mikro-orm/core'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import type { PackageResolver, ModuleEntry } from '../resolver'
+import { quotePostgresIdentifier } from './identifiers'
 
 const QUIET_MODE = process.env.OM_CLI_QUIET === '1' || process.env.MERCATO_QUIET === '1'
 const PROGRESS_EMOJI = ''
@@ -528,7 +529,7 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
         try {
           await client.query("SET session_replication_role = 'replica'")
           for (const t of tables) {
-            await client.query(`DROP TABLE IF EXISTS "${t}" CASCADE`)
+            await client.query(`DROP TABLE IF EXISTS ${quotePostgresIdentifier(t)} CASCADE`)
           }
           await client.query("SET session_replication_role = 'origin'")
           await client.query('COMMIT')

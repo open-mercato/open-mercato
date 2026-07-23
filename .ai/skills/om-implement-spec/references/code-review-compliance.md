@@ -1,6 +1,6 @@
 # Code-Review Compliance Quick Reference
 
-This is a condensed reference of the most common violations to check during implementation. For the full checklist, see `.ai/skills/om-code-review/references/review-checklist.md`.
+This is a condensed reference of the most common violations to check during implementation. For the full checklist, see `.agents/skills/om-code-review/references/review-checklist.md`.
 
 ## Critical (Must Fix — Blocks Merge)
 

@@ -10,6 +10,26 @@ import {
 } from '@open-mercato/core/modules/auth/lib/setup-app'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
+
 jest.setTimeout(30_000)
 
 type DemoUserRow = {
@@ -51,14 +71,15 @@ function buildEm(initialRows: DemoUserRow[], options: { throwForEmails?: Set<str
 
 describe('deactivateDemoUsersIfSelfOnboardingEnabled', () => {
   const savedEnv: Record<string, string | undefined> = {}
-  let consoleErrorSpy: jest.SpyInstance
+  let consoleErrorSpy: jest.Mock
 
   beforeEach(() => {
     for (const key of ENV_KEYS) {
       savedEnv[key] = process.env[key]
       delete process.env[key]
     }
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockLogger.error.mockClear()
+    consoleErrorSpy = mockLogger.error
   })
 
   afterEach(() => {
@@ -191,9 +212,9 @@ describe('deactivateDemoUsersIfSelfOnboardingEnabled', () => {
 
     // Error was logged with the role + email context.
     expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
-    const [message] = consoleErrorSpy.mock.calls[0]
-    expect(String(message)).toContain('superadmin')
-    expect(String(message)).toContain('superadmin@acme.com')
+    const [message, fields] = consoleErrorSpy.mock.calls[0]
+    expect(String(message)).toContain('Failed to deactivate demo user')
+    expect(fields).toMatchObject({ role: 'superadmin', email: 'superadmin@acme.com' })
   })
 
   it('skips missing rows (returns null) without touching anything else', async () => {

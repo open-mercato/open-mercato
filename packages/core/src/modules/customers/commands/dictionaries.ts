@@ -1,7 +1,7 @@
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { buildChanges } from '@open-mercato/shared/lib/commands/helpers'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { invalidateDictionaryCache } from '../api/dictionaries/cache'
@@ -25,6 +25,9 @@ import {
   normalizeDictionaryIcon,
 } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type CustomerDictionaryEntrySnapshot = {
   id: string
@@ -116,7 +119,7 @@ async function invalidateCache(
   try {
     cache = (ctx.container.resolve('cache') as CacheStrategy)
   } catch (err) {
-    console.warn('[customers.commands.dictionaries] cache resolve failed; skipping invalidation', err)
+    logger.warn('cache resolve failed; skipping invalidation', { component: 'commands.dictionaries', err })
     cache = undefined
   }
   if (!cache) return
@@ -422,7 +425,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
       },
     )
     if (!entry || entry.organizationId !== parsed.organizationId || entry.tenantId !== parsed.tenantId || entry.kind !== parsed.kind) {
-      throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
+      throw notFound('Dictionary entry not found')
     }
 
     let changed = false
@@ -608,7 +611,7 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
       },
     )
     if (!entry || entry.organizationId !== parsed.organizationId || entry.tenantId !== parsed.tenantId || entry.kind !== parsed.kind) {
-      throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
+      throw notFound('Dictionary entry not found')
     }
     if (entry.kind === 'person_company_role') {
       const usage = await loadRoleTypeUsage(em, {

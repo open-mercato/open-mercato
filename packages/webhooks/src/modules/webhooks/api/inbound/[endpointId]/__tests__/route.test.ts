@@ -58,7 +58,7 @@ jest.mock('../../../helpers', () => ({
 }))
 
 import type { WebhookEndpointAdapter } from '../../../../lib/adapter-registry'
-import { POST, resolveInboundReceiptMessageId } from '../route'
+import { POST, buildInboundRateLimitKey, resolveInboundReceiptMessageId } from '../route'
 
 const routeContext = { params: Promise.resolve({ endpointId: 'mock_inbound' }) }
 
@@ -237,6 +237,30 @@ describe('POST', () => {
       }),
       { persistent: true },
     )
+  })
+})
+
+describe('buildInboundRateLimitKey', () => {
+  it('uses an endpoint-global bucket when proxy headers are untrusted', () => {
+    const request = new Request('http://localhost/api/webhooks/inbound/mock', {
+      headers: {
+        'x-forwarded-for': '203.0.113.1',
+        'x-real-ip': '198.51.100.10',
+      },
+    })
+
+    expect(buildInboundRateLimitKey('mock_inbound', request, 0)).toBe('mock_inbound:global')
+  })
+
+  it('uses a trusted proxy-derived IP when trust depth is configured', () => {
+    const request = new Request('http://localhost/api/webhooks/inbound/mock', {
+      headers: {
+        'x-forwarded-for': '203.0.113.1, 198.51.100.10',
+        'x-real-ip': '192.0.2.5',
+      },
+    })
+
+    expect(buildInboundRateLimitKey('mock_inbound', request, 1)).toBe('mock_inbound:ip:198.51.100.10')
   })
 })
 

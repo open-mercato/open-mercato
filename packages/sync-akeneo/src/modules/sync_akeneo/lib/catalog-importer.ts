@@ -1196,7 +1196,18 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         const schemaCode = slugifyAkeneoCode(`akeneo-${externalId}`)
         const mappedId = await externalIdMappingService.lookupLocalId('sync_akeneo', 'catalog_option_schema', externalId, scope)
         const existing = mappedId
-          ? await findOneWithDecryption(em, CatalogOptionSchemaTemplate, { id: mappedId, deletedAt: null }, undefined, scope)
+          ? await findOneWithDecryption(
+            em,
+            CatalogOptionSchemaTemplate,
+            {
+              id: mappedId,
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
+              deletedAt: null,
+            },
+            undefined,
+            scope,
+          )
           : await findOneWithDecryption(
             em,
             CatalogOptionSchemaTemplate,

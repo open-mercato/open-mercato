@@ -2,6 +2,7 @@ import { after, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { assertAllowedAppOrigin, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
@@ -11,6 +12,8 @@ import {
 } from '@open-mercato/onboarding/modules/onboarding/lib/deferred-provisioning'
 import { isPreparationClaimActive } from '@open-mercato/onboarding/modules/onboarding/lib/preparation-claim'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+
+const logger = createLogger('onboarding').child({ component: 'status' })
 
 export const metadata = {
   path: '/onboarding/onboarding/status',
@@ -109,11 +112,11 @@ export async function GET(req: Request) {
         requestId: request.id,
         tenantId: readyTenantId,
       }).catch((error) => {
-        console.error('[onboarding.status] ready email retry failed', {
+        logger.error('Ready email retry failed', {
           requestId: request.id,
           tenantId: readyTenantId,
           organizationId: request.organizationId,
-          error,
+          err: error,
         })
       })
     })

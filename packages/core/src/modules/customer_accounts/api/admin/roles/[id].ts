@@ -36,6 +36,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const role = await em.findOne(CustomerRole, {
     id: params.id,
     tenantId: auth.tenantId,
+    organizationId: auth.orgId,
     deletedAt: null,
   })
   if (!role) {
@@ -94,6 +95,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   const role = await em.findOne(CustomerRole, {
     id: params.id,
     tenantId: auth.tenantId,
+    organizationId: auth.orgId,
     deletedAt: null,
   })
   if (!role) {
@@ -127,7 +129,11 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   if (parsed.data.isDefault !== undefined) updates.isDefault = parsed.data.isDefault
   if (parsed.data.customerAssignable !== undefined) updates.customerAssignable = parsed.data.customerAssignable
 
-  await em.nativeUpdate(CustomerRole, { id: role.id }, updates)
+  await em.nativeUpdate(CustomerRole, {
+    id: role.id,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+  }, updates)
 
   void emitCustomerAccountsEvent('customer_accounts.role.updated', {
     id: role.id,
@@ -157,14 +163,18 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   const role = await em.findOne(CustomerRole, {
     id: params.id,
     tenantId: auth.tenantId,
+    organizationId: auth.orgId,
     deletedAt: null,
   })
   if (!role) {
     return NextResponse.json({ ok: false, error: 'Role not found' }, { status: 404 })
   }
 
-  if (role.isSystem) {
-    return NextResponse.json({ ok: false, error: 'Cannot delete a system role' }, { status: 400 })
+  // System roles are seed-provided defaults but may still be removed once they are no
+  // longer needed (#3556). Only the default role is hard-protected here because signup
+  // auto-assigns it to new portal users — reassign the default first, then delete.
+  if (role.isDefault) {
+    return NextResponse.json({ ok: false, error: 'Cannot delete the default role. Set another role as default first.' }, { status: 400 })
   }
 
   // Optimistic lock: refuse a stale delete. Strictly additive.
@@ -188,8 +198,15 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return NextResponse.json({ ok: false, error: `Cannot delete role with ${assignedUsersCount} assigned user(s). Reassign users first.` }, { status: 400 })
   }
 
-  await em.nativeUpdate(CustomerRole, { id: role.id }, { deletedAt: new Date() })
-  await em.nativeUpdate(CustomerRoleAcl, { role: role.id as any }, { deletedAt: new Date() })
+  await em.nativeUpdate(CustomerRole, {
+    id: role.id,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+  }, { deletedAt: new Date() })
+  await em.nativeUpdate(CustomerRoleAcl, {
+    role: role.id as any,
+    tenantId: auth.tenantId,
+  }, { deletedAt: new Date() })
 
   void emitCustomerAccountsEvent('customer_accounts.role.deleted', {
     id: role.id,
@@ -254,11 +271,11 @@ const putMethodDoc: OpenApiMethodDoc = {
 
 const deleteMethodDoc: OpenApiMethodDoc = {
   summary: 'Delete customer role (admin)',
-  description: 'Soft deletes a customer role and its ACL. System roles and roles with assigned users cannot be deleted.',
+  description: 'Soft deletes a customer role and its ACL. The default role (auto-assigned to new portal users) and roles with assigned users cannot be deleted.',
   tags: ['Customer Accounts Admin'],
   responses: [{ status: 200, description: 'Role deleted', schema: successSchema }],
   errors: [
-    { status: 400, description: 'System role or has assigned users', schema: errorSchema },
+    { status: 400, description: 'Default role or has assigned users', schema: errorSchema },
     { status: 401, description: 'Not authenticated', schema: errorSchema },
     { status: 403, description: 'Insufficient permissions', schema: errorSchema },
     { status: 404, description: 'Role not found', schema: errorSchema },

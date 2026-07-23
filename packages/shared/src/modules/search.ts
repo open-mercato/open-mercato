@@ -1,4 +1,7 @@
 import type { EntityId } from './entities'
+import { createLogger } from '../lib/logger'
+
+const logger = createLogger('shared').child({ component: 'search-registry' })
 
 // =============================================================================
 // Strategy Identifiers
@@ -337,7 +340,7 @@ let _searchModuleConfigs: SearchModuleConfig[] | null = null
  */
 export function registerSearchModuleConfigs(configs: SearchModuleConfig[]): void {
   if (_searchModuleConfigs !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Search module configs re-registered (this may occur during HMR)')
+    logger.debug('Search module configs re-registered (this may occur during HMR)')
   }
   _searchModuleConfigs = configs
 }

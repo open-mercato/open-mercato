@@ -43,6 +43,17 @@ function drainQueueInAppProcess(queueName: string, options: Required<DrainQueueO
     child.stderr.on('data', (chunk) => { stderr += chunk.toString() })
     child.on('error', reject)
     child.on('close', (code) => {
+      // The child's diagnostics (pino job logs on stdout, cache-fallback
+      // console.warn on stderr) are otherwise discarded on exit 0, which makes
+      // silently-failing jobs and silent memory-cache fallbacks in the drain
+      // child undebuggable from CI logs. OM_DRAIN_DEBUG=1 forwards everything;
+      // a non-empty stderr is forwarded unconditionally because it only carries
+      // warning/error-class output.
+      if (process.env.OM_DRAIN_DEBUG === '1') {
+        process.stderr.write(`[drain-child ${queueName} exit=${code}] STDOUT:\n${stdout}\nSTDERR:\n${stderr}\n`)
+      } else if (stderr.trim().length > 0) {
+        process.stderr.write(`[drain-child ${queueName} exit=${code}] STDERR:\n${stderr}\n`)
+      }
       if (code !== 0) {
         reject(new Error(`Queue drain failed for "${queueName}" in ${options.appRoot} (exit ${code}).\n${stderr || stdout}`))
         return

@@ -24,6 +24,9 @@ import {
   type DictionaryTableEntry,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryTable'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type SalesStatusKind = 'order-statuses' | 'order-line-statuses' | 'shipment-statuses' | 'payment-statuses'
 
@@ -148,7 +151,7 @@ export function StatusSettings() {
       }))
       setEntriesByKind((prev) => ({ ...prev, [kind]: items }))
     } catch (err) {
-      console.error('sales.statuses.list failed', err)
+      logger.error('sales.statuses.list failed', { err })
       flash(translate('sales.config.statuses.error.load', 'Failed to load status entries.'), 'error')
     } finally {
       setLoadingKind((prev) => ({ ...prev, [kind]: false }))
@@ -240,7 +243,7 @@ export function StatusSettings() {
       flash(translate('sales.config.statuses.success.delete', 'Status deleted.'), 'success')
       await loadEntries(kind)
     } catch (err) {
-      console.error('sales.statuses.delete failed', err)
+      logger.error('sales.statuses.delete failed', { err })
       const message = err instanceof Error ? err.message : translate('sales.config.statuses.error.delete', 'Failed to delete status.')
       flash(message, 'error')
     }
@@ -301,7 +304,7 @@ export function StatusSettings() {
       closeDialog()
       await loadEntries(dialog.kind)
     } catch (err) {
-      console.error('sales.statuses.submit failed', err)
+      logger.error('sales.statuses.submit failed', { err })
       const message = err instanceof Error ? err.message : translate('sales.config.statuses.error.save', 'Failed to save status.')
       flash(message, 'error')
       throw err instanceof Error ? err : new Error(message)
