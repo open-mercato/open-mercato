@@ -7701,6 +7701,7 @@ __metadata:
     resend: "npm:^6.17.2"
     sanitize-html: "npm:^2.17.5"
     semver: "npm:^7.8.5"
+    sharp: "npm:^0.35.3"
     svix: "npm:^1.96.1"
     ts-jest: "npm:^29.4.11"
     ts-pattern: "npm:^5.0.0"
