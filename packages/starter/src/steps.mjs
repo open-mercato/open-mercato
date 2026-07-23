@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -7,9 +7,9 @@ import { detectDocker, parseComposePsOutput, runCaptureSync, runCompose, runStre
 import { captureInterceptionCas, findVendorCaBundles, harvestWindowsStoreCas, hostTrustEnv, probeTlsInterception, provisionDockerCerts, provisionRancherDesktopCa, summarizeProbeResults, writeCaBundle } from './certs.mjs'
 import { loadCompanyConfig, resolveCompanyCertBundles } from './company.mjs'
 import { CAPTURED_CA_BUNDLE, DEFAULT_OPENCODE_BASE_IMAGE, OPENCODE_SERVICE_IMAGE, STARTER_STATE_DIR, resolveStackPorts } from './constants.mjs'
-import { checkBuildToolchain, checkContainerRuntime, checkGit, checkNodeVersion, checkWsl2 } from './doctor.mjs'
+import { checkBuildToolchain, checkContainerRuntime, checkGit, checkNodeVersion, checkWsl2, detectHostGateway } from './doctor.mjs'
 import { ensureEnvFiles } from './env-setup.mjs'
-import { readEnvValue } from './env-file.mjs'
+import { addEnvValue, readEnvValue } from './env-file.mjs'
 import { ensureMcpSharedDir, infraUp } from './infra.mjs'
 import { ensureLlmProvider } from './providers.mjs'
 import { color, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
@@ -630,6 +630,70 @@ export const databaseStep = {
   },
 }
 
+function startHostProbeListener(port) {
+  const script = `require('node:http').createServer((req, res) => { res.setHeader('content-type', 'application/json'); res.end('{"status":"ok","probe":"open-mercato-starter"}') }).listen(${port}, '0.0.0.0', () => console.log('listening'))`
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+    // A busy port (the real MCP server from a running dev session) is fine —
+    // the probes then hit whatever already answers there.
+    const timer = setTimeout(() => resolve(child), 2000)
+    child.stdout?.on('data', (chunk) => {
+      if (String(chunk).includes('listening')) {
+        clearTimeout(timer)
+        resolve(child)
+      }
+    })
+    child.on('error', () => {
+      clearTimeout(timer)
+      resolve(null)
+    })
+  })
+}
+
+// Rancher Desktop/WSL2 can resolve host-gateway to the WSL distro instead of
+// the Windows host, silently breaking OpenCode -> host MCP. Probe BEFORE the
+// containers come up and pin a working IP into .env (compose feeds it to
+// extra_hosts; a changed pin makes compose recreate opencode on the next up).
+// A throwaway listener on the MCP port makes the probe exercise the exact
+// firewall path the real server will use.
+export const hostGatewayStep = {
+  id: 'host-gateway',
+  expectation: 'a few seconds of container→host probing (Windows only)',
+  title: 'Container → host networking (OM_HOST_GATEWAY)',
+  appliesTo: (ctx) => process.platform === 'win32' && !ctx.flags.noInfra,
+  async check(ctx) {
+    if (readEnvValue(path.join(ctx.repoRoot, '.env'), 'OM_HOST_GATEWAY')?.trim()) {
+      return { ok: true, detail: 'OM_HOST_GATEWAY already pinned in .env' }
+    }
+    if (readState(ctx.repoRoot, 'host-gateway') === 'pin-ok') {
+      return { ok: true, detail: 'default host-gateway mapping verified earlier' }
+    }
+    return { ok: false, detail: 'probing whether containers can reach this machine' }
+  },
+  async apply(ctx) {
+    const ports = resolveStackPorts(ctx.repoRoot)
+    const listener = await startHostProbeListener(ports.mcp)
+    try {
+      const outcome = detectHostGateway(ports.mcp)
+      if (outcome.status === 'pin-ok') {
+        writeState(ctx.repoRoot, 'host-gateway', 'pin-ok')
+        ctx.log('   default host-gateway mapping reaches this machine')
+      } else if (outcome.status === 'use-ip') {
+        addEnvValue(path.join(ctx.repoRoot, '.env'), 'OM_HOST_GATEWAY', outcome.ip)
+        ctx.log(`   host-gateway does not reach this machine (Rancher Desktop/WSL2) — pinned OM_HOST_GATEWAY=${outcome.ip} in .env`)
+      } else if (outcome.status === 'skip') {
+        ctx.log('   probe container could not run — skipping (run `yarn om doctor` for the full audit)')
+      } else {
+        ctx.log(`   ⚠️ containers cannot reach this machine on port ${ports.mcp} — Windows Firewall likely blocks the WSL adapter`)
+        ctx.log(`   ↳ allow it (elevated PowerShell): New-NetFirewallRule -DisplayName "Open Mercato MCP dev" -Direction Inbound -Action Allow -Protocol TCP -LocalPort ${ports.mcp} -Profile Any`)
+        ctx.log('   ↳ then re-run — OpenCode waits for the MCP server and recovers once the port answers')
+      }
+    } finally {
+      listener?.kill()
+    }
+  },
+}
+
 export function buildUpSteps(ctx) {
   const base = [
     prerequisitesStep,
@@ -640,6 +704,7 @@ export function buildUpSteps(ctx) {
     workspaceInstallStep,
     workspaceBuildStep,
     llmProviderStep,
+    hostGatewayStep,
     infraUpStep,
     databaseStep,
   ]

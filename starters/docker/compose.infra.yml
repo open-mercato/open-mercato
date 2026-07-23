@@ -88,9 +88,9 @@ services:
     extra_hosts:
       # host-gateway is right on native Linux and Docker Desktop. On Rancher
       # Desktop (WSL2) it can resolve to the WSL distro instead of the Windows
-      # host — the doctor detects that and tells you to set OM_HOST_GATEWAY in
-      # .env to the IP that reaches the host (or to the literal value the
-      # engine resolves natively).
+      # host — on Windows the starter probes this before `up` and pins a
+      # working IP into .env as OM_HOST_GATEWAY automatically (the doctor
+      # detects and explains the same condition).
       - "host.docker.internal:${OM_HOST_GATEWAY:-host-gateway}"
     networks:
       - mercato-network

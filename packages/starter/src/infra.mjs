@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { detectDocker, resolveRepoRoot, runCompose } from './compose.mjs'
+import { detectDocker, resolveRepoRoot, runCompose, runCaptureSync } from './compose.mjs'
 
 export function ensureMcpSharedDir(repoRoot) {
   // Pre-create the bind-mount source so dockerd never creates it root-owned
@@ -33,6 +33,62 @@ export function infraUp(repoRooot, { profiles = [] } = {}) {
 
 export function infraDown(repoRoot, { volumes = false } = {}) {
   return runCompose(repoRoot ?? resolveRepoRoot(), ['down', ...(volumes ? ['--volumes'] : [])]).status ?? 1
+}
+
+export function composeResourceNames(repoRoot, { composeFile, runComposeImpl = runCompose } = {}) {
+  const config = runComposeImpl(repoRoot, ['config', '--format', 'json'], { composeFile, stdio: 'pipe' })
+  if ((config.status ?? 1) !== 0) return { containers: [], volumes: [] }
+  try {
+    const parsed = JSON.parse(String(config.stdout ?? ''))
+    return {
+      containers: Object.values(parsed.services ?? {}).map((service) => service?.container_name).filter(Boolean),
+      volumes: Object.values(parsed.volumes ?? {}).map((volume) => volume?.name).filter(Boolean),
+    }
+  } catch {
+    return { containers: [], volumes: [] }
+  }
+}
+
+// `docker compose down --volumes` only removes resources labeled with the
+// CURRENT project (named after the checkout directory). The fixed
+// container_name/volume names in the compose files mean a second checkout of
+// this repo reuses resources created by the first — down skips those
+// silently, so a reset would leave the old database volume (and its
+// incompatible secrets) alive. Sweep leftovers by their fixed names.
+export function removeLeftoverComposeResources(repoRoot, { composeFile, runComposeImpl = runCompose, runCaptureImpl = runCaptureSync, log = console.log, warn = console.warn } = {}) {
+  const { containers, volumes } = composeResourceNames(repoRoot, { composeFile, runComposeImpl })
+  const listNames = (args) => {
+    const run = runCaptureImpl('docker', args)
+    if (run.error || (run.status ?? 1) !== 0) return new Set()
+    return new Set(String(run.stdout ?? '').split('\n').map((line) => line.trim()).filter(Boolean))
+  }
+
+  const existingContainers = listNames(['ps', '-a', '--format', '{{.Names}}'])
+  for (const name of containers) {
+    if (!existingContainers.has(name)) continue
+    const removed = runCaptureImpl('docker', ['rm', '-f', name])
+    if ((removed.status ?? 1) === 0) log(`   removed leftover container ${name} (created by another checkout)`)
+    else warn(`   could not remove container ${name}: ${String(removed.stderr ?? '').trim()}`)
+  }
+
+  let clean = true
+  const existingVolumes = listNames(['volume', 'ls', '--format', '{{.Name}}'])
+  for (const name of volumes) {
+    if (!existingVolumes.has(name)) continue
+    const removed = runCaptureImpl('docker', ['volume', 'rm', name])
+    if ((removed.status ?? 1) === 0) {
+      log(`   removed leftover volume ${name} (created by another checkout)`)
+      continue
+    }
+    clean = false
+    warn(`   could not remove volume ${name}: ${String(removed.stderr ?? '').trim()}`)
+    const holders = runCaptureImpl('docker', ['ps', '-a', '--filter', `volume=${name}`, '--format', '{{.Names}}'])
+    const holderNames = String(holders.stdout ?? '').split('\n').map((line) => line.trim()).filter(Boolean)
+    if (holderNames.length > 0) {
+      warn(`   still mounted by: ${holderNames.join(', ')} — remove them (docker rm -f ${holderNames.join(' ')}) and re-run reset`)
+    }
+  }
+  return clean
 }
 
 function main() {
