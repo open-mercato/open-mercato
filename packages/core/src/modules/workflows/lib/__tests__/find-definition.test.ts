@@ -5,7 +5,12 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals'
 import { EntityManager } from '@mikro-orm/core'
 import { WorkflowDefinition } from '../../data/entities'
-import { codeWorkflowUuid, findWorkflowDefinition } from '../find-definition'
+import {
+  codeWorkflowUuid,
+  findWorkflowDefinition,
+  findDefinitionForInstance,
+  resolveCodeDefinitionForInstance,
+} from '../find-definition'
 import { registerCodeWorkflows, clearCodeWorkflowRegistry } from '../code-registry'
 import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'
 
@@ -186,5 +191,118 @@ describe('findWorkflowDefinition()', () => {
       WorkflowDefinition,
       expect.objectContaining({ version: 2 }),
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolveCodeDefinitionForInstance
+// ---------------------------------------------------------------------------
+
+describe('resolveCodeDefinitionForInstance()', () => {
+  const virtualInstance = {
+    definitionId: codeWorkflowUuid('test.workflow'),
+    workflowId: 'test.workflow',
+    tenantId: 'tenant-1',
+    organizationId: 'org-1',
+  }
+
+  beforeEach(() => {
+    clearCodeWorkflowRegistry()
+  })
+
+  test('resolves the virtual definition for an instance started from a code definition', () => {
+    registerCodeWorkflows([makeCodeDef()])
+
+    const result = resolveCodeDefinitionForInstance(virtualInstance)
+
+    expect(result).not.toBeNull()
+    expect(result?.id).toBe(virtualInstance.definitionId)
+    expect(result?.workflowId).toBe('test.workflow')
+    expect(result?.codeWorkflowId).toBe('test.workflow')
+    expect(result?.tenantId).toBe('tenant-1')
+    expect(result?.organizationId).toBe('org-1')
+  })
+
+  test('returns null when the definitionId is not the deterministic code UUID', () => {
+    registerCodeWorkflows([makeCodeDef()])
+
+    const result = resolveCodeDefinitionForInstance({
+      ...virtualInstance,
+      definitionId: 'db-uuid-1111-2222-3333-444444444444',
+    })
+
+    expect(result).toBeNull()
+  })
+
+  test('returns null when the workflowId is not registered as a code workflow', () => {
+    const result = resolveCodeDefinitionForInstance(virtualInstance)
+
+    expect(result).toBeNull()
+  })
+
+  test('still resolves a disabled code definition so in-flight instances can finish', () => {
+    registerCodeWorkflows([makeCodeDef({ enabled: false })])
+
+    const result = resolveCodeDefinitionForInstance(virtualInstance)
+
+    expect(result).not.toBeNull()
+    expect(result?.enabled).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// findDefinitionForInstance
+// ---------------------------------------------------------------------------
+
+describe('findDefinitionForInstance()', () => {
+  let mockEm: jest.Mocked<Pick<EntityManager, 'findOne'>>
+
+  const virtualInstance = {
+    definitionId: codeWorkflowUuid('test.workflow'),
+    workflowId: 'test.workflow',
+    tenantId: 'tenant-1',
+    organizationId: 'org-1',
+  }
+
+  beforeEach(() => {
+    clearCodeWorkflowRegistry()
+    mockEm = { findOne: jest.fn() } as any
+  })
+
+  test('returns the persisted definition when the definitionId exists in the DB', async () => {
+    const dbDef = makeDbDef()
+    mockEm.findOne.mockResolvedValue(dbDef as any)
+    registerCodeWorkflows([makeCodeDef()])
+
+    const result = await findDefinitionForInstance(mockEm as any, {
+      ...virtualInstance,
+      definitionId: dbDef.id,
+    })
+
+    expect(result).toBe(dbDef)
+    expect(mockEm.findOne).toHaveBeenCalledWith(WorkflowDefinition, { id: dbDef.id })
+  })
+
+  test('falls back to the code registry when the DB misses and the UUID matches', async () => {
+    mockEm.findOne.mockResolvedValue(null)
+    registerCodeWorkflows([makeCodeDef()])
+
+    const result = await findDefinitionForInstance(mockEm as any, virtualInstance)
+
+    expect(result).not.toBeNull()
+    expect(result?.id).toBe(virtualInstance.definitionId)
+    expect(result?.workflowId).toBe('test.workflow')
+  })
+
+  test('returns null when the DB misses and the definitionId belonged to a deleted persisted row', async () => {
+    mockEm.findOne.mockResolvedValue(null)
+    registerCodeWorkflows([makeCodeDef()])
+
+    const result = await findDefinitionForInstance(mockEm as any, {
+      ...virtualInstance,
+      definitionId: 'db-uuid-1111-2222-3333-444444444444',
+    })
+
+    expect(result).toBeNull()
   })
 })

@@ -86,6 +86,36 @@ test('the repo ships no generated test-env shell entrypoints (machine-bound, git
   )
 })
 
+test('the template wires the ephemeral runner scripts and the override keeps the ephemeral-first run-mode contract', () => {
+  const templatePackageJson = JSON.parse(
+    fs.readFileSync(new URL('../../template/package.json.template', import.meta.url), 'utf8'),
+  ) as { scripts?: Record<string, string> }
+  const scripts = templatePackageJson.scripts ?? {}
+  assert.equal(
+    scripts['test:integration:ephemeral'],
+    'mercato test:integration',
+    'test:integration:ephemeral must run the cross-platform mercato CLI suite runner',
+  )
+  assert.equal(
+    scripts['test:integration:ephemeral:start'],
+    'mercato test:ephemeral',
+    'test:integration:ephemeral:start must boot the app-only ephemeral env via the mercato CLI (reused by iterative filtered runs)',
+  )
+  const override = readOverrideSkill('om-prepare-test-env')
+  assert.ok(
+    override.includes('test:integration:ephemeral:start'),
+    'the om-prepare-test-env override must document the boot-once start script for iterative reuse',
+  )
+  assert.ok(
+    /prefer(red)? over plain `yarn test:integration`/i.test(override),
+    'the om-prepare-test-env override must state that test:integration:ephemeral is preferred over plain test:integration',
+  )
+  assert.ok(
+    /ASK before the first run/.test(override),
+    'the om-prepare-test-env override must instruct skills to ask the user which run mode they want',
+  )
+})
+
 test('override folders do not also ship a stale STANDALONE.md', () => {
   const stale = [...skillsShippingOverrideFolder, ...skillsShippingKnowledgeOverrideFolder].filter((skill) => {
     const url = new URL(`${skill}/STANDALONE.md`, skillsDir)
@@ -234,6 +264,52 @@ test('auto-* override SKILL.md routes tracker-facing behavior through the tracke
     rawTrackerCommands,
     [],
     `These overrides inline raw gh commands instead of tracker operations: ${rawTrackerCommands.join(', ')}`,
+  )
+})
+
+// Skills install once, into the canonical cross-agent directory .agents/skills/.
+// Codex and Cursor read it natively, so their generators must NOT seed a skills
+// directory of their own — that is the per-agent duplication this layout removes.
+// Claude Code cannot read it, so it keeps its own directory (populated with links
+// back to the canonical copy by scripts/install-skills.sh). Both copy pipelines —
+// the create-app wizard and the CLI's agentic:init — must agree.
+test('only harnesses that cannot read .agents/skills/ seed a skills directory', () => {
+  const generators = [
+    ['create-app: claude-code', '../setup/tools/claude-code.ts', ['.claude']],
+    ['create-app: codex', '../setup/tools/codex.ts', []],
+    ['create-app: cursor', '../setup/tools/cursor.ts', []],
+  ] as const
+
+  const offenders: string[] = []
+  for (const [label, relativePath, expectedDirs] of generators) {
+    const source = fs.readFileSync(new URL(relativePath, import.meta.url), 'utf8')
+    for (const harness of ['.claude', '.codex', '.cursor']) {
+      const seedsDir = source.includes(`join(targetDir, '${harness}', 'skills')`)
+      const shouldSeed = (expectedDirs as readonly string[]).includes(harness)
+      if (seedsDir !== shouldSeed) {
+        offenders.push(`${label}: ${seedsDir ? 'seeds' : 'does not seed'} ${harness}/skills (expected ${shouldSeed ? 'seeded' : 'none'})`)
+      }
+    }
+  }
+
+  // packages/cli/src/lib/agentic-setup.ts mirrors the generators 1:1.
+  const cliMirror = fs.readFileSync(
+    new URL('../../../cli/src/lib/agentic-setup.ts', import.meta.url),
+    'utf8',
+  )
+  for (const harness of ['.codex', '.cursor']) {
+    if (cliMirror.includes(`join(targetDir, '${harness}', 'skills')`)) {
+      offenders.push(`cli agentic-setup.ts: seeds ${harness}/skills (expected none)`)
+    }
+  }
+  if (!cliMirror.includes("join(targetDir, '.claude', 'skills')")) {
+    offenders.push('cli agentic-setup.ts: does not seed .claude/skills (expected seeded)')
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `Skills belong in .agents/skills/; only agents that cannot read it get their own directory: ${offenders.join(', ')}`,
   )
 })
 

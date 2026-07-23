@@ -84,11 +84,14 @@ yarn test
 # Run a single unit test
 yarn test path/to/test.spec.ts
 
-# Run integration tests (spins up fresh ephemeral app + DB, runs Playwright)
+# Run integration tests (preferred: provisions/reuses an ephemeral app + DB, runs Playwright)
 yarn test:integration:ephemeral
 
-# Start ephemeral app only (for manual QA exploration; admin@acme.com / secret)
-yarn mercato test:ephemeral
+# Start ephemeral app only (manual QA exploration or iterative test loops; admin@acme.com / secret)
+yarn test:integration:ephemeral:start
+
+# Iterate against the running ephemeral env with small filtered batches
+yarn mercato test:integration <filter>
 
 # View HTML integration test report
 npx playwright show-report .ai/qa/test-results/html
@@ -655,7 +658,7 @@ Grab the `d="..."` path values from the lucide icon you want — for example by 
 
 ## Agent Automation / Auto-Skills
 
-These auto-* agent skills let you delegate whole units of work to an autonomous agent. They are maintained in the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection — `create-mercato-app` installs them automatically during agentic setup; run **`yarn install-skills`** to refresh them or to install them later if scaffolding skipped the step (`npx skills add`; re-runs refresh via `npx skills update`). After install they are available by name from whichever harness directory your CLI reads (`.claude/skills/<name>` for Claude Code, `.agents/skills/` for Codex, mirrored into `.codex/skills/`); the matching `.ai/skills/<name>/` folder holds the standalone override the skill reads on top of its built-in workflow (any default branch name, optional pipeline labels, and a validation gate that probes `package.json` for available scripts). Repo-specific settings live in `.ai/agentic.config.json`. The `claude "…"` invocations below are examples for Claude Code — other harnesses invoke the same skills by name with their own slash-command syntax.
+These auto-* agent skills let you delegate whole units of work to an autonomous agent. They are maintained in the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection — `create-mercato-app` installs them automatically during agentic setup; run **`yarn install-skills`** to refresh them or to install them later if scaffolding skipped the step (`npx skills add`; re-runs refresh via `npx skills update`). They install into the canonical cross-agent directory `.agents/skills/` — read natively by Codex and Cursor, and mirrored into `.claude/skills/<name>` for Claude Code, which cannot read it — and are invoked by name; the matching `.ai/skills/<name>/` folder holds the standalone override the skill reads on top of its built-in workflow (any default branch name, optional pipeline labels, and a validation gate that probes `package.json` for available scripts). Repo-specific settings live in `.ai/agentic.config.json`. The `claude "…"` invocations below are examples for Claude Code — other harnesses invoke the same skills by name with their own slash-command syntax.
 
 | Skill | When to use | Invocation |
 |-------|-------------|------------|

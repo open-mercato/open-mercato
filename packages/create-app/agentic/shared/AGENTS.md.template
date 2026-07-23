@@ -68,7 +68,7 @@ These per-module fact-sheets are **generated from source** and bundled for the m
 
 ### Skills: local + shared collection
 
-Skills come from two places. Repo-local skills (module scaffolding, UI design, troubleshooting, etc.) ship inside `.ai/skills/` and are installed into your agent harness by tier (see `.ai/skills/tiers.json`). The PR-automation and review skills below are maintained in the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection — run **`yarn install-skills`** once to install the subset this app ships (`npx skills add`, then `npx skills update` on re-runs to refresh). `install-skills.sh` places each skill in whichever harness directory your CLI reads (`.agents/skills/` for Codex, `.claude/skills/<name>` for Claude Code, mirrored into `.codex/skills/`), so the tables below **reference external skills by name, not by a hard-coded harness path** — the directory depends on which agent you scaffolded, and pointing every reader at `.claude/skills/…` would mislead a Codex or Cursor scaffold. A folder under `.ai/skills/<name>/` matching an external skill is a repo-local **override** that the external skill reads on top of its built-in workflow (default-branch discovery, opt-in labels, `src/modules/…` layout). Repo-specific settings live in `.ai/agentic.config.json` and the tracker descriptor `.ai/trackers/github.md`.
+Skills come from two places. Repo-local skills (module scaffolding, UI design, troubleshooting, etc.) ship inside `.ai/skills/` and are installed by tier (see `.ai/skills/tiers.json`). The PR-automation and review skills below are maintained in the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection — run **`yarn install-skills`** once to install the subset this app ships (`npx skills add`, then `npx skills update` on re-runs to refresh). Both sources install into the canonical cross-agent directory **`.agents/skills/`**; Codex and Cursor read it natively, while Claude Code — which cannot — additionally gets per-skill symlinks under `.claude/skills/`. The tables below therefore **reference external skills by name, not by a hard-coded harness path**: the directory depends on which agent you scaffolded, and pointing every reader at `.claude/skills/…` would mislead a Codex or Cursor scaffold. A folder under `.ai/skills/<name>/` matching an external skill is a repo-local **override** that the external skill reads on top of its built-in workflow (default-branch discovery, opt-in labels, `src/modules/…` layout). Repo-specific settings live in `.ai/agentic.config.json` and the tracker descriptor `.ai/trackers/github.md`.
 
 ### Quality & Process
 
@@ -294,8 +294,9 @@ import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-intercept
 | `yarn initialize` | Bootstrap DB + first admin account |
 | `yarn build` | Build for production |
 | `yarn mercato eject <module>` | Copy a core module into `src/modules/` |
-| `yarn test:integration:ephemeral` | Run Playwright integration tests against a fresh ephemeral app + DB (reuses a healthy running env) |
-| `yarn mercato test:ephemeral` | Start the ephemeral app only (manual QA; admin@acme.com / secret) — the `om-prepare-test-env` skill wraps this and shares the env via `.ai/qa/test-env.json` |
+| `yarn test:integration:ephemeral` | Run Playwright integration tests against a fresh ephemeral app + DB (reuses a healthy running env) — always prefer this over plain `yarn test:integration` |
+| `yarn test:integration:ephemeral:start` | Start the ephemeral app only (manual QA or iterative test loops; admin@acme.com / secret) — the `om-prepare-test-env` skill wraps this and shares the env via `.ai/qa/test-env.json` |
+| `yarn mercato test:integration <filter>` | Run small filtered test batches against the running ephemeral env (fast iteration) |
 | `npx playwright show-report .ai/qa/test-results/html` | Open the HTML integration test report |
 
 ## Architecture Rules

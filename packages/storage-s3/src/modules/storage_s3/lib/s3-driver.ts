@@ -16,6 +16,13 @@ import {
   assertStaticallySafeS3Endpoint,
   createSafeS3RequestHandler,
 } from './endpoint-safety'
+import {
+  assertS3KeyAddressableByTenantScope,
+  assertS3KeyScopedToTenant,
+  assertS3ListPrefixScopedToTenant,
+  filterS3ObjectsToTenant,
+  type S3TenantScope,
+} from './key-scope'
 
 export type S3DriverConfig = {
   bucket: string
@@ -37,6 +44,8 @@ export type S3DriverConfig = {
   accessKeyId?: string
   secretAccessKey?: string
   sessionToken?: string
+  organizationId?: string | null
+  tenantId?: string | null
 }
 
 function sanitizeFileName(fileName: string): string {
@@ -69,12 +78,16 @@ export class S3StorageDriver implements StorageDriver {
   private readonly bucket: string
   private readonly endpoint?: string
   private readonly pathPrefix: string
+  private readonly scope: S3TenantScope | null
 
   constructor(config: Record<string, unknown>) {
     const cfg = config as S3DriverConfig
     this.bucket = cfg.bucket
     this.endpoint = cfg.endpoint
     this.pathPrefix = cfg.pathPrefix ?? ''
+    this.scope = cfg.organizationId && cfg.tenantId
+      ? { organizationId: cfg.organizationId, tenantId: cfg.tenantId }
+      : null
 
     const authMode = cfg.authMode
     const shouldUseAccessKeys =
@@ -115,6 +128,25 @@ export class S3StorageDriver implements StorageDriver {
     })
   }
 
+  private assertKeyScoped(storagePath: string, scope?: S3TenantScope | null): void {
+    assertS3KeyScopedToTenant(storagePath, scope ?? this.scope, this.pathPrefix)
+  }
+
+  private assertKeyAddressable(storagePath: string, scope?: S3TenantScope | null): void {
+    assertS3KeyAddressableByTenantScope(storagePath, scope ?? this.scope, this.pathPrefix)
+  }
+
+  private assertPartitionScoped(partitionCode: string, storagePath: string): void {
+    if (!partitionCode) return
+    const prefix = this.pathPrefix && storagePath.startsWith(this.pathPrefix)
+      ? storagePath.slice(this.pathPrefix.length).replace(/^\/+/, '')
+      : storagePath.replace(/^\/+/, '')
+    const firstSegment = prefix.split('/').filter(Boolean)[0]
+    if (firstSegment !== partitionCode) {
+      throw new Error('S3 key is not scoped to the requested partition')
+    }
+  }
+
   async store(payload: StoreFilePayload): Promise<StoredFile> {
     await this.assertEndpointSafe()
     const orgSegment = resolveOrgSegment(payload.orgId ?? null)
@@ -136,7 +168,9 @@ export class S3StorageDriver implements StorageDriver {
     return { storagePath: key }
   }
 
-  async read(_partitionCode: string, storagePath: string): Promise<ReadFileResult> {
+  async read(partitionCode: string, storagePath: string): Promise<ReadFileResult> {
+    this.assertPartitionScoped(partitionCode, storagePath)
+    this.assertKeyAddressable(storagePath)
     await this.assertEndpointSafe()
     const response = await this.client.send(
       new GetObjectCommand({ Bucket: this.bucket, Key: storagePath }),
@@ -148,7 +182,9 @@ export class S3StorageDriver implements StorageDriver {
     return { buffer, contentType: response.ContentType }
   }
 
-  async delete(_partitionCode: string, storagePath: string): Promise<void> {
+  async delete(partitionCode: string, storagePath: string): Promise<void> {
+    this.assertPartitionScoped(partitionCode, storagePath)
+    this.assertKeyAddressable(storagePath)
     try {
       await this.assertEndpointSafe()
       await this.client.send(
@@ -163,17 +199,20 @@ export class S3StorageDriver implements StorageDriver {
     partitionCode: string,
     storagePath: string,
   ): Promise<{ filePath: string; cleanup: () => Promise<void> }> {
-    const tmpDir = path.join(os.tmpdir(), `s3-tmp-${randomUUID()}`)
-    await fs.mkdir(tmpDir, { recursive: true })
-    const fileName = path.basename(storagePath) || 'download'
-    const filePath = path.join(tmpDir, fileName)
-    const { buffer } = await this.read(partitionCode, storagePath)
-    await fs.writeFile(filePath, buffer)
-    return {
-      filePath,
-      cleanup: async () => {
-        await fs.rm(tmpDir, { recursive: true, force: true })
-      },
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 's3-tmp-'))
+    const cleanup = async () => {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+
+    try {
+      const fileName = path.basename(storagePath) || 'download'
+      const filePath = path.join(tmpDir, fileName)
+      const { buffer } = await this.read(partitionCode, storagePath)
+      await fs.writeFile(filePath, buffer, { flag: 'wx', mode: 0o600 })
+      return { filePath, cleanup }
+    } catch (error) {
+      await Promise.allSettled([cleanup()])
+      throw error
     }
   }
 
@@ -181,6 +220,7 @@ export class S3StorageDriver implements StorageDriver {
    * Put an object directly at a specific S3 key (for standalone usage).
    */
   async putObject(key: string, buffer: Buffer, contentType?: string): Promise<void> {
+    this.assertKeyScoped(key)
     await this.assertEndpointSafe()
     await this.client.send(
       new PutObjectCommand({
@@ -201,11 +241,14 @@ export class S3StorageDriver implements StorageDriver {
     prefix: string,
     maxKeys = 100,
     continuationToken?: string,
+    scope?: S3TenantScope | null,
   ): Promise<{
     files: Array<{ key: string; size: number; lastModified: Date }>
     truncated: boolean
     nextContinuationToken?: string
   }> {
+    const activeScope = scope ?? this.scope
+    assertS3ListPrefixScopedToTenant(prefix, activeScope, this.pathPrefix)
     await this.assertEndpointSafe()
     const response = await this.client.send(
       new ListObjectsV2Command({
@@ -215,12 +258,13 @@ export class S3StorageDriver implements StorageDriver {
         ContinuationToken: continuationToken,
       }),
     )
+    const files = (response.Contents ?? []).map((obj) => ({
+      key: obj.Key ?? '',
+      size: obj.Size ?? 0,
+      lastModified: obj.LastModified ?? new Date(0),
+    }))
     return {
-      files: (response.Contents ?? []).map((obj) => ({
-        key: obj.Key ?? '',
-        size: obj.Size ?? 0,
-        lastModified: obj.LastModified ?? new Date(0),
-      })),
+      files: filterS3ObjectsToTenant(files, activeScope, this.pathPrefix),
       truncated: response.IsTruncated ?? false,
       nextContinuationToken: response.NextContinuationToken,
     }
@@ -234,7 +278,13 @@ export class S3StorageDriver implements StorageDriver {
     operation: 'upload' | 'download',
     expiresIn = 3600,
     contentType?: string,
+    scope?: S3TenantScope | null,
   ): Promise<string> {
+    if (operation === 'upload') {
+      this.assertKeyScoped(storagePath, scope)
+    } else {
+      this.assertKeyAddressable(storagePath, scope)
+    }
     await this.assertEndpointSafe()
     if (operation === 'upload') {
       const command = new PutObjectCommand({

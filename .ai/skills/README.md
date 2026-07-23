@@ -83,10 +83,10 @@ Run `yarn install-skills --list` at any time to see tier definitions, current me
 
 ### Using the Install Script
 
-The install script does two things on every run:
+Skills install into **one canonical directory** — `.agents/skills/`, the cross-agent path the `skills` CLI treats as canonical and most coding agents read directly. The install script does two things on every run:
 
-1. Reads `.ai/skills/tiers.json` and creates one symlink per selected local skill under `.claude/skills/` and `.codex/skills/`.
-2. Installs the external collection with `npx -y skills add open-mercato/skills --skill '*'` into `.agents/skills/` (read natively by Codex and other agents; the CLI also symlinks each skill into `.claude/skills/`), then runs `npx -y skills update --project` so re-runs refresh the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current). This step needs network access; when it fails the script warns and continues with local skills only.
+1. Reads `.ai/skills/tiers.json` and creates one symlink per selected local skill: `.agents/skills/<name> -> ../../.ai/skills/<name>`.
+2. Installs the external collection with `npx -y skills add open-mercato/skills --skill '*'` into the same `.agents/skills/` directory, then runs `npx -y skills update --project` so re-runs refresh the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current). This step needs network access; when it fails the script warns and continues with local skills only.
 
 ```bash
 yarn install-skills                              # core tier + external collection (default)
@@ -94,6 +94,8 @@ yarn install-skills --with automation            # + automation tier
 yarn install-skills --with automation,security   # multiple tiers
 yarn install-skills --tiers core,security        # explicit set (replaces default)
 yarn install-skills --all                        # every local tier
+yarn install-skills --legacy-links               # also symlink into .claude/skills/ AND .codex/skills/
+yarn install-skills --ignore-agents cursor       # never write these agents' directories
 yarn install-skills --no-external                # skip the npx step (offline; also OM_SKIP_EXTERNAL_SKILLS=1)
 yarn install-skills --list                       # show tiers + memberships
 yarn install-skills --clean                      # remove all skill symlinks + external copies
@@ -101,15 +103,38 @@ yarn install-skills --clean                      # remove all skill symlinks + e
 
 `--with` is additive on top of the default tier set; `--tiers` replaces the default outright. The two flags are mutually exclusive. Re-running with a smaller selection is idempotent — symlinks for local skills that are no longer selected are swept on each run; external skills are always installed in full for parity with the shared collection.
 
-The script auto-detects a legacy directory-level symlink (`.claude/skills -> ../.ai/skills`) left over from earlier versions, removes it, and replaces it with a real directory containing per-skill symlinks.
+### Agent directories
+
+A skill is duplicated into an agent's own directory **only when that agent cannot read the canonical one**:
+
+| Agent | Directory | Reads `.agents/skills/` | Per-skill symlinks |
+|-------|-----------|-------------------------|--------------------|
+| Claude Code | `.claude/skills/` | no | yes (automatic) |
+| Codex | `.codex/skills/` | yes | no |
+| Cursor | `.cursor/skills/` | yes | no |
+
+The support column follows the universal-agent list of the [`skills` CLI](https://github.com/vercel-labs/skills). An agent that cannot read the canonical directory keeps its symlinks, written by `install-skills.sh` itself for both local tier skills and the external collection — dropping them would make its skills silently disappear. Re-check the table when an agent gains support.
+
+Two escape hatches:
+
+- **`--legacy-links`** restores the historical layout (every skill symlinked into `.claude/skills/` *and* `.codex/skills/`), for a setup that still depends on it.
+- **`--ignore-agents <csv>`** skips an agent entirely. The persistent form is an `agents` block in `tiers.json`, which the flag overrides:
+
+  ```json
+  { "agents": { "ignore": ["cursor"] } }
+  ```
 
 ### Migrating from a previous install
 
-If you previously ran `yarn install-skills`, your `.claude/skills` and `.codex/skills` are directory-level symlinks that exposed every skill in the catalog. Re-run `yarn install-skills` and the script will replace them with per-skill symlinks for the core tier. To preserve the old behavior of installing every skill, run `yarn install-skills --all` instead.
+Earlier versions symlinked every skill into `.claude/skills/` *and* `.codex/skills/` (and copied external skills into `.agents/skills/` on top — three locations per skill). A plain re-run of `yarn install-skills` migrates you: it writes the canonical layout and sweeps the stale per-agent links away. To clear everything first:
+
+```bash
+yarn install-skills --clean && yarn install-skills
+```
 
 ### Claude Code
 
-The script wires `.claude/skills/` for you. If you prefer to configure Claude Code manually instead, point its skills directory at `.ai/skills/` via `.claude/settings.json`:
+The script wires `.claude/skills/` for you — Claude Code does not read the canonical directory at project level. If you prefer to configure it manually instead, point its skills directory at `.ai/skills/` via `.claude/settings.json`:
 
 ```json
 {
@@ -121,9 +146,9 @@ The script wires `.claude/skills/` for you. If you prefer to configure Claude Co
 
 Note that pointing the harness directly at `.ai/skills/` exposes every skill regardless of tier — the tier system only applies when installation goes through `yarn install-skills`.
 
-### Codex
+### Codex and Cursor
 
-The script wires `.codex/skills/` the same way it wires `.claude/skills/`.
+Nothing to wire: both read `.agents/skills/` directly.
 
 ### Verify
 
@@ -187,7 +212,7 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 
 These skills are installed from [open-mercato/skills](https://github.com/open-mercato/skills) into `.agents/skills/`; their descriptions are maintained upstream. They read `.ai/agentic.config.json`, `.ai/trackers/github.md`, the root docs, and any repo-local override under `.ai/skills/<name>/`.
 
-`om-approve-merge-pr`, `om-auto-continue-pr`, `om-auto-continue-pr-loop`, `om-auto-create-pr`, `om-auto-create-pr-loop`, `om-auto-fix-issue`, `om-auto-review-pr`, `om-auto-update-changelog`, `om-auto-verify-pr-ui`, `om-check-and-commit`, `om-code-review`, `om-fix`, `om-followup-issue-from-pr`, `om-integration-tests`, `om-merge-buddy`, `om-open-pr`, `om-prepare-issue`, `om-prepare-test-env`, `om-review-prs`, `om-root-cause`, `om-setup-agent-pipeline`, `om-spec-writing`, `om-stabilize-ci`, `om-sync-merged-pr-issues`, `om-verify-in-repo`
+`om-approve-merge-pr`, `om-auto-continue-pr`, `om-auto-continue-pr-loop`, `om-auto-create-pr`, `om-auto-create-pr-loop`, `om-auto-fix-issue`, `om-auto-review-pr`, `om-auto-update-changelog`, `om-auto-qa-pr`, `om-check-and-commit`, `om-code-review`, `om-fix`, `om-followup-issue-from-pr`, `om-integration-tests`, `om-merge-buddy`, `om-open-pr`, `om-prepare-issue`, `om-prepare-test-env`, `om-review-prs`, `om-root-cause`, `om-setup-agent-pipeline`, `om-spec-writing`, `om-auto-fix-pr`, `om-close-fixed-issues`, `om-verify-in-repo`
 
 ### security
 
@@ -257,7 +282,7 @@ Use skills when instructions are task-specific, substantial (>50 lines), or bene
 
 ## Troubleshooting
 
-**Skill not found**: Verify the per-skill symlink exists (`ls -la .claude/skills` or `ls -la .codex/skills`) and `SKILL.md` has valid YAML frontmatter. If the skill belongs to an opt-in tier, install it with `yarn install-skills --with <tier>` (or `--all`).
+**Skill not found**: Verify the skill exists in the canonical directory (`ls -la .agents/skills`) — and, for Claude Code, that its link layer has it too (`ls -la .claude/skills`) — and that `SKILL.md` has valid YAML frontmatter. If the skill belongs to an opt-in tier, install it with `yarn install-skills --with <tier>` (or `--all`).
 
 **Skill not auto-selected**: Improve `description` with more specific trigger words and domain terminology.
 
