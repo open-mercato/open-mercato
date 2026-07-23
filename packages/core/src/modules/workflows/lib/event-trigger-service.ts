@@ -22,6 +22,8 @@ import {
   type WorkflowDefinitionTrigger,
 } from '../data/entities'
 import { startWorkflow, executeWorkflow } from './workflow-executor'
+import { getAllCodeWorkflows } from './code-registry'
+import { codeWorkflowUuid } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows').child({ component: 'event-trigger' })
@@ -59,7 +61,7 @@ export interface UnifiedTrigger {
   workflowDefinitionId: string
   workflowId: string
   workflowVersion: number
-  source: 'legacy' | 'embedded'
+  source: 'legacy' | 'embedded' | 'code'
   tenantId: string
   organizationId: string
 }
@@ -411,6 +413,73 @@ async function loadLegacyTriggers(
 }
 
 /**
+ * Load triggers declared by code-defined workflows (#4333).
+ *
+ * Code workflows live only in the in-memory registry until a user customizes
+ * them, so their `triggers` array never reaches the DB-backed sources above —
+ * which meant a code workflow could never auto-start from an event no matter
+ * how correct its event pattern was.
+ *
+ * A DB definition with the same `workflowId` means the user customized this
+ * workflow; the DB row (and its embedded triggers) then wins, mirroring how
+ * `findWorkflowDefinition` and the definitions list already shadow code
+ * definitions. `workflowDefinitionId` uses the same deterministic UUID the
+ * executor assigns to virtual code definitions, so concurrency limits count
+ * the instances these triggers actually start.
+ */
+async function loadCodeTriggers(
+  em: EntityManager,
+  tenantId: string,
+  organizationId: string
+): Promise<UnifiedTrigger[]> {
+  const codeWorkflows = getAllCodeWorkflows().filter(
+    (workflow) => workflow.enabled && (workflow.definition?.triggers?.length ?? 0) > 0,
+  )
+  if (codeWorkflows.length === 0) return []
+
+  const shadowingRows = await em.find(
+    WorkflowDefinition,
+    {
+      workflowId: { $in: codeWorkflows.map((workflow) => workflow.workflowId) },
+      tenantId,
+      organizationId,
+      deletedAt: null,
+    },
+    { fields: ['workflowId'] as const },
+  )
+  const shadowed = new Set(shadowingRows.map((row) => row.workflowId))
+
+  const triggers: UnifiedTrigger[] = []
+
+  for (const workflow of codeWorkflows) {
+    if (shadowed.has(workflow.workflowId)) continue
+
+    for (const trigger of workflow.definition.triggers ?? []) {
+      if (trigger.enabled === false) continue
+
+      triggers.push({
+        id: `code:${workflow.workflowId}:${trigger.triggerId}`,
+        triggerId: trigger.triggerId,
+        name: trigger.name,
+        description: trigger.description ?? null,
+        eventPattern: trigger.eventPattern,
+        config: (trigger.config ?? null) as WorkflowEventTriggerConfig | null,
+        enabled: true,
+        priority: trigger.priority ?? 0,
+        workflowDefinitionId: codeWorkflowUuid(workflow.workflowId),
+        workflowId: workflow.workflowId,
+        workflowVersion: workflow.version,
+        source: 'code' as const,
+        tenantId,
+        organizationId,
+      })
+    }
+  }
+
+  return triggers
+}
+
+/**
  * Load embedded triggers from workflow definitions.
  * New triggers are embedded directly in the definition JSONB.
  */
@@ -467,7 +536,8 @@ async function loadEmbeddedTriggers(
 
 /**
  * Load all enabled triggers for a tenant/organization with caching.
- * Merges both legacy (entity) triggers and embedded (definition) triggers.
+ * Merges legacy (entity) triggers, embedded (definition) triggers, and
+ * triggers declared by code-defined workflows.
  */
 export async function loadTriggersForTenant(
   em: EntityManager,
@@ -484,14 +554,15 @@ export async function loadTriggersForTenant(
     return cached.triggers
   }
 
-  // Load from both sources
-  const [legacyTriggers, embeddedTriggers] = await Promise.all([
+  // Load from every source
+  const [legacyTriggers, embeddedTriggers, codeTriggers] = await Promise.all([
     loadLegacyTriggers(em, tenantId, organizationId),
     loadEmbeddedTriggers(em, tenantId, organizationId),
+    loadCodeTriggers(em, tenantId, organizationId),
   ])
 
   // Merge and sort by priority (higher first)
-  const allTriggers = [...legacyTriggers, ...embeddedTriggers]
+  const allTriggers = [...legacyTriggers, ...embeddedTriggers, ...codeTriggers]
     .sort((a, b) => b.priority - a.priority)
 
   // Update cache
