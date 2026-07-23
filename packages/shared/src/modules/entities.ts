@@ -56,7 +56,8 @@ export type CustomFieldDefinition = {
   //  - 'markdown' -> UIW Markdown editor
   //  - 'simpleMarkdown' -> minimal toolbar markdown
   //  - 'htmlRichText' -> contenteditable rich text
-  editor?: 'markdown' | 'simpleMarkdown' | 'htmlRichText'
+  //  - 'plain' -> plain <textarea> without any rich-text toolbar
+  editor?: 'markdown' | 'simpleMarkdown' | 'htmlRichText' | 'plain'
   // Input hint for plain text fields (e.g., tags input when multi=true)
   // Allow additional custom renderers (e.g., listbox from modules)
   input?: string
