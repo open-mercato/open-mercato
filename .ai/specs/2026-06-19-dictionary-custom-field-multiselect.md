@@ -22,8 +22,8 @@ The change must not introduce a new storage model, widen `CustomFieldDefinition.
 - Resolve options from `def.optionsUrl` when supplied, otherwise from `/api/dictionaries/:dictionaryId/entries`.
 - Preserve existing registered dictionary custom input behavior for single-value dictionary fields.
 - Add a `Multiple values` toggle to the dictionary custom-field definition editor.
-- Hide and clear the single-value default selector when multiple values are enabled.
-- Keep `dictionaryInlineCreate` scoped to single-value dictionary fields; multi inline-create is intentionally out of scope.
+- Clear the single-value default selector when multiple values are enabled, and show an explicit helper explaining that defaults are unavailable for multi-select dictionary fields.
+- Keep `dictionaryInlineCreate` scoped to single-value dictionary fields; multi inline-create is intentionally out of scope. The editor keeps the control visible but disabled in multi mode so the relationship is clear.
 
 ## Architecture
 
@@ -73,3 +73,4 @@ Covered existing APIs:
 ## Changelog
 
 - 2026-06-19: Added dictionary multi-select support for generated custom-field forms and dictionary field-definition editing.
+- 2026-06-30: Clarified dictionary field-definition UX by keeping scalar-only options visible with disabled/explanatory states when multi-select is enabled.

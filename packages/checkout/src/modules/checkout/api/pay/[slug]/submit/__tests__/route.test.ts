@@ -150,6 +150,7 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
         paymentId: TRANSACTION_ID,
         amount: 25,
         currencyCode: 'USD',
+        idempotencyKey: 'replay-key-123456',
       }),
     )
   })
