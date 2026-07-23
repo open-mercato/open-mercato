@@ -1685,6 +1685,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "is_primary": {
+          "name": "is_primary",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "false",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
         "person_entity_id": {
           "name": "person_entity_id",
           "type": "uuid",

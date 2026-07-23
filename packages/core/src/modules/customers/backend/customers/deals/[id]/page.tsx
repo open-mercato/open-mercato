@@ -130,6 +130,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           id: entry.id,
           label: entry.subtitle ? `${entry.label} · ${entry.subtitle}` : entry.label,
           kind: entry.kind,
+          isPrimary: entry.isPrimary === true,
         }))
       : []),
     [data],
@@ -140,7 +141,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     setSelectedActivityEntityId((current) => {
       if (activityEntities.length === 1) return activityEntities[0].id
       if (current && activityEntities.some((entry) => entry.id === current)) return current
-      return null
+      const primary = activityEntities.find((entry) => entry.isPrimary)
+      return (primary ?? activityEntities[0])?.id ?? null
     })
   }, [activityEntities])
 
