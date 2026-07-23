@@ -916,6 +916,7 @@ export function AttachmentLibrary() {
                     className="text-sm text-blue-600 underline"
                     target="_blank"
                     rel="noreferrer"
+                    onClick={(event) => event.stopPropagation()}
                   >
                     {content}
                   </a>

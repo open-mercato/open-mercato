@@ -104,4 +104,25 @@ describe('AttachmentLibrary download cell', () => {
 
     expect(rowClickSpy).not.toHaveBeenCalled()
   })
+
+  it('assignment link clicks do not bubble to the row handler either', () => {
+    const tableProps = renderLibraryAndCaptureTable()
+    const rowWithAssignment = {
+      ...attachmentRow,
+      assignments: [{ type: 'customers:person', id: 'p-1', href: '/backend/customers/people/p-1', label: 'Ada' }],
+    }
+    const column = tableProps.columns.find((entry) => entry.id === 'assignments')
+    expect(column).toBeDefined()
+    const cell = (column as { cell?: (ctx: { row: { original: typeof rowWithAssignment } }) => React.ReactNode }).cell
+    const rowClickSpy = jest.fn()
+    render(
+      <div data-testid="row-assignments" onClick={rowClickSpy}>
+        {cell!({ row: { original: rowWithAssignment } })}
+      </div>,
+    )
+
+    fireEvent.click(screen.getByRole('link', { name: /Ada/ }))
+
+    expect(rowClickSpy).not.toHaveBeenCalled()
+  })
 })
