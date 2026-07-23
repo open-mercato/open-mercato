@@ -39,6 +39,8 @@ Goal: consolidate the dependency fixes proposed by PRs #4344, #4345, and #4346 i
 
 ## Progress
 
+PR: #4363
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Consolidate lockfile fixes
@@ -49,5 +51,5 @@ Goal: consolidate the dependency fixes proposed by PRs #4344, #4345, and #4346 i
 ### Phase 2: Verify and publish
 
 - [x] 2.1 Run validation and compatibility reviews — dbf790b9b
-- [ ] 2.2 Open, label, and auto-review the consolidated PR
-- [ ] 2.3 Close superseded PRs 4344 through 4346
+- [x] 2.2 Open, label, and auto-review the consolidated PR — 68eccae62
+- [x] 2.3 Close superseded PRs 4344 through 4346 — 68eccae62
