@@ -73,6 +73,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Separator](#separator)
 - [Tabs](#tabs)
 - [Table](#table)
+- [Utility primitives (brief reference)](#utility-primitives-brief-reference)
 
 ---
 
@@ -2380,7 +2381,7 @@ Tokens map to the Figma `state/{x}/*` variable family — `status-{x}-icon` ↔ 
 | `stroke` | White bg, neutral text, soft border + drop shadow | `bg-background text-foreground border-border shadow-lg` | Rounded badge with `bg-status-{x}-icon` + white icon |
 | `filled` | Saturated bg, white text | `bg-status-{x}-icon text-white border-transparent` | Plain white icon (no badge wrap) |
 
-`feature` status maps to `--brand-violet` tokens instead of `--status-*` because there is no dedicated `feature` token set in `globals.css`.
+`feature` status maps to the `--status-neutral-*` token family (Figma `state/faded/*` gray) — there is no dedicated `feature` token set in `globals.css`, and it deliberately does NOT use `--brand-violet` (see MUST rules below).
 
 ### Size (3)
 
@@ -4159,8 +4160,8 @@ Both share the underlying Radix Dialog, the same `Cmd/Ctrl+Enter` submit + `Esca
 
 | `side` | Slot | Default size | Use case |
 |---|---|---|---|
-| `right` (default) | `inset-y-0 right-0` | `w-full max-w-md` (~420px) | Detail panes, edit forms — the most common case |
-| `left` | `inset-y-0 left-0` | `w-full max-w-md` | Navigation drawers, mobile menus |
+| `right` (default) | `inset-y-0 right-0` | `w-full max-w-[400px]` (Figma: 400px) | Detail panes, edit forms — the most common case |
+| `left` | `inset-y-0 left-0` | `w-full max-w-[400px]` | Navigation drawers, mobile menus |
 | `top` | `inset-x-0 top-0` | `max-h-[80vh]` | Notification banners, quick filters |
 | `bottom` | `inset-x-0 bottom-0` | `max-h-[80vh]` | Mobile action sheets, command palette |
 
@@ -4269,7 +4270,7 @@ Matches Figma `Drawer Footer [1.1]` variants 1–6.
 - **Overlay:** `bg-foreground/40 backdrop-blur-sm` — page chrome stays visible-but-dimmed behind the drawer.
 - **Content panel:** `bg-background shadow-2xl` + rounded corners on the inner (viewport-facing) edges only. Per Figma there is NO border on the seam — the rounded corners + the shadow do the visual separation work. Resulting classes by side: `rounded-l-2xl` (right), `rounded-r-2xl` (left), `rounded-b-2xl` (top), `rounded-t-2xl` (bottom).
 - **No chrome dividers** between Header / Body / Footer. Section separators inside the body (e.g. "ELIGIBILITY CRITERIA" labels) come from content composition, not from the Drawer primitive.
-- Default `max-w-md` (~420px) for right/left works well for forms; pass `className="max-w-2xl"` on `DrawerContent` for wider detail panes.
+- Default `max-w-[400px]` (Figma Drawer width) for right/left works well for forms; pass `className="max-w-2xl"` on `DrawerContent` for wider detail panes.
 - Auto-rendered top-right close button (`X` icon, `size-8`, muted-foreground, hover bg `muted/40`). Use `hideCloseButton` when the body provides its own dismissal (e.g. a Save/Cancel footer alone).
 
 ---
@@ -5652,3 +5653,18 @@ All accept native HTML attributes. Style only via `className`.
 ### Accessibility
 - Use `TableCaption` to describe the table for screen readers
 - For sortable columns, render the sort affordance inside `TableHead` with `aria-sort`
+
+---
+
+## Utility primitives (brief reference)
+
+Small primitives that need no full section — listed here so nothing shipped is undocumented.
+
+| Primitive | Import | What it is | Rules |
+|---|---|---|---|
+| `Card` (+ `CardHeader` / `CardTitle` / `CardDescription` / `CardAction` / `CardContent` / `CardFooter`) | `@open-mercato/ui/primitives/card` | Generic surface container: `bg-card rounded-xl border shadow-sm`, `gap-6`, `px-6` sections | Use for standalone content cards; do NOT hand-roll `<div className="rounded-xl border bg-card">` |
+| `Popover` (+ `PopoverTrigger` / `PopoverContent` / `PopoverAnchor` / `PopoverClose`) | `@open-mercato/ui/primitives/popover` | Radix popover portal at `z-popover`, `bg-popover` surface, `min-w-[280px]` | Base for custom floating panels; prefer higher-level `Select`/`Tooltip`/`CompactSelect` when they fit |
+| `Label` | `@open-mercato/ui/primitives/label` | Radix label: `text-sm font-medium`, disabled propagation via `peer-disabled`/`group-data-[disabled]` | Every standalone input needs one (or use `FormField`, which renders it) |
+| `DataLoader` | `@open-mercato/ui/primitives/DataLoader` | `isLoading`-gated wrapper rendering a centered `Spinner` before children | For simple section-level loading; full pages prefer `LoadingMessage` |
+| `Calendar` | `@open-mercato/ui/primitives/calendar` | Internal engine for `DatePicker`/`DateRangePicker` (incl. month/year grid navigation) | INTERNAL — consume via `DatePicker`/`DateRangePicker`, do not embed directly |
+| `Notice` / `ErrorNotice` | — | DEPRECATED shells kept for BC only; migration to `Alert` is complete and guard-tested | NEVER import in new code — use `Alert` |

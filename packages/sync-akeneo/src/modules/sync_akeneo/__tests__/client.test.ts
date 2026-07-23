@@ -17,6 +17,7 @@ function createTestAkeneoClient(
 ): ReturnType<typeof createAkeneoClient> {
   return createAkeneoClient(credentialsInput, {
     lookupHost: publicAkeneoLookupHost,
+    fetchImpl: global.fetch,
     ...deps,
   })
 }

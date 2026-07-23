@@ -2,7 +2,7 @@
 
 > All `om-*` skills organized by tier. Load this file when answering "what skill should I use?" or "what comes next?".
 >
-> Note: many pipeline skills (code review, auto-create/review PR, merge buddy, spec writing, changelog, …) are installed from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into `.agents/skills/` by `yarn install-skills` — see the `external` block in `.ai/skills/tiers.json`. Skill names below stay valid regardless of source; the external collection also adds `om-auto-fix-issue`, `om-setup-agent-pipeline`, and `om-stabilize-ci`.
+> Note: many pipeline skills (code review, auto-create/review PR, merge buddy, spec writing, changelog, …) are installed from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into `.agents/skills/` by `yarn install-skills` — see the `external` block in `.ai/skills/tiers.json`. Skill names below stay valid regardless of source; the external collection also adds `om-auto-fix-issue`, `om-setup-agent-pipeline`, and `om-auto-fix-pr` (CI stabilization via `--ci-only`).
 
 ## Table of Contents
 
@@ -56,8 +56,8 @@ Opt-in: `yarn install-skills --with automation`
 | `om-fix` | Fix a bug autonomously after root cause is known | `om-root-cause` | `om-smart-test` |
 | `om-open-pr` | Open a GitHub PR from the current branch | `om-check-and-commit` | `om-auto-review-pr` |
 | `om-review-prs` | Review all unreviewed open PRs in batch | — | — |
-| `om-merge-buddy` | Classify PRs as merge-ready / close-but-blocked | `om-auto-review-pr` | `om-sync-merged-pr-issues` |
-| `om-sync-merged-pr-issues` | Close linked issues after merge, comment on abandoned PRs | `om-merge-buddy` | `om-auto-update-changelog` |
+| `om-merge-buddy` | Classify PRs as merge-ready / close-but-blocked | `om-auto-review-pr` | `om-close-fixed-issues` |
+| `om-close-fixed-issues` | Close linked issues after merge, comment on abandoned PRs | `om-merge-buddy` | `om-auto-update-changelog` |
 | `om-auto-update-changelog` | Draft CHANGELOG.md release entry for merged PRs | after merge | — |
 | `om-auto-qa-scenarios` | Generate human QA report (P0/P1/P2 routes) for merged PRs | `om-implement-spec` | — |
 

@@ -21,7 +21,7 @@ import {
   loadEntityTagIds,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCustomersEvent } from '../events'
@@ -172,7 +172,7 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
     const parsed = tagUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(CustomerTag, { id: parsed.id })
-    if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
+    if (!tag) throw notFound('Tag not found')
     ensureTenantScope(ctx, tag.tenantId)
     ensureOrganizationScope(ctx, tag.organizationId)
 
@@ -290,7 +290,7 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
     const id = requireId(input, 'Tag id required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(CustomerTag, { id })
-    if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
+    if (!tag) throw notFound('Tag not found')
     ensureTenantScope(ctx, tag.tenantId)
     ensureOrganizationScope(ctx, tag.organizationId)
     await withAtomicFlush(em, [
@@ -386,7 +386,7 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
   const tag = await em.findOne(CustomerTag, { id: parsed.tagId, tenantId: parsed.tenantId, organizationId: parsed.organizationId })
-  if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
+  if (!tag) throw notFound('Tag not found')
   const entity = await requireCustomerEntity(em, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, undefined, 'Customer not found')
   ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
   const tagIds = await loadEntityTagIds(em, entity)
@@ -477,7 +477,7 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
     const assignmentId = logEntry?.resourceId ?? null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(CustomerTag, { id: before.tagId })
-    if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
+    if (!tag) throw notFound('Tag not found')
     const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
     ensureSameScope(entity, before.organizationId, before.tenantId)
 
@@ -537,7 +537,7 @@ const unassignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: str
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
     })
-    if (!existing) throw new CrudHttpError(404, { error: 'Tag assignment not found' })
+    if (!existing) throw notFound('Tag assignment not found')
     await em.remove(existing).flush()
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -591,7 +591,7 @@ const unassignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: str
     const tag = await em.findOne(CustomerTag, { id: before.tagId })
     const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
     ensureSameScope(entity, before.organizationId, before.tenantId)
-    if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
+    if (!tag) throw notFound('Tag not found')
     const existing = await em.findOne(CustomerTagAssignment, {
       tag,
       entity,
