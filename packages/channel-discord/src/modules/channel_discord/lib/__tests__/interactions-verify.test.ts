@@ -2,7 +2,9 @@ import { generateKeyPairSync, sign as cryptoSign } from 'node:crypto'
 import {
   verifyDiscordSignature,
   parseInteractionBody,
+  isSignatureTimestampFresh,
   DiscordInteractionType,
+  DISCORD_SIGNATURE_MAX_SKEW_SECONDS,
 } from '../interactions-verify'
 
 function makeSigner() {
@@ -70,6 +72,44 @@ describe('verifyDiscordSignature (Ed25519, fail-closed)', () => {
     expect(
       verifyDiscordSignature({ publicKeyHex: otherSigner.publicKeyHex, signatureHex, timestamp, rawBody }),
     ).toBe(false)
+  })
+})
+
+describe('isSignatureTimestampFresh (replay guard, fail-closed)', () => {
+  const now = 1_700_000_000
+
+  it('accepts a timestamp at the current clock', () => {
+    expect(isSignatureTimestampFresh(String(now), { nowEpochSeconds: now })).toBe(true)
+  })
+
+  it('accepts skew up to the window boundary, in both directions', () => {
+    expect(isSignatureTimestampFresh(String(now - DISCORD_SIGNATURE_MAX_SKEW_SECONDS), { nowEpochSeconds: now })).toBe(true)
+    expect(isSignatureTimestampFresh(String(now + DISCORD_SIGNATURE_MAX_SKEW_SECONDS), { nowEpochSeconds: now })).toBe(true)
+  })
+
+  it('rejects a timestamp just past the window (replayed capture)', () => {
+    expect(isSignatureTimestampFresh(String(now - DISCORD_SIGNATURE_MAX_SKEW_SECONDS - 1), { nowEpochSeconds: now })).toBe(false)
+    expect(isSignatureTimestampFresh(String(now + DISCORD_SIGNATURE_MAX_SKEW_SECONDS + 1), { nowEpochSeconds: now })).toBe(false)
+  })
+
+  it('honors a custom maxSkewSeconds', () => {
+    expect(isSignatureTimestampFresh(String(now - 10), { nowEpochSeconds: now, maxSkewSeconds: 5 })).toBe(false)
+    expect(isSignatureTimestampFresh(String(now - 10), { nowEpochSeconds: now, maxSkewSeconds: 15 })).toBe(true)
+  })
+
+  it('rejects missing or non-numeric timestamps (fail-closed)', () => {
+    expect(isSignatureTimestampFresh(null, { nowEpochSeconds: now })).toBe(false)
+    expect(isSignatureTimestampFresh(undefined, { nowEpochSeconds: now })).toBe(false)
+    expect(isSignatureTimestampFresh('', { nowEpochSeconds: now })).toBe(false)
+    expect(isSignatureTimestampFresh('not-a-number', { nowEpochSeconds: now })).toBe(false)
+    expect(isSignatureTimestampFresh('1700000000.5', { nowEpochSeconds: now })).toBe(false)
+    expect(isSignatureTimestampFresh('-1700000000', { nowEpochSeconds: now })).toBe(false)
+    expect(isSignatureTimestampFresh('1e9', { nowEpochSeconds: now })).toBe(false)
+  })
+
+  it('uses the real clock by default', () => {
+    expect(isSignatureTimestampFresh(String(Math.floor(Date.now() / 1000)))).toBe(true)
+    expect(isSignatureTimestampFresh('1700000000')).toBe(false)
   })
 })
 

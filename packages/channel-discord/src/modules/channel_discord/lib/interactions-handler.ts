@@ -1,8 +1,10 @@
 import {
   DiscordInteractionResponseType,
   DiscordInteractionType,
+  isSignatureTimestampFresh,
   parseInteractionBody,
   verifyDiscordSignature,
+  type TimestampFreshnessOptions,
 } from './interactions-verify'
 
 export interface InteractionCandidate {
@@ -29,6 +31,11 @@ export interface InteractionResult {
  * another tenant's scope. A tampered / missing signature verifies against no
  * candidate → 401, and no tenant-scoped work is done.
  *
+ * REPLAY GUARD: the signed timestamp must be within
+ * `DISCORD_SIGNATURE_MAX_SKEW_SECONDS` of the server clock. The check runs
+ * BEFORE the per-candidate Ed25519 fan-out, so a replayed capture (still
+ * cryptographically valid forever) is rejected at constant cost.
+ *
  * On the mandatory PING (type 1) handshake it returns `{ type: 1 }` (PONG) so
  * Discord accepts the endpoint URL. Application commands / components get a
  * deferred ack; full normalization into the hub is delegated to follow-up wiring
@@ -39,8 +46,13 @@ export function handleDiscordInteraction(input: {
   signatureHex: string | undefined | null
   timestamp: string | undefined | null
   candidates: InteractionCandidate[]
+  freshness?: TimestampFreshnessOptions
 }): InteractionResult {
-  const { rawBody, signatureHex, timestamp, candidates } = input
+  const { rawBody, signatureHex, timestamp, candidates, freshness } = input
+
+  if (!isSignatureTimestampFresh(timestamp, freshness)) {
+    return { status: 401, body: { error: 'stale_timestamp' }, matchedChannel: null }
+  }
 
   let matched: InteractionCandidate | null = null
   for (const candidate of candidates) {
