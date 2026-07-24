@@ -149,6 +149,28 @@ describe('applyHarnessUpdate', () => {
     expect(readFileSync(join(targetDir, '.ai', 'owned.md.incoming.2'), 'utf8')).toBe(secondCandidate)
   })
 
+  it('removes retired owned files but preserves modified retired assets with ownership', () => {
+    const unchanged = '.claude/generated.json'
+    const modified = 'CLAUDE.md'
+    write(join(targetDir, unchanged), 'old generated setting\n')
+    write(join(targetDir, modified), 'locally edited instructions\n')
+    writeManifest(targetDir, [
+      entry(unchanged, 'old generated setting\n'),
+      entry(modified, 'old generated instructions\n'),
+    ])
+    writeManifest(stagingDir, [])
+
+    expect(applyHarnessUpdate(targetDir, stagingDir)).toEqual([
+      { path: modified, candidate: null },
+    ])
+    expect(existsSync(join(targetDir, unchanged))).toBe(false)
+    expect(readFileSync(join(targetDir, modified), 'utf8')).toBe('locally edited instructions\n')
+    const manifest = JSON.parse(readFileSync(join(targetDir, '.ai', 'harness', 'manifest.json'), 'utf8')) as {
+      files: ManifestEntry[]
+    }
+    expect(manifest.files.map((item) => item.path)).toEqual([modified])
+  })
+
   it('leaves the prior manifest and app files untouched when candidate validation fails', () => {
     write(join(targetDir, '.ai', 'owned.md'), 'old\n')
     const oldManifestPath = writeManifest(targetDir, [entry('.ai/owned.md', 'old\n')])
@@ -232,5 +254,18 @@ describe('runAgenticSetup ownership modes', () => {
       '<!-- CODEX_ENFORCEMENT_RULES_START -->',
     )
     expect(existsSync(join(appDir, 'AGENTS.md.incoming'))).toBe(false)
+  })
+
+  it('removes unmodified tool-specific assets when switching tools', async () => {
+    const ask = async () => ''
+    await runAgenticSetup(appDir, ask, { tool: 'claude-code' })
+    expect(existsSync(join(appDir, 'CLAUDE.md'))).toBe(true)
+    expect(existsSync(join(appDir, '.claude', 'settings.json'))).toBe(true)
+
+    await runAgenticSetup(appDir, ask, { tool: 'codex', updateHarness: true })
+
+    expect(existsSync(join(appDir, 'CLAUDE.md'))).toBe(false)
+    expect(existsSync(join(appDir, '.claude', 'settings.json'))).toBe(false)
+    expect(existsSync(join(appDir, '.codex', 'mcp.json.example'))).toBe(true)
   })
 })

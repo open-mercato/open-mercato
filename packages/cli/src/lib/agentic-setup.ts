@@ -386,7 +386,7 @@ function finalizeHarnessManifest(config: AgenticConfig, selectedTools: string[])
  * collisions with unknown files stay untouched; their candidate is written next
  * to them as `<path>.incoming` for explicit review.
  */
-export type HarnessUpdateConflict = { path: string; candidate: string }
+export type HarnessUpdateConflict = { path: string; candidate: string | null }
 
 function preserveIncomingCandidate(
   destinationPath: string,
@@ -414,6 +414,7 @@ export function applyHarnessUpdate(targetDir: string, stagingDir: string): Harne
 
   const previousManifest = readHarnessManifest(targetManifestPath)
   const previousFiles = new Map(previousManifest?.files.map((entry) => [entry.path, entry]) ?? [])
+  const candidatePaths = new Set(candidateManifest.files.map((entry) => entry.path))
   const candidates: Array<{
     entry: HarnessManifestFile
     sourcePath: string
@@ -448,10 +449,34 @@ export function applyHarnessUpdate(targetDir: string, stagingDir: string): Harne
     conflicts.push({ path: entry.path, candidate })
   }
 
+  const retainedRetiredEntries: HarnessManifestFile[] = []
+  for (const previousEntry of previousManifest?.files ?? []) {
+    if (candidatePaths.has(previousEntry.path)) continue
+    const destinationPath = resolveManifestPath(targetDir, previousEntry.path)
+    if (!destinationPath || !existsSync(destinationPath)) continue
+    let unchanged = false
+    try {
+      unchanged = hashFile(destinationPath) === previousEntry.sha256
+    } catch {
+      // A user may replace a generated file with another filesystem object.
+      // Preserve it and retain the ownership tombstone for a later review.
+    }
+    if (unchanged) {
+      rmSync(destinationPath, { force: true })
+    } else {
+      retainedRetiredEntries.push(previousEntry)
+      conflicts.push({ path: previousEntry.path, candidate: null })
+    }
+  }
+
   // The candidate hashes deliberately remain in the manifest for conflicts. If
   // the user accepts an .incoming file, a later update can recognize it as an
   // unmodified owned file. Until then the hash mismatch keeps preserving it.
-  atomicCopyFile(stagingManifestPath, targetManifestPath)
+  const finalManifest: HarnessManifest = {
+    ...candidateManifest,
+    files: [...candidateManifest.files, ...retainedRetiredEntries],
+  }
+  atomicWriteFile(targetManifestPath, `${JSON.stringify(finalManifest, null, 2)}\n`)
   return conflicts
 }
 
@@ -656,7 +681,12 @@ export async function runAgenticSetup(
       if (conflicts.length > 0) {
         console.warn('')
         console.warn('   ⚠ Preserved locally modified harness files:')
-        for (const conflict of conflicts) console.warn(`   • ${conflict.path} (candidate: ${conflict.candidate})`)
+        for (const conflict of conflicts) {
+          const detail = conflict.candidate
+            ? `candidate: ${conflict.candidate}`
+            : 'retired asset kept because it has local changes'
+          console.warn(`   • ${conflict.path} (${detail})`)
+        }
       }
     } finally {
       rmSync(stagingDir, { recursive: true, force: true })
