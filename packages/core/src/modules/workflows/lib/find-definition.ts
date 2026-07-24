@@ -8,8 +8,9 @@
 
 import { createHash } from 'node:crypto'
 import { EntityManager } from '@mikro-orm/core'
+import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'
 import { WorkflowDefinition, type WorkflowDefinitionData } from '../data/entities'
-import { getCodeWorkflow } from './code-registry'
+import { getAllCodeWorkflows, getCodeWorkflow } from './code-registry'
 
 /**
  * Generate a deterministic UUID for a code workflow definition.
@@ -26,6 +27,22 @@ export function codeWorkflowUuid(workflowId: string): string {
     `${(parseInt(hash[16], 16) & 0x3 | 0x8).toString(16)}${hash.slice(17, 20)}`,
     hash.slice(20, 32),
   ].join('-')
+}
+
+/**
+ * Reverse the `codeWorkflowUuid` mapping: find the registered code workflow
+ * whose deterministic UUID equals the given definition id.
+ *
+ * Instances started from an unpersisted code definition store that synthetic
+ * UUID as their `definitionId`, so callers that only hold an id (the definition
+ * detail API, and anything linking to it) need this to resolve the definition
+ * without knowing the `code:<workflowId>` form.
+ */
+export function findCodeWorkflowBySyntheticUuid(definitionId: string): CodeWorkflowDefinition | null {
+  for (const codeDef of getAllCodeWorkflows()) {
+    if (codeWorkflowUuid(codeDef.workflowId) === definitionId) return codeDef
+  }
+  return null
 }
 
 /**

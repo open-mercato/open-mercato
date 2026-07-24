@@ -12,6 +12,8 @@ import {
   DELETE as deleteDefinition,
 } from '../definitions/[id]/route'
 import { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
+import { registerCodeWorkflows, clearCodeWorkflowRegistry } from '../../lib/code-registry'
+import { codeWorkflowUuid } from '../../lib/find-definition'
 
 // Mock dependencies
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -501,6 +503,85 @@ describe('Workflow Definitions API', () => {
       const response = await getDefinition(request, { params: Promise.resolve({ id: 'non-existent' }) })
 
       expect(response.status).toBe(404)
+    })
+
+    describe('code-based definitions', () => {
+      const codeDef = {
+        workflowId: 'workflows.checkout-demo',
+        workflowName: 'Checkout Demo',
+        description: 'Code-defined checkout demo',
+        version: 1,
+        enabled: true,
+        metadata: null,
+        moduleId: 'workflows',
+        definition: {
+          steps: [
+            { stepId: 'start', stepName: 'Start', stepType: 'START' as const },
+            { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+          ],
+          transitions: [
+            { transitionId: 't1', fromStepId: 'start', toStepId: 'end', trigger: 'auto' as const },
+          ],
+        },
+      }
+
+      beforeEach(() => {
+        clearCodeWorkflowRegistry()
+        registerCodeWorkflows([codeDef])
+      })
+
+      afterEach(() => {
+        clearCodeWorkflowRegistry()
+      })
+
+      test('should resolve the synthetic UUID carried by code-workflow instances', async () => {
+        mockEm.findOne.mockResolvedValue(null)
+        const syntheticId = codeWorkflowUuid(codeDef.workflowId)
+
+        const request = new NextRequest(`http://localhost/api/workflows/definitions/${syntheticId}`)
+        const response = await getDefinition(request, { params: Promise.resolve({ id: syntheticId }) })
+        const data = await response.json()
+
+        expect(response.status).toBe(200)
+        expect(data.data.id).toBe(syntheticId)
+        expect(data.data.workflowId).toBe(codeDef.workflowId)
+        expect(data.data.definition).toEqual(codeDef.definition)
+        expect(data.data.source).toBe('code')
+        expect(data.data.isCodeBased).toBe(true)
+      })
+
+      test('should still return 404 for an unknown UUID', async () => {
+        mockEm.findOne.mockResolvedValue(null)
+        const unknownId = codeWorkflowUuid('workflows.not-registered')
+
+        const request = new NextRequest(`http://localhost/api/workflows/definitions/${unknownId}`)
+        const response = await getDefinition(request, { params: Promise.resolve({ id: unknownId }) })
+
+        expect(response.status).toBe(404)
+      })
+
+      test('should not consult the code registry when a DB row matches the id', async () => {
+        const syntheticId = codeWorkflowUuid(codeDef.workflowId)
+        mockEm.findOne.mockResolvedValue({
+          id: syntheticId,
+          workflowId: codeDef.workflowId,
+          workflowName: 'Customized Checkout Demo',
+          version: 2,
+          definition: { steps: [], transitions: [] },
+          enabled: true,
+          codeWorkflowId: codeDef.workflowId,
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        })
+
+        const request = new NextRequest(`http://localhost/api/workflows/definitions/${syntheticId}`)
+        const response = await getDefinition(request, { params: Promise.resolve({ id: syntheticId }) })
+        const data = await response.json()
+
+        expect(response.status).toBe(200)
+        expect(data.data.workflowName).toBe('Customized Checkout Demo')
+        expect(data.data.source).toBe('code_override')
+      })
     })
 
     test('should enforce tenant isolation', async () => {

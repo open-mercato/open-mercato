@@ -21,6 +21,7 @@ import {
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from '../serialize'
 import { invalidateTriggerCache } from '../../../lib/event-trigger-service'
 import { getCodeWorkflow } from '../../../lib/code-registry'
+import { findCodeWorkflowBySyntheticUuid } from '../../../lib/find-definition'
 import { createGenericOptimisticLockReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
@@ -97,6 +98,16 @@ export async function GET(
     })
 
     if (!definition) {
+      // Instances started from an unpersisted code definition carry the
+      // deterministic `codeWorkflowUuid(workflowId)` as their definitionId, so
+      // resolve that synthetic UUID back to the registered code workflow.
+      const codeDefBySyntheticId = findCodeWorkflowBySyntheticUuid(params.id)
+      if (codeDefBySyntheticId) {
+        return NextResponse.json({
+          data: serializeCodeWorkflowDefinition(codeDefBySyntheticId, params.id),
+        })
+      }
+
       return NextResponse.json(
         { error: 'Workflow definition not found' },
         { status: 404 }
@@ -511,10 +522,10 @@ export const openApi = {
   methods: {
     GET: {
       summary: 'Get workflow definition',
-      description: 'Get a single workflow definition by ID. Returns the complete workflow structure including steps and transitions (with embedded activities).',
+      description: 'Get a single workflow definition by ID. Returns the complete workflow structure including steps and transitions (with embedded activities). Code-based definitions resolve from "code:<workflowId>" and from the deterministic synthetic UUID stored on their instances.',
       tags: ['Workflows'],
       pathParams: z.object({
-        id: z.string().describe('UUID for DB definitions, or "code:<workflowId>" for code-based definitions'),
+        id: z.string().describe('UUID for DB definitions, the synthetic UUID carried by code-workflow instances, or "code:<workflowId>" for code-based definitions'),
       }),
       responses: [
         {

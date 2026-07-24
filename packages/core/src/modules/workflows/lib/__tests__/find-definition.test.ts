@@ -7,6 +7,7 @@ import { EntityManager } from '@mikro-orm/core'
 import { WorkflowDefinition } from '../../data/entities'
 import {
   codeWorkflowUuid,
+  findCodeWorkflowBySyntheticUuid,
   findWorkflowDefinition,
   findDefinitionForInstance,
   resolveCodeDefinitionForInstance,
@@ -80,6 +81,34 @@ describe('codeWorkflowUuid()', () => {
     const a = codeWorkflowUuid('workflow.alpha')
     const b = codeWorkflowUuid('workflow.beta')
     expect(a).not.toBe(b)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// findCodeWorkflowBySyntheticUuid
+// ---------------------------------------------------------------------------
+
+describe('findCodeWorkflowBySyntheticUuid()', () => {
+  beforeEach(() => {
+    clearCodeWorkflowRegistry()
+  })
+
+  test('resolves the code workflow whose deterministic UUID matches', () => {
+    registerCodeWorkflows([makeCodeDef(), makeCodeDef({ workflowId: 'other.workflow' })])
+
+    const result = findCodeWorkflowBySyntheticUuid(codeWorkflowUuid('other.workflow'))
+
+    expect(result?.workflowId).toBe('other.workflow')
+  })
+
+  test('returns null for a persisted definition UUID', () => {
+    registerCodeWorkflows([makeCodeDef()])
+
+    expect(findCodeWorkflowBySyntheticUuid('db-uuid-1111-2222-3333-444444444444')).toBeNull()
+  })
+
+  test('returns null when the registry is empty', () => {
+    expect(findCodeWorkflowBySyntheticUuid(codeWorkflowUuid('test.workflow'))).toBeNull()
   })
 })
 
