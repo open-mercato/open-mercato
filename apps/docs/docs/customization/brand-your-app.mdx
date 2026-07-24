@@ -1,0 +1,177 @@
+---
+title: Brand your app
+description: Make a standalone Open Mercato app look like your product with theme.css overrides and the mercato theme init generator.
+---
+
+# Brand your app
+
+Standalone apps scaffolded by `create-mercato-app` ship with the Open Mercato default theme: a near-black `--primary`, `0.625rem` `--radius`, system font stacks, and the lime/violet Open Mercato brand accents. This guide is the supported path to make the app look like *your* product: which design tokens you may override, where the overrides live so they survive framework upgrades, and how the CLI generates a validated starting point for you.
+
+## Quick start
+
+```bash
+yarn mercato theme init --primary "#0C71C6"
+```
+
+That one command:
+
+1. Derives a full palette from your brand primary: hover state, readable text-on-primary, and a dark-mode variant.
+2. Validates every generated pair against WCAG 2.1 AA contrast thresholds and prints a report.
+3. Writes the result to `src/app/theme.css` and makes sure your root `layout.tsx` imports it (adding the import if your app predates the convention).
+
+Restart the dev server and every primary button, link, and active tab renders in your brand color, in light and dark mode, while status alerts, selection controls, and focus rings keep their framework semantics.
+
+## How theming works
+
+Every color, radius, and font in the UI resolves through CSS custom properties defined in `src/app/globals.css`. Tailwind 4's `@theme inline` block maps utilities onto those properties at runtime (`--color-primary: var(--primary)`, `--radius-lg: var(--radius)`, `--font-sans: var(--font-geist-sans)`), so compiled utilities read `var(--primary)` at render time. A *runtime* override of the custom property in any later-loaded stylesheet retints the compiled utilities without recompiling Tailwind.
+
+That is why theming needs only two files and one rule:
+
+- **`globals.css` is framework-owned.** It defines every token default and may be rewritten wholesale by upgrade tooling when new token scales land. Never put your edits here; they will be lost or conflict on upgrade.
+- **`theme.css` is yours.** Framework upgrades never touch it. It contains plain `:root { }` and `.dark { }` blocks, no `@theme`, no build config.
+- **Ordering is the mechanism.** `layout.tsx` imports `theme.css` *after* `globals.css`, so your declarations win by source order at equal specificity:
+
+```ts
+import './globals.css'
+import './theme.css'
+```
+
+Moving the `theme.css` import above `globals.css` silently disables every override. `mercato theme init` re-checks the import position each time it runs.
+
+## The token contract
+
+### Safe to override (identity tokens)
+
+| Token | Light default | Dark override exists | Effect |
+|---|---|---|---|
+| `--primary` | `oklch(0.205 0 0)` (near-black) | yes (`oklch(0.922 0 0)`) | Primary buttons, active tab underline, links, `bg-primary/…` tints |
+| `--primary-hover` | `oklch(0.145 0 0)` | yes | Primary button hover |
+| `--primary-foreground` | `oklch(0.985 0 0)` | yes | Text/icon on primary surfaces |
+| `--brand-lime` | `#B4F372` | no (theme-invariant by design) | Open Mercato brand moments (hero, gradient, celebration) |
+| `--brand-violet` / `--brand-violet-foreground` | `#BC9AFF` / `#0C0C0C` | yes | AI touchpoints, custom-view pills |
+| `--radius` | `0.625rem` | n/a | Cascades to the whole radius scale (see below) |
+| `--font-geist-sans` | system UI stack | n/a | Entire app UI font (`@theme inline` maps `--font-sans: var(--font-geist-sans)`) |
+| `--font-geist-mono` | system mono stack | n/a | Code/technical content font |
+
+Two mechanics make plain-CSS theming work here:
+
+- **Radius cascade.** `@theme inline` derives the full scale from one knob: `--radius-sm: calc(var(--radius) - 4px)`, `--radius-md: calc(var(--radius) - 2px)`, `--radius-lg: var(--radius)`, `--radius-xl: calc(var(--radius) + 6px)`. Overriding `--radius` alone re-rounds every `rounded-sm/md/lg/xl` usage consistently; `rounded-full` and `rounded-none` are unaffected. Values below `4px` clamp `--radius-sm` to zero or negative, which is why the CLI warns below `0.25rem`.
+- **Dark mode is a class, not a media query.** The `.dark` class on the document element switches themes, so your `theme.css` needs an explicit `.dark { }` block. The framework's own dark `--primary` is a *light* color (near-white on dark surfaces); the generator mirrors that pattern by lifting your brand color's lightness for the dark block.
+
+### Never override (semantic contracts)
+
+| Surface | Why it is a contract |
+|---|---|
+| `--status-{error,success,warning,info,neutral,pink}-{bg,text,border,icon}` | Semantic status *roles* consumed by Alert, StatusBadge, Toast, and StatusMap definitions across every module. The light/dark pairs are pre-balanced; re-coloring "error" to a brand hue breaks the meaning, not just the look. |
+| `--accent-indigo` / `--accent-indigo-foreground` | The selection contract: Checkbox/Radio/Switch ON state and native `accent-color`. Deliberately *not* `--primary`, so selected controls stay distinguishable from primary actions regardless of brand color. |
+| `--z-index-*` scale | Cross-component layering guarantees (`--z-index-popover: 45` above `--z-index-modal: 40` so selects inside drawers render; tooltips above popovers). Any change desynchronizes portaled components. |
+| `--shadow-focus` anatomy | The dual-ring focus recipe (`0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--focus-ring-outer)`) is an accessibility affordance calibrated per light/dark. |
+| `--brand-{apple,github,x,google-stroke,facebook,dropbox,linkedin}` | Third-party brand identities on social-login buttons. They are theme-invariant and not yours (or ours) to restyle. |
+
+The neutral scaffolding (`--destructive`, `--ring`, `--border`, `--input`, `--muted*`, `--accent*`, `--card*`, `--popover*`, `--sidebar*`) and the data-viz palette (`--chart-*`) are overridable in principle but outside the supported contract in v1. Treat them as advanced, at-your-own-risk overrides and consult `.ai/ds-rules.md` before touching them.
+
+## Fonts
+
+Overriding `--font-geist-sans` switches the family *token*; actually loading a webfont is your responsibility. With `next/font`, load the font in `layout.tsx` and assign its CSS variable to the token:
+
+```tsx
+// src/app/layout.tsx
+import { Inter } from 'next/font/google'
+
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
+
+// on the <html> element:
+// <html className={inter.variable} …>
+```
+
+```css
+/* src/app/theme.css */
+:root {
+  --font-geist-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+```
+
+Alternatively, declare an `@font-face` directly in `theme.css` and reference the family name. Either way, the token override alone does nothing until the font is actually loaded.
+
+## What the CLI validates
+
+`mercato theme init` refuses to generate an unreadable theme. Per WCAG 2.1, it linearizes each sRGB channel, computes relative luminance, and checks the contrast ratio `(L1 + 0.05) / (L2 + 0.05)` for every emitted pair:
+
+| Pair | Threshold | On violation |
+|---|---|---|
+| `--primary-foreground` on `--primary` (light and dark, each checked) | 4.5:1 (AA normal text) | Fail (exit 1) when you supplied the foreground explicitly; warning when auto-picked |
+| `--primary` against `--background` (white / dark `oklch(0.145 0 0)`) | 3:1 (AA non-text UI) | Warning: outline buttons, links, and focus-adjacent uses |
+
+A failure looks like this and nothing is written:
+
+```
+✖ Contrast check failed: --primary-foreground (#ffffff) on --primary (#8FC1E9) is 1.9:1 — WCAG AA requires 4.5:1 for text.
+  Suggestion: use --primary-foreground "#0a0a0a" (10.4:1), or pick a darker primary.
+```
+
+On success the command prints a contrast report with the exact ratio and verdict for each pair in both modes. Use `--dry-run` to iterate on colors before writing anything.
+
+### Command reference
+
+```
+mercato theme init --primary "#0C71C6" [options]
+
+  --primary <hex>              required; brand primary (#RGB, #RRGGBB)
+  --primary-foreground <hex>   optional; text-on-primary (default: auto-picked)
+  --radius <value>             optional; CSS length for --radius (e.g. 8px, 0.5rem)
+  --font <family>              optional; font family for --font-geist-sans
+  --out <path>                 optional; default src/app/theme.css
+  --force                      overwrite an existing theme.css
+  --dry-run                    print the generated CSS + contrast report, write nothing
+```
+
+Exit codes: `0` success (warnings allowed), `1` validation failure (contrast below the hard threshold, unparseable color, existing customized `theme.css` without `--force`). The freshly scaffolded, comment-only `theme.css` is recognized as inert and can be regenerated without `--force`.
+
+Apps scaffolded before the `theme.css` convention existed can adopt it with the same command: it writes the file and inserts the `import './theme.css'` line directly after the `import './globals.css'` anchor in `layout.tsx` (idempotently). If your layout is customized and the anchor is missing, the command prints the exact line to add instead of rewriting your layout.
+
+## Importing your brand from Figma
+
+Your brand rarely lives in your head as one hex value — it lives in a Figma file: a brand book, a marketing site design, an existing product mockup. `mercato theme from-figma` reads that file (read-only), inventories its brand signals, and lets **you** decide which of them become theme tokens. The confirmed values then flow through the exact same generator and WCAG gate as `theme init` — `from-figma` is a second front door into the same pipeline, never a second pipeline.
+
+```bash
+export FIGMA_TOKEN=...   # figma.com → Settings → Personal access tokens (file read scope)
+yarn mercato theme from-figma "https://www.figma.com/design/<key>/Acme-Brand-Book"
+```
+
+The command:
+
+1. **Extracts** color candidates (with usage counts and style/variable names), font families from text styles, and the corner-radius distribution. Published Variables are tried first; when the Variables API is unavailable — it requires an Enterprise plan on the file's side, so this is the expected case for most client files, not an error — the extractor falls back to local styles plus a solid-fill frequency analysis of top-level frames, which works on any plan. Image fills, gradients, and semi-transparent fills are excluded from ranking (a photo-heavy marketing page must not out-vote the brand palette).
+2. **Asks you to map** the candidates onto the safe tokens. The most-used color in a file is usually a background or divider gray, not the brand primary — which is why the tool ranks and presents evidence but *never* auto-picks: interactively it asks "which color is your action color?", and in scripts you encode the decision as `--map` flags. Without either, it degrades to `--report-only` rather than guessing.
+3. **Generates** `theme.css` through the `theme init` pipeline (identical palette derivation, identical contrast gate, identical `--force`/`--dry-run` semantics) and writes a markdown import report — what was mapped with evidence, every contrast ratio, and the ranked leftovers that were *not* imported, by design.
+
+### Command reference
+
+```
+mercato theme from-figma <file-url-or-key> [options]
+
+  <file-url-or-key>            Figma URL (figma.com/design/<key>/… or /file/<key>/…) or bare file key
+  --map <pairs>                non-interactive mapping, e.g. --map "primary=#0C71C6,radius=8px,font=Inter"
+                               accepted keys: primary, primary-foreground, radius, font, font-mono
+  --report-only                extract + write report and extraction JSON; never write theme.css
+  --extract-json <path>        where to write the extraction JSON (default .ai/reports/figma-brand-extract-<key>.json)
+                               pointing it at an existing extraction with a matching key skips re-fetching
+  --report <path>              where to write the markdown report (default .ai/reports/figma-brand-import-<key>.md)
+  --pages <names>              limit frame scanning to named pages (comma-separated; default: all)
+  --out / --force / --dry-run  passed through to the theme init writer (same semantics, same defaults)
+```
+
+Exit codes match `theme init`: `0` success (warnings allowed), `1` validation failure — unreachable file, missing token, unparseable `--map` value, or a WCAG hard failure on an explicitly supplied pair. `--report-only` exits `0` even when the candidates look unusable; an audit is not a failure.
+
+Notes:
+
+- `FIGMA_TOKEN` is read from the environment only — there is deliberately no flag for it, and it is never written into the extraction JSON, the report, or `theme.css`. All Figma access is read-only GETs; nothing is ever written back to the file.
+- A `--map primary=` hex that never appears in the file produces a warning, not a failure — brand books sometimes intentionally differ from design files.
+- `font-mono` is accepted in `--map` but recorded in the report as a manual step: the generator emits the same token surface as `theme init`, which does not include `--font-geist-mono`.
+- The extraction JSON (`om-figma-brand-extract@1`) is a stable versioned format also consumed by the `om-figma-design-with-ds` skill's audit flow (MODE B), so CLI imports and agent-driven design audits agree about the same file. Iterate on a mapping without re-hitting the API by pointing `--extract-json` at the previous run's file.
+- Start every onboarding with `--report-only`: review the ranked inventory and contrast ratios before committing to a mapping.
+
+## Advanced and unsupported
+
+- Chart palette (`--chart-*`) and sidebar tokens are documented as manual overrides only; the generator never emits them.
+- Overrides of `--status-*`, `--accent-indigo`, `--z-index-*`, or `--shadow-focus` are **unsupported**. Framework upgrades assume their semantics, `theme init` warns when it finds them in an existing `theme.css`, and support requests with such overrides in place are triaged as self-inflicted.
+- Direct edits to `globals.css` keep working exactly as before, but they were never supported and will be lost on upgrade. `theme.css` is the supported alternative.

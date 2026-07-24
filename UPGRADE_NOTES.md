@@ -44,6 +44,16 @@ Contributor action:
 - If a setup still depends on the old layout, `yarn install-skills --legacy-links` restores it.
 - To keep an agent's directory from being written at all, pass `--ignore-agents <csv>` or add a persistent `{ "agents": { "ignore": ["cursor"] } }` block to `.ai/skills/tiers.json`.
 
+### New `theme.css` brand-override convention (additive, opt-in)
+
+Freshly scaffolded standalone apps now include a user-owned `src/app/theme.css` (imported in `layout.tsx` directly after `globals.css`) as the supported place for brand token overrides, plus a new `mercato theme init` CLI command that generates a WCAG-validated theme from a brand primary. Nothing breaks without it: apps scaffolded before this release simply do not have the file.
+
+Contributor action (optional, only if you want the convention in a pre-existing standalone app):
+
+- Run `yarn mercato theme init --primary "#your-brand-hex"` — it writes `src/app/theme.css` and inserts the `import './theme.css'` line after the `import './globals.css'` anchor in `src/app/layout.tsx` (or prints the exact line to add when your layout is customized).
+- Or add the two lines by hand: create an empty `src/app/theme.css` and import it in `layout.tsx` after `globals.css`.
+- `theme.css` is yours: framework upgrades and `om-auto-upgrade-*` migrations never rewrite it. See the "Brand your app" docs page for the safe-token contract.
+
 ### Shared `om-*` pipeline skills now come from open-mercato/skills
 
 The generalized agent-pipeline skills (`om-code-review`, `om-auto-create-pr`, `om-auto-review-pr`, `om-merge-buddy`, `om-spec-writing`, the `-loop` variants, `om-prepare-issue`, and 15 more — see the `external` block in [`.ai/skills/tiers.json`](.ai/skills/tiers.json)) were removed from `.ai/skills/` and are now installed from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection. `yarn install-skills` runs `npx -y skills add open-mercato/skills --skill '*'` after the local tier symlinks, placing the skills under `.agents/skills/` (gitignored), then `npx -y skills update --project` so re-running the installer refreshes the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current).
