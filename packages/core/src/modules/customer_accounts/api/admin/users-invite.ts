@@ -3,8 +3,10 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import { isOwnedCompanyEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
@@ -49,6 +51,20 @@ export async function POST(req: Request) {
   const parsed = inviteUserSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 400 })
+  }
+
+  // Reject a customerEntityId the caller does not own. Without this check the
+  // invitation persists a foreign company FK that cross-links the accepted
+  // CustomerUser into another org/company's portal context (#3838, mirrors #2693).
+  if (parsed.data.customerEntityId) {
+    const em = container.resolve('em') as EntityManager
+    const owned = await isOwnedCompanyEntity(em, parsed.data.customerEntityId, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+    })
+    if (!owned) {
+      return NextResponse.json({ ok: false, error: 'Company not found' }, { status: 400 })
+    }
   }
 
   const customerInvitationService = container.resolve('customerInvitationService') as CustomerInvitationService
