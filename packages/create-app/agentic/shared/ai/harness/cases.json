@@ -4853,7 +4853,7 @@
     "mode": "bugfix",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Fix a reported bug in a freshly scaffolded standalone Open Mercato app: fix behavior that differs across browser, CLI, worker, and queue bootstraps. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "Fix a reported bug in a freshly scaffolded standalone Open Mercato app: behavior differs across browser, CLI, worker, and queue bootstraps. The mismatch is narrowed to a generated app-module export consumed by installed bootstrap registries, but their exact installed signature remains unresolved. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "bugfix",
       "debugging",
@@ -4878,15 +4878,18 @@
     },
     "requiredSkills": [
       "om-troubleshooter",
-      "om-framework-context"
+      "om-framework-context",
+      "om-module-scaffold"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/testing-debugging.md",
-        ".ai/guides/contracts.md",
-        ".ai/guides/architecture.md",
-        ".ai/skills/om-troubleshooter/SKILL.md"
+      ".ai/guides/contracts.md",
+      ".ai/guides/architecture.md",
+      ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+      ".ai/skills/om-troubleshooter/SKILL.md",
+      ".ai/skills/om-module-scaffold/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -4913,8 +4916,8 @@
       "patterns.forbidden",
       "safety.mandatory"
     ],
-    "maxContextFiles": 6,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-065"

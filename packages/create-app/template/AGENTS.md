@@ -47,7 +47,7 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 ## Three-Axis Context Assembler
 
-Match every axis, then de-duplicate. Examples: notifications = `module-data` + `backend-ui` + `umes`; custom-field UI round trips add `testing`; cross-module lifecycle reactions = `module-data` + `umes`. Never collapse to one specialized route.
+Match every axis, then de-duplicate. Examples: notifications = `module-data` + `backend-ui` + `umes`; custom-field UI round trips add `testing`; lifecycle reactions = `module-data` + `umes`; bootstrap/generated-registry drift = `architecture` + `module-data` + `debugging` (+ `framework-context` for the exact installed contract). Never collapse to one route.
 
 Route IDs: `architecture`, `module-data`, `backend-ui`, `umes`, `integration`, `ai-workflow`, `testing`, `debugging`, `framework-context`, `spec-pr`.
 
@@ -76,7 +76,7 @@ Split the outcome into verifiable units; match all rows.
 | Evaluator route ID | Work unit | Procedure and concept context |
 |---|---|---|
 | `architecture` | Explain capabilities or choose module vs UMES vs package vs eject | `.ai/guides/architecture.md`; `om-help` for an unfamiliar decision |
-| `module-data` | Convert a business outcome into a complete vertical slice | `om-module-scaffold`; load `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md`, then union concrete rows below: customer management, deal pipeline, CRM lead capture, library, booking, rental, support, or purchasing |
+| `module-data` | Convert a business outcome into a complete vertical slice | `om-module-scaffold`; load its `business-one-shot-blueprints.md`, then union matched rows below |
 | `spec-pr` | Split or implement cohesive specification phases | Axis 3's skill; keep every phase deployable |
 | `architecture` | Audit an upgrade or disable an unused built-in | `om-troubleshooter` + `om-framework-context`, or `om-trim-unused-modules` |
 | `architecture` + `integration` + `framework-context` | Audit a provider phase superseded by installed capability | `om-integration-builder` + `om-framework-context`; add troubleshoot/removal only for a failure or whole-module disable |
