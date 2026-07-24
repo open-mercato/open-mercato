@@ -19,7 +19,10 @@ import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/us
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useWmsInventoryMutationAccess } from '../../../components/backend/useWmsInventoryMutationAccess'
 import { loadWarehouseOptions } from '../../../components/backend/wmsLookupLoaders'
-import { resolveCatalogVariantLabel } from '../../../components/backend/inventoryMutationLoaders'
+import {
+  resolveCatalogVariantLabel,
+  resolveWarehouseLabel,
+} from '../../../components/backend/inventoryMutationLoaders'
 import { ReleaseReservationDialog } from '../../../components/backend/ReleaseReservationDialog'
 
 type ReservationStatus =
@@ -125,6 +128,20 @@ export default function SalesOrderStockContextWidget(
     wms?.assignedWarehouseName ||
     (wms?.isExplicitlyAssigned ? wms.assignedWarehouseId : null) ||
     t('wms.widgets.sales.stockContext.unassigned', 'Not assigned')
+
+  const warehouseSeedOptions = React.useMemo(() => {
+    if (!wms?.assignedWarehouseId) return []
+    const label = wms.assignedWarehouseName?.trim() || wms.assignedWarehouseId
+    return [{ value: wms.assignedWarehouseId, label }]
+  }, [wms?.assignedWarehouseId, wms?.assignedWarehouseName])
+
+  const resolveWarehouseComboboxLabel = React.useCallback(async (value: string) => {
+    if (wms?.assignedWarehouseId === value && wms.assignedWarehouseName?.trim()) {
+      return wms.assignedWarehouseName.trim()
+    }
+    const label = await resolveWarehouseLabel(value)
+    return label ?? value
+  }, [wms?.assignedWarehouseId, wms?.assignedWarehouseName])
 
   const persistAssignment = React.useCallback(
     async (warehouseId: string | null) => {
@@ -285,6 +302,8 @@ export default function SalesOrderStockContextWidget(
                   setSelectedWarehouseId(nextValue)
                   void persistAssignment(nextValue)
                 }}
+                seedOptions={warehouseSeedOptions}
+                resolveLabel={resolveWarehouseComboboxLabel}
                 loadSuggestions={async (query) => {
                   const options = await loadWarehouseOptions(query)
                   return options.map((option) => ({
