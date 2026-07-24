@@ -36,6 +36,10 @@ import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitive
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
+import {
+  inventoryMovementReasonLabel,
+  type InventoryDisplayTranslator,
+} from '../../lib/inventoryDisplayUi'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
 import { CycleCountWizardDialog } from './CycleCountWizardDialog'
 import { ReceiveInventoryDialog } from './ReceiveInventoryDialog'
@@ -100,6 +104,7 @@ type InventoryMovementRow = {
   reference_type?: string | null
   reference_id?: string | null
   reason?: string | null
+  reason_code?: string | null
   performed_at?: string | null
   received_at?: string | null
 }
@@ -328,8 +333,19 @@ function formatMovementTitle(
   }
 }
 
-function formatMovementSubtitle(row: InventoryMovementRow): string | null {
-  if (row.reason?.trim()) return row.reason.trim()
+function formatMovementSubtitle(
+  row: InventoryMovementRow,
+  t: InventoryDisplayTranslator,
+): string | null {
+  const reasonLabel = inventoryMovementReasonLabel(
+    {
+      reasonCode: row.reason_code,
+      reason: row.reason,
+      movementType: row.type,
+    },
+    t,
+  )
+  if (reasonLabel) return reasonLabel
   if (row.reference_type && row.reference_id) return `${row.reference_type} · ${row.reference_id}`
   return null
 }
@@ -832,7 +848,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
         id: 'details',
         header: t('wms.backend.sku.activity.columns.details', 'Details'),
         cell: ({ row }) => {
-          const subtitle = formatMovementSubtitle(row.original)
+          const subtitle = formatMovementSubtitle(row.original, t)
           return (
             <div className="space-y-0.5">
               <p className="text-sm font-medium">{formatMovementTitle(row.original, skuLabel, t)}</p>

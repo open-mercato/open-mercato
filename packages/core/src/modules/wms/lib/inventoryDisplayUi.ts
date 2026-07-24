@@ -42,6 +42,31 @@ const ROTATION_STRATEGY_FALLBACKS: Record<string, string> = {
   fefo: 'FEFO',
 }
 
+const ADJUST_REASON_FALLBACKS: Record<string, string> = {
+  damaged: 'Damaged',
+  shrinkage: 'Shrinkage',
+  found: 'Found stock',
+  correction: 'Correction',
+  other: 'Other',
+}
+
+const MOVE_REASON_FALLBACKS: Record<string, string> = {
+  transfer: 'Transfer',
+  replenishment: 'Replenishment',
+  consolidation: 'Consolidation',
+  correction: 'Correction',
+  other: 'Other',
+}
+
+const RELEASE_REASON_FALLBACKS: Record<string, string> = {
+  order_cancelled: 'Order cancelled',
+  manual_release: 'Manual release',
+  correction: 'Correction',
+  other: 'Other',
+}
+
+const STABLE_REASON_CODE_PATTERN = /^[a-z][a-z0-9_]*$/
+
 export function createInventoryQuantityFormatter(locale: string): Intl.NumberFormat {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 })
 }
@@ -124,6 +149,61 @@ export function inventoryRotationStrategyLabel(strategy: string, t: InventoryDis
     `wms.widgets.catalog.inventoryProfile.strategy.${normalized}`,
     ROTATION_STRATEGY_FALLBACKS[normalized] ?? normalized,
   )
+}
+
+function translateStableReasonCode(
+  code: string,
+  movementType: string | null | undefined,
+  t: InventoryDisplayTranslator,
+): string | null {
+  if (code === 'cycle_count') {
+    return t('wms.backend.dashboard.activity.reasons.cycleCount', 'Cycle count')
+  }
+
+  const type = (movementType ?? '').trim()
+  if (type === 'transfer' && code in MOVE_REASON_FALLBACKS) {
+    return t(`wms.backend.inventory.move.reasons.${code}`, MOVE_REASON_FALLBACKS[code])
+  }
+  if ((type === 'adjust' || type === 'cycle_count') && code in ADJUST_REASON_FALLBACKS) {
+    return t(`wms.backend.inventory.adjust.reasons.${code}`, ADJUST_REASON_FALLBACKS[code])
+  }
+  if (code in ADJUST_REASON_FALLBACKS) {
+    return t(`wms.backend.inventory.adjust.reasons.${code}`, ADJUST_REASON_FALLBACKS[code])
+  }
+  if (code in MOVE_REASON_FALLBACKS) {
+    return t(`wms.backend.inventory.move.reasons.${code}`, MOVE_REASON_FALLBACKS[code])
+  }
+  if (code in RELEASE_REASON_FALLBACKS) {
+    return t(`wms.backend.inventory.release.reasons.${code}`, RELEASE_REASON_FALLBACKS[code])
+  }
+  return null
+}
+
+/**
+ * Resolve a movement/activity reason for display. Prefers the stable
+ * `reasonCode` (re-translated for the current locale) over a free-text
+ * `reason` that may have been baked in a different language at write time.
+ */
+export function inventoryMovementReasonLabel(
+  input: {
+    reasonCode?: string | null
+    reason?: string | null
+    movementType?: string | null
+  },
+  t: InventoryDisplayTranslator,
+): string | null {
+  const reasonCode = input.reasonCode?.trim() || null
+  const reason = input.reason?.trim() || null
+  const candidateCode =
+    reasonCode ||
+    (reason && STABLE_REASON_CODE_PATTERN.test(reason) ? reason : null)
+
+  if (candidateCode) {
+    const translated = translateStableReasonCode(candidateCode, input.movementType, t)
+    if (translated) return translated
+  }
+
+  return reason
 }
 
 export function formatCatalogProductLabel(row: {

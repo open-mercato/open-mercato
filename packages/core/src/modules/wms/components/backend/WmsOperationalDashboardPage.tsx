@@ -38,6 +38,10 @@ import type {
   OperationalDashboardKpi,
   OperationalDashboardPayload,
 } from '../../lib/loadOperationalDashboard'
+import {
+  inventoryMovementReasonLabel,
+  type InventoryDisplayTranslator,
+} from '../../lib/inventoryDisplayUi'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
 import { ChangeLotStatusDialog } from './ChangeLotStatusDialog'
 import { CycleCountWizardDialog } from './CycleCountWizardDialog'
@@ -130,26 +134,19 @@ function formatActivityTitle(
   }
 }
 
-const ACTIVITY_REASON_LABEL_KEYS: Record<string, string> = {
-  cycle_count: 'wms.backend.dashboard.activity.reasons.cycleCount',
-}
-
-const ACTIVITY_REASON_LABEL_FALLBACKS: Record<string, string> = {
-  cycle_count: 'Cycle count',
-}
-
 function formatActivitySubtitle(
   row: OperationalDashboardActivityRow,
-  t: (key: string, fallback?: string) => string,
+  t: InventoryDisplayTranslator,
 ): string | null {
-  const reason = row.reason?.trim()
-  if (reason) {
-    const reasonKey = ACTIVITY_REASON_LABEL_KEYS[reason]
-    if (reasonKey) {
-      return t(reasonKey, ACTIVITY_REASON_LABEL_FALLBACKS[reason] ?? reason)
-    }
-    return reason
-  }
+  const reasonLabel = inventoryMovementReasonLabel(
+    {
+      reasonCode: row.reasonCode,
+      reason: row.reason,
+      movementType: row.movementType,
+    },
+    t,
+  )
+  if (reasonLabel) return reasonLabel
   if (row.referenceType && row.referenceId) return `${row.referenceType} · ${row.referenceId}`
   return null
 }

@@ -5,6 +5,7 @@ import {
   formatInventoryDateTime,
   formatInventoryQuantity,
   formatReservationSourceLabel,
+  inventoryMovementReasonLabel,
   inventoryMovementTypeLabel,
   inventoryReferenceTypeLabel,
   inventoryReservationSourceTypeLabel,
@@ -64,5 +65,23 @@ describe('inventoryDisplayUi', () => {
       source_type: 'manual',
       source_id: '00000000-0000-4000-8000-000000000001',
     }, t)).toBe('Manual')
+  })
+
+  it('prefers stable reasonCode over a locale-baked free-text reason', () => {
+    expect(inventoryMovementReasonLabel({
+      reasonCode: 'found',
+      reason: 'Znaleziony towar',
+      movementType: 'adjust',
+    }, t)).toBe('Found stock')
+    expect(inventoryMovementReasonLabel({
+      reasonCode: null,
+      reason: 'cycle_count',
+      movementType: 'cycle_count',
+    }, t)).toBe('Cycle count')
+    expect(inventoryMovementReasonLabel({
+      reasonCode: null,
+      reason: 'Custom auditor note',
+      movementType: 'adjust',
+    }, t)).toBe('Custom auditor note')
   })
 })

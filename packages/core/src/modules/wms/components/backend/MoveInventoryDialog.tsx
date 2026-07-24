@@ -497,7 +497,8 @@ export function MoveInventoryDialog({
 
       setSubmitting(true)
       try {
-        const reason = reasonLabel(parsed.data.reasonCode)
+        // Persist the stable reason code so activity feeds can re-translate later.
+        const reason = parsed.data.reasonCode
         const notes = parsed.data.notes?.trim()
         const payload: Record<string, unknown> = {
           organizationId: access.organizationId,
@@ -561,7 +562,6 @@ export function MoveInventoryDialog({
       mutationContext,
       movementType,
       queryClient,
-      reasonLabel,
       runMutation,
       t,
     ],

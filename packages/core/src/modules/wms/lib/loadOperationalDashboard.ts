@@ -53,6 +53,7 @@ export type OperationalDashboardActivityRow = {
   referenceType: string | null
   referenceId: string | null
   reason: string | null
+  reasonCode: string | null
   locationLabel: string
   performedAt: string
 }
@@ -747,6 +748,7 @@ export async function loadOperationalDashboard(
       referenceType: movement.referenceType ?? null,
       referenceId: movement.referenceId ?? null,
       reason: movement.reason ?? null,
+      reasonCode: movement.reasonCode ?? null,
       locationLabel: resolveLocationLabel(
         warehouseLabel,
         movement.locationFrom?.code,

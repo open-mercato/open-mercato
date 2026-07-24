@@ -390,7 +390,9 @@ export function AdjustInventoryDialog({
 
       setSubmitting(true)
       try {
-      const reason = reasonLabel(parsed.data.reasonCode)
+      // Persist the stable reason code (not a locale-rendered label) so activity
+      // feeds can re-translate for the viewer's language later.
+      const reason = parsed.data.reasonCode
       const notes = parsed.data.notes?.trim()
       const lotNumber = parsed.data.lotNumber?.trim()
       let lotId: string | undefined
@@ -471,7 +473,6 @@ export function AdjustInventoryDialog({
       form,
       mutationContext,
       queryClient,
-      reasonLabel,
       runMutation,
       t,
     ],
