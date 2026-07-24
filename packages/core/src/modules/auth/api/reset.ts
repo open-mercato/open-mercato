@@ -69,7 +69,13 @@ export async function POST(req: Request) {
   }
 
   try {
-    await sendEmail({ to: user.email, subject, react: ResetPasswordEmail({ resetUrl, copy }) })
+    await sendEmail({
+      to: user.email,
+      subject,
+      react: ResetPasswordEmail({ resetUrl, copy }),
+      tenantId: user.tenantId ? String(user.tenantId) : undefined,
+      organizationId: user.organizationId ? String(user.organizationId) : null,
+    })
   } catch (err) {
     logger.error('Failed to send reset email', { err })
   }

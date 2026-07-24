@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import FeedbackEmail from '@open-mercato/onboarding/modules/onboarding/emails/FeedbackEmail'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
@@ -49,6 +50,7 @@ export async function POST(req: Request) {
 
   const { email, message, marketingConsent, sendCopy } = parsed.data
   const adminEmail = process.env.ADMIN_EMAIL || 'piotr@catchthetornado.com'
+  await createRequestContainer()
 
   const marketingText = marketingConsent ? 'Marketing consent: Yes' : 'Marketing consent: No'
 

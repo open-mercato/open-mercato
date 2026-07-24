@@ -199,6 +199,8 @@ export async function notifyEnforcementPolicyChange(
       await sendEmail({
         to: user.email,
         subject: resolveEmailSubject(message),
+        tenantId: user.tenantId,
+        organizationId: user.organizationId,
         react: EnforcementDeadlineEmail({
           daysRemaining: message.daysRemaining,
           deadlineIsoDate: message.deadlineIsoDate,

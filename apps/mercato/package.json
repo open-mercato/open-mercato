@@ -35,6 +35,8 @@
     "@open-mercato/cache": "workspace:*",
     "@open-mercato/channel-gmail": "workspace:*",
     "@open-mercato/channel-imap": "workspace:*",
+    "@open-mercato/channel-resend": "workspace:*",
+    "@open-mercato/channel-ses": "workspace:*",
     "@open-mercato/checkout": "workspace:*",
     "@open-mercato/cli": "workspace:*",
     "@open-mercato/content": "workspace:*",
