@@ -379,7 +379,7 @@ All 92 cases have a deterministic catalog/owner/reference/budget check and a rea
 - integration/AI/workflow: 42, 45, 49, 54;
 - seeded regression fixtures: 57, 60, 61, 70.
 
-Implementation cases use a fresh disposable scaffold, explicit allowed-write paths, deterministic fixture setup, expected artifacts, and executable validator IDs. Regression cases must fail their oracle before the agent change and pass it afterward. Provider cases use mocked contract servers unless explicit test credentials are supplied. Broad cases may use parameterized variants, but each variant has a distinct result and oracle.
+Implementation cases use a fresh disposable scaffold, explicit allowed-write paths, deterministic fixture setup, expected artifacts, and executable validator IDs. A fixed controller-owned TypeScript AST oracle covers all 16 cases and rejects comment/import token stuffing; isolated mocked behavior probes additionally exercise provider/workflow effects and the four seeded regressions. The target cannot replace executable oracle code. The after phase also runs the target's fixed `yarn typecheck` gate. Regression cases must fail their oracle before the agent change and pass it afterward. Provider cases use mocked effects or contract servers unless explicit test credentials are supplied. Broad cases may use parameterized variants, but each variant has a distinct result and oracle.
 
 The checked-in `releaseMatrix` pins runner, model selector, and case IDs. Acceptance for this PR is:
 
@@ -562,3 +562,4 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 - **2026-07-24** — Added a fail-closed writable-fixture materializer with exact case-bound markers, seed-to-write-scope validation, controller-target isolation, and executable regression seeds for the 16-case implementation matrix.
 - **2026-07-24** — Restored standalone provider placement (local module by default, separately published dependency for explicit reuse) and scope-contract nuance for authorized tenant-wide/system jobs without weakening organization-owned data isolation.
 - **2026-07-24** — Reviewer hardening made duplicate module-fact providers fail closed unless `src/modules.ts` selects one exact package; framework context now recognizes dist-only roots, compares fact package and version stamps, validates materialization path segments, and emits deterministic globally capped search artifacts with explicit status.
+- **2026-07-24** — Replaced writable token scans with controller-owned AST and isolated behavior oracles, made every seeded fixture fail its precondition, added the fixed after-phase typecheck gate, and prevented writable targets from supplying executable validation code.

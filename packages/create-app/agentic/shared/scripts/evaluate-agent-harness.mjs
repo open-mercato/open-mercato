@@ -26,6 +26,7 @@ const WRITABLE_CASE_IDS = [
   'OMH-009', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-026', 'OMH-027', 'OMH-029', 'OMH-031',
   'OMH-042', 'OMH-045', 'OMH-049', 'OMH-054', 'OMH-057', 'OMH-060', 'OMH-061', 'OMH-070',
 ]
+const BEHAVIOR_ORACLE_CASE_IDS = new Set(['OMH-045', 'OMH-054', 'OMH-057', 'OMH-060', 'OMH-061', 'OMH-070'])
 const CASE_KEYS = new Set([
   'id', 'title', 'family', 'mode', 'evaluationKind', 'risk', 'prompt', 'tags', 'owner',
   'expectedRouter', 'requiredSkills', 'context', 'requiredDecisions', 'forbiddenPatterns',
@@ -237,6 +238,19 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
   const externalSkills = discoverExternalSkills(root)
   const allFiles = walkFiles(root)
 
+  for (const [validatorId, validator] of Object.entries(validatorMap)) {
+    if (validator?.implementation === 'scan') globalErrors.push(`validator ${validatorId} uses forbidden token scanning`)
+    if (validator?.implementation !== 'trusted-executable') continue
+    if (validator?.kind !== 'oracle' || !isUniqueStringArray(validator?.runners, { min: 1 })) {
+      globalErrors.push(`trusted oracle ${validatorId} must declare one or more unique runners`)
+      continue
+    }
+    for (const runner of validator.runners) {
+      if (!/^[a-z0-9-]+\.mjs$/.test(runner)) globalErrors.push(`trusted oracle ${validatorId} has unsafe runner ${runner}`)
+      else if (!fs.existsSync(path.join(root, '.ai', 'harness', runner))) globalErrors.push(`trusted oracle ${validatorId} runner does not exist: ${runner}`)
+    }
+  }
+
   cases.forEach((item, index) => {
     const expectedId = `OMH-${String(index + 1).padStart(3, '0')}`
     const id = item?.id ?? `<case-${index + 1}>`
@@ -300,6 +314,14 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
       }
       if (!isPlainObject(item.oracle) || !isUniqueStringArray(item.oracle?.validatorIds, { min: 1 }) || !isUniqueStringArray(item.oracle?.expectedArtifacts, { min: 1 })) add(id, 'writable case requires an oracle')
       for (const validator of item.oracle?.validatorIds ?? []) if (!validatorMap[validator]) add(id, `unknown oracle validator ${validator}`)
+      const semanticOracles = (item.oracle?.validatorIds ?? []).filter((validator) => !['writable.allowed-paths', 'oracle.artifacts'].includes(validator))
+      if (!semanticOracles.length) add(id, 'writable case requires a semantic executable oracle')
+      for (const validator of semanticOracles) {
+        const declaration = validatorMap[validator]
+        if (declaration?.implementation !== 'trusted-executable') add(id, `oracle validator ${validator} must use a trusted executable`)
+        else if (!declaration.runners.includes('writable-ast-oracles.mjs')) add(id, `oracle validator ${validator} must include the fixed AST oracle`)
+        else if (declaration.runners.includes('writable-behavior-oracles.mjs') !== BEHAVIOR_ORACLE_CASE_IDS.has(id)) add(id, `oracle validator ${validator} has the wrong fixed behavior-oracle coverage`)
+      }
       if (!isUniqueStringArray(item.allowedWrites, { min: 1 }) || item.allowedWrites.some((entry) => !isSafeRelative(entry))) add(id, 'allowedWrites is invalid')
       if (item.evaluationKind === 'regression' && typeof item.fixture?.expectedFailure !== 'string') add(id, 'regression fixture requires expectedFailure')
     } else if (item.fixture || item.oracle || item.allowedWrites) add(id, 'routing/static cases cannot declare writable fields')
@@ -790,20 +812,54 @@ function resolveArtifactFiles(root, patterns) {
   return patterns.flatMap((pattern) => files.filter((file) => globToRegExp(pattern).test(file)))
 }
 
-function runOracle(caseRecord, root, registry) {
-  const failures = []
-  const expected = caseRecord.oracle.expectedArtifacts
-  for (const pattern of expected) if (!resolveArtifactFiles(root, [pattern]).length) failures.push(`missing artifact ${pattern}`)
-  const scanFiles = [...new Set(resolveArtifactFiles(root, [...expected, ...caseRecord.allowedWrites]))]
-    .filter((file) => SAFE_TEXT_EXTENSIONS.has(path.extname(file)))
-  const text = scanFiles.map((file) => fs.readFileSync(path.join(root, file), 'utf8')).join('\n')
-  for (const validatorId of caseRecord.oracle.validatorIds) {
-    const validator = registry.validators[validatorId]
-    if (!validator || validator.implementation !== 'scan') continue
-    for (const token of validator.all ?? []) if (!text.toLowerCase().includes(token.toLowerCase())) failures.push(`${validatorId} missing ${token}`)
-    if (validator.any?.length && !validator.any.some((token) => text.toLowerCase().includes(token.toLowerCase()))) failures.push(`${validatorId} requires one of: ${validator.any.join(', ')}`)
+function runFixedOracle(oracleRoot, targetRoot, scriptName, caseRecord, phase) {
+  const scriptPath = path.join(oracleRoot, '.ai', 'harness', scriptName)
+  if (!fs.existsSync(scriptPath)) return { failures: [], invalid: [`trusted oracle is missing: ${scriptName}`] }
+  const result = spawnSync(process.execPath, [
+    scriptPath,
+    '--root', targetRoot,
+    '--case', caseRecord.id,
+    '--phase', phase,
+    '--json',
+  ], {
+    cwd: targetRoot,
+    encoding: 'utf8',
+    timeout: 180_000,
+    maxBuffer: 2 * 1024 * 1024,
+  })
+  if (result.error) return { failures: [], invalid: [`${scriptName} failed to execute: ${result.error.message}`] }
+  let report
+  try {
+    report = JSON.parse(String(result.stdout ?? '').trim())
+  } catch {
+    return { failures: [], invalid: [`${scriptName} returned invalid JSON`] }
   }
-  return failures
+  if (!isPlainObject(report) || typeof report.passed !== 'boolean' || !Array.isArray(report.failures)) {
+    return { failures: [], invalid: [`${scriptName} returned an invalid report`] }
+  }
+  const failures = report.failures.filter((entry) => typeof entry === 'string')
+  if (!report.passed && failures.length === 0) failures.push(`${scriptName} reported failure without details`)
+  if (result.status !== 0 && failures.length === 0) failures.push(`${scriptName} exited ${String(result.status)}`)
+  const prefixed = failures.map((entry) => `${scriptName}: ${entry}`)
+  if (result.status === EXIT_INVALID || result.status === null) return { failures: [], invalid: prefixed }
+  return { failures: prefixed, invalid: [] }
+}
+
+function runOracle(caseRecord, targetRoot, oracleRoot, registry, phase) {
+  const failures = []
+  const invalid = []
+  const expected = caseRecord.oracle.expectedArtifacts
+  for (const pattern of expected) if (!resolveArtifactFiles(targetRoot, [pattern]).length) failures.push(`missing artifact ${pattern}`)
+  const runnerNames = new Set(caseRecord.oracle.validatorIds.flatMap((validatorId) => {
+    const validator = registry.validators[validatorId]
+    return validator?.implementation === 'trusted-executable' ? validator.runners : []
+  }))
+  for (const scriptName of runnerNames) {
+    const result = runFixedOracle(oracleRoot, targetRoot, scriptName, caseRecord, phase)
+    failures.push(...result.failures)
+    invalid.push(...result.invalid)
+  }
+  return { failures, invalid }
 }
 
 function verifyWritableTarget(root, caseRecord, fixtures) {
@@ -875,8 +931,9 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         if (targetErrors.length) throw new Error(`${caseRecord.id}: ${targetErrors.join('; ')}`)
       }
       const before = writable ? snapshot(runRoot) : undefined
-      const beforeOracleErrors = writable ? runOracle(caseRecord, runRoot, registry) : []
-      if (writable && caseRecord.evaluationKind === 'regression' && beforeOracleErrors.length === 0) throw new Error(`${caseRecord.id}: regression oracle already passes before the edit`)
+      const beforeOracle = writable ? runOracle(caseRecord, runRoot, root, registry, 'before') : { failures: [], invalid: [] }
+      if (beforeOracle.invalid.length) throw new Error(`${caseRecord.id}: invalid writable oracle setup: ${beforeOracle.invalid.join('; ')}`)
+      if (writable && beforeOracle.failures.length === 0) throw new Error(`${caseRecord.id}: writable oracle already passes before the edit`)
       const prompt = buildPrompt(caseRecord, runRoot, writable) + (writable ? `\n\nImplement the task only under these allowed app-relative paths: ${caseRecord.allowedWrites.join(', ')}. Do not change anything else.` : '')
       const executions = [runAgentOnce({ runner: options.runner, root: runRoot, schemaPath, prompt, timeout: options.timeout, model, writable })]
       let execution = executions[0]
@@ -905,9 +962,10 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         if (protectedChanges.length) violations.push(`writes to protected roots: ${protectedChanges.join(', ')}`)
         const outside = changed.filter((file) => !protectedRoots.has(file) && !matchesAny(file, caseRecord.allowedWrites))
         if (outside.length) violations.push(`writes outside allowlist: ${outside.join(', ')}`)
-        const afterOracleErrors = runOracle(caseRecord, runRoot, registry)
-        violations.push(...afterOracleErrors)
-        writableResult = { changedPaths: changed, beforeOraclePassed: beforeOracleErrors.length === 0, afterOraclePassed: afterOracleErrors.length === 0 }
+        const afterOracle = runOracle(caseRecord, runRoot, root, registry, 'after')
+        if (afterOracle.invalid.length) throw new Error(`${caseRecord.id}: invalid writable oracle setup: ${afterOracle.invalid.join('; ')}`)
+        violations.push(...afterOracle.failures)
+        writableResult = { changedPaths: changed, beforeOraclePassed: beforeOracle.failures.length === 0, afterOraclePassed: afterOracle.failures.length === 0 }
       }
       const status = violations.length ? 'fail' : 'pass'
       if (status !== 'pass') failures += 1

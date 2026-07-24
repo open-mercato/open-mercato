@@ -10,7 +10,7 @@
     "umes-data-table": { "purpose": "App customization module with a missing DataTable injection.", "seededArtifacts": ["src/modules/app_customizations/index.ts"] },
     "umes-page-override": { "purpose": "App customization module with an installed page still visible.", "seededArtifacts": ["src/modules/app_customizations/index.ts"] },
     "umes-api-interceptor": { "purpose": "App customization module with an unsafe request rewrite stub.", "seededArtifacts": ["src/modules/app_customizations/api/interceptors.ts"] },
-    "integration-data-sync": { "purpose": "Mock provider workspace lacking a complete DataSyncAdapter.", "seededArtifacts": ["packages/provider-magento/package.json"] },
+    "integration-data-sync": { "purpose": "App-owned provider module lacking a complete DataSyncAdapter.", "seededArtifacts": ["src/modules/magento/index.ts"] },
     "integration-rest-client": { "purpose": "Mock contract server and client with retry/cursor gaps.", "seededArtifacts": ["src/modules/external_sync/lib/client.ts"] },
     "ai-agent": { "purpose": "Module ready for a typed AI agent registration.", "seededArtifacts": ["src/modules/library/index.ts"] },
     "workflow-call-api": { "purpose": "Workflow activity whose idempotency key currently lives inside the transaction.", "seededArtifacts": ["src/modules/automation/workflows/call-api.ts"] },

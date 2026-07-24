@@ -3108,12 +3108,12 @@
   },
   {
     "id": "OMH-042",
-    "title": "Build a Magento-like DataSyncAdapter package with settings, mappings, health, and rerun safety",
+    "title": "Build an app-local Magento DataSync integration with settings, mappings, health, and rerun safety",
     "family": "integration",
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, build a Magento-like DataSyncAdapter package with settings, mappings, health, and rerun safety. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, build an app-specific Magento DataSync integration under src/modules/magento with settings, mappings, health, and rerun safety. Do not invent a packages workspace; separately published packaging requires an explicit reuse decision. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "integration",
       "data-sync-adapter"
@@ -3192,13 +3192,12 @@
         "oracle.integration.data-sync"
       ],
       "expectedArtifacts": [
-        "packages/provider-magento/**"
+        "src/modules/magento/**"
       ]
     },
     "allowedWrites": [
-      "packages/provider-magento/**",
-      "src/modules.ts",
-      "package.json"
+      "src/modules/magento/**",
+      "src/modules.ts"
     ],
     "source": {
       "prs": [
@@ -3355,7 +3354,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add an SSRF-safe paginated REST client with retries, cursor safety, and reconciliation. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add an SSRF-safe paginated REST client with retries, cursor safety, and reconciliation. Preserve the seeded fetchPage(endpoint, state, effects) seam: effects.fetch is the only network effect, effects.maxAttempts bounds retries, and state.cursor advances only after a successful page response. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "integration",
       "ssrf-defense"
@@ -4019,7 +4018,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a CALL_API activity whose idempotency key survives transaction rollback. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a CALL_API activity whose idempotency key survives transaction rollback. Preserve the seeded callApiActivity(input, effects) seam and reserve input.idempotencyKey through effects.reserveIdempotency before entering effects.transaction; send that reserved key through effects.post on every retry. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "ai-workflow",
       "idempotency-outside-rollback"
@@ -4262,7 +4261,7 @@
     "mode": "bugfix",
     "evaluationKind": "regression",
     "risk": "high",
-    "prompt": "Fix a reported bug in a freshly scaffolded standalone Open Mercato app: fail closed when tenant or organization context is missing. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "Fix a reported bug in a freshly scaffolded standalone Open Mercato app: fail closed when tenant or organization context is missing. Preserve the seeded listRecords(scope, store) export seam; reject before store.find when either scope.tenantId or scope.organizationId is missing. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "bugfix",
       "debugging",
@@ -4501,7 +4500,7 @@
     "mode": "bugfix",
     "evaluationKind": "regression",
     "risk": "high",
-    "prompt": "Fix a reported bug in a freshly scaffolded standalone Open Mercato app: make a multi-phase write atomic under an injected failure. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "Fix a reported bug in a freshly scaffolded standalone Open Mercato app: make a multi-phase write atomic under an injected failure. Preserve the seeded updateRecord(store, failAfterFirst) export seam and perform both persists through the transaction callback exposed by store.transaction. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "bugfix",
       "debugging",
@@ -4597,7 +4596,7 @@
     "mode": "bugfix",
     "evaluationKind": "regression",
     "risk": "high",
-    "prompt": "Fix a reported bug in a freshly scaffolded standalone Open Mercato app: fix an editable nullable field that does not survive save and reload. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "Fix a reported bug in a freshly scaffolded standalone Open Mercato app: fix an editable nullable field that does not survive save and reload. Preserve the seeded toInitialValues(record) and toUpdatePayload(values) exports; an explicit null must load as null, clearing to an empty string must serialize as null, and reloading that payload must remain null. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "bugfix",
       "debugging",
@@ -5274,7 +5273,7 @@
     "mode": "bugfix",
     "evaluationKind": "regression",
     "risk": "high",
-    "prompt": "Fix a reported bug in a freshly scaffolded standalone Open Mercato app: prevent transient external-page failures from advancing a cursor. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "Fix a reported bug in a freshly scaffolded standalone Open Mercato app: prevent transient external-page failures from advancing a cursor. Preserve the seeded syncPage(state, provider) export seam: call provider.fetchPage with the current cursor, retry no more than provider.maxAttempts, and commit the returned nextCursor only after a successful page. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "bugfix",
       "debugging",

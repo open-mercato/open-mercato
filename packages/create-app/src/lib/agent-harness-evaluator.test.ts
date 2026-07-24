@@ -11,6 +11,7 @@ const guidesRoot = fileURLToPath(new URL('../../agentic/guides/', import.meta.ur
 const sourceHarness = path.join(sharedRoot, 'ai', 'harness')
 const sourceEvaluator = path.join(sharedRoot, 'scripts', 'evaluate-agent-harness.mjs')
 const sourceFixturePreparer = path.join(sharedRoot, 'scripts', 'prepare-agent-harness-fixture.mjs')
+const typescriptPackageRoot = path.dirname(fileURLToPath(import.meta.resolve('typescript/package.json')))
 
 type HarnessCase = {
   id: string
@@ -51,6 +52,8 @@ function stageWritableTarget(): string {
   fs.cpSync(sourceHarness, path.join(root, '.ai', 'harness'), { recursive: true })
   fs.writeFileSync(path.join(root, 'package.json'), '{"name":"harness-fixture"}\n')
   fs.writeFileSync(path.join(root, 'src', 'modules.ts'), 'export default []\n')
+  fs.mkdirSync(path.join(root, 'node_modules'), { recursive: true })
+  fs.symlinkSync(typescriptPackageRoot, path.join(root, 'node_modules', 'typescript'), process.platform === 'win32' ? 'junction' : 'dir')
   return root
 }
 
@@ -138,6 +141,12 @@ test('deterministic evaluation rejects dangling relations, excessive budgets, an
     const seeds = JSON.parse(fs.readFileSync(seedsPath, 'utf8')) as { fixtures: Record<string, unknown> }
     delete seeds.fixtures['module-editable-entity']
     fs.writeFileSync(seedsPath, `${JSON.stringify(seeds, null, 2)}\n`)
+    const validatorsPath = path.join(root, '.ai', 'harness', 'validators.json')
+    const validators = JSON.parse(fs.readFileSync(validatorsPath, 'utf8')) as {
+      validators: Record<string, { implementation: string }>
+    }
+    validators.validators['oracle.module.entity'].implementation = 'scan'
+    fs.writeFileSync(validatorsPath, `${JSON.stringify(validators, null, 2)}\n`)
     const result = runEvaluator(root, ['--all'])
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
     assert.match(result.stderr, /dangling related case OMH-999/)
@@ -145,6 +154,8 @@ test('deterministic evaluation rejects dangling relations, excessive budgets, an
     assert.match(result.stderr, /unsafe fixture setup/)
     assert.match(result.stderr, /routing response schema must expose every router ID in canonical order/)
     assert.match(result.stderr, /fixture seeds must cover every declared fixture exactly once/)
+    assert.match(result.stderr, /uses forbidden token scanning/)
+    assert.match(result.stderr, /oracle validator oracle\.module\.entity must use a trusted executable/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -532,6 +543,47 @@ test('writable mode remains explicit and refuses a target without acknowledgemen
     assert.match(result.stderr, /requires --acknowledge-writes/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('writable mode executes trusted oracles only from the controller harness', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const target = stageWritableTarget()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['module-data'], selectedSkills: ['om-module-scaffold'],
+  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-module-scaffold/SKILL.md'],
+  decisions: ['crud-factory', 'scoped-response', 'openapi-indexer'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md .ai/guides/contracts.md .ai/skills/om-module-scaffold/SKILL.md' } }))
+`)
+  try {
+    const prepared = spawnSync(process.execPath, [
+      path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'),
+      '--case', 'OMH-011', '--target', target, '--acknowledge-writes',
+    ], { cwd: root, encoding: 'utf8' })
+    assert.equal(prepared.status, 0, `${prepared.stdout}\n${prepared.stderr}`)
+    fs.writeFileSync(path.join(target, '.ai', 'harness', 'writable-ast-oracles.mjs'), `
+import fs from 'node:fs'
+fs.writeFileSync('TARGET_ORACLE_EXECUTED', 'unsafe')
+console.log(JSON.stringify({ passed: process.argv.includes('after'), failures: process.argv.includes('after') ? [] : ['before'], checks: [] }))
+`)
+    const run = runEvaluator(root, [
+      '--runner', 'codex', '--case', 'OMH-011', '--writable-root', target, '--acknowledge-writes',
+    ], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+    assert.equal(fs.existsSync(path.join(target, 'TARGET_ORACLE_EXECUTED')), false)
+    const [stored] = storedResults(root)
+    assert.ok(stored.violations.some((entry) => entry.includes('writable-ast-oracles.mjs')))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
   }
 })
 
