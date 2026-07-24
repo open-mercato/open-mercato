@@ -1,4 +1,7 @@
 import React, { type ComponentType } from 'react'
+import { createLogger } from '../../lib/logger'
+
+const logger = createLogger('dashboard').child({ component: 'widgets' })
 
 export type DashboardWidgetSize = 'sm' | 'md' | 'lg' | 'full'
 
@@ -139,7 +142,7 @@ export function lazyDashboardWidget<TSettings>(
         .catch((err) => {
           if (!cancelled) {
             try {
-              console.error('Failed to load dashboard widget component', err)
+              logger.error('Failed to load dashboard widget component', { err })
             } catch {}
             setTick((value) => value + 1)
           }

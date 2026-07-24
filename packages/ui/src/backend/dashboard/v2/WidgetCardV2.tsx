@@ -4,6 +4,7 @@ import * as React from 'react'
 import { GripVertical, LayoutGrid, Loader2, Palette, RefreshCw, Settings2, Trash2, X } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
@@ -19,6 +20,8 @@ import type {
   DashboardWidgetSize,
 } from '@open-mercato/shared/modules/dashboard/widgets'
 import type { DashboardSortableHandle } from './GridLayout'
+
+const logger = createLogger('ui').child({ component: 'DashboardWidgetCardV2' })
 
 export type DashboardWidgetCatalogItem = Omit<DashboardWidgetMetadata, 'description'> & {
   description?: string | null
@@ -78,7 +81,7 @@ class WidgetErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBound
   }
 
   componentDidCatch(error: unknown) {
-    console.error('Dashboard widget render failed', error)
+    logger.error('Dashboard widget render failed', { err: error })
   }
 
   render() {
@@ -162,7 +165,7 @@ export function WidgetCardV2({
     try {
       return widgetModule.hydrateSettings(raw)
     } catch (err) {
-      console.warn('Failed to hydrate dashboard widget settings', err)
+      logger.warn('Failed to hydrate dashboard widget settings', { err })
       return raw
     }
   }, [layout.settings, meta.defaultSettings, widgetModule])
@@ -173,7 +176,7 @@ export function WidgetCardV2({
       try {
         raw = widgetModule.dehydrateSettings(next as never)
       } catch (err) {
-        console.warn('Failed to dehydrate dashboard widget settings', err)
+        logger.warn('Failed to dehydrate dashboard widget settings', { err })
       }
     }
     onSettingsChange(raw)

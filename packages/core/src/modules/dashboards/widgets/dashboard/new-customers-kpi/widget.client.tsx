@@ -22,6 +22,9 @@ import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import { DEFAULT_SETTINGS, hydrateSettings, type NewCustomersKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { buildKpiWidgetRequests, mapKpiSeriesToTrend } from '../../../lib/kpiRequests'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'new-customers-kpi' })
 
 function getWidgetCompare(settings: NewCustomersKpiSettings): DashboardDateRangeCompare {
   return settings.showComparison ? 'previous_period' : 'none'
@@ -56,7 +59,7 @@ async function fetchNewCustomersData(
   const seriesPromise = fetchWidgetData<WidgetDataResponse>(requests.seriesRequest)
     .then(mapKpiSeriesToTrend)
     .catch((err) => {
-      console.error('Failed to load new customers KPI sparkline data', err)
+      logger.error('Failed to load new customers KPI sparkline data', { err })
       return undefined
     })
   const [data, trend] = await Promise.all([
@@ -103,7 +106,7 @@ const NewCustomersKpiWidget: React.FC<DashboardWidgetComponentProps<NewCustomers
         setDelta(undefined)
       }
     } catch (err) {
-      console.error('Failed to load new customers KPI data', err)
+      logger.error('Failed to load new customers KPI data', { err })
       setError(t('dashboards.analytics.widgets.newCustomersKpi.error', 'Failed to load data'))
     } finally {
       setLoading(false)

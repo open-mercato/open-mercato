@@ -23,6 +23,9 @@ import { DEFAULT_SETTINGS, hydrateSettings, type RevenueKpiSettings } from './co
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrency } from '../../../lib/formatters'
 import { buildKpiWidgetRequests, mapKpiSeriesToTrend } from '../../../lib/kpiRequests'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'revenue-kpi' })
 
 function getWidgetCompare(settings: RevenueKpiSettings): DashboardDateRangeCompare {
   return settings.showComparison ? 'previous_period' : 'none'
@@ -59,7 +62,7 @@ async function fetchRevenueData(
   const seriesPromise = fetchWidgetData<WidgetDataResponse>(requests.seriesRequest)
     .then(mapKpiSeriesToTrend)
     .catch((err) => {
-      console.error('Failed to load revenue KPI sparkline data', err)
+      logger.error('Failed to load revenue KPI sparkline data', { err })
       return undefined
     })
   const [data, trend] = await Promise.all([
@@ -106,7 +109,7 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
         setDelta(undefined)
       }
     } catch (err) {
-      console.error('Failed to load revenue KPI data', err)
+      logger.error('Failed to load revenue KPI data', { err })
       setError(t('dashboards.analytics.widgets.revenueKpi.error', 'Failed to load data'))
     } finally {
       setLoading(false)

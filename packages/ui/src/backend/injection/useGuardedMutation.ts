@@ -6,6 +6,9 @@ import { GLOBAL_MUTATION_INJECTION_SPOT_ID, dispatchBackendMutationError } from 
 import { withScopedApiRequestHeaders } from '../utils/apiCall'
 import { surfaceRecordConflict } from '../conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'useGuardedMutation' })
 
 type GuardedMutationContext = Record<string, unknown>
 
@@ -83,7 +86,7 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
       try {
         await triggerEvent('onAfterSave', payload, context)
       } catch (error) {
-        console.error('[useGuardedMutation] Error in onAfterSave injection event:', error)
+        logger.error('Error in onAfterSave injection event', { err: error })
       }
 
       return result

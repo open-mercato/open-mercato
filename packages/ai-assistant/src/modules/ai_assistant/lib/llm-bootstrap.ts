@@ -8,17 +8,20 @@
  *
  * Adapter registration is wrapped in individual try/catch blocks. A
  * failing import (e.g. missing peer dependency) skips that adapter with a
- * `console.warn` but leaves the rest of the registry working.
+ * a logger warning but leaves the rest of the registry working.
  *
  * @see packages/shared/src/lib/ai/llm-provider-registry.ts
  * @see .ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md
  */
 
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { createAnthropicAdapter } from './llm-adapters/anthropic'
 import { createGoogleAdapter } from './llm-adapters/google'
 import { createOpenAICompatibleProvider } from './llm-adapters/openai'
 import { OPENAI_COMPATIBLE_PRESETS } from './openai-compatible-presets'
+
+const logger = createLogger('ai_assistant')
 
 let bootstrapped = false
 
@@ -36,19 +39,13 @@ export function registerBuiltInLlmProviders(): void {
   try {
     llmProviderRegistry.register(createAnthropicAdapter())
   } catch (error) {
-    console.warn(
-      '[LlmBootstrap] Failed to register Anthropic adapter:',
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('Failed to register Anthropic adapter', { err: error })
   }
 
   try {
     llmProviderRegistry.register(createGoogleAdapter())
   } catch (error) {
-    console.warn(
-      '[LlmBootstrap] Failed to register Google adapter:',
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('Failed to register Google adapter', { err: error })
   }
 
   // OpenAI-compatible presets — all share one protocol adapter under the
@@ -57,10 +54,7 @@ export function registerBuiltInLlmProviders(): void {
     try {
       llmProviderRegistry.register(createOpenAICompatibleProvider(preset))
     } catch (error) {
-      console.warn(
-        `[LlmBootstrap] Failed to register OpenAI-compatible preset "${preset.id}":`,
-        error instanceof Error ? error.message : error,
-      )
+      logger.warn('Failed to register OpenAI-compatible preset', { presetId: preset.id, err: error })
     }
   }
 

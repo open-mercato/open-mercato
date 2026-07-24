@@ -35,22 +35,33 @@ Open Mercato validates the Akeneo API URL server-side before any network call to
 - The URL **must** use HTTPS.
 - Embedded credentials, custom ports, paths, query parameters, and fragments are rejected.
 - The hostname must match an operator-controlled allowlist.
+- Before each authenticated request, the hostname is resolved and loopback, link-local, RFC1918, and other private or reserved IP ranges are rejected.
+- The outbound fetch is pinned to the validated DNS address to prevent DNS rebinding between validation and connection.
 
 By default, only Akeneo SaaS hosts are allowed: `*.cloud.akeneo.com` and `*.akeneo.cloud`.
 
-### Self-hosted or private Akeneo instances
+### Self-hosted or custom Akeneo instances
 
 If your Akeneo PIM runs on a custom domain, set the `OM_INTEGRATION_AKENEO_ALLOWED_HOSTS` environment variable to a comma-separated list of allowed hostnames. Wildcard subdomains are supported:
 
 ```env
 # Single self-hosted instance
-OM_INTEGRATION_AKENEO_ALLOWED_HOSTS=pim.example.internal
+OM_INTEGRATION_AKENEO_ALLOWED_HOSTS=pim.example.com
 
 # Multiple hosts with wildcard
-OM_INTEGRATION_AKENEO_ALLOWED_HOSTS=*.pim.corp.local,akeneo.staging.example.com
+OM_INTEGRATION_AKENEO_ALLOWED_HOSTS=*.pim.example.com,akeneo.staging.example.com
 ```
 
 Legacy aliases `OPENMERCATO_AKENEO_ALLOWED_HOSTS` and `AKENEO_ALLOWED_HOSTS` are also accepted (checked in priority order).
+
+Allowed hosts must resolve to public, routable IP addresses by default. If your deployment intentionally reaches Akeneo over a trusted private network, combine an exact host allowlist with:
+
+```env
+OM_INTEGRATION_AKENEO_ALLOWED_HOSTS=pim.example.internal
+OM_INTEGRATION_AKENEO_ALLOW_PRIVATE_URLS=true
+```
+
+Use this only for operator-controlled internal deployments; it disables the private-IP DNS guard for Akeneo requests.
 
 :::info
 All authenticated requests (OAuth token exchange, product pagination, media downloads) are pinned to the validated origin. If the remote API returns absolute URLs pointing to a different host, those requests are rejected to prevent token leakage.

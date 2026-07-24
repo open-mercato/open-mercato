@@ -23,6 +23,9 @@ import { DEFAULT_SETTINGS, hydrateSettings, type AovKpiSettings } from './config
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencyWithDecimals } from '../../../lib/formatters'
 import { buildKpiWidgetRequests, mapKpiSeriesToTrend } from '../../../lib/kpiRequests'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'aov-kpi' })
 
 function getWidgetCompare(settings: AovKpiSettings): DashboardDateRangeCompare {
   return settings.showComparison ? 'previous_period' : 'none'
@@ -57,7 +60,7 @@ async function fetchAovData(
   const seriesPromise = fetchWidgetData<WidgetDataResponse>(requests.seriesRequest)
     .then(mapKpiSeriesToTrend)
     .catch((err) => {
-      console.error('Failed to load AOV KPI sparkline data', err)
+      logger.error('Failed to load AOV KPI sparkline data', { err })
       return undefined
     })
   const [data, trend] = await Promise.all([
@@ -104,7 +107,7 @@ const AovKpiWidget: React.FC<DashboardWidgetComponentProps<AovKpiSettings>> = ({
         setDelta(undefined)
       }
     } catch (err) {
-      console.error('Failed to load AOV KPI data', err)
+      logger.error('Failed to load AOV KPI data', { err })
       setError(t('dashboards.analytics.widgets.aovKpi.error', 'Failed to load data'))
     } finally {
       setLoading(false)

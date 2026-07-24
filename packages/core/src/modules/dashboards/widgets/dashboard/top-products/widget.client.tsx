@@ -17,6 +17,9 @@ import {
 import { DEFAULT_SETTINGS, hydrateSettings, type TopProductsSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencyCompact } from '../../../lib/formatters'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'top-products' })
 
 async function fetchTopProductsData(
   settings: TopProductsSettings,
@@ -91,7 +94,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
       }))
       setData(chartData)
     } catch (err) {
-      console.error('Failed to load top products data', err)
+      logger.error('Failed to load top products data', { err })
       setError(t('dashboards.analytics.widgets.topProducts.error', 'Failed to load data'))
     } finally {
       setLoading(false)

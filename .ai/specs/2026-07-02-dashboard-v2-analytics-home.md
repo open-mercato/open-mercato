@@ -184,11 +184,11 @@ Writes: layout PUT/PATCH from v2 go through `useGuardedMutation` (file-level opt
 ## Migration & Compatibility
 
 Contract surfaces touched (all ADDITIVE per `BACKWARD_COMPATIBILITY.md` §27):
-- `@open-mercato/ui/backend/dashboard` exports: `DashboardScreen` keeps its (prop-less) signature — new implementation; `DashboardScreenLegacy` added. Standalone apps importing `DashboardScreen` get v2 automatically and can pin `DashboardScreenLegacy` if desired (release-notes entry).
+- `@open-mercato/ui/backend/dashboard` exports: `DashboardScreen` keeps its (prop-less) signature — new implementation; `DashboardScreenLegacy` added. Standalone apps importing `DashboardScreen` get v2 automatically and can pin `DashboardScreenLegacy` if desired (upgrade-notes entry).
 - `DashboardWidgetModule` / `DashboardWidgetComponentProps` / `DashboardLayoutItem` (shared types): optional fields + enum value added; nothing removed or renamed. All existing widgets render unchanged (verified in tests); existing `packages/ui` dashboard test files updated where they assert on the old export wiring.
 - API: new routes only; existing routes accept strictly more (layout object shape, `full` size, custom dateRange). Old clients (v1 screen, mobile shells) keep working: array layout still accepted and returned fields unchanged.
 - ACL: new feature ids `dashboards.insights.view`, `dashboards.catalog.view` (additive; synced to admin+employee defaults in module setup; #2151 noted — declared with explicit dependency on `dashboards.view`). The insights route additionally enforces each KPI's source-entity `requiredFeatures` (per-entity RBAC, matching the widget-data route).
-- Release notes: a RELEASE_NOTES.md entry documents the `DashboardScreen` v2 swap, the `DashboardScreenLegacy` escape hatch (`/backend/dashboard/legacy`), and the exact command that rolls the two new widget ids onto existing tenants' role allowlists (the module-setup sync used by deploys; named in the entry).
+- Upgrade notes: an `UPGRADE_NOTES.md` entry documents the `DashboardScreen` v2 swap, the `DashboardScreenLegacy` escape hatch (`/backend/dashboard/legacy`), and the exact command that rolls the two new widget ids onto existing tenants' role allowlists.
 - No DB schema change; no event-id, widget-spot, or DI-key changes. `layoutJson` object shape is forward-written only after a user saves on v2; until then stored data is untouched.
 - Rollback: revert release OR point users at `/backend/dashboard/legacy`; v2-saved layouts remain readable by v1 route code (normalizer ships in the same change as the shape).
 

@@ -5,12 +5,15 @@ import type { AwilixContainer } from 'awilix'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AiModelFactoryError, createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsErrorSchema, dashboardsTag } from '../../../openapi'
 import { buildAnalyticsCatalogResponse, type AnalyticsCatalogResponse } from '../../catalog/route'
 import { aggregateFunctionSchema, dateGranularitySchema, dateRangePresetSchema } from '../../../widgets/data/schema'
 import type { AnalyticsRegistry } from '../../../../services/analyticsRegistry'
+
+const logger = createLogger('dashboards').child({ component: 'custom-metric-ai' })
 
 const AI_TIMEOUT_MS = 15_000
 const TEMPORAL_VISUALIZATIONS = new Set(['line', 'bar'])
@@ -249,7 +252,7 @@ export async function POST(req: Request) {
     )
     return NextResponse.json({ config: sanitizeAiConfig(result.object, catalog, parsed.data.prompt), aiAvailable: true })
   } catch (err) {
-    console.error('[dashboards/custom-metric/ai] Error:', err)
+    logger.error('Custom metric AI generation failed', { err })
     return NextResponse.json({ config: null, aiAvailable: true })
   }
 }

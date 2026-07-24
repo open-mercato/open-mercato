@@ -59,7 +59,7 @@ To force the historical eager worker and scheduler modes from the dev wrapper, r
 OM_AUTO_SPAWN_WORKERS_LAZY=false OM_AUTO_SPAWN_SCHEDULER_LAZY=false yarn dev
 ```
 
-In lazy mode the runtime starts lightweight supervisors. The worker supervisor watches each discovered queue for the first ready job and only then spawns `mercato queue worker <queueName>`. The scheduler supervisor watches for enabled schedules and only then spawns `mercato scheduler start`. Idle queues and empty scheduler installations do not contribute polling timers (local strategy) or BullMQ `Worker`/Redis resources (async strategy) to the process tree. See [Queue Workers — Lazy Worker Auto-Spawn](../framework/events/queue-workers.mdx#lazy-worker-auto-spawn-memory-sensitive-dev) for the env variable reference.
+In lazy mode the runtime starts lightweight supervisors. The worker supervisor watches each discovered queue for the first ready job and only then spawns a worker. `yarn dev` uses the shared lazy mode, so the first ready job starts one `mercato queue worker --all` process instead of one process per ready queue; set `OM_AUTO_SPAWN_WORKERS_LAZY_MODE=per-queue` to use the older per-queue process model. The scheduler supervisor watches for enabled schedules and only then spawns `mercato scheduler start`. Idle queues and empty scheduler installations do not contribute polling timers (local strategy) or BullMQ `Worker`/Redis resources (async strategy) to the process tree. See [Queue Workers — Lazy Worker Auto-Spawn](../framework/events/queue-workers.mdx#lazy-worker-auto-spawn-memory-sensitive-dev) for the env variable reference.
 
 For production deployments, prefer `AUTO_SPAWN_WORKERS=false` plus separately managed worker processes — lazy mode targets memory-sensitive dev and small unified deployments.
 
@@ -78,7 +78,9 @@ OM_WATCH_PACKAGES_MODE=legacy OM_PACKAGE_WATCH_MODE=persistent yarn dev
 
 In the monorepo, `yarn dev` watches **every** workspace package (`packages/*` plus any activated `external/official-modules/packages/*`). On large checkouts you rarely edit more than a handful of packages in one session, so the watcher can be narrowed to a subset. The watch unit is the workspace package (its short label — `core`, `ui`, `shared`, `ai-assistant`, …); the app itself is still watched in full by Next.js/Turbopack regardless of the scope.
 
-Pick a mode with the `OM_WATCH_SCOPE` env var or the `--watch=<mode>` flag on `yarn dev` / `yarn dev:greenfield` (the CLI flag wins over the env var):
+Narrowing the watch scope is the main lever for **reducing dev-mode memory usage**: the watcher's footprint scales with the number of packages it tracks, so watching only the packages you actually edit meaningfully lowers idle RSS on memory-constrained machines.
+
+Pick a mode with the `OM_WATCH_SCOPE` env var or the `--watch=<mode>` flag on `yarn dev` / `yarn dev:greenfield` (the CLI flag wins over the env var). The active mode is printed with an emoji at dev startup — e.g. `watch scope: 🌐 all — all packages` or `watch scope: ⚡ auto-optimized — recently touched` — so you can confirm at a glance which packages are live:
 
 | Mode | What it watches |
 |------|-----------------|

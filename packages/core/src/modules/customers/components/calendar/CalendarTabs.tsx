@@ -24,7 +24,7 @@ export function CalendarTabs({ tab, counts, view, onTabChange, onViewChange }: C
       variant="underline"
     >
       <div className="flex flex-wrap items-stretch justify-between gap-x-3 gap-y-2">
-        <div className="min-w-0 max-w-full overflow-x-auto">
+        <div className="min-w-0 max-w-full overflow-x-auto scrollbar-hide [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] sm:[mask-image:none]">
           <TabsList className="shrink-0">
             <TabsTrigger value="all" leading={<LayoutGrid className="size-4" />}>
               {t('customers.calendar.tabs.all', 'All Scheduled')}

@@ -4,6 +4,7 @@ import * as React from 'react'
 import { format } from 'date-fns/format'
 import type { DashboardDateRangeCompare, DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { DeltaBadge } from '@open-mercato/ui/backend/charts'
@@ -23,6 +24,8 @@ import {
 import { DEFAULT_SETTINGS, hydrateSettings, type AiInsightsSettings } from './config'
 import { formatCurrency, formatCurrencyWithDecimals } from '../../../lib/formatters'
 import type { InsightMetric, InsightsResult } from '../../../lib/insights'
+
+const logger = createLogger('dashboards').child({ component: 'ai-insights-widget' })
 
 type ActiveRange = {
   from: string
@@ -136,7 +139,7 @@ const AiInsightsWidgetClient: React.FC<DashboardWidgetComponentProps<AiInsightsS
     try {
       setData(await fetchInsights(activeRange))
     } catch (err) {
-      console.error('Failed to load AI insights', err)
+      logger.error('Failed to load AI insights', { err })
       setError(t('dashboards.widgets.aiInsights.error.load', 'Failed to load insights'))
     } finally {
       setLoading(false)

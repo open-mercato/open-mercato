@@ -5,12 +5,15 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsErrorSchema, dashboardsTag } from '../openapi'
 import { computeInsights, type InsightsScope } from '../../lib/insights'
 import type { AnalyticsRegistry } from '../../services/analyticsRegistry'
 import { createWidgetDataService, WidgetDataValidationError } from '../../services/widgetDataService'
+
+const logger = createLogger('dashboards').child({ component: 'insights-api' })
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const DAY_MS = 86_400_000
@@ -160,7 +163,7 @@ export async function GET(req: Request) {
     )
     return NextResponse.json(result)
   } catch (err) {
-    console.error('[dashboards/insights] Error:', err)
+    logger.error('Dashboard insights request failed', { err })
     if (err instanceof WidgetDataValidationError) {
       return NextResponse.json({ error: err.message }, { status: 400 })
     }

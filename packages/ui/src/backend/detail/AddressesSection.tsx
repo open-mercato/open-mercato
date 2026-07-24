@@ -40,6 +40,8 @@ export type AddressSummary = {
   region?: string | null
   postalCode?: string | null
   country?: string | null
+  latitude?: number | null
+  longitude?: number | null
   isPrimary?: boolean
   updatedAt?: string | null
 }
@@ -66,6 +68,7 @@ export type AddressesSectionProps<C = unknown> = {
   loadFormat?: (context?: C) => Promise<AddressFormatStrategy>
   formatContext?: C
   labelPrefix?: string
+  showCoordinateFields?: boolean
 }
 
 function generateTempId() {
@@ -88,6 +91,7 @@ function AddressesSectionImpl<C = unknown>({
   loadFormat,
   formatContext,
   labelPrefix = 'customers.people.detail.addresses',
+  showCoordinateFields = false,
 }: AddressesSectionProps<C>) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
@@ -176,6 +180,8 @@ function AddressesSectionImpl<C = unknown>({
           region: payload.region ?? null,
           postalCode: payload.postalCode ?? null,
           country: payload.country ? payload.country.toUpperCase() : null,
+          latitude: payload.latitude ?? null,
+          longitude: payload.longitude ?? null,
           isPrimary: payload.isPrimary ?? false,
         }
         setAddresses((prev) => {
@@ -227,6 +233,8 @@ function AddressesSectionImpl<C = unknown>({
               region: payload.region ?? null,
               postalCode: payload.postalCode ?? null,
               country: payload.country ? payload.country.toUpperCase() : null,
+              latitude: payload.latitude ?? null,
+              longitude: payload.longitude ?? null,
               isPrimary: payload.isPrimary ?? false,
             }
           })
@@ -288,6 +296,8 @@ function AddressesSectionImpl<C = unknown>({
       region: address.region ?? undefined,
       postalCode: address.postalCode ?? undefined,
       country: address.country ?? undefined,
+      latitude: address.latitude ?? undefined,
+      longitude: address.longitude ?? undefined,
       isPrimary: address.isPrimary ?? false,
     }))
   }, [addresses])
@@ -340,6 +350,7 @@ function AddressesSectionImpl<C = unknown>({
           emptyStateTitle={emptyState.title}
           emptyStateActionLabel={emptyState.actionLabel}
           labelPrefix={labelPrefix}
+          showCoordinateFields={showCoordinateFields}
           addressTypesAdapter={addressTypesAdapter}
           addressTypesContext={addressTypesContext}
           loadFormat={loadFormat}

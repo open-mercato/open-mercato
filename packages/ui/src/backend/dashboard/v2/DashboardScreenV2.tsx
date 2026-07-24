@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Plus, Sparkles, Wand2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -18,6 +19,8 @@ import { DashboardHeader } from './DashboardHeader'
 import { GridLayout, sizeToSpanClass } from './GridLayout'
 import { defaultGlobalRange, GLOBAL_RANGE_PRESETS, resolveGlobalDateRange, type DashboardDateRangeCompare, type DashboardDateRangePreset } from './dateRange'
 import { WidgetCardV2, type DashboardWidgetCatalogItem } from './WidgetCardV2'
+
+const logger = createLogger('ui').child({ component: 'DashboardScreenV2' })
 
 type LayoutPreferences = { dateRange?: Partial<DashboardGlobalDateRange> | null }
 export type DashboardPreset = { id: string; name: string; items: DashboardLayoutItem[]; preferences?: LayoutPreferences | null }
@@ -155,7 +158,7 @@ export function DashboardScreenV2() {
         })
         setError(null)
       } catch (err) {
-        console.error('Failed to save dashboard layout', err)
+        logger.error('Failed to save dashboard layout', { err })
         setError(t('dashboard.v2.saveFailed'))
       }
     })
@@ -191,7 +194,7 @@ export function DashboardScreenV2() {
         setSettingsId(null)
       }
     } catch (err) {
-      console.error('Failed to load dashboard layout', err)
+      logger.error('Failed to load dashboard layout', { err })
       if (registeredWidgetCount() === 0) {
         setLayout([])
         setCatalog([])
@@ -215,7 +218,7 @@ export function DashboardScreenV2() {
     void loadDashboardWidgetModule(meta.loaderKey)
       .then((module) => setModules((prev) => ({ ...prev, [meta.loaderKey]: module ? { loading: false, module, error: null } : { loading: false, module: null, error: t('dashboard.v2.widgetLoadFailed') } })))
       .catch((err) => {
-        console.error('Failed to load dashboard widget module', err)
+        logger.error('Failed to load dashboard widget module', { err })
         setModules((prev) => ({ ...prev, [meta.loaderKey]: { loading: false, module: null, error: t('dashboard.v2.widgetLoadFailed') } }))
       })
   }, [modules, t])

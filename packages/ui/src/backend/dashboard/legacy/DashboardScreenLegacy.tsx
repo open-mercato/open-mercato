@@ -14,6 +14,9 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { InjectionSpot } from '../../injection/InjectionSpot'
 import { WidgetDataBatchProvider } from '../widgetData'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'DashboardScreenLegacy' })
 
 type DashboardWidgetSize = 'sm' | 'md' | 'lg' | 'full'
 
@@ -108,6 +111,8 @@ export function DashboardScreenLegacy() {
   const [settingsId, setSettingsId] = React.useState<string | null>(null)
   const pendingOpsRef = React.useRef(0)
   const saveQueueRef = React.useRef(Promise.resolve())
+  const layoutRevisionRef = React.useRef(0)
+  const pendingLayoutRevisionsRef = React.useRef(new Set<number>())
   const draggingIdRef = React.useRef<string | null>(null)
 
   const adjustSaving = React.useCallback((delta: number) => {
@@ -116,6 +121,8 @@ export function DashboardScreenLegacy() {
   }, [])
 
   const load = React.useCallback(async () => {
+    const layoutRevisionAtStart = layoutRevisionRef.current
+    const hadPendingLayoutMutationAtStart = pendingLayoutRevisionsRef.current.size > 0
     setLoading(true)
     setError(null)
     try {
@@ -126,7 +133,12 @@ export function DashboardScreenLegacy() {
       const data = call.result
       const registeredWidgetCount = getDashboardWidgets().length
       const normalizedLayout = sortLayout(data.layout?.items ?? [])
-      setLayout(normalizedLayout)
+      if (
+        !hadPendingLayoutMutationAtStart
+        && layoutRevisionAtStart === layoutRevisionRef.current
+      ) {
+        setLayout(normalizedLayout)
+      }
       setWidgetCatalog(data.widgets ?? [])
       setHasRegisteredWidgets(registeredWidgetCount > 0 || (data.widgets ?? []).length > 0)
       setAllowedWidgetIds(data.allowedWidgetIds ?? [])
@@ -148,7 +160,7 @@ export function DashboardScreenLegacy() {
         setSettingsId(null)
       }
     } catch (err) {
-      console.error('Failed to load dashboard layout', err)
+      logger.error('Failed to load dashboard layout', { err })
       if (getDashboardWidgets().length === 0) {
         setHasRegisteredWidgets(false)
         setLayout([])
@@ -217,6 +229,8 @@ export function DashboardScreenLegacy() {
   }, [t])
 
   const queueLayoutSave = React.useCallback((items: LayoutItem[]) => {
+    const layoutRevision = ++layoutRevisionRef.current
+    pendingLayoutRevisionsRef.current.add(layoutRevision)
     saveQueueRef.current = saveQueueRef.current.then(async () => {
       adjustSaving(1)
       try {
@@ -238,15 +252,20 @@ export function DashboardScreenLegacy() {
         if (!call.ok) throw new Error(`Failed with status ${call.status}`)
         setError(null)
       } catch (err) {
-        console.error('Failed to save layout', err)
+        logger.error('Failed to save layout', { err })
         setError(t('dashboard.saveError'))
       } finally {
+        pendingLayoutRevisionsRef.current.delete(layoutRevision)
         adjustSaving(-1)
       }
     })
   }, [adjustSaving, t])
 
-  const patchWidgetSettings = React.useCallback(async (itemId: string, nextSettings: unknown) => {
+  const patchWidgetSettings = React.useCallback(async (
+    itemId: string,
+    nextSettings: unknown,
+    layoutRevision: number,
+  ) => {
     adjustSaving(1)
     try {
       const call = await apiCall(`/api/dashboards/layout/${encodeURIComponent(itemId)}`, {
@@ -257,9 +276,10 @@ export function DashboardScreenLegacy() {
       if (!call.ok) throw new Error(`Failed with status ${call.status}`)
       setError(null)
     } catch (err) {
-      console.error('Failed to update widget settings', err)
+      logger.error('Failed to update widget settings', { err })
       setError(t('dashboard.saveError'))
     } finally {
+      pendingLayoutRevisionsRef.current.delete(layoutRevision)
       adjustSaving(-1)
     }
   }, [adjustSaving, t])
@@ -314,8 +334,10 @@ export function DashboardScreenLegacy() {
   }, [queueLayoutSave])
 
   const handleSettingsChange = React.useCallback((itemId: string, nextSettings: unknown) => {
+    const layoutRevision = ++layoutRevisionRef.current
+    pendingLayoutRevisionsRef.current.add(layoutRevision)
     setLayout((prev) => prev.map((item) => (item.id === itemId ? { ...item, settings: nextSettings } : item)))
-    void patchWidgetSettings(itemId, nextSettings)
+    void patchWidgetSettings(itemId, nextSettings, layoutRevision)
   }, [patchWidgetSettings])
 
   const toggleEditing = React.useCallback(() => {
@@ -575,7 +597,7 @@ function DashboardWidgetCard({
       })
       .catch((err) => {
         if (cancelled) return
-        console.error('Failed to load widget module', err)
+        logger.error('Failed to load widget module', { err })
         setLoadError(t('dashboard.widget.loadError'))
         setLoading(false)
       })
@@ -616,7 +638,7 @@ function DashboardWidgetCard({
       try {
         return module.hydrateSettings(raw)
       } catch (err) {
-        console.warn('Failed to hydrate widget settings', err)
+        logger.warn('Failed to hydrate widget settings', { err })
         return raw
       }
     }
@@ -629,7 +651,7 @@ function DashboardWidgetCard({
       try {
         raw = module.dehydrateSettings(next as never)
       } catch (err) {
-        console.warn('Failed to dehydrate widget settings', err)
+        logger.warn('Failed to dehydrate widget settings', { err })
       }
     }
     onSettingsChange(raw)

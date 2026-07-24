@@ -17,6 +17,9 @@ import {
 import { DEFAULT_SETTINGS, hydrateSettings, type TopCustomersSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencySafe } from '../../../lib/formatters'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'top-customers' })
 
 type CustomerRow = {
   rank: number
@@ -105,7 +108,7 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
       }))
       setData(tableData)
     } catch (err) {
-      console.error('Failed to load top customers data', err)
+      logger.error('Failed to load top customers data', { err })
       setError(t('dashboards.analytics.widgets.topCustomers.error', 'Failed to load data'))
     } finally {
       setLoading(false)

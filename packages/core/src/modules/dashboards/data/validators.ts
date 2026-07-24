@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { MAX_DASHBOARD_PRESETS } from '../lib/layoutState'
 
+export const MAX_DASHBOARD_LAYOUT_ITEMS = 100
+export const MAX_DASHBOARD_WIDGET_ASSIGNMENTS = 200
+
 export const dashboardWidgetIdSchema = z.string().min(1)
 export const dashboardWidgetSizeSchema = z.enum(['sm', 'md', 'lg', 'full'])
 export const dashboardWidgetAccentSchema = z.enum(['neutral', 'info', 'success', 'warning', 'error', 'brand'])
@@ -81,12 +84,12 @@ export const dashboardLayoutPreferencesSchema = z.object({
 export const dashboardLayoutPresetSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1).max(80),
-  items: z.array(dashboardLayoutItemSchema),
+  items: z.array(dashboardLayoutItemSchema).max(MAX_DASHBOARD_LAYOUT_ITEMS),
   preferences: dashboardLayoutPreferencesSchema.optional(),
 })
 
 export const dashboardLayoutSchema = z.object({
-  items: z.array(dashboardLayoutItemSchema),
+  items: z.array(dashboardLayoutItemSchema).max(MAX_DASHBOARD_LAYOUT_ITEMS),
   preferences: dashboardLayoutPreferencesSchema.optional(),
   presets: z.array(dashboardLayoutPresetSchema).max(MAX_DASHBOARD_PRESETS).optional(),
   activePresetId: z.string().min(1).optional(),
@@ -101,13 +104,13 @@ export const dashboardLayoutItemPatchSchema = z.object({
 
 export const roleWidgetSettingsSchema = z.object({
   roleId: z.string().uuid(),
-  widgetIds: z.array(dashboardWidgetIdSchema),
+  widgetIds: z.array(dashboardWidgetIdSchema).max(MAX_DASHBOARD_WIDGET_ASSIGNMENTS),
 })
 
 export const userWidgetSettingsSchema = z.object({
   userId: z.string().uuid(),
   mode: z.enum(['inherit', 'override']).default('inherit'),
-  widgetIds: z.array(dashboardWidgetIdSchema),
+  widgetIds: z.array(dashboardWidgetIdSchema).max(MAX_DASHBOARD_WIDGET_ASSIGNMENTS),
 })
 
 export type DashboardLayoutPayload = z.infer<typeof dashboardLayoutSchema>

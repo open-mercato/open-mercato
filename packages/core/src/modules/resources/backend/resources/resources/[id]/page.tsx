@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -453,12 +454,10 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const handleTagsSave = React.useCallback(
     async ({ next, added, removed }: { next: TagOption[]; added: TagOption[]; removed: TagOption[] }) => {
       if (!resourceId) return
-      for (const tag of added) {
-        await assignTag(tag.id)
-      }
-      for (const tag of removed) {
-        await unassignTag(tag.id)
-      }
+      await Promise.all([
+        ...added.map((tag) => assignTag(tag.id)),
+        ...removed.map((tag) => unassignTag(tag.id)),
+      ])
       setTags(next)
       flash(t('resources.resources.tags.success', 'Tags updated.'), 'success')
     },
@@ -665,51 +664,40 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
             subtitle={t('resources.resources.detail.subtitle', 'Resource profile and activity')}
           />
 
-          <div className="border-b">
-            <nav className="flex flex-wrap items-center gap-5 text-sm" aria-label={t('resources.resources.tabs.label', 'Resource sections')}>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as 'details' | 'availability')}
+            variant="underline"
+          >
+            <TabsList
+              className="w-full flex-wrap"
+              aria-label={t('resources.resources.tabs.label', 'Resource sections')}
+            >
               {tabs.map((tab) => (
-                <Button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab.id}
-                  variant="ghost"
-                  size="sm"
-                  className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-2 font-medium ${
-                    activeTab === tab.id
-                      ? 'border-accent-indigo text-foreground'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                  onClick={() => setActiveTab(tab.id as 'details' | 'availability')}
-                >
+                <TabsTrigger key={tab.id} value={tab.id}>
                   {tab.label}
-                </Button>
+                </TabsTrigger>
               ))}
-            </nav>
-          </div>
+            </TabsList>
+          </Tabs>
 
           {activeTab === 'details' ? (
             <>
               <div className="rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex gap-2">
-                    {detailTabs.map((tab) => (
-                      <Button
-                        key={tab.id}
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-1 font-medium ${
-                          activeDetailTab === tab.id
-                            ? 'border-accent-indigo text-foreground'
-                            : 'border-transparent text-muted-foreground hover:text-foreground'
-                        }`}
-                        onClick={() => setActiveDetailTab(tab.id)}
-                      >
-                        {tab.label}
-                      </Button>
-                    ))}
-                  </div>
+                  <Tabs
+                    value={activeDetailTab}
+                    onValueChange={(value) => setActiveDetailTab(value as 'notes' | 'activities')}
+                    variant="underline"
+                  >
+                    <TabsList className="h-auto flex-wrap border-b-0">
+                      {detailTabs.map((tab) => (
+                        <TabsTrigger key={tab.id} value={tab.id}>
+                          {tab.label}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
                   {sectionAction ? (
                     <Button
                       type="button"
