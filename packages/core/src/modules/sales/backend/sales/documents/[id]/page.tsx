@@ -37,6 +37,7 @@ import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/s
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { ContactEmailDisplay } from '@open-mercato/core/modules/sales/components/ContactEmailDisplay'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
 import { SalesDocumentItemsSection } from '@open-mercato/core/modules/sales/components/documents/ItemsSection'
@@ -69,6 +70,7 @@ import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@op
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
+import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/components/useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -1894,6 +1896,7 @@ export default function SalesDocumentDetailPage({
   includeAmountInMessageMetadata?: boolean
 }) {
   const t = useT()
+  const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
@@ -2578,11 +2581,11 @@ export default function SalesDocumentDetailPage({
   }, [record])
 
   React.useEffect(() => {
-    loadChannels().catch(() => {})
+    if (channelsEnabled) loadChannels().catch(() => {})
     loadStatuses().catch(() => {})
     loadShippingMethods().catch(() => {})
     loadPaymentMethods().catch(() => {})
-  }, [loadChannels, loadPaymentMethods, loadShippingMethods, loadStatuses, scopeVersion])
+  }, [channelsEnabled, loadChannels, loadPaymentMethods, loadShippingMethods, loadStatuses, scopeVersion])
 
   React.useEffect(() => {
     void refreshPaymentPresence()
@@ -3955,11 +3958,11 @@ export default function SalesDocumentDetailPage({
       emptyLabel: t('sales.documents.detail.empty', 'Not set'),
       type: 'email' as const,
     },
-    {
-      key: 'channel',
+    ...(channelsEnabled ? [{
+      key: 'channel' as const,
       title: t('sales.documents.detail.channel', 'Channel'),
       value: record?.channelId ?? null,
-    },
+    }] : []),
     {
       key: 'status',
       title: t('sales.documents.detail.status', 'Status'),
@@ -3974,21 +3977,9 @@ export default function SalesDocumentDetailPage({
   ]
 
   const renderEmailDisplay = React.useCallback(
-    ({ value, emptyLabel }: { value: string | null | undefined; emptyLabel: string }) => {
-      const emailValue = typeof value === 'string' ? value.trim() : ''
-      if (!emailValue.length) {
-        return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
-      }
-      return (
-        <a
-          className="inline-flex items-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline"
-          href={`mailto:${emailValue}`}
-        >
-          <Mail className="h-4 w-4" aria-hidden />
-          <span className="truncate">{emailValue}</span>
-        </a>
-      )
-    },
+    ({ value, emptyLabel }: { value: string | null | undefined; emptyLabel: string }) => (
+      <ContactEmailDisplay value={value} emptyLabel={emptyLabel} />
+    ),
     []
   )
 

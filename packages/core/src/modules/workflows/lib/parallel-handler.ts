@@ -104,6 +104,13 @@ interface ParallelContext {
   userId?: string
 }
 
+function normalizeWorkflowUserId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.startsWith('trigger:')) return null
+  return trimmed
+}
+
 function getNestedValue(obj: any, path: string): any {
   return path.split('.').reduce((current, key) => (current == null ? undefined : current[key]), obj)
 }
@@ -251,7 +258,10 @@ export async function resumeBranchAfterActivities(
         em,
         instance,
         pending.toStepId,
-        { workflowContext: { ...(instance.context || {}), ...(branch.contextNamespace || {}) } },
+        {
+          workflowContext: { ...(instance.context || {}), ...(branch.contextNamespace || {}) },
+          userId: normalizeWorkflowUserId(instance.metadata?.initiatedBy) ?? undefined,
+        },
         container,
         branch,
       )

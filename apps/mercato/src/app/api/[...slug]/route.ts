@@ -379,6 +379,25 @@ async function handleRequest(
   const methodMetadata = extractMethodMetadata(routeMetadata, method)
   const authError = await checkAuthorization(methodMetadata, auth, req)
   if (authError) {
+    // Auth could not be verified because of a transient/unexpected failure (DB
+    // unavailable, pool exhausted, timeout). Do NOT clear the session cookies or
+    // return 401 — that would force-log-out every active user at once during a
+    // shared infrastructure blip (issue #4176). Return a retryable 503 instead
+    // and leave the cookies intact so the session survives once the DB recovers.
+    if (authResolution.status === 'error' && authError.status === 401) {
+      const response = NextResponse.json(
+        { error: t('api.errors.serviceUnavailable', 'Service temporarily unavailable') },
+        { status: 503, headers: { 'retry-after': '2' } },
+      )
+      await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
+        ...receivedPayload,
+        status: response.status,
+        userId: auth?.sub ?? null,
+        tenantId: auth?.tenantId ?? null,
+        durationMs: Date.now() - startedAt,
+      })
+      return response
+    }
     const response = authResolution.status === 'invalid' && authError.status === 401
       ? clearStaffAuthCookies(authError)
       : authError
