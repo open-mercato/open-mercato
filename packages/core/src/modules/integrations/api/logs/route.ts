@@ -8,6 +8,7 @@ import {
   integrationApiRoutePaths,
   runIntegrationsReadBeforeInterceptors,
 } from '../umes-read'
+import { resolveIntegrationsOrganizationId } from '../../lib/organization-scope'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['integrations.manage'] },
@@ -20,7 +21,8 @@ export const openApi = {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  const organizationId = resolveIntegrationsOrganizationId(auth)
+  if (!auth?.tenantId || !organizationId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -52,7 +54,7 @@ export async function GET(req: Request) {
   const logService = container.resolve('integrationLogService') as IntegrationLogService
 
   const { items, total } = await logService.query(parsed.data, {
-    organizationId: auth.orgId as string,
+    organizationId: organizationId,
     tenantId: auth.tenantId,
   })
 
