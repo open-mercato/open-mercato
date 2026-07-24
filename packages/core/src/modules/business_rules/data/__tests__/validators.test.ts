@@ -1,11 +1,16 @@
 import { describe, test, expect } from '@jest/globals'
 import {
+  CONDITION_COMPARISON_OPERATORS,
+  CONDITION_LOGICAL_OPERATORS,
+} from '@open-mercato/shared/modules/conditions'
+import {
   createBusinessRuleSchema,
   createLocalizedBusinessRuleSchema,
   createLocalizedUpdateBusinessRuleSchema,
   updateBusinessRuleSchema,
   ruleTypeSchema,
   comparisonOperatorSchema,
+  logicalOperatorSchema,
   executionResultSchema,
   createRuleExecutionLogSchema,
   ruleExecutionLogFilterSchema,
@@ -37,15 +42,24 @@ describe('Business Rules Validators', () => {
   })
 
   describe('comparisonOperatorSchema', () => {
-    test('should accept valid comparison operators', () => {
-      expect(comparisonOperatorSchema.parse('=')).toBe('=')
-      expect(comparisonOperatorSchema.parse('>')).toBe('>')
-      expect(comparisonOperatorSchema.parse('IN')).toBe('IN')
-      expect(comparisonOperatorSchema.parse('CONTAINS')).toBe('CONTAINS')
+    test('should accept every canonical comparison operator', () => {
+      expect(comparisonOperatorSchema.options).toEqual([...CONDITION_COMPARISON_OPERATORS])
+      for (const operator of CONDITION_COMPARISON_OPERATORS) {
+        expect(comparisonOperatorSchema.parse(operator)).toBe(operator)
+      }
     })
 
     test('should reject invalid operators', () => {
       expect(() => comparisonOperatorSchema.parse('INVALID')).toThrow()
+    })
+  })
+
+  describe('logicalOperatorSchema', () => {
+    test('should accept every canonical logical operator', () => {
+      expect(logicalOperatorSchema.options).toEqual([...CONDITION_LOGICAL_OPERATORS])
+      for (const operator of CONDITION_LOGICAL_OPERATORS) {
+        expect(logicalOperatorSchema.parse(operator)).toBe(operator)
+      }
     })
   })
 

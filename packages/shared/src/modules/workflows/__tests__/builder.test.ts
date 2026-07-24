@@ -264,11 +264,59 @@ describe('defineWorkflow()', () => {
 
     const transition = workflow.definition.transitions[0]
     expect(transition).not.toHaveProperty('transitionName')
+    expect(transition).not.toHaveProperty('condition')
     expect(transition).not.toHaveProperty('preConditions')
     expect(transition).not.toHaveProperty('postConditions')
     expect(transition).not.toHaveProperty('activities')
     expect(transition).not.toHaveProperty('continueOnActivityFailure')
     expect(transition).not.toHaveProperty('priority')
+  })
+
+  test('preserves simple and grouped inline transition conditions', () => {
+    const workflow = defineWorkflow({
+      workflowId: 'test.conditional-workflow',
+      workflowName: 'Conditional Workflow',
+      steps: minimalSteps,
+      transitions: [
+        {
+          transitionId: 'simple-condition',
+          fromStepId: 'start',
+          toStepId: 'end',
+          trigger: 'auto',
+          condition: {
+            field: 'invoice.action',
+            operator: '=',
+            value: 'approve',
+          },
+        },
+        {
+          transitionId: 'grouped-condition',
+          fromStepId: 'start',
+          toStepId: 'end',
+          trigger: 'auto',
+          condition: {
+            operator: 'AND',
+            rules: [
+              { field: 'invoice.total', operator: '>=', value: 1000 },
+              { field: 'invoice.currency', operator: '=', value: 'EUR' },
+            ],
+          },
+        },
+      ],
+    })
+
+    expect(workflow.definition.transitions[0].condition).toEqual({
+      field: 'invoice.action',
+      operator: '=',
+      value: 'approve',
+    })
+    expect(workflow.definition.transitions[1].condition).toEqual({
+      operator: 'AND',
+      rules: [
+        { field: 'invoice.total', operator: '>=', value: 1000 },
+        { field: 'invoice.currency', operator: '=', value: 'EUR' },
+      ],
+    })
   })
 
   test('works correctly with as const steps (key type safety feature)', () => {

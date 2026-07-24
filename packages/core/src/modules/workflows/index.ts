@@ -14,4 +14,5 @@ export const metadata: ModuleInfo = {
   version: '1.0.0',
   author: 'Open Mercato',
   ejectable: true,
+  requires: ['business_rules'],
 }

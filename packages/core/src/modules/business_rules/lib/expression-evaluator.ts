@@ -1,4 +1,8 @@
-import type { ComparisonOperator, LogicalOperator } from '../data/validators'
+import type {
+  ConditionComparisonOperator as ComparisonOperator,
+  GroupCondition as SharedGroupCondition,
+  SimpleCondition as SharedSimpleCondition,
+} from '@open-mercato/shared/modules/conditions'
 import { testLinearRegex } from '@open-mercato/shared/lib/regex/linear'
 import { getNestedValue, resolveSpecialValue } from './value-resolver'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -6,21 +10,19 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('business_rules').child({ component: 'expression-evaluator' })
 
 /**
- * Type definitions for condition expressions
+ * Compatibility types for the existing business-rules evaluator contract.
+ * Business rules historically accepted arbitrary runtime values, while the
+ * shared workflow condition contract is intentionally JSON-safe.
  */
-export type ConditionExpression = SimpleCondition | GroupCondition
-
-export interface SimpleCondition {
-  field: string
-  operator: ComparisonOperator
+export interface SimpleCondition extends Omit<SharedSimpleCondition, 'value'> {
   value: any
-  valueField?: string // For field-to-field comparison
 }
 
-export interface GroupCondition {
-  operator: LogicalOperator // 'AND' | 'OR' | 'NOT'
+export interface GroupCondition extends Omit<SharedGroupCondition, 'rules'> {
   rules: ConditionExpression[]
 }
+
+export type ConditionExpression = SimpleCondition | GroupCondition
 
 export interface EvaluationContext {
   user?: {
@@ -135,8 +137,10 @@ function evaluateGroupCondition(
       }
       break
 
-    default:
-      throw new Error(`Unknown logical operator: ${operator}`)
+    default: {
+      const unsupportedOperator: never = operator
+      throw new Error(`Unknown logical operator: ${unsupportedOperator}`)
+    }
   }
 
   logger.debug('Group condition evaluated', { operator, passed: result })
@@ -220,8 +224,10 @@ function applyOperator(left: any, operator: ComparisonOperator, right: any): boo
     case 'IS_NOT_EMPTY':
       return !isEmpty(left)
 
-    default:
-      throw new Error(`Unknown operator: ${operator}`)
+    default: {
+      const unsupportedOperator: never = operator
+      throw new Error(`Unknown operator: ${unsupportedOperator}`)
+    }
   }
 }
 

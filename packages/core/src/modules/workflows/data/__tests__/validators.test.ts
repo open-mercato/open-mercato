@@ -303,6 +303,60 @@ describe('Workflows Validators', () => {
       expect(result.preConditions?.[0].ruleId).toBe('check-inventory')
     })
 
+    test('should validate simple and grouped inline conditions', () => {
+      const simple = workflowTransitionSchema.parse({
+        ...validTransition,
+        condition: { field: 'invoice.action', operator: '=', value: 'approve' },
+      })
+      const grouped = workflowTransitionSchema.parse({
+        ...validTransition,
+        condition: {
+          operator: 'AND',
+          rules: [
+            { field: 'invoice.total', operator: '>=', value: 1000 },
+            { field: 'invoice.currency', operator: '=', value: 'EUR' },
+          ],
+        },
+      })
+
+      expect(simple.condition).toEqual({ field: 'invoice.action', operator: '=', value: 'approve' })
+      expect(grouped.condition).toEqual({
+        operator: 'AND',
+        rules: [
+          { field: 'invoice.total', operator: '>=', value: 1000 },
+          { field: 'invoice.currency', operator: '=', value: 'EUR' },
+        ],
+      })
+    })
+
+    test('should reject invalid inline condition shapes', () => {
+      expect(() => workflowTransitionSchema.parse({
+        ...validTransition,
+        condition: { field: 'invoice.action', operator: 'equals', value: 'approve' },
+      })).toThrow()
+
+      expect(() => workflowTransitionSchema.parse({
+        ...validTransition,
+        condition: { operator: 'AND', rules: [] },
+      })).toThrow()
+
+      expect(() => workflowTransitionSchema.parse({
+        ...validTransition,
+        condition: null,
+      })).toThrow()
+    })
+
+    test.each([
+      ['Date', new Date()],
+      ['function', () => true],
+      ['bigint', BigInt(1)],
+    ])('should reject non-JSON %s inline condition values', (_label, value) => {
+      expect(() => workflowTransitionSchema.parse({
+        ...validTransition,
+        condition: { field: 'invoice.value', operator: '=', value },
+      })).toThrow()
+    })
+
     test('should validate transition with activities', () => {
       const withActivities = {
         ...validTransition,
@@ -483,6 +537,23 @@ describe('Workflows Validators', () => {
       expect(result.enabled).toBe(true)
       expect(result.definition.steps).toHaveLength(2)
       expect(result.definition.transitions).toHaveLength(1)
+    })
+
+    test('should reject inline conditions nested deeper than five groups', () => {
+      let condition: unknown = { field: 'invoice.action', operator: '=', value: 'approve' }
+      for (let depth = 0; depth < 7; depth += 1) {
+        condition = { operator: 'NOT', rules: [condition] }
+      }
+
+      const deeplyNested = {
+        ...validDefinition,
+        definition: {
+          ...validDefinition.definition,
+          transitions: [{ ...validDefinition.definition.transitions[0], condition }],
+        },
+      }
+
+      expect(() => createWorkflowDefinitionSchema.parse(deeplyNested)).toThrow()
     })
 
     test('should apply default values', () => {

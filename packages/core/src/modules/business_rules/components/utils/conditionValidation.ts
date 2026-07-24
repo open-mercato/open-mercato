@@ -1,4 +1,18 @@
-import type { ComparisonOperator, LogicalOperator } from '../../data/validators'
+import {
+  CONDITION_COMPARISON_OPERATORS,
+  CONDITION_LOGICAL_OPERATORS,
+  type ConditionComparisonOperator as ComparisonOperator,
+  type ConditionLogicalOperator as LogicalOperator,
+} from '@open-mercato/shared/modules/conditions'
+import type {
+  ConditionExpression as LegacyConditionExpression,
+  GroupCondition as LegacyGroupCondition,
+  SimpleCondition as LegacySimpleCondition,
+} from '../../lib/expression-evaluator'
+
+export type SimpleCondition = LegacySimpleCondition
+export type GroupCondition = LegacyGroupCondition
+export type ConditionExpression = LegacyConditionExpression
 
 export type TranslatorFn = (key: string, params?: Record<string, any>) => string
 
@@ -7,46 +21,30 @@ export type ValidationResult = {
   errors: string[]
 }
 
-/**
- * Valid comparison operators
- */
-const VALID_COMPARISON_OPERATORS: ComparisonOperator[] = [
-  '=',
-  '==',
-  '!=',
-  '>',
-  '>=',
-  '<',
-  '<=',
-  'IN',
-  'NOT_IN',
-  'CONTAINS',
-  'NOT_CONTAINS',
-  'STARTS_WITH',
-  'ENDS_WITH',
-  'MATCHES',
-  'IS_EMPTY',
-  'IS_NOT_EMPTY',
-]
+const COMPARISON_OPERATOR_LABEL_KEYS = {
+  '=': 'business_rules.validation.operators.equals',
+  '==': 'business_rules.validation.operators.equalsStrict',
+  '!=': 'business_rules.validation.operators.notEquals',
+  '>': 'business_rules.validation.operators.greaterThan',
+  '>=': 'business_rules.validation.operators.greaterThanOrEqual',
+  '<': 'business_rules.validation.operators.lessThan',
+  '<=': 'business_rules.validation.operators.lessThanOrEqual',
+  IN: 'business_rules.validation.operators.in',
+  NOT_IN: 'business_rules.validation.operators.notIn',
+  CONTAINS: 'business_rules.validation.operators.contains',
+  NOT_CONTAINS: 'business_rules.validation.operators.notContains',
+  STARTS_WITH: 'business_rules.validation.operators.startsWith',
+  ENDS_WITH: 'business_rules.validation.operators.endsWith',
+  MATCHES: 'business_rules.validation.operators.matches',
+  IS_EMPTY: 'business_rules.validation.operators.isEmpty',
+  IS_NOT_EMPTY: 'business_rules.validation.operators.isNotEmpty',
+} satisfies Record<ComparisonOperator, string>
 
-/**
- * Valid logical operators
- */
-const VALID_LOGICAL_OPERATORS: LogicalOperator[] = ['AND', 'OR', 'NOT']
-
-export type SimpleCondition = {
-  field: string
-  operator: ComparisonOperator
-  value: any
-  valueField?: string
-}
-
-export type GroupCondition = {
-  operator: LogicalOperator
-  rules: ConditionExpression[]
-}
-
-export type ConditionExpression = SimpleCondition | GroupCondition
+const LOGICAL_OPERATOR_LABEL_KEYS = {
+  AND: 'business_rules.validation.logical.and',
+  OR: 'business_rules.validation.logical.or',
+  NOT: 'business_rules.validation.logical.not',
+} satisfies Record<LogicalOperator, string>
 
 /**
  * Check if expression is a group condition
@@ -80,8 +78,8 @@ export function validateConditionExpression(expr: any, depth = 0, maxDepth = 5, 
 
   if (isGroupCondition(expr)) {
     // Validate group condition
-    if (!VALID_LOGICAL_OPERATORS.includes(expr.operator)) {
-      errors.push(translate('business_rules.validation.condition.invalidLogicalOperator', { operator: expr.operator, validOperators: VALID_LOGICAL_OPERATORS.join(', ') }))
+    if (!CONDITION_LOGICAL_OPERATORS.includes(expr.operator)) {
+      errors.push(translate('business_rules.validation.condition.invalidLogicalOperator', { operator: expr.operator, validOperators: CONDITION_LOGICAL_OPERATORS.join(', ') }))
     }
 
     if (!Array.isArray(expr.rules) || expr.rules.length === 0) {
@@ -105,8 +103,8 @@ export function validateConditionExpression(expr: any, depth = 0, maxDepth = 5, 
 
     if (!expr.operator) {
       errors.push(translate('business_rules.validation.condition.operatorRequired'))
-    } else if (!VALID_COMPARISON_OPERATORS.includes(expr.operator)) {
-      errors.push(translate('business_rules.validation.condition.invalidComparisonOperator', { operator: expr.operator, validOperators: VALID_COMPARISON_OPERATORS.join(', ') }))
+    } else if (!CONDITION_COMPARISON_OPERATORS.includes(expr.operator)) {
+      errors.push(translate('business_rules.validation.condition.invalidComparisonOperator', { operator: expr.operator, validOperators: CONDITION_COMPARISON_OPERATORS.join(', ') }))
     }
 
     if (expr.value === undefined && !expr.valueField) {
@@ -139,33 +137,18 @@ export function isValidFieldPath(path: string): boolean {
  * Get available comparison operators
  */
 export function getComparisonOperators(t: TranslatorFn): { value: ComparisonOperator; label: string }[] {
-  return [
-    { value: '=', label: t('business_rules.validation.operators.equals') },
-    { value: '==', label: t('business_rules.validation.operators.equalsStrict') },
-    { value: '!=', label: t('business_rules.validation.operators.notEquals') },
-    { value: '>', label: t('business_rules.validation.operators.greaterThan') },
-    { value: '>=', label: t('business_rules.validation.operators.greaterThanOrEqual') },
-    { value: '<', label: t('business_rules.validation.operators.lessThan') },
-    { value: '<=', label: t('business_rules.validation.operators.lessThanOrEqual') },
-    { value: 'IN', label: t('business_rules.validation.operators.in') },
-    { value: 'NOT_IN', label: t('business_rules.validation.operators.notIn') },
-    { value: 'CONTAINS', label: t('business_rules.validation.operators.contains') },
-    { value: 'NOT_CONTAINS', label: t('business_rules.validation.operators.notContains') },
-    { value: 'STARTS_WITH', label: t('business_rules.validation.operators.startsWith') },
-    { value: 'ENDS_WITH', label: t('business_rules.validation.operators.endsWith') },
-    { value: 'MATCHES', label: t('business_rules.validation.operators.matches') },
-    { value: 'IS_EMPTY', label: t('business_rules.validation.operators.isEmpty') },
-    { value: 'IS_NOT_EMPTY', label: t('business_rules.validation.operators.isNotEmpty') },
-  ]
+  return CONDITION_COMPARISON_OPERATORS.map((value) => ({
+    value,
+    label: t(COMPARISON_OPERATOR_LABEL_KEYS[value]),
+  }))
 }
 
 /**
  * Get logical operators
  */
 export function getLogicalOperators(t: TranslatorFn): { value: LogicalOperator; label: string }[] {
-  return [
-    { value: 'AND', label: t('business_rules.validation.logical.and') },
-    { value: 'OR', label: t('business_rules.validation.logical.or') },
-    { value: 'NOT', label: t('business_rules.validation.logical.not') },
-  ]
+  return CONDITION_LOGICAL_OPERATORS.map((value) => ({
+    value,
+    label: t(LOGICAL_OPERATOR_LABEL_KEYS[value]),
+  }))
 }

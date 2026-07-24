@@ -4,12 +4,15 @@
 
 **Key Points:**
 - Introduce a `defineWorkflow()` TypeScript builder API that provides compile-time type safety for step IDs, transition references, and activity definitions — turning runtime `STEP_NOT_FOUND` errors into TS compiler errors.
+- Expose the runtime-supported inline transition `condition` through the shared canonical condition-expression contract and preserve it through validation and graph conversion.
 - Code-based workflow definitions live purely in memory (populated at bootstrap from a generated registry). No DB row is created until a user customizes the definition.
 - Add a `workflows.ts` auto-discovery convention at module root, following the established `events.ts` / `search.ts` pattern.
 
 **Scope:**
 - `packages/shared/src/modules/workflows/` — builder API and types
+- `packages/shared/src/modules/conditions.ts` — canonical condition operators and expression types
 - `packages/cli/src/lib/generators/extensions/` — generator extension for `workflows.ts` discovery
+- `packages/core/src/modules/business_rules/` — canonical contract consumption and runtime validation
 - `packages/core/src/modules/workflows/` — in-memory registry, executor integration, API merge logic
 - `packages/core/src/modules/workflows/data/` — `code_workflow_id` column for override tracking
 
@@ -18,6 +21,7 @@
 - Activity function registry with compile-time function reference checking (Phase 4 / future spec)
 - Deploy-time command infrastructure (prerequisite for any future boot-time DB sync approach)
 - Variable interpolation type safety (`{{context.foo}}` remains stringly-typed)
+- A visual condition-builder UI for inline transition expressions
 
 **Concerns:**
 - Executor currently reads definitions exclusively from DB; the read path must be extended to check the in-memory registry as a fallback.
@@ -50,6 +54,8 @@ This spec introduces a TypeScript-first workflow definition experience: develope
 
 5. **No source tracking:** There is no way to distinguish a definition created by the visual editor from one seeded by code. This makes it impossible to know whether a definition can be safely overwritten or should be preserved as a user customization.
 
+6. **Inline conditions missing from the code contract:** The transition runtime evaluates `transition.condition`, but the public code-workflow types, builder, and workflow validator omit that field. Conditional routing therefore cannot be expressed through the supported typed builder, and definition/graph conversion can silently discard it.
+
 ## Proposed Solution
 
 ### Design Decisions
@@ -64,6 +70,9 @@ This spec introduces a TypeScript-first workflow definition experience: develope
 | No definition snapshot (matches existing behavior) | The executor always reads the latest definition on every step/resume. Code-based definitions follow the same pattern — code changes on redeploy affect running instances immediately, just like DB edits today. This preserves the ability to hot-fix running workflows. |
 | Output matches existing `WorkflowDefinitionData` | No new JSONB schema. The executor, validators, and visual editor all work unchanged. |
 | Generic type parameter for step IDs | TypeScript const inference captures step IDs as a literal union. Transitions constrain `fromStepId`/`toStepId` to this union. |
+| Workflows declares its existing business-rules dependency | Workflow setup, persisted start/pre/post conditions, the editor, and transition evaluation already use `business_rules`. Declaring `requires: ['business_rules']` makes invalid module configurations fail during generation instead of later during setup or execution. |
+| One shared condition-expression contract | `@open-mercato/shared/modules/conditions` owns the comparison/logical operator tuples, Zod schemas, and derived recursive JSON-safe types. Workflow types use the JSON-safe contract directly. Business-rules schemas, validation, and UI options reuse its canonical operators, while existing evaluator/component type exports retain their historically broad `value: any` contract through a compatibility adapter derived from the shared shape. Hardened runtime expression validation remains in `business_rules`. |
+| Inline conditions reuse business-rules validation | Code transitions use the canonical business-rules condition-expression validator. Validation limits field paths to 200 characters, groups to 50 rules, and semantic nesting to five levels. |
 
 ### Alternatives Considered
 
@@ -157,11 +166,38 @@ interface TransitionDefinition<TStepId extends string> {
   fromStepId: TStepId    // ← constrained to step ID union
   toStepId: TStepId      // ← constrained to step ID union
   trigger: TransitionTrigger
+  condition?: ConditionExpression
   // ... remaining fields match existing schema
 }
 ```
 
 The `const` modifier on `TSteps` tells TypeScript to infer literal types for the `stepId` values. `ExtractStepIds` extracts the union of all step IDs from the tuple. Transitions then constrain `fromStepId`/`toStepId` to this union.
+
+**Inline transition conditions:** The runtime already evaluates an optional recursive condition before selecting a transition. The shared code-workflow contract re-exports the generic contract from `@open-mercato/shared/modules/conditions` without introducing a second expression language:
+
+```typescript
+type ConditionExpression = SimpleCondition | GroupCondition
+
+interface SimpleCondition {
+  field: string
+  operator: '=' | '==' | '!=' | '>' | '>=' | '<' | '<='
+    | 'IN' | 'NOT_IN' | 'CONTAINS' | 'NOT_CONTAINS'
+    | 'STARTS_WITH' | 'ENDS_WITH' | 'MATCHES' | 'IS_EMPTY' | 'IS_NOT_EMPTY'
+  value: JsonValue
+  valueField?: string
+}
+
+interface GroupCondition {
+  operator: 'AND' | 'OR' | 'NOT'
+  rules: ConditionExpression[]
+}
+```
+
+`defineWorkflow()` preserves `condition` unchanged, while `workflowTransitionSchema` composes the canonical `business_rules` condition-expression validator with the shared JSON-safe schema. The business-rules stage applies expression safety and semantic validation before the shared stage rejects `null` and non-JSON values and exposes the shared `ConditionExpression` output type. Field paths are limited to 200 characters, groups to 50 rules, and semantic nesting to five levels. The visual-editor graph conversion carries the property in both directions so viewing or customizing a code definition does not drop its routing logic. A visual condition-builder UI remains out of scope.
+
+`CONDITION_COMPARISON_OPERATORS` and `CONDITION_LOGICAL_OPERATORS` are the single runtime source for accepted operators. Shared Zod schemas consume those tuples, and all canonical operator and recursive expression types are derived with `z.infer`. Code-workflow condition values use the JSON-safe schema because definitions can cross API and JSONB boundaries. The business-rules validators re-export the shared operator schemas and use the canonical tuples for validation membership; UI options map over them. Existing business-rules component/evaluator import paths preserve their broader `value: any` types through a compatibility adapter so downstream TypeScript consumers are not narrowed. Evaluator switch cases remain explicit because they implement operator behavior rather than define which operators exist.
+
+The workflows module declares `requires: ['business_rules']`. This formalizes an existing hard dependency: workflow setup seeds `BusinessRule` entities, start/pre/post conditions execute persisted rules, transition conditions use the rule evaluator, and the editor queries the business-rules API. The shared workflow builder remains independent of `@open-mercato/core`; only the core workflows module imports the business-rules runtime validator.
 
 **Workflow ID convention:** Prefix with module name using dot notation: `module.workflow-name` (e.g., `sales.order-approval`, `workflows.demo-checkout`). This follows the same namespacing convention as event IDs (`module.entity.action`) and ACL features (`module.action`). Unlike those systems, the workflows generator extension validates uniqueness at `yarn generate` time — duplicate `workflowId` across modules is a hard error. This is cheap to add since we're building a new generator extension.
 
@@ -463,6 +499,9 @@ The data repair is forward-only: the obsolete external activity payloads cannot 
 - **Existing API consumers:** New fields (`source`, `codeModuleId`, `isCodeBased`) are additive. No fields removed.
 - **Existing seeds:** Seeded definitions remain `source='user'` in the DB. `Migration20260715120000` is a narrow payload repair for the exact legacy checkout seed; it preserves the row while aligning its side-effecting transitions with the maintained demo definition.
 - **Auto-discovery:** `workflows.ts` is a new optional convention. Modules without it are unaffected.
+- **Inline transition conditions:** `condition` is optional. Existing code and persisted definitions that omit it are unchanged; definitions that use it now retain the same expression through builder, registry validation, and graph conversion.
+- **Business-rules public types:** Existing `SimpleCondition`, `GroupCondition`, and `ConditionExpression` exports keep their historically broad value contract. The JSON-only type is additive and applies to the new code-workflow condition property; no downstream business-rules consumer must migrate.
+- **Module configuration:** Workflows now declares its existing `business_rules` requirement. Configurations that enable workflows without business rules fail early during module generation; that combination already failed during workflow default seeding or rule-backed execution.
 - **Contract surface classification:** `workflows.ts` export convention is STABLE (new, additive). `defineWorkflow()` function signature is STABLE.
 
 ### Breaking Changes
@@ -482,6 +521,7 @@ None. This is fully additive.
 7. Create example `packages/core/src/modules/workflows/workflows.ts` — migrate existing example JSON to builder API
 8. Unit tests for builder (type safety, Zod validation, error messages)
 9. Run `yarn generate` and verify output
+10. Follow-up: declare the existing business-rules module dependency, centralize the condition-expression contract in shared, add typed inline transition conditions using the business-rules validator, and preserve them through builder output, registry validation, and graph conversion
 
 ### Phase 2: Executor + API Integration
 
@@ -515,6 +555,14 @@ Deferred to a separate spec. Covers:
 |------|--------|-------|---------|
 | `packages/shared/src/modules/workflows/builder.ts` | Create | 1 | `defineWorkflow()` builder with type inference |
 | `packages/shared/src/modules/workflows/types.ts` | Create | 1 | Shared types for code workflow definitions |
+| `packages/shared/src/modules/conditions.ts` | Create | 1 | Canonical condition operator tuples and recursive expression types |
+| `packages/shared/src/modules/__tests__/conditions.test.ts` | Create | 1 | Shared contract coverage for operators, recursion, and JSON-safe values |
+| `packages/core/src/modules/business_rules/data/validators.ts` | Modify | 1 | Derive operator schemas from the shared canonical tuples |
+| `packages/core/src/modules/business_rules/components/utils/conditionValidation.ts` | Modify | 1 | Reuse canonical operators for validation/UI options and preserve legacy condition types |
+| `packages/core/src/modules/business_rules/lib/expression-evaluator.ts` | Modify | 1 | Reuse canonical operators/shape while preserving the public `value: any` compatibility contract |
+| `packages/core/src/modules/workflows/index.ts` | Modify | 1 | Declare the existing hard dependency on `business_rules` |
+| `packages/core/src/modules/workflows/data/validators.ts` | Modify | 1 | Validate recursive inline transition conditions |
+| `packages/core/src/modules/workflows/lib/graph-utils.ts` | Modify | 1 | Preserve inline conditions across definition/graph conversion |
 | `packages/cli/src/lib/generators/extensions/workflows.ts` | Create | 1 | Generator extension for `workflows.ts` discovery |
 | `packages/cli/src/lib/generators/extensions/index.ts` | Modify | 1 | Register workflows extension |
 | `packages/core/src/modules/workflows/lib/code-registry.ts` | Create | 1 | In-memory code definition registry |
@@ -532,6 +580,14 @@ Deferred to a separate spec. Covers:
   - Builder produces valid `WorkflowDefinitionData` (passes Zod validation)
   - Builder rejects invalid configs (missing START step, orphan transitions) at runtime
   - Type tests: verify that invalid step ID references produce TS errors (using `ts-expect-error`)
+  - Builder preserves omitted, simple, and grouped inline conditions
+  - Shared condition schemas accept recursive JSON-safe expressions and reject invalid operators, `Date`, function, and `bigint` values
+  - Business-rules Zod schemas and UI options expose every canonical shared operator in contract order
+  - Existing business-rules condition type exports retain their broad value compatibility contract
+  - Validator accepts evaluator-compatible JSON conditions and rejects invalid operators, empty groups, non-JSON values, and nesting beyond five levels
+  - Workflow metadata declares `business_rules` as a required module
+  - Code registry rejects invalid conditions, and graph conversion round-trips valid conditions without loss
+- **No new app/browser fixture:** Runtime transition-condition evaluation is already covered by `transition-handler.test.ts`. This follow-up changes the typed builder, validation, registry, and graph plumbing rather than executor behavior, so focused unit and contract coverage is sufficient for the reduced upstream scope.
 - **Integration tests (Phase 2):**
   - Start a workflow from a code-based definition
   - Verify instance stores `definitionSnapshot`
@@ -550,6 +606,10 @@ Deferred to a separate spec. Covers:
 - **Instance definition drift:** If a code definition changes between deploys (e.g., step removed, transition renamed) and an instance is mid-flight, the instance could reference steps/transitions that no longer exist.
   - Mitigation: This is the same behavior as editing a DB definition today — the executor always reads the latest version. Developers must treat code definition changes the same as DB edits: avoid removing steps/transitions that running instances may be on. This is an existing operational concern, not a new one introduced by this spec.
   - Residual: No new risk. Matches existing behavior exactly.
+
+- **Condition behavior drifts from the shared contract:** A future operator could be added without corresponding evaluator or UI behavior.
+  - Mitigation: The shared operator tuples derive the public types, business-rules Zod schemas, validation membership, and UI option order. Evaluator behavior remains explicitly typed, while focused tests assert schema and UI parity with every canonical operator.
+  - Residual: New operators still require an intentional evaluator case and translated UI label, both checked by TypeScript and focused coverage.
 
 - **Override orphaning:** If a code definition is removed from code but a `code_override` DB row exists, the override references a non-existent base.
   - Mitigation: The override is still a valid definition (it stores the full JSONB). It continues working. The "Reset to code version" action would fail gracefully (code version not found).
@@ -666,6 +726,10 @@ None.
 
 **Fully compliant** — ready for implementation. Post-implementation fixes through 2026-04-28 (dedicated `/customize` endpoint, soft-deleted override revival, embedded triggers in PUT, dotted `workflowId` regex, mutation-guard wiring on reset, list `find`/`count` split, legacy seed-ID rename migration, removal of cross-organization customize block) were re-reviewed against the same compliance matrix with no regressions.
 
+### Inline Condition Addendum — 2026-07-21
+
+The typed inline-condition follow-up introduces one optional transition property and a canonical shared condition-expression contract, changes no entity or endpoint contract, adds no dependency from shared to core, and preserves the runtime's existing expression semantics. Business-rules validation, schemas, and UI options consume the shared operator tuples; their existing evaluator/component type exports retain the broad value contract through a compatibility adapter. The core workflows module now declares its pre-existing hard dependency on `business_rules` and composes that module's semantic validator with the shared JSON-safe schema. Unsupported workflows-only configurations fail at generation time instead of later during setup or execution. Focused builder, business-rules contract, validator, registry, metadata, and graph round-trip tests pass together with shared/core type-checking and production builds.
+
 ## Changelog
 
 ### 2026-04-14
@@ -715,3 +779,7 @@ None.
 ### 2026-07-16
 
 - Fixed issue #4202: once the #4179 repairs let the checkout demo reach `confirmation_to_end`, its `create_order` `CALL_API` activity failed with `401 Unauthorized`. `executeCallApi` minted the one-time API key on the container EM, but the activity runs inside `workflowExecutor.executeWorkflow()`'s `em.transactional(...)`; with `useContext: true` the request EM's writes are redirected into the still-open transaction, so the outbound self-authenticated `fetch` (a separate pooled connection) could not see the uncommitted key. The key is now created on a context-detached fork (`em.fork({ clear: true, freshEventManager: true, useContext: false })`, matching the `query_index`/`webhooks` isolated-EM convention) so it auto-commits on its own connection and is visible to the internal request. Distinct from #4179 (a legacy `CALL_WEBHOOK`); this is the internal `CALL_API` auth path. Covered by a `call-api.test.ts` regression asserting the key EM is forked with `useContext: false`.
+
+### 2026-07-21
+
+- Added typed inline transition conditions to the shared code-workflow contract and `defineWorkflow()` builder, centralized condition operators and recursive JSON-safe expression types in `@open-mercato/shared/modules/conditions`, migrated business-rules schemas/validation/UI options to the canonical operators while preserving legacy public value types, composed business-rules semantic validation with the shared JSON-safe schema, declared the workflows module's existing `business_rules` dependency, and preserved conditions through visual-editor graph conversion. Added focused builder, business-rules compatibility, validator, metadata, registry, and round-trip coverage. No persistence, endpoint, customization, or runtime execution behavior changed.

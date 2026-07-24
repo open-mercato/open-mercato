@@ -1,5 +1,9 @@
 import { z } from 'zod'
 import {
+  conditionComparisonOperatorSchema,
+  conditionLogicalOperatorSchema,
+} from '@open-mercato/shared/modules/conditions'
+import {
   validateConditionExpressionForApi,
   validateActionsForApi,
   isSafeExpression,
@@ -21,28 +25,11 @@ export const conditionTypeSchema = z.enum(['EXPRESSION', 'GROUP'])
 export type ConditionType = z.infer<typeof conditionTypeSchema>
 
 // Logical Operators
-export const logicalOperatorSchema = z.enum(['AND', 'OR', 'NOT'])
+export const logicalOperatorSchema = conditionLogicalOperatorSchema
 export type LogicalOperator = z.infer<typeof logicalOperatorSchema>
 
 // Comparison Operators
-export const comparisonOperatorSchema = z.enum([
-  '=',
-  '==',
-  '!=',
-  '>',
-  '>=',
-  '<',
-  '<=',
-  'IN',
-  'NOT_IN',
-  'CONTAINS',
-  'NOT_CONTAINS',
-  'STARTS_WITH',
-  'ENDS_WITH',
-  'MATCHES',
-  'IS_EMPTY',
-  'IS_NOT_EMPTY',
-])
+export const comparisonOperatorSchema = conditionComparisonOperatorSchema
 export type ComparisonOperator = z.infer<typeof comparisonOperatorSchema>
 
 // Data Types

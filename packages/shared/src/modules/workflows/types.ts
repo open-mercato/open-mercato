@@ -6,6 +6,16 @@
  * generic type safety for step ID references in transitions.
  */
 
+import type { ConditionExpression } from '../conditions'
+
+export type {
+  ConditionComparisonOperator,
+  ConditionLogicalOperator,
+  SimpleCondition,
+  GroupCondition,
+  ConditionExpression,
+} from '../conditions'
+
 // ============================================================================
 // Step Types
 // ============================================================================
@@ -111,6 +121,7 @@ export interface CodeTransitionDefinition<TStepId extends string = string> {
   toStepId: TStepId
   transitionName?: string
   trigger: TransitionTrigger
+  condition?: ConditionExpression
   preConditions?: Array<{
     ruleId: string
     required?: boolean
