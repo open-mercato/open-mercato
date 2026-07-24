@@ -325,8 +325,9 @@ jobs:
   # ── Lint ─────────────────────────────────────────────────────────────────────
   # Fast static analysis — runs in parallel with prepare and audit.
   # ESLint does not need compiled packages, so it can fail fast before heavy jobs.
-  # @open-mercato/app is excluded: its next lint script requires an ESLint config
-  # that is not yet present in the repo.
+  # @open-mercato/app is the only workspace with a `lint` script, so it must stay
+  # in scope: excluding it left turbo with zero commands and a permanently green
+  # no-op job (issue #4472).
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -362,8 +363,13 @@ jobs:
         if: steps.nm-cache.outputs.cache-hit != 'true'
         run: yarn install --immutable
 
+      - name: Guard against an empty lint task graph
+        # Fails when `turbo run lint` resolves to zero commands, so a future
+        # filter or script rename cannot silently disable the gate again.
+        run: yarn lint:check-graph
+
       - name: Lint
-        run: yarn turbo run lint --filter=!@open-mercato/app
+        run: yarn lint
 
       - name: Guard against raw console.* logging
         # Blocking since the application-wide migration to the structured
