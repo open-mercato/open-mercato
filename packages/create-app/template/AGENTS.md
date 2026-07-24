@@ -4,31 +4,31 @@ Extend this installed Open Mercato app. Route first; load every match.
 
 ## Always
 
-- **MUST route before coding** — match all rows in the three-axis router; when a routed file is missing, run `yarn mercato agentic:init` and retry.
-- **MUST keep framework packages read-only** — app code belongs in `src/modules/<id>/`; use `om-framework-context` to inspect exact installed source and instructions.
-- **MUST preserve host scope** — organization-owned data requires trusted `tenantId` + `organizationId` and fails closed. Tenant-wide/system scope is valid only when the installed contract declares it (for example `organizationId: null`) and never widens organization data.
-- **MUST use canonical primitives** — commands for writes, `makeCrudRoute` for CRUD, `CrudForm`/`DataTable` for admin UI, DI for services, events for cross-module effects, and UMES for installed-module customization.
-- **MUST use the canonical paths** — entities live in `src/modules/<id>/data/entities.ts`; API handlers live under `api/**/route.ts` and export per-method `metadata` plus `openApi`.
-- **MUST preserve editable records** — new user-editable entities expose `updated_at`/`updatedAt`; custom update/delete clients send the record version and surface 409 conflicts.
-- **MUST treat schema generation as a probe** — run `yarn db:generate`, review scoped SQL and the module snapshot, and ask before applying it.
-- **MUST regenerate structural output** — run `yarn generate` after changing auto-discovered module files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows.
-- **MUST preserve public identifiers** — event IDs, entity IDs, API paths, ACL features, DI tokens, widget spots, notifications, AI agent/tool IDs, CLI names, and generated exports are stable once shipped.
-- **MUST localize and design consistently** — use translation helpers and shared UI components/tokens; include loading, empty, error, conflict, keyboard, and accessibility behavior.
+- **Route first** — match all three axes; if a routed file is missing, run `yarn mercato agentic:init` and retry.
+- **Keep framework packages read-only** — write app code in `src/modules/<id>/`; use `om-framework-context` for exact installed source/instructions.
+- **Preserve host scope** — derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may declare tenant/system scope (`organizationId: null`); never widen organization data.
+- **Use canonical primitives** — commands, `makeCrudRoute`, `CrudForm`/`DataTable`, DI, events, and UMES.
+- **Use canonical paths** — entities: `src/modules/<id>/data/entities.ts`; API: `api/**/route.ts` with per-method `metadata` + `openApi`.
+- **Lock editable records** — expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409 conflicts.
+- **Probe schema** — run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
+- **Regenerate discovery** — run `yarn generate` after changing discovered module files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows.
+- **Preserve public IDs** — event/entity IDs, API paths, ACL, DI tokens, widget spots, notifications, AI IDs, CLI names, and generated exports stay stable.
+- **Localize/design consistently** — use translations and shared UI/tokens; cover loading, empty, error, conflict, keyboard, and accessibility states.
 
 ## Ask First
 
-- Ask before reducing scope, changing architecture/contracts, adding production dependencies, ejecting a module, or replacing a canonical primitive.
-- Ask before applying migrations, resetting data, changing database targets, enabling live credentials, or calling a real external provider from tests.
-- Ask before weakening authentication, tenant/organization scope, encryption, mutation approval, optimistic locking, retries, idempotency, or audit/undo behavior.
+- Ask before reducing scope, changing architecture/contracts, adding production dependencies, ejecting modules, or replacing canonical primitives.
+- Ask before migrations, data resets, database-target changes, live credentials, or real providers in tests.
+- Ask before weakening auth/scope, encryption, mutation approval, locking, retries, idempotency, or audit/undo.
 
 ## Never
 
-- Never expose cross-tenant data, accept a scope from an untrusted payload, or treat missing scope as unrestricted access.
-- Never edit `node_modules`, `.mercato/generated/**`, generated facts, or an already-shipped migration.
-- Never create direct ORM relationships across modules; use an ID plus snapshot, events, enrichers, extensions, or an optional DI seam.
-- Never use raw `fetch`, raw admin `<form>`, ad hoc crypto/Redis/queues, role-name guards, or direct domain mutation when a canonical helper exists.
-- Never hard-code user-facing strings, status colors, secrets, provider credentials, or private transcript content.
-- Never guess an installed contract from memory when generated facts or exact-version source can answer it.
+- Never leak tenants, trust payload scope, or treat missing scope as unrestricted.
+- Never edit `node_modules`, `.mercato/generated/**`, generated facts, or shipped migrations.
+- Never use cross-module ORM relations; use IDs/snapshots, events, enrichers, extensions, or optional DI.
+- Never use raw `fetch`/admin `<form>`, ad hoc crypto/Redis/queues, role-name guards, or direct mutation when a canonical helper exists.
+- Never hard-code user strings/status colors or expose secrets, credentials, or private transcripts.
+- Never guess contracts when generated facts or exact-version source can answer.
 
 ## Validation Commands
 
@@ -49,9 +49,7 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 Match every axis; de-duplicate. Examples: notifications = `module-data` + `backend-ui` + `umes`; custom-field round trips add `testing`; lifecycle reactions = `module-data` + `umes`; write/search convergence bugs = `module-data` + `debugging`; bootstrap/registry drift = `architecture` + `module-data` + `debugging` (+ `framework-context` for exact installed contracts). Never collapse to one route.
 
-Route IDs: `architecture`, `module-data`, `backend-ui`, `umes`, `integration`, `ai-workflow`, `testing`, `debugging`, `framework-context`, `spec-pr`.
-
-Route only the requested outcome. `testing` needs explicit tests/coverage; “smallest validation” alone does not match. Use external `om-integration-tests` only for explicit integration/E2E/browser coverage. `debugging` needs failure, security, or drift. Spec decomposition selects only `spec-pr`. Plan-only module work uses `om-module-scaffold` + architecture/contracts, not implementation skills. Do not infer areas from specs/PRs.
+Route only the requested outcome. `testing` needs explicit tests/coverage; “smallest validation” does not match. Use external `om-integration-tests` only for integration/E2E/browser coverage. `debugging` needs failure, security, or drift. Spec decomposition selects only `spec-pr`. Plan-only module work loads `om-module-scaffold` + architecture/contracts. Do not infer areas from specs/PRs.
 
 ### Axis 1 — Area and Ownership
 
@@ -67,7 +65,7 @@ Choose every changed area first.
 | `ai-workflow` | AI agent/tool/orchestrator or durable workflow | Owning app module; `.ai/guides/ai-workflows.md`; target facts when extending |
 | `debugging` | Bug, security issue, generated drift, or runtime inconsistency | Existing owning call site; `.ai/guides/testing-debugging.md`; affected areas |
 
-Defaults: app domains/providers live in `src/modules/<id>/`; installed customization uses UMES/overrides. Reusable providers are published dependencies, never undeclared `packages/*` workspaces; ask before topology changes or ejection. `node_modules` stays read-only.
+Defaults: app domains/providers → `src/modules/<id>/`; installed customization → UMES/overrides. Reusable providers are published dependencies, never `packages/*` workspaces; ask before topology/ejection. `node_modules` is read-only.
 
 ### Axis 2 — Work Units and Primitives
 
@@ -75,7 +73,7 @@ Split the outcome; match all rows.
 
 | Evaluator route ID | Work unit | Procedure and concept context |
 |---|---|---|
-| `architecture` | Explain capabilities or choose module vs UMES vs package vs eject | `.ai/guides/architecture.md`; `om-help` for an unfamiliar decision |
+| `architecture` | Explain capabilities or choose module vs UMES vs package vs eject | `.ai/guides/architecture.md`; `om-help` only if no direct row resolves ownership |
 | `module-data` | Convert a business outcome into a complete vertical slice | `om-module-scaffold`; load its `business-one-shot-blueprints.md`, then union matched rows below |
 | `spec-pr` | Split or implement cohesive specification phases | Axis 3's skill; keep every phase deployable |
 | `architecture` | Audit an upgrade or disable an unused built-in | `om-troubleshooter` + `om-framework-context`, or `om-trim-unused-modules` |
@@ -112,11 +110,11 @@ If the selected skill is absent, run `yarn install-skills` once and retry; do no
 
 ### Token-Efficient Assembly Policy
 
-- This root is the only initial instruction set. Load each matched guide once and only branch-specific skill references.
-- Facts supply target identifiers/surfaces, not general teaching.
-- Inspect app call sites first; `framework-context` is the last mile for one exact installed target and bounded query.
-- De-duplicate by path/skill; never preload all facts, catalogs, references, upstream guides, or source.
-- Each work unit carries only its area, primitive contract, relevant facts, and delivery workflow.
+- Start here; load matched guides once and only branch-specific skill references.
+- Facts supply identifiers/surfaces, not teaching.
+- Inspect app call sites first; use `framework-context` last for one bounded exact target.
+- Never recursively content-search or preload guide, skill, fact, reference, or source trees; open only routed paths.
+- Each unit carries only its area, contract, facts, and delivery workflow.
 
 ## Module-Specific Facts
 
