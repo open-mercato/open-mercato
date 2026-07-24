@@ -368,6 +368,7 @@ export class DefaultDataEngine implements DataEngine {
           .where('entity_type' as any, '=', opts.entityId)
           .where('entity_id' as any, '=', id)
           .where('organization_id' as any, orgId === null ? 'is' : '=', orgId as any)
+          .where('tenant_id' as any, tenantId === null ? 'is' : '=', tenantId as any)
           .executeTakeFirst()
         if (!updated || Number(updated.numUpdatedRows ?? 0) === 0) {
           await db.insertInto('custom_entities_storage' as any).values(payload as any).execute()
@@ -415,6 +416,9 @@ export class DefaultDataEngine implements DataEngine {
       chain = orgId === null
         ? chain.where('organization_id' as any, 'is', null as any)
         : chain.where('organization_id' as any, '=', orgId)
+      chain = tenantId === null
+        ? chain.where('tenant_id' as any, 'is', null as any)
+        : chain.where('tenant_id' as any, '=', tenantId)
       return chain
     }
     const row = await applyScope(
@@ -464,6 +468,7 @@ export class DefaultDataEngine implements DataEngine {
     const db = this.getKysely()
     const id = String(opts.recordId)
     const orgId = opts.organizationId ?? null
+    const tenantId = opts.tenantId ?? null
     const soft = opts.soft !== false
 
     const applyScope = <T extends { where: (col: any, op: any, val?: any) => T }>(q: T) => {
@@ -472,6 +477,9 @@ export class DefaultDataEngine implements DataEngine {
       chain = orgId === null
         ? chain.where('organization_id' as any, 'is', null as any)
         : chain.where('organization_id' as any, '=', orgId)
+      chain = tenantId === null
+        ? chain.where('tenant_id' as any, 'is', null as any)
+        : chain.where('tenant_id' as any, '=', tenantId)
       return chain
     }
 
