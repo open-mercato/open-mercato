@@ -21,6 +21,7 @@ import {
   NotesSection,
   type CommentSummary,
   type SectionAction,
+  DetailTabsLayout,
   RecordNotFoundState,
   ErrorMessage,
 } from '@open-mercato/ui/backend/detail'
@@ -49,7 +50,6 @@ import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
 import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 

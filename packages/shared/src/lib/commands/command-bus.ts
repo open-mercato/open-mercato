@@ -574,7 +574,8 @@ export class CommandBus {
     metadata: CommandLogMetadata | null
   ): Promise<void> {
     const resource = typeof metadata?.resourceKind === 'string' ? metadata.resourceKind : null
-    if (!resource) return
+    const parentResource = typeof metadata?.parentResourceKind === 'string' ? metadata.parentResourceKind : null
+    if (!resource && !parentResource) return
     try {
       const ctx = options.ctx
       const resultRecord = asRecord(result)
@@ -621,14 +622,27 @@ export class CommandBus {
       const derived = deriveResourceFromCommandId(commandId)
       if (derived) aliasSet.add(derived)
       const aliasExtras = Array.from(aliasSet)
-      await invalidateCrudCache(
-        ctx.container,
-        resource,
-        { id: recordId, organizationId, tenantId },
-        fallbackTenant,
-        `command:${commandId}:execute`,
-        aliasExtras
-      )
+      if (resource) {
+        await invalidateCrudCache(
+          ctx.container,
+          resource,
+          { id: recordId, organizationId, tenantId },
+          fallbackTenant,
+          `command:${commandId}:execute`,
+          aliasExtras
+        )
+      }
+
+      const parentRecordId = pickFirstIdentifier(metadata?.parentResourceId)
+      if (parentResource && parentRecordId) {
+        await invalidateCrudCache(
+          ctx.container,
+          parentResource,
+          { id: parentRecordId, organizationId, tenantId },
+          fallbackTenant,
+          `command:${commandId}:execute:parent`
+        )
+      }
     } catch (err) {
       if (isCrudCacheDebugEnabled()) {
         try {
@@ -640,7 +654,8 @@ export class CommandBus {
 
   private async invalidateCacheAfterUndo(log: ActionLog, ctx: CommandRuntimeContext): Promise<void> {
     const resource = typeof log.resourceKind === 'string' ? log.resourceKind : null
-    if (!resource) return
+    const parentResource = typeof log.parentResourceKind === 'string' ? log.parentResourceKind : null
+    if (!resource && !parentResource) return
     try {
       const recordId = pickFirstIdentifier(log.resourceId)
       const organizationId = pickFirstIdentifier(log.organizationId, ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null)
@@ -653,14 +668,27 @@ export class CommandBus {
       const derived = deriveResourceFromCommandId(log.commandId)
       if (derived) aliasSet.add(derived)
       const aliasExtras = Array.from(aliasSet)
-      await invalidateCrudCache(
-        ctx.container,
-        resource,
-        { id: recordId, organizationId, tenantId },
-        fallbackTenant,
-        `command:${log.commandId}:undo`,
-        aliasExtras
-      )
+      if (resource) {
+        await invalidateCrudCache(
+          ctx.container,
+          resource,
+          { id: recordId, organizationId, tenantId },
+          fallbackTenant,
+          `command:${log.commandId}:undo`,
+          aliasExtras
+        )
+      }
+
+      const parentRecordId = pickFirstIdentifier(log.parentResourceId)
+      if (parentResource && parentRecordId) {
+        await invalidateCrudCache(
+          ctx.container,
+          parentResource,
+          { id: parentRecordId, organizationId, tenantId },
+          fallbackTenant,
+          `command:${log.commandId}:undo:parent`
+        )
+      }
     } catch (err) {
       if (isCrudCacheDebugEnabled()) {
         try {

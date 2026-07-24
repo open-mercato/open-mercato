@@ -1,0 +1,8 @@
+{
+  "identicalAllowed": [
+    "dashboard.widgets.incidents-mtta-mttr.title",
+    "incidents.dashboard.mttaMttr.mttaLabel",
+    "incidents.dashboard.mttaMttr.mttrLabel",
+    "incidents.incident.detail.impact.currencyPlaceholder"
+  ]
+}

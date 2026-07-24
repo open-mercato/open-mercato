@@ -7,6 +7,8 @@ type LogRecord = {
   commandId: string
   resourceKind: string
   resourceId: string
+  parentResourceKind?: string | null
+  parentResourceId?: string | null
   tenantId: string
   organizationId: string
   commandPayload?: Record<string, unknown>
@@ -26,6 +28,7 @@ describe('CommandBus cache invalidation for sales documents', () => {
   afterEach(() => {
     unregisterCommand('sales.orders.update')
     unregisterCommand('sales.orders.noop-update')
+    unregisterCommand('incidents.timeline_entry.create')
     invalidateMock.mockClear()
   })
 
@@ -192,6 +195,66 @@ describe('CommandBus cache invalidation for sales documents', () => {
       'tenant-1',
       'command:sales.orders.noop-update:execute',
       expect.any(Array)
+    )
+  })
+
+  it('invalidates the parent resource cache when command metadata declares one', async () => {
+    const logMock = jest.fn(async () => ({ id: 'log-entry' }))
+
+    registerCommand({
+      id: 'incidents.timeline_entry.create',
+      execute: jest.fn(async () => ({
+        id: 'timeline-1',
+        incidentId: 'incident-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })),
+      buildLog: jest.fn(() => ({
+        actionLabel: 'Add timeline entry',
+        resourceKind: 'incidents.timeline_entry',
+        resourceId: 'timeline-1',
+        parentResourceKind: 'incidents.incident',
+        parentResourceId: 'incident-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({
+        log: logMock,
+        findByUndoToken: jest.fn(async () => null),
+        markUndone: jest.fn(async () => {}),
+      }),
+      dataEngine: asValue({ flushOrmEntityChanges: jest.fn() }),
+    })
+
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      organizationScope: null,
+      selectedOrganizationId: 'org-1',
+      organizationIds: null,
+    }
+
+    await bus.execute('incidents.timeline_entry.create', { input: {}, ctx })
+
+    expect(invalidateMock).toHaveBeenCalledWith(
+      container,
+      'incidents.timeline_entry',
+      { id: 'timeline-1', organizationId: 'org-1', tenantId: 'tenant-1' },
+      'tenant-1',
+      'command:incidents.timeline_entry.create:execute',
+      expect.any(Array)
+    )
+    expect(invalidateMock).toHaveBeenCalledWith(
+      container,
+      'incidents.incident',
+      { id: 'incident-1', organizationId: 'org-1', tenantId: 'tenant-1' },
+      'tenant-1',
+      'command:incidents.timeline_entry.create:execute:parent'
     )
   })
 })
