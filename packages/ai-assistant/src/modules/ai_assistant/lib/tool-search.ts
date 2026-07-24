@@ -1,5 +1,6 @@
 import type { SearchService } from '@open-mercato/search/service'
 import type { SearchStrategyId, IndexableRecord } from '@open-mercato/search/types'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import type { McpToolRegistry, McpToolDefinition } from './types'
 import {
   TOOL_ENTITY_ID,
@@ -294,23 +295,9 @@ export class ToolSearchService {
     userFeatures: string[],
     isSuperAdmin: boolean
   ): boolean {
-    if (isSuperAdmin) return true
-    if (!requiredFeatures?.length) return true
-
-    return requiredFeatures.every((required) => {
-      // Direct match
-      if (userFeatures.includes(required)) return true
-      // Wildcard match
-      if (userFeatures.includes('*')) return true
-
-      // Prefix wildcard match (e.g., 'customers.*' matches 'customers.people.view')
-      return userFeatures.some((feature) => {
-        if (feature.endsWith('.*')) {
-          const prefix = feature.slice(0, -2)
-          return required.startsWith(prefix + '.')
-        }
-        return false
-      })
+    return authorizeFeatures(requiredFeatures ?? [], {
+      grantedFeatures: userFeatures,
+      unrestricted: isSuperAdmin,
     })
   }
 }

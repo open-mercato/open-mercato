@@ -5,6 +5,8 @@ import fg from 'fast-glob'
 const repoRoot = resolve(__dirname, '../../../..')
 
 const serverRuntimeRoots = [
+  'apps/mercato/src/app',
+  'packages/create-app/template/src/app',
   'packages/core/src/modules',
   'packages/ai-assistant/src/modules',
   'packages/search/src/modules',
@@ -71,7 +73,10 @@ describe('server feature-policy authorization coverage', () => {
         || /\.features\s*\.includes\s*\(/.test(source)
       )
       const locallyOrdersAdminAndGrants = /\bisSuperAdmin\b/.test(source)
-        && /\.features\s*\.includes\s*\(/.test(source)
+        && (
+          /\.features\s*\.includes\s*\(/.test(source)
+          || /\b(?:userFeatures|grantedFeatures|resolvedFeatures|authFeatures)\s*\.(?:includes|some|every)\s*\(/.test(source)
+        )
 
       if (importsLowLevelMatcher || matchesLoadedAclDirectly || locallyOrdersAdminAndGrants) {
         violations.push(path)
