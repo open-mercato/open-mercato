@@ -267,10 +267,13 @@ export function MockupStudio({
   React.useEffect(() => {
     let cancelled = false
     void Promise.all(
-      galleryFamilies.map(async (family) => {
-        const mod = await family.load()
-        return { id: family.id, label: familyLabelFallback(family.id), entries: mod.entries }
-      }),
+      galleryFamilies
+        // Documentation sheets (foundations, icons) are not insertable blocks.
+        .filter((family) => family.composable !== false)
+        .map(async (family) => {
+          const mod = await family.load()
+          return { id: family.id, label: familyLabelFallback(family.id), entries: mod.entries }
+        }),
     ).then((groups) => {
       if (!cancelled) setFamilies(groups)
     })
@@ -323,12 +326,17 @@ export function MockupStudio({
         )
         return
       }
+      // Entries with compose() start from neutral defaults instead of the
+      // gallery demo copy ("Edit product" has no place on a person form).
       apply(
-        insertLeaf(document, point.parentId, point.index, {
-          type: 'block',
-          entry: entry.id,
-          variant: entry.variants[0]?.id,
-        }),
+        insertLeaf(
+          document,
+          point.parentId,
+          point.index,
+          typeof entry.compose === 'function'
+            ? { type: 'block', entry: entry.id, props: {} }
+            : { type: 'block', entry: entry.id, variant: entry.variants[0]?.id },
+        ),
       )
     },
     [apply, document, insertionPoint, t],
@@ -588,7 +596,7 @@ export function MockupStudio({
             aria-label={t('design_system.mockups.studio.paletteSearch', 'Search components…')}
           />
           <Button type="button" variant="outline" size="sm" className="w-full" onClick={insertPlaceholder}>
-            {t('design_system.mockups.studio.insertPlaceholder', 'Insert placeholder')}
+            {t('design_system.mockups.studio.insertPlaceholder', 'Add empty area (placeholder)')}
           </Button>
           <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
             {families === null ? (
@@ -622,12 +630,14 @@ export function MockupStudio({
           </div>
         </aside>
 
-        {/* Canvas */}
-        <div className="min-w-0 flex-1">
+        {/* Canvas — a muted workbench surface; the mockup lies on it as an
+            inert sheet, so its demo controls never compete with the studio. */}
+        <div className="min-w-0 flex-1 rounded-xl bg-muted/40 p-4 sm:p-6">
           <MockupStage
             document={document}
             entries={entries}
             annotated
+            inertContent
             hoveredBlockId={hoveredBlockId}
             onHoverBlock={setHoveredBlockId}
             selectedBlockId={selectedId}
@@ -641,9 +651,58 @@ export function MockupStudio({
             {t('design_system.mockups.studio.inspector', 'Inspector')}
           </h3>
           {!selected ? (
-            <p className="text-xs text-muted-foreground">
-              {t('design_system.mockups.studio.noSelection', 'Select a block on the canvas to edit it')}
-            </p>
+            <div className="space-y-3 rounded-lg border border-border bg-card p-3">
+              <p className="text-xs font-medium text-muted-foreground">
+                {t('design_system.mockups.studio.docSection', 'Mockup')}
+              </p>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t('design_system.mockups.studio.docTitle', 'Title')}
+                </p>
+                <Input
+                  value={document.title}
+                  aria-label={t('design_system.mockups.studio.docTitle', 'Title')}
+                  onChange={(event) => {
+                    setDocument({ ...document, title: event.target.value })
+                    setDirty(true)
+                    setSaveState({ kind: 'idle' })
+                  }}
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t('design_system.mockups.studio.docWidth', 'Width preset')}
+                </p>
+                <Select
+                  value={document.width}
+                  onValueChange={(next) => {
+                    setDocument({ ...document, width: next as MockupDocument['width'] })
+                    setDirty(true)
+                    setSaveState({ kind: 'idle' })
+                  }}
+                >
+                  <SelectTrigger size="sm" aria-label={t('design_system.mockups.studio.docWidth', 'Width preset')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="desktop">{t('design_system.mockups.studio.widthDesktop', 'Desktop')}</SelectItem>
+                    <SelectItem value="tablet">{t('design_system.mockups.studio.widthTablet', 'Tablet')}</SelectItem>
+                    <SelectItem value="mobile">{t('design_system.mockups.studio.widthMobile', 'Mobile')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t('design_system.mockups.studio.docBlocks', '{count} blocks on the canvas', {
+                  count: leaves.length,
+                })}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'design_system.mockups.studio.noSelection',
+                  'Click a block on the canvas to edit its variant, props and review status.',
+                )}
+              </p>
+            </div>
           ) : (
             <div className="space-y-3 rounded-lg border border-border bg-card p-3">
               <div className="flex items-center justify-between gap-2">

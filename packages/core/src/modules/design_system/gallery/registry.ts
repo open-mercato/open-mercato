@@ -51,12 +51,14 @@ export const galleryFamilies: GalleryFamily[] = [
     id: 'foundations',
     labelKey: 'design_system.families.foundations',
     icon: familyIcon(Palette),
+    composable: false,
     load: () => import('./entries/foundations'),
   },
   {
     id: 'icons',
     labelKey: 'design_system.families.icons',
     icon: familyIcon(Shapes),
+    composable: false,
     load: () => import('./entries/icons'),
   },
   {

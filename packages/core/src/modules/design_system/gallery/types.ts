@@ -40,5 +40,6 @@ export type GalleryFamily = {
   id: string                    // 'charts'
   labelKey: string              // i18n key for the family label
   icon?: React.ReactNode        // section-nav icon (lucide, size-4)
+  composable?: boolean          // false: documentation sheets (foundations, icons) — never offered as mockup blocks
   load: () => Promise<{ entries: GalleryEntry[] }>   // next/dynamic-compatible loader
 }

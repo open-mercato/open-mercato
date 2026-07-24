@@ -60,6 +60,12 @@ export type MockupStageProps = {
   selectedBlockId?: string | null
   /** Studio: click-to-select. */
   onSelectBlock?: (blockId: string) => void
+  /**
+   * Studio: render block content as an inert preview (no pointer events, no
+   * focus). A demo "Save" button inside a block must read as design content,
+   * never as a working control competing with the studio chrome.
+   */
+  inertContent?: boolean
   /** Diff view: per-block rail tone replacing the status rail. */
   railToneOverrides?: Record<string, MockupDiffTone>
   /** om-ux-copy: per-block string-prop overrides for the active locale. */
@@ -151,6 +157,7 @@ function LeafWrapper({
   onSelectBlock,
   railToneOverrides,
   domIdPrefix,
+  inertContent,
   children,
 }: {
   node: MockupBlockNode | MockupPlaceholderNode
@@ -161,6 +168,7 @@ function LeafWrapper({
   onSelectBlock?: (blockId: string) => void
   railToneOverrides?: Record<string, MockupDiffTone>
   domIdPrefix?: string
+  inertContent?: boolean
   children: React.ReactNode
 }) {
   const status = ledgerStatusOf(node)
@@ -176,7 +184,7 @@ function LeafWrapper({
       data-mockup-status={status}
       {...(diffTone ? { 'data-mockup-diff': diffTone } : {})}
       {...(selected ? { 'data-mockup-selected': 'true' } : {})}
-      className="relative"
+      className={cn('relative', onSelectBlock ? 'cursor-pointer' : null)}
       onMouseEnter={onHoverBlock ? () => onHoverBlock(node.id) : undefined}
       onMouseLeave={onHoverBlock ? () => onHoverBlock(null) : undefined}
       onClick={
@@ -195,7 +203,7 @@ function LeafWrapper({
           className={cn(
             'pointer-events-none absolute inset-y-0 -left-4 transition-opacity duration-150',
             railClass,
-            hovered || selected ? 'opacity-100' : 'opacity-50',
+            hovered || selected ? 'opacity-100' : 'opacity-40',
           )}
         />
       ) : null}
@@ -218,7 +226,14 @@ function LeafWrapper({
           ))}
         </span>
       ) : null}
-      {children}
+      {inertContent ? (
+        // eslint-disable-next-line react/no-unknown-property -- inert reached React 19 typings; the attribute is standard HTML
+        <div inert className="pointer-events-none select-none">
+          {children}
+        </div>
+      ) : (
+        children
+      )}
     </div>
   )
 }
@@ -234,6 +249,7 @@ function StageNode({
   railToneOverrides,
   copyOverrides,
   domIdPrefix,
+  inertContent,
 }: {
   node: MockupLayoutNode
   entries: Map<string, GalleryEntry>
@@ -245,6 +261,7 @@ function StageNode({
   railToneOverrides?: Record<string, MockupDiffTone>
   copyOverrides?: CopyOverrideMap
   domIdPrefix?: string
+  inertContent?: boolean
 }) {
   const shared = {
     entries,
@@ -256,6 +273,7 @@ function StageNode({
     railToneOverrides,
     copyOverrides,
     domIdPrefix,
+    inertContent,
   }
   if (node.type === 'stack') {
     return (
@@ -292,6 +310,7 @@ function StageNode({
       onSelectBlock={onSelectBlock}
       railToneOverrides={railToneOverrides}
       domIdPrefix={domIdPrefix}
+      inertContent={inertContent}
     >
       {node.type === 'block' ? (
         <BlockContent node={node} entries={entries} copyOverrides={copyOverrides} />
@@ -313,12 +332,16 @@ export function MockupStage({
   railToneOverrides,
   copyOverrides,
   domIdPrefix,
+  inertContent,
 }: MockupStageProps) {
   return (
     <div
       data-testid="mockup-stage"
       className={cn(
         'mx-auto w-full rounded-lg border border-border bg-background p-6',
+        // Studio: the mockup reads as a sheet lying on the workbench, visually
+        // apart from the tool chrome around it.
+        inertContent ? 'shadow-sm' : null,
         WIDTH_CLASS[document.width],
       )}
     >
@@ -333,6 +356,7 @@ export function MockupStage({
         railToneOverrides={railToneOverrides}
         copyOverrides={copyOverrides}
         domIdPrefix={domIdPrefix}
+        inertContent={inertContent}
       />
     </div>
   )
