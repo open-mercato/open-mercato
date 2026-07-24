@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { GET } from '@open-mercato/core/modules/audit_logs/api/audit-logs/access/route'
+import { accessLogListSchema } from '@open-mercato/core/modules/audit_logs/data/validators'
 
 const mockRbac = { userHasAllFeatures: jest.fn() }
 const mockAccess = { list: jest.fn() }
@@ -114,5 +115,22 @@ describe('GET /api/audit_logs/audit-logs/access', () => {
       page: 2,
       pageSize: 25,
     }))
+  })
+
+  it('returns 400 (not 500) when a filter fails uuid validation', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const parsed = accessLogListSchema.safeParse({ actorUserId: 'not-a-uuid' })
+    if (parsed.success) throw new Error('expected accessLogListSchema to reject a non-uuid actorUserId')
+    mockAccess.list.mockRejectedValueOnce(parsed.error)
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/access?actorUserId=not-a-uuid'))
+    expect(res.status).toBe(400)
+    const data = await res.json()
+    expect(data.error).toBe('Validation failed')
   })
 })
