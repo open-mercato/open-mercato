@@ -44,6 +44,12 @@ Reject malformed ID lists and filters explicitly. Preserve existing response key
 - Emit both forward and undo side effects with the same index/cache aliases when undo exists.
 - Make retries and idempotency explicit. Do not advance external cursors, one-time keys, or recovery state until the durable unit of work commits.
 
+## Runtime Logging
+
+- Use `createLogger('<module>')` from `@open-mercato/shared/lib/logger` in runtime/server/module code; use `.child({ component, ...context })` for stable local context.
+- Keep messages stable and put dynamic values in structured metadata; pass caught errors under `err`. Omit or redact credentials, tokens, secrets, PII, and payload bodies.
+- Do not add raw `console.*` calls to runtime/server/module code. Intentional terminal output in CLI/build scripts and test-local console spies remain valid when that runtime requires them.
+
 ## Optimistic-Lock UI Contract
 
 - `CrudForm` derives the update/delete header from `initialValues.updatedAt`; ensure the detail payload supplies it.
