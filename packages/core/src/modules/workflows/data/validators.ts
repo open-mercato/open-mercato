@@ -202,6 +202,20 @@ export const activityRetryPolicySchema = z.object({
   maxIntervalMs: z.number().int().min(0),
 })
 
+/**
+ * Config fields each activity executor requires to run (see
+ * `lib/activity-executor.ts`). WAIT is handled separately below because it
+ * takes "duration" OR "until" rather than a fixed key set.
+ */
+const REQUIRED_ACTIVITY_CONFIG_KEYS: Partial<Record<ActivityType, readonly string[]>> = {
+  SEND_EMAIL: ['to', 'subject'],
+  CALL_API: ['endpoint'],
+  CALL_WEBHOOK: ['url'],
+  UPDATE_ENTITY: ['commandId', 'input'],
+  EMIT_EVENT: ['eventName'],
+  EXECUTE_FUNCTION: ['functionName'],
+}
+
 // Activity definition (embedded in transitions)
 export const activityDefinitionSchema = z.object({
   activityId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Activity ID must contain only lowercase letters, numbers, hyphens, and underscores'),
@@ -210,12 +224,49 @@ export const activityDefinitionSchema = z.object({
   config: z.record(z.string(), z.any()),
   async: z.boolean().default(false).optional(), // For Phase 8.3
   retryPolicy: activityRetryPolicySchema.optional(),
-  timeout: z.string().optional(), // ISO 8601 duration
+  /**
+   * Per-activity timeout in milliseconds. This is what the editor writes and
+   * what `executeActivity` reads; it was missing from the schema, so
+   * `z.object()` stripped it on save and UI-configured timeouts silently did
+   * nothing (#4424).
+   */
+  timeoutMs: z.number().int().positive().optional(),
+  /**
+   * @deprecated Use `timeoutMs`. Accepted for definitions already stored with
+   * an ISO 8601 duration string; the executor normalizes it to milliseconds.
+   */
+  timeout: z.string().optional(),
   compensation: z.object({
     activityId: z.string().min(1), // ID of compensation activity
     automatic: z.boolean().default(true).optional() // Auto-trigger on failure
   }).optional(), // Compensation configuration (Phase 8.2)
 }).superRefine((activity, ctx) => {
+  // Config keys each activity executor requires at runtime. Without this, an
+  // activity missing e.g. CALL_API's `endpoint` saved cleanly from the visual
+  // editor and only failed once an instance ran it — the "edit silently
+  // disappeared / nothing told me why" report in #4232 (and the class of bug
+  // #4322 was an instance of). Validating here surfaces the exact missing field
+  // at edit time, since both the editor's save path and the API route parse
+  // through this schema.
+  const requiredConfigKeys = REQUIRED_ACTIVITY_CONFIG_KEYS[activity.activityType]
+  if (requiredConfigKeys) {
+    const config = activity.config || {}
+    for (const key of requiredConfigKeys) {
+      const value = config[key]
+      const isEmpty =
+        value == null ||
+        (typeof value === 'string' && value.trim() === '') ||
+        (key === 'input' && typeof value !== 'object')
+      if (isEmpty) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['config', key],
+          message: `${activity.activityType} activity requires "${key}"`,
+        })
+      }
+    }
+  }
+
   if (activity.activityType !== 'WAIT') return
   const config = activity.config || {}
   const hasDuration = config.duration != null && config.duration !== ''

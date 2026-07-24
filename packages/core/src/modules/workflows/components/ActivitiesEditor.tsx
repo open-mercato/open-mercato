@@ -26,7 +26,11 @@ interface Activity {
     retryDelay?: number
     backoffMultiplier?: number
   }
-  timeout?: number
+  // Milliseconds, matching the executor and the definition schema. This field
+  // used to be written as `timeout` (a number) while the schema typed `timeout`
+  // as an ISO 8601 string, so saving a timeout from this editor failed
+  // validation outright (#4424).
+  timeoutMs?: number
   compensation?: Record<string, any>
 }
 
@@ -46,8 +50,59 @@ const ACTIVITY_TYPES = [
   { value: 'WAIT', label: 'Wait' },
 ]
 
+/**
+ * Per-activity draft of the raw JSON config text (#4234).
+ *
+ * The config textarea used to be controlled directly by
+ * `JSON.stringify(activity.config)`, and its onChange dropped anything that
+ * did not parse. Every intermediate keystroke of a hand edit is invalid JSON,
+ * so the state never advanced and React re-rendered the previous serialized
+ * value — the field read as frozen/non-editable right after a config was
+ * pasted. Keeping the raw text locally lets the user type freely; the parsed
+ * object is propagated whenever the text is valid, and an inline error is shown
+ * while it is not.
+ */
+type ConfigDraft = { text: string; error: string | null }
+
+function serializeConfig(config: Record<string, unknown> | undefined): string {
+  return JSON.stringify(config ?? {}, null, 2)
+}
+
 export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEditorProps) {
   const t = useT()
+  const [configDrafts, setConfigDrafts] = React.useState<Record<number, ConfigDraft>>({})
+
+  const configTextFor = (index: number, activity: Activity): string =>
+    configDrafts[index]?.text ?? serializeConfig(activity.config)
+
+  const handleConfigTextChange = (index: number, text: string) => {
+    let parsed: Record<string, unknown> | null = null
+    let parseError: string | null = null
+    try {
+      const candidate = JSON.parse(text) as unknown
+      if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        parsed = candidate as Record<string, unknown>
+      } else {
+        parseError = t('workflows.activities.configMustBeObject', 'Config must be a JSON object')
+      }
+    } catch (err) {
+      parseError = err instanceof Error ? err.message : t('workflows.activities.configInvalidJson', 'Invalid JSON')
+    }
+
+    setConfigDrafts((drafts) => ({ ...drafts, [index]: { text, error: parseError } }))
+    if (parsed) updateActivity(index, 'config', parsed)
+  }
+
+  // Drop the raw draft once the field loses focus and its content is valid, so
+  // the textarea goes back to mirroring the canonical (re-formatted) config.
+  const handleConfigBlur = (index: number) => {
+    setConfigDrafts((drafts) => {
+      if (!drafts[index] || drafts[index].error) return drafts
+      const next = { ...drafts }
+      delete next[index]
+      return next
+    })
+  }
 
   const addActivity = () => {
     const newActivity: Activity = {
@@ -85,6 +140,18 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
 
   const removeActivity = (index: number) => {
     onChange(value.filter((_, i) => i !== index))
+    // Keep the index-keyed drafts aligned with the re-indexed activities:
+    // drop the removed row's draft and shift every later draft down by one,
+    // otherwise a pending (invalid) draft would render over a different row.
+    setConfigDrafts((drafts) => {
+      const next: Record<number, ConfigDraft> = {}
+      for (const key of Object.keys(drafts)) {
+        const i = Number(key)
+        if (i === index) continue
+        next[i > index ? i - 1 : i] = drafts[i]
+      }
+      return next
+    })
   }
 
   const moveActivity = (index: number, direction: 'up' | 'down') => {
@@ -96,6 +163,18 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
     updated[index] = updated[newIndex]
     updated[newIndex] = temp
     onChange(updated)
+    // Swap the two rows' drafts too, so an in-progress edit follows its activity.
+    setConfigDrafts((drafts) => {
+      if (!(index in drafts) && !(newIndex in drafts)) return drafts
+      const next = { ...drafts }
+      const atIndex = drafts[index]
+      const atNew = drafts[newIndex]
+      if (atNew !== undefined) next[index] = atNew
+      else delete next[index]
+      if (atIndex !== undefined) next[newIndex] = atIndex
+      else delete next[newIndex]
+      return next
+    })
   }
 
   return (
@@ -211,8 +290,8 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                   <Input
                     id={`activity-${index}-timeout`}
                     type="number"
-                    value={activity.timeout || ''}
-                    onChange={(e) => updateActivity(index, 'timeout', e.target.value ? parseInt(e.target.value) : undefined)}
+                    value={activity.timeoutMs || ''}
+                    onChange={(e) => updateActivity(index, 'timeoutMs', e.target.value ? parseInt(e.target.value) : undefined)}
                     placeholder="30000"
                     className="mt-1"
                   />
@@ -318,19 +397,24 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                 </Label>
                 <Textarea
                   id={`activity-${index}-config`}
-                  value={JSON.stringify(activity.config || {}, null, 2)}
-                  onChange={(e) => {
-                    try {
-                      const parsed = JSON.parse(e.target.value)
-                      updateActivity(index, 'config', parsed)
-                    } catch {
-                      // Invalid JSON, don't update
-                    }
-                  }}
+                  value={configTextFor(index, activity)}
+                  onChange={(e) => handleConfigTextChange(index, e.target.value)}
+                  onBlur={() => handleConfigBlur(index)}
+                  aria-invalid={configDrafts[index]?.error ? true : undefined}
+                  aria-describedby={configDrafts[index]?.error ? `activity-${index}-config-error` : undefined}
                   placeholder='{"key": "value"}'
                   rows={3}
                   className="mt-1 font-mono text-xs"
                 />
+                {configDrafts[index]?.error ? (
+                  <p
+                    id={`activity-${index}-config-error`}
+                    className="mt-1 text-xs text-status-error-text"
+                    role="alert"
+                  >
+                    {configDrafts[index]?.error}
+                  </p>
+                ) : null}
               </div>
               )}
             </div>

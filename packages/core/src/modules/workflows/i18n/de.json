@@ -80,6 +80,8 @@
   "workflows.activities.async": "Asynchron",
   "workflows.activities.compensation": "Kompensation",
   "workflows.activities.config": "Konfiguration",
+  "workflows.activities.configInvalidJson": "Ungültiges JSON",
+  "workflows.activities.configMustBeObject": "Konfiguration muss ein JSON-Objekt sein",
   "workflows.activities.deleteActivity": "Aktivität löschen",
   "workflows.activities.editActivity": "Aktivität bearbeiten",
   "workflows.activities.plural": "Aktivitäten",
