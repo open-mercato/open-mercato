@@ -1,5 +1,6 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { deriveCustomEntityRecordFeature } from './recordFeatures'
 
 export type EntityAclRequirement = {
   view: string[]
@@ -79,6 +80,10 @@ type AssertEntityAclArgs = {
   entityId: string
   action: 'view' | 'manage'
   isCustomEntity: boolean
+  // Set for a custom entity flagged `access_restricted`. When true, the coarse
+  // route-level entities.records.* feature is no longer sufficient — the caller
+  // must additionally hold the synthesized per-entity feature.
+  isRestricted?: boolean
   rbac: RbacService
 }
 
@@ -86,18 +91,45 @@ function forbiddenEntityAccess(): CrudHttpError {
   return new CrudHttpError(403, { error: 'Forbidden' })
 }
 
+async function loadActorAcl(args: AssertEntityAclArgs) {
+  return args.rbac.loadAcl(args.auth.sub ?? '', {
+    tenantId: args.auth.tenantId ?? null,
+    organizationId: args.auth.orgId ?? null,
+  })
+}
+
 export async function assertEntityAclForRequest(args: AssertEntityAclArgs): Promise<void> {
-  if (args.isCustomEntity) return
+  if (args.isCustomEntity) {
+    // Unrestricted custom entities keep the historical behavior: the coarse
+    // entities.records.view/.manage route guard is the whole authorization.
+    if (!args.isRestricted) return
+
+    const required = deriveCustomEntityRecordFeature(args.entityId, args.action)
+    const allowed = await args.rbac.userHasAllFeatures(
+      args.auth.sub ?? '',
+      [required],
+      {
+        tenantId: args.auth.tenantId ?? null,
+        organizationId: args.auth.orgId ?? null,
+      },
+    )
+    if (!allowed) {
+      throw forbiddenEntityAccess()
+    }
+    return
+  }
 
   const requirement = resolveEntityAclRequirement(args.entityId)
 
-  if (!requirement || requirement.platformOnly) {
-    const acl = await args.rbac.loadAcl(args.auth.sub ?? '', {
-      tenantId: args.auth.tenantId ?? null,
-      organizationId: args.auth.orgId ?? null,
-    })
+  if (!requirement) {
+    const acl = await loadActorAcl(args)
     if (!acl.isSuperAdmin) throw forbiddenEntityAccess()
     return
+  }
+
+  if (requirement.platformOnly) {
+    const acl = await loadActorAcl(args)
+    if (!acl.isSuperAdmin) throw forbiddenEntityAccess()
   }
 
   const allowed = await args.rbac.userHasAllFeatures(

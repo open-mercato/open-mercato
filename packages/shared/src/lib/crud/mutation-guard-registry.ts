@@ -1,5 +1,5 @@
 import type { AwilixContainer } from 'awilix'
-import { hasAllFeatures } from '../../security/features'
+import { authorizeFeatures } from '../../security/featurePolicy'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -100,7 +100,7 @@ export async function runMutationGuards(
   const matching = guards
     .filter((g) => matchesEntity(g.targetEntity, input.resourceKind))
     .filter((g) => g.operations.includes(input.operation))
-    .filter((g) => hasAllFeatures(context.userFeatures, g.features))
+    .filter((g) => authorizeFeatures(g.features ?? [], { grantedFeatures: context.userFeatures }))
     .sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50))
 
   let payload = input.mutationPayload

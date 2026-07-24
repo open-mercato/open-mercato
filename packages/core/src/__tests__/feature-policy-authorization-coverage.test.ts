@@ -12,6 +12,13 @@ const serverRuntimeRoots = [
   'packages/webhooks/src/modules',
 ]
 
+const sharedAuthorizationRunners = [
+  'packages/shared/src/lib/commands/command-interceptor-runner.ts',
+  'packages/shared/src/lib/crud/interceptor-runner.ts',
+  'packages/shared/src/lib/crud/mutation-guard-registry.ts',
+  'packages/shared/src/lib/crud/enricher-runner.ts',
+]
+
 const lowLevelMatcherAllowlist = new Set([
   // Realm services are the only persistence-aware authorization entrypoints.
   'packages/core/src/modules/auth/services/rbacService.ts',
@@ -42,7 +49,10 @@ function isBrowserFile(path: string, source: string): boolean {
 describe('server feature-policy authorization coverage', () => {
   it('does not authorize live subjects with low-level ACL matchers', async () => {
     const files = await fg(
-      serverRuntimeRoots.map((root) => `${root}/**/*.{ts,tsx}`),
+      [
+        ...serverRuntimeRoots.map((root) => `${root}/**/*.{ts,tsx}`),
+        ...sharedAuthorizationRunners,
+      ],
       { cwd: repoRoot, absolute: true },
     )
     const violations: string[] = []

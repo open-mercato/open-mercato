@@ -166,7 +166,7 @@ describe('assertEntityAclForRequest', () => {
     ).resolves.toBeUndefined()
   })
 
-  test('always passes for a custom entity without consulting the ACL', async () => {
+  test('an unrestricted custom entity passes without consulting the ACL', async () => {
     const rbac = makeRbac({ isSuperAdmin: false, features: [], organizations: null })
 
     await expect(
@@ -175,10 +175,86 @@ describe('assertEntityAclForRequest', () => {
         entityId: 'custom:thing',
         action: 'manage',
         isCustomEntity: true,
+        isRestricted: false,
         rbac: rbac as never,
       }),
     ).resolves.toBeUndefined()
     expect(rbac.loadAcl).not.toHaveBeenCalled()
     expect(rbac.userHasAllFeatures).not.toHaveBeenCalled()
+  })
+
+  test('a restricted custom entity is denied when the per-entity feature is missing', async () => {
+    const rbac = makeRbac({ isSuperAdmin: false, features: ['entities.records.view', 'entities.records.manage'], organizations: null })
+
+    await expect(
+      assertEntityAclForRequest({
+        auth: baseAuth,
+        entityId: 'hr:salaries',
+        action: 'view',
+        isCustomEntity: true,
+        isRestricted: true,
+        rbac: rbac as never,
+      }),
+    ).rejects.toMatchObject({ status: 403 })
+  })
+
+  test('a restricted custom entity is allowed with the exact per-entity feature', async () => {
+    const rbac = makeRbac({ isSuperAdmin: false, features: ['entities.records.manage', 'entities.records.hr:salaries.manage'], organizations: null })
+
+    await expect(
+      assertEntityAclForRequest({
+        auth: baseAuth,
+        entityId: 'hr:salaries',
+        action: 'manage',
+        isCustomEntity: true,
+        isRestricted: true,
+        rbac: rbac as never,
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  test('a restricted custom entity is satisfied by the entities.records.* wildcard', async () => {
+    const rbac = makeRbac({ isSuperAdmin: false, features: ['entities.records.*'], organizations: null })
+
+    await expect(
+      assertEntityAclForRequest({
+        auth: baseAuth,
+        entityId: 'hr:salaries',
+        action: 'view',
+        isCustomEntity: true,
+        isRestricted: true,
+        rbac: rbac as never,
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  test('a restricted custom entity is allowed for a superadmin', async () => {
+    const rbac = makeRbac({ isSuperAdmin: true, features: ['*'], organizations: null })
+
+    await expect(
+      assertEntityAclForRequest({
+        auth: baseAuth,
+        entityId: 'hr:salaries',
+        action: 'manage',
+        isCustomEntity: true,
+        isRestricted: true,
+        rbac: rbac as never,
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  test('granting one restricted entity does not grant another', async () => {
+    const rbac = makeRbac({ isSuperAdmin: false, features: ['entities.records.view', 'entities.records.user:vendors.view'], organizations: null })
+
+    await expect(
+      assertEntityAclForRequest({
+        auth: baseAuth,
+        entityId: 'hr:salaries',
+        action: 'view',
+        isCustomEntity: true,
+        isRestricted: true,
+        rbac: rbac as never,
+      }),
+    ).rejects.toMatchObject({ status: 403 })
   })
 })
