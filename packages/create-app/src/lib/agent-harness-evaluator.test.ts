@@ -455,7 +455,7 @@ fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
 }))
 for (const command of [
   'cat AGENTS.md .ai/guides/architecture.md',
-  \"rg --files .ai/skills .agents/skills 2>/dev/null | rg 'SKILL.md'\",
+  \"rg --files .ai/skills .agents/skills -g '!.ai/harness/**' 2>/dev/null | rg 'SKILL.md'\",
   'find .ai/skills -type f',
   'ls .ai/guides',
   'stat .ai/guides/architecture.md',
