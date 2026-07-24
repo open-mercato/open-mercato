@@ -94,6 +94,10 @@ export type CustomEntitySpec = {
   labelField?: string
   defaultEditor?: string
   showInSidebar?: boolean
+  // When true, records of this entity require an explicit per-entity ACL grant
+  // (entities.records.<id>.view/.manage) beyond the coarse entities.records.*
+  // feature. Defaults to unrestricted.
+  accessRestricted?: boolean
   global?: boolean
   fields?: CustomFieldDefinition[]
 }

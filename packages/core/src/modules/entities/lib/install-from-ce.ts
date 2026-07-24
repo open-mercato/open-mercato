@@ -148,6 +148,7 @@ function buildChecksumPayload(params: {
     labelField: spec?.labelField ?? null,
     defaultEditor: spec?.defaultEditor ?? null,
     showInSidebar: spec?.showInSidebar ?? false,
+    accessRestricted: spec?.accessRestricted ?? false,
     fields: fields.map((f) => normalizeField(f)),
   }
 }
@@ -244,6 +245,7 @@ export async function installCustomEntitiesFromModules(
           organizationId: null,
           tenantId: scope.tenantId,
           showInSidebar: spec?.showInSidebar ?? false,
+          accessRestricted: spec?.accessRestricted ?? false,
           labelField: spec?.labelField ?? null,
           defaultEditor: spec?.defaultEditor ?? null,
           isActive: true,

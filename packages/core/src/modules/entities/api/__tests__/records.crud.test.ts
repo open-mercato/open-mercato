@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { POST, PUT, DELETE } from '@open-mercato/core/modules/entities/api/records'
+import { GET, POST, PUT, DELETE } from '@open-mercato/core/modules/entities/api/records'
 import { UNKNOWN_CUSTOM_FIELD_ERROR } from '@open-mercato/shared/modules/entities/validation'
 
 let mockRecordUpdatedAt: string | null = null
@@ -42,6 +42,10 @@ const mockDataEngine = {
   deleteCustomEntityRecord: jest.fn(async () => undefined),
 }
 
+const mockQueryEngine = {
+  query: jest.fn(async () => ({ items: [], total: 0 })),
+}
+
 const mockRbac = {
   resolveVisibleOrganizations: jest.fn(async () => ['org']),
   loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: [], organizations: null })),
@@ -52,6 +56,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
     resolve: (k: string) => {
       if (k === 'em') return mockEm
       if (k === 'rbacService') return mockRbac
+      if (k === 'queryEngine') return mockQueryEngine
       return mockDataEngine
     },
   }),
@@ -307,6 +312,121 @@ describe('Records API CRUD operations', () => {
       const res = await DELETE(req)
       expect(res.status).toBe(200)
       expect(mockDataEngine.deleteCustomEntityRecord).toHaveBeenCalled()
+    })
+  })
+
+  // Per-entity ACL enforcement for a custom entity flagged access_restricted.
+  // classifyRecordsEntity resolves the flag from the CustomEntity row; the four
+  // verbs must all deny a coarse-only holder and allow a per-entity holder (#3857).
+  describe('restricted custom entity records require the per-entity feature', () => {
+    const RESTRICTED_ENTITY = 'hr:salaries'
+    const RECORD_ID = '123e4567-e89b-12d3-a456-426614174000'
+
+    beforeEach(() => {
+      // classifyRecordsEntity → CustomEntity lookup returns a restricted row.
+      mockEm.findOne.mockResolvedValue({ accessRestricted: true })
+    })
+
+    afterEach(() => {
+      // Restore the shared defaults so other blocks keep the superadmin path.
+      mockEm.findOne.mockResolvedValue(null)
+      mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: true, features: [], organizations: null })
+    })
+
+    function grant(features: string[]) {
+      mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features, organizations: null })
+    }
+
+    it('GET denies a coarse-only viewer with 403', async () => {
+      grant(['entities.records.view'])
+      const req = new Request(`http://x/api/entities/records?entityId=${RESTRICTED_ENTITY}`, { method: 'GET' })
+      const res = await GET(req)
+      expect(res.status).toBe(403)
+    })
+
+    it('POST denies a coarse-only manager with 403 and does not write', async () => {
+      grant(['entities.records.manage'])
+      const req = new Request('http://x/api/entities/records', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityId: RESTRICTED_ENTITY, values: { amount: 1000 } }),
+      })
+      const res = await POST(req)
+      expect(res.status).toBe(403)
+      expect(mockDataEngine.createCustomEntityRecord).not.toHaveBeenCalled()
+    })
+
+    it('POST allows a holder of the per-entity manage feature', async () => {
+      grant(['entities.records.manage', 'entities.records.hr:salaries.manage'])
+      mockCustomFieldDefsLookup(['amount'])
+      const req = new Request('http://x/api/entities/records', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityId: RESTRICTED_ENTITY, values: { amount: 1000 } }),
+      })
+      const res = await POST(req)
+      expect(res.status).toBe(200)
+      expect(mockDataEngine.createCustomEntityRecord).toHaveBeenCalledWith(
+        expect.objectContaining({ entityId: RESTRICTED_ENTITY }),
+      )
+    })
+
+    it('PUT denies a coarse-only manager with 403', async () => {
+      grant(['entities.records.manage'])
+      const req = new Request('http://x/api/entities/records', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityId: RESTRICTED_ENTITY, recordId: RECORD_ID, values: { amount: 5 } }),
+      })
+      const res = await PUT(req)
+      expect(res.status).toBe(403)
+      expect(mockDataEngine.updateCustomEntityRecord).not.toHaveBeenCalled()
+    })
+
+    it('DELETE denies a coarse-only manager with 403', async () => {
+      grant(['entities.records.manage'])
+      const req = new Request(
+        `http://x/api/entities/records?entityId=${RESTRICTED_ENTITY}&recordId=${RECORD_ID}`,
+        { method: 'DELETE' },
+      )
+      const res = await DELETE(req)
+      expect(res.status).toBe(403)
+      expect(mockDataEngine.deleteCustomEntityRecord).not.toHaveBeenCalled()
+    })
+
+    it('DELETE allows a holder of the per-entity manage feature', async () => {
+      grant(['entities.records.manage', 'entities.records.hr:salaries.manage'])
+      const req = new Request(
+        `http://x/api/entities/records?entityId=${RESTRICTED_ENTITY}&recordId=${RECORD_ID}`,
+        { method: 'DELETE' },
+      )
+      const res = await DELETE(req)
+      expect(res.status).toBe(200)
+      expect(mockDataEngine.deleteCustomEntityRecord).toHaveBeenCalledWith(
+        expect.objectContaining({ entityId: RESTRICTED_ENTITY, recordId: RECORD_ID, soft: true }),
+      )
+    })
+
+    it('GET allows a superadmin regardless of the restriction', async () => {
+      mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: true, features: [], organizations: null })
+      const req = new Request(`http://x/api/entities/records?entityId=${RESTRICTED_ENTITY}`, { method: 'GET' })
+      const res = await GET(req)
+      expect(res.status).toBe(200)
+    })
+
+    it('resolves the restricted flag from a TENANT-SCOPED lookup (not a bare entityId match)', async () => {
+      // Regression guard for the cross-tenant entityId-collision bypass: the
+      // CustomEntity lookup that decides `access_restricted` must be scoped to the
+      // caller's tenant, never `{ entityId }` alone.
+      grant(['entities.records.view'])
+      const req = new Request(`http://x/api/entities/records?entityId=${RESTRICTED_ENTITY}`, { method: 'GET' })
+      await GET(req)
+      const customEntityLookups = mockEm.findOne.mock.calls.filter(
+        ([, where]) => where && typeof where === 'object' && (where as any).entityId === RESTRICTED_ENTITY,
+      )
+      expect(customEntityLookups.length).toBeGreaterThan(0)
+      // Every restriction-deciding lookup carries a tenant scope.
+      expect(customEntityLookups[0][1]).toEqual(expect.objectContaining({ tenantId: 't1' }))
     })
   })
 })
