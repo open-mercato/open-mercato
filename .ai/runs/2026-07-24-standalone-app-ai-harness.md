@@ -73,24 +73,24 @@ Replace the AI development harness emitted by `create-mercato-app` with a standa
 
 ### Phase 2: Context architecture and local skills
 
-- [ ] 2.1 Rewrite root routing and progressive guides
-- [ ] 2.2 Rewrite local skills and add AI/workflow/context/evolution coverage
-- [ ] 2.3 Implement exact-version upstream context escape hatch
+- [x] 2.1 Rewrite root routing and progressive guides — 3c3070a07
+- [x] 2.2 Rewrite local skills and add AI/workflow/context/evolution coverage — e3c73adc5
+- [x] 2.3 Implement exact-version upstream context escape hatch — 2888aa2fb
 
 ### Phase 3: Installation and generation
 
-- [ ] 3.1 Implement cross-platform manifest-driven skill installer
-- [ ] 3.2 Unify recursive harness generation and stale-asset cleanup
-- [ ] 3.3 Update fallback template, scripts, manifests, and structural tests
+- [x] 3.1 Implement cross-platform manifest-driven skill installer — 3c3070a07
+- [x] 3.2 Unify recursive harness generation and stale-asset cleanup — 3c3070a07
+- [x] 3.3 Update fallback template, scripts, manifests, and structural tests — 2888aa2fb
 
 ### Phase 4: Harness evaluation and regression coverage
 
-- [ ] 4.1 Add structured use-case catalog and deterministic validator
-- [ ] 4.2 Add safe Codex/Claude live evaluation runner
+- [x] 4.1 Add structured use-case catalog and deterministic validator — 94ad42370
+- [x] 4.2 Add safe Codex/Claude live evaluation runner — 94ad42370
 - [ ] 4.3 Add tests, run all cases, and remediate failures
 
 ### Phase 5: Validation, review, and PR handoff
 
-- [ ] 5.1 Run targeted and standalone scaffold validation
+- [x] 5.1 Run targeted and standalone scaffold validation — 31b082d3a
 - [ ] 5.2 Run the configured full validation gate
 - [ ] 5.3 Complete authoritative review/autofix and PR handoff
