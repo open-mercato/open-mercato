@@ -79,10 +79,11 @@ export function ConfigurationTab({ agent, onSkillClick }: ConfigurationTabProps)
             <ul className="space-y-2">
               {agent.skillDetails.map((skill) => (
                 <li key={skill.id}>
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
                     onClick={() => onSkillClick(skill)}
-                    className="flex w-full items-start gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:bg-accent/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="h-auto w-full items-start justify-start gap-3 rounded-lg border border-border bg-card p-3 text-left font-normal hover:bg-accent/30"
                     aria-label={t('agent_orchestrator.agentDetail.viewSkill', undefined, { skill: skill.label })}
                   >
                     <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
@@ -95,7 +96,7 @@ export function ConfigurationTab({ agent, onSkillClick }: ConfigurationTabProps)
                       </div>
                       {skill.description ? <p className="mt-1 text-sm text-muted-foreground">{skill.description}</p> : null}
                     </div>
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
