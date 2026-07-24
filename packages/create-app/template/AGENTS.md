@@ -47,11 +47,11 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 ## Three-Axis Context Assembler
 
-Start with this root. Match all axes and load their de-duplicated union. A CRM lead-capture app may need a module, `customers`/`sales` facts, data, commands, UI, events, integration, and SDLC rows. A compound notification request can independently match its owned notification contract (`module-data`), renderer/browser UI (`backend-ui`), and reactive handler/injection (`umes`); never collapse distinct work units into only the most specialized route.
+Match every axis, then de-duplicate. Compound work routes by unit: notification contract + renderer + reactive handler = `module-data` + `backend-ui` + `umes`; custom-field UI round-trip coverage also adds `testing`. Never collapse to only the most specialized route.
 
 Route IDs: `architecture`, `module-data`, `backend-ui`, `umes`, `integration`, `ai-workflow`, `testing`, `debugging`, `framework-context`, `spec-pr`.
 
-Route only the requested outcome. `testing` requires an explicit request to write or run tests; merely identifying or recommending the smallest validation does not select `testing` or its guide. `debugging` requires a failure, security issue, or drift. Spec decomposition selects only `spec-pr`; phase names do not load implementation routes. For a plan-only module request, select `om-module-scaffold` plus architecture/contracts context and describe downstream units without loading their backend, data, UMES, integration, AI/workflow, or testing execution skills. Do not infer areas from specs/PRs.
+Route only the requested outcome. `testing` needs explicit tests/coverage; “smallest validation” alone does not match. Use external `om-integration-tests` only for explicit integration/E2E/browser coverage. `debugging` needs failure, security, or drift. Spec decomposition selects only `spec-pr`. Plan-only module work uses `om-module-scaffold` + architecture/contracts, not implementation skills. Do not infer areas from specs/PRs.
 
 ### Axis 1 — Area and Ownership
 
