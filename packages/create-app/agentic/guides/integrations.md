@@ -6,9 +6,10 @@ Build provider-owned modules around generic integration, data-sync, webhook, que
 
 | Family | Primary contract |
 |---|---|
-| Email/mailbox | Integration definition, per-user or tenant credentials, inbound/outbound adapter, health/logging. |
+| Transactional email | `IntegrationDefinition`, tenant credentials, DI sender + health services, retry/redaction, and app activation. There is no installed generic transactional-email adapter contract. |
+| Mailbox/email channel | Installed `communication_channels` hub plus its `ChannelAdapter`, per-user credentials, inbound/outbound conversion, polling/push, health, DI/setup registration. Follow the Gmail/IMAP precedent. |
 | Shipping/carrier | Provider package, service/quote/label/tracking adapter, webhook mapping, idempotent fulfillment updates. |
-| Payment gateway | Provider package, payment/session adapter, idempotency keys, signed webhooks, concurrency-safe state machine. |
+| Payment gateway | Installed `GatewayAdapter`; `registerGatewayAdapter`, `registerWebhookHandler`, and `registerPaymentGatewayDescriptor`; idempotency keys, signed webhooks, concurrency-safe state machine. |
 | Commerce/ERP sync | `DataSyncAdapter`, mappings/presets, external IDs, cursors, reconciliation, progress. |
 | Generic webhook | Standard signing/verification, replay protection, delivery queue/log/status, scoped configuration. |
 | File import/export | Streaming parser/writer, format adapter, progress, cleanup, row errors, formula neutralization. |
@@ -20,6 +21,7 @@ Build provider-owned modules around generic integration, data-sync, webhook, que
 - When the user explicitly needs reuse across applications, build a separately published provider package/repository with compatible peer/runtime dependencies, public exports, build/prepack output, and module discovery files; install its packed artifact as an app dependency.
 - Ask before changing repository topology or adding the production dependency. Keep packed-consumer validation on the reusable-package branch only.
 - Register provider services through DI and use an `integration.ts` definition for credentials, health, versions, bundle membership, and detail-page extension spot.
+- A provider implementation is not complete when only a transport/client exists. The production path includes `index.ts`, `integration.ts`, `di.ts`, the typed host adapter where one exists, `setup.ts`/`acl.ts` when bootstrap or features are needed, and `src/modules.ts` activation.
 - Enable the local module or installed package in `src/modules.ts`. For the reusable branch, test the published/packed artifact, not only package source.
 - Keep provider env names prefixed and stable. Apply optional deployment presets from provider-owned `setup.ts` through normal services, with an idempotent rerun CLI when practical.
 - Do not preconfigure a provider from core/app bootstrap unless the provider package owns that code.
@@ -30,6 +32,7 @@ Build provider-owned modules around generic integration, data-sync, webhook, que
 - Declare the host credential/mapping scope. Thread `userId` on every per-user read/write. Tenant-wide credentials or scheduled jobs may use the installed contract's explicit tenant scope (including `organizationId: null`), but must never read or mutate organization-owned rows without deriving and checking an organization for that item.
 - Validate external base URLs against SSRF rules, including redirects and DNS/private ranges. Permit private endpoints only through an explicit development setting.
 - Redact authorization headers, tokens, signed URLs, provider payload secrets, and sensitive response bodies from errors and logs.
+- Use `createLogger` from `@open-mercato/shared/lib/logger` with structured fields; never use raw `console.*` or place credentials/provider payload bodies in log fields.
 - Verify inbound signatures against the raw body, enforce timestamp/replay bounds, and make duplicate delivery idempotent.
 
 ## Reliability Contract
@@ -62,6 +65,12 @@ Build provider-owned modules around generic integration, data-sync, webhook, que
 - Gate credential, health, mapping, sync, and log actions with their own features. Use shared guarded mutations and states.
 - Add external IDs/status to domain pages through enrichers/widgets, keeping host modules unaware of the provider.
 - Use typed events and notifications for completion/failure; use DOM Event Bridge/progress for live status instead of aggressive polling.
+
+## Email Routing
+
+- First decide whether the request is **transactional delivery** or a **connected mailbox**. SMTP used only for application-generated mail is a transactional provider: register its `IntegrationDefinition`, encrypted credentials, DI sender/health services, and app module, but do not claim it implements a mailbox contract that the installed framework does not expose.
+- Gmail, IMAP/SMTP mailboxes, inbox sync, threading, history, or per-user send/receive belong to the installed `communication_channels` module. Implement `ChannelAdapter` from `@open-mercato/core/modules/communication_channels/lib/adapter`, set `integration.hub: 'communication_channels'`, register the adapter and exact `healthCheck.service` in `di.ts`, ensure idempotent adapter registration/default grants in `setup.ts`, and activate both the hub and provider in `src/modules.ts`.
+- Use the installed `channel_gmail` and `channel_imap` facts/source as precedent. Thread `userId` on every mailbox credential read/write; tenant-wide transactional credentials must not read per-user rows.
 
 ## Testing
 

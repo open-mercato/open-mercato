@@ -94,6 +94,85 @@ test('standalone provider guidance defaults app integrations to local modules, n
   assert.match(activation, /Reusable \(explicit user requirement\)/)
 })
 
+test('provider guidance distinguishes transactional SMTP from communication-channel mailboxes and names canonical host registrations', () => {
+  const guide = read('guides/integrations.md')
+  const families = read('shared/ai/skills/om-integration-builder/references/provider-families.md')
+  const activation = read('shared/ai/skills/om-integration-builder/references/package-and-activation.md')
+  for (const content of [guide, families, activation]) {
+    assert.match(content, /transactional email/i)
+    assert.match(content, /mailbox/i)
+    assert.match(content, /ChannelAdapter/)
+  }
+  for (const expected of [
+    "hub: 'communication_channels'",
+    'channel_gmail',
+    'channel_imap',
+    'GatewayAdapter',
+    'registerGatewayAdapter',
+    'registerWebhookHandler',
+    'registerPaymentGatewayDescriptor',
+    'ShippingAdapter',
+    'registerShippingAdapter',
+  ]) assert.ok(`${guide}\n${families}\n${activation}`.includes(expected), `missing provider contract ${expected}`)
+  assert.match(guide, /createLogger/)
+  assert.match(activation, /detached client seam alone is never a production registration/)
+})
+
+test('AI router and skill cover typed tools, MCP/OpenCode Code Mode, and two-tier per-request authorization', () => {
+  const root = read('shared/AGENTS.md.template')
+  const guide = read('guides/ai-workflows.md')
+  const skill = read('shared/ai/skills/om-create-ai-agent/SKILL.md')
+  const selector = read('shared/ai/skills/om-create-ai-agent/references/surface-selector.md')
+  const tools = read('shared/ai/skills/om-create-ai-agent/references/module-agents-and-tools.md')
+  assert.match(root, /MCP\/OpenCode\/Code Mode/)
+  for (const expected of ['defineAiTool', 'registerMcpTool', 'Zod', 'moduleId', 'requiredFeatures', 'serializable', 'search', 'execute', 'x-api-key', '_sessionToken', 'per-tool ACL']) {
+    assert.ok(`${guide}\n${skill}\n${selector}\n${tools}`.includes(expected), `missing AI/MCP contract ${expected}`)
+  }
+  assert.match(guide, /Ask before editing OpenCode configuration/)
+  assert.match(tools, /stateless per HTTP request/)
+})
+
+test('UMES selector documents additive command interceptors across execute and undo', () => {
+  const guide = read('guides/extensions.md')
+  const selector = read('shared/ai/skills/om-system-extension/references/mechanism-selector.md')
+  const branches = read('shared/ai/skills/om-system-extension/references/extension-branches.md')
+  for (const expected of ['commands/interceptors.ts', 'targetCommand', 'beforeExecute', 'afterExecute', 'beforeUndo', 'afterUndo', 'wildcard-aware']) {
+    assert.ok(`${guide}\n${selector}\n${branches}`.includes(expected), `missing command-interceptor contract ${expected}`)
+  }
+  assert.match(guide, /never grants authority/)
+  assert.match(branches, /never bypass the command, locking, audit, or undo/)
+})
+
+test('the 184-case catalog routes audited installed-module and AI/provider branches explicitly', () => {
+  const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
+    id: string
+    prompt: string
+    context: { required: string[] }
+    requiredDecisions: string[]
+    expectedRouter: { required: string[] }
+  }>
+  assert.equal(cases.length, 184)
+  const byId = new Map(cases.map((entry) => [entry.id, entry]))
+  const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
+    'OMH-013': { contexts: ['.ai/guides/modules/auth.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
+    'OMH-015': { contexts: ['.ai/guides/modules/content.md'], decisions: ['static-content-page', 'localized-copy', 'ssr-friendly-content'] },
+    'OMH-039': { contexts: ['.ai/guides/modules/communication_channels.md', '.ai/guides/modules/channel_gmail.md', '.ai/guides/modules/channel_imap.md'], decisions: ['email-provider-kind', 'channel-adapter-contract', 'structured-logger-redaction'] },
+    'OMH-052': { contexts: ['.ai/guides/modules/attachments.md'], decisions: ['attachment-scope-both-or-neither', 'check-attachment-access'] },
+    'OMH-087': { contexts: ['.ai/guides/ai-workflows.md', '.ai/guides/modules/security.md', '.ai/guides/modules/generators.md', '.ai/guides/modules/dashboards.md', '.ai/guides/modules/notifications.md', '.ai/guides/modules/messages.md', '.ai/guides/modules/inbox_ops.md', '.ai/guides/modules/ai_assistant.md'], decisions: ['mfa-and-sudo-contributions', 'dashboard-notification-message-inbox-surfaces', 'typed-tool-versus-mcp', 'mcp-opencode-code-mode', 'mcp-two-tier-auth'] },
+    'OMH-088': { contexts: ['.ai/skills/om-system-extension/references/extension-branches.md'], decisions: ['command-interceptor-execute-undo', 'command-interceptor-acl-scope', 'safe-command-block-rewrite'] },
+    'OMH-097': { contexts: ['.ai/guides/modules/onboarding.md'], decisions: ['on-tenant-created-hook', 'seed-defaults-versus-examples', 'translated-welcome-invitation-email'] },
+    'OMH-106': { contexts: ['.ai/guides/modules/staff.md'], decisions: ['staff-assignable-route', 'staff-availability-resolver', 'optional-staff-module'] },
+    'OMH-157': { contexts: ['.ai/guides/modules/attachments.md'], decisions: ['attachment-scope-both-or-neither', 'check-attachment-access'] },
+  }
+  for (const [caseId, expected] of Object.entries(expectations)) {
+    const record = byId.get(caseId)
+    assert.ok(record, `missing ${caseId}`)
+    for (const context of expected.contexts) assert.ok(record.context.required.includes(context), `${caseId}: missing context ${context}`)
+    for (const decision of expected.decisions) assert.ok(record.requiredDecisions.includes(decision), `${caseId}: missing decision ${decision}`)
+  }
+  assert.ok(byId.get('OMH-087')?.expectedRouter.required.includes('ai-workflow'))
+})
+
 test('scope guidance preserves explicit tenant-wide host contracts without widening organization data', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{ id: string; prompt: string; requiredDecisions: string[] }>
   const worker = cases.find((entry) => entry.id === 'OMH-019')

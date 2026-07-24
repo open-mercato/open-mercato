@@ -7,6 +7,7 @@ Use typed module contracts for product AI and the workflow engine for durable bu
 | Need | Use |
 |---|---|
 | In-app conversational or structured domain assistant | Module `ai-agents.ts` plus `ai-tools.ts`. |
+| Low-level MCP/OpenCode or Code Mode work | `ai_assistant` installed contract: `registerMcpTool`, MCP server, OpenCode handlers/config, or the `search`/`execute` Code Mode tools. Do not conflate this with a typed product agent. |
 | Add a few tools/prompt/suggestions to an installed agent | `aiAgentExtensions`. |
 | Replace or disable an installed agent/tool | `aiAgentOverrides` / `aiToolOverrides` or module entry override. |
 | Coding-agent orchestration with files, outcomes, samples, embedded skill, or subagents | Orchestrator file-agent contract; resolve its installed package guide first. |
@@ -22,6 +23,14 @@ Use typed module contracts for product AI and the workflow engine for durable bu
 - A write tool calls `prepareMutation`; the durable execute callback performs a command-based, optimistic-lock-aware mutation. Never write directly before approval.
 - Use declarative loop controls/budgets. The wrapper-owned approval guard remains active on every step and execution engine.
 - Validate attachments by type/size/scope. Store outputs through authorized artifact/attachment services with retention and encrypted sensitive metadata.
+
+## MCP, OpenCode, and Code Mode
+
+- Prefer `defineAiTool` in discovered `ai-tools.ts` for product agents, especially mutation-capable tools. Use low-level `registerMcpTool` only when the requested surface is explicitly the MCP/OpenCode registry. Both require Zod input, matching `moduleId`, wildcard-aware `requiredFeatures` for tenant data, bounded work, and a serializable handler result.
+- OpenCode Code Mode exposes `search` over the generated OpenAPI document and `execute` through sandboxed `api.request()`. Endpoint-level RBAC and documented-feature checks still apply; Code Mode is not an authorization bypass and undocumented/featureless mutation endpoints fail closed.
+- Production MCP uses two-tier auth: the server request carries `x-api-key`, then every tool call carries `_sessionToken`; the runtime resolves the user/session scope and performs per-tool ACL checks on every request. Never cache MCP server instances or ACL context across requests.
+- Ask before editing OpenCode configuration, Docker wiring, MCP authentication, provider/model precedence, or session-token format/TTL. Preserve session IDs across OpenCode chat turns and use installed handlers instead of calling the OpenCode HTTP API directly.
+- `registerMcpTool` is the registry primitive underlying generated tools, not a replacement for `defineAiTool` mutation approval semantics. New domain writes belong on the typed tool path with `prepareMutation`.
 
 ## Agent UI and Overrides
 

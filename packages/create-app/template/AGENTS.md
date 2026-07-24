@@ -54,13 +54,13 @@ Route only the request. `testing` needs explicit tests/coverage; routine validat
 
 | Route | Match | Context |
 |---|---|---|
-| `architecture` | Capabilities, discovery, overrides, upgrades, ownership | architecture guide + named facts |
-| `module-data` | App-owned domain/data/API | `src/modules/<id>/` + architecture/contracts |
-| `umes` | Extend/replace installed behavior | extensions guide + target facts |
-| `backend-ui` | Admin/public/portal/form/table/menu/i18n/component | backend UI guide + host facts |
-| `integration` | Email/shipping/payment/sync/webhook/storage/file interchange/provider | integrations guide; not workflow `CALL_API` or ordinary downloads |
-| `ai-workflow` | Agent/tool/orchestrator/durable workflow | AI/workflow guide + target facts |
-| `debugging` | Bug/security/drift/runtime inconsistency | testing/debugging guide + affected areas |
+| `architecture` | Capabilities, discovery, overrides, upgrades, ownership | `.ai/guides/architecture.md` + named facts |
+| `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/architecture.md` + `.ai/guides/contracts.md` |
+| `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
+| `backend-ui` | Admin/public/portal/form/table/menu/i18n/component | `.ai/guides/backend-ui.md` + host facts |
+| `integration` | Email/shipping/payment/sync/webhook/storage/file interchange/provider | `.ai/guides/integrations.md`; not workflow `CALL_API` or ordinary downloads |
+| `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + target facts |
+| `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
 App domains/providers live in `src/modules/<id>/`; installed customization uses UMES. Reusable providers are published dependencies, never `packages/*`; ask before topology/ejection.
 
@@ -81,7 +81,7 @@ Split the outcome; match every row.
 | `module-data` | Search/analytics/event/notification/message/worker/progress/cache/CLI | scaffold + contracts |
 | `umes` | Fields/enrichers/injection/interceptors/guards/subscribers/DOM/widgets/toggles/overrides | `om-system-extension` + extensions; add specialists |
 | `integration` | Provider/credentials/health/webhook/files/client/reconciliation/package | `om-integration-builder` + integrations |
-| `ai-workflow` | Agent/tool/orchestrator/attachment/override | `om-create-ai-agent` + AI/workflows |
+| `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `ai_assistant` facts |
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
 | `testing` | Write/run tests or explicit coverage | testing/debugging; external `om-integration-tests` for integration/E2E |
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging + affected units |

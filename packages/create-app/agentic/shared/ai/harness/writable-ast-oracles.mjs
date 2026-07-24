@@ -202,20 +202,58 @@ const WRITABLE_CASES = Object.freeze({
   'OMH-149': {
     family: 'provider-adapter',
     seam: 'sendTransactionalEmail',
-    sources: ['src/modules/smtp_email'],
-    artifacts: ['src/modules/smtp_email/index.ts', 'src/modules/smtp_email/lib/client.ts', 'src/modules/smtp_email/lib/health.ts'],
+    providerKind: 'transactional-email',
+    moduleId: 'smtp_email',
+    healthService: 'smtpEmailHealthCheck',
+    sources: ['src/modules/smtp_email', 'src/modules.ts'],
+    artifacts: [
+      'src/modules/smtp_email/index.ts',
+      'src/modules/smtp_email/integration.ts',
+      'src/modules/smtp_email/di.ts',
+      'src/modules/smtp_email/lib/client.ts',
+      'src/modules/smtp_email/lib/health.ts',
+      'src/modules.ts',
+    ],
   },
   'OMH-150': {
     family: 'provider-adapter',
     seam: 'createCardPayment',
-    sources: ['src/modules/card_payments/lib/adapter.ts'],
-    artifacts: ['src/modules/card_payments/lib/adapter.ts'],
+    providerKind: 'payment',
+    moduleId: 'card_payments',
+    healthService: 'cardPaymentsHealthCheck',
+    adapterVariable: 'cardPaymentAdapter',
+    sources: ['src/modules/card_payments', 'src/modules.ts'],
+    artifacts: [
+      'src/modules/card_payments/index.ts',
+      'src/modules/card_payments/integration.ts',
+      'src/modules/card_payments/di.ts',
+      'src/modules/card_payments/acl.ts',
+      'src/modules/card_payments/setup.ts',
+      'src/modules/card_payments/lib/adapter.ts',
+      'src/modules/card_payments/lib/client.ts',
+      'src/modules/card_payments/lib/health.ts',
+      'src/modules.ts',
+    ],
   },
   'OMH-151': {
     family: 'provider-adapter',
     seam: 'bookCarrierShipment',
-    sources: ['src/modules/carrier_shipping/lib/adapter.ts'],
-    artifacts: ['src/modules/carrier_shipping/lib/adapter.ts'],
+    providerKind: 'shipping',
+    moduleId: 'carrier_shipping',
+    healthService: 'carrierShippingHealthCheck',
+    adapterVariable: 'carrierShippingAdapter',
+    sources: ['src/modules/carrier_shipping', 'src/modules.ts'],
+    artifacts: [
+      'src/modules/carrier_shipping/index.ts',
+      'src/modules/carrier_shipping/integration.ts',
+      'src/modules/carrier_shipping/di.ts',
+      'src/modules/carrier_shipping/acl.ts',
+      'src/modules/carrier_shipping/setup.ts',
+      'src/modules/carrier_shipping/lib/adapter.ts',
+      'src/modules/carrier_shipping/lib/client.ts',
+      'src/modules/carrier_shipping/lib/health.ts',
+      'src/modules.ts',
+    ],
   },
   'OMH-153': {
     family: 'data-flow',
@@ -397,6 +435,7 @@ function newFacts() {
     variables: new Map(),
     assignments: new Set(),
     awaitedCalls: new Set(),
+    moduleEntries: [],
   }
 }
 
@@ -537,6 +576,19 @@ function collectFacts(ts, sourceFiles) {
           }
         }
         facts.variables.set(node.name.text, properties)
+        if (node.name.text === 'enabledModules' && node.initializer && ts.isArrayLiteralExpression(node.initializer)) {
+          for (const element of node.initializer.elements) {
+            if (!ts.isObjectLiteralExpression(element)) continue
+            const entry = {}
+            for (const property of element.properties) {
+              if (!ts.isPropertyAssignment(property)) continue
+              const name = propertyName(ts, property.name)
+              if (!name || !ts.isStringLiteralLike(property.initializer)) continue
+              entry[name] = property.initializer.text
+            }
+            facts.moduleEntries.push(entry)
+          }
+        }
       }
       if (ts.isCallExpression(node)) {
         const name = expressionName(ts, node.expression)
@@ -710,10 +762,47 @@ function caseChecks(ts, caseId, facts) {
   }
   if (definition.family === 'provider-adapter') {
     const fact = facts.exportedFunctions.get(definition.seam)
-    return [
+    const checks = [
       check('business.provider-seam', exportedFunctionCalls(facts, definition.seam, ['effects.findExisting', 'effects.request', 'effects.reconcile', 'effects.redact']), `exported ${definition.seam} uses idempotency, provider, reconciliation, and redaction seams`),
       check('business.provider-retry', (fact?.loops ?? 0) > 0 && (fact?.throws ?? 0) > 0, `exported ${definition.seam} bounds retries and redacts terminal failure`),
+      check('business.provider-integration', facts.importedBindings.get('IntegrationDefinition') === '@open-mercato/shared/modules/integrations/types' && facts.exportedVariables.has('integration') && facts.exportedVariables.has('integrations') && hasObjectVariable(facts, 'integration', ['id', 'category', 'providerKey', 'credentials', 'healthCheck']), 'integration.ts exports typed IntegrationDefinition metadata, credentials, and health'),
+      check('business.provider-secret', hasString(facts, 'secret'), 'integration credentials include a secret-bearing field type'),
+      check('business.provider-health', hasString(facts, definition.healthService) && hasCall(facts, 'container.register'), `DI registers the exact ${definition.healthService} health service declared by integration.ts`),
+      check('business.provider-activation', facts.moduleEntries.some((entry) => entry.id === definition.moduleId && entry.from === '@app'), `src/modules.ts activates ${definition.moduleId} from @app`),
     ]
+    if (definition.providerKind === 'transactional-email') {
+      checks.push(
+        check('business.provider-transactional-di', hasObjectVariable(facts, 'smtpEmailService', ['send']) && facts.propertyIdentifiers.get('send')?.has(definition.seam), 'DI-facing SMTP sender delegates to the tested transactional client seam'),
+        check('business.provider-not-mailbox', !hasString(facts, 'communication_channels') && !facts.importedBindings.has('ChannelAdapter'), 'transactional SMTP does not claim the mailbox ChannelAdapter contract'),
+      )
+    }
+    if (definition.providerKind === 'payment') {
+      checks.push(
+        check('business.provider-payment-contract', facts.importedBindings.get('GatewayAdapter') === '@open-mercato/shared/modules/payment_gateways/types' && hasObjectVariable(facts, definition.adapterVariable, ['providerKey', 'createSession', 'capture', 'refund', 'cancel', 'getStatus', 'verifyWebhook', 'mapStatus']) && hasCall(facts, definition.seam), 'provider implements the installed GatewayAdapter surface and reaches the tested client seam'),
+        check(
+          'business.provider-payment-registration',
+          hasCall(facts, 'registerGatewayAdapter')
+            && hasCall(facts, 'registerPaymentGatewayDescriptor')
+            && facts.importedBindings.get('registerWebhookHandler') === '@open-mercato/shared/modules/payment_gateways/types'
+            && hasCall(facts, 'registerWebhookHandler')
+            && facts.propertyAccesses.has('verifyWebhook'),
+          'DI registers the gateway adapter, its verifyWebhook handler, and the payment descriptor',
+        ),
+      )
+    }
+    if (definition.providerKind === 'shipping') {
+      checks.push(
+        check('business.provider-shipping-contract', facts.importedBindings.get('ShippingAdapter') === '@open-mercato/core/modules/shipping_carriers/lib/adapter' && hasObjectVariable(facts, definition.adapterVariable, ['providerKey', 'calculateRates', 'createShipment', 'getTracking', 'cancelShipment', 'verifyWebhook', 'mapStatus']) && hasCall(facts, definition.seam), 'provider implements the installed ShippingAdapter surface and reaches the tested client seam'),
+        check('business.provider-shipping-registration', hasCall(facts, 'registerShippingAdapter'), 'DI registers the shipping adapter'),
+      )
+    }
+    if (definition.providerKind === 'payment' || definition.providerKind === 'shipping') {
+      checks.push(
+        check('business.provider-acl', facts.exportedVariables.has('features') && hasString(facts, `${definition.moduleId}.view`) && hasString(facts, `${definition.moduleId}.configure`), 'provider acl.ts exports stable view/configure features'),
+        check('business.provider-setup', facts.exportedVariables.has('setup') && hasObjectVariable(facts, 'setup', ['defaultRoleFeatures']), 'provider setup.ts grants its features through defaultRoleFeatures'),
+      )
+    }
+    return checks
   }
   if (definition.family === 'data-flow') {
     const fact = facts.exportedFunctions.get(definition.seam)

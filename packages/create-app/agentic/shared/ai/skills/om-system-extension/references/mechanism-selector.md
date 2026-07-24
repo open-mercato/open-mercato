@@ -7,6 +7,7 @@ Load this reference before choosing files.
 | Add computed/list/detail fields | Response enricher; add a widget only when UI is also needed. |
 | Enrich query-engine reads | Enricher with `queryEngine.enabled`; preserve `*.querying`/`*.queried` lifecycle contracts. |
 | Validate/rewrite host request or add response data | API interceptor. |
+| Add behavior before/after command execute or undo | `commands/interceptors.ts` command interceptor with stable `id`/`targetCommand`. |
 | Block/rewrite host mutation with post-success work | Mutation guard contract. |
 | Add form/table/menu/page content | Headless/rendered widget injection. |
 | Filter a client widget reaction | Widget `eventHandlers.filter.operations`. |

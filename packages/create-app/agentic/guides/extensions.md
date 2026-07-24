@@ -8,6 +8,7 @@ Use the smallest extension mechanism that preserves installed-module ownership. 
 |---|---|---|
 | Add computed/read data | Response enricher | `data/enrichers.ts` |
 | Rewrite/validate request or augment response | API interceptor | `api/interceptors.ts` |
+| Add pre/post command behavior without replacing the command | Command interceptor | `commands/interceptors.ts` |
 | Block/rewrite a mutation with post-success work | Mutation guard contract | `data/guards.ts`; add widget injection only for a UI surface |
 | Enrich query-engine reads | Query enricher | `data/enrichers.ts` with `queryEngine.enabled` |
 | Add form fields/table columns/actions/filters/toolbar | Headless widget injection | `widgets/injection/**`, `widgets/injection-table.ts` |
@@ -35,6 +36,13 @@ Use the smallest extension mechanism that preserves installed-module ownership. 
 - Narrow ID lists by intersecting with existing filters. Reject malformed IDs; never convert a bad restriction into unrestricted results.
 - Preserve required response keys; make additive changes by default. Time-bound external work and define fallback behavior.
 - Custom routes require their explicit interceptor bridge; do not assume all handlers execute generic hooks.
+
+## Command Interceptors
+
+- Export `interceptors: CommandInterceptor[]` from `commands/interceptors.ts`. Give each entry a stable `id` and an exact stable `targetCommand`; use module/global wildcards only when the cross-command scope is intentional.
+- `beforeExecute` may block with `{ ok: false }` or return a validated shallow `modifiedInput`; `afterExecute` may return additive `modifiedResult` or perform bounded post-success work. `beforeUndo` may block unsafe undo and `afterUndo` performs idempotent cleanup. Preserve metadata only through the documented hook context.
+- Feature gates are wildcard-aware. Re-derive tenant/organization ownership from authenticated context or scoped records; an interceptor never grants authority, bypasses the command, suppresses locking/audit/undo, or turns invalid input into a valid-looking unrestricted request.
+- Test execute and undo paths, authorized/denied/wildcard callers, safe block/rewrite, hook order, and failure posture. Post hooks must not pretend a committed command failed.
 
 ## Mutation Guards
 

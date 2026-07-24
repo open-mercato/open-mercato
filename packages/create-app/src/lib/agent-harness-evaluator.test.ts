@@ -328,6 +328,29 @@ test('fixture preparer safely seeds one writable case and refuses reuse', () => 
   }
 })
 
+test('provider fixtures preserve the scaffold module registry for activation edits', () => {
+  const controller = stageApp()
+  const script = path.join(controller, 'scripts', 'prepare-agent-harness-fixture.mjs')
+  try {
+    for (const caseId of ['OMH-149', 'OMH-150', 'OMH-151']) {
+      const target = stageWritableTarget()
+      const existingRegistry = fs.readFileSync(path.join(target, 'src', 'modules.ts'), 'utf8')
+      try {
+        const prepared = spawnSync(process.execPath, [script, '--case', caseId, '--target', target, '--acknowledge-writes'], {
+          cwd: controller,
+          encoding: 'utf8',
+        })
+        assert.equal(prepared.status, 0, `${caseId}\n${prepared.stdout}\n${prepared.stderr}`)
+        assert.equal(fs.readFileSync(path.join(target, 'src', 'modules.ts'), 'utf8'), existingRegistry, `${caseId}: fixture overwrote src/modules.ts`)
+      } finally {
+        fs.rmSync(target, { recursive: true, force: true })
+      }
+    }
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+  }
+})
+
 test('live Codex adapter starts one ephemeral read-only process and stores only a sanitized structured result', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
   const bin = path.join(root, 'fake-bin')

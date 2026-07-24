@@ -927,12 +927,12 @@
   },
   {
     "id": "OMH-013",
-    "title": "Declare ACL features, default grants, dependencies, and existing-tenant synchronization",
+    "title": "Declare feature-based auth, invitations, default grants, and existing-tenant synchronization",
     "family": "module",
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, declare ACL features, default grants, dependencies, and existing-tenant synchronization. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add an invitation-safe user and role flow with feature-based declarative page/API authorization, default grants, dependencies, existing-tenant synchronization, and no custom session-token handling. Use the installed auth contract, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "module",
       "module-data",
@@ -961,7 +961,8 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/skills/om-module-scaffold/SKILL.md"
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/guides/modules/auth.md"
       ],
       "forbidden": [
         ".env*",
@@ -972,7 +973,10 @@
     "requiredDecisions": [
       "acl-features",
       "default-grants",
-      "sync-existing-tenants"
+      "sync-existing-tenants",
+      "auth-invitation-flow",
+      "feature-based-declarative-auth",
+      "session-safe-auth"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -1093,12 +1097,12 @@
   },
   {
     "id": "OMH-015",
-    "title": "Add a public frontend page through module auto-discovery",
+    "title": "Add a localized static legal page through module auto-discovery",
     "family": "module",
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a public frontend page through module auto-discovery. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a localized, SSR-friendly static legal/content page through canonical frontend page auto-discovery. Use the installed content contract and shared layout components, keep framework packages read-only, add no business logic or page-local API call, and identify the smallest relevant validation.",
     "tags": [
       "module",
       "module-data",
@@ -1124,7 +1128,8 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/backend-ui.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md"
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/guides/modules/content.md"
       ],
       "forbidden": [
         ".env*",
@@ -1134,7 +1139,10 @@
     },
     "requiredDecisions": [
       "auto-discovery",
-      "public-auth-metadata"
+      "public-auth-metadata",
+      "static-content-page",
+      "localized-copy",
+      "ssr-friendly-content"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -2909,12 +2917,12 @@
   },
   {
     "id": "OMH-039",
-    "title": "Build an app-local email integration with encrypted credentials, health, retry, and logs",
+    "title": "Route and build an app-local transactional or mailbox email provider",
     "family": "integration",
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, build an app-specific Gmail/email integration with encrypted credentials, health, retry, and logs. Put it in the standalone app's local module path instead of inventing a packages workspace; separately published packaging requires an explicit reuse decision. Use installed-package contracts, keep framework packages read-only, preserve the declared credential/data scope, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, first distinguish outbound transactional email from a connected Gmail/IMAP mailbox, then build the selected app-local provider with encrypted credentials, health, retry, redacted structured createLogger logs, and activation. A mailbox must use the installed communication_channels module and canonical ChannelAdapter contract with integration.ts hub metadata plus DI/setup registration, following installed channel_gmail/channel_imap precedent; transactional delivery must not pretend to be a mailbox adapter. Do not invent a packages workspace; separately published packaging requires an explicit reuse decision.",
     "tags": [
       "integration",
       "encrypted-credentials",
@@ -2945,7 +2953,11 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/integrations.md",
-        ".ai/skills/om-integration-builder/SKILL.md"
+        ".ai/skills/om-integration-builder/SKILL.md",
+        ".ai/guides/modules/integrations.md",
+        ".ai/guides/modules/communication_channels.md",
+        ".ai/guides/modules/channel_gmail.md",
+        ".ai/guides/modules/channel_imap.md"
       ],
       "forbidden": [
         ".env*",
@@ -2956,7 +2968,12 @@
     "requiredDecisions": [
       "encrypted-credentials",
       "health-retry-redaction",
-      "standalone-provider-location"
+      "standalone-provider-location",
+      "email-provider-kind",
+      "communication-channels-host",
+      "channel-adapter-contract",
+      "transactional-email-registration",
+      "structured-logger-redaction"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -2972,7 +2989,7 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 8,
+    "maxContextFiles": 10,
     "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
@@ -3696,7 +3713,9 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/ai-workflows.md",
-        ".ai/skills/om-create-ai-agent/SKILL.md"
+        ".ai/skills/om-create-ai-agent/SKILL.md",
+        ".ai/skills/om-create-ai-agent/references/attachments-and-overrides.md",
+        ".ai/guides/modules/attachments.md"
       ],
       "forbidden": [
         ".env*",
@@ -3788,7 +3807,8 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/ai-workflows.md",
-        ".ai/skills/om-create-ai-agent/SKILL.md"
+        ".ai/skills/om-create-ai-agent/SKILL.md",
+        ".ai/guides/modules/attachments.md"
       ],
       "forbidden": [
         ".env*",
@@ -3922,7 +3942,8 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/ai-workflows.md",
-        ".ai/skills/om-create-ai-agent/SKILL.md"
+        ".ai/skills/om-create-ai-agent/SKILL.md",
+        ".ai/guides/modules/attachments.md"
       ],
       "forbidden": [
         ".env*",
@@ -3933,7 +3954,9 @@
     "requiredDecisions": [
       "artifact-authorization",
       "encrypted-storage",
-      "cleanup"
+      "cleanup",
+      "attachment-scope-both-or-neither",
+      "check-attachment-access"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -3949,7 +3972,7 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 5,
+    "maxContextFiles": 6,
     "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
@@ -5915,26 +5938,30 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "For a standalone service-management module that needs entities, validators, commands, APIs, backend and public pages, page middleware, UI locales, ACL/setup/DI/encryption, search, vector config, analytics, typed events, async and sync query subscribers, workers, workflows, progress, notifications, reactive handlers, messages, widgets, command/API interceptors, response/query enrichers, guards, AI tools, CLI, translatable fields, and tests, map each named capability to the current canonical discovery or support surface. Distinguish generator discovery from imported support files; reject retired flat pages, HTTP-method API directories, data/fields.ts, and unnecessary placeholders; include generation and focused verification.",
+    "prompt": "For a standalone service-management module that needs entities, validators, commands, APIs, backend and public pages, page middleware, UI locales, ACL/setup/DI/encryption, search, vector config, analytics, dashboard widgets, typed events, async and sync query subscribers, workers, workflows, progress, notification definitions/renderers/reactive handlers, messages and inbox actions, widgets, command/API interceptors, response/query enrichers, guards, AI tools, MFA provider and sudo-target contributions, integration metadata, generator plugins, CLI, translatable fields, and tests, map each named capability to the current canonical discovery or support surface. For AI, explicitly choose typed defineAiTool versus low-level registerMcpTool/OpenCode Code Mode, including Zod/moduleId/requiredFeatures/serializable results, installed ai_assistant facts, per-request MCP/RBAC, two-tier auth, and ask-first config/session changes. Distinguish generator discovery from imported support files; reject retired flat pages, HTTP-method API directories, data/fields.ts, and unnecessary placeholders; include generation and focused verification.",
     "tags": ["module", "discovery", "surface-catalog", "architecture"],
     "owner": {
       "kind": "skill",
       "path": ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
       "ruleIds": ["BC-01", "BC-04", "BC-05", "BC-06", "BC-07", "BC-09", "BC-10", "BC-11", "BC-12", "BC-13"]
     },
-    "expectedRouter": { "required": ["architecture", "module-data"], "allowedExtra": ["backend-ui", "ai-workflow", "testing"] },
-    "requiredSkills": ["om-module-scaffold"],
+    "expectedRouter": { "required": ["architecture", "module-data", "ai-workflow"], "allowedExtra": ["backend-ui", "integration", "umes", "testing"] },
+    "requiredSkills": ["om-module-scaffold", "om-create-ai-agent"],
     "context": {
       "required": [
-        "AGENTS.md", ".ai/guides/architecture.md", ".ai/guides/contracts.md", ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md"
+        "AGENTS.md", ".ai/guides/architecture.md", ".ai/guides/contracts.md", ".ai/guides/ai-workflows.md",
+        ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
+        ".ai/skills/om-create-ai-agent/SKILL.md", ".ai/skills/om-create-ai-agent/references/surface-selector.md",
+        ".ai/guides/modules/security.md", ".ai/guides/modules/generators.md", ".ai/guides/modules/integrations.md",
+        ".ai/guides/modules/dashboards.md", ".ai/guides/modules/notifications.md", ".ai/guides/modules/messages.md",
+        ".ai/guides/modules/inbox_ops.md", ".ai/guides/modules/ai_assistant.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
-    "requiredDecisions": ["surface-owner-map", "page-route-convention", "api-route-convention", "discovered-convention-files", "support-versus-discovery", "vector-and-ui-locale", "query-lifecycle-surfaces", "no-placeholder-surfaces", "generate-and-inspect"],
+    "requiredDecisions": ["surface-owner-map", "page-route-convention", "api-route-convention", "discovered-convention-files", "support-versus-discovery", "vector-and-ui-locale", "query-lifecycle-surfaces", "dashboard-notification-message-inbox-surfaces", "mfa-and-sudo-contributions", "integration-and-generator-surfaces", "typed-tool-versus-mcp", "mcp-opencode-code-mode", "mcp-two-tier-auth", "no-placeholder-surfaces", "generate-and-inspect"],
     "forbiddenPatterns": ["frontend/.+\\.(?:ts|tsx).{0,30}(?:canonical|create)", "api/(?:get|post|put|patch|delete)/", "data/fields\\.ts", "node_modules.{0,40}(?:write|edit|patch)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 7,
+    "maxContextFiles": 16,
     "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 180224,
     "relatedCases": ["OMH-001", "OMH-004", "OMH-008"]
@@ -5946,7 +5973,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Audit how a standalone app can add behavior to installed modules without replacing them. Cover response and query-engine enrichers; API/command interceptors and mutation guards; CrudForm and DataTable/menu/rendered widget injection including client operation filters; entity extensions; async, sync, and query-lifecycle subscribers; reactive notification handlers and DOM Event Bridge hooks; integration wizard/status/detail widgets; vector config; embedded AiChat; typed payment/shipping/currency/workflow registrations; and component props/wrappers. For each, name the smallest mechanism and specialist route, exact host-token evidence, authorization boundary, optional-host behavior, read/write/UI round trip where applicable, and verification; do not use unified replacement when additive composition works.",
+    "prompt": "Audit how a standalone app can add behavior to installed modules without replacing them. Cover response and query-engine enrichers; API interceptors, mutation guards, and the additive commands/interceptors.ts branch with stable id/targetCommand plus before/after execute and undo hooks; CrudForm and DataTable/menu/rendered widget injection including client operation filters; entity extensions; async, sync, and query-lifecycle subscribers; reactive notification handlers and DOM Event Bridge hooks; integration wizard/status/detail widgets; vector config; embedded AiChat; typed payment/shipping/currency/workflow registrations; and component props/wrappers. For each, name the smallest mechanism and specialist route, exact host-token evidence, wildcard-aware authorization and trusted scope boundary, optional-host behavior, safe block/rewrite posture, read/write/UI round trip where applicable, and verification; no interceptor may bypass the command, locking, audit, or undo, and unified replacement is wrong when additive composition works.",
     "tags": ["umes", "extension-points", "additive", "audit"],
     "owner": {
       "kind": "skill",
@@ -5962,7 +5989,7 @@
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
-    "requiredDecisions": ["additive-before-replacement", "exact-host-token", "enricher-interceptor-guard", "query-enricher-and-subscriber", "headless-and-rendered-widgets", "client-operation-filter", "entity-extension", "event-and-notification-reaction", "dom-event-bridge", "integration-ui-specialization", "vector-ai-provider-registration", "component-wrapper", "optional-host", "roundtrip-verification"],
+    "requiredDecisions": ["additive-before-replacement", "exact-host-token", "enricher-interceptor-guard", "command-interceptor-execute-undo", "command-interceptor-acl-scope", "safe-command-block-rewrite", "query-enricher-and-subscriber", "headless-and-rendered-widgets", "client-operation-filter", "entity-extension", "event-and-notification-reaction", "dom-event-bridge", "integration-ui-specialization", "vector-ai-provider-registration", "component-wrapper", "optional-host", "roundtrip-verification"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "(?:guess|invent).{0,30}(?:spot|handle|route|entity)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 15,
@@ -6544,7 +6571,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "When a deal is marked won, create one onboarding checklist for that customer, assign its steps, send reminders for unfinished work, and show progress on the customer record. Replaying the event must not create another checklist, reminders must survive restarts, and changing the deal later must have an explicit cancellation policy.",
+    "prompt": "When a deal is marked won, create one onboarding checklist for that customer, assign its steps, send reminders for unfinished work, and show progress on the customer record. Replaying the event must not create another checklist, reminders must survive restarts, and changing the deal later must have an explicit cancellation policy. Define the related onboarding module lifecycle with idempotent setup.ts onTenantCreated, seedDefaults, and seedExamples hooks, preserve --no-examples behavior, and send translated welcome or invitation mail through the shared email utility.",
     "tags": [
       "business",
       "customers",
@@ -6597,7 +6624,8 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-build-workflow/SKILL.md",
         ".ai/guides/modules/customers.md",
-        ".ai/guides/modules/workflows.md"
+        ".ai/guides/modules/workflows.md",
+        ".ai/guides/modules/onboarding.md"
       ],
       "forbidden": [
         ".env*",
@@ -6608,7 +6636,10 @@
     "requiredDecisions": [
       "event-started-workflow",
       "one-checklist-per-win",
-      "durable-reminders"
+      "durable-reminders",
+      "on-tenant-created-hook",
+      "seed-defaults-versus-examples",
+      "translated-welcome-invitation-email"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -6624,7 +6655,7 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 11,
+    "maxContextFiles": 12,
     "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 229376,
     "relatedCases": [
@@ -7395,7 +7426,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Assign incoming leads fairly among eligible salespeople using a predictable round robin. Explain why a person was selected, skip unavailable or unauthorized assignees, protect the shared cursor from concurrent updates, record each assignment, and ensure retrying a failed handoff does not assign the same lead twice.",
+    "prompt": "Assign incoming leads fairly among eligible salespeople using a predictable round robin. Resolve candidates through the installed staff contract (the canonical GET /api/staff/team-members/assignable route) and availability through the public availabilityAccessResolver boundary; never import staff entities, and degrade explicitly when the optional staff module is absent. Explain why a person was selected, skip unavailable or unauthorized assignees, protect the shared cursor from concurrent updates, record each assignment, and ensure retrying a failed handoff does not assign the same lead twice.",
     "tags": [
       "business",
       "customers",
@@ -7444,7 +7475,8 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-build-workflow/SKILL.md",
         ".ai/guides/modules/customers.md",
-        ".ai/guides/modules/workflows.md"
+        ".ai/guides/modules/workflows.md",
+        ".ai/guides/modules/staff.md"
       ],
       "forbidden": [
         ".env*",
@@ -7455,7 +7487,10 @@
     "requiredDecisions": [
       "deterministic-round-robin",
       "concurrency-safe-cursor",
-      "assignment-audit"
+      "assignment-audit",
+      "staff-assignable-route",
+      "staff-availability-resolver",
+      "optional-staff-module"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -10349,11 +10384,10 @@
         ".ai/guides/contracts.md",
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-data-model-design/SKILL.md",
-        ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
-        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
-        ".ai/skills/om-backend-ui-design/references/quality-states.md",
-        ".ai/guides/modules/onboarding.md"
+      ".ai/skills/om-module-scaffold/SKILL.md",
+      ".ai/skills/om-backend-ui-design/SKILL.md",
+      ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      ".ai/skills/om-backend-ui-design/references/quality-states.md"
       ],
       "forbidden": [
         ".env*",
@@ -10912,7 +10946,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Send transactional email through our SMTP service, provide a safe connection test, retry temporary failures, and keep passwords out of logs.",
+    "prompt": "Build and activate an app-owned transactional SMTP IntegrationDefinition with secret credentials, a DI-registered sender and exact health service, a safe connection test, bounded retry, reconciliation, and redacted structured logs. Keep a pure injectable client seam for executable tests, but do not treat that seam alone as the provider or misroute transactional delivery through the mailbox-only ChannelAdapter contract.",
     "tags": [
       "business-language",
       "email-provider",
@@ -10955,7 +10989,11 @@
       "standalone-provider-location",
       "encrypted-credentials",
       "health-retry-redaction",
-      "smtp-fake-transport"
+      "smtp-fake-transport",
+      "integration-definition",
+      "di-health-registration",
+      "app-module-activation",
+      "transactional-not-mailbox"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -10987,16 +11025,18 @@
       ],
       "expectedArtifacts": [
         "src/modules/smtp_email/index.ts",
+        "src/modules/smtp_email/integration.ts",
+        "src/modules/smtp_email/di.ts",
         "src/modules/smtp_email/lib/client.ts",
-        "src/modules/smtp_email/lib/health.ts"
+        "src/modules/smtp_email/lib/health.ts",
+        "src/modules.ts"
       ]
     },
     "allowedWrites": [
-      "src/modules/smtp_email/index.ts",
-      "src/modules/smtp_email/lib/client.ts",
-      "src/modules/smtp_email/lib/health.ts"
+      "src/modules/smtp_email/**",
+      "src/modules.ts"
     ],
-    "maxContextFiles": 5,
+    "maxContextFiles": 6,
     "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 114688,
     "relatedCases": [
@@ -11011,7 +11051,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Take card payments through our payment company without charging twice when a user or background job retries the same request.",
+    "prompt": "Build and activate an app-owned card-payment provider vertical slice without charging twice when a user or background job retries the same request. Include IntegrationDefinition secret credentials and health metadata, DI health registration, ACL/setup, the canonical GatewayAdapter implementation registered through registerGatewayAdapter, its verifyWebhook path registered through registerWebhookHandler, the UI descriptor registered through registerPaymentGatewayDescriptor, and a pure injectable client seam that exercises idempotency and reconciliation.",
     "tags": [
       "business-language",
       "payments",
@@ -11057,7 +11097,13 @@
       "payment-idempotency",
       "exact-money",
       "reconciliation",
-      "health-retry-redaction"
+      "health-retry-redaction",
+      "integration-definition",
+      "gateway-adapter-contract",
+      "gateway-and-descriptor-registration",
+      "payment-webhook-registration",
+      "provider-acl-setup",
+      "app-module-activation"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -11095,11 +11141,20 @@
         "oracle.business.provider-adapter"
       ],
       "expectedArtifacts": [
-        "src/modules/card_payments/lib/adapter.ts"
+        "src/modules/card_payments/index.ts",
+        "src/modules/card_payments/integration.ts",
+        "src/modules/card_payments/di.ts",
+        "src/modules/card_payments/acl.ts",
+        "src/modules/card_payments/setup.ts",
+        "src/modules/card_payments/lib/adapter.ts",
+        "src/modules/card_payments/lib/client.ts",
+        "src/modules/card_payments/lib/health.ts",
+        "src/modules.ts"
       ]
     },
     "allowedWrites": [
-      "src/modules/card_payments/lib/adapter.ts"
+      "src/modules/card_payments/**",
+      "src/modules.ts"
     ]
   },
   {
@@ -11109,7 +11164,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Compare carrier rates, buy a shipping label, and keep tracking updated after callbacks, retries, or a temporary carrier outage.",
+    "prompt": "Build and activate an app-owned carrier provider vertical slice that compares rates, buys labels, and reconciles tracking after callbacks, retries, or outages. Include IntegrationDefinition secret credentials and health metadata, DI health registration, ACL/setup, the canonical ShippingAdapter registered through registerShippingAdapter, and a pure injectable client seam with retry-safe external IDs and reconciliation.",
     "tags": [
       "business-language",
       "shipping",
@@ -11168,7 +11223,12 @@
       "retry-safe-booking",
       "idempotent-external-id",
       "webhook-poll-reconciliation",
-      "optional-provider"
+      "optional-provider",
+      "integration-definition",
+      "shipping-adapter-contract",
+      "shipping-adapter-registration",
+      "provider-acl-setup",
+      "app-module-activation"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -11207,11 +11267,20 @@
         "oracle.business.provider-adapter"
       ],
       "expectedArtifacts": [
-        "src/modules/carrier_shipping/lib/adapter.ts"
+        "src/modules/carrier_shipping/index.ts",
+        "src/modules/carrier_shipping/integration.ts",
+        "src/modules/carrier_shipping/di.ts",
+        "src/modules/carrier_shipping/acl.ts",
+        "src/modules/carrier_shipping/setup.ts",
+        "src/modules/carrier_shipping/lib/adapter.ts",
+        "src/modules/carrier_shipping/lib/client.ts",
+        "src/modules/carrier_shipping/lib/health.ts",
+        "src/modules.ts"
       ]
     },
     "allowedWrites": [
-      "src/modules/carrier_shipping/lib/adapter.ts"
+      "src/modules/carrier_shipping/**",
+      "src/modules.ts"
     ]
   },
   {
@@ -11479,16 +11548,16 @@
   },
   {
     "id":"OMH-157","title":"Store customer attachments with short-lived authorized download links","family":"integration","mode":"one-shot","evaluationKind":"routing","risk":"high",
-    "prompt":"Store customer attachments in our object-storage service and issue short-lived download links only after checking the current user's access.",
+    "prompt":"Store customer attachments in our object-storage service and issue short-lived download links only after checking the current user's access. Enforce the installed attachment scope contract: tenantId and organizationId are supplied together or both omitted, and every download must pass checkAttachmentAccess before issuing a signed URL.",
     "tags":["business-language","object-storage","attachments"],
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-02","BC-04","BC-05","BC-07"]},
     "expectedRouter":{"required":["integration","module-data"],"allowedExtra":["ai-workflow"]},
     "requiredSkills":["om-integration-builder","om-data-model-design"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-data-model-design/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
-    "requiredDecisions":["artifact-authorization","encrypted-storage","cleanup","short-lived-download-url"],
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/guides/modules/attachments.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "requiredDecisions":["artifact-authorization","encrypted-storage","cleanup","short-lived-download-url","attachment-scope-both-or-neither","check-attachment-access"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","public (?:bucket|object|url)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":6,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-052"]
+    "maxContextFiles":7,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-052"]
   },
   {
     "id":"OMH-158","title":"Refresh OAuth credentials safely when several jobs run together","family":"integration","mode":"one-shot","evaluationKind":"routing","risk":"high",

@@ -86,14 +86,30 @@
     },
     "integration-smtp-email": {
       "src/modules/smtp_email/index.ts": "export const metadata = { id: 'smtp_email', title: 'SMTP email' }\n",
+      "src/modules/smtp_email/integration.ts": "export const integration = { id: 'smtp_email' }\n",
+      "src/modules/smtp_email/di.ts": "export function register() {}\n",
       "src/modules/smtp_email/lib/client.ts": "export async function sendTransactionalEmail(input: any, effects: any) {\n  return effects.request(input)\n}\n",
       "src/modules/smtp_email/lib/health.ts": "export async function checkHealth(effects: any) { return effects.request({ health: true }) }\n"
     },
     "integration-payment-idempotency": {
-      "src/modules/card_payments/lib/adapter.ts": "export async function createCardPayment(input: any, effects: any) {\n  return effects.request(input)\n}\n"
+      "src/modules/card_payments/index.ts": "export const metadata = { id: 'card_payments' }\n",
+      "src/modules/card_payments/integration.ts": "export const integration = { id: 'card_payments' }\n",
+      "src/modules/card_payments/di.ts": "export function register() {}\n",
+      "src/modules/card_payments/acl.ts": "export const features = []\n",
+      "src/modules/card_payments/setup.ts": "export const setup = {}\n",
+      "src/modules/card_payments/lib/adapter.ts": "export const cardPaymentAdapter = { providerKey: 'card-payments' }\n",
+      "src/modules/card_payments/lib/client.ts": "export async function createCardPayment(input: any, effects: any) {\n  return effects.request(input)\n}\n",
+      "src/modules/card_payments/lib/health.ts": "export const cardPaymentsHealthCheck = {}\n"
     },
     "integration-carrier-booking": {
-      "src/modules/carrier_shipping/lib/adapter.ts": "export async function bookCarrierShipment(input: any, effects: any) {\n  return effects.request(input)\n}\n"
+      "src/modules/carrier_shipping/index.ts": "export const metadata = { id: 'carrier_shipping' }\n",
+      "src/modules/carrier_shipping/integration.ts": "export const integration = { id: 'carrier_shipping' }\n",
+      "src/modules/carrier_shipping/di.ts": "export function register() {}\n",
+      "src/modules/carrier_shipping/acl.ts": "export const features = []\n",
+      "src/modules/carrier_shipping/setup.ts": "export const setup = {}\n",
+      "src/modules/carrier_shipping/lib/adapter.ts": "export const carrierShippingAdapter = { providerKey: 'carrier-shipping' }\n",
+      "src/modules/carrier_shipping/lib/client.ts": "export async function bookCarrierShipment(input: any, effects: any) {\n  return effects.request(input)\n}\n",
+      "src/modules/carrier_shipping/lib/health.ts": "export const carrierShippingHealthCheck = {}\n"
     },
     "integration-erp-sync": {
       "src/modules/erp_sync/data-sync.ts": "export async function synchronizeErpPage(state: any, effects: any) {\n  const page = await effects.fetchPage(state.cursor)\n  await effects.commitCursor(page.nextCursor)\n  for (const row of page.items) await effects.apply(row)\n  return { errors: [] }\n}\n",

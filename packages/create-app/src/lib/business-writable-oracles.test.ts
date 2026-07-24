@@ -57,8 +57,8 @@ const cases: Record<string, CaseDefinition> = {
   'OMH-144': { fixture: 'ai-quote-mutation', file: 'src/modules/quote_assistant/ai-tools.ts', family: 'ai-safe-agent', validator: 'oracle.business.ai-safe-agent', seam: 'saveQuoteDraftWithApproval', mode: 'mutation' },
   'OMH-146': { fixture: 'ai-sales-orchestrator', file: 'src/modules/sales_orchestrator/ai-agents.ts', family: 'ai-safe-agent', validator: 'oracle.business.ai-safe-agent', seam: 'coordinateSalesQuestion', mode: 'delegate' },
   'OMH-149': { fixture: 'integration-smtp-email', file: 'src/modules/smtp_email/lib/client.ts', family: 'provider-adapter', validator: 'oracle.business.provider-adapter', seam: 'sendTransactionalEmail' },
-  'OMH-150': { fixture: 'integration-payment-idempotency', file: 'src/modules/card_payments/lib/adapter.ts', family: 'provider-adapter', validator: 'oracle.business.provider-adapter', seam: 'createCardPayment' },
-  'OMH-151': { fixture: 'integration-carrier-booking', file: 'src/modules/carrier_shipping/lib/adapter.ts', family: 'provider-adapter', validator: 'oracle.business.provider-adapter', seam: 'bookCarrierShipment' },
+  'OMH-150': { fixture: 'integration-payment-idempotency', file: 'src/modules/card_payments/lib/client.ts', family: 'provider-adapter', validator: 'oracle.business.provider-adapter', seam: 'createCardPayment' },
+  'OMH-151': { fixture: 'integration-carrier-booking', file: 'src/modules/carrier_shipping/lib/client.ts', family: 'provider-adapter', validator: 'oracle.business.provider-adapter', seam: 'bookCarrierShipment' },
   'OMH-153': { fixture: 'integration-erp-sync', file: 'src/modules/erp_sync/data-sync.ts', family: 'data-flow', validator: 'oracle.business.data-flow', seam: 'synchronizeErpPage' },
   'OMH-156': { fixture: 'data-product-import-export', file: 'src/modules/product_transfer/lib/flow.ts', family: 'data-flow', validator: 'oracle.business.data-flow', seam: 'transferProductRows' },
   'OMH-165': { fixture: 'testing-portal-quote-approval', file: 'tests/e2e/portal-quote-approval.spec.ts', family: 'test-authoring-mutation', validator: 'oracle.business.test-authoring', seam: 'runPortalQuoteApprovalScenario' },
@@ -363,6 +363,134 @@ export default function SetupWizardPage() {
       'src/modules/setup_wizard/i18n/en.json': '{"setup_wizard":{"title":"Business setup","steps":{"profile":"Profile"},"actions":{"continue":"Continue"},"states":{"loading":"Loading setup","status":"Setup status"}}}\n',
     }
   }
+  if (caseId === 'OMH-149') {
+    return {
+      ...artifacts,
+      'src/modules/smtp_email/integration.ts': `
+import type { IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
+
+export const integration: IntegrationDefinition = {
+  id: 'smtp_email', title: 'SMTP email', category: 'communication', providerKey: 'smtp',
+  credentials: { fields: [{ key: 'password', label: 'Password', type: 'secret', required: true }] },
+  healthCheck: { service: 'smtpEmailHealthCheck' },
+}
+export const integrations: IntegrationDefinition[] = [integration]
+`,
+      'src/modules/smtp_email/di.ts': `
+import { asValue } from 'awilix'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { sendTransactionalEmail } from './lib/client'
+import { smtpEmailHealthCheck } from './lib/health'
+
+export const smtpEmailService = { send: sendTransactionalEmail }
+export function register(container: AppContainer) {
+  container.register({
+    smtpEmailService: asValue(smtpEmailService),
+    smtpEmailHealthCheck: asValue(smtpEmailHealthCheck),
+  })
+}
+`,
+      'src/modules/smtp_email/lib/health.ts': `export const smtpEmailHealthCheck = { async check() { return { status: 'healthy' } } }\n`,
+      'src/modules.ts': `export const enabledModules = [{ id: 'smtp_email', from: '@app' }]\n`,
+    }
+  }
+  if (caseId === 'OMH-150') {
+    return {
+      ...artifacts,
+      'src/modules/card_payments/index.ts': `export const metadata = { id: 'card_payments', title: 'Card payments' }\n`,
+      'src/modules/card_payments/integration.ts': `
+import type { IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
+export const integration: IntegrationDefinition = {
+  id: 'card_payments', title: 'Card payments', category: 'payment', hub: 'payment_gateways', providerKey: 'card-payments',
+  credentials: { fields: [{ key: 'apiKey', label: 'API key', type: 'secret', required: true }] },
+  healthCheck: { service: 'cardPaymentsHealthCheck' },
+}
+export const integrations: IntegrationDefinition[] = [integration]
+`,
+      'src/modules/card_payments/di.ts': `
+import { asValue } from 'awilix'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { registerGatewayAdapter, registerPaymentGatewayDescriptor, registerWebhookHandler } from '@open-mercato/shared/modules/payment_gateways/types'
+import { cardPaymentAdapter } from './lib/adapter'
+import { cardPaymentsHealthCheck } from './lib/health'
+export function register(container: AppContainer) {
+  registerGatewayAdapter(cardPaymentAdapter)
+  registerWebhookHandler('card-payments', cardPaymentAdapter.verifyWebhook)
+  registerPaymentGatewayDescriptor({ providerKey: 'card-payments', label: 'Card payments' })
+  container.register({ cardPaymentsHealthCheck: asValue(cardPaymentsHealthCheck) })
+}
+`,
+      'src/modules/card_payments/acl.ts': `export const features = ['card_payments.view', 'card_payments.configure']\nexport default features\n`,
+      'src/modules/card_payments/setup.ts': `
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+export const setup: ModuleSetupConfig = { defaultRoleFeatures: { admin: ['card_payments.view', 'card_payments.configure'] } }
+export default setup
+`,
+      'src/modules/card_payments/lib/adapter.ts': `
+import type { GatewayAdapter } from '@open-mercato/shared/modules/payment_gateways/types'
+import { createCardPayment } from './client'
+export const cardPaymentAdapter: GatewayAdapter = {
+  providerKey: 'card-payments',
+  createSession: (input) => createCardPayment(input, (input as any).effects),
+  async capture() { return { status: 'captured', capturedAmount: 0 } },
+  async refund() { return { refundId: 'refund', status: 'refunded', refundedAmount: 0 } },
+  async cancel() { return { status: 'cancelled' } },
+  async getStatus() { return { status: 'pending', amount: 0, amountReceived: 0, currencyCode: 'USD' } },
+  async verifyWebhook() { return { eventType: 'payment', eventId: 'event', data: {}, idempotencyKey: 'event', timestamp: new Date() } },
+  mapStatus() { return 'pending' },
+}
+`,
+      'src/modules/card_payments/lib/health.ts': `export const cardPaymentsHealthCheck = { async check() { return { status: 'healthy' } } }\n`,
+      'src/modules.ts': `export const enabledModules = [{ id: 'card_payments', from: '@app' }]\n`,
+    }
+  }
+  if (caseId === 'OMH-151') {
+    return {
+      ...artifacts,
+      'src/modules/carrier_shipping/index.ts': `export const metadata = { id: 'carrier_shipping', title: 'Carrier shipping' }\n`,
+      'src/modules/carrier_shipping/integration.ts': `
+import type { IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
+export const integration: IntegrationDefinition = {
+  id: 'carrier_shipping', title: 'Carrier shipping', category: 'shipping', hub: 'shipping_carriers', providerKey: 'carrier-shipping',
+  credentials: { fields: [{ key: 'apiToken', label: 'API token', type: 'secret', required: true }] },
+  healthCheck: { service: 'carrierShippingHealthCheck' },
+}
+export const integrations: IntegrationDefinition[] = [integration]
+`,
+      'src/modules/carrier_shipping/di.ts': `
+import { asValue } from 'awilix'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { registerShippingAdapter } from '@open-mercato/core/modules/shipping_carriers/lib/adapter-registry'
+import { carrierShippingAdapter } from './lib/adapter'
+import { carrierShippingHealthCheck } from './lib/health'
+export function register(container: AppContainer) {
+  registerShippingAdapter(carrierShippingAdapter)
+  container.register({ carrierShippingHealthCheck: asValue(carrierShippingHealthCheck) })
+}
+`,
+      'src/modules/carrier_shipping/acl.ts': `export const features = ['carrier_shipping.view', 'carrier_shipping.configure']\nexport default features\n`,
+      'src/modules/carrier_shipping/setup.ts': `
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+export const setup: ModuleSetupConfig = { defaultRoleFeatures: { admin: ['carrier_shipping.view', 'carrier_shipping.configure'] } }
+export default setup
+`,
+      'src/modules/carrier_shipping/lib/adapter.ts': `
+import type { ShippingAdapter } from '@open-mercato/core/modules/shipping_carriers/lib/adapter'
+import { bookCarrierShipment } from './client'
+export const carrierShippingAdapter: ShippingAdapter = {
+  providerKey: 'carrier-shipping',
+  async calculateRates() { return [] },
+  createShipment: (input) => bookCarrierShipment(input, (input as any).effects),
+  async getTracking() { return { trackingNumber: 'tracking', status: 'in_transit', events: [] } },
+  async cancelShipment() { return { status: 'cancelled' } },
+  async verifyWebhook() { return { eventType: 'tracking', eventId: 'event', idempotencyKey: 'event', data: {}, timestamp: new Date() } },
+  mapStatus() { return 'unknown' },
+}
+`,
+      'src/modules/carrier_shipping/lib/health.ts': `export const carrierShippingHealthCheck = { async check() { return { status: 'healthy' } } }\n`,
+      'src/modules.ts': `export const enabledModules = [{ id: 'carrier_shipping', from: '@app' }]\n`,
+    }
+  }
   if (caseId === 'OMH-181') {
     return {
       ...artifacts,
@@ -456,6 +584,16 @@ test('the 21 business writable cases have aligned controlled fixtures', () => {
     assert.deepEqual([...(catalogCase?.oracle?.expectedArtifacts ?? [])].sort(), [...fixture.seededArtifacts].sort(), `${caseId}: case and fixture artifacts differ`)
     assert.deepEqual(catalogCase?.allowedWrites, [`src/modules/${definition.file.split('/')[2]}/**`], `${caseId}: allowed writes do not cover the complete isolated UI module`)
   }
+  for (const caseId of ['OMH-149', 'OMH-150', 'OMH-151']) {
+    const definition = cases[caseId]
+    const fixture = fixtureIndex.fixtures[definition.fixture]
+    const catalogCase = catalogCases.find((entry) => entry.id === caseId)
+    const expectedArtifacts = catalogCase?.oracle?.expectedArtifacts ?? []
+    assert.deepEqual(expectedArtifacts.filter((artifact) => artifact !== 'src/modules.ts').sort(), [...fixture.seededArtifacts].sort(), `${caseId}: provider fixture must seed only new module artifacts`)
+    assert.ok(expectedArtifacts.includes('src/modules.ts'), `${caseId}: activation remains a required output artifact`)
+    assert.ok(!fixture.seededArtifacts.includes('src/modules.ts'), `${caseId}: fixture must not overwrite scaffold activation`)
+    assert.deepEqual(catalogCase?.allowedWrites, [`src/modules/${definition.file.split('/')[2]}/**`, 'src/modules.ts'], `${caseId}: provider writes must cover its app module plus activation`)
+  }
   assert.ok(fixtureIndex.fixtures['ui-public-lead-capture'].seededArtifacts.includes('src/modules/demo_requests/frontend/request-demo/page.tsx'))
   assert.ok(fixtureIndex.fixtures['ui-public-lead-capture'].seededArtifacts.includes('src/modules/demo_requests/frontend/request-demo/page.meta.ts'))
 })
@@ -509,6 +647,29 @@ export async function decoy(input: any, effects: any) {
     assert.equal(result.parsed?.checks.find((check) => check.id === 'business.command-seam')?.passed, false)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('provider AST requires activation and canonical host registration beyond the behavior seam', () => {
+  const scenarios = [
+    { caseId: 'OMH-149', file: 'src/modules.ts', replace: ["{ id: 'smtp_email', from: '@app' }", ''], check: 'business.provider-activation' },
+    { caseId: 'OMH-150', file: 'src/modules/card_payments/di.ts', replace: ['registerGatewayAdapter(cardPaymentAdapter)', 'void cardPaymentAdapter'], check: 'business.provider-payment-registration' },
+    { caseId: 'OMH-150', file: 'src/modules/card_payments/di.ts', replace: ["registerWebhookHandler('card-payments', cardPaymentAdapter.verifyWebhook)", ''], check: 'business.provider-payment-registration' },
+    { caseId: 'OMH-151', file: 'src/modules/carrier_shipping/di.ts', replace: ['registerShippingAdapter(carrierShippingAdapter)', 'void carrierShippingAdapter'], check: 'business.provider-shipping-registration' },
+  ] as const
+  for (const scenario of scenarios) {
+    const root = stageTarget(scenario.caseId, true)
+    const target = path.join(root, scenario.file)
+    const [search, replacement] = scenario.replace
+    fs.writeFileSync(target, fs.readFileSync(target, 'utf8').replace(search, replacement))
+    try {
+      const result = runOracle(astOracle, root, scenario.caseId, 'before')
+      assert.equal(result.status, 1, `${scenario.caseId}\n${result.stdout}\n${result.stderr}`)
+      assert.equal(result.parsed?.checks.find((check) => check.id === scenario.check)?.passed, false)
+      assert.equal(result.parsed?.checks.find((check) => check.id === 'business.provider-seam')?.passed, true)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   }
 })
 
