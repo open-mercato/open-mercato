@@ -454,3 +454,180 @@ test('verified regular external skills reinstall idempotently with matching owne
     removeFixture(root)
   }
 })
+
+test('canonical skill paths reject symlinked ancestors before any outside write', { skip: process.platform === 'win32' }, () => {
+  for (const escapedPath of [['.agents'], ['.agents', 'skills']]) {
+    const root = fixture()
+    const outsideRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-canonical-escape-')))
+    const sentinel = path.join(outsideRoot, 'sentinel.txt')
+    fs.writeFileSync(sentinel, 'outside sentinel\n')
+    try {
+      const linkPath = path.join(root, ...escapedPath)
+      fs.mkdirSync(path.dirname(linkPath), { recursive: true })
+      fs.symlinkSync(outsideRoot, linkPath, 'dir')
+
+      const result = run(root, '--no-external')
+      assert.notEqual(result.status, 0)
+      assert.match(result.stderr, /installer-owned path contains a symbolic-link component/)
+      assert.deepEqual(fs.readdirSync(outsideRoot).sort(), ['sentinel.txt'])
+      assert.equal(fs.readFileSync(sentinel, 'utf8'), 'outside sentinel\n')
+    } finally {
+      removeFixture(root)
+      removeFixture(outsideRoot)
+    }
+  }
+})
+
+test('a symlinked quarantine directory cannot move an external skill outside the app', { skip: process.platform === 'win32' }, () => {
+  const root = fixture()
+  const outsideRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-quarantine-escape-')))
+  const sentinel = path.join(outsideRoot, 'sentinel.txt')
+  const skillDir = path.join(root, '.agents', 'skills', 'om-code-review')
+  fs.writeFileSync(sentinel, 'outside sentinel\n')
+  try {
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# unowned external\n')
+    fs.symlinkSync(outsideRoot, path.join(root, '.agents', 'skills-quarantine'), 'dir')
+
+    const result = run(root, '--no-external')
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /installer-owned path contains a symbolic-link component/)
+    assert.equal(fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8'), '# unowned external\n')
+    assert.deepEqual(fs.readdirSync(outsideRoot).sort(), ['sentinel.txt'])
+    assert.equal(fs.readFileSync(sentinel, 'utf8'), 'outside sentinel\n')
+  } finally {
+    removeFixture(root)
+    removeFixture(outsideRoot)
+  }
+})
+
+test('agent compatibility layouts reject symlinked roots and leaf directories without outside writes', { skip: process.platform === 'win32' }, () => {
+  for (const agentRoot of ['.claude', '.codex', '.cursor']) {
+    for (const escapedPath of [[agentRoot], [agentRoot, 'skills']]) {
+      const root = fixture()
+      const outsideRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-agent-layout-escape-')))
+      const sentinel = path.join(outsideRoot, 'sentinel.txt')
+      fs.writeFileSync(sentinel, 'outside sentinel\n')
+      try {
+        const linkPath = path.join(root, ...escapedPath)
+        fs.mkdirSync(path.dirname(linkPath), { recursive: true })
+        fs.symlinkSync(outsideRoot, linkPath, 'dir')
+
+        const result = run(root, '--no-external', '--legacy-links')
+        assert.notEqual(result.status, 0, `${escapedPath.join('/')} unexpectedly passed`)
+        assert.match(result.stderr, /installer-owned path contains a symbolic-link component/)
+        assert.deepEqual(fs.readdirSync(outsideRoot).sort(), ['sentinel.txt'])
+        assert.equal(fs.readFileSync(sentinel, 'utf8'), 'outside sentinel\n')
+      } finally {
+        removeFixture(root)
+        removeFixture(outsideRoot)
+      }
+    }
+  }
+})
+
+test('local skill source ancestors must remain inside the real app tree', { skip: process.platform === 'win32' }, () => {
+  for (const escapedPath of [['.ai'], ['.ai', 'skills']]) {
+    const root = fixture()
+    const outsideRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-local-source-escape-')))
+    const sentinel = path.join(outsideRoot, 'sentinel.txt')
+    fs.writeFileSync(sentinel, 'outside sentinel\n')
+    try {
+      const source = path.join(root, ...escapedPath)
+      const outsideSource = path.join(outsideRoot, 'linked-source')
+      fs.renameSync(source, outsideSource)
+      fs.symlinkSync(outsideSource, source, 'dir')
+
+      const result = run(root, '--no-external')
+      assert.notEqual(result.status, 0)
+      assert.match(result.stderr, /installer-owned path contains a symbolic-link component/)
+      assert.equal(fs.existsSync(path.join(root, '.agents')), false)
+      assert.equal(fs.readFileSync(sentinel, 'utf8'), 'outside sentinel\n')
+    } finally {
+      removeFixture(root)
+      removeFixture(outsideRoot)
+    }
+  }
+})
+
+test('selected local skill trees reject nested links before canonical discovery is created', { skip: process.platform === 'win32' }, () => {
+  const root = fixture()
+  const outsideRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-local-skill-escape-')))
+  const sentinel = path.join(outsideRoot, 'sentinel.txt')
+  fs.writeFileSync(sentinel, 'outside sentinel\n')
+  try {
+    fs.symlinkSync(sentinel, path.join(root, '.ai', 'skills', 'om-alpha', 'escape'))
+
+    const result = run(root, '--no-external')
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /skill tree contains a symbolic link/)
+    assert.equal(fs.existsSync(path.join(root, '.agents')), false)
+    assert.equal(fs.readFileSync(sentinel, 'utf8'), 'outside sentinel\n')
+  } finally {
+    removeFixture(root)
+    removeFixture(outsideRoot)
+  }
+})
+
+test('the external ownership ledger cannot be read through a symlink', { skip: process.platform === 'win32' }, () => {
+  const root = fixture()
+  const outsideRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-ledger-escape-')))
+  const sentinel = path.join(outsideRoot, 'sentinel.json')
+  fs.writeFileSync(sentinel, '{"outside":true}\n')
+  try {
+    fs.mkdirSync(path.join(root, '.agents', 'skills'), { recursive: true })
+    fs.symlinkSync(sentinel, path.join(root, '.agents', 'skills', '.om-external-ownership.json'))
+
+    const result = run(root, '--no-external')
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /external skill ownership ledger must be a regular file/)
+    assert.equal(fs.readFileSync(sentinel, 'utf8'), '{"outside":true}\n')
+    assert.deepEqual(fs.readdirSync(outsideRoot), ['sentinel.json'])
+  } finally {
+    removeFixture(root)
+    removeFixture(outsideRoot)
+  }
+})
+
+test('traversal and absolute-like skill names fail before installer-owned paths are created', () => {
+  const invalidCases = [
+    { kind: 'local', name: '../escape' },
+    { kind: 'local', name: '/absolute-skill' },
+    { kind: 'external', name: '../../escape' },
+    { kind: 'external', name: '/absolute-external' },
+  ]
+  for (const invalid of invalidCases) {
+    const root = fixture()
+    const outsideRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-invalid-skill-name-')))
+    const sentinel = path.join(outsideRoot, 'sentinel.txt')
+    fs.writeFileSync(sentinel, 'outside sentinel\n')
+    try {
+      const manifestPath = path.join(root, '.ai', 'skills', 'tiers.json')
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
+        tiers: { core: { skills: string[] } }
+        external: {
+          skills: string[]
+          dependencies: Record<string, string[]>
+          contentHashes: Record<string, string>
+        }
+      }
+      if (invalid.kind === 'local') {
+        manifest.tiers.core.skills = [invalid.name]
+      } else {
+        manifest.external.skills = [invalid.name]
+        manifest.external.dependencies = { [invalid.name]: [] }
+        manifest.external.contentHashes = { [invalid.name]: HASH }
+      }
+      fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+      const result = run(root, '--no-external')
+      assert.notEqual(result.status, 0, `${invalid.kind} '${invalid.name}' unexpectedly passed`)
+      assert.match(result.stderr, new RegExp(`${invalid.kind} skill name .* is invalid`))
+      assert.equal(fs.existsSync(path.join(root, '.agents')), false)
+      assert.equal(fs.readFileSync(sentinel, 'utf8'), 'outside sentinel\n')
+    } finally {
+      removeFixture(root)
+      removeFixture(outsideRoot)
+    }
+  }
+})

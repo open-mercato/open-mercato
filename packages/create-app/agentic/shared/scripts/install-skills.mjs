@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   cpSync,
-  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   rmdirSync,
   rmSync,
@@ -32,6 +32,7 @@ const AGENT_DIRECTORIES = {
 }
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/
 const COMMIT_PATTERN = /^[a-f0-9]{40}$/
+const SKILL_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
 const ARCHIVE_LIMIT_BYTES = 32 * 1024 * 1024
 const EXTRACTED_LIMIT_BYTES = 256 * 1024 * 1024
 const EXTERNAL_OWNERSHIP_FILE = '.om-external-ownership.json'
@@ -70,6 +71,87 @@ function isWithin(candidate, root) {
   return pathFromRoot === '' || (!pathFromRoot.startsWith(`..${sep}`) && pathFromRoot !== '..' && !isAbsolute(pathFromRoot))
 }
 
+function realInstallerRoot(rootDir) {
+  const resolved = resolve(rootDir)
+  const entry = lstatSync(resolved, { throwIfNoEntry: false })
+  if (!entry || entry.isSymbolicLink() || !entry.isDirectory()) fail(`installer root must be a real directory: ${resolved}`)
+  return realpathSync(resolved)
+}
+
+function relativeComponents(rootDir, targetPath) {
+  if (!isWithin(targetPath, rootDir)) fail(`installer-owned path escapes the app root: ${targetPath}`)
+  const pathFromRoot = relative(resolve(rootDir), resolve(targetPath))
+  return pathFromRoot ? pathFromRoot.split(sep).filter(Boolean) : []
+}
+
+function assertRealDirectoryComponents(rootDir, targetPath, { allowedLeafLinks = [], requireLeaf = false } = {}) {
+  const components = relativeComponents(rootDir, targetPath)
+  let current = resolve(rootDir)
+  for (let index = 0; index < components.length; index += 1) {
+    current = join(current, components[index])
+    const entry = lstatSync(current, { throwIfNoEntry: false })
+    if (!entry) {
+      if (requireLeaf) fail(`installer-owned directory is missing: ${current}`)
+      return
+    }
+    if (entry.isSymbolicLink()) {
+      const isLeaf = index === components.length - 1
+      const target = symlinkTarget(current)
+      const allowed = isLeaf && allowedLeafLinks.some((candidate) => resolve(candidate) === resolve(target))
+      if (allowed) return
+      fail(`installer-owned path contains a symbolic-link component: ${current}`)
+    }
+    if (!entry.isDirectory()) fail(`installer-owned path component is not a directory: ${current}`)
+  }
+}
+
+function ensureRealDirectory(rootDir, targetPath) {
+  const components = relativeComponents(rootDir, targetPath)
+  let current = resolve(rootDir)
+  for (const component of components) {
+    assertRealDirectoryComponents(rootDir, current, { requireLeaf: true })
+    current = join(current, component)
+    let entry = lstatSync(current, { throwIfNoEntry: false })
+    if (!entry) {
+      mkdirSync(current)
+      entry = lstatSync(current, { throwIfNoEntry: false })
+    }
+    if (!entry || entry.isSymbolicLink() || !entry.isDirectory()) {
+      fail(`installer-owned directory is not a real directory: ${current}`)
+    }
+  }
+}
+
+function assertRegularOwnedFile(rootDir, filePath, { optional = true } = {}) {
+  assertRealDirectoryComponents(rootDir, dirname(filePath), { requireLeaf: true })
+  const entry = lstatSync(filePath, { throwIfNoEntry: false })
+  if (!entry) {
+    if (!optional) fail(`installer-owned file is missing: ${filePath}`)
+    return
+  }
+  if (entry.isSymbolicLink() || !entry.isFile()) fail(`installer-owned file must be a regular file: ${filePath}`)
+}
+
+function assertOwnedPathAbsent(rootDir, targetPath) {
+  assertRealDirectoryComponents(rootDir, dirname(targetPath), { requireLeaf: true })
+  if (lstatSync(targetPath, { throwIfNoEntry: false })) fail(`installer temporary path already exists: ${targetPath}`)
+}
+
+function assertInstallerPathPreflight(rootDir) {
+  const aiSkillsDir = join(rootDir, '.ai', 'skills')
+  const canonicalDir = join(rootDir, '.agents', 'skills')
+  assertRealDirectoryComponents(rootDir, aiSkillsDir, { requireLeaf: true })
+  assertRealDirectoryComponents(rootDir, join(rootDir, '.agents'))
+  assertRealDirectoryComponents(rootDir, canonicalDir, { allowedLeafLinks: [aiSkillsDir] })
+  assertRealDirectoryComponents(rootDir, join(rootDir, '.agents', 'skills-quarantine'))
+  for (const agent of KNOWN_AGENTS) {
+    const agentRoot = join(rootDir, AGENT_DIRECTORIES[agent][0])
+    const agentSkills = join(rootDir, ...AGENT_DIRECTORIES[agent])
+    assertRealDirectoryComponents(rootDir, agentRoot)
+    assertRealDirectoryComponents(rootDir, agentSkills, { allowedLeafLinks: [aiSkillsDir, canonicalDir] })
+  }
+}
+
 function symlinkTarget(linkPath) {
   const target = readlinkSync(linkPath)
   return resolve(dirname(linkPath), target)
@@ -82,34 +164,44 @@ function isHarnessOwnedLink(linkPath, aiSkillsDir, canonicalDir) {
   return isWithin(target, aiSkillsDir) || isWithin(target, canonicalDir)
 }
 
-function removeEmptyDirectory(path) {
+function removeEmptyDirectory(rootDir, path) {
+  assertRealDirectoryComponents(rootDir, dirname(path), { requireLeaf: true })
   const entry = lstatSync(path, { throwIfNoEntry: false })
-  if (entry?.isDirectory() && readdirSync(path).length === 0) rmdirSync(path)
+  if (entry?.isDirectory() && !entry.isSymbolicLink() && readdirSync(path).length === 0) {
+    assertRealDirectoryComponents(rootDir, dirname(path), { requireLeaf: true })
+    rmdirSync(path)
+  }
 }
 
-function prepareLinkDirectory(path, aiSkillsDir, canonicalDir) {
+function prepareLinkDirectory(rootDir, path, aiSkillsDir, canonicalDir) {
+  ensureRealDirectory(rootDir, dirname(path))
+  assertRealDirectoryComponents(rootDir, dirname(path), { requireLeaf: true })
   const entry = lstatSync(path, { throwIfNoEntry: false })
   if (entry?.isSymbolicLink()) {
     const target = symlinkTarget(path)
     if (resolve(target) !== resolve(aiSkillsDir) && resolve(target) !== resolve(canonicalDir)) {
       fail(`refusing to replace user-owned link ${path}`)
     }
+    assertRealDirectoryComponents(rootDir, dirname(path), { requireLeaf: true })
     unlinkSync(path)
   } else if (entry && !entry.isDirectory()) {
     fail(`refusing to replace user-owned path ${path}`)
   }
-  mkdirSync(path, { recursive: true })
+  ensureRealDirectory(rootDir, path)
 }
 
-function replaceManagedLink(linkPath, targetPath, relativeTarget, platform, aiSkillsDir, canonicalDir) {
+function replaceManagedLink(rootDir, linkPath, targetPath, relativeTarget, platform, aiSkillsDir, canonicalDir) {
+  assertRealDirectoryComponents(rootDir, dirname(linkPath), { requireLeaf: true })
   const entry = lstatSync(linkPath, { throwIfNoEntry: false })
   if (entry) {
     if (!entry.isSymbolicLink() || !isHarnessOwnedLink(linkPath, aiSkillsDir, canonicalDir)) {
       fail(`refusing to replace user-owned path ${linkPath}`)
     }
     if (resolve(symlinkTarget(linkPath)) === resolve(targetPath)) return
+    assertRealDirectoryComponents(rootDir, dirname(linkPath), { requireLeaf: true })
     unlinkSync(linkPath)
   }
+  assertRealDirectoryComponents(rootDir, dirname(linkPath), { requireLeaf: true })
   if (platform === 'win32') {
     symlinkSync(resolve(targetPath), linkPath, 'junction')
   } else {
@@ -117,19 +209,26 @@ function replaceManagedLink(linkPath, targetPath, relativeTarget, platform, aiSk
   }
 }
 
-function cleanManagedLinks(directory, aiSkillsDir, canonicalDir, keep = new Set()) {
+function cleanManagedLinks(rootDir, directory, aiSkillsDir, canonicalDir, keep = new Set()) {
+  assertRealDirectoryComponents(rootDir, dirname(directory))
   const entry = lstatSync(directory, { throwIfNoEntry: false })
   if (!entry) return
   if (entry.isSymbolicLink()) {
-    if (isHarnessOwnedLink(directory, aiSkillsDir, canonicalDir)) unlinkSync(directory)
+    if (isHarnessOwnedLink(directory, aiSkillsDir, canonicalDir)) {
+      assertRealDirectoryComponents(rootDir, dirname(directory), { requireLeaf: true })
+      unlinkSync(directory)
+    }
     return
   }
   if (!entry.isDirectory()) return
   for (const name of readdirSync(directory)) {
     const candidate = join(directory, name)
-    if (!keep.has(name) && isHarnessOwnedLink(candidate, aiSkillsDir, canonicalDir)) unlinkSync(candidate)
+    if (!keep.has(name) && isHarnessOwnedLink(candidate, aiSkillsDir, canonicalDir)) {
+      assertRealDirectoryComponents(rootDir, directory, { requireLeaf: true })
+      unlinkSync(candidate)
+    }
   }
-  removeEmptyDirectory(directory)
+  removeEmptyDirectory(rootDir, directory)
 }
 
 function parseArgs(args, env) {
@@ -183,7 +282,7 @@ function parseArgs(args, env) {
 
 function readManifest(rootDir) {
   const manifestPath = join(rootDir, '.ai', 'skills', 'tiers.json')
-  if (!existsSync(manifestPath)) fail(`missing manifest ${manifestPath}`)
+  assertRegularOwnedFile(rootDir, manifestPath, { optional: false })
   let manifest
   try {
     manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
@@ -200,6 +299,7 @@ function readManifest(rootDir) {
       fail(`tier '${tierName}' requires a description and non-empty skills list`)
     }
     for (const skill of tier.skills) {
+      if (typeof skill !== 'string' || !SKILL_NAME_PATTERN.test(skill)) fail(`local skill name '${skill}' is invalid`)
       if (assigned.has(skill)) fail(`local skill '${skill}' belongs to more than one tier`)
       assigned.add(skill)
     }
@@ -212,6 +312,9 @@ function readManifest(rootDir) {
     fail('external.cli must pin the skills package to an exact version')
   }
   if (!Array.isArray(external.skills) || external.skills.length === 0) fail('external.skills must be non-empty')
+  for (const skill of external.skills) {
+    if (typeof skill !== 'string' || !SKILL_NAME_PATTERN.test(skill)) fail(`external skill name '${skill}' is invalid`)
+  }
   const externalNames = new Set(external.skills)
   if (externalNames.size !== external.skills.length) fail('external.skills contains duplicates')
   for (const skill of externalNames) if (assigned.has(skill)) fail(`skill '${skill}' is both local and external`)
@@ -386,6 +489,7 @@ function externalOwnershipPath(rootDir) {
 
 function readExternalOwnership(rootDir) {
   const ledgerPath = externalOwnershipPath(rootDir)
+  assertRealDirectoryComponents(rootDir, dirname(ledgerPath))
   const ledgerEntry = lstatSync(ledgerPath, { throwIfNoEntry: false })
   if (!ledgerEntry) return null
   if (ledgerEntry.isSymbolicLink() || !ledgerEntry.isFile()) fail('external skill ownership ledger must be a regular file')
@@ -406,8 +510,9 @@ function readExternalOwnership(rootDir) {
 
 function writeExternalOwnership(rootDir, external, skills = undefined) {
   const ledgerPath = externalOwnershipPath(rootDir)
-  mkdirSync(dirname(ledgerPath), { recursive: true })
-  const temporary = `${ledgerPath}.tmp-${process.pid}-${Date.now()}`
+  ensureRealDirectory(rootDir, dirname(ledgerPath))
+  assertRegularOwnedFile(rootDir, ledgerPath)
+  const temporary = `${ledgerPath}.tmp-${randomUUID()}`
   const ledger = {
     version: 1,
     source: external.source,
@@ -415,16 +520,26 @@ function writeExternalOwnership(rootDir, external, skills = undefined) {
     skills: skills ?? Object.fromEntries(external.skills.map((skill) => [skill, external.contentHashes[skill]])),
   }
   try {
-    writeFileSync(temporary, `${JSON.stringify(ledger, null, 2)}\n`, { mode: 0o600 })
+    assertOwnedPathAbsent(rootDir, temporary)
+    writeFileSync(temporary, `${JSON.stringify(ledger, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
+    assertRegularOwnedFile(rootDir, temporary, { optional: false })
+    assertRegularOwnedFile(rootDir, ledgerPath)
+    assertRealDirectoryComponents(rootDir, dirname(ledgerPath), { requireLeaf: true })
     renameSync(temporary, ledgerPath)
   } finally {
-    rmSync(temporary, { force: true })
+    assertRealDirectoryComponents(rootDir, dirname(temporary), { requireLeaf: true })
+    const temporaryEntry = lstatSync(temporary, { throwIfNoEntry: false })
+    if (temporaryEntry) {
+      if (temporaryEntry.isDirectory() && !temporaryEntry.isSymbolicLink()) rmSync(temporary, { recursive: true, force: true })
+      else unlinkSync(temporary)
+    }
   }
 }
 
 function uniqueQuarantinePath(rootDir, skill) {
   const quarantineRoot = join(rootDir, '.agents', 'skills-quarantine')
-  mkdirSync(quarantineRoot, { recursive: true })
+  ensureRealDirectory(rootDir, quarantineRoot)
+  assertRealDirectoryComponents(rootDir, quarantineRoot, { requireLeaf: true })
   for (let suffix = 1; ; suffix += 1) {
     const candidate = join(quarantineRoot, suffix === 1 ? skill : `${skill}.${suffix}`)
     if (!lstatSync(candidate, { throwIfNoEntry: false })) return candidate
@@ -432,6 +547,8 @@ function uniqueQuarantinePath(rootDir, skill) {
 }
 
 export function reconcileExternalSkillVisibility(rootDir, external) {
+  assertRealDirectoryComponents(rootDir, join(rootDir, '.agents', 'skills'))
+  assertRealDirectoryComponents(rootDir, join(rootDir, '.agents', 'skills-quarantine'))
   const ledger = readExternalOwnership(rootDir)
   const canonicalDir = join(rootDir, '.agents', 'skills')
   const quarantined = []
@@ -456,6 +573,8 @@ export function reconcileExternalSkillVisibility(rootDir, external) {
     }
     const previouslyOwned = Object.hasOwn(ledger?.skills ?? {}, skill)
     const quarantinePath = uniqueQuarantinePath(rootDir, previouslyOwned ? skill : `unowned-${skill}`)
+    assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
+    assertRealDirectoryComponents(rootDir, dirname(quarantinePath), { requireLeaf: true })
     renameSync(skillDir, quarantinePath)
     quarantined.push({ skill, path: quarantinePath, actual, expected: expected ?? 'removed from manifest', previouslyOwned })
   }
@@ -467,6 +586,8 @@ export function assertExternalDestinationsReplaceable(rootDir, external) {
   const ledger = readExternalOwnership(rootDir)
   const aiSkillsDir = join(rootDir, '.ai', 'skills')
   const canonicalDir = join(rootDir, '.agents', 'skills')
+  assertRealDirectoryComponents(rootDir, aiSkillsDir, { requireLeaf: true })
+  assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
   for (const skill of external.skills) {
     const destination = join(canonicalDir, skill)
     const existing = lstatSync(destination, { throwIfNoEntry: false })
@@ -485,16 +606,21 @@ export function assertExternalDestinationsReplaceable(rootDir, external) {
 
 async function installExternal(rootDir, external, platform, spawn, fetchImpl, downloadSource) {
   let downloaded
+  let downloadRoot
   try {
     downloaded = await downloadSource(external, fetchImpl)
+    downloadRoot = realInstallerRoot(downloaded.tempRoot)
+    if (!isWithin(downloaded.sourceDir, downloadRoot)) fail('downloaded external source escapes its temporary root')
+    assertRealDirectoryComponents(downloadRoot, downloaded.sourceDir, { requireLeaf: true })
     assertRegularSkillTree(downloaded.sourceDir)
     const invocation = externalCliInvocation(external, downloaded.sourceDir, platform)
-    const installRoot = join(downloaded.tempRoot, 'install')
-    mkdirSync(installRoot, { recursive: true })
+    const installRoot = join(downloadRoot, 'install')
+    ensureRealDirectory(downloadRoot, installRoot)
     const result = spawn(invocation.executable, invocation.args, { cwd: installRoot, stdio: 'inherit' })
     if (result.error) throw result.error
     if (result.status !== 0) fail(`external skills CLI exited with status ${result.status}`)
     const stagedSkillsDir = join(installRoot, '.agents', 'skills')
+    assertRealDirectoryComponents(downloadRoot, stagedSkillsDir, { requireLeaf: true })
     const mismatches = []
     for (const skill of external.skills) {
       const skillDir = join(stagedSkillsDir, skill)
@@ -506,9 +632,9 @@ async function installExternal(rootDir, external, platform, spawn, fetchImpl, do
 
     const aiSkillsDir = join(rootDir, '.ai', 'skills')
     const canonicalDir = join(rootDir, '.agents', 'skills')
-    prepareLinkDirectory(canonicalDir, aiSkillsDir, canonicalDir)
+    prepareLinkDirectory(rootDir, canonicalDir, aiSkillsDir, canonicalDir)
     assertExternalDestinationsReplaceable(rootDir, external)
-    const nonce = `${process.pid}-${Date.now()}`
+    const nonce = randomUUID()
     for (const skill of external.skills) {
       const destination = join(canonicalDir, skill)
       const existing = lstatSync(destination, { throwIfNoEntry: false })
@@ -517,15 +643,20 @@ async function installExternal(rootDir, external, platform, spawn, fetchImpl, do
       let backedUp = false
       let activated = false
       try {
+        assertRealDirectoryComponents(downloadRoot, stagedSkillsDir, { requireLeaf: true })
+        assertOwnedPathAbsent(rootDir, stagedDestination)
+        assertOwnedPathAbsent(rootDir, backupDestination)
         cpSync(join(stagedSkillsDir, skill), stagedDestination, { recursive: true, errorOnExist: true })
         const copiedHash = hashSkillDirectory(stagedDestination)
         if (copiedHash !== external.contentHashes[skill]) {
           fail(`external skill changed while copying '${skill}' (${copiedHash})`)
         }
         if (existing) {
+          assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
           renameSync(destination, backupDestination)
           backedUp = true
         }
+        assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
         renameSync(stagedDestination, destination)
         activated = true
         const installedHash = hashSkillDirectory(destination)
@@ -533,19 +664,27 @@ async function installExternal(rootDir, external, platform, spawn, fetchImpl, do
           fail(`external skill changed while activating '${skill}' (${installedHash})`)
         }
         if (backedUp) {
+          assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
           rmSync(backupDestination, { recursive: true, force: true })
           backedUp = false
         }
       } catch (error) {
         if (activated && lstatSync(destination, { throwIfNoEntry: false })) {
+          assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
           rmSync(destination, { recursive: true, force: true })
         }
         if (backedUp && lstatSync(backupDestination, { throwIfNoEntry: false })) {
+          assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
           renameSync(backupDestination, destination)
         }
         throw error
       } finally {
-        rmSync(stagedDestination, { recursive: true, force: true })
+        assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
+        const stagedEntry = lstatSync(stagedDestination, { throwIfNoEntry: false })
+        if (stagedEntry) {
+          if (stagedEntry.isDirectory() && !stagedEntry.isSymbolicLink()) rmSync(stagedDestination, { recursive: true, force: true })
+          else unlinkSync(stagedDestination)
+        }
       }
     }
     const verified = {}
@@ -557,7 +696,11 @@ async function installExternal(rootDir, external, platform, spawn, fetchImpl, do
     writeExternalOwnership(rootDir, external, verified)
     return `installed ${external.source}@${external.ref}`
   } finally {
-    if (downloaded?.tempRoot) rmSync(downloaded.tempRoot, { recursive: true, force: true })
+    if (downloadRoot) {
+      const entry = lstatSync(downloadRoot, { throwIfNoEntry: false })
+      if (entry?.isDirectory() && !entry.isSymbolicLink()) rmSync(downloadRoot, { recursive: true, force: true })
+      else if (entry) unlinkSync(downloadRoot)
+    }
   }
 }
 
@@ -569,11 +712,13 @@ function relativeLink(fromDirectory, target) {
 function installLocalLinks(rootDir, localSkills, platform) {
   const aiSkillsDir = join(rootDir, '.ai', 'skills')
   const canonicalDir = join(rootDir, '.agents', 'skills')
-  prepareLinkDirectory(canonicalDir, aiSkillsDir, canonicalDir)
+  prepareLinkDirectory(rootDir, canonicalDir, aiSkillsDir, canonicalDir)
   for (const skill of localSkills) {
     const target = join(aiSkillsDir, skill)
-    if (!lstatSync(target, { throwIfNoEntry: false })?.isDirectory()) fail(`local skill folder is missing: ${target}`)
+    assertRealDirectoryComponents(rootDir, target, { requireLeaf: true })
+    assertRegularSkillTree(target)
     replaceManagedLink(
+      rootDir,
       join(canonicalDir, skill),
       target,
       relativeLink(canonicalDir, target),
@@ -582,7 +727,7 @@ function installLocalLinks(rootDir, localSkills, platform) {
       canonicalDir,
     )
   }
-  cleanManagedLinks(canonicalDir, aiSkillsDir, canonicalDir, new Set(localSkills))
+  cleanManagedLinks(rootDir, canonicalDir, aiSkillsDir, canonicalDir, new Set(localSkills))
 }
 
 function installedExternalSkills(rootDir, external) {
@@ -603,11 +748,12 @@ function installAgentLinks(rootDir, agent, names, localSkills, legacyLinks, plat
   const aiSkillsDir = join(rootDir, '.ai', 'skills')
   const canonicalDir = join(rootDir, '.agents', 'skills')
   const harnessDir = join(rootDir, ...AGENT_DIRECTORIES[agent])
-  prepareLinkDirectory(harnessDir, aiSkillsDir, canonicalDir)
+  prepareLinkDirectory(rootDir, harnessDir, aiSkillsDir, canonicalDir)
   for (const skill of names) {
     const localLegacyTarget = legacyLinks && localSkills.includes(skill)
     const target = localLegacyTarget ? join(aiSkillsDir, skill) : join(canonicalDir, skill)
     replaceManagedLink(
+      rootDir,
       join(harnessDir, skill),
       target,
       relativeLink(harnessDir, target),
@@ -616,14 +762,14 @@ function installAgentLinks(rootDir, agent, names, localSkills, legacyLinks, plat
       canonicalDir,
     )
   }
-  cleanManagedLinks(harnessDir, aiSkillsDir, canonicalDir, new Set(names))
+  cleanManagedLinks(rootDir, harnessDir, aiSkillsDir, canonicalDir, new Set(names))
 }
 
 function cleanAllLinks(rootDir) {
   const aiSkillsDir = join(rootDir, '.ai', 'skills')
   const canonicalDir = join(rootDir, '.agents', 'skills')
-  for (const agent of KNOWN_AGENTS) cleanManagedLinks(join(rootDir, ...AGENT_DIRECTORIES[agent]), aiSkillsDir, canonicalDir)
-  cleanManagedLinks(canonicalDir, aiSkillsDir, canonicalDir)
+  for (const agent of KNOWN_AGENTS) cleanManagedLinks(rootDir, join(rootDir, ...AGENT_DIRECTORIES[agent]), aiSkillsDir, canonicalDir)
+  cleanManagedLinks(rootDir, canonicalDir, aiSkillsDir, canonicalDir)
 }
 
 export async function runInstaller({
@@ -640,6 +786,8 @@ export async function runInstaller({
     console.log(USAGE)
     return 0
   }
+  rootDir = realInstallerRoot(rootDir)
+  assertInstallerPathPreflight(rootDir)
   const manifest = readManifest(rootDir)
   if (options.list) {
     printCatalog(manifest)
@@ -654,6 +802,12 @@ export async function runInstaller({
   for (const agent of ignoredAgents) if (!KNOWN_AGENTS.includes(agent)) fail(`unknown agent '${agent}'; valid agents: ${KNOWN_AGENTS.join(', ')}`)
   const tiers = selectedTiers(manifest, options)
   const localSkills = selectedLocalSkills(manifest, tiers)
+  for (const skill of localSkills) {
+    const localSkillDir = join(rootDir, '.ai', 'skills', skill)
+    assertRealDirectoryComponents(rootDir, localSkillDir, { requireLeaf: true })
+    assertRegularSkillTree(localSkillDir)
+  }
+  prepareLinkDirectory(rootDir, join(rootDir, '.agents', 'skills'), join(rootDir, '.ai', 'skills'), join(rootDir, '.agents', 'skills'))
   const quarantined = reconcileExternalSkillVisibility(rootDir, manifest.external)
   for (const item of quarantined) {
     const ownership = item.previouslyOwned ? 'stale or modified managed' : 'unverified pre-ledger'
@@ -676,11 +830,11 @@ export async function runInstaller({
   for (const agent of KNOWN_AGENTS) {
     const harnessDir = join(rootDir, ...AGENT_DIRECTORIES[agent])
     if (ignoredAgents.includes(agent)) {
-      cleanManagedLinks(harnessDir, join(rootDir, '.ai', 'skills'), join(rootDir, '.agents', 'skills'))
+      cleanManagedLinks(rootDir, harnessDir, join(rootDir, '.ai', 'skills'), join(rootDir, '.agents', 'skills'))
     } else if (linkAgents.includes(agent)) {
       installAgentLinks(rootDir, agent, allInstalled, localSkills, options.legacyLinks, platform)
     } else {
-      cleanManagedLinks(harnessDir, join(rootDir, '.ai', 'skills'), join(rootDir, '.agents', 'skills'))
+      cleanManagedLinks(rootDir, harnessDir, join(rootDir, '.ai', 'skills'), join(rootDir, '.agents', 'skills'))
     }
   }
   console.log(`Installed ${localSkills.length} local skills across ${tiers.length} tier(s): ${tiers.join(', ')}.`)
