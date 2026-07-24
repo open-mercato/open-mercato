@@ -1,13 +1,13 @@
 # {{PROJECT_NAME}} — Standalone App Agent Rules
 
-Build this standalone extension of installed Open Mercato packages. Route before loading context; load every match.
+Extend this installed Open Mercato app. Route first; load every match.
 
 ## Always
 
 - **MUST route before coding** — match all rows in the three-axis router; when a routed file is missing, run `yarn mercato agentic:init` and retry.
 - **MUST keep framework packages read-only** — app code belongs in `src/modules/<id>/`; use `om-framework-context` to inspect exact installed source and instructions.
-- **MUST preserve the host scope contract** — organization-owned business data requires trusted `tenantId` + `organizationId` and fails closed when either is unavailable. Tenant-wide/system scope is allowed only when the installed contract explicitly declares it (for example `organizationId: null`) and must never widen access to organization-scoped data.
-- **MUST use canonical primitives** — commands for domain writes, `makeCrudRoute` for CRUD APIs, `CrudForm`/`DataTable` for admin CRUD, DI for services, events for cross-module side effects, and UMES for installed-module customization.
+- **MUST preserve host scope** — organization-owned data requires trusted `tenantId` + `organizationId` and fails closed. Tenant-wide/system scope is valid only when the installed contract declares it (for example `organizationId: null`) and never widens organization data.
+- **MUST use canonical primitives** — commands for writes, `makeCrudRoute` for CRUD, `CrudForm`/`DataTable` for admin UI, DI for services, events for cross-module effects, and UMES for installed-module customization.
 - **MUST use the canonical paths** — entities live in `src/modules/<id>/data/entities.ts`; API handlers live under `api/**/route.ts` and export per-method `metadata` plus `openApi`.
 - **MUST preserve editable records** — new user-editable entities expose `updated_at`/`updatedAt`; custom update/delete clients send the record version and surface 409 conflicts.
 - **MUST treat schema generation as a probe** — run `yarn db:generate`, review scoped SQL and the module snapshot, and ask before applying it.
@@ -17,7 +17,7 @@ Build this standalone extension of installed Open Mercato packages. Route before
 
 ## Ask First
 
-- Ask before reducing scope, changing architecture or public contracts, adding production dependencies, ejecting an installed module, or replacing a canonical framework primitive.
+- Ask before reducing scope, changing architecture/contracts, adding production dependencies, ejecting a module, or replacing a canonical primitive.
 - Ask before applying migrations, resetting data, changing database targets, enabling live credentials, or calling a real external provider from tests.
 - Ask before weakening authentication, tenant/organization scope, encryption, mutation approval, optimistic locking, retries, idempotency, or audit/undo behavior.
 
@@ -47,15 +47,15 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 ## Three-Axis Context Assembler
 
-Start with this root only. Match all three axes and load their de-duplicated union. A CRM lead-capture app may match a new module, installed `customers`/`sales` facts, data, commands, UI, events, integration, and SDLC rows.
+Start with this root. Match all axes and load their de-duplicated union. A CRM lead-capture app may need a module, `customers`/`sales` facts, data, commands, UI, events, integration, and SDLC rows.
 
-Use these evaluator route IDs exactly when reporting a route: `architecture`, `module-data`, `backend-ui`, `umes`, `integration`, `ai-workflow`, `testing`, `debugging`, `framework-context`, and `spec-pr`.
+Route IDs: `architecture`, `module-data`, `backend-ui`, `umes`, `integration`, `ai-workflow`, `testing`, `debugging`, `framework-context`, `spec-pr`.
 
-Route only the requested outcome. Select `testing` only to write/run tests; naming the smallest validation does not count. Select `debugging` only for a reported failure, security issue, or drift. For spec decomposition, select only `spec-pr`/spec skill; phase names do not load implementation routes. For a planning-only module request, `om-module-scaffold` owns the plan; defer execution skills. Do not infer areas from referenced specs or PRs.
+Route only the requested outcome. `testing` requires writing/running tests; `debugging` requires a failure, security issue, or drift. Spec decomposition selects only `spec-pr`; phase names do not load implementation routes. Planning-only module work uses `om-module-scaffold`, without execution skills. Do not infer areas from specs/PRs.
 
 ### Axis 1 — Area and Ownership
 
-Choose every changed area first; this determines ownership and concept contracts.
+Choose every changed area first.
 
 | Route ID | Area / ownership decision | Add to context |
 |---|---|---|
@@ -67,11 +67,11 @@ Choose every changed area first; this determines ownership and concept contracts
 | `ai-workflow` | AI agent/tool/orchestrator or durable workflow | Owning app module; `.ai/guides/ai-workflows.md`; target facts when extending |
 | `debugging` | Bug, security issue, generated drift, or runtime inconsistency | Existing owning call site; `.ai/guides/testing-debugging.md`; affected areas |
 
-Defaults: app domains and app-specific providers live in `src/modules/<id>/`; installed customization uses UMES/overrides. A reusable provider is a separately published dependency, not an undeclared `packages/*` workspace; ask before changing repository topology. Inspect and ask before ejecting. `node_modules` stays read-only.
+Defaults: app domains/providers live in `src/modules/<id>/`; installed customization uses UMES/overrides. Reusable providers are published dependencies, never undeclared `packages/*` workspaces; ask before topology changes or ejection. `node_modules` stays read-only.
 
 ### Axis 2 — Work Units and Primitives
 
-Split the outcome into verifiable units and match all rows. Load thin procedures and only their needed references.
+Split the outcome into verifiable units; match all rows.
 
 | Evaluator route ID | Work unit | Procedure and concept context |
 |---|---|---|
@@ -112,11 +112,10 @@ If the selected skill is absent, run `yarn install-skills` once and retry; do no
 
 ### Token-Efficient Assembly Policy
 
-- Root policy/router is the only initial instruction set.
-- Guides are concept contracts; load each match once. Skills are thin procedures; open only branch-specific references.
+- This root is the only initial instruction set. Load each matched guide once and only branch-specific skill references.
 - Facts supply target identifiers/surfaces, not general teaching.
 - Inspect app call sites first; `framework-context` is the last mile for one exact installed target and bounded query.
-- De-duplicate by path/skill. Never preload all facts, catalogs, references, upstream guides, or package source.
+- De-duplicate by path/skill; never preload all facts, catalogs, references, upstream guides, or source.
 - Each work unit carries only its area, primitive contract, relevant facts, and delivery workflow.
 
 ## Module-Specific Facts
