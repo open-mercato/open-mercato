@@ -129,7 +129,7 @@ export function resolveFields(fieldSets: CustomFieldSet[]): CustomFieldDefinitio
   return resolved.sort((a, b) => {
     const byPriority = (a.priority ?? 0) - (b.priority ?? 0)
     if (byPriority !== 0) return byPriority
-    return a.key.localeCompare(b.key)
+    return (declarationOrder.get(a.key) ?? 0) - (declarationOrder.get(b.key) ?? 0)
   })
 }
 

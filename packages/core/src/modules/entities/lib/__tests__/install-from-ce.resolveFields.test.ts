@@ -33,6 +33,22 @@ describe('resolveFields (#4378)', () => {
     expect(resolved.map((field) => field.priority)).toEqual([10, 20, 30])
   })
 
+  it('keeps declaration order when explicit and derived priorities tie', () => {
+    const resolved = resolveFields([
+      {
+        entity: 'crm:company',
+        fields: [
+          { key: 'zeta', kind: 'text' },
+          { key: 'alpha', kind: 'text', priority: 0 },
+          { key: 'omega', kind: 'text', priority: 0 },
+        ],
+      },
+    ] as never)
+
+    expect(resolved.map((field) => field.key)).toEqual(['zeta', 'alpha', 'omega'])
+    expect(resolved.map((field) => field.priority)).toEqual([0, 0, 0])
+  })
+
   it('merges field sets by key while keeping the first declaration position', () => {
     const resolved = resolveFields([
       {
