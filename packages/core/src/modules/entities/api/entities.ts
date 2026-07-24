@@ -68,6 +68,7 @@ export async function GET(req: Request) {
       labelField: (c as any).labelField ?? undefined,
       defaultEditor: (c as any).defaultEditor ?? undefined,
       showInSidebar: (c as any).showInSidebar ?? false,
+      accessRestricted: (c as any).accessRestricted ?? false,
       updatedAt: c.updatedAt instanceof Date ? c.updatedAt.toISOString() : (c.updatedAt ?? undefined),
     }))
 
@@ -113,6 +114,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   }
   const input = parsed.data
+  // Distinguish "caller did not send the field" (apply tenant default-restricted
+  // policy on create) from "caller explicitly chose false".
+  const accessRestrictedExplicit = body != null && typeof body === 'object'
+    && Object.prototype.hasOwnProperty.call(body, 'accessRestricted')
 
   const container = await createRequestContainer()
   const { resolve } = container
@@ -157,6 +162,7 @@ export async function POST(req: Request) {
   })
   if (guard.blockedResponse) return guard.blockedResponse
 
+  const isCreate = !ent
   if (!ent) ent = em.create(CustomEntity, { ...where, createdAt: new Date() })
   ent.label = input.label
   ent.description = input.description ?? null
@@ -164,6 +170,27 @@ export async function POST(req: Request) {
   ent.labelField = input.labelField ?? ent.labelField ?? null
   ent.defaultEditor = input.defaultEditor ?? ent.defaultEditor ?? null
   ent.showInSidebar = input.showInSidebar ?? ent.showInSidebar ?? false
+  // Never silently flip a security control on a partial upsert. `access_restricted`
+  // changes ONLY when the caller explicitly sends the field. On create without it,
+  // fall back to the tenant default-restricted policy; on update without it, keep
+  // the entity's current value (a metadata-only update must not un-restrict).
+  if (accessRestrictedExplicit) {
+    ent.accessRestricted = input.accessRestricted === true
+  } else if (isCreate) {
+    let policyDefault = false
+    try {
+      const moduleConfigService = resolve('moduleConfigService') as {
+        getValue: (m: string, n: string, o?: { defaultValue?: unknown; scope?: { tenantId?: string | null } }) => Promise<unknown>
+      }
+      policyDefault = (await moduleConfigService.getValue('entities', 'newEntitiesRestrictedByDefault', {
+        defaultValue: false,
+        scope: { tenantId: auth.tenantId ?? null },
+      })) === true
+    } catch {}
+    ent.accessRestricted = policyDefault
+  } else {
+    ent.accessRestricted = ent.accessRestricted ?? false
+  }
   ent.updatedAt = new Date()
   em.persist(ent)
   await em.flush()
@@ -229,6 +256,7 @@ const entitySummarySchema = z.object({
   labelField: z.string().optional(),
   defaultEditor: z.string().optional(),
   showInSidebar: z.boolean().optional(),
+  accessRestricted: z.boolean().optional(),
   updatedAt: z.string().optional(),
   count: z.number(),
 })
