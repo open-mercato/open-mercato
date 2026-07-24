@@ -22,9 +22,9 @@ export type BuildPortalNavOptions = {
   routes: readonly FrontendRouteManifestEntry[]
   /** Current customer org slug — substituted into `[orgSlug]` patterns. */
   orgSlug: string
-  /** Feature strings granted to the current customer (may include wildcards). */
+  /** Concrete effective features granted to the current customer. */
   grantedFeatures: readonly string[]
-  /** If true, bypass feature checks (portal admin). Defaults to false. */
+  /** @deprecated Portal admins must receive concrete effective features. */
   isPortalAdmin?: boolean
 }
 
@@ -75,7 +75,6 @@ export function buildPortalNav({
   routes,
   orgSlug,
   grantedFeatures,
-  isPortalAdmin = false,
 }: BuildPortalNavOptions): PortalNavGroup[] {
   const mainItems: PortalNavItem[] = []
   const accountItems: PortalNavItem[] = []
@@ -96,7 +95,7 @@ export function buildPortalNav({
     const nav = route.nav!
 
     const requireFeatures = route.requireCustomerFeatures ?? []
-    if (!isPortalAdmin && requireFeatures.length) {
+    if (requireFeatures.length) {
       if (!hasAllFeatures(grantedFeatures as string[], requireFeatures as string[])) continue
     }
 

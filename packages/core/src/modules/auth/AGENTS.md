@@ -68,12 +68,14 @@ Features are string-based permissions: `<module>.<action>` (e.g., `users.view`, 
 - Features are assigned to roles and users through ACLs
 - Pages/APIs use `requireFeatures` in metadata for access control
 - Server-side check: `rbacService.userHasAllFeatures(userId, features, { tenantId, organizationId })`
-- Wildcards are first-class ACL grants: `module.*` and `*` must satisfy matching concrete features in every runtime check, not only in page/API guards.
-- When code inspects raw granted feature arrays instead of calling `rbacService`, MUST use shared helpers such as `matchFeature` / `hasFeature` / `hasAllFeatures` rather than `includes(...)`.
+- Wildcards are first-class stored grants, but server decisions MUST flow through `rbacService.userHasAllFeatures` or shared `authorizeFeatures`.
+- Nulled ACL overrides, disabled modules, and organization scope are evaluated before the super-admin bypass.
+- Use `rbacService.getEffectiveFeatures` for chrome/capability payloads; it expands wildcards to concrete active IDs.
+- Keep `matchFeature` / `hasFeature` / `hasAllFeatures` for browser checks over effective projections and isolated matching utilities, not server authorization.
 
 ### Special Flags
 
-- `isSuperAdmin` — bypasses all feature checks (all features granted)
+- `isSuperAdmin` — bypasses stored-grant matching, but not invalid scope, disabled modules, or nulled ACL features
 - Organization visibility list — restricts which organizations a user can access
 
 ### Declarative Guards

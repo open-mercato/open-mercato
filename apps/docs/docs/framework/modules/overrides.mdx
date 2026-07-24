@@ -113,6 +113,10 @@ export const moduleOverrideExamples: ModuleOverrides = {
 }
 ```
 
+Setting an ACL feature to `null` is an exact runtime denial, not only a catalog change. The denial wins over a stale explicit database grant, `module.*`, `*`, staff super-admin, and portal-admin status. Open Mercato intentionally does not migrate or delete stored grants: they remain inert while the null override exists and become effective again if a higher-precedence definition restores the feature or the null override is removed.
+
+Browser capability fields contain the concrete effective feature IDs after ACL and module overrides are applied. They do not contain wildcard strings or a separate deny-list.
+
 `setup` overrides apply to the module entry that carries them. For example, `setup: { seedExamples: false }` on `{ id: 'catalog', ... }` skips catalog's `seedExamples` hook; it does not address setup hooks by a separate map key.
 
 ### Routes

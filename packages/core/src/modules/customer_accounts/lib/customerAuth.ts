@@ -15,6 +15,7 @@ export interface CustomerAuthContext {
   customerEntityId?: string | null
   personEntityId?: string | null
   resolvedFeatures: string[]
+  isPortalAdmin?: boolean
 }
 
 async function assertSessionStillActive(sessionId: string): Promise<boolean> {
@@ -48,7 +49,7 @@ export function readCookieFromHeader(header: string | null | undefined, name: st
 
 export type UserValidationResult =
   | { valid: false }
-  | { valid: true; resolvedFeatures: string[] }
+  | { valid: true; resolvedFeatures: string[]; isPortalAdmin: boolean }
 
 export async function validateUserState(
   sub: string,
@@ -77,7 +78,11 @@ export async function validateUserState(
   )
   const rbac = container.resolve('customerRbacService') as InstanceType<typeof CustomerRbacService>
   const acl = await rbac.loadAcl(sub, { tenantId, organizationId: orgId })
-  return { valid: true, resolvedFeatures: acl.isPortalAdmin ? ['*'] : acl.features }
+  const resolvedFeatures = await rbac.getEffectiveFeatures(sub, {
+    tenantId,
+    organizationId: orgId,
+  })
+  return { valid: true, resolvedFeatures, isPortalAdmin: acl.isPortalAdmin }
 }
 
 export async function getCustomerAuthFromRequest(req: Request): Promise<CustomerAuthContext | null> {
@@ -134,6 +139,7 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
       customerEntityId: payload.customerEntityId ? String(payload.customerEntityId) : null,
       personEntityId: payload.personEntityId ? String(payload.personEntityId) : null,
       resolvedFeatures: userState.resolvedFeatures,
+      isPortalAdmin: userState.isPortalAdmin,
     }
   } catch {
     // Invalid or expired JWT — treat as unauthenticated

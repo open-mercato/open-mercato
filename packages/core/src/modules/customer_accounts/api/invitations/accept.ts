@@ -39,11 +39,10 @@ export async function POST(req: Request) {
   }
 
   const { user, invitation } = result
-  const acl = await customerRbacService.loadAcl(user.id, {
+  const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
     tenantId: user.tenantId,
     organizationId: user.organizationId,
   })
-  const resolvedFeatures = acl.features
 
   const ip = getClientIp(req, 0)
   const userAgent = req.headers.get('user-agent') || null

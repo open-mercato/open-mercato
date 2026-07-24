@@ -24,6 +24,19 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.5 → 0.6.6 (unreleased)
 
+### ACL feature policy and concrete capability payloads
+
+Server authorization now uses one shared feature policy across staff and customer realms. A final `entry.overrides.acl.features['feature.id'] = null` is an exact runtime denial: stale explicit grants, matching wildcards, staff super-admin, and portal-admin no longer authorize that feature. Disabled-module requirements are evaluated by the same policy. Stored role/user ACL rows are not migrated or deleted; removing the null override makes preserved grants effective again.
+
+The existing browser/JWT fields keep their names and `string[]` shapes, but their values now contain concrete effective feature IDs:
+
+- `BackendChromePayload.grantedFeatures`
+- customer login, invitation, magic-link, refresh, profile, request context, and portal navigation `resolvedFeatures` / `grantedFeatures`
+
+These arrays no longer contain `*` or namespace wildcard strings. Downstream clients that inspect wildcards must switch to checking concrete feature IDs. Portal code must use the explicit `isPortalAdmin` boolean rather than infer admin status from `portal.*`. Raw `loadAcl` and `getGrantedFeatures` remain available for ACL management and inspection; server authorization should call the realm `userHasAllFeatures` method or shared `authorizeFeatures`.
+
+No database migration is required.
+
 ### Opt-in per-entity ACL for custom-entity records (#3857)
 
 Follow-up to the #2612 records-API hardening, which deliberately left custom/EAV entities on the coarse `entities.records.view` / `entities.records.manage` path. Those two features were **entity-agnostic**: any holder could read/modify/delete records of *every* custom entity in their tenant, so sensitive custom entities (salaries, board minutes) could not be compartmentalized from ordinary ones (intra-tenant horizontal privilege; cross-tenant was already blocked).

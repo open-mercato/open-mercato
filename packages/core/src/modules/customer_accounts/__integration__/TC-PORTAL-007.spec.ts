@@ -12,14 +12,14 @@ import {
 
 /**
  * TC-PORTAL-007 [P2]: Portal feature-check returns the granted subset of the
- * requested features, honouring wildcard grants and the portal-admin bypass.
+ * requested features, honouring wildcard grants and the portal-admin policy.
  *
  * Surface: POST /api/customer_accounts/portal/feature-check
  * Source: issue #2463.
  *
  * Verified contract:
  *   - granted = requested features that match the user's ACL (wildcard-aware)
- *   - portal admin (isPortalAdmin) → all requested features granted
+ *   - portal admin (isPortalAdmin) → active requested features granted
  *   - 401 without auth; body schema requires 1..100 features (empty → 400)
  */
 
@@ -108,14 +108,15 @@ test.describe('TC-PORTAL-007: portal feature-check matching', () => {
       expect(wildcardGranted).toContain('portal.users.roles.manage')
       expect(wildcardGranted).not.toContain('nonexistent.feature')
 
-      // Portal admin is granted everything it asks for, even non-portal features.
+      // Portal admin bypasses grants, but the shared policy still rejects
+      // requirements that are not owned by an enabled module.
       const adminRes = await request.post(ENDPOINT, {
-        data: { features: ['admin.audit', 'anything.else'] },
+        data: { features: ['portal.account.manage', 'anything.else'] },
         headers: portalCookieHeaders(adminSession, JSON_HEADER),
       })
       expect(adminRes.status()).toBe(200)
       const adminBody = await readJsonSafe<FeatureCheckResponse>(adminRes)
-      expect(adminBody?.granted).toEqual(['admin.audit', 'anything.else'])
+      expect(adminBody?.granted).toEqual(['portal.account.manage'])
     } finally {
       for (const id of userIds) await deleteCustomerUserFixture(request, adminToken, id)
       for (const id of roleIds) await deleteCustomerRoleFixture(request, adminToken, id)

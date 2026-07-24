@@ -31,6 +31,7 @@ type FeatureRegistry = {
   enabledModuleSet: Set<string>
   featureToModule: Map<string, string>
   prefixToModule: Map<string, string>
+  concreteFeatureIds: string[]
 }
 
 let cachedRegistry: FeatureRegistry | null = null
@@ -41,23 +42,63 @@ function buildRegistry(modules: readonly Module[]): FeatureRegistry {
   const enabledModuleSet = new Set(enabledModuleIds)
   const featureToModule = new Map<string, string>()
   const prefixToModule = new Map<string, string>()
+  const concreteFeatureIds: string[] = []
+  const concreteFeatureSet = new Set<string>()
+
+  const addConcreteFeature = (featureId: string, owningModule: string, authoritative: boolean) => {
+    if (!featureId || featureId === '*' || featureId.endsWith('.*')) return
+    if (!concreteFeatureSet.has(featureId)) {
+      concreteFeatureSet.add(featureId)
+      concreteFeatureIds.push(featureId)
+    }
+    if (authoritative || !featureToModule.has(featureId)) {
+      featureToModule.set(featureId, owningModule)
+    }
+    const dot = featureId.indexOf('.')
+    if (dot > 0) {
+      const prefix = featureId.slice(0, dot)
+      if (!prefixToModule.has(prefix)) prefixToModule.set(prefix, owningModule)
+    }
+  }
+
   for (const mod of modules) {
     const features = mod.features
-    if (!Array.isArray(features)) continue
-    for (const feature of features) {
-      if (!feature || typeof feature.id !== 'string' || !feature.id) continue
-      const declared = typeof feature.module === 'string' && feature.module.length > 0
-        ? feature.module
-        : mod.id
-      featureToModule.set(feature.id, declared)
-      const dot = feature.id.indexOf('.')
-      if (dot > 0) {
-        const prefix = feature.id.slice(0, dot)
-        if (!prefixToModule.has(prefix)) prefixToModule.set(prefix, declared)
+    if (Array.isArray(features)) {
+      for (const feature of features) {
+        if (!feature || typeof feature.id !== 'string' || !feature.id) continue
+        const declared = typeof feature.module === 'string' && feature.module.length > 0
+          ? feature.module
+          : mod.id
+        addConcreteFeature(feature.id, declared, true)
+      }
+    }
+
+    const customerDefaults = mod.setup?.defaultCustomerRoleFeatures
+    if (customerDefaults) {
+      for (const roleFeatures of Object.values(customerDefaults)) {
+        if (!Array.isArray(roleFeatures)) continue
+        for (const featureId of roleFeatures) {
+          if (typeof featureId === 'string') addConcreteFeature(featureId, mod.id, false)
+        }
+      }
+    }
+
+    if (Array.isArray(mod.frontendRoutes)) {
+      for (const route of mod.frontendRoutes) {
+        if (!Array.isArray(route.requireCustomerFeatures)) continue
+        for (const featureId of route.requireCustomerFeatures) {
+          if (typeof featureId === 'string') addConcreteFeature(featureId, mod.id, false)
+        }
       }
     }
   }
-  return { enabledModuleIds, enabledModuleSet, featureToModule, prefixToModule }
+  return {
+    enabledModuleIds,
+    enabledModuleSet,
+    featureToModule,
+    prefixToModule,
+    concreteFeatureIds,
+  }
 }
 
 function getRegistry(): FeatureRegistry | null {
@@ -91,6 +132,17 @@ export function getOwningModuleId(featureId: string): string {
 export function getEnabledModuleIds(): string[] {
   const registry = getRegistry()
   return registry ? [...registry.enabledModuleIds] : []
+}
+
+/** @internal Infrastructure input for concrete feature-policy projection. */
+export function getConcreteFeatureIds(): string[] {
+  const registry = getRegistry()
+  return registry ? [...registry.concreteFeatureIds] : []
+}
+
+/** @internal Distinguishes an empty registry from an unavailable bootstrap registry. */
+export function hasEnabledModulesRegistry(): boolean {
+  return getRegistry() !== null
 }
 
 /**

@@ -120,6 +120,9 @@ export const enabledModules: ModuleEntry[] = [
     id: 'example',
     from: '@app',
     overrides: {
+      acl: {
+        features: { 'example.manage': null },
+      },
       routes: {
         api: {
           'GET /api/example/override-probe': {

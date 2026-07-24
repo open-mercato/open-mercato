@@ -1,5 +1,4 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { deriveCustomEntityRecordFeature } from './recordFeatures'
 
@@ -105,11 +104,16 @@ export async function assertEntityAclForRequest(args: AssertEntityAclArgs): Prom
     // entities.records.view/.manage route guard is the whole authorization.
     if (!args.isRestricted) return
 
-    const acl = await loadActorAcl(args)
-    if (acl?.isSuperAdmin) return
-
     const required = deriveCustomEntityRecordFeature(args.entityId, args.action)
-    if (!hasAllFeatures(acl?.features, [required])) {
+    const allowed = await args.rbac.userHasAllFeatures(
+      args.auth.sub ?? '',
+      [required],
+      {
+        tenantId: args.auth.tenantId ?? null,
+        organizationId: args.auth.orgId ?? null,
+      },
+    )
+    if (!allowed) {
       throw forbiddenEntityAccess()
     }
     return
@@ -117,14 +121,26 @@ export async function assertEntityAclForRequest(args: AssertEntityAclArgs): Prom
 
   const requirement = resolveEntityAclRequirement(args.entityId)
 
-  const acl = await loadActorAcl(args)
+  if (!requirement) {
+    const acl = await loadActorAcl(args)
+    if (!acl.isSuperAdmin) throw forbiddenEntityAccess()
+    return
+  }
 
-  if (acl?.isSuperAdmin) return
+  if (requirement.platformOnly) {
+    const acl = await loadActorAcl(args)
+    if (!acl.isSuperAdmin) throw forbiddenEntityAccess()
+  }
 
-  if (!requirement) throw forbiddenEntityAccess()
-  if (requirement.platformOnly) throw forbiddenEntityAccess()
-
-  if (!hasAllFeatures(acl?.features, requirement[args.action])) {
+  const allowed = await args.rbac.userHasAllFeatures(
+    args.auth.sub ?? '',
+    requirement[args.action],
+    {
+      tenantId: args.auth.tenantId ?? null,
+      organizationId: args.auth.orgId ?? null,
+    },
+  )
+  if (!allowed) {
     throw forbiddenEntityAccess()
   }
 }

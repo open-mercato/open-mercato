@@ -14,6 +14,14 @@ type AclResult = {
 function makeRbac(result: AclResult) {
   return {
     loadAcl: jest.fn().mockResolvedValue(result),
+    userHasAllFeatures: jest.fn().mockImplementation(async (
+      _userId: string,
+      required: string[],
+    ) => result.isSuperAdmin || required.every((feature) => (
+      result.features.includes(feature)
+      || result.features.includes('*')
+      || result.features.some((grant) => grant.endsWith('.*') && feature.startsWith(grant.slice(0, -1)))
+    ))),
   }
 }
 
@@ -172,6 +180,7 @@ describe('assertEntityAclForRequest', () => {
       }),
     ).resolves.toBeUndefined()
     expect(rbac.loadAcl).not.toHaveBeenCalled()
+    expect(rbac.userHasAllFeatures).not.toHaveBeenCalled()
   })
 
   test('a restricted custom entity is denied when the per-entity feature is missing', async () => {
