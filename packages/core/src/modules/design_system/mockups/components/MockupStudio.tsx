@@ -49,6 +49,10 @@ import { MockupStage } from './MockupStage'
  * document and PUTs it with the load-time `baseHash`; a 409 (concurrent edit
  * — human, agent, or another tab) prompts reload-and-reapply. The studio
  * holds no state the file doesn't: closing it loses nothing that was saved.
+ *
+ * optimistic-lock-exempt: mockups are dev-only repo FILES, not tenant
+ * entities — concurrency rides the document-level `baseHash` (409 + reload
+ * flow above), not the entity version header.
  */
 
 type FamilyGroup = { id: string; label: string; entries: GalleryEntry[] }

@@ -54,12 +54,12 @@ export function collectTextProps(document: MockupDocument): TextPropRef[] {
     }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       const record = value as Record<string, unknown>
-      for (const key of Object.keys(record).sort()) walk(blockId, [...path, key], record[key])
+      for (const key of Object.keys(record).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) walk(blockId, [...path, key], record[key])
     }
   }
   for (const leaf of collectLeaves(document.root)) {
     if (leaf.type !== 'block' || !leaf.props) continue
-    for (const key of Object.keys(leaf.props).sort()) walk(leaf.id, [key], leaf.props[key])
+    for (const key of Object.keys(leaf.props).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) walk(leaf.id, [key], leaf.props[key])
   }
   return refs
 }

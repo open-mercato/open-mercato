@@ -93,7 +93,7 @@ function listMockupFilesIn(dir: string): string[] {
         return false
       }
     })
-    .sort()
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 export function discoverMockupFiles(repoRoot: string | null = findRepoRoot()): Array<{
@@ -107,10 +107,10 @@ export function discoverMockupFiles(repoRoot: string | null = findRepoRoot()): A
   }
   const packagesDir = path.join(repoRoot, 'packages')
   if (fs.existsSync(packagesDir)) {
-    for (const pkg of fs.readdirSync(packagesDir).sort()) {
+    for (const pkg of fs.readdirSync(packagesDir).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
       const modulesDir = path.join(packagesDir, pkg, 'src', 'modules')
       if (!fs.existsSync(modulesDir)) continue
-      for (const moduleName of fs.readdirSync(modulesDir).sort()) {
+      for (const moduleName of fs.readdirSync(modulesDir).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
         const mockupsDir = path.join(modulesDir, moduleName, 'mockups')
         for (const filePath of listMockupFilesIn(mockupsDir)) {
           found.push({ filePath, source: 'module' })

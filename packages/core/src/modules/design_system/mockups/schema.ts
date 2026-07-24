@@ -333,7 +333,7 @@ export function stableContentString(document: MockupDocument): string {
     if (value && typeof value === 'object') {
       const source = value as Record<string, unknown>
       const result: Record<string, unknown> = {}
-      for (const key of Object.keys(source).sort()) {
+      for (const key of Object.keys(source).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
         if (key === 'findings' || key === 'documentFindings') continue
         if (atRoot && key === 'draft') continue
         result[key] = strip(source[key], false)

@@ -44,7 +44,7 @@ export function discoverSnapshotFiles(
   const dir = versionsDir(repoRoot)
   if (!fs.existsSync(dir)) return []
   const refs: MockupSnapshotRef[] = []
-  for (const name of fs.readdirSync(dir).sort()) {
+  for (const name of fs.readdirSync(dir).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     const parsed = parseSnapshotFileName(name)
     if (!parsed) continue
     const filePath = path.join(dir, name)

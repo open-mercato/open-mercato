@@ -53,7 +53,7 @@ function stableValue(value: unknown): string {
     if (input && typeof input === 'object') {
       const source = input as Record<string, unknown>
       const result: Record<string, unknown> = {}
-      for (const key of Object.keys(source).sort()) result[key] = sort(source[key])
+      for (const key of Object.keys(source).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) result[key] = sort(source[key])
       return result
     }
     return input
