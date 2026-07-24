@@ -22,6 +22,8 @@ import {
   type WorkflowDefinitionTrigger,
 } from '../data/entities'
 import { startWorkflow, executeWorkflow } from './workflow-executor'
+import { getAllCodeWorkflows } from './code-registry'
+import { codeWorkflowUuid } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows').child({ component: 'event-trigger' })
@@ -59,7 +61,7 @@ export interface UnifiedTrigger {
   workflowDefinitionId: string
   workflowId: string
   workflowVersion: number
-  source: 'legacy' | 'embedded'
+  source: 'legacy' | 'embedded' | 'code'
   tenantId: string
   organizationId: string
 }
@@ -413,12 +415,17 @@ async function loadLegacyTriggers(
 /**
  * Load embedded triggers from workflow definitions.
  * New triggers are embedded directly in the definition JSONB.
+ *
+ * Also returns the set of every enabled DB definition's `workflowId` — even
+ * those with no triggers — so the caller can let a materialized (customized)
+ * definition suppress its code-registry counterpart regardless of whether the
+ * customization kept any triggers (#4425).
  */
 async function loadEmbeddedTriggers(
   em: EntityManager,
   tenantId: string,
   organizationId: string
-): Promise<UnifiedTrigger[]> {
+): Promise<{ triggers: UnifiedTrigger[]; workflowIds: Set<string> }> {
   const postgresEm = em as unknown as PostgreSqlEntityManager
   // Load all enabled definitions that may have triggers
   const definitions = await findWithDecryption(
@@ -435,8 +442,11 @@ async function loadEmbeddedTriggers(
   )
 
   const triggers: UnifiedTrigger[] = []
+  const workflowIds = new Set<string>()
 
   for (const def of definitions) {
+    workflowIds.add(def.workflowId)
+
     const embeddedTriggers = def.definition?.triggers as WorkflowDefinitionTrigger[] | undefined
     if (!embeddedTriggers || embeddedTriggers.length === 0) continue
 
@@ -462,12 +472,70 @@ async function loadEmbeddedTriggers(
     }
   }
 
+  return { triggers, workflowIds }
+}
+
+/**
+ * Project triggers declared on code-defined workflows into UnifiedTriggers.
+ *
+ * Code workflows live only in the in-memory registry, so their `triggers`
+ * arrays never reached the DB-backed loaders — a code-declared trigger was inert
+ * until an operator ran `POST …/code:<id>/customize` to materialize the
+ * definition into a `workflow_definitions` row (#4425). This projects them
+ * directly. It is synchronous (no DB) and scoped to the caller's tenant/org via
+ * the deterministic virtual definition id, matching what `startWorkflow`
+ * persists as the instance's `definitionId` so the concurrency limit counts
+ * correctly.
+ *
+ * `dbBackedWorkflowIds` are workflowIds already contributed by the legacy or
+ * embedded (DB) sources; a code workflow whose id appears there is skipped so a
+ * customized DB override wins and its trigger is not double-registered.
+ */
+export function loadCodeTriggers(
+  tenantId: string,
+  organizationId: string,
+  dbBackedWorkflowIds: Set<string>,
+): UnifiedTrigger[] {
+  const triggers: UnifiedTrigger[] = []
+
+  for (const codeDef of getAllCodeWorkflows()) {
+    if (!codeDef.enabled) continue
+    if (dbBackedWorkflowIds.has(codeDef.workflowId)) continue
+
+    const embeddedTriggers = codeDef.definition?.triggers
+    if (!embeddedTriggers || embeddedTriggers.length === 0) continue
+
+    const definitionId = codeWorkflowUuid(codeDef.workflowId)
+    for (const trigger of embeddedTriggers) {
+      if (!trigger.enabled) continue
+
+      triggers.push({
+        id: `code:${codeDef.workflowId}:${trigger.triggerId}`,
+        triggerId: trigger.triggerId,
+        name: trigger.name,
+        description: trigger.description ?? null,
+        eventPattern: trigger.eventPattern,
+        config: (trigger.config ?? null) as WorkflowEventTriggerConfig | null,
+        enabled: trigger.enabled,
+        priority: trigger.priority,
+        workflowDefinitionId: definitionId,
+        workflowId: codeDef.workflowId,
+        workflowVersion: codeDef.version,
+        source: 'code' as const,
+        tenantId,
+        organizationId,
+      })
+    }
+  }
+
   return triggers
 }
 
 /**
  * Load all enabled triggers for a tenant/organization with caching.
- * Merges both legacy (entity) triggers and embedded (definition) triggers.
+ * Merges legacy (entity), embedded (definition), and code-registry triggers;
+ * a DB-backed source for a given workflowId takes precedence over its code
+ * trigger so `customize` semantics are preserved.
  */
 export async function loadTriggersForTenant(
   em: EntityManager,
@@ -484,14 +552,24 @@ export async function loadTriggersForTenant(
     return cached.triggers
   }
 
-  // Load from both sources
-  const [legacyTriggers, embeddedTriggers] = await Promise.all([
+  // Load from both DB sources
+  const [legacyTriggers, embedded] = await Promise.all([
     loadLegacyTriggers(em, tenantId, organizationId),
     loadEmbeddedTriggers(em, tenantId, organizationId),
   ])
+  const embeddedTriggers = embedded.triggers
+
+  // Project code-registry triggers, letting any DB-backed definition for the
+  // same workflowId win (preserves `customize` override semantics — including
+  // a customization that removed its triggers).
+  const dbBackedWorkflowIds = new Set<string>([
+    ...embedded.workflowIds,
+    ...legacyTriggers.map((t) => t.workflowId),
+  ])
+  const codeTriggers = loadCodeTriggers(tenantId, organizationId, dbBackedWorkflowIds)
 
   // Merge and sort by priority (higher first)
-  const allTriggers = [...legacyTriggers, ...embeddedTriggers]
+  const allTriggers = [...legacyTriggers, ...embeddedTriggers, ...codeTriggers]
     .sort((a, b) => b.priority - a.priority)
 
   // Update cache
