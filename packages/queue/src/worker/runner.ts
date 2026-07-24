@@ -1,5 +1,9 @@
 import { createQueue } from '../factory'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  getTelemetryRuntime,
+  isTelemetryBackendEnabled,
+} from '@open-mercato/shared/lib/telemetry/runtime'
 import type { Queue, JobHandler, AsyncQueueOptions, QueueStrategyType } from '../types'
 
 const logger = createLogger('queue').child({ component: 'worker' })
@@ -66,6 +70,17 @@ function registerShutdownHandlers(): void {
     managedShutdownHooks.clear()
     unregisterShutdownHandlers(sigtermHandler, sigintHandler)
     shutdownInProgress = false
+
+    // Flush buffered spans/logs before the process dies. A worker never returns
+    // from run(), so bin.ts's post-run shutdownTelemetry() is unreachable on this
+    // path — without this, the BatchSpanProcessor's ~5s tail is dropped on every
+    // restart/redeploy. Idempotent and a no-op when telemetry is off; a flush
+    // failure must not turn a clean shutdown into a failed one.
+    try {
+      await getTelemetryRuntime()?.shutdown()
+    } catch (error) {
+      logger.error('Error flushing telemetry during shutdown', { err: error })
+    }
 
     if (!hasError) {
       logger.info('Worker closed successfully')
@@ -134,6 +149,15 @@ export async function runWorker<T = unknown>(
     background = false,
     strategy: strategyOption,
   } = options
+
+  // Worker processes don't run Next's instrumentation hook, so initialize
+  // telemetry here — this is the single bootstrap every standalone worker passes
+  // through. Import the telemetry package only for an explicit enabled backend;
+  // with the default/unset backend the worker never evaluates the package.
+  if (!getTelemetryRuntime() && isTelemetryBackendEnabled()) {
+    const { initTelemetry } = await import('@open-mercato/telemetry')
+    await initTelemetry()
+  }
 
   // Determine queue strategy from option, env var, or default to 'local'
   const strategy: QueueStrategyType = strategyOption
