@@ -113,6 +113,7 @@ If the selected skill is absent, run `yarn install-skills` once and retry; do no
 - Start here; load matched guides once and only branch-specific skill references.
 - Facts supply identifiers/surfaces, not teaching.
 - Inspect app call sites first; use `framework-context` last for one bounded exact target.
+- Load `BACKWARD_COMPATIBILITY.md` before altering a public ID/contract, not for an additive change that preserves it.
 - Never recursively content-search or preload guide, skill, fact, reference, or source trees; open only routed paths.
 - Each unit carries only its area, contract, facts, and delivery workflow.
 

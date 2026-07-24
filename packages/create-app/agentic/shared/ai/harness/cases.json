@@ -5415,7 +5415,6 @@
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".agents/skills/om-integration-tests/SKILL.md",
         ".ai/guides/modules/customers.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
@@ -5436,7 +5435,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Modify the installed customers module's deals pipeline with tenant-configurable stages, probabilities, required fields, transition validation, board and table rendering, ACL-aware actions, translations, and stale-write conflict handling. Preserve the shipped deal and pipeline identifiers and use UMES plus an app-owned policy record only when persistence is necessary; never edit installed package source.",
+    "prompt": "Modify the installed customers module's deals pipeline with tenant-configurable stages, probabilities, required fields, transition validation, board and table rendering, ACL-aware actions, translations, and stale-write conflict handling. This is additive: preserve every shipped deal/pipeline identifier rather than altering a public ID or contract, use UMES plus an app-owned policy record only when persistence is necessary, and never edit installed package source.",
     "tags": ["business", "customers", "deals", "pipeline", "umes"],
     "owner": {
       "kind": "skill",
@@ -5466,8 +5465,8 @@
     "requiredDecisions": ["installed-customers-deals", "extension-policy", "stable-identifiers", "server-transition-validation", "conflict-surfacing"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "packages/core.{0,40}(?:write|edit|patch)", "direct ORM relationship"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 9,
-    "maxInitialContextBytes": 57344,
+    "maxContextFiles": 10,
+    "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 180224,
     "relatedCases": ["OMH-027", "OMH-031", "OMH-075"]
   },

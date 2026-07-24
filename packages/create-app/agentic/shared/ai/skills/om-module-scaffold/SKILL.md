@@ -14,7 +14,7 @@ Create the smallest working vertical slice under `src/modules/<id>/`, using inst
 
 ## Workflow
 
-1. **Plan ownership.** Read `.ai/guides/architecture.md` and `references/planning.md`; confirm app module versus extension/provider/eject. For a business-level one-shot brief, load `references/business-one-shot-blueprints.md` to select the closest complete slice; skip it for an already-specific engineering task.
+1. **Plan ownership.** Read `.ai/guides/architecture.md` and `references/planning.md`; confirm app module versus extension/provider/eject. For a business-level one-shot—including a complete customer or deal customization—load `references/business-one-shot-blueprints.md` to select the closest slice; skip it only for one narrow engineering primitive.
 2. **Model data.** Invoke `om-data-model-design` for persisted entities or sensitive fields; follow `references/data-and-migrations.md`.
 3. **Build domain writes and APIs.** Read `.ai/guides/contracts.md` and `references/api-and-domain.md`; mirror the installed `customers` module through `om-framework-context` when necessary.
 4. **Wire module surfaces.** Follow `references/module-surfaces.md`; use `references/discovery-surface-catalog.md` when the brief spans multiple surfaces or discovery is uncertain. Add only requested surfaces.
