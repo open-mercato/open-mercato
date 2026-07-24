@@ -1,0 +1,480 @@
+/* Layout for the mockup document itself + the module-specific compositions
+   (Kanban board, timesheet grid, report preview) that have no existing
+   primitive in @open-mercato/ui and are proposed by this spec. */
+
+/* ── Mockup document chrome ─────────────────────────────────────── */
+.doc {
+  max-width: 96rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 6rem;
+}
+.doc-head { margin-bottom: 2rem; }
+.doc-head h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; margin: 0 0 0.5rem; }
+.doc-toolbar {
+  position: sticky; top: 0; z-index: var(--z-index-sticky);
+  background: color-mix(in oklab, var(--background) 90%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  padding: 0.75rem 1.5rem;
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+}
+.screen-nav { display: flex; gap: 0.375rem; flex-wrap: wrap; }
+.screen-nav a {
+  text-decoration: none; color: var(--muted-foreground);
+  font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+.screen-nav a:hover { background: var(--accent); color: var(--foreground); }
+
+.screen { margin-top: 3rem; scroll-margin-top: 5rem; }
+.screen-meta { margin-bottom: 0.75rem; }
+.screen-meta h2 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.25rem; }
+.screen-meta p { margin: 0; font-size: 0.875rem; color: var(--muted-foreground); max-width: 65ch; }
+.screen-refs { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.5rem; }
+.ref {
+  font-family: var(--font-geist-mono); font-size: 0.6875rem;
+  padding: 0.125rem 0.375rem; border-radius: var(--radius-sm);
+  background: var(--muted); color: var(--muted-foreground); border: 1px solid var(--border);
+}
+
+/* The app frame each screen is rendered inside */
+.frame {
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  overflow: hidden; background: var(--background); box-shadow: var(--shadow-md);
+}
+.frame-bar {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); background: var(--muted);
+}
+.frame-dots { display: flex; gap: 0.25rem; }
+.frame-dots i { width: 0.5rem; height: 0.5rem; border-radius: 9999px; background: var(--border); display: block; }
+.frame-url {
+  font-family: var(--font-geist-mono); font-size: 0.6875rem; color: var(--muted-foreground);
+  background: var(--background); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 0.0625rem 0.5rem;
+}
+
+/* Annotation callouts */
+.notes { margin-top: 0.75rem; display: grid; gap: 0.5rem; }
+.note {
+  display: flex; gap: 0.625rem; font-size: 0.75rem; color: var(--muted-foreground);
+  padding-left: 0.125rem;
+}
+.note b {
+  flex: none; width: 1.25rem; height: 1.25rem; border-radius: 9999px;
+  background: var(--foreground); color: var(--background);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.6875rem; font-weight: 600;
+}
+.marker {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.125rem; height: 1.125rem; border-radius: 9999px;
+  background: var(--foreground); color: var(--background);
+  font-size: 0.625rem; font-weight: 700; vertical-align: middle;
+}
+
+/* ── App shell ──────────────────────────────────────────────────────
+   Mirrors packages/ui/src/backend/AppShell.tsx:
+   grid lg:grid-cols-[240px_1fr] · aside border-r py-4 px-3 ·
+   header 61px sticky border-b bg-background/95 backdrop-blur ·
+   main flex-1 p-4 lg:p-6 mx-auto max-w-screen-2xl */
+.app { display: grid; grid-template-columns: 240px 1fr; min-height: 40rem; }
+.app-narrow { min-height: 32rem; }
+/* Overlay screens need a taller frame so the whole drawer/modal is visible
+   without scrolling inside the mockup */
+.app-tall { min-height: 50rem; }
+.app-taller { min-height: 60rem; }
+
+.sidebar {
+  background: var(--background); color: var(--sidebar-foreground);
+  border-right: 1px solid var(--border);
+  padding: 1rem 0.75rem;
+  display: flex; flex-direction: column; gap: 0.75rem;
+}
+.sidebar-brand {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.75rem; border-radius: var(--radius-xl);
+  font-size: 0.875rem; font-weight: 500;
+}
+.sidebar-brand:hover { background: var(--muted); }
+.brand-mark {
+  width: 2.5rem; height: 2.5rem; flex: none; border-radius: 9999px;
+  background: var(--foreground); color: var(--background);
+  display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700;
+}
+.sidebar-search {
+  display: inline-flex; width: 100%; align-items: center; gap: 0.5rem;
+  height: 2.25rem; padding: 0 0.75rem;
+  border: 1px solid var(--input); border-radius: var(--radius-md);
+  background: var(--background); box-shadow: var(--shadow-xs);
+  color: var(--muted-foreground); font-size: 0.875rem;
+}
+.sidebar-search svg { width: 1rem; height: 1rem; flex: none; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 0.5rem; flex: 1; padding-left: 0.75rem; margin-left: -0.75rem; }
+.nav-group {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; padding: 0.25rem;
+  font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+}
+.nav-group svg { width: 1rem; height: 1rem; }
+.nav-items { display: flex; flex-direction: column; gap: 0.25rem; }
+.nav-item {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 0.5rem; width: 100%;
+  padding: 0.5rem 0.75rem; border-radius: var(--radius-lg);
+  color: var(--muted-foreground); font-size: 0.875rem; font-weight: 500;
+  text-decoration: none; cursor: pointer;
+}
+.nav-item svg { width: 1rem; height: 1rem; flex: none; }
+.nav-item:hover { background: var(--muted); }
+.nav-item.active { background: var(--muted); color: var(--foreground); }
+/* Active-item indicator bleeds left past the nav padding */
+.nav-item.active::before {
+  content: ""; position: absolute; left: -0.75rem; top: 0.5rem;
+  width: 0.25rem; height: 1.25rem; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--foreground);
+}
+.nav-item .count { margin-left: auto; font-size: 0.75rem; color: var(--muted-foreground); }
+.nav-sep { margin: 0.5rem -0.75rem 0.5rem -0.75rem; border-top: 1px solid var(--border); }
+.sidebar-foot { position: sticky; bottom: 0; background: var(--background); padding-bottom: 0.25rem; }
+
+.main { display: flex; flex-direction: column; min-width: 0; }
+.topbar {
+  min-height: 61px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border);
+  background: color-mix(in oklab, var(--background) 95%, transparent); backdrop-filter: blur(8px);
+}
+.topbar-left { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.topbar-right { display: flex; align-items: center; gap: 0.75rem; flex: none; font-size: 0.875rem; }
+.topbar-search {
+  display: flex; align-items: center; gap: 0.5rem;
+  height: 2rem; padding: 0 0.5rem; min-width: 16rem;
+  border: 1px solid var(--input); border-radius: var(--radius-md);
+  color: var(--muted-foreground); font-size: 0.75rem; background: var(--background);
+}
+.topbar-search svg { width: 0.875rem; height: 0.875rem; }
+.icon-btn {
+  width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; border-radius: var(--radius-md);
+  color: var(--muted-foreground); cursor: pointer; position: relative;
+}
+.icon-btn:hover { background: var(--accent); color: var(--foreground); }
+.icon-btn svg { width: 1rem; height: 1rem; }
+.icon-btn .badge-count {
+  position: absolute; top: 0.125rem; right: 0.125rem;
+  min-width: 0.875rem; height: 0.875rem; padding: 0 0.1875rem;
+  border-radius: 9999px; background: var(--destructive); color: #fff;
+  font-size: 0.5625rem; font-weight: 600; display: flex; align-items: center; justify-content: center;
+}
+.ai-dot {
+  width: 1rem; height: 1rem; border-radius: 9999px;
+  background: conic-gradient(from 0deg, var(--brand-lime), var(--brand-yellow), var(--brand-violet), var(--brand-lime));
+}
+
+/* main flex-1 p-4 lg:p-6 · Page = space-y-6 */
+.page { flex: 1; padding: 1.5rem; min-width: 0; display: flex; flex-direction: column; gap: 1.5rem; }
+/* Breadcrumbs live in the topbar, never in the page body */
+.crumbs { display: flex; align-items: center; gap: 0.375rem; font-size: 0.875rem; color: var(--muted-foreground); min-width: 0; }
+.crumbs svg { width: 1rem; height: 1rem; flex: none; }
+.crumbs .here { color: var(--foreground); }
+/* PageHeader */
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.page-head p { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--muted-foreground); }
+.page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+
+/* App footer */
+.app-foot {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 1rem;
+  padding: 0.75rem 1rem; border-top: 1px solid var(--border);
+  font-size: 0.75rem; color: var(--muted-foreground);
+}
+
+/* ── DataTable chrome ───────────────────────────────────────────────
+   containerClassName 'rounded-lg border bg-card' ·
+   header 'px-4 py-3 border-b' · toolbar 'mt-3 pt-3 border-t' */
+.dt { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
+.dt-head { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
+.dt-head-row {
+  display: flex; flex-direction: column; gap: 0.5rem;
+  min-height: 2.25rem;
+}
+@media (min-width: 640px) { .dt-head-row { flex-direction: row; align-items: center; justify-content: space-between; } }
+.dt-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-height: 2.25rem; }
+.dt-toolbar { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.5rem; }
+.dt-toolbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; width: 100%; }
+.dt-toolbar-right { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-left: auto; }
+.dt-search { width: 100%; max-width: 20rem; }
+/* Active filter chips bar sits between toolbar and table */
+.dt-chips {
+  display: flex; align-items: center; gap: 0.5rem; overflow-x: auto;
+  padding: 0.5rem 1rem; border-bottom: 1px solid var(--border); background: var(--background);
+}
+.dt-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); }
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; list-style: none; margin: 0; padding: 0; }
+.pager button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2rem; height: 2rem; flex: none; border: 0; cursor: pointer;
+  border-radius: var(--radius-lg); background: var(--background); color: var(--foreground);
+  font-size: 0.875rem; font-weight: 500; font-variant-numeric: tabular-nums;
+}
+.pager button:hover { background: color-mix(in oklab, var(--muted) 40%, transparent); }
+.pager button[aria-current="page"] { background: var(--muted); }
+.pager .nav { color: var(--muted-foreground); }
+.pager .nav svg { width: 1.25rem; height: 1.25rem; }
+
+/* Count pill on an active Filters button */
+.filter-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 1.25rem; min-width: 1.25rem; padding: 0 0.375rem; margin-left: 0.25rem;
+  border-radius: 9999px; font-size: 0.75rem;
+  background: color-mix(in oklab, var(--muted-foreground) 30%, transparent); color: var(--background);
+}
+
+/* Perspective / saved-view switcher — joined segmented control */
+.view-switch { display: inline-flex; height: 2.25rem; align-items: center; border: 1px solid var(--input); border-radius: var(--radius-md); font-size: 0.875rem; }
+.view-switch > button { height: 100%; border: 0; background: transparent; cursor: pointer; padding: 0 0.75rem; display: inline-flex; align-items: center; gap: 0.375rem; }
+.view-switch > button:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); font-weight: 500; }
+.view-switch > button:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; color: var(--muted-foreground); }
+.view-switch > button svg { width: 0.875rem; height: 0.875rem; }
+.view-switch .div { width: 1px; height: 1.25rem; background: var(--border); flex: none; }
+
+/* ── Running timer indicator ────────────────────────────────────── */
+.timer-pill {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  height: 2rem; padding: 0 0.25rem 0 0.625rem;
+  border-radius: 9999px;
+  background: var(--status-success-bg); border: 1px solid var(--status-success-border);
+  color: var(--status-success-text); font-size: 0.75rem;
+}
+.timer-pill .pulse {
+  width: 0.5rem; height: 0.5rem; border-radius: 9999px; background: var(--status-success-icon);
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+@keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) { .timer-pill .pulse { animation: none; } }
+.timer-pill .elapsed { font-family: var(--font-geist-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+.timer-stop {
+  width: 1.5rem; height: 1.5rem; border-radius: 9999px; border: 0; cursor: pointer;
+  background: var(--status-success-icon); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.timer-stop svg { width: 0.75rem; height: 0.75rem; }
+
+/* ── Kanban ─────────────────────────────────────────────────────────
+   Follows the deals-pipeline lane/card anatomy:
+   lane header card `rounded-lg bg-muted/40 px-4 py-3.5` with an accent strip,
+   drop zone `rounded-lg p-1.5`, card `rounded-lg border bg-card px-4 py-3.5 shadow-xs` */
+.kanban { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 0.5rem; align-items: flex-start; }
+.kcol { flex: 0 0 18rem; width: 18rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.kcol-head {
+  display: flex; flex-direction: column; gap: 0.625rem;
+  padding: 0.875rem 1rem; border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--muted) 40%, transparent);
+}
+.kcol-accent { height: 0.375rem; width: 100%; border-radius: var(--radius-sm); }
+.kcol-title { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.kcol-title .name {
+  font-size: 0.875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em;
+}
+.kcol-count {
+  display: inline-flex; align-items: center; padding: 0.25rem 0.5rem;
+  border-radius: 9999px; font-size: 0.75rem; font-weight: 700;
+}
+.kcol-hours { font-size: 0.875rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kcol-body {
+  display: flex; flex-direction: column; gap: 0.75rem;
+  min-height: 12rem; max-height: 30rem; overflow-y: auto;
+  padding: 0.375rem; border-radius: var(--radius-lg);
+}
+.kcol-body.dropping { background: color-mix(in oklab, var(--accent) 60%, transparent); outline: 1px dashed var(--ring); }
+.kcard {
+  position: relative;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs); padding: 0.875rem 1rem;
+  display: flex; flex-direction: column; gap: 0.75rem; cursor: grab;
+  transition: box-shadow 150ms;
+}
+.kcard:hover { box-shadow: var(--shadow-md); }
+.kcard-title { font-size: 1rem; font-weight: 600; line-height: 1.4; }
+.kcard-meta { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: var(--muted-foreground); }
+.kcard-meta svg { width: 0.875rem; height: 0.875rem; }
+.kcard-hours { font-size: 1.125rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--foreground); }
+.kcard-rule { height: 1px; width: 100%; background: var(--border); }
+.kcard-dragging { transform: rotate(1.5deg); box-shadow: var(--shadow-lg); border-color: var(--ring); opacity: 0.95; }
+.kdrop { border: 1px dashed var(--ring); border-radius: var(--radius-lg); height: 4.5rem; background: color-mix(in oklab, var(--accent) 60%, transparent); }
+.kquick {
+  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  height: 2.75rem; padding: 0 0.75rem;
+  border: 1px dashed var(--border); border-radius: var(--radius-lg);
+  color: var(--muted-foreground); font-size: 0.875rem; cursor: pointer; background: transparent;
+}
+.kquick:hover { background: var(--muted); color: var(--foreground); }
+.kquick svg { width: 0.875rem; height: 0.875rem; }
+/* Hover-revealed quick actions on a card */
+.kcard-quick {
+  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  opacity: 0; transition: opacity 150ms;
+}
+.kcard:hover .kcard-quick, .kcard:focus-within .kcard-quick { opacity: 1; }
+
+/* Floating bulk-action bar (pipeline style — dark pill, distinct from the
+   DataTable's inline "n selected" strip) */
+.bulk-bar {
+  position: absolute; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+  z-index: var(--z-index-toast);
+  display: flex; align-items: center; gap: 0.75rem;
+  width: min(60rem, calc(100% - 2rem));
+  padding: 0.75rem 1rem; border-radius: var(--radius-lg);
+  background: var(--foreground); color: var(--background); box-shadow: var(--shadow-xl);
+}
+.bulk-bar .n {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.75rem; height: 1.75rem; border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--background) 10%, transparent);
+  font-size: 0.75rem; font-weight: 600;
+}
+.bulk-bar button {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  padding: 0.25rem 0.75rem; border: 0; border-radius: var(--radius-md);
+  background: transparent; color: inherit; font-size: 0.875rem; cursor: pointer;
+  transition: background-color 150ms;
+}
+.bulk-bar button:hover { background: color-mix(in srgb, var(--background) 10%, transparent); }
+.bulk-bar button svg { width: 1rem; height: 1rem; }
+.bulk-bar .danger { color: var(--status-error-icon); }
+
+/* ── Drawer ─────────────────────────────────────────────────────── */
+.drawer-scrim { position: relative; }
+.drawer-scrim::after {
+  content: ""; position: absolute; inset: 0; background: rgb(0 0 0 / 0.20); z-index: var(--z-index-overlay);
+}
+.drawer {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 30rem; max-width: 90%;
+  background: var(--background); border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-xl); z-index: var(--z-index-modal);
+  display: flex; flex-direction: column;
+}
+.drawer-head { padding: 1rem; border-bottom: 1px solid var(--border); display: flex; gap: 0.75rem; align-items: flex-start; }
+.drawer-body { padding: 1rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.5rem; }
+.drawer-foot { padding: 0.75rem 1rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+/* ── Modal ──────────────────────────────────────────────────────── */
+.modal-scrim { position: relative; }
+.modal-scrim::after {
+  content: ""; position: absolute; inset: 0; background: rgb(0 0 0 / 0.50); z-index: var(--z-index-overlay);
+}
+.modal {
+  position: absolute; left: 50%; top: 3rem; transform: translateX(-50%);
+  width: 40rem; max-width: 92%; z-index: var(--z-index-modal);
+  background: var(--background); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2xl); display: flex; flex-direction: column; max-height: calc(100% - 6rem);
+}
+.modal-head { padding: 1.5rem 1.5rem 0; }
+.modal-body { padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem; }
+.modal-foot {
+  padding: 0.75rem 1.5rem; border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+}
+
+/* ── Toast ──────────────────────────────────────────────────────── */
+.toast {
+  position: absolute; right: 1rem; bottom: 1rem; z-index: var(--z-index-toast);
+  display: flex; align-items: center; gap: 0.75rem;
+  background: var(--popover); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg); padding: 0.75rem 1rem; font-size: 0.875rem;
+}
+.toast svg { width: 1rem; height: 1rem; }
+
+/* ── Timesheet ──────────────────────────────────────────────────── */
+.ts-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid var(--border); border-left: 1px solid var(--border); }
+.ts-dow {
+  padding: 0.375rem 0.5rem; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-overline); line-height: 1rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--muted-foreground); background: var(--muted);
+}
+.ts-day {
+  min-height: 6.5rem; padding: 0.375rem 0.5rem;
+  border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 0.375rem;
+}
+.ts-day.out { background: color-mix(in oklab, var(--muted) 30%, transparent); }
+.ts-day.today { box-shadow: inset 0 0 0 2px var(--ring); }
+.ts-day-head { display: flex; align-items: baseline; justify-content: space-between; }
+.ts-date { font-size: 0.75rem; color: var(--muted-foreground); }
+.ts-total { font-size: 0.75rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ts-load { height: 0.25rem; border-radius: 9999px; background: var(--muted); overflow: hidden; }
+.ts-load > span { display: block; height: 100%; background: var(--chart-blue); border-radius: 9999px; }
+.ts-entry {
+  font-size: 0.6875rem; line-height: 1rem; padding: 0.125rem 0.375rem;
+  border-radius: var(--radius-sm); background: var(--accent); color: var(--accent-foreground);
+  display: flex; justify-content: space-between; gap: 0.25rem;
+}
+.ts-entry .d { font-variant-numeric: tabular-nums; color: var(--muted-foreground); flex: none; }
+.ts-entry.nonbillable { border: 1px dashed var(--border); background: transparent; }
+.ts-add {
+  margin-top: auto; border: 0; background: transparent; color: var(--muted-foreground);
+  font-size: 0.6875rem; text-align: left; padding: 0.125rem 0; cursor: pointer; opacity: 0;
+}
+.ts-day:hover .ts-add { opacity: 1; }
+
+/* Day-bar summary (list view) */
+.daybar { display: grid; grid-template-columns: 5.5rem 1fr 3.5rem; align-items: center; gap: 0.75rem; }
+.daybar .track { height: 0.5rem; border-radius: 9999px; background: var(--muted); overflow: hidden; }
+.daybar .track > span { display: block; height: 100%; border-radius: 9999px; background: var(--chart-blue); }
+.daybar.weekend .track > span { background: var(--muted-foreground); }
+
+/* ── KPI tiles ──────────────────────────────────────────────────── */
+.kpis { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 768px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.kpi { padding: 1rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.kpi .v { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
+.kpi .delta { font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; }
+.kpi .delta svg { width: 0.75rem; height: 0.75rem; }
+.up { color: var(--status-success-text); }
+.down { color: var(--status-error-text); }
+
+/* ── Report preview ─────────────────────────────────────────────── */
+.report-sheet {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 2rem; box-shadow: var(--shadow-sm);
+}
+.report-head { display: flex; justify-content: space-between; gap: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
+.report-group { margin-top: 1.5rem; }
+.report-group-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+  padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);
+}
+.report-total {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+  margin-top: 1.5rem; padding-top: 1rem; border-top: 2px solid var(--foreground);
+}
+.report-total .v { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ── Two-column form (CrudForm shape) ───────────────────────────────
+   CrudForm grouped layout is `grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4`,
+   with each group rendered as `rounded-lg border bg-card px-4 py-3 space-y-3`. */
+.form-layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1024px) { .form-layout { grid-template-columns: 7fr 3fr; } }
+.form-col { display: flex; flex-direction: column; gap: 0.75rem; }
+.form-group { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.form-group > .title { font-size: 0.875rem; font-weight: 500; }
+.form-group > .desc { font-size: 0.75rem; color: var(--muted-foreground); margin-top: -0.5rem; }
+.form-grid { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 768px) { .form-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* FormHeader (edit mode) — back link + title on the left, actions on the right */
+.form-head { display: flex; flex-direction: column; gap: 0.5rem; }
+@media (min-width: 640px) { .form-head { flex-direction: row; align-items: center; justify-content: space-between; gap: 0.75rem; } }
+.form-head .title { font-size: 1rem; font-weight: 500; }
+.back-link { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.875rem; color: var(--muted-foreground); text-decoration: none; }
+.back-link:hover { color: var(--foreground); }
+/* FormFooter — order is extraActions → Delete → Cancel → Save */
+.form-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.form-foot .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-left: auto; }
+.btn-destructive-outline { border: 1px solid var(--status-error-border); color: var(--status-error-text); background: var(--background); box-shadow: var(--shadow-xs); }
+.btn-destructive-outline:hover { background: var(--status-error-bg); }
+
+/* ── Split panels ───────────────────────────────────────────────── */
+.split { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1024px) { .split-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1024px) { .split-side { grid-template-columns: minmax(0, 1fr) 18rem; } }
