@@ -170,6 +170,7 @@ const historyEntrySchema = z.object({
     statusTo: z.string().nullable().optional(),
     documentKind: z.enum(['order', 'quote']).optional(),
     commandId: z.string().optional(),
+    changedFields: z.array(z.string()).optional(),
   }).optional(),
 })
 
