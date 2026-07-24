@@ -88,11 +88,18 @@ test('deterministic evaluation rejects dangling relations, excessive budgets, an
     cases[1].maxTotalContextBytes = 999_999
     cases[8].fixture.setup = ['node dangerous-script.mjs']
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+    const routingSchemaPath = path.join(root, '.ai', 'harness', 'routing-response.schema.json')
+    const routingSchema = JSON.parse(fs.readFileSync(routingSchemaPath, 'utf8')) as {
+      properties: { selectedRouter: { items: { enum: string[] } } }
+    }
+    routingSchema.properties.selectedRouter.items.enum = routingSchema.properties.selectedRouter.items.enum.filter((route) => route !== 'testing')
+    fs.writeFileSync(routingSchemaPath, `${JSON.stringify(routingSchema, null, 2)}\n`)
     const result = runEvaluator(root, ['--all'])
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
     assert.match(result.stderr, /dangling related case OMH-999/)
     assert.match(result.stderr, /maxTotalContextBytes is invalid/)
     assert.match(result.stderr, /unsafe fixture setup/)
+    assert.match(result.stderr, /routing response schema must expose every router ID in canonical order/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

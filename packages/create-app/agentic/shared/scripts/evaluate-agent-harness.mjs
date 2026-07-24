@@ -179,7 +179,7 @@ function pathReferenceExists(root, reference) {
   return fs.existsSync(path.resolve(root, reference))
 }
 
-function validateCatalog({ root, cases, registry, releaseMatrix, fixtures }) {
+function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, routingResponseSchema }) {
   const errorsByCase = new Map(cases.map((item) => [item?.id ?? '<missing-id>', []]))
   const globalErrors = []
   const add = (id, message) => {
@@ -193,6 +193,8 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures }) {
   if (JSON.stringify(registry?.catalog?.backwardCompatibilityRuleIds) !== JSON.stringify(BC_RULE_IDS)) globalErrors.push('validator registry must contain BC-01 through BC-14 in order')
   if (JSON.stringify(registry?.catalog?.mandatoryCaseIds) !== JSON.stringify(MANDATORY_CASE_IDS)) globalErrors.push('validator registry mandatory set must be OMH-057 through OMH-070')
   if (JSON.stringify(registry?.catalog?.writableCaseIds) !== JSON.stringify(WRITABLE_CASE_IDS)) globalErrors.push('validator registry writable set must be the fixed 16 cases')
+  const schemaRoutes = routingResponseSchema?.properties?.selectedRouter?.items?.enum
+  if (JSON.stringify(schemaRoutes) !== JSON.stringify([...ROUTERS])) globalErrors.push('routing response schema must expose every router ID in canonical order')
   const ids = cases.map((item) => item?.id)
   if (new Set(ids).size !== ids.length) globalErrors.push('case IDs must be unique')
   const idSet = new Set(ids)
@@ -672,8 +674,8 @@ function main() {
     const fixtures = readJson(path.join(harnessDir, 'fixtures', 'index.json'))
     readJson(path.join(harnessDir, 'cases.schema.json'))
     readJson(path.join(harnessDir, 'result.schema.json'))
-    readJson(path.join(harnessDir, 'routing-response.schema.json'))
-    const validation = validateCatalog({ root, cases, registry, releaseMatrix, fixtures })
+    const routingResponseSchema = readJson(path.join(harnessDir, 'routing-response.schema.json'))
+    const validation = validateCatalog({ root, cases, registry, releaseMatrix, fixtures, routingResponseSchema })
     const selected = selectCases(cases, options, releaseMatrix)
     if (!options.runner) return deterministicRun(selected, validation)
     const catalogFailures = [...validation.globalErrors, ...selected.flatMap((item) => validation.errorsByCase.get(item.id) ?? [])]

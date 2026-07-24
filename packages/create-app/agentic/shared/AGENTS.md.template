@@ -51,7 +51,7 @@ Start with this root only. Match all three axes and load their de-duplicated uni
 
 Use these evaluator route IDs exactly when reporting a route: `architecture`, `module-data`, `backend-ui`, `umes`, `integration`, `ai-workflow`, `testing`, `debugging`, `framework-context`, and `spec-pr`.
 
-Route only the requested outcome. Normal verification of an implementation does not select `testing` or `debugging`: select `testing` only when writing/running tests is itself requested, and `debugging` only for a reported failure, bug, security issue, drift, or runtime inconsistency. Do not infer unspecified implementation areas from a referenced spec or PR.
+Route only the requested outcome. Select `testing` only when tests are requested and `debugging` only for a reported failure, security issue, or drift. For specification decomposition, select only `spec-pr` and its specification skill; phase names do not load implementation routes. For a planning-only module request, `om-module-scaffold` owns the plan; defer execution skills until implementation. Do not infer areas from a referenced spec or PR.
 
 ### Axis 1 — Area and Ownership
 
@@ -79,6 +79,7 @@ Split the outcome into verifiable units and match all rows. Load thin procedures
 | `module-data` | Convert a business outcome into a complete vertical slice | `om-module-scaffold` business blueprint, then union concrete rows below: customer management, deal pipeline, CRM lead capture, library, booking, rental, support, or purchasing |
 | `spec-pr` | Split or implement cohesive specification phases | Axis 3's skill; keep every phase deployable |
 | `architecture` | Audit an upgrade or disable an unused built-in | `om-troubleshooter` + `om-framework-context`, or `om-trim-unused-modules` |
+| `architecture` + `integration` + `framework-context` | Audit a provider phase superseded by installed capability | `om-integration-builder` + `om-framework-context`; add troubleshoot/removal only for a failure or whole-module disable |
 | `module-data` | Entity, relation/ID link, validator, migration/snapshot, encryption, lock, or atomic transaction | `om-data-model-design`; `.ai/guides/contracts.md` |
 | `module-data` | CRUD/custom API, command/action, OpenAPI, ACL/setup, or mutation contract | `om-module-scaffold`; `.ai/guides/contracts.md` |
 | `backend-ui` | DataTable/CrudForm, backend/public/portal page, page middleware, navigation, translation, or UI state | `om-backend-ui-design`; `.ai/guides/backend-ui.md` |

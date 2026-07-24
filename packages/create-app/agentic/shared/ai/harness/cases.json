@@ -140,7 +140,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, locate installed module entities, events, ACL, APIs, DI, search, and widget host tokens. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, locate the installed customers module entities, events, ACL, APIs, DI, search, and widget host tokens. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "architecture",
       "framework-context",
@@ -203,7 +203,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 6,
-    "maxInitialContextBytes": 40960,
+    "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-004"
@@ -230,11 +230,11 @@
     },
     "expectedRouter": {
       "required": [
-        "architecture",
         "module-data"
       ],
       "allowedExtra": [
-        "backend-ui"
+        "backend-ui",
+        "ai-workflow"
       ]
     },
     "requiredSkills": [
@@ -372,7 +372,11 @@
       "required": [
         "spec-pr"
       ],
-      "allowedExtra": []
+      "allowedExtra": [
+        "module-data",
+        "backend-ui",
+        "umes"
+      ]
     },
     "requiredSkills": [
       "om-implement-spec"
@@ -1102,28 +1106,24 @@
     ],
     "owner": {
       "kind": "skill",
-      "path": ".ai/skills/om-module-scaffold/SKILL.md",
+      "path": ".ai/skills/om-backend-ui-design/SKILL.md",
       "ruleIds": [
         "BC-02"
       ]
     },
     "expectedRouter": {
       "required": [
-        "architecture",
         "backend-ui"
       ],
       "allowedExtra": []
     },
     "requiredSkills": [
-      "om-module-scaffold",
       "om-backend-ui-design"
     ],
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/guides/architecture.md",
         ".ai/guides/backend-ui.md",
-        ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
       "forbidden": [
@@ -2956,8 +2956,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 6,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-040"
@@ -3094,8 +3094,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 6,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-042"
@@ -3229,7 +3229,8 @@
         "integration"
       ],
       "allowedExtra": [
-        "umes"
+        "umes",
+        "module-data"
       ]
     },
     "requiredSkills": [
@@ -3265,8 +3266,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-044"
@@ -3633,8 +3634,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 10,
+    "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-047"
@@ -3893,22 +3894,18 @@
     },
     "expectedRouter": {
       "required": [
-        "ai-workflow",
-        "module-data"
+        "ai-workflow"
       ],
       "allowedExtra": []
     },
     "requiredSkills": [
-      "om-create-ai-agent",
-      "om-data-model-design"
+      "om-create-ai-agent"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/ai-workflows.md",
-        ".ai/guides/contracts.md",
-        ".ai/skills/om-create-ai-agent/SKILL.md",
-        ".ai/skills/om-data-model-design/SKILL.md"
+        ".ai/skills/om-create-ai-agent/SKILL.md"
       ],
       "forbidden": [
         ".env*",
