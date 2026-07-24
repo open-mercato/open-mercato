@@ -1178,11 +1178,16 @@ function reviewSkillProvenance(root) {
   if (`sha256:${installed.sha256}` !== external.contentHashes[REVIEW_SKILL]) {
     throw new Error(`${REVIEW_SKILL} installed content does not match the pinned hash; run yarn install-skills`)
   }
-  const lockPath = path.join(root, 'skills-lock.json')
-  if (!fs.existsSync(lockPath)) throw new Error('skills-lock.json is missing; run yarn install-skills')
-  const locked = readJson(lockPath)?.skills?.[REVIEW_SKILL]
-  if (locked?.source !== external.source || locked?.skillPath !== `skills/${REVIEW_SKILL}/SKILL.md` || !/^[a-f0-9]{64}$/.test(locked?.computedHash ?? '')) {
-    throw new Error(`${REVIEW_SKILL} does not have valid installed lock evidence`)
+  const ownershipPath = path.join(root, '.agents', 'skills', '.om-external-ownership.json')
+  if (!fs.existsSync(ownershipPath)) throw new Error('external skill ownership evidence is missing; run yarn install-skills')
+  const ownershipStat = fs.lstatSync(ownershipPath)
+  if (!ownershipStat.isFile() || ownershipStat.isSymbolicLink() || ownershipStat.size > 262_144) {
+    throw new Error('external skill ownership evidence must be a bounded regular file')
+  }
+  const ownership = readJson(ownershipPath)
+  if (ownership?.version !== 1 || ownership?.source !== external.source || ownership?.ref !== external.ref
+    || ownership?.skills?.[REVIEW_SKILL] !== external.contentHashes[REVIEW_SKILL]) {
+    throw new Error(`${REVIEW_SKILL} does not have valid installed ownership evidence`)
   }
   const bundle = fingerprintFiles(skillRoot, REVIEW_SKILL_FILES)
   return {
@@ -1193,7 +1198,8 @@ function reviewSkillProvenance(root) {
       source: external.source,
       ref: external.ref,
       declaredHash: external.contentHashes[REVIEW_SKILL],
-      installedLockHash: locked.computedHash,
+      installedHash: `sha256:${installed.sha256}`,
+      ownershipLedgerHash: sha256(fs.readFileSync(ownershipPath)),
       bundleHash: bundle.sha256,
     },
   }

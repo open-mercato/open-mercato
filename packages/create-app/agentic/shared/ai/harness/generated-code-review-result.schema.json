@@ -23,13 +23,14 @@
     "skill": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "source", "ref", "declaredHash", "installedLockHash", "bundleHash"],
+      "required": ["name", "source", "ref", "declaredHash", "installedHash", "ownershipLedgerHash", "bundleHash"],
       "properties": {
         "name": { "const": "om-code-review" },
         "source": { "const": "open-mercato/skills" },
         "ref": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
         "declaredHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-        "installedLockHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "installedHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "ownershipLedgerHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "bundleHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
       }
     },

@@ -45,7 +45,7 @@ type StoredReviewResult = {
   violations: string[]
   reviewedPaths: string[]
   reviewedBytes: number
-  skill: { name: string; source: string; ref: string; bundleHash: string }
+  skill: { name: string; source: string; ref: string; declaredHash: string; installedHash: string; ownershipLedgerHash: string; bundleHash: string }
   actualContext: { paths: string[] }
   sourceResult: { path: string; sha256: string }
 }
@@ -126,20 +126,15 @@ function installFakeCodeReviewSkill(root: string): void {
   const installedHash = hash.digest('hex')
   const tiersPath = path.join(root, '.ai', 'skills', 'tiers.json')
   const tiers = JSON.parse(fs.readFileSync(tiersPath, 'utf8')) as {
-    external: { contentHashes: Record<string, string> }
+    external: { source: string; ref: string; contentHashes: Record<string, string> }
   }
   tiers.external.contentHashes['om-code-review'] = `sha256:${installedHash}`
   fs.writeFileSync(tiersPath, `${JSON.stringify(tiers, null, 2)}\n`)
-  fs.writeFileSync(path.join(root, 'skills-lock.json'), `${JSON.stringify({
+  fs.writeFileSync(path.join(root, '.agents', 'skills', '.om-external-ownership.json'), `${JSON.stringify({
     version: 1,
-    skills: {
-      'om-code-review': {
-        source: 'open-mercato/skills',
-        sourceType: 'github',
-        skillPath: 'skills/om-code-review/SKILL.md',
-        computedHash: installedHash,
-      },
-    },
+    source: tiers.external.source,
+    ref: tiers.external.ref,
+    skills: { 'om-code-review': `sha256:${installedHash}` },
   }, null, 2)}\n`)
 }
 
@@ -866,6 +861,8 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
     assert.equal(stored.skill.name, 'om-code-review')
     assert.equal(stored.skill.source, 'open-mercato/skills')
     assert.match(stored.skill.ref, /^[a-f0-9]{40}$/)
+    assert.equal(stored.skill.installedHash, stored.skill.declaredHash)
+    assert.match(stored.skill.ownershipLedgerHash, /^[a-f0-9]{64}$/)
     assert.match(stored.skill.bundleHash, /^[a-f0-9]{64}$/)
     assert.match(stored.sourceResult.path, /^\.ai\/harness\/results\//)
     assert.ok(stored.actualContext.paths.includes('.agents/skills/om-code-review/references/review-checklist.md'))
