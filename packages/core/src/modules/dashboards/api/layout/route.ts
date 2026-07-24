@@ -6,7 +6,7 @@ import { DashboardLayout } from '@open-mercato/core/modules/dashboards/data/enti
 import { dashboardLayoutSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
-import { hasFeature } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -88,7 +88,10 @@ export async function GET(req: Request) {
     organizationId: auth.orgId ?? null,
   }
 
-  const acl = await rbac.loadAcl(scope.userId, { tenantId: scope.tenantId, organizationId: scope.organizationId })
+  const effectiveFeatures = await rbac.getEffectiveFeatures(scope.userId, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
   const widgets = await loadAllWidgets()
   const allowedIds = await resolveAllowedWidgetIds(
     em,
@@ -96,8 +99,8 @@ export async function GET(req: Request) {
       userId: scope.userId,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      features: acl.features ?? [],
-      isSuperAdmin: !!acl.isSuperAdmin,
+      features: effectiveFeatures,
+      isSuperAdmin: false,
     },
     widgets,
   )
@@ -147,7 +150,9 @@ export async function GET(req: Request) {
     await em.flush()
   }
 
-  const canConfigure = acl.isSuperAdmin || hasFeature(acl.features, 'dashboards.configure')
+  const canConfigure = authorizeFeatures(['dashboards.configure'], {
+    grantedFeatures: effectiveFeatures,
+  })
 
   let userEmail: string | null = null
   let userName: string | null = null
@@ -222,8 +227,12 @@ export async function PUT(req: Request) {
     organizationId: auth.orgId ?? null,
   }
 
-  const acl = await rbac.loadAcl(scope.userId, { tenantId: scope.tenantId, organizationId: scope.organizationId })
-  if (!acl.isSuperAdmin && !hasFeature(acl.features, 'dashboards.configure')) {
+  const canConfigure = await rbac.userHasAllFeatures(
+    scope.userId,
+    ['dashboards.configure'],
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+  if (!canConfigure) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -243,14 +252,18 @@ export async function PUT(req: Request) {
   }
 
   const widgets = await loadAllWidgets()
+  const effectiveFeatures = await rbac.getEffectiveFeatures(scope.userId, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
   const allowedIds = await resolveAllowedWidgetIds(
     em,
     {
       userId: scope.userId,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      features: acl.features ?? [],
-      isSuperAdmin: !!acl.isSuperAdmin,
+      features: effectiveFeatures,
+      isSuperAdmin: false,
     },
     widgets,
   )

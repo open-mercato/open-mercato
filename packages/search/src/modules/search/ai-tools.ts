@@ -4,7 +4,7 @@ import type {
   SearchResult,
   SearchStrategyId,
 } from '@open-mercato/shared/modules/search'
-import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 
 /**
  * AI Tools definitions for the Search module.
@@ -96,7 +96,10 @@ function authorizeEntityAccess(entityType: string, ctx: ToolContext): SearchEnti
     )
   }
 
-  if (!hasAllFeatures(ctx.userFeatures, required)) {
+  if (!authorizeFeatures(required, {
+    grantedFeatures: ctx.userFeatures,
+    unrestricted: ctx.isSuperAdmin,
+  })) {
     throw new SearchToolAuthorizationError(
       `[internal] Insufficient permissions for entity "${entityType}". Required: ${required.join(', ')}`
     )

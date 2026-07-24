@@ -156,9 +156,23 @@ The detection scripts (`yarn i18n:check-hardcoded`, `yarn i18n:check-values`) li
 import { withScopedPayload, createScopedApiHelpers } from '@open-mercato/shared/lib/api/scoped'
 ```
 
-### Feature Matching — MUST use shared wildcard-aware helpers
+### Feature Policy and Matching
 
-Use shared helpers whenever you evaluate raw granted feature arrays in infrastructure code:
+Server authorization MUST use the consolidated policy:
+
+```typescript
+import {
+  authorizeFeatures,
+  resolveEffectiveFeatures,
+} from '@open-mercato/shared/security/featurePolicy'
+```
+
+- Prefer the realm service (`rbacService.userHasAllFeatures` or `customerRbacService.userHasAllFeatures`) when a user and scope are available.
+- Use `authorizeFeatures(required, subject)` only when the caller already has an ACL snapshot. It owns removed-feature, disabled-module, unrestricted-user, scope, and wildcard ordering.
+- Use `resolveEffectiveFeatures(grants)` for browser capability payloads. It returns concrete IDs and never wildcards.
+- Raw `loadAcl` / `getGrantedFeatures` remain valid for ACL management and infrastructure inspection, not as authorization entrypoints.
+
+The low-level helpers remain pure for browser checks over effective projections and isolated grant-matching utilities:
 
 ```typescript
 import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/features'
@@ -166,7 +180,8 @@ import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/featur
 
 - Use `hasFeature(granted, 'module.action')` for single-feature checks.
 - Use `hasAllFeatures(granted, required)` for arrays such as `features`, `requireFeatures`, or handler guard lists.
-- MUST NOT gate raw feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc `every(...includes(...))` checks in shared registries or runners; wildcard grants like `module.*` and `*` are part of the RBAC contract.
+- MUST NOT use these low-level helpers as server authorization entrypoints.
+- MUST NOT gate feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc `every(...includes(...))` checks.
 
 ### CRUD HTTP Errors — MUST use the shared helpers instead of hand-rolling `CrudHttpError`
 

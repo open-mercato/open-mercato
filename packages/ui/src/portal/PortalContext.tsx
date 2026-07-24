@@ -91,7 +91,7 @@ export function PortalProvider({ orgSlug, children, initialAuth, initialTenant }
         },
         roles: [],
         resolvedFeatures: initialAuth.resolvedFeatures,
-        isPortalAdmin: initialAuth.resolvedFeatures.some((f) => f === 'portal.*'),
+        isPortalAdmin: initialAuth.isPortalAdmin === true,
         loading: false,
         error: null,
       }

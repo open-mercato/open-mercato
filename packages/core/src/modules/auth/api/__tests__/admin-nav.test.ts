@@ -1,7 +1,6 @@
 /** @jest-environment node */
 import { GET } from '@open-mercato/core/modules/auth/api/admin/nav'
 import * as backendChrome from '@open-mercato/core/modules/auth/lib/backendChrome'
-import * as enabledModulesRegistry from '@open-mercato/shared/security/enabledModulesRegistry'
 
 type AuthContext = {
   sub: string
@@ -52,7 +51,7 @@ const mockGetAuthFromRequest = jest.fn<Promise<AuthContext | null>, [Request]>()
 const mockGetBackendRouteManifests = jest.fn<BackendRouteManifest[], []>()
 const mockResolveTranslations = jest.fn<Promise<TranslationContext>, []>()
 const mockEmFind = jest.fn<Promise<unknown[]>, [unknown, unknown, unknown?]>()
-const mockLoadAcl = jest.fn<Promise<{ isSuperAdmin: boolean; features: string[] }>, [string, { tenantId: string | null; organizationId: string | null }]>()
+const mockGetEffectiveFeatures = jest.fn<Promise<string[]>, [string, { tenantId: string | null; organizationId: string | null }]>()
 const mockUserHasAllFeatures = jest.fn<Promise<boolean>, [string, string[], { tenantId: string | null; organizationId: string | null }]>()
 const mockCacheSet = jest.fn<Promise<void>, [string, unknown, { tags: string[] }]>()
 const mockCacheGet = jest.fn<Promise<null>, [string]>()
@@ -84,7 +83,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
         return { find: mockEmFind }
       }
       if (key === 'rbacService') {
-        return { loadAcl: mockLoadAcl, userHasAllFeatures: mockUserHasAllFeatures }
+        return {
+          getEffectiveFeatures: mockGetEffectiveFeatures,
+          userHasAllFeatures: mockUserHasAllFeatures,
+        }
       }
       if (key === 'cache') {
         return { get: mockCacheGet, set: mockCacheSet }
@@ -148,7 +150,6 @@ function findUserEntitiesItem(groups: SidebarGroup[]): SidebarItem | undefined {
 describe('GET /api/auth/admin/nav', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    jest.spyOn(enabledModulesRegistry, 'filterGrantsByEnabledModules').mockImplementation((granted) => [...granted])
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
       tenantId: 'tenant-1',
@@ -159,10 +160,10 @@ describe('GET /api/auth/admin/nav', () => {
       locale: 'pl',
       translate: (_key: string, fallback?: string) => fallback ?? '',
     })
-    mockLoadAcl.mockResolvedValue({
-      isSuperAdmin: true,
-      features: [],
-    })
+    mockGetEffectiveFeatures.mockResolvedValue([
+      'auth.users.view',
+      'customer_accounts.view',
+    ])
     mockUserHasAllFeatures.mockResolvedValue(true)
     mockLoadSidebarPreference.mockResolvedValue(null)
     mockLoadFirstRoleSidebarPreference.mockResolvedValue(null)
@@ -242,11 +243,8 @@ describe('GET /api/auth/admin/nav', () => {
     expect(hrefs).not.toContain('/backend/entities/user/assets/records')
   })
 
-  it('includes wildcard-granted customer portal settings routes', async () => {
-    mockLoadAcl.mockResolvedValue({
-      isSuperAdmin: false,
-      features: ['customer_accounts.*'],
-    })
+  it('includes customer portal settings routes from concrete effective features', async () => {
+    mockGetEffectiveFeatures.mockResolvedValue(['customer_accounts.view'])
     mockGetBackendRouteManifests.mockReturnValue([
       {
         moduleId: 'customer_accounts',
@@ -290,10 +288,10 @@ describe('GET /api/auth/admin/nav', () => {
       orgId: 'org-1',
       roles: ['admin'],
     })
-    mockLoadAcl.mockResolvedValue({
-      isSuperAdmin: false,
-      features: ['customer_accounts.*', 'auth.*'],
-    })
+    mockGetEffectiveFeatures.mockResolvedValue([
+      'customer_accounts.view',
+      'auth.users.view',
+    ])
     mockGetBackendRouteManifests.mockReturnValue([
       {
         moduleId: 'auth',
@@ -322,25 +320,24 @@ describe('GET /api/auth/admin/nav', () => {
     expect(payload.settingsPathPrefixes).toContain('/backend/settings/auth')
     expect(payload.profileSections.length).toBeGreaterThan(0)
     expect(payload.profilePathPrefixes).toContain('/backend/profile/')
-    expect(payload.grantedFeatures).toEqual(expect.arrayContaining(['customer_accounts.*', 'auth.*']))
+    expect(payload.grantedFeatures).toEqual(expect.arrayContaining([
+      'customer_accounts.view',
+      'auth.users.view',
+    ]))
     expect(payload.roles).toEqual(['admin'])
   })
 
-  it('filters disabled-module grants before hydrating the backend chrome payload', async () => {
-    const filterSpy = jest
-      .spyOn(enabledModulesRegistry, 'filterGrantsByEnabledModules')
-      .mockImplementation((granted) => granted.filter((feature) => !feature.startsWith('search.')))
-
+  it('hydrates the backend chrome payload from concrete effective features', async () => {
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
       tenantId: 'tenant-1',
       orgId: 'org-1',
       roles: ['admin'],
     })
-    mockLoadAcl.mockResolvedValue({
-      isSuperAdmin: false,
-      features: ['customer_accounts.*', 'search.global', 'auth.*'],
-    })
+    mockGetEffectiveFeatures.mockResolvedValue([
+      'customer_accounts.view',
+      'auth.users.view',
+    ])
     mockGetBackendRouteManifests.mockReturnValue([
       {
         moduleId: 'auth',
@@ -358,8 +355,10 @@ describe('GET /api/auth/admin/nav', () => {
     expect(response.status).toBe(200)
     const payload = (await response.json()) as { grantedFeatures: string[] }
 
-    expect(payload.grantedFeatures).toEqual(['customer_accounts.*', 'auth.*'])
-    expect(filterSpy).toHaveBeenCalledWith(['customer_accounts.*', 'search.global', 'auth.*'])
+    expect(payload.grantedFeatures).toEqual([
+      'customer_accounts.view',
+      'auth.users.view',
+    ])
   })
 
   it('passes the request through every scope resolution during hydrated nav generation', async () => {
@@ -385,10 +384,7 @@ describe('GET /api/auth/admin/nav', () => {
   })
 
   it('uses per-feature RBAC checks for sidebar inclusion, not only the raw ACL snapshot', async () => {
-    mockLoadAcl.mockResolvedValue({
-      isSuperAdmin: false,
-      features: [],
-    })
+    mockGetEffectiveFeatures.mockResolvedValue([])
     mockUserHasAllFeatures.mockImplementation(async (_userId, required) => {
       return required.every((feature) => feature === 'customer_accounts.view')
     })

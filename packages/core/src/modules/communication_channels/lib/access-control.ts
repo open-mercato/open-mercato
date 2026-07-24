@@ -1,4 +1,4 @@
-import { hasFeature } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 
 /**
  * Per-user channel access control — service-layer authorization helpers.
@@ -67,7 +67,7 @@ export function assertCanAccessChannel(
  *   - **Tenant-wide / shared channel** (`userId == null`, e.g. WhatsApp
  *     Business / Slack workspaces): requires the route's `elevatedFeature`
  *     (`communication_channels.manage`, `…channel.push.manage`, or
- *     `…channel.import_history`). Wildcard-aware via {@link hasFeature}.
+ *     `…channel.import_history`). Evaluated by the shared feature policy.
  *
  * Throws `ChannelAccessDeniedError` (route handlers map it to 404, masking
  * existence) when the caller may not manage the channel.
@@ -94,7 +94,7 @@ export function assertCanManageChannel(
   }
   // Tenant-wide / shared channel — requires the elevated management feature.
   const grantedFeatures = Array.isArray(userFeatures) ? userFeatures : []
-  if (!hasFeature(grantedFeatures, elevatedFeature)) {
+  if (!authorizeFeatures([elevatedFeature], { grantedFeatures })) {
     throw new ChannelAccessDeniedError(`Managing a shared channel requires '${elevatedFeature}'`)
   }
 }

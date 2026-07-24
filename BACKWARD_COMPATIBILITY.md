@@ -189,6 +189,9 @@ Feature IDs are stored in database role configurations. Renaming a feature ID or
 - MUST NOT rename an existing feature ID
 - MUST NOT remove an existing feature ID without a data migration that updates all stored role configs
 - MAY add new feature IDs freely
+- App-level `entry.overrides.acl.features[id] = null` is the supported reversible exception: stored grants are preserved but runtime-inert while the override is effective.
+
+**STABLE capability-field shape, changed value semantics in 0.6.6:** `BackendChromePayload.grantedFeatures` and customer portal `resolvedFeatures` remain `string[]`, but now contain concrete effective feature IDs. They no longer expose `*` or namespace wildcard strings. Consumers MUST check concrete IDs and MUST NOT infer staff/portal admin status from a wildcard; use the explicit admin boolean where exposed.
 
 ### 11. Notification Type IDs (FROZEN)
 

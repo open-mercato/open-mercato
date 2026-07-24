@@ -137,7 +137,7 @@ describe('hasRequiredFeatures', () => {
     ).toBe(true)
   })
 
-  it('delegates to rbacService when provided', () => {
+  it('uses the shared policy even when a legacy rbacService argument is provided', () => {
     const rbacService = {
       hasAllFeatures: jest.fn().mockReturnValue(true),
     }
@@ -148,9 +148,6 @@ describe('hasRequiredFeatures', () => {
       rbacService as any
     )
     expect(result).toBe(true)
-    expect(rbacService.hasAllFeatures).toHaveBeenCalledWith(
-      ['customers.view'],
-      ['customers.view']
-    )
+    expect(rbacService.hasAllFeatures).not.toHaveBeenCalled()
   })
 })

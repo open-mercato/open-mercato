@@ -4,6 +4,10 @@ import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { createMemoryStrategy } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
 import * as enabledModulesRegistry from '@open-mercato/shared/security/enabledModulesRegistry'
+import {
+  applyAclFeatureOverrides,
+  resetModuleContractOverridesForTests,
+} from '@open-mercato/shared/modules/overrides'
 import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 // Minimal mock of MikroORM EntityManager surface used by RbacService
@@ -46,6 +50,7 @@ describe('RbacService', () => {
   })
 
   afterEach(() => {
+    resetModuleContractOverridesForTests()
     jest.restoreAllMocks()
   })
 
@@ -260,6 +265,17 @@ describe('RbacService', () => {
       expect(ok).toBe(true)
     })
 
+    it('denies a nulled tenant feature before wildcard and super-admin grants', async () => {
+      applyAclFeatureOverrides({ 'data_sync.run': null })
+      const roleAcls: Array<Partial<RoleAcl>> = [
+        { tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['data_sync.*'], organizationsJson: null },
+        { tenantId: 'tenant-1', isSuperAdmin: true, featuresJson: [], organizationsJson: null },
+      ]
+      em.find.mockResolvedValue(roleAcls)
+
+      await expect(service.tenantHasFeature('tenant-1', 'data_sync.run')).resolves.toBe(false)
+    })
+
     it('honors organization restrictions on role ACLs', async () => {
       const roleAcls: Array<Partial<RoleAcl>> = [
         { tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['data_sync.*'], organizationsJson: ['org-1'] },
@@ -297,6 +313,36 @@ describe('RbacService', () => {
   })
 
   describe('userHasAllFeatures', () => {
+    it.each([
+      { acl: { isSuperAdmin: false, features: ['example.manage'], organizations: null } },
+      { acl: { isSuperAdmin: false, features: ['example.*'], organizations: null } },
+      { acl: { isSuperAdmin: true, features: [], organizations: null } },
+    ])('denies a removed feature for explicit, wildcard, and superadmin staff subjects', async ({ acl }) => {
+      applyAclFeatureOverrides({ 'example.manage': null })
+      jest.spyOn(service, 'loadAcl').mockResolvedValue(acl)
+
+      await expect(service.userHasAllFeatures(
+        baseUser.id!,
+        ['example.manage'],
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
+      )).resolves.toBe(false)
+    })
+
+    it('keeps an unaffected sibling staff feature authorized', async () => {
+      applyAclFeatureOverrides({ 'example.manage': null })
+      jest.spyOn(service, 'loadAcl').mockResolvedValue({
+        isSuperAdmin: false,
+        features: ['example.*'],
+        organizations: null,
+      })
+
+      await expect(service.userHasAllFeatures(
+        baseUser.id!,
+        ['example.view'],
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
+      )).resolves.toBe(true)
+    })
+
     it('returns true when no required features', async () => {
       const ok = await service.userHasAllFeatures('any', [], { tenantId: null, organizationId: null })
       expect(ok).toBe(true)
@@ -317,6 +363,7 @@ describe('RbacService', () => {
     })
 
     it('returns false for super admin when the required feature belongs to a disabled module', async () => {
+      jest.spyOn(enabledModulesRegistry, 'hasEnabledModulesRegistry').mockReturnValue(true)
       jest.spyOn(enabledModulesRegistry, 'getEnabledModuleIds').mockReturnValue(['auth'])
 
       em.findOne.mockImplementation(async (entity: any, where: any) => {
@@ -333,6 +380,7 @@ describe('RbacService', () => {
     })
 
     it('keeps the super admin organization bypass while still enforcing enabled modules', async () => {
+      jest.spyOn(enabledModulesRegistry, 'hasEnabledModulesRegistry').mockReturnValue(true)
       jest.spyOn(enabledModulesRegistry, 'getEnabledModuleIds').mockReturnValue(['auth'])
 
       em.findOne.mockImplementation(async (entity: any, where: any) => {

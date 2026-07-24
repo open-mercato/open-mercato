@@ -1,5 +1,4 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 export type EntityAclRequirement = {
@@ -92,17 +91,24 @@ export async function assertEntityAclForRequest(args: AssertEntityAclArgs): Prom
 
   const requirement = resolveEntityAclRequirement(args.entityId)
 
-  const acl = await args.rbac.loadAcl(args.auth.sub ?? '', {
-    tenantId: args.auth.tenantId ?? null,
-    organizationId: args.auth.orgId ?? null,
-  })
+  if (!requirement || requirement.platformOnly) {
+    const acl = await args.rbac.loadAcl(args.auth.sub ?? '', {
+      tenantId: args.auth.tenantId ?? null,
+      organizationId: args.auth.orgId ?? null,
+    })
+    if (!acl.isSuperAdmin) throw forbiddenEntityAccess()
+    return
+  }
 
-  if (acl?.isSuperAdmin) return
-
-  if (!requirement) throw forbiddenEntityAccess()
-  if (requirement.platformOnly) throw forbiddenEntityAccess()
-
-  if (!hasAllFeatures(acl?.features, requirement[args.action])) {
+  const allowed = await args.rbac.userHasAllFeatures(
+    args.auth.sub ?? '',
+    requirement[args.action],
+    {
+      tenantId: args.auth.tenantId ?? null,
+      organizationId: args.auth.orgId ?? null,
+    },
+  )
+  if (!allowed) {
     throw forbiddenEntityAccess()
   }
 }

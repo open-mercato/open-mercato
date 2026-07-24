@@ -691,11 +691,11 @@ export async function PUT(req: NextRequest) {
   try {
     const container = await createRequestContainer()
     const rbacService = container.resolve<RbacService>('rbacService')
-    const acl = await rbacService.loadAcl(auth.sub, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-    })
-    const canManage = acl.isSuperAdmin || acl.features.includes('ai_assistant.settings.manage')
+    const canManage = await rbacService.userHasAllFeatures(
+      auth.sub,
+      ['ai_assistant.settings.manage'],
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+    )
     if (!canManage) {
       return NextResponse.json({ error: 'Forbidden', code: 'forbidden' }, { status: 403 })
     }
@@ -777,11 +777,11 @@ export async function DELETE(req: NextRequest) {
   try {
     const container = await createRequestContainer()
     const rbacService = container.resolve<RbacService>('rbacService')
-    const acl = await rbacService.loadAcl(auth.sub, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-    })
-    const canManage = acl.isSuperAdmin || acl.features.includes('ai_assistant.settings.manage')
+    const canManage = await rbacService.userHasAllFeatures(
+      auth.sub,
+      ['ai_assistant.settings.manage'],
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+    )
     if (!canManage) {
       return NextResponse.json({ error: 'Forbidden', code: 'forbidden' }, { status: 403 })
     }
