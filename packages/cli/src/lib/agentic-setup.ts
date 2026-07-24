@@ -7,6 +7,7 @@
  */
 
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -15,6 +16,7 @@ import {
   readdirSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { createHash } from 'node:crypto'
@@ -218,6 +220,7 @@ function copyTree(sourceRoot: string, destinationRoot: string, config: AgenticCo
     } else {
       copyFileSync(sourcePath, destinationPath)
     }
+    if (process.platform !== 'win32') chmodSync(destinationPath, statSync(sourcePath).mode & 0o777)
   }
 }
 
@@ -255,6 +258,7 @@ function atomicCopyFile(sourcePath: string, destinationPath: string): void {
   const temporaryPath = `${destinationPath}.tmp-${process.pid}-${Date.now()}`
   try {
     copyFileSync(sourcePath, temporaryPath)
+    if (process.platform !== 'win32') chmodSync(temporaryPath, statSync(sourcePath).mode & 0o777)
     renameSync(temporaryPath, destinationPath)
   } finally {
     rmSync(temporaryPath, { force: true })
@@ -382,7 +386,25 @@ function finalizeHarnessManifest(config: AgenticConfig, selectedTools: string[])
  * collisions with unknown files stay untouched; their candidate is written next
  * to them as `<path>.incoming` for explicit review.
  */
-export function applyHarnessUpdate(targetDir: string, stagingDir: string): string[] {
+export type HarnessUpdateConflict = { path: string; candidate: string }
+
+function preserveIncomingCandidate(
+  destinationPath: string,
+  sourcePath: string,
+  relativePath: string,
+): string {
+  for (let suffix = 1; ; suffix += 1) {
+    const label = suffix === 1 ? '.incoming' : `.incoming.${suffix}`
+    const candidatePath = `${destinationPath}${label}`
+    if (!existsSync(candidatePath)) {
+      atomicCopyFile(sourcePath, candidatePath)
+      return `${relativePath}${label}`
+    }
+    if (hashFile(candidatePath) === hashFile(sourcePath)) return `${relativePath}${label}`
+  }
+}
+
+export function applyHarnessUpdate(targetDir: string, stagingDir: string): HarnessUpdateConflict[] {
   const targetManifestPath = join(targetDir, '.ai', 'harness', 'manifest.json')
   const stagingManifestPath = join(stagingDir, '.ai', 'harness', 'manifest.json')
   const candidateManifest = readHarnessManifest(stagingManifestPath)
@@ -408,7 +430,7 @@ export function applyHarnessUpdate(targetDir: string, stagingDir: string): strin
     candidates.push({ entry, sourcePath, destinationPath })
   }
 
-  const conflicts: string[] = []
+  const conflicts: HarnessUpdateConflict[] = []
   for (const { entry, sourcePath, destinationPath } of candidates) {
     if (!existsSync(destinationPath)) {
       atomicCopyFile(sourcePath, destinationPath)
@@ -422,8 +444,8 @@ export function applyHarnessUpdate(targetDir: string, stagingDir: string): strin
       continue
     }
 
-    atomicCopyFile(sourcePath, `${destinationPath}.incoming`)
-    conflicts.push(entry.path)
+    const candidate = preserveIncomingCandidate(destinationPath, sourcePath, entry.path)
+    conflicts.push({ path: entry.path, candidate })
   }
 
   // The candidate hashes deliberately remain in the manifest for conflicts. If
@@ -634,7 +656,7 @@ export async function runAgenticSetup(
       if (conflicts.length > 0) {
         console.warn('')
         console.warn('   ⚠ Preserved locally modified harness files:')
-        for (const path of conflicts) console.warn(`   • ${path} (candidate: ${path}.incoming)`)
+        for (const conflict of conflicts) console.warn(`   • ${conflict.path} (candidate: ${conflict.candidate})`)
       }
     } finally {
       rmSync(stagingDir, { recursive: true, force: true })

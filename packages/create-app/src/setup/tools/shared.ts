@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync, renameSync, rmSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join, dirname, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -173,6 +173,7 @@ function copyTree(sourceRoot: string, destinationRoot: string, config: AgenticCo
     } else {
       copyFileSync(sourcePath, destinationPath)
     }
+    if (process.platform !== 'win32') chmodSync(destinationPath, statSync(sourcePath).mode & 0o777)
   }
 }
 

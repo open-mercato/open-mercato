@@ -125,6 +125,22 @@ test('tier selection, listing, legacy links, and ignored agents retain their fla
   }
 })
 
+test('ignoring an agent on a re-run removes only its previously managed links', () => {
+  const root = fixture()
+  try {
+    assert.equal(run(root, '--no-external').status, 0)
+    assert.equal(fs.existsSync(path.join(root, '.claude', 'skills', 'om-alpha')), true)
+    fs.writeFileSync(path.join(root, '.claude', 'skills', 'user-owned.md'), 'keep me\n')
+
+    const ignored = run(root, '--no-external', '--ignore-agents', 'claude-code')
+    assert.equal(ignored.status, 0, ignored.stderr)
+    assert.equal(fs.existsSync(path.join(root, '.claude', 'skills', 'om-alpha')), false)
+    assert.equal(fs.readFileSync(path.join(root, '.claude', 'skills', 'user-owned.md'), 'utf8'), 'keep me\n')
+  } finally {
+    removeFixture(root)
+  }
+})
+
 test('network failure is non-fatal and still installs the selected local skills', async () => {
   const root = fixture()
   try {

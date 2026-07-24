@@ -515,7 +515,7 @@ export async function runInstaller({
   for (const agent of KNOWN_AGENTS) {
     const harnessDir = join(rootDir, ...AGENT_DIRECTORIES[agent])
     if (ignoredAgents.includes(agent)) {
-      continue
+      cleanManagedLinks(harnessDir, join(rootDir, '.ai', 'skills'), join(rootDir, '.agents', 'skills'))
     } else if (linkAgents.includes(agent)) {
       installAgentLinks(rootDir, agent, allInstalled, localSkills, options.legacyLinks, platform)
     } else {

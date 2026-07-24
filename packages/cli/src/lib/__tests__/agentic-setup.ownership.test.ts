@@ -5,6 +5,7 @@ import {
   existsSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -97,8 +98,8 @@ describe('applyHarnessUpdate', () => {
     const conflicts = applyHarnessUpdate(targetDir, stagingDir)
 
     expect(conflicts).toEqual([
-      '.ai/owned-modified.md',
-      '.ai/unknown-collision.md',
+      { path: '.ai/owned-modified.md', candidate: '.ai/owned-modified.md.incoming' },
+      { path: '.ai/unknown-collision.md', candidate: '.ai/unknown-collision.md.incoming' },
     ])
     expect(readFileSync(join(targetDir, '.ai', 'owned-unchanged.md'), 'utf8')).toBe(
       nextFiles.get('.ai/owned-unchanged.md'),
@@ -122,6 +123,30 @@ describe('applyHarnessUpdate', () => {
     expect(readFileSync(join(targetDir, '.ai', 'harness', 'manifest.json'), 'utf8')).toBe(
       readFileSync(join(stagingDir, '.ai', 'harness', 'manifest.json'), 'utf8'),
     )
+  })
+
+  it('never overwrites a user-edited incoming candidate on a later update', () => {
+    const userFile = 'user-owned harness\n'
+    const firstCandidate = 'first generated candidate\n'
+    const secondCandidate = 'second generated candidate\n'
+    write(join(targetDir, '.ai', 'owned.md'), userFile)
+    writeManifest(targetDir, [entry('.ai/owned.md', 'original generated file\n')])
+    write(join(stagingDir, '.ai', 'owned.md'), firstCandidate)
+    writeManifest(stagingDir, [entry('.ai/owned.md', firstCandidate)])
+
+    expect(applyHarnessUpdate(targetDir, stagingDir)).toEqual([
+      { path: '.ai/owned.md', candidate: '.ai/owned.md.incoming' },
+    ])
+    write(join(targetDir, '.ai', 'owned.md.incoming'), 'user edited the candidate\n')
+    write(join(stagingDir, '.ai', 'owned.md'), secondCandidate)
+    writeManifest(stagingDir, [entry('.ai/owned.md', secondCandidate)])
+
+    expect(applyHarnessUpdate(targetDir, stagingDir)).toEqual([
+      { path: '.ai/owned.md', candidate: '.ai/owned.md.incoming.2' },
+    ])
+    expect(readFileSync(join(targetDir, '.ai', 'owned.md'), 'utf8')).toBe(userFile)
+    expect(readFileSync(join(targetDir, '.ai', 'owned.md.incoming'), 'utf8')).toBe('user edited the candidate\n')
+    expect(readFileSync(join(targetDir, '.ai', 'owned.md.incoming.2'), 'utf8')).toBe(secondCandidate)
   })
 
   it('leaves the prior manifest and app files untouched when candidate validation fails', () => {
@@ -191,6 +216,9 @@ describe('runAgenticSetup ownership modes', () => {
       '# Private\n',
     )
     expect(existsSync(join(appDir, '.ai', 'harness', 'manifest.json'))).toBe(true)
+    if (process.platform !== 'win32') {
+      expect(statSync(join(appDir, 'scripts', 'install-skills.sh')).mode & 0o111).not.toBe(0)
+    }
   })
 
   it('keeps force semantics by replacing exact generated targets', async () => {

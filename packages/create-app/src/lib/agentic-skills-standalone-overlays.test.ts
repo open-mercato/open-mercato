@@ -160,9 +160,18 @@ test('tiers.json owns a pinned, hashed, dependency-closed external skill set', (
   }
   const external = manifest.external
   const externalSkills = new Set(external?.skills ?? [])
+  const backwardCompatibleSkills = [
+    'om-apply-upgrade-notes',
+    'om-auto-continue-pr-loop',
+    'om-auto-create-pr-loop',
+    'om-prepare-issue',
+  ]
   assert.equal(external?.ref, 'cf42eaf277a91c3906ffa910a1cdfeb121fe8322')
   assert.deepEqual(external?.cli, { package: 'skills', version: '1.5.20' })
   assert.ok(externalSkills.has('om-setup-agent-pipeline'), 'om-setup-agent-pipeline must be installed')
+  for (const skill of backwardCompatibleSkills) {
+    assert.ok(externalSkills.has(skill), `${skill} must remain installable across a harness upgrade`)
+  }
   const missing: string[] = []
   for (const skill of externalSkills) {
     const deps = external?.dependencies?.[skill]
@@ -307,4 +316,17 @@ test('AGENTS.md routing tables do not hard-code a harness-specific skills path f
     [],
     `External skills must be referenced by name (harness-agnostic), not via a hard-coded harness path: ${offenders.join(', ')}`,
   )
+})
+
+test('fallback and agentic root instructions have one routing contract', () => {
+  const agentic = fs.readFileSync(
+    new URL('../../agentic/shared/AGENTS.md.template', import.meta.url),
+    'utf8',
+  ).replace(/^# \{\{PROJECT_NAME\}\} — Standalone App Agent Rules$/m, '# Standalone Open Mercato App — Agent Rules')
+  const fallback = fs.readFileSync(
+    new URL('../../template/AGENTS.md', import.meta.url),
+    'utf8',
+  )
+
+  assert.equal(fallback, agentic, 'the --agents none fallback must not ship a competing router')
 })

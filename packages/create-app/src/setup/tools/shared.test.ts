@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -83,10 +83,14 @@ test('recursive shared emission produces a complete hash-owned standalone harnes
     '.ai/skills/om-evolve-harness/SKILL.md',
     'scripts/evaluate-agent-harness.mjs',
     'scripts/framework-context.mjs',
+    'scripts/install-skills.sh',
     'scripts/install-skills.mjs',
     'scripts/prepare-agent-harness-fixture.mjs',
   ]) {
     assert.equal(existsSync(join(targetDir, relativePath)), true, `${relativePath} must be emitted recursively`)
+  }
+  if (process.platform !== 'win32') {
+    assert.notEqual(statSync(join(targetDir, 'scripts', 'install-skills.sh')).mode & 0o111, 0)
   }
 
   const manifest = JSON.parse(readFileSync(join(targetDir, '.ai', 'harness', 'manifest.json'), 'utf8')) as {
