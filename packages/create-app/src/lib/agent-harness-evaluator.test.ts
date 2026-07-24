@@ -221,8 +221,11 @@ fs.writeFileSync(output, JSON.stringify({
   selectedContext: ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/testing-debugging.md'],
   decisions: ['standalone-boundary', 'facts-first'], violations: []
 }))
-console.log(JSON.stringify({ type: 'item.completed', item: {
-  type: 'command_execution', command: "sed -n '1,120p' AGENTS.md .ai/guides/architecture.md", exit_code: 0, status: 'completed'
+for (const command of [
+  "/bin/zsh -lc \\\"sed -n '1,120p' AGENTS.md; sed -n '1,120p' .ai/guides/architecture.md\\\"",
+  "rg -n '\\\\.ai/guides/(architecture|testing-debugging)\\\\.md$|SKILL.md' 2>/dev/null",
+]) console.log(JSON.stringify({ type: 'item.completed', item: {
+  type: 'command_execution', command, exit_code: 0, status: 'completed'
 }}))
 `)
   fs.chmodSync(fake, 0o755)
@@ -260,6 +263,7 @@ const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
 if (args[args.indexOf('--permission-mode') + 1] !== 'plan' || args[args.indexOf('--tools') + 1] !== 'Read,Glob,Grep' || !args.includes('--no-session-persistence') || args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--verbose') || !args.includes('--json-schema')) process.exit(9)
 console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', name: 'Glob', input: { pattern: '.ai/{guides,skills}/**/*.md' } },
   { type: 'tool_use', name: 'Read', input: { file_path: require('node:path').join(process.cwd(), 'AGENTS.md') } },
   { type: 'tool_use', name: 'Read', input: { file_path: require('node:path').join(process.cwd(), '.ai/guides/contracts.md') } },
   { type: 'tool_use', name: 'Read', input: { file_path: require('node:path').join(process.cwd(), '.ai/skills/om-data-model-design/SKILL.md') } }
@@ -293,7 +297,7 @@ const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const output = args[args.indexOf('-o') + 1]
 fs.writeFileSync(output, JSON.stringify({
-  selectedRouter: ['architecture'], selectedSkills: [process.env.UNRELATED_SECRET || 'environment-isolated'],
+  selectedRouter: ['architecture'], selectedSkills: [process.env.UNRELATED_SECRET || 'om-environment-isolated'],
   selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
   decisions: ['standalone-boundary', 'facts-first'], violations: []
 }))
@@ -310,7 +314,7 @@ for (const command of ["cat AGENTS.md .ai/guides/architecture.md", 'cat .env', '
     assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
     const [stored] = storedResults(root)
     assert.ok(stored)
-    assert.ok(stored.selectedSkills.includes('environment-isolated'))
+    assert.ok(stored.selectedSkills.includes('om-environment-isolated'))
     assert.ok(stored.violations.includes('forbidden context read .env'))
     assert.ok(stored.violations.includes('forbidden environment inspection command'))
     assert.ok(stored.violations.includes('forbidden sensitive environment variable reference'))
@@ -449,9 +453,9 @@ const token = '${token}'
 if (args[0] === '--version') { console.log('codex-fake ' + home + ' ' + token); process.exit(0) }
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['architecture'],
-  selectedSkills: [home + '/skill-' + token],
+  selectedSkills: ['om-sensitive-output'],
   selectedContext: ['AGENTS.md', '.ai/guides/architecture.md', home + '/context-' + token],
-  decisions: ['standalone-boundary', 'facts-first', process.env.UNRELATED_SECRET || 'environment-isolated', home + '/decision-' + token],
+  decisions: ['standalone-boundary', 'facts-first', process.env.UNRELATED_SECRET || 'environment-isolated'],
   violations: [home + '/violation-' + token + '-' + 'x'.repeat(2000)]
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md .ai/guides/architecture.md' } }))
