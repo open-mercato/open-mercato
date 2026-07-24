@@ -82,16 +82,16 @@ shared validator, without penalizing untouched pre-existing data.
 
 ### Phase 1: Shared activity-config validator
 
-- [ ] 1.1 Add `validateActivityConfig` + wire `callApiConfigSchema`/`callWebhookConfigSchema`
-- [ ] 1.2 Unit tests for `validateActivityConfig`
+- [x] 1.1 Add `validateActivityConfig` shared validator — 18e87ac91
+- [x] 1.2 Unit tests for `validateActivityConfig` — 18e87ac91
 
 ### Phase 2: NodeEditDialog inline validation
 
-- [ ] 2.1 Validate automated step activities in `handleSave` with inline errors
+- [x] 2.1 Validate automated step activities in `handleSave` with inline errors — 858107a12
 
 ### Phase 3: EdgeEditDialog inline validation
 
-- [ ] 3.1 Validate transition activities in `handleSave` with inline errors
+- [x] 3.1 Validate transition activities in `handleSave` with inline errors — 858107a12
 
 ### Phase 4: Validation gate + finalize
 
