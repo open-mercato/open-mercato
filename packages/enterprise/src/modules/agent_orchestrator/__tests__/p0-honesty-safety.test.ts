@@ -68,12 +68,17 @@ describe('agent_orchestrator P0 honesty & safety invariants', () => {
     expect(deleteIndex).toBeGreaterThan(confirmIndex)
   })
 
-  it('confirms before deleting an eval assertion', () => {
-    const source = read('backend/eval-assertions/page.tsx')
-    const confirmIndex = source.indexOf('evalAssertions.confirmDelete.text')
-    const deleteIndex = source.indexOf("deleteCrud('agent_orchestrator/eval-assertions'")
-    expect(confirmIndex).toBeGreaterThan(-1)
-    expect(deleteIndex).toBeGreaterThan(confirmIndex)
+  it('manages eval assertions through a guarded, non-destructive toggle (no per-agent raw delete)', () => {
+    // The standalone eval-assertions list page (with its destructive delete row
+    // action) was removed (2026-07-24 agent-centric-workspace-and-eval-consolidation);
+    // assertions now live inside the agent Evaluation tab, where the reversible
+    // enable/disable toggle — not a destructive delete — is the per-agent action,
+    // and it runs through the guarded mutation pipeline. Deleting a shared ("*")
+    // assertion from one agent's page is deliberately not exposed.
+    expect(fs.existsSync(path.join(moduleRoot, 'backend/eval-assertions/page.tsx'))).toBe(false)
+    const source = read('backend/agents/[id]/components/EvaluationTab.tsx')
+    expect(source).toContain('runMutation')
+    expect(source).not.toContain("deleteCrud('agent_orchestrator/eval-assertions'")
   })
 
   it('keeps the Processes case actions disabled with a caption instead of success flashes', () => {

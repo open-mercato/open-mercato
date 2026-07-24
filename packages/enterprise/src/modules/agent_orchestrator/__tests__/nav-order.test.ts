@@ -6,8 +6,6 @@ import { metadata as tracesMeta } from '../backend/traces/page.meta'
 import { metadata as agentsMeta } from '../backend/agents/page.meta'
 import { metadata as playgroundMeta } from '../backend/playground/page.meta'
 import { metadata as agenticTasksMeta } from '../backend/agentic-tasks/page.meta'
-import { metadata as evalAssertionsMeta } from '../backend/eval-assertions/page.meta'
-import { metadata as evalCasesMeta } from '../backend/eval-cases/page.meta'
 import { metadata as auditMeta } from '../backend/audit/page.meta'
 
 // Navigation-pass spec §6 (2026-07-12-ux-navigation-pass): the AGENTS sidebar
@@ -16,6 +14,10 @@ import { metadata as auditMeta } from '../backend/audit/page.meta'
 // `pagePriority ?? pageOrder` (packages/ui/src/backend/utils/nav.ts sortItems)
 // and falls back to ALPHABETICAL titles on ties, which is exactly the
 // regression the audit observed when every meta carried the same priority.
+//
+// The three eval screens (assertions/cases/evaluations) were removed from the
+// sidebar (2026-07-24 agent-centric-workspace-and-eval-consolidation): evaluation
+// now lives inside the agent detail page's Evaluation tab.
 const ladder = [
   ['overview', overviewMeta],
   ['caseload', caseloadMeta],
@@ -24,8 +26,6 @@ const ladder = [
   ['agents', agentsMeta],
   ['playground', playgroundMeta],
   ['agentic-tasks', agenticTasksMeta],
-  ['eval-assertions', evalAssertionsMeta],
-  ['eval-cases', evalCasesMeta],
   ['audit', auditMeta],
 ] as const
 

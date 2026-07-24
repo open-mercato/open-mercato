@@ -74,13 +74,16 @@ describe('playground page wiring (source invariants)', () => {
 })
 
 describe('agents detail autonomy control (source invariants)', () => {
-  const page = read('backend/agents/[id]/page.tsx')
+  // The agent detail page was split into a tabbed workspace
+  // (2026-07-24 agent-centric-workspace-and-eval-consolidation); the autonomy
+  // control moved to the shared workspace primitives but MUST stay disabled.
+  const primitives = read('backend/agents/[id]/components/workspacePrimitives.tsx')
 
   it('renders the segmented control disabled with no change handler plumbing', () => {
-    const segmented = page.slice(page.indexOf('function AutonomySegmented'))
+    const segmented = primitives.slice(primitives.indexOf('function AutonomySegmented'))
     expect(segmented).toContain('disabled')
-    expect(page).not.toContain('onAutonomyChange')
-    expect(page).not.toContain('onValueChange={(next) => onChange')
+    expect(primitives).not.toContain('onAutonomyChange')
+    expect(primitives).not.toContain('onValueChange={(next) => onChange')
   })
 })
 
