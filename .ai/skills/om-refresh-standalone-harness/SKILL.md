@@ -32,13 +32,22 @@ $om-refresh-standalone-harness --from <git-ref> --to <git-ref> [--dry-run]
 6. Add the runnable evaluation before changing its knowledge owner. A schema error is not a failing evaluation. Retain only a sanitized failure summary, hashes, and tool/version facts.
 7. Select exactly one smallest primary owner per evaluation. Update that owner, replace duplicate guidance with references, and rerun the target evaluation until it passes.
 8. Synchronize catalog counts, schemas/validators, related-case links, the release matrix when applicable, fixtures, the feature spec, and harness docs. Do not hand-edit generated files.
-9. Run focused affected cases first, then the current one-command full release gate, `yarn harness:validate --all`, from a fresh standalone scaffold generated from the refreshed local sources. Run and record additional live/writable lanes required by `release-matrix.json`; unavailable live capacity is reported, never converted into a pass.
-10. Publish the sanitized local report described in `references/report-template.md`. Do not publish it externally.
+9. From a fresh standalone scaffold generated from the refreshed local sources, install the pinned skills, run focused affected cases, and run `yarn harness:validate --all` as the deterministic catalog gate. This command is not the full release suite.
+10. Run the actual one-command per-release suite from that fresh scaffold:
+
+    ```text
+    yarn harness:release --prepare-targets /absolute/empty-release-targets --acknowledge-writes
+    ```
+
+    The target directory must be absolute, new or empty, outside the controller app, and hosted on a supported containment platform. The command owns the configured live-routing, writable, fixed-oracle, target `generate`/`typecheck`/`lint`/`build`, and generated-code-review lanes in `release-matrix.json`. An unavailable runner or containment prerequisite is a blocker, never a pass.
+11. Require the schema-valid, mode-`0600` sanitized `*-release-suite.json` report under the fresh scaffold's `.ai/harness/results/`. Verify its overall status and every required lane before claiming the release gate passed; record only its sanitized summary, hash, tool/model versions, and unavailable reasons in the refresh report.
+12. Publish the sanitized local report described in `references/report-template.md`. Do not publish it externally.
 
 ## Completion bar
 
 - Every release-range signal has a classification and deduplication disposition.
 - Every new or strengthened rule has before/after evaluation evidence and one smallest owner.
 - Catalog IDs, counts, schemas, validators, relations, fixtures, matrix, spec, and docs agree.
-- The one-command release gate passes; failures remain blockers.
+- The deterministic catalog gate and the one-command `harness:release` suite pass; failures or unavailable required lanes remain blockers.
+- A sanitized, schema-valid release-suite report exists and is summarized without exposing its absolute path or raw runner output.
 - The report contains no raw diffs, private bodies/transcripts, credentials, environment values, absolute paths, remote URLs, or author identity data.

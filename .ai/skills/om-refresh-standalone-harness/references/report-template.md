@@ -41,6 +41,8 @@ Use 12-character resolved commit hashes. Do not use supplied ref names in the fi
 | Command/lane | Runner/model/version | Result | Sanitized artifact or reason unavailable |
 |---|---|---|---|
 
+Include separate rows for the focused case, deterministic `yarn harness:validate --all`, and full `yarn harness:release --prepare-targets <absolute-empty-dir> --acknowledge-writes` suite. For the full suite record its schema-valid sanitized report hash and overall status, never its absolute path or raw model output.
+
 ## Blockers or evidence-only decisions
 
 - `<concise item or none>`

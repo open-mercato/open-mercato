@@ -15,7 +15,7 @@ Read these checked-in owners before classifying:
 1. root `AGENTS.md` and `BACKWARD_COMPATIBILITY.md`;
 2. `packages/create-app/AGENTS.md`;
 3. `.ai/specs/2026-07-24-standalone-ai-development-harness.md` and any range-touched successor spec;
-4. `packages/create-app/agentic/shared/ai/harness/{README.md,cases.json,release-matrix.json}`;
+4. `packages/create-app/agentic/shared/ai/harness/{README.md,RELEASE.md,cases.json,release-matrix.json}`;
 5. `packages/create-app/agentic/shared/ai/skills/om-evolve-harness/SKILL.md` and all references it names.
 
 If a canonical path moved, locate its checked-in successor using the root Task Router and record the substitution. Do not invent a second catalog or evolution procedure.

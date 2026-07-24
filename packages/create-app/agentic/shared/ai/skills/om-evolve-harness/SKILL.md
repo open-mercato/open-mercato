@@ -15,7 +15,9 @@ Turn a real failure into one versioned case and the smallest durable knowledge c
 4. Add the schema-valid case with required/forbidden context, decisions, validators, risk/tags, budgets, related cases, and exact versions; start from `references/case-template.md` and update every catalog/matrix count it lists.
 5. Run the new case before editing and retain the sanitized failure summary.
 6. Update only the selected owner; replace duplicates with references.
-7. Rerun the case, related tags, mandatory safety cases, budget/consistency gates, and scaffold smoke. Report before/after and versions.
+7. Rerun the case, related tags, mandatory safety cases, budget/consistency gates, and scaffold smoke. For writable output, run target `generate`, `typecheck`, `lint`, and `build`, plus the smallest generated unit/integration tests when applicable.
+8. Run mandatory code review: review the harness diff with `om-code-review`, and use the isolated generated-code review lane for every eligible implementation result. Resolve blocking findings before continuing.
+9. From a fresh controller scaffold, finish with `yarn harness:release --prepare-targets <absolute-empty-dir> --acknowledge-writes`; require its sanitized release report to pass. Report before/after evidence and exact tool/model versions.
 
 ## Rules
 
@@ -23,3 +25,4 @@ Turn a real failure into one versioned case and the smallest durable knowledge c
 - Every rule change needs a failing case first and a semantic validator after.
 - Never solve one failure by loading the entire framework or duplicating a contract across owners.
 - Redact credentials, environment values, home paths, and private prompt/transcript bodies from committed artifacts.
+- `yarn harness:validate --all` is the deterministic catalog gate, not a substitute for the full release suite.

@@ -6,7 +6,7 @@ Use the next contiguous `OMH-NNN` ID. Copy an adjacent case from `.ai/harness/ca
 {
   "id": "OMH-NNN",
   "title": "Concrete user outcome",
-  "family": "architecture|module|umes|integration|ai-workflow|bugfix|business",
+  "family": "architecture|module|umes|integration|ai-workflow|bugfix|business|testing",
   "mode": "analysis|one-shot|spec|bugfix|review",
   "evaluationKind": "static|routing|implementation|regression",
   "risk": "low|medium|high",
@@ -45,11 +45,40 @@ yarn harness:validate --family <family>
 yarn harness:validate --all
 ```
 
+The last command is the deterministic catalog gate only. It does not execute the release matrix's live, writable, target-build, or generated-code-review lanes.
+
 For a writable case, prepare one fresh disposable app per run before invoking the live oracle:
 
 ```text
 yarn harness:fixture --case OMH-NNN --target /absolute/disposable/app --acknowledge-writes
 yarn harness:validate --runner codex --case OMH-NNN --writable-root /absolute/disposable/app --acknowledge-writes
 ```
+
+After the writable oracle passes, validate the generated target itself:
+
+```text
+cd /absolute/disposable/app
+yarn generate
+yarn typecheck
+yarn lint
+yarn build
+```
+
+When the generated result adds or changes tests, also run the smallest focused command that executes those exact unit or integration tests (`yarn test ...`, `yarn test:integration ...`, or the repository's narrower existing script). Record the command and result; typecheck/build are not test execution.
+
+Review is mandatory before release. Run `om-code-review` on the harness diff. For every eligible one-shot implementation result, run the isolated generated-code review from the controller app using the passing writable result and unchanged disposable target:
+
+```text
+yarn harness:validate --runner codex --review-writable-result /absolute/controller/.ai/harness/results/<writable-result>.json --writable-root /absolute/disposable/app
+```
+
+Resolve blocking findings, then use a fresh controller scaffold and a new or empty target directory for the complete per-release suite:
+
+```text
+yarn install-skills
+yarn harness:release --prepare-targets /absolute/empty-release-targets --acknowledge-writes
+```
+
+Require the schema-valid sanitized `*-release-suite.json` report under `.ai/harness/results/` and every configured lane to pass. macOS needs `/usr/bin/sandbox-exec`; Linux needs Bubblewrap with user namespaces. Unavailable containment or model capacity is a blocker, not a pass.
 
 If live capacity is unavailable, record the tool/version/model and sanitized provider error. Do not convert availability failure into a passing routing result.

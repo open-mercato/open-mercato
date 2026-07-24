@@ -46,12 +46,85 @@ This creates a `my-store/` directory with the full application template, includi
 
 | Option | Description |
 | --- | --- |
+| `--preset <id>` | Select `classic`, `empty`, or `crm` without the preset prompt. |
+| `--agents <list>` | Install the standalone AI harness non-interactively for `claude-code`, `codex`, `cursor`, a comma-separated subset, `all`, or `none`. |
+| `--skip-agentic-setup` | Skip the AI setup wizard; equivalent to `--agents none`. |
 | `--registry <url>` | Use a custom npm registry for `@open-mercato` packages. |
 | `--verdaccio` | Shorthand for `--registry http://localhost:4873` (local Verdaccio). |
 | `--help`, `-h` | Show usage information. |
 | `--version`, `-v` | Print the CLI version. |
 
 **App name rules:** lowercase alphanumeric characters and hyphens only. Cannot start or end with a hyphen.
+
+## Set up the AI development harness
+
+Choose the coding tools during the interactive scaffold, or make the selection reproducible in CI and scripts:
+
+```bash
+npx create-mercato-app my-store --preset classic --agents all
+npx create-mercato-app my-store --agents claude-code,codex
+```
+
+`--agents` applies to bare scaffolds. Ready apps imported with `--app` or `--app-url` manage their own setup; after importing one, run `yarn mercato agentic:init` inside it instead. The generated harness is standalone-specific and includes a compact root router, task and module guides, local skills, pinned delivery skills from `open-mercato/skills`, context tools, and reproducible evaluations.
+
+The setup attempts to install the selected skill set. Re-run the integrity-checked installer after cloning, when a setup-time download was unavailable, or after changing tiers:
+
+```bash
+yarn install-skills --list
+yarn install-skills
+```
+
+Skills are discovered from `.agents/skills/`; Claude Code receives the compatibility links it needs. The installer verifies the pinned external commit and file hashes, preserves unknown user-owned skills, and quarantines stale or modified installer-owned copies instead of silently trusting them.
+
+### Load exact framework context only when needed
+
+The app's root router starts with a small instruction set. When a task needs a framework implementation detail, use the context escape hatch rather than scanning all of `node_modules`:
+
+```bash
+yarn framework:context --module customers --query makeCrudRoute
+yarn framework:context --package @open-mercato/ui --query CrudForm
+yarn framework:context --root
+```
+
+The resolver follows the versions actually installed by the standalone app, locates their source and nearest package/module `AGENTS.md` chain, and materializes the smallest read-only snapshot under ignored `.ai/framework-context/`. It reports a warning when exact TypeScript source or instructions are unavailable; generated facts are a fast index, not a substitute for exact context when a contract is uncertain.
+
+### Validate and release the harness
+
+Use deterministic validation while authoring guidance or cases:
+
+```bash
+yarn harness:validate --case OMH-009
+yarn harness:validate --family testing
+yarn harness:validate --all
+```
+
+`harness:validate --all` checks the complete catalog deterministically. Authenticated live routing can be sampled with `--runner codex` or `--runner claude`, but read-only runner modes do not provide a portable host filesystem denylist; run live cases only in a freshly generated or otherwise non-sensitive app.
+
+Once per Open Mercato release, install the pinned skills and run the full matrix from a fresh controller scaffold:
+
+```bash
+yarn install-skills
+yarn harness:release --prepare-targets /absolute/empty-release-targets --acknowledge-writes
+```
+
+This is the actual full release gate. It prepares a separate disposable app for every writable case and runs deterministic coverage, configured live runners, trusted writable oracles, target `generate`/`typecheck`/`lint`/`build`, and isolated generated-code review. It writes a schema-validated, sanitized, mode-`0600` report under `.ai/harness/results/`. An unavailable required runner is reported as unavailable and blocks a complete release claim.
+
+Writable evaluation fails closed without host containment:
+
+- macOS requires the system `/usr/bin/sandbox-exec`;
+- Linux requires Bubblewrap (`bwrap`) with user namespaces available;
+- native Windows is unsupported for this lane; use a Linux VM or container with Bubblewrap.
+
+The target directory must be an absolute, new or empty regular directory outside the controller app. Model-authored validation commands run without network access, receive a minimal sanitized environment, can write only their disposable target/temp area, and see controller dependencies as read-only. Do not weaken containment to make a failing release pass.
+
+When a new failure or use case is discovered, invoke the bundled `om-evolve-harness` skill: add a failing semantic case first, choose one smallest knowledge owner, run generated tests and target checks, perform mandatory code review, then run the full release suite. Framework maintainers also run `$om-refresh-standalone-harness --from <release-ref> --to <release-ref>` in the Open Mercato monorepo to classify each local release change, extend coverage when needed, and publish a sanitized local maintenance report.
+
+### Efficient task workflows
+
+- **One shot:** describe the business outcome in normal language (for example, “build a library module” or “capture leads and connect them to CRM”). The router mixes the affected module/extension area, task skills, and delivery workflow; the agent loads exact framework context only for unresolved details.
+- **Spec driven:** ask for a spec first when the change has several phases or public-contract decisions, then implement and review it with the installed delivery skills.
+- **Bug fix:** provide the observed behavior and reproduction. The debugging route narrows context to the affected module and requires a regression test.
+- **Before handoff:** run `yarn generate`, the smallest focused unit/integration tests, `yarn typecheck`, `yarn lint`, and `yarn build` as appropriate. Applying database migrations still requires explicit approval.
 
 ## Set up and run
 
@@ -237,7 +310,7 @@ The scaffolded app includes three Compose files for different scenarios:
 
 ### AI tooling
 
-The scaffolded project includes `AGENTS.md` and `CLAUDE.md` at the root. These files provide context for Claude Code and other AI-assisted development tools, describing the project structure, conventions, and available commands. You can customize them for your team's workflow.
+When selected at scaffold time, the project includes the shared `AGENTS.md` router plus tool-specific Claude Code, Codex, and/or Cursor configuration. Durable standalone knowledge lives in `.ai/guides/` and `.ai/skills/`; installed skill discovery lives in `.agents/skills/`. Prefer extending the routed guide or skill that owns a rule over growing the root file. See [Set up the AI development harness](#set-up-the-ai-development-harness) for installation, exact framework context, evaluation, and release maintenance.
 
 ### Integration test scaffold
 
@@ -253,6 +326,10 @@ The project includes a starter integration test at `src/modules/auth/__integrati
 | `yarn build` | Build the Next.js application for production. |
 | `yarn start` | Start the production server. |
 | `yarn generate` | Run all code generators (registry, entities, DI, API client). |
+| `yarn install-skills` | Verify and install the selected local and pinned external AI skills. |
+| `yarn framework:context` | Materialize bounded context from the exact installed Open Mercato packages. |
+| `yarn harness:validate` | Run focused, family, deterministic, or authenticated live harness evaluations. |
+| `yarn harness:release` | Run the contained full per-release evaluation matrix and write a sanitized report. |
 | `yarn db:generate` | Generate database migrations from entity diffs. |
 | `yarn db:migrate` | Apply pending database migrations. |
 | `yarn db:greenfield` | Destructive reset — drops all tables and regenerates. |

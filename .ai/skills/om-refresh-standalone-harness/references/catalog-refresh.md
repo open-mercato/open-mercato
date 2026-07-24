@@ -46,10 +46,17 @@ Do not edit generated assets by hand. Run the repository generator only when the
 
 ## Validation order
 
-Use the commands prescribed by the bundled case template for the target case, its runner, and its family. Then validate related tags and mandatory safety cases. From a fresh standalone scaffold generated from the refreshed local create-app sources (whose pre-edit baseline is `to`), finish with the current single-command full deterministic release suite:
+Use the commands prescribed by the bundled case template for the target case, its runner, and its family. Then validate related tags and mandatory safety cases. From a fresh standalone scaffold generated from the refreshed local create-app sources (whose pre-edit baseline is `to`), run the deterministic catalog gate:
 
 ```text
 yarn harness:validate --all
 ```
 
-Read `release-matrix.json` and run its additional live routing and writable lanes when the release requires them. Record runner/model/tool versions and sanitized results. The one-command gate does not imply those live lanes passed; unavailable capacity must be reported as unavailable and blocks any claim of complete live release evidence.
+This is fast deterministic validation, not the per-release suite. Install the pinned skills and finish with the one command that executes the complete `release-matrix.json` contract:
+
+```text
+yarn install-skills
+yarn harness:release --prepare-targets /absolute/empty-release-targets --acknowledge-writes
+```
+
+The target directory must be absolute, new or empty, and outside the controller app. The release command must run on macOS with `/usr/bin/sandbox-exec` or Linux with Bubblewrap (`bwrap`) and available user namespaces; unsupported or unavailable containment fails closed. Require the schema-valid, mode-`0600` sanitized `*-release-suite.json` artifact under `.ai/harness/results/`, verify all required live routing, writable oracle, target command, and generated-code-review lanes, and record only its status, hash, runner/model/tool versions, and sanitized unavailable reasons. Unavailable capacity blocks a complete release claim.
