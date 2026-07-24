@@ -4,7 +4,7 @@ import path from 'node:path'
 import type { PackageResolver } from '../../resolver'
 import { discoverPackageModuleSources, hasReadableModuleSource } from '../module-facts-discovery'
 
-type FakePackage = { name: string; path: string; modulesPath: string }
+type FakePackage = { name: string; version?: string | null; path: string; modulesPath: string }
 
 function makeResolver(packages: FakePackage[]): PackageResolver {
   return {
@@ -62,11 +62,15 @@ describe('module-facts discovery (T1)', () => {
     writeModule(path.join(pkgSrc, 'src', 'modules'), 'gamma', 'events.ts')
 
     const resolver = makeResolver([
-      { name: '@open-mercato/tagged', path: pkgSrc, modulesPath: path.join(pkgSrc, 'src', 'modules') },
+      { name: '@open-mercato/tagged', version: '0.6.6', path: pkgSrc, modulesPath: path.join(pkgSrc, 'src', 'modules') },
     ])
 
     const [source] = discoverPackageModuleSources(resolver)
-    expect(source).toMatchObject({ moduleId: 'gamma', from: '@open-mercato/tagged' })
+    expect(source).toMatchObject({
+      moduleId: 'gamma',
+      from: '@open-mercato/tagged',
+      packageVersion: '0.6.6',
+    })
     expect(source.moduleRoot).toBe(path.join(pkgSrc, 'src', 'modules', 'gamma'))
   })
 

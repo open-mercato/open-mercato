@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { generateShared } from './tools/shared.js'
+import { finalizeHarnessManifest, generateShared } from './tools/shared.js'
 import { generateClaudeCode } from './tools/claude-code.js'
 import { generateCodex } from './tools/codex.js'
 import { generateCursor } from './tools/cursor.js'
@@ -151,6 +151,7 @@ export async function runAgenticSetup(
   if (selectedIds.includes('cursor')) generateCursor(config)
 
   persistAgentSelection(targetDir, selectedIds)
+  finalizeHarnessManifest(config, selectedIds)
   installSkills(targetDir)
   printSummary(selectedIds)
   return true
@@ -175,11 +176,11 @@ function persistAgentSelection(targetDir: string, selectedIds: string[]): void {
 }
 
 function installSkills(targetDir: string): void {
-  const installScript = join(targetDir, 'scripts', 'install-skills.sh')
+  const installScript = join(targetDir, 'scripts', 'install-skills.mjs')
   if (!existsSync(installScript)) return
   console.log('')
   console.log('   Installing agent skills (local tiers + external open-mercato/skills subset)...')
-  const result = spawnSync('sh', [installScript], { cwd: targetDir, stdio: 'inherit' })
+  const result = spawnSync(process.execPath, [installScript], { cwd: targetDir, stdio: 'inherit' })
   if (result.error || result.status !== 0) {
     console.log('   ⚠ Skill installation did not complete; run `yarn install-skills` inside the app when online.')
   }

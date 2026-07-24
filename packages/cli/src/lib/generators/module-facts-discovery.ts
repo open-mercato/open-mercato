@@ -51,7 +51,12 @@ export function discoverPackageModuleSources(resolver: PackageResolver): ModuleF
     for (const discovered of discoverModulesInPackage(pkg.path)) {
       const moduleRoot = path.join(pkg.modulesPath, discovered.moduleId)
       if (!hasReadableModuleSource(moduleRoot)) continue
-      sources.push({ moduleId: discovered.moduleId, moduleRoot, from: pkg.name })
+      sources.push({
+        moduleId: discovered.moduleId,
+        moduleRoot,
+        from: pkg.name,
+        packageVersion: pkg.version ?? null,
+      })
     }
   }
   return dedupeById(sources)

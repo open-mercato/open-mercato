@@ -1,315 +1,142 @@
-# Agent Context Routing — {{PROJECT_NAME}}
+# {{PROJECT_NAME}} — Standalone App Agent Rules
 
-**MANDATORY CONTEXT LOADING** — see the "BEFORE writing ANY code" Critical Rule below.
-Before writing code, find your task below and `Read` the listed files.
-Do NOT load the entire src/ tree — Open Mercato apps can have many modules.
+Build this standalone extension of installed Open Mercato packages. Route before loading context; load every match.
 
-## What This Project Is
+## Always
 
-A standalone Open Mercato application built ON TOP of the framework.
-The framework lives in `node_modules/@open-mercato/*`. Never edit `node_modules` directly.
-Install official packages with `yarn mercato module add @open-mercato/<package>`.
-To customise a built-in module beyond extensions, eject with `yarn mercato eject <module>`.
+- **MUST route before coding** — match all rows in the three-axis router; when a routed file is missing, run `yarn mercato agentic:init` and retry.
+- **MUST keep framework packages read-only** — app code belongs in `src/modules/<id>/`; use `om-framework-context` to inspect exact installed source and instructions.
+- **MUST preserve scope** — every tenant-owned read, write, cache key, job, event, and external mapping carries both `tenantId` and `organizationId` and fails closed when either is unavailable.
+- **MUST use canonical primitives** — commands for domain writes, `makeCrudRoute` for CRUD APIs, `CrudForm`/`DataTable` for admin CRUD, DI for services, events for cross-module side effects, and UMES for installed-module customization.
+- **MUST use the canonical paths** — entities live in `src/modules/<id>/data/entities.ts`; API handlers live under `api/**/route.ts` and export per-method `metadata` plus `openApi`.
+- **MUST preserve editable records** — new user-editable entities expose `updated_at`/`updatedAt`; custom update/delete clients send the record version and surface 409 conflicts.
+- **MUST treat schema generation as a probe** — run `yarn db:generate`, review scoped SQL and the module snapshot, and ask before applying it.
+- **MUST regenerate structural output** — run `yarn generate` after changing auto-discovered module files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows.
+- **MUST preserve public identifiers** — event IDs, entity IDs, API paths, ACL features, DI tokens, widget spots, notifications, AI agent/tool IDs, CLI names, and generated exports are stable once shipped.
+- **MUST localize and design consistently** — use translation helpers and shared UI components/tokens; include loading, empty, error, conflict, keyboard, and accessibility behavior.
 
-## Task → Context Map
+## Ask First
 
-Match your task below, then **STOP and Read the listed file(s)** before writing
-any code. A task may match multiple rows — load all of them. If you skip this
-step, you WILL produce incorrect imports and miss required patterns.
+- Ask before reducing scope, changing architecture or public contracts, adding production dependencies, ejecting an installed module, or replacing a canonical framework primitive.
+- Ask before applying migrations, resetting data, changing database targets, enabling live credentials, or calling a real external provider from tests.
+- Ask before weakening authentication, tenant/organization scope, encryption, mutation approval, optimistic locking, retries, idempotency, or audit/undo behavior.
 
-### Module Development
+## Never
 
-| Task | Load |
-|---|---|
-| Understand the module system (anatomy, auto-discovery, naming, mandatory mechanisms, data integrity, migrations) | `.ai/guides/module-system.md` |
-| Scaffold a new module from scratch | `.ai/skills/om-module-scaffold/SKILL.md` |
-| Design entities and relationships | `.ai/skills/om-data-model-design/SKILL.md` |
-| Build backend UI (forms, tables, pages) | `.ai/skills/om-backend-ui-design/SKILL.md` |
-| Build an integration provider | `.ai/skills/om-integration-builder/SKILL.md` |
+- Never expose cross-tenant data, accept a scope from an untrusted payload, or treat missing scope as unrestricted access.
+- Never edit `node_modules`, `.mercato/generated/**`, generated facts, or an already-shipped migration.
+- Never create direct ORM relationships across modules; use an ID plus snapshot, events, enrichers, extensions, or an optional DI seam.
+- Never use raw `fetch`, raw admin `<form>`, ad hoc crypto/Redis/queues, role-name guards, or direct domain mutation when a canonical helper exists.
+- Never hard-code user-facing strings, status colors, secrets, provider credentials, or private transcript content.
+- Never guess an installed contract from memory when generated facts or exact-version source can answer it.
 
-### Extending Core Modules (UMES)
+## Validation Commands
 
-| Task | Load |
-|---|---|
-| Extend a core module (add fields, columns, menus, interceptors, enrichers) | `.ai/skills/om-system-extension/SKILL.md` |
-| Eject and customize a core module | `.ai/skills/om-eject-and-customize/SKILL.md` |
-| Add a response enricher to another module's API | `.ai/guides/core.md` → Response Enrichers |
-| Add an API interceptor (before/after hooks) | `.ai/guides/core.md` → API Interceptors |
-| Inject widgets into forms/tables/menus | `.ai/guides/core.md` → Widget Injection |
-| Replace or wrap a UI component | `.ai/guides/core.md` → Component Replacement |
+Choose the smallest relevant set, then expand for broad changes:
 
-### Framework Feature Usage
+```bash
+yarn generate
+yarn typecheck
+yarn lint
+yarn test
+yarn build
+yarn test:integration:ephemeral
+```
 
-| Task | Load |
-|---|---|
-| Add/modify an entity, create migration | `.ai/skills/om-data-model-design/SKILL.md`, `.ai/guides/core.md` → Module Files, then `yarn db:generate` |
-| Add a REST API endpoint | `.ai/guides/core.md` → API Routes |
-| Add a backend page | `.ai/guides/ui.md` → CrudForm / DataTable |
-| Configure sidebar navigation, page groups, settings pages | `.ai/skills/om-module-scaffold/references/navigation-patterns.md` |
-| Add event subscribers or emit events | `.ai/guides/events.md` |
-| Add real-time browser updates (SSE) | `.ai/guides/events.md` → DOM Event Bridge |
-| Add search to a module | `.ai/guides/search.md` |
-| Add caching | `.ai/guides/cache.md` |
-| Add background workers | `.ai/guides/queue.md` |
-| Use i18n (translations) | `.ai/guides/shared.md` → i18n |
-| Use encrypted queries (read sensitive columns that already have an encryption map; for authoring a NEW sensitive column see the row below first) | `.ai/guides/shared.md` → Encryption |
-| **Encrypt sensitive / GDPR-relevant fields** ("we need this column encrypted", "store this securely", "this is PII", "GDPR", "encryption at rest", addresses, contact info, free-text notes about people, integration credentials, secrets) — declare them in the framework's encryption-maps mechanism, never hand-rolled AES/KMS | `.ai/skills/om-data-model-design/SKILL.md` → Sensitive Data and Encryption Maps, then `.ai/skills/om-module-scaffold/SKILL.md` → Encryption maps. Reference: <https://docs.open-mercato.dev/user-guide/encryption> |
-| Use apiCall / UI components | `.ai/guides/ui.md` |
-| Add permissions (RBAC) | `.ai/guides/core.md` → Access Control |
-| Add notifications | `.ai/guides/core.md` → Notifications |
-| Add custom fields | `.ai/guides/core.md` → Custom Fields |
+Record failures honestly. Do not apply a database migration merely to make validation pass.
 
-### Module-Specific Guides
+## Three-Axis Context Assembler
 
-These per-module fact-sheets are **generated from source** and bundled for the modules enabled in this app. The list below is regenerated on scaffold from your enabled module set — do not edit between the markers.
+Start with this root only. Match all three axes and load their de-duplicated union. A CRM lead-capture app may match a new module, installed `customers`/`sales` facts, data, commands, UI, events, integration, and SDLC rows.
+
+Use these evaluator route IDs exactly when reporting a route: `architecture`, `module-data`, `backend-ui`, `umes`, `integration`, `ai-workflow`, `testing`, `debugging`, `framework-context`, and `spec-pr`.
+
+Route only the requested outcome. Normal verification of an implementation does not select `testing` or `debugging`: select `testing` only when writing/running tests is itself requested, and `debugging` only for a reported failure, bug, security issue, drift, or runtime inconsistency. Do not infer unspecified implementation areas from a referenced spec or PR.
+
+### Axis 1 — Area and Ownership
+
+Choose every changed area first; this determines ownership and concept contracts.
+
+| Route ID | Area / ownership decision | Add to context |
+|---|---|---|
+| `architecture` | Installed capabilities, discovery, overrides, upgrades, or ownership choice | `.ai/guides/architecture.md`; facts only for named/changed installed modules |
+| `module-data` | New business/domain capability owned by this app | `src/modules/<id>/`; `.ai/guides/architecture.md` and `.ai/guides/contracts.md` |
+| `umes` | Additive or supported replacement of installed behavior | App extension and/or `src/modules.ts`; `.ai/guides/extensions.md`; target facts |
+| `backend-ui` | Admin, public, portal, form, table, detail, menu, translation, or component | Owning app module; `.ai/guides/backend-ui.md`; host facts when injecting |
+| `integration` | Email, shipping, payment, sync, webhook, storage, import/export, or external API | Provider package when reusable, else owning app module; `.ai/guides/integrations.md` |
+| `ai-workflow` | AI agent/tool/orchestrator or durable workflow | Owning app module; `.ai/guides/ai-workflows.md`; target facts when extending |
+| `debugging` | Bug, security issue, generated drift, or runtime inconsistency | Existing owning call site; `.ai/guides/testing-debugging.md`; affected areas |
+
+Defaults: app domains live in `src/modules/<id>/`; installed customization uses UMES/overrides; reusable providers are packages; inspect and ask before ejecting. `node_modules` stays read-only.
+
+### Axis 2 — Work Units and Primitives
+
+Split the outcome into verifiable units and match all rows. Load thin procedures and only their needed references.
+
+| Evaluator route ID | Work unit | Procedure and concept context |
+|---|---|---|
+| `architecture` | Explain capabilities or choose module vs UMES vs package vs eject | `.ai/guides/architecture.md`; `om-help` for an unfamiliar decision |
+| `module-data` | Convert a business outcome into a complete vertical slice | `om-module-scaffold` business blueprint, then union concrete rows below: customer management, deal pipeline, CRM lead capture, library, booking, rental, support, or purchasing |
+| `spec-pr` | Split or implement cohesive specification phases | Axis 3's skill; keep every phase deployable |
+| `architecture` | Audit an upgrade or disable an unused built-in | `om-troubleshooter` + `om-framework-context`, or `om-trim-unused-modules` |
+| `module-data` | Entity, relation/ID link, validator, migration/snapshot, encryption, lock, or atomic transaction | `om-data-model-design`; `.ai/guides/contracts.md` |
+| `module-data` | CRUD/custom API, command/action, OpenAPI, ACL/setup, or mutation contract | `om-module-scaffold`; `.ai/guides/contracts.md` |
+| `backend-ui` | DataTable/CrudForm, backend/public/portal page, page middleware, navigation, translation, or UI state | `om-backend-ui-design`; `.ai/guides/backend-ui.md` |
+| `module-data` | Search/vector/analytics, event/subscriber, notification/message/inbox, worker/queue/progress, cache, or CLI | `om-module-scaffold`; `.ai/guides/contracts.md` |
+| `umes` | Field/entity, response/query enricher, injection, interceptor/guard, sync subscriber, reactive notification handler, DOM bridge, widget event filter, extension, event reaction, toggle, or override | `om-system-extension`; `.ai/guides/extensions.md`; add the UI/data/integration/AI skill when matched |
+| `integration` | Provider, credentials/health, webhook, import/export, safe client, reconciliation, packaging, or variant | `om-integration-builder`; `.ai/guides/integrations.md` |
+| `ai-workflow` | Agent/tool/orchestrator/attachment/override | `om-create-ai-agent`; `.ai/guides/ai-workflows.md` |
+| `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow`; `.ai/guides/ai-workflows.md` |
+| `testing` | Write/run unit tests, integration/E2E tests, or affected validation | `.ai/guides/testing-debugging.md`; add external `om-integration-tests` for integration/E2E; run the smallest relevant tests first, then escalate |
+| `debugging` | Reproduce, root-cause, minimally fix, and add a regression oracle | `om-troubleshooter`; `.ai/guides/testing-debugging.md`; union affected primitives |
+| `framework-context` | Facts/guides cannot answer an exact installed signature/behavior | `om-framework-context`, scoped to one package/module/query, only after earlier evidence |
+| — | Add a missing recurring use case or fix this routing system | `om-evolve-harness` |
+
+### Axis 3 — SDLC and Delivery
+
+Select delivery independently. These come from pinned `open-mercato/skills` installed by `yarn install-skills`; local task skills do not replace them.
+
+| Route ID | Delivery need | Skill |
+|---|---|---|
+| `spec-pr` | Write or revise a non-trivial specification | `om-spec-writing` (OMH-005) |
+| `spec-pr` | Implement selected approved phases locally | `om-implement-spec` (OMH-006) |
+| `spec-pr` | Implement a complete approved spec and ship it | `om-auto-implement-spec` |
+| `spec-pr` | One-shot task through a ready PR | `om-auto-create-pr`; resume with `om-auto-continue-pr` |
+| `spec-pr` | Tracker issue through verification, root cause, fix, tests, and PR | `om-auto-fix-issue` |
+| `spec-pr` | Review or re-review a PR | `om-auto-review-pr` / `om-code-review` |
+| `testing` | Integration/E2E coverage or UI QA | `om-integration-tests` / `om-auto-qa-pr`; use `om-prepare-test-env` when required |
+| — | No PR/spec workflow requested | Do not load delivery skills |
+
+If the selected skill is absent, run `yarn install-skills` once and retry; do not substitute an invented workflow.
+
+### Token-Efficient Assembly Policy
+
+- Root policy/router is the only initial instruction set.
+- Guides are concept contracts; load each match once. Skills are thin procedures; open only branch-specific references.
+- Facts supply target identifiers/surfaces, not general teaching.
+- Inspect app call sites first; `framework-context` is the last mile for one exact installed target and bounded query.
+- De-duplicate by path/skill. Never preload all facts, catalogs, references, upstream guides, or package source.
+- Each work unit carries only its area, primitive contract, relevant facts, and delivery workflow.
+
+## Module-Specific Facts
+
+This generator-owned block supplies identifiers/surfaces. Load a fact only for an enabled module being changed, integrated with, or used as a named host; generic words like API/search/events do not match it.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
 
-### Skills: local + shared collection
+## Working Sequence
 
-Skills come from two places. Repo-local skills (module scaffolding, UI design, troubleshooting, etc.) ship inside `.ai/skills/` and are installed by tier (see `.ai/skills/tiers.json`). The PR-automation and review skills below are maintained in the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection — run **`yarn install-skills`** once to install the subset this app ships (`npx skills add`, then `npx skills update` on re-runs to refresh). Both sources install into the canonical cross-agent directory **`.agents/skills/`**; Codex and Cursor read it natively, while Claude Code — which cannot — additionally gets per-skill symlinks under `.claude/skills/`. The tables below therefore **reference external skills by name, not by a hard-coded harness path**: the directory depends on which agent you scaffolded, and pointing every reader at `.claude/skills/…` would mislead a Codex or Cursor scaffold. A folder under `.ai/skills/<name>/` matching an external skill is a repo-local **override** that the external skill reads on top of its built-in workflow (default-branch discovery, opt-in labels, `src/modules/…` layout). Repo-specific settings live in `.ai/agentic.config.json` and the tracker descriptor `.ai/trackers/github.md`.
+1. Inspect `.ai/specs/` for relevant decisions; use spec-first work for architectural or three-plus-step requests.
+2. Route the request and load only the matched guides/skills and relevant module facts.
+3. Inspect current app call sites; invoke `om-framework-context` only for missing exact-version details.
+4. Implement the smallest complete vertical slice through real call sites.
+5. Run `yarn generate` when discovery changed, then the smallest validation gate and affected integration paths.
 
-### Quality & Process
+## Context Precedence
 
-| Task | Load |
-|---|---|
-| Debug / fix errors | `.ai/skills/om-troubleshooter/SKILL.md` |
-| Review code changes | `om-code-review` (external — `yarn install-skills`) |
-| Write a spec | `om-spec-writing` (external — `yarn install-skills`), `.ai/specs/SPEC-000-template.md` |
-| Implement a spec (or selected phases) | `.ai/skills/om-implement-spec/SKILL.md` |
-| Create / run integration tests | `om-integration-tests` (external — `yarn install-skills`) |
-| Prepare / reuse a local test environment (shared descriptor for QA + integration tests) | `om-prepare-test-env` (external — invoked by `om-integration-tests` when no environment is running) |
-| Configure or re-configure the agent PR pipeline (`.ai/agentic.config.json`, tracker, labels, QA gate) | `om-setup-agent-pipeline` (external) |
-| Sync installed pipeline artifacts after `yarn install-skills` refreshed the collection | `om-apply-upgrade-notes` (external) |
-| Upgrade framework from 0.4.10 to 0.5.0 | `.ai/skills/om-auto-upgrade-0.4.10-to-0.5.0/SKILL.md` |
-
-### Agent Automation / Auto-Skills
-
-These skills are installed from the shared collection by `yarn install-skills` (referenced by name — your harness loads them from its own skills directory); the matching `.ai/skills/<name>/` folder holds the standalone override they read on top of their workflow.
-
-| Task | Load |
-|---|---|
-| Delegate an arbitrary task end-to-end as a PR | `om-auto-create-pr` (external) |
-| Resume an in-progress agent PR | `om-auto-continue-pr` (external) |
-| Run a long multi-step spec implementation with resumable checkpoints | `om-auto-create-pr-loop` (external) |
-| Resume a checkpointed PR started by `om-auto-create-pr-loop` | `om-auto-continue-pr-loop` (external) |
-| Automated code review on a PR (with optional autofix) | `om-auto-review-pr` (external) |
-| Fix a GitHub issue by number and open a PR | `om-auto-fix-issue` (external — drives the chain `om-verify-in-repo` → `om-root-cause` → `om-fix` → `om-open-pr` → `om-auto-review-pr`, all installed alongside it) |
-| Propose disabling unused built-in modules after the user adds a new module (classic-mode slimdown) | `.ai/skills/om-trim-unused-modules/SKILL.md` |
-
-Invoke these as slash commands in your agent CLI (Claude Code, Codex, …), for example `/auto-create-pr add rate-limiting to the products API` or `/auto-fix-issue 42`. The skills read `.ai/agentic.config.json` (base branch `auto`, resolved via the tracker descriptor's **default-branch** operation; pipeline labels off by default; the standalone validation-gate command list) and perform every GitHub interaction through the tracker descriptor `.ai/trackers/github.md`. That config ships preconfigured, so the skills work without any setup step — run `/om-setup-agent-pipeline` when you want to tailor it: enable the full label pipeline (`labels.enabled: true` plus the tracker's **ensure-label-taxonomy** operation) and the QA gate, switch tracker, or change the validation commands. After `yarn install-skills` refreshes the external collection, run `/om-apply-upgrade-notes` to bring the installed artifacts (tracker descriptor, config) up to date with the new skill versions.
-
-## Module Anatomy
-
-Each module in `src/modules/<id>/` is self-contained and auto-discovered:
-
-```
-src/modules/<id>/
-├── index.ts              # Module metadata
-├── data/
-│   ├── entities.ts       # MikroORM entity classes
-│   ├── validators.ts     # Zod validation schemas
-│   ├── extensions.ts     # Cross-module entity links
-│   └── enrichers.ts      # Response enrichers
-├── api/
-│   ├── <resource>/route.ts  # REST handlers (auto-discovered by method)
-│   └── interceptors.ts      # API route interception hooks
-├── backend/              # Admin UI pages (auto-discovered)
-│   └── page.tsx          # → /backend/<module>
-├── frontend/             # Public pages (auto-discovered)
-├── subscribers/          # Event handlers (export metadata + default handler)
-├── workers/              # Background jobs (export metadata + default handler)
-├── widgets/
-│   ├── injection/        # UI widgets injected into other modules
-│   ├── injection-table.ts # Widget-to-slot mappings
-│   └── components.ts     # Component replacement/wrapper definitions
-├── di.ts                 # Awilix DI registrations
-├── acl.ts                # Permission features
-├── setup.ts              # Tenant init, role features, seed data
-├── events.ts             # Typed event declarations
-├── search.ts             # Search indexing configuration
-├── ce.ts                 # Custom entities / custom field sets
-├── translations.ts       # Translatable fields per entity
-├── notifications.ts      # Notification type definitions
-├── notifications.client.ts  # Client-side notification renderers
-└── encryption.ts         # Tenant data encryption maps (defaultEncryptionMaps) for sensitive / GDPR fields
-```
-
-Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
-
-## Mandatory Module Mechanisms (every module MUST use these — no DIY substitutes)
-
-When the user asks to **create a new application** or a **new module**, do not invent your own routing, auth, persistence, forms, or caching. The framework provides one canonical primitive for each concern. If a feature is not on this list and not in the Task → Context Map, ask before adding it — do not roll your own.
-
-| Concern | Canonical mechanism | Where to learn it |
-|---|---|---|
-| Module structure & auto-discovery | `src/modules/<id>/{api,backend,frontend,data,subscribers,workers,widgets}` + `index.ts` + `src/modules.ts` (`from: '@app'`) — discovered by `yarn generate` | `.ai/skills/om-module-scaffold/SKILL.md`, `.ai/guides/core.md` → Module Files; <https://docs.open-mercato.dev/framework/modules/overview> |
-| **Backend admin pages** | Auto-discovered files under `src/modules/<id>/backend/**`, paired `page.meta.ts` with `requireAuth` + `requireFeatures` + `pageGroup`/`pageGroupKey`/`pageOrder` | `.ai/skills/om-backend-ui-design/SKILL.md`, `.ai/skills/om-module-scaffold/references/navigation-patterns.md`; <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
-| **Frontend public pages** | Auto-discovered files under `src/modules/<id>/frontend/**`. Customer portal pages live under `frontend/[orgSlug]/portal/<path>/page.tsx` with `requireCustomerAuth` / `requireCustomerFeatures` in `page.meta.ts` | `.ai/guides/ui.md` → Portal Extension; <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
-| **API routes** | Files under `src/modules/<id>/api/**/route.ts` exporting handlers + `metadata` (per-method `requireAuth` / `requireFeatures`) + `openApi`. NEVER write a top-level `export const requireAuth` — the registry no longer recognises it | `.ai/guides/core.md` → API Routes; <https://docs.open-mercato.dev/framework/api/api-development-guide> |
-| **CRUD APIs (factory)** | `makeCrudRoute({ metadata, orm, list, create, update, del, indexer })` from `@open-mercato/shared/lib/crud/factory` (`orm` is required; `list`/`create`/`update`/`del` are the per-operation configs). Always set `indexer` so query-index coverage stays correct. Custom (non-`makeCrudRoute`) write routes MUST use the mutation guard registry: map the route to `create`/`update`/`delete` (action endpoints usually `update`), collect registered guards, append `bridgeLegacyGuard(container)` when present, call `runMutationGuards(...)` with `{ userFeatures }` before the mutation, merge `modifiedPayload`, and run returned `afterSuccessCallbacks` after success while catching/logging callback failures | `.ai/skills/om-module-scaffold/SKILL.md` → Create API Routes; <https://docs.open-mercato.dev/framework/api/crud-factory> |
-| **CRUD forms in admin** | `<CrudForm entityId apiPath mode fields />` from `@open-mercato/ui/backend/CrudForm`; helpers `createCrud` / `updateCrud` / `deleteCrud` from `@open-mercato/ui/backend/utils/crud`; `createCrudFormError` from `@open-mercato/ui/backend/utils/serverErrors`. Never raw `<form>`, never raw `fetch` | `.ai/skills/om-backend-ui-design/SKILL.md`; <https://docs.open-mercato.dev/framework/admin-ui/crud-form> |
-| **DataTables in admin** | `<DataTable entityId apiPath title columns />` from `@open-mercato/ui/backend/DataTable`. Keep `entityId` and `extensionTableId` stable so widget injection (columns, row actions, bulk actions, filters, toolbar) keeps working | `.ai/skills/om-backend-ui-design/SKILL.md`; <https://docs.open-mercato.dev/framework/admin-ui/data-grids> |
-| **Authorization (RBAC)** | Declare features in `<module>/acl.ts`, grant them in `<module>/setup.ts` `defaultRoleFeatures`, gate pages and routes with `requireFeatures` in `metadata` / `page.meta.ts`. NEVER use `requireRoles` (role names mutate). Run `yarn mercato auth sync-role-acls` after adding new features | `.ai/guides/core.md` → Access Control; <https://docs.open-mercato.dev/framework/rbac/overview> |
-| **Multi-tenant scoping (default for every entity)** | Every tenant-scoped entity MUST include indexed `organization_id` and `tenant_id` columns and every read/write MUST filter by them. The CRUD factory injects scope automatically — do NOT bypass it. For ad-hoc queries use `withScopedPayload` from `@open-mercato/shared/lib/api/scoped` | `.ai/skills/om-data-model-design/SKILL.md`; <https://docs.open-mercato.dev/architecture/system-overview> |
-| **Encryption maps for sensitive data** | Declare a module-level `<module>/encryption.ts` exporting `defaultEncryptionMaps: ModuleEncryptionMap[]` from `@open-mercato/shared/modules/encryption`. Read encrypted columns via `findWithDecryption` / `findOneWithDecryption` from `@open-mercato/shared/lib/encryption/find`. NEVER hand-roll AES/KMS, NEVER use `em.find` on encrypted columns | `.ai/skills/om-data-model-design/SKILL.md` → Sensitive Data and Encryption Maps; <https://docs.open-mercato.dev/user-guide/encryption> |
-| **Cache** | Resolve the cache from DI (`container.resolve('cache')`) — never `new Redis(...)` or raw SQLite. Tag with `tenant:<id>` / `org:<id>` and the entity-type tag so invalidation stays tenant-scoped | `.ai/guides/cache.md`; <https://docs.open-mercato.dev/user-guide/cache-management> |
-| **Entity update safety** | Multi-phase scalar + relation mutations use `withAtomicFlush(em, phases, { transaction: true })` from `@open-mercato/shared/lib/commands/flush` — never interleave `em.find`/`em.findOne` between a scalar mutation and `em.flush()`. Keep `emitCrudSideEffects` + cache invalidation OUTSIDE it (they fire after commit) | See **Entity Update Safety** section below |
-| **Background workers** | `src/modules/<id>/workers/*.ts` exporting `metadata: { queue, id?, concurrency? }` + default handler. Never spin up custom queues | `.ai/guides/queue.md`; <https://docs.open-mercato.dev/framework/events/queue-workers> |
-| **Events between modules** | `<module>/events.ts` with `createModuleEvents({ moduleId, events } as const)`. Subscribers in `subscribers/*.ts`. Never call other modules' services directly across module boundaries | `.ai/guides/events.md`; <https://docs.open-mercato.dev/framework/events/overview> |
-| **i18n (every user-facing string)** | `useT()` client-side from `@open-mercato/shared/lib/i18n/context`, `resolveTranslations()` server-side from `@open-mercato/shared/lib/i18n/server`; keys in `src/i18n/<locale>.json`. Never hard-code labels in components | `.ai/guides/shared.md` → i18n |
-
-> Rule of thumb: if you find yourself reaching for raw `fetch`, raw `<form>`, ad-hoc `crypto`, ad-hoc `Redis`, or a manual `m2m` join across modules, stop and check the row above — there is a canonical helper.
-
-## Entity Update Safety
-
-MikroORM v7 can silently discard pending scalar changes when a query (`em.find`, `em.findOne`, sync helper) runs on the same `EntityManager` between a scalar mutation and `em.flush()`. For any command in `{{PROJECT_NAME}}` that mutates entities across multiple phases:
-
-- MUST use `withAtomicFlush(em, phases, { transaction: true })` from `@open-mercato/shared/lib/commands/flush`.
-- NEVER interleave `em.find`/`em.findOne`/sync helpers between a scalar mutation and `em.flush()` on the same `EntityManager` without `withAtomicFlush` — the UPDATE is dropped.
-- Keep `emitCrudSideEffects` (and `emitCrudUndoSideEffects`) AND cache invalidation OUTSIDE the `withAtomicFlush` block — they fire only AFTER the DB write commits.
-
-```typescript
-import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-
-await withAtomicFlush(em, [
-  () => { record.name = 'New Name'; record.status = 'active' },
-  () => syncEntityTags(em, record, tags),
-], { transaction: true, label: '<module>.<command>' })
-
-// Side effects + cache invalidation AFTER the atomic flush (post-commit)
-await emitCrudSideEffects({ /* ... */ })
-```
-
-Because invalidation runs post-commit and the query-index read-projection tail (search tokens, vectors, fulltext, coverage) converges asynchronously, reads can briefly see a convergence window after a write. An opt-in env flag, `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` (default OFF, backward compatible), is planned to make that tail converge synchronously on write at a write-latency cost — treat it as opt-in/forthcoming, not on by default.
-
-## CRITICAL rules — always follow without exception
-
-1. **Entity classes live in `src/modules/<module>/data/entities.ts` and MUST import decorators from `@mikro-orm/decorators/legacy`.** Start there for every schema change.
-2. **After editing `src/modules.ts`** or any structural module file: run `yarn generate`
-3. **Never edit `.mercato/generated/*`** — auto-generated. Never edit `node_modules/@open-mercato/*` — eject instead.
-4. **After editing `src/modules/<module>/data/entities.ts`**: run `yarn db:generate` as a schema-diff probe. Default to the generated SQL, but if it emits unrelated churn, keep or write only the scoped SQL for your module and update `src/modules/<module>/migrations/.snapshot-open-mercato.json` in the same change.
-5. **Confirm migrations with user** before running `yarn db:migrate`
-6. **API route files MUST export `metadata`.** Every `src/modules/<module>/api/**/route.ts` that exports an HTTP handler (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) MUST also export a `metadata` object describing per-method auth, otherwise the generator emits the warning `[generate] ⚠ Route file exports handlers but no metadata — auth will default to required` and every method silently falls back to "authentication required". Use the per-method shape:
-   ```ts
-   export const metadata = {
-     GET: { requireAuth: true, requireFeatures: ['mymodule.view'] },
-     POST: { requireAuth: true, requireFeatures: ['mymodule.manage'] },
-   }
-   ```
-   For public endpoints, opt out explicitly with `{ requireAuth: false }`. Do not use the legacy top-level `export const requireAuth` / `export const requireFeatures` — they are no longer recognised.
-7. **Write migrations in one shot.** `yarn dev` auto-applies pending migrations at startup by default (`OM_DEV_AUTO_MIGRATE=1`). Once a migration has been applied, editing the same file usually has no effect — the next migrate pass skips it as already-applied. If `yarn db:generate` shows unrelated churn, manual SQL for the intended module is allowed, but you MUST also update that module's `.snapshot-open-mercato.json`. Never hand-edit a historical migration that has already shipped; add a **new** migration instead.
-8. **After the user adds a new module, offer to trim classic mode.** A fresh `create-mercato-app` scaffold enables every built-in module (classic mode). Once the user has added their own custom module, the defaults are usually dead weight. **Ask the user** (via a short `AskUserQuestion`) whether they want to disable built-in modules that are not needed for their project. If they say yes, invoke the `om-trim-unused-modules` skill — do NOT hand-craft the slimdown inside the AGENTS.md reading flow. If they say no, preserve classic mode silently.
-
-   **Dashboards fallback rule.** When the user (or the `om-trim-unused-modules` skill) disables the `dashboards` module, you MUST update `src/app/(backend)/backend/page.tsx` so it no longer renders `<DashboardScreen />`. Replace the dashboard render with a `redirect(...)` to the first enabled backend page for the current user — preferring pages already registered in the main sidebar group and respecting the admin/superadmin role of the caller. Otherwise `/backend` will crash at build or request time because the removed module no longer ships `DashboardScreen`. Always fall back to `/backend/profile` only if no other backend page is available.
-9. **New features MUST be visible to default roles immediately.** Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) to `src/modules/<module>/acl.ts`, you MUST also (a) add that feature to `defaultRoleFeatures` in the same module's `setup.ts` so the admin role and any other appropriate default roles get it on every tenant setup; and (b) run `yarn mercato auth sync-role-acls` so existing tenants pick up the new feature without a reinstall. Use `--tenant <tenantId>` only when the user asks to target one tenant. Do this automatically unless the user has explicitly said otherwise — the user should see the features you are building, not stare at a blank admin because their role is missing a grant. Feature IDs are FROZEN once shipped; if a rename is required, add the new ID alongside, grant it, and keep the old one as a deprecated alias.
-10. **Strict Design System alignment for every UI change.** Any UI you add or edit MUST use the Open Mercato design system components and tokens. No hardcoded Tailwind status colors (`text-red-500`, `bg-green-100`, etc.) — use semantic tokens (`text-status-error-text`, `bg-status-success-bg`, …). No arbitrary text sizes (`text-[11px]`, `text-[13px]`) — use the Tailwind scale (`text-xs`, `text-sm`, `text-base`, `text-lg`, `text-xl`, `text-2xl`) or the `text-overline` token for 11px uppercase labels. In PAGE BODY UI, use `lucide-react` icons (never inline `<svg>`). Use `StatusBadge` for entity status, `Alert` for inline feedback, `FormField` for standalone form inputs, `SectionHeader` for detail-page section headings, `CollapsibleSection` for collapsible regions, `LoadingMessage`/`Spinner`/`DataLoader` for async states, and `EmptyState` (or DataTable's `emptyState` prop) for empty lists. For list pages, follow `.ai/skills/om-backend-ui-design/SKILL.md` and prefer the `DataTable` host pattern shown there (`entityId`, `apiPath`, stable `extensionTableId`, and explicit pagination props when you own the data source). Every dialog MUST support `Cmd/Ctrl+Enter` to submit and `Escape` to cancel. Every icon-only button MUST have an `aria-label`. These rules apply to `src/modules/<module>/backend/**` and `src/modules/<module>/frontend/**` alike.
-11. **Sensitive / GDPR fields MUST go through the encryption-maps mechanism — never hand-rolled.** The framework provides per-tenant DEKs, KMS-backed key resolution, and a declarative field-level map. Whenever the user asks for "this field encrypted", "store this securely", "this is PII", "GDPR", "encryption at rest", or you are designing a column that will hold names, addresses, contacts, free-text notes about people, integration secrets/credentials, or any data subject to a data-processing agreement, you MUST:
-   - Declare the entity + field list in `src/modules/<module>/encryption.ts` exporting `defaultEncryptionMaps: ModuleEncryptionMap[]` (type imported from `@open-mercato/shared/modules/encryption`).
-   - Read those columns via `findWithDecryption` / `findOneWithDecryption` from `@open-mercato/shared/lib/encryption/find` (passing `tenantId` and `organizationId`). Never use raw `em.find` on encrypted columns.
-   - For deterministic-lookup fields (e.g., login email), declare a sibling `hashField` in the map so equality lookups still work.
-   - Run `yarn mercato entities seed-encryption --tenant <tenantId>` after adding maps so existing tenants pick them up; new tenants get them automatically during `auth:setup`.
-   - Treat hand-rolled AES, raw `crypto.subtle`, custom KMS calls, or storing plaintext "for now" as broken — rewrite via the maps. See `.ai/skills/om-data-model-design/SKILL.md` → Sensitive Data and Encryption Maps and <https://docs.open-mercato.dev/user-guide/encryption>.
-12. **BEFORE writing ANY code**, you MUST:
-   - Match your task against the **Task → Context Map** above
-   - `Read` every file listed in the "Load" column for your task type
-   - Read the **Mandatory Module Mechanisms** section above to confirm which canonical primitives apply (CRUD factory, CrudForm, DataTable, RBAC, multi-tenant scoping, encryption maps, cache, events) — do not invent your own substitutes
-   - Only then proceed to implementation
-   - If your task matches multiple rows, load ALL listed files
-   - **Do NOT skip this step.** The guides contain canonical import paths, required patterns, and conventions that CANNOT be reliably inferred from existing code alone. Skipping leads to wrong imports, missing conventions, and rework.
-
-## Additional Conventions
-
-- Custom modules use `from: '@app'` in `src/modules.ts`
-- Entity classes belong in `src/modules/<module>/data/entities.ts` and use decorators from `@mikro-orm/decorators/legacy`
-- Standalone apps expose `yarn mercato configs cache ...` because the template enables the `configs` module from `@open-mercato/core`
-- `yarn generate` automatically runs a best-effort structural cache purge (`yarn mercato configs cache structural --all-tenants`) after successful generation; if the cache command is unavailable, generation still succeeds
-- Use `yarn dev:reset` only as the stale-Turbopack escape hatch; it clears `.mercato/next/dev` plus legacy `.next` caches.
-- Detail/read-model APIs that expose `customFields` MUST return bare field keys via `normalizeCustomFieldResponse()` (for example `{ priority: 3 }`). Keep `cf_` / `cf:` prefixes for request payloads, filters, and form field IDs only.
-- Sidebar icons MUST use `lucide-react` components — never inline SVG via `React.createElement`
-- `page.meta.ts` MUST include `pageGroup`, `pageGroupKey`, and `pageOrder` for sidebar grouping
-- Settings pages MUST use `pageContext: 'settings' as const` with `navHidden: true`
-- All related pages within a module MUST share the same `pageGroupKey`
-- DataTable hosts MUST keep `extensionTableId` stable; when you own pagination state, wire `page`, `pageSize`, `totalCount`, and `onPageChange`
-
-## Naming Conventions
-
-- Module IDs: plural, snake_case (`order_items`)
-- Event IDs: `module.entity.action` (singular entity, past tense: `sales.order.created`)
-- DB tables: plural, snake_case with module prefix (`catalog_products`)
-- DB columns: snake_case (`created_at`, `organization_id`)
-- JS/TS identifiers: camelCase
-- Feature IDs: `<module>.<action>` (`my_module.view`, `my_module.create`)
-- UUID primary keys, explicit foreign keys, junction tables for M2M
-
-## Key Imports Quick Reference
-
-```typescript
-// Translations
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-
-// API calls (MUST use — never raw fetch)
-import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-
-// CRUD forms
-import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
-import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-
-// UI components (MUST use — never raw <button>)
-import { Button } from '@open-mercato/ui/primitives/button'
-import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { FormHeader, FormFooter } from '@open-mercato/ui/backend/forms'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
-
-// Encrypted queries (MUST use instead of em.find)
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-
-// Events
-import { createModuleEvents } from '@open-mercato/shared/modules/events'
-
-// Widget injection
-import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
-
-// Types
-import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
-import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
-import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
-```
-
-## Key Commands
-
-| Command | Purpose |
-|---|---|
-| `yarn dev` | Start compact dev runtime (`d` toggles raw logs) |
-| `yarn dev:verbose` | Start dev runtime with full raw passthrough logs |
-| `yarn generate` | Regenerate `.mercato/generated/` |
-| `yarn mercato configs cache structural --all-tenants` | Manually purge structural navigation/sidebar cache entries |
-| `yarn mercato module add <package>` | Install and enable an official module package |
-| `yarn db:generate` | Probe/create migration SQL for entity changes |
-| `yarn db:migrate` | Apply pending migrations after user confirmation |
-| `yarn initialize` | Bootstrap DB + first admin account |
-| `yarn build` | Build for production |
-| `yarn mercato eject <module>` | Copy a core module into `src/modules/` |
-| `yarn test:integration:ephemeral` | Run Playwright integration tests against a fresh ephemeral app + DB (reuses a healthy running env) — always prefer this over plain `yarn test:integration` |
-| `yarn test:integration:ephemeral:start` | Start the ephemeral app only (manual QA or iterative test loops; admin@acme.com / secret) — the `om-prepare-test-env` skill wraps this and shares the env via `.ai/qa/test-env.json` |
-| `yarn mercato test:integration <filter>` | Run small filtered test batches against the running ephemeral env (fast iteration) |
-| `npx playwright show-report .ai/qa/test-results/html` | Open the HTML integration test report |
-
-## Architecture Rules
-
-- NO direct ORM relationships between modules — use foreign key IDs
-- Always filter by `organization_id` for tenant-scoped entities
-- Validate all inputs with Zod; derive types via `z.infer`
-- Use DI (Awilix) for services; avoid `new`-ing directly
-- No `any` types — use Zod schemas with `z.infer`, narrow with runtime checks
-- Every dialog: `Cmd/Ctrl+Enter` submit, `Escape` cancel
-- Keep `pageSize` at or below 100
-- Every API route MUST export `openApi`
-
-## Stack
-
-Next.js App Router, TypeScript, MikroORM, Awilix DI, Zod
+1. This file governs standalone safety, writable locations, and validation.
+2. `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` governs stable public identifiers when agentic context is installed.
+3. The nearest installed package/module `AGENTS.md` governs version-specific framework contracts.
+4. Generated facts govern discovered module surfaces for the installed version.
+5. If sources conflict after version/skew checks, stop and report the contradiction instead of guessing.

@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["selectedRouter", "selectedSkills", "selectedContext", "decisions", "violations"],
+  "properties": {
+    "selectedRouter": { "type": "array", "items": { "type": "string", "enum": ["architecture", "module-data", "backend-ui", "umes", "integration", "ai-workflow", "debugging", "spec-pr", "framework-context"] } },
+    "selectedSkills": { "type": "array", "items": { "type": "string" } },
+    "selectedContext": { "type": "array", "items": { "type": "string" } },
+    "decisions": { "type": "array", "items": { "type": "string" } },
+    "violations": { "type": "array", "items": { "type": "string" } }
+  }
+}

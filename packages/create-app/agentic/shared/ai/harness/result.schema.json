@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-mercato.dev/schemas/standalone-harness-result.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "caseId", "promptHash", "runner", "runnerVersion", "model", "evaluationKind", "selectedRouter", "selectedSkills", "selectedContext", "decisions", "violations", "durationMs", "exitStatus", "status", "actualContext"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "caseId": { "type": "string", "pattern": "^OMH-[0-9]{3}$" },
+    "promptHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "runner": { "enum": ["deterministic", "codex", "claude"] },
+    "runnerVersion": { "type": "string", "maxLength": 200 },
+    "model": { "type": "string", "maxLength": 200 },
+    "evaluationKind": { "enum": ["static", "routing", "implementation", "regression"] },
+    "selectedRouter": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "selectedSkills": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "selectedContext": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "decisions": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "violations": { "type": "array", "items": { "type": "string", "maxLength": 300 } },
+    "durationMs": { "type": "integer", "minimum": 0 },
+    "exitStatus": { "type": ["integer", "null"] },
+    "status": { "enum": ["pass", "fail", "error"] },
+    "sanitizedError": { "type": "string", "maxLength": 4096 },
+    "actualContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paths", "files", "bytes", "estimatedTokens", "initialPaths", "initialFiles", "initialBytes", "estimatedInitialTokens"],
+      "properties": {
+        "paths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "files": { "type": "integer", "minimum": 0 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "estimatedTokens": { "type": "integer", "minimum": 0 },
+        "initialPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "initialFiles": { "type": "integer", "minimum": 0 },
+        "initialBytes": { "type": "integer", "minimum": 0 },
+        "estimatedInitialTokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "writable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changedPaths", "beforeOraclePassed", "afterOraclePassed"],
+      "properties": {
+        "changedPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "beforeOraclePassed": { "type": "boolean" },
+        "afterOraclePassed": { "type": "boolean" }
+      }
+    }
+  }
+}

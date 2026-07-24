@@ -3,30 +3,87 @@
   "default": ["core"],
   "external": {
     "source": "open-mercato/skills",
-    "description": "Skills installed from the shared open-mercato/skills collection via `npx skills add` (see scripts/install-skills.sh). Only the subset this standalone app ships is installed. A folder under .ai/skills/ matching one of these names is a repo-local override read by the external skill, never symlinked into the harness directories.",
+    "ref": "cf42eaf277a91c3906ffa910a1cdfeb121fe8322",
+    "cli": {
+      "package": "skills",
+      "version": "1.5.20"
+    },
+    "description": "Dependency-closed daily-delivery workflows installed at an exact tested collection commit. Same-name folders under .ai/skills are repo-local overrides and never replace these copies.",
     "skills": [
-      "om-apply-upgrade-notes",
-      "om-auto-continue-pr",
-      "om-auto-continue-pr-loop",
-      "om-auto-create-pr",
-      "om-auto-create-pr-loop",
-      "om-auto-fix-issue",
-      "om-auto-review-pr",
-      "om-code-review",
-      "om-fix",
-      "om-integration-tests",
-      "om-open-pr",
-      "om-prepare-issue",
-      "om-prepare-test-env",
-      "om-root-cause",
-      "om-setup-agent-pipeline",
       "om-spec-writing",
-      "om-verify-in-repo"
-    ]
+      "om-code-review",
+      "om-integration-tests",
+      "om-prepare-test-env",
+      "om-auto-create-pr",
+      "om-auto-continue-pr",
+      "om-auto-review-pr",
+      "om-auto-implement-spec",
+      "om-auto-qa-pr",
+      "om-auto-fix-issue",
+      "om-verify-in-repo",
+      "om-root-cause",
+      "om-fix",
+      "om-open-pr",
+      "om-setup-agent-pipeline"
+    ],
+    "dependencies": {
+      "om-spec-writing": [],
+      "om-code-review": ["om-setup-agent-pipeline"],
+      "om-integration-tests": ["om-prepare-test-env"],
+      "om-prepare-test-env": [],
+      "om-auto-create-pr": ["om-auto-review-pr", "om-setup-agent-pipeline"],
+      "om-auto-continue-pr": ["om-auto-review-pr", "om-setup-agent-pipeline"],
+      "om-auto-review-pr": ["om-code-review", "om-setup-agent-pipeline"],
+      "om-auto-implement-spec": [
+        "om-auto-create-pr",
+        "om-auto-continue-pr",
+        "om-auto-review-pr",
+        "om-auto-qa-pr",
+        "om-setup-agent-pipeline"
+      ],
+      "om-auto-qa-pr": [
+        "om-auto-review-pr",
+        "om-integration-tests",
+        "om-prepare-test-env",
+        "om-setup-agent-pipeline"
+      ],
+      "om-auto-fix-issue": [
+        "om-auto-implement-spec",
+        "om-auto-qa-pr",
+        "om-auto-review-pr",
+        "om-verify-in-repo",
+        "om-root-cause",
+        "om-fix",
+        "om-open-pr",
+        "om-setup-agent-pipeline"
+      ],
+      "om-verify-in-repo": ["om-setup-agent-pipeline"],
+      "om-root-cause": ["om-setup-agent-pipeline"],
+      "om-fix": ["om-setup-agent-pipeline"],
+      "om-open-pr": ["om-setup-agent-pipeline"],
+      "om-setup-agent-pipeline": []
+    },
+    "contentHashes": {
+      "om-spec-writing": "sha256:7043e498aa17bc9c05bb6417390a622251a0f7d2aa8c4c9c0414e7b700dce67f",
+      "om-code-review": "sha256:f4503da210e6e5eb7d79a0972d3922a2888d8aed93e98a1bb73091c0dc2a750e",
+      "om-integration-tests": "sha256:a1385dbb9fe11fe8c7a16dbe8576e44b9e03f34254e5575955d5a6ea862ee741",
+      "om-prepare-test-env": "sha256:ccfeb9accfffeaf35423576aacc08c9a6e3d3b07ecf8f72da694878fb3a571ab",
+      "om-auto-create-pr": "sha256:7f74b1831caaefa2f00893f00bffed893400e659e5a885fa84aa396eb446e201",
+      "om-auto-continue-pr": "sha256:ced195e0e571672188b34322a9c215df225a9a1822e1db27f6b864b01624e66e",
+      "om-auto-review-pr": "sha256:c05b3f45de9563faa0561a3a12129f4fda8bb1780f60d1cdcce7383e75e2d1c5",
+      "om-auto-implement-spec": "sha256:7bed3709953d52410773ede54cc317bbff1c81bf10d78d99864e4bc0dbbe8d55",
+      "om-auto-qa-pr": "sha256:bff71bf4020a1e92b56a17f35f9c63c5f8f942e95048d5bbdf5589443c2cbda9",
+      "om-auto-fix-issue": "sha256:4924ca0d3a1650a87f53f2536370dae2641fe9a1d5a09fcea7652e77c1481e27",
+      "om-verify-in-repo": "sha256:2fcf67187b129261aeb59b53c8058e95eb91c1f3c0314756ff5f432a34c43a62",
+      "om-root-cause": "sha256:7c14fd6388ff72c8bb058de905264899b7ee9797bb4985b1891ec2da0ec1c815",
+      "om-fix": "sha256:c9eb58f7834026c13f2533ae6fc4987d32a0e3cec1fd7b220b47d7154ee6e804",
+      "om-open-pr": "sha256:18ef43308dd3e5aff2099b38779cb7447ae26b754d31e18a0f49f857bafdcba7",
+      "om-setup-agent-pipeline": "sha256:a8502b38407d12251865c837bb383d8e1eef09a4a682408a881a47b2a4b65fcc"
+    }
   },
   "tiers": {
     "core": {
-      "description": "Daily-driver standalone skills installed by default.",
+      "description": "Daily standalone architecture, implementation, extension, debugging, and harness-maintenance skills.",
       "skills": [
         "om-help",
         "om-implement-spec",
@@ -34,20 +91,21 @@
         "om-module-scaffold",
         "om-data-model-design",
         "om-system-extension",
+        "om-integration-builder",
+        "om-create-ai-agent",
+        "om-build-workflow",
         "om-troubleshooter",
+        "om-framework-context",
+        "om-evolve-harness",
         "om-eject-and-customize"
       ]
     },
     "automation": {
-      "description": "Module-management helpers. Opt-in.",
+      "description": "Optional module-footprint maintenance.",
       "skills": ["om-trim-unused-modules"]
     },
-    "infra": {
-      "description": "Rare, special-case skills.",
-      "skills": ["om-integration-builder"]
-    },
     "migration": {
-      "description": "One-shot, version-pinned migrations. Install only when needed.",
+      "description": "One-shot, version-pinned migrations. Install only for the named upgrade.",
       "skills": ["om-auto-upgrade-0.4.10-to-0.5.0"]
     }
   }

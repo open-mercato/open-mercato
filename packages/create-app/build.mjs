@@ -1,4 +1,5 @@
 import * as esbuild from 'esbuild'
+import { createHash } from 'node:crypto'
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { join, basename, resolve } from 'path'
 
@@ -28,9 +29,26 @@ if (existsSync('src/lib/templates')) {
 
 // Copy agentic source content to dist/ so generators can read it at runtime
 if (existsSync('agentic')) {
+  rmSync('dist/agentic', { recursive: true, force: true })
   cpSync('agentic', 'dist/agentic', { recursive: true })
   console.log('Copied agentic/ → dist/agentic/')
 }
+
+// Bundle the release-matched upstream instruction boundary used by standalone
+// apps when installed package/module context is not enough. Both files remain
+// read-only reference material in the generated app.
+const repositoryRoot = resolve('..', '..')
+const upstreamDir = join('dist', 'agentic', 'guides', 'upstream')
+mkdirSync(upstreamDir, { recursive: true })
+const createAppVersion = JSON.parse(readFileSync('package.json', 'utf8')).version ?? null
+const upstreamManifest = { version: 1, generator: `create-mercato-app@${createAppVersion ?? 'unknown'}`, files: {} }
+for (const file of ['AGENTS.md', 'BACKWARD_COMPATIBILITY.md']) {
+  const source = join(repositoryRoot, file)
+  const destination = join(upstreamDir, file)
+  cpSync(source, destination)
+  upstreamManifest.files[file] = createHash('sha256').update(readFileSync(source)).digest('hex')
+}
+writeFileSync(join(upstreamDir, 'manifest.json'), `${JSON.stringify(upstreamManifest, null, 2)}\n`)
 
 // Auto-discover standalone guides from sibling packages
 // Each package can provide packages/<name>/agentic/standalone-guide.md

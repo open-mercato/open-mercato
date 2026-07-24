@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-mercato.dev/schemas/standalone-harness-cases.schema.json",
+  "title": "Open Mercato standalone harness case catalog",
+  "type": "array",
+  "minItems": 92,
+  "maxItems": 92,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "id", "title", "family", "mode", "evaluationKind", "risk", "prompt", "tags",
+      "owner", "expectedRouter", "requiredSkills", "context", "requiredDecisions",
+      "forbiddenPatterns", "validators", "maxContextFiles", "maxInitialContextBytes",
+      "maxTotalContextBytes", "relatedCases"
+    ],
+    "properties": {
+      "id": { "type": "string", "pattern": "^OMH-(00[1-9]|0[1-8][0-9]|09[0-2])$" },
+      "title": { "type": "string", "minLength": 12, "maxLength": 180 },
+      "family": { "enum": ["architecture", "module", "umes", "integration", "ai-workflow", "bugfix", "business", "testing"] },
+      "mode": { "enum": ["analysis", "one-shot", "spec", "bugfix", "review"] },
+      "evaluationKind": { "enum": ["static", "routing", "implementation", "regression"] },
+      "risk": { "enum": ["low", "medium", "high"] },
+      "prompt": { "type": "string", "minLength": 32, "maxLength": 2000 },
+      "tags": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } },
+      "owner": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path", "ruleIds"],
+        "properties": {
+          "kind": { "enum": ["root", "guide", "skill", "facts", "hook"] },
+          "path": { "type": "string", "pattern": "^(AGENTS\\.md|\\.ai/|\\.claude/|\\.codex/|\\.cursor/)" },
+          "ruleIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^BC-(0[1-9]|1[0-4])$" } }
+        }
+      },
+      "expectedRouter": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["required"],
+        "properties": {
+          "required": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/router" } },
+          "allowedExtra": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/router" } }
+        }
+      },
+      "requiredSkills": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^om-[a-z0-9-]+$" } },
+      "context": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["required", "forbidden"],
+        "properties": {
+          "required": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
+          "forbidden": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } }
+        }
+      },
+      "requiredDecisions": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } },
+      "forbiddenPatterns": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 2, "maxLength": 240 } },
+      "validators": { "type": "array", "minItems": 5, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9.-]+$" } },
+      "fixture": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scaffold", "setup"],
+        "properties": {
+          "scaffold": { "const": "fresh-standalone" },
+          "setup": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^fixture:[a-z0-9-]+$" } },
+          "expectedFailure": { "type": "string", "minLength": 8, "maxLength": 300 }
+        }
+      },
+      "oracle": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["validatorIds", "expectedArtifacts"],
+        "properties": {
+          "validatorIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^oracle\\.[a-z0-9.-]+$" } },
+          "expectedArtifacts": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } }
+        }
+      },
+      "allowedWrites": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
+      "maxContextFiles": { "type": "integer", "minimum": 1, "maximum": 12 },
+      "maxInitialContextBytes": { "type": "integer", "minimum": 4096, "maximum": 65536 },
+      "maxTotalContextBytes": { "type": "integer", "minimum": 8192, "maximum": 262144 },
+      "relatedCases": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^OMH-(00[1-9]|0[1-8][0-9]|09[0-2])$" } },
+      "source": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "prs": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^https://github\\.com/" } },
+          "paths": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } }
+        }
+      }
+    },
+    "allOf": [
+      {
+        "if": { "properties": { "evaluationKind": { "enum": ["implementation", "regression"] } } },
+        "then": { "required": ["fixture", "oracle", "allowedWrites"] }
+      }
+    ]
+  },
+  "$defs": {
+    "router": { "enum": ["architecture", "module-data", "backend-ui", "umes", "integration", "ai-workflow", "testing", "debugging", "spec-pr", "framework-context"] },
+    "relativePath": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" }
+  }
+}

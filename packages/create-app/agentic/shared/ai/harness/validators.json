@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "catalog": {
+    "expectedCaseCount": 92,
+    "maxContextFiles": 12,
+    "maxInitialContextBytes": 65536,
+    "maxTotalContextBytes": 262144,
+    "backwardCompatibilityRuleIds": [
+      "BC-01", "BC-02", "BC-03", "BC-04", "BC-05", "BC-06", "BC-07",
+      "BC-08", "BC-09", "BC-10", "BC-11", "BC-12", "BC-13", "BC-14"
+    ],
+    "mandatoryCaseIds": [
+      "OMH-057", "OMH-058", "OMH-059", "OMH-060", "OMH-061", "OMH-062", "OMH-063",
+      "OMH-064", "OMH-065", "OMH-066", "OMH-067", "OMH-068", "OMH-069", "OMH-070"
+    ],
+    "writableCaseIds": [
+      "OMH-009", "OMH-011", "OMH-012", "OMH-014", "OMH-026", "OMH-027", "OMH-029", "OMH-031",
+      "OMH-042", "OMH-045", "OMH-049", "OMH-054", "OMH-057", "OMH-060", "OMH-061", "OMH-070"
+    ]
+  },
+  "validators": {
+    "catalog.schema": { "kind": "catalog", "implementation": "validateCaseShape" },
+    "catalog.relations": { "kind": "catalog", "implementation": "validateRelations" },
+    "catalog.bc-coverage": { "kind": "catalog", "implementation": "validateBackwardCompatibilityCoverage" },
+    "owner.reference": { "kind": "static", "implementation": "validateOwnerReference" },
+    "router.contract": { "kind": "routing", "implementation": "validateRoutingResult" },
+    "context.budget": { "kind": "routing", "implementation": "validateContextBudget" },
+    "context.forbidden": { "kind": "routing", "implementation": "validateForbiddenContext" },
+    "patterns.forbidden": { "kind": "routing", "implementation": "validateForbiddenPatterns" },
+    "skills.reference": { "kind": "static", "implementation": "validateSkillReference" },
+    "safety.mandatory": { "kind": "catalog", "implementation": "validateMandatoryCases" },
+    "writable.allowed-paths": { "kind": "oracle", "implementation": "validateAllowedWrites" },
+    "oracle.artifacts": { "kind": "oracle", "implementation": "validateExpectedArtifacts" },
+    "oracle.module.entity": { "kind": "oracle", "implementation": "scan", "all": ["organization_id", "tenant_id", "updated_at", "@Entity"] },
+    "oracle.module.crud": { "kind": "oracle", "implementation": "scan", "all": ["makeCrudRoute", "metadata", "openApi", "indexer"] },
+    "oracle.module.command": { "kind": "oracle", "implementation": "scan", "all": ["runMutationGuards", "withAtomicFlush", "emitCrudSideEffects"] },
+    "oracle.module.ui": { "kind": "oracle", "implementation": "scan", "all": ["DataTable", "CrudForm", "extensionTableId", "surfaceRecordConflict"] },
+    "oracle.umes.form-field": { "kind": "oracle", "implementation": "scan", "all": ["crud-form:", "enrichMany", "interceptor"] },
+    "oracle.umes.data-table": { "kind": "oracle", "implementation": "scan", "all": ["data-table:", "extensionTableId"] },
+    "oracle.umes.page-override": { "kind": "oracle", "implementation": "scan", "all": ["overrides", "page"] },
+    "oracle.umes.interceptor": { "kind": "oracle", "implementation": "scan", "all": ["interceptors", "metadata", "organizationId", "tenantId"] },
+    "oracle.integration.data-sync": { "kind": "oracle", "implementation": "scan", "all": ["DataSyncAdapter", "health", "idempot"] },
+    "oracle.integration.rest-client": { "kind": "oracle", "implementation": "scan", "all": ["retry", "cursor", "pagination", "URL"] },
+    "oracle.ai.agent": { "kind": "oracle", "implementation": "scan", "all": ["defineAiAgent", "allowedTools", "requiredFeatures"] },
+    "oracle.workflow.call-api": { "kind": "oracle", "implementation": "scan", "all": ["CALL_API", "idempotency", "transaction"] },
+    "oracle.regression.fail-closed": { "kind": "oracle", "implementation": "scan", "all": ["tenantId", "organizationId"], "any": ["throw", "401", "403"] },
+    "oracle.regression.atomic": { "kind": "oracle", "implementation": "scan", "all": ["withAtomicFlush", "transaction"] },
+    "oracle.regression.null-roundtrip": { "kind": "oracle", "implementation": "scan", "all": ["null", "CrudForm", "initialValues"] },
+    "oracle.regression.cursor": { "kind": "oracle", "implementation": "scan", "all": ["cursor", "retry"], "any": ["commit", "success", "reconcile"] }
+  }
+}
