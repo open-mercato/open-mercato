@@ -19,7 +19,7 @@ import {
   type WorkflowInstanceStatus,
 } from '../data/entities'
 import { compensateWorkflow } from './compensation-handler'
-import { findWorkflowDefinition } from './find-definition'
+import { findWorkflowDefinition, findDefinitionForInstance } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -62,6 +62,24 @@ export interface WorkflowEventSummary {
   eventType: string
   occurredAt: Date
   data?: any
+}
+
+function normalizeWorkflowUserId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.startsWith('trigger:')) return null
+  return trimmed
+}
+
+function resolveWorkflowExecutionUserId(
+  context: ExecutionContext | undefined,
+  instance: WorkflowInstance,
+): string | undefined {
+  return (
+    normalizeWorkflowUserId(context?.userId) ??
+    normalizeWorkflowUserId(instance.metadata?.initiatedBy) ??
+    undefined
+  )
 }
 
 export class WorkflowExecutionError extends Error {
@@ -278,9 +296,7 @@ export async function executeWorkflow(
         )
       }
 
-      const definition = await trx.findOne(WorkflowDefinition, {
-        id: instance.definitionId,
-      })
+      const definition = await findDefinitionForInstance(trx, instance)
 
       if (!definition) {
         throw new WorkflowExecutionError(
@@ -292,6 +308,7 @@ export async function executeWorkflow(
 
       const maxIterations = 100
       let iterations = 0
+      const executionUserId = resolveWorkflowExecutionUserId(context, instance)
 
       while (iterations < maxIterations) {
         iterations++
@@ -309,7 +326,7 @@ export async function executeWorkflow(
         if (currentInstance.status === 'FORKED') {
           const { advanceBranches } = await import('./parallel-handler')
           const branchResult = await advanceBranches(trx, container, currentInstance, definition, {
-            userId: context?.userId,
+            userId: executionUserId,
           })
 
           if (branchResult.outcome === 'joined') {
@@ -395,7 +412,7 @@ export async function executeWorkflow(
         const transitionHandler = await import('./transition-handler')
         const evalContext: any = {
           workflowContext: currentInstance.context,
-          userId: context?.userId,
+          userId: executionUserId,
         }
 
         const validTransitions = await transitionHandler.findValidTransitions(
@@ -614,7 +631,7 @@ export async function completeWorkflow(
 
   // Trigger compensation if workflow failed and has compensatable activities (Phase 8.2)
   if (status === 'FAILED') {
-    const definition = await em.findOne(WorkflowDefinition, { id: instance.definitionId })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (definition && checkIfCompensationNeeded(definition)) {
       try {
@@ -836,9 +853,14 @@ export async function resumeWorkflowAfterActivities(
       fromStepId: instance.currentStepId,
     })
 
-    const definition = await trx.findOneOrFail(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(trx, instance)
+    if (!definition) {
+      throw new WorkflowExecutionError(
+        `Workflow definition not found: ${instance.definitionId}`,
+        'DEFINITION_NOT_FOUND',
+        { definitionId: instance.definitionId }
+      )
+    }
 
     const step = definition.definition.steps.find(s => s.stepId === pendingTransition.toStepId)
 
@@ -879,7 +901,7 @@ export async function resumeWorkflowAfterActivities(
       pendingTransition.toStepId,
       {
         workflowContext: instance.context || {},
-        userId: undefined,
+        userId: resolveWorkflowExecutionUserId(undefined, instance),
       },
       container
     )

@@ -26,6 +26,7 @@ jest.mock('../guards', () => ({
 }))
 
 const TXN_ID = '11111111-1111-4111-8111-111111111111'
+const OPERATION_ID = '22222222-2222-4222-8222-222222222222'
 const RESOURCE_KIND = 'payment_gateways.gateway_transaction'
 
 const service = {
@@ -122,9 +123,9 @@ describe('payment gateway write routes wire the mutation guard lifecycle', () =>
     })
 
     it('runs after-success hooks once the capture succeeds', async () => {
-      const response = await capturePayment(buildRequest(body))
+      const response = await capturePayment(buildRequest({ ...body, operationId: OPERATION_ID }))
       expect(response.status).toBe(200)
-      expect(service.capturePayment).toHaveBeenCalledTimes(1)
+      expect(service.capturePayment).toHaveBeenCalledWith(TXN_ID, undefined, { organizationId: 'o1', tenantId: 't1' }, OPERATION_ID)
       expect(runPaymentGatewayMutationGuardAfterSuccess).toHaveBeenCalledTimes(1)
     })
   })
@@ -154,9 +155,9 @@ describe('payment gateway write routes wire the mutation guard lifecycle', () =>
     })
 
     it('runs after-success hooks once the refund succeeds', async () => {
-      const response = await refundPayment(buildRequest(body))
+      const response = await refundPayment(buildRequest({ ...body, operationId: OPERATION_ID }))
       expect(response.status).toBe(200)
-      expect(service.refundPayment).toHaveBeenCalledTimes(1)
+      expect(service.refundPayment).toHaveBeenCalledWith(TXN_ID, undefined, undefined, { organizationId: 'o1', tenantId: 't1' }, OPERATION_ID)
       expect(runPaymentGatewayMutationGuardAfterSuccess).toHaveBeenCalledTimes(1)
     })
   })
@@ -186,9 +187,9 @@ describe('payment gateway write routes wire the mutation guard lifecycle', () =>
     })
 
     it('runs after-success hooks once the cancel succeeds', async () => {
-      const response = await cancelPayment(buildRequest(body))
+      const response = await cancelPayment(buildRequest({ ...body, operationId: OPERATION_ID }))
       expect(response.status).toBe(200)
-      expect(service.cancelPayment).toHaveBeenCalledTimes(1)
+      expect(service.cancelPayment).toHaveBeenCalledWith(TXN_ID, undefined, { organizationId: 'o1', tenantId: 't1' }, OPERATION_ID)
       expect(runPaymentGatewayMutationGuardAfterSuccess).toHaveBeenCalledTimes(1)
     })
   })
