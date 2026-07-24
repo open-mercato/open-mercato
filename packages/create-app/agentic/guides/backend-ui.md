@@ -10,7 +10,7 @@ Use shared backend/page primitives and keep UI behavior aligned with API scope, 
 | Settings | Backend metadata with `pageContext: 'settings' as const` and `navHidden: true`. |
 | Profile | Backend metadata with `pageContext: 'profile' as const`. |
 | Public frontend | `frontend/**/page.tsx`; explicitly declare auth posture in metadata. |
-| Customer portal | `frontend/[orgSlug]/portal/**/page.tsx`; require customer auth/features and add `nav` metadata only for sidebar destinations. |
+| Customer portal | `frontend/[orgSlug]/portal/**/page.tsx`; public login/signup/verify/landing pages are `navHidden` without customer auth, authenticated pages require customer auth/features, and only sidebar destinations add `nav`. |
 
 List destinations need stable `pageGroup`, `pageGroupKey`, and order. Prefer a registered string icon name in `page.meta.ts` so generated metadata stays serializable; use `lucide-react` components in page-body UI. Hide create/edit/detail destinations from navigation when they are reached from a list.
 
@@ -51,7 +51,8 @@ List destinations need stable `pageGroup`, `pageGroupKey`, and order. Prefer a r
 - For public/portal or visually substantial app work, use `om-backend-ui-design` → `references/frontend-and-design-system.md` for route-shell, product hierarchy, responsive, accessibility, and UX-state coverage.
 - Reuse existing page, section, form, detail, schedule, messages, notification, chart, KPI, and banner component families before building a local variant.
 - Use semantic design tokens and `StatusBadge` for status. Do not hard-code Tailwind status colors or arbitrary text sizes.
-- Use `FormField`, `SectionHeader`, `CollapsibleSection`, standard buttons/dialogs, and Lucide icons.
+- Use `FormField` for standalone forms; `CrudForm` owns field layout and must not be wrapped in it. Use `SectionHeader`, `CollapsibleSection`, standard buttons/dialogs, and Lucide icons.
+- Portal record lists use `DataTable`. Never use raw buttons/checkboxes, a button-styled raw `Link`, or `window.confirm`; use the exported primitives and `useConfirmDialog`.
 - Keep responsive behavior, keyboard navigation, focus order, contrast, and reduced-motion behavior intact.
 
 ## Translation Contract

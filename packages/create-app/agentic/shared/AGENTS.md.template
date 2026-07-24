@@ -51,6 +51,8 @@ Start with this root only. Match all three axes and load their de-duplicated uni
 
 Use these evaluator route IDs exactly when reporting a route: `architecture`, `module-data`, `backend-ui`, `umes`, `integration`, `ai-workflow`, `testing`, `debugging`, `framework-context`, and `spec-pr`.
 
+Route only the requested outcome. Normal verification of an implementation does not select `testing` or `debugging`: select `testing` only when writing/running tests is itself requested, and `debugging` only for a reported failure, bug, security issue, drift, or runtime inconsistency. Do not infer unspecified implementation areas from a referenced spec or PR.
+
 ### Axis 1 — Area and Ownership
 
 Choose every changed area first; this determines ownership and concept contracts.
@@ -79,9 +81,9 @@ Split the outcome into verifiable units and match all rows. Load thin procedures
 | `architecture` | Audit an upgrade or disable an unused built-in | `om-troubleshooter` + `om-framework-context`, or `om-trim-unused-modules` |
 | `module-data` | Entity, relation/ID link, validator, migration/snapshot, encryption, lock, or atomic transaction | `om-data-model-design`; `.ai/guides/contracts.md` |
 | `module-data` | CRUD/custom API, command/action, OpenAPI, ACL/setup, or mutation contract | `om-module-scaffold`; `.ai/guides/contracts.md` |
-| `backend-ui` | DataTable/CrudForm, backend/public/portal page, navigation, translation, or UI state | `om-backend-ui-design`; `.ai/guides/backend-ui.md` |
-| `module-data` | Search, event/subscriber, notification, worker/queue/progress, cache, or CLI | `om-module-scaffold`; `.ai/guides/contracts.md` |
-| `umes` | Field/entity, enricher, injection, interceptor/guard, extension, event reaction, toggle, or override | `om-system-extension`; `.ai/guides/extensions.md`; add the UI/data skill when matched |
+| `backend-ui` | DataTable/CrudForm, backend/public/portal page, page middleware, navigation, translation, or UI state | `om-backend-ui-design`; `.ai/guides/backend-ui.md` |
+| `module-data` | Search/vector/analytics, event/subscriber, notification/message/inbox, worker/queue/progress, cache, or CLI | `om-module-scaffold`; `.ai/guides/contracts.md` |
+| `umes` | Field/entity, response/query enricher, injection, interceptor/guard, sync subscriber, reactive notification handler, DOM bridge, widget event filter, extension, event reaction, toggle, or override | `om-system-extension`; `.ai/guides/extensions.md`; add the UI/data/integration/AI skill when matched |
 | `integration` | Provider, credentials/health, webhook, import/export, safe client, reconciliation, packaging, or variant | `om-integration-builder`; `.ai/guides/integrations.md` |
 | `ai-workflow` | Agent/tool/orchestrator/attachment/override | `om-create-ai-agent`; `.ai/guides/ai-workflows.md` |
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow`; `.ai/guides/ai-workflows.md` |

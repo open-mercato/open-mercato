@@ -363,12 +363,12 @@ Every case is evaluated against a fresh standalone scaffold. Cases 57–70 are m
 
 ### Full surface, frontend, design-system, and UX audits
 
-87. Map a complex module brief to every current canonical discovery surface and reject retired conventions/placeholders.
-88. Select every additive UMES mechanism, exact host-token source, security boundary, and end-to-end round trip.
-89. Audit all 18 wired `entry.overrides` domains, their stable keys, disable/replace semantics, and rollback.
+87. Map a complex module brief to every current canonical discovery/support surface, including vector and UI locale files, and reject retired conventions/placeholders.
+88. Select every additive UMES mechanism, including query enrichers/sync subscribers, reactive/DOM/client filters, integration UI, vector, embedded AI, and typed provider registrations.
+89. Audit all wired `entry.overrides` domains plus additive AI extensions, resolved registry/worker keys, entry-scoped setup, disable/replace semantics, and rollback.
 90. Build a responsive localized public frontend over installed catalog capabilities with server-first boundaries.
-91. Extend the customer portal with principal-derived scope, page metadata/navigation, shared UI, and full UX states.
-92. Redesign a dense operations page for complete design-system, responsive UX, accessibility, and state coverage.
+91. Extend the customer portal with public/guarded metadata, principal-derived scope, frozen extension identifiers, navigation, shared UI, and full UX states.
+92. Redesign a dense operations page for exact Alert/confirm/form contracts, status/tag and brand rules, responsive UX, accessibility, and state coverage.
 
 ### Evaluation levels and release matrix
 
@@ -557,4 +557,5 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 - **2026-07-24** — Added prior-spec/PR-history findings, 92-case catalog, thin-skill/router architecture, cross-platform installer, exact installed-source escape hatch, harness-evolution workflow, compatibility, failure scenarios, integration coverage, and phased implementation plan.
 - **2026-07-24** — Added a three-axis context assembler, 12 business one-shot cases, four test authoring/execution cases, and byte-accurate issue #4484 instruction-budget regressions.
 - **2026-07-24** — Added exact discovery-surface and 18-domain override catalogs plus public frontend, portal, design-system, UX, accessibility, and state-matrix coverage.
+- **2026-07-24** — Source-audited those catalogs against current generators/types/docs; added vector and locale discovery, query/sync/reactive/DOM/integration mechanisms, additive AI overrides, exact registry keys, portal frozen IDs, and corrected design-system exceptions.
 - **2026-07-24** — Fresh-context and pre-implementation reviews split routing evidence from writable implementation/regression oracles, pinned the external collection, defined concern-specific instruction precedence, added ownership state transitions, expanded all 14 BC assertions, and made create-app/CLI snapshot and installer call-site parity explicit.

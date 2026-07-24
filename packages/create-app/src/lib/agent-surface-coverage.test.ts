@@ -17,18 +17,23 @@ test('standalone discovery catalog covers every public module contribution famil
     'ce.ts', 'di.ts', 'setup.ts', 'acl.ts', 'encryption.ts', 'commands/interceptors.ts', 'api/**/route.ts',
     'api/interceptors.ts', 'backend/**/page.tsx', 'frontend/**/page.tsx', 'frontend/[orgSlug]/portal/**/page.tsx',
     'backend/middleware.ts', 'frontend/middleware.ts', 'events.ts', 'subscribers/*.ts', 'workers/*.ts', 'workflows.ts',
-    'search.ts', 'analytics.ts', 'translations.ts', 'widgets/injection-table.ts', 'widgets/components.ts',
+    'search.ts', 'vector.ts', 'analytics.ts', 'translations.ts', 'i18n/<locale>.json', 'widgets/injection-table.ts', 'widgets/components.ts',
     'notifications.ts', 'notifications.client.ts', 'notifications.handlers.ts', 'message-types.ts', 'message-objects.ts',
     'inbox-actions.ts', 'ai-tools.ts', 'ai-agents.ts', 'cli.ts', 'integration.ts', 'generators.ts',
   ]
   for (const expected of expectedPaths) assert.ok(catalog.includes(`\`${expected}\``), `missing discovery surface ${expected}`)
   assert.match(catalog, /Do not use legacy HTTP-method directories or new flat page files/)
+  assert.match(catalog, /not generator-discovered/)
+  assert.match(catalog, /read-only\/retired inputs/)
+  assert.match(catalog, /queryEngine\.enabled/)
+  assert.match(catalog, /metadata\.sync/)
+  assert.match(catalog, /eventHandlers\.filter\.operations/)
 })
 
-test('standalone override catalog covers all 18 wired unified override phases', () => {
+test('standalone override catalog covers all wired unified override domains and additive AI extensions', () => {
   const catalog = read('shared/ai/skills/om-system-extension/references/unified-overrides.md')
   const expectedShapes = [
-    'overrides.ai.agents', 'overrides.ai.tools', 'overrides.routes.api', 'overrides.routes.pages',
+    'overrides.ai.agents', 'overrides.ai.tools', 'overrides.ai.extensions', 'overrides.routes.api', 'overrides.routes.pages',
     'overrides.events.subscribers', 'overrides.workers', 'overrides.widgets.injection',
     'overrides.widgets.components', 'overrides.widgets.dashboard', 'overrides.notifications.types',
     '.handlers', 'overrides.interceptors', 'overrides.commandInterceptors', 'overrides.enrichers',
@@ -38,6 +43,10 @@ test('standalone override catalog covers all 18 wired unified override phases', 
   for (const expected of expectedShapes) assert.ok(catalog.includes(`\`${expected}\``), `missing override shape ${expected}`)
   assert.match(catalog, /`null` disables/)
   assert.match(catalog, /typed value replaces/)
+  assert.match(catalog, /generated registry `entry\.key`/)
+  assert.match(catalog, /explicit `metadata\.id` wins/)
+  assert.match(catalog, /defaultCustomerRoleFeatures/)
+  assert.match(catalog, /global override map may be declared on an app override entry/)
 })
 
 test('frontend and design-system reference covers routes, auth, responsive UX, states, and forbidden drift', () => {
@@ -47,6 +56,10 @@ test('frontend and design-system reference covers routes, auth, responsive UX, s
     'frontend/[orgSlug]/portal/**/page.tsx',
     'page.meta.ts',
     'principal',
+    'navHidden',
+    'usePortalInjectedMenuItems',
+    'menu:portal:sidebar:main',
+    'page:portal:layout',
     'semantic',
     'mobile',
     'reduced motion',
@@ -61,4 +74,8 @@ test('frontend and design-system reference covers routes, auth, responsive UX, s
   assert.match(reference, /Never hard-code hex\/RGB/)
   assert.match(reference, /arbitrary Tailwind/)
   assert.match(reference, /UI visibility is not authorization/)
+  assert.match(reference, /`CrudForm` owns its field layout/)
+  assert.match(reference, /Use `DataTable` for portal lists/)
+  assert.match(reference, /Never use `window\.confirm`/)
+  assert.match(reference, /mobile-first standard breakpoints/)
 })

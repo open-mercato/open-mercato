@@ -59,8 +59,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-002"
@@ -126,8 +126,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-003"
@@ -203,7 +203,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 6,
-    "maxInitialContextBytes": 32768,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-004"
@@ -271,7 +271,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 6,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-005"
@@ -341,8 +341,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 12,
+    "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-006"
@@ -405,8 +405,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-007"
@@ -490,8 +490,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 6,
-    "maxInitialContextBytes": 32768,
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-008"
@@ -558,7 +558,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-007"
@@ -632,8 +632,8 @@
       "oracle.artifacts",
       "oracle.module.entity"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-010"
@@ -723,8 +723,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-011"
@@ -799,7 +799,7 @@
       "oracle.module.crud"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-012"
@@ -894,8 +894,8 @@
       "oracle.artifacts",
       "oracle.module.command"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-013"
@@ -985,8 +985,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-014"
@@ -1061,7 +1061,7 @@
       "oracle.module.ui"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-015"
@@ -1109,18 +1109,22 @@
     },
     "expectedRouter": {
       "required": [
+        "architecture",
         "backend-ui"
       ],
       "allowedExtra": []
     },
     "requiredSkills": [
+      "om-module-scaffold",
       "om-backend-ui-design"
     ],
     "context": {
       "required": [
         "AGENTS.md",
+        ".ai/guides/architecture.md",
         ".ai/guides/backend-ui.md",
-        ".ai/skills/om-module-scaffold/SKILL.md"
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -1147,8 +1151,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-016"
@@ -1217,7 +1221,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-017"
@@ -1286,8 +1290,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-018"
@@ -1356,8 +1360,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-019"
@@ -1389,6 +1393,7 @@
       ],
       "allowedExtra": [
         "architecture",
+        "backend-ui",
         "debugging"
       ]
     },
@@ -1427,8 +1432,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-020"
@@ -1498,7 +1503,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-021"
@@ -1567,8 +1572,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-022"
@@ -1637,8 +1642,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-023"
@@ -1706,7 +1711,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-024"
@@ -1782,7 +1787,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 6,
-    "maxInitialContextBytes": 32768,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-023"
@@ -1850,8 +1855,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-026"
@@ -1927,7 +1932,7 @@
       "oracle.umes.form-field"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-027"
@@ -2025,7 +2030,7 @@
       "oracle.umes.data-table"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-028"
@@ -2118,7 +2123,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-029"
@@ -2194,7 +2199,7 @@
       "oracle.umes.page-override"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-030"
@@ -2286,7 +2291,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-031"
@@ -2357,8 +2362,8 @@
       "oracle.artifacts",
       "oracle.umes.interceptor"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-032"
@@ -2445,8 +2450,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-033"
@@ -2519,7 +2524,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-034"
@@ -2590,7 +2595,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-035"
@@ -2663,7 +2668,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-036"
@@ -2736,7 +2741,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-037"
@@ -2809,7 +2814,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-038"
@@ -2882,7 +2887,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-037"
@@ -2951,8 +2956,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-040"
@@ -3020,8 +3025,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-041"
@@ -3089,8 +3094,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-042"
@@ -3163,8 +3168,8 @@
       "oracle.artifacts",
       "oracle.integration.data-sync"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-043"
@@ -3261,7 +3266,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-044"
@@ -3330,8 +3335,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-045"
@@ -3402,8 +3407,8 @@
       "oracle.artifacts",
       "oracle.integration.rest-client"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-046"
@@ -3490,8 +3495,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-047"
@@ -3559,8 +3564,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-048"
@@ -3629,7 +3634,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-047"
@@ -3702,8 +3707,8 @@
       "oracle.artifacts",
       "oracle.ai.agent"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-050"
@@ -3791,8 +3796,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-051"
@@ -3819,21 +3824,20 @@
     },
     "expectedRouter": {
       "required": [
-        "ai-workflow",
+        "ai-workflow"
+      ],
+      "allowedExtra": [
         "architecture",
         "framework-context"
-      ],
-      "allowedExtra": []
+      ]
     },
     "requiredSkills": [
-      "om-create-ai-agent",
-      "om-framework-context"
+      "om-create-ai-agent"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/ai-workflows.md",
-        ".ai/guides/architecture.md",
         ".ai/skills/om-create-ai-agent/SKILL.md"
       ],
       "forbidden": [
@@ -3861,7 +3865,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-052"
@@ -3903,7 +3907,8 @@
         "AGENTS.md",
         ".ai/guides/ai-workflows.md",
         ".ai/guides/contracts.md",
-        ".ai/skills/om-create-ai-agent/SKILL.md"
+        ".ai/skills/om-create-ai-agent/SKILL.md",
+        ".ai/skills/om-data-model-design/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -3931,7 +3936,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-053"
@@ -3958,21 +3963,20 @@
     },
     "expectedRouter": {
       "required": [
-        "ai-workflow",
+        "ai-workflow"
+      ],
+      "allowedExtra": [
         "architecture",
         "framework-context"
-      ],
-      "allowedExtra": []
+      ]
     },
     "requiredSkills": [
-      "om-build-workflow",
-      "om-framework-context"
+      "om-build-workflow"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/ai-workflows.md",
-        ".ai/guides/architecture.md",
         ".ai/skills/om-build-workflow/SKILL.md"
       ],
       "forbidden": [
@@ -4000,7 +4004,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-054"
@@ -4027,21 +4031,20 @@
     },
     "expectedRouter": {
       "required": [
-        "ai-workflow",
+        "ai-workflow"
+      ],
+      "allowedExtra": [
         "architecture",
         "framework-context"
-      ],
-      "allowedExtra": []
+      ]
     },
     "requiredSkills": [
-      "om-build-workflow",
-      "om-framework-context"
+      "om-build-workflow"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/ai-workflows.md",
-        ".ai/guides/architecture.md",
         ".ai/skills/om-build-workflow/SKILL.md"
       ],
       "forbidden": [
@@ -4072,7 +4075,7 @@
       "oracle.workflow.call-api"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-055"
@@ -4120,27 +4123,32 @@
     "expectedRouter": {
       "required": [
         "ai-workflow",
+        "module-data",
         "backend-ui",
-        "umes",
+        "umes"
+      ],
+      "allowedExtra": [
         "architecture",
         "framework-context"
-      ],
-      "allowedExtra": []
+      ]
     },
     "requiredSkills": [
       "om-build-workflow",
+      "om-module-scaffold",
       "om-system-extension",
-      "om-backend-ui-design",
-      "om-framework-context"
+      "om-backend-ui-design"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/ai-workflows.md",
+        ".ai/guides/contracts.md",
         ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
-        ".ai/guides/architecture.md",
-        ".ai/skills/om-build-workflow/SKILL.md"
+        ".ai/skills/om-build-workflow/SKILL.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -4166,8 +4174,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 9,
-    "maxInitialContextBytes": 49152,
+    "maxContextFiles": 10,
+    "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-056"
@@ -4194,22 +4202,25 @@
     },
     "expectedRouter": {
       "required": [
-        "ai-workflow"
+        "ai-workflow",
+        "umes"
       ],
       "allowedExtra": [
         "architecture",
-        "module-data",
-        "debugging"
+        "module-data"
       ]
     },
     "requiredSkills": [
-      "om-create-ai-agent"
+      "om-create-ai-agent",
+      "om-system-extension"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/ai-workflows.md",
-        ".ai/skills/om-create-ai-agent/SKILL.md"
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-create-ai-agent/SKILL.md",
+        ".ai/skills/om-system-extension/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -4235,8 +4246,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 7,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-055"
@@ -4310,7 +4321,7 @@
       "oracle.regression.fail-closed"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 32768,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-058"
@@ -4403,7 +4414,7 @@
       "safety.mandatory"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 32768,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-059"
@@ -4551,7 +4562,7 @@
       "oracle.regression.atomic"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-061"
@@ -4647,7 +4658,7 @@
       "oracle.regression.null-roundtrip"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-062"
@@ -4741,7 +4752,7 @@
       "safety.mandatory"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-063"
@@ -4813,7 +4824,7 @@
       "safety.mandatory"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-064"
@@ -4887,7 +4898,7 @@
       "safety.mandatory"
     ],
     "maxContextFiles": 6,
-    "maxInitialContextBytes": 32768,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-065"
@@ -4958,7 +4969,7 @@
       "safety.mandatory"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-066"
@@ -5030,7 +5041,7 @@
       "safety.mandatory"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-067"
@@ -5103,7 +5114,7 @@
       "safety.mandatory"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-068"
@@ -5176,7 +5187,7 @@
       "safety.mandatory"
     ],
     "maxContextFiles": 6,
-    "maxInitialContextBytes": 32768,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-069"
@@ -5248,7 +5259,7 @@
       "safety.mandatory"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-070"
@@ -5324,7 +5335,7 @@
       "oracle.regression.cursor"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-069"
@@ -5796,8 +5807,8 @@
     "requiredDecisions": ["unit-regression-oracle", "tenant-organization-fixtures", "failure-injection", "focused-test-command", "honest-test-result"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:skip|todo|only).{0,30}test", "sleep|setTimeout"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": ["OMH-012", "OMH-060", "OMH-084"]
   },
@@ -5820,8 +5831,8 @@
     "requiredDecisions": ["self-contained-fixtures", "api-fixtures", "finally-cleanup", "scope-denial-coverage", "stale-write-conflict", "filtered-integration-run"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:demo|seeded) data", "(?:skip|todo|only).{0,30}test"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 114688,
     "relatedCases": ["OMH-011", "OMH-057", "OMH-083", "OMH-085"]
   },
@@ -5845,7 +5856,7 @@
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:demo|seeded) data", "sleep|waitForTimeout", "existing browser session"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 32768,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": ["OMH-016", "OMH-081", "OMH-084"]
   },
@@ -5868,8 +5879,8 @@
     "requiredDecisions": ["generate-first", "affected-unit-tests", "filtered-integration-tests", "full-validation-tail", "rerun-dependent-gates", "honest-test-result"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:skip|ignore|assume).{0,30}(?:failing|failed|test|gate)", "migration.{0,30}(?:apply|run locally)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 114688,
     "relatedCases": ["OMH-007", "OMH-083", "OMH-084", "OMH-085"]
   },
@@ -5880,7 +5891,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "For a standalone service-management module that needs entities, commands, APIs, backend and public pages, page middleware, ACL/setup/DI/encryption, search, analytics, typed events, subscribers, workers, workflows, progress, notifications, reactive handlers, messages, widgets, command/API interceptors, enrichers, guards, AI tools, CLI, translations, and tests, map each named capability to the current canonical discovery surface. Reject retired flat pages, HTTP-method API directories, data/fields.ts, and any unnecessary placeholder file; include generation and focused verification.",
+    "prompt": "For a standalone service-management module that needs entities, validators, commands, APIs, backend and public pages, page middleware, UI locales, ACL/setup/DI/encryption, search, vector config, analytics, typed events, async and sync query subscribers, workers, workflows, progress, notifications, reactive handlers, messages, widgets, command/API interceptors, response/query enrichers, guards, AI tools, CLI, translatable fields, and tests, map each named capability to the current canonical discovery or support surface. Distinguish generator discovery from imported support files; reject retired flat pages, HTTP-method API directories, data/fields.ts, and unnecessary placeholders; include generation and focused verification.",
     "tags": ["module", "discovery", "surface-catalog", "architecture"],
     "owner": {
       "kind": "skill",
@@ -5896,7 +5907,7 @@
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
-    "requiredDecisions": ["surface-owner-map", "page-route-convention", "api-route-convention", "discovered-convention-files", "no-placeholder-surfaces", "generate-and-inspect"],
+    "requiredDecisions": ["surface-owner-map", "page-route-convention", "api-route-convention", "discovered-convention-files", "support-versus-discovery", "vector-and-ui-locale", "query-lifecycle-surfaces", "no-placeholder-surfaces", "generate-and-inspect"],
     "forbiddenPatterns": ["frontend/.+\\.(?:ts|tsx).{0,30}(?:canonical|create)", "api/(?:get|post|put|patch|delete)/", "data/fields\\.ts", "node_modules.{0,40}(?:write|edit|patch)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 7,
@@ -5911,7 +5922,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Audit how a standalone app can add behavior to installed modules without replacing them. Cover response enrichers, API interceptors, mutation guards, CrudForm fields, DataTable columns/actions/bulk actions/filters/toolbar/search triggers, menu items, rendered widgets, entity extensions, typed event subscribers, notification handlers, and component props/wrappers. For each, name the smallest mechanism, exact host-token evidence, authorization boundary, optional-host behavior, read/write/UI round trip where applicable, and verification; do not use unified replacement when additive composition works.",
+    "prompt": "Audit how a standalone app can add behavior to installed modules without replacing them. Cover response and query-engine enrichers; API/command interceptors and mutation guards; CrudForm and DataTable/menu/rendered widget injection including client operation filters; entity extensions; async, sync, and query-lifecycle subscribers; reactive notification handlers and DOM Event Bridge hooks; integration wizard/status/detail widgets; vector config; embedded AiChat; typed payment/shipping/currency/workflow registrations; and component props/wrappers. For each, name the smallest mechanism and specialist route, exact host-token evidence, authorization boundary, optional-host behavior, read/write/UI round trip where applicable, and verification; do not use unified replacement when additive composition works.",
     "tags": ["umes", "extension-points", "additive", "audit"],
     "owner": {
       "kind": "skill",
@@ -5927,7 +5938,7 @@
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
-    "requiredDecisions": ["additive-before-replacement", "exact-host-token", "enricher-interceptor-guard", "headless-and-rendered-widgets", "entity-extension", "event-and-notification-reaction", "component-wrapper", "optional-host", "roundtrip-verification"],
+    "requiredDecisions": ["additive-before-replacement", "exact-host-token", "enricher-interceptor-guard", "query-enricher-and-subscriber", "headless-and-rendered-widgets", "client-operation-filter", "entity-extension", "event-and-notification-reaction", "dom-event-bridge", "integration-ui-specialization", "vector-ai-provider-registration", "component-wrapper", "optional-host", "roundtrip-verification"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "(?:guess|invent).{0,30}(?:spot|handle|route|entity)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 6,
@@ -5942,7 +5953,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Audit the canonical src/modules.ts entry.overrides surface for a standalone app. Account for all wired domains: AI agents/tools; API and backend/frontend page routes; subscribers; workers; injection, component, and dashboard widgets; notification types/handlers; API and command interceptors; enrichers; page guards; CLI; setup; ACL; DI; and encryption maps. State each stable key, null-disable versus typed replacement behavior, bootstrap/generation implications, stale-key diagnostics, security preservation, and rollback verification.",
+    "prompt": "Audit the canonical src/modules.ts entry.overrides surface for a standalone app. Account for all wired domains: AI agents/tools plus additive AI extensions; API and backend/frontend page routes; subscribers; workers; injection, component, and dashboard widgets; notification types/handlers; API and command interceptors; enrichers; page guards; CLI; entry-scoped setup; ACL; DI; and encryption maps. State exact resolved keys (including registry entry keys and worker metadata fallback), which maps support null-disable/typed replacement, the special AI-extension and setup shapes, where global override maps may live, bootstrap/generation implications, stale-key diagnostics, security preservation, and rollback verification.",
     "tags": ["umes", "unified-overrides", "all-domains", "audit"],
     "owner": {
       "kind": "skill",
@@ -5958,11 +5969,11 @@
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
-    "requiredDecisions": ["all-eighteen-domains", "stable-override-key", "null-disable", "typed-replacement", "security-preservation", "stale-key-diagnostic", "bootstrap-before-registry", "rollback-verification"],
+    "requiredDecisions": ["all-eighteen-domains", "additive-ai-extensions", "stable-override-key", "resolved-widget-worker-keys", "entry-scoped-setup-shape", "null-disable", "typed-replacement", "security-preservation", "stale-key-diagnostic", "bootstrap-before-registry", "rollback-verification"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "load order.{0,30}(?:hope|accident)", "(?:weaken|remove).{0,30}(?:auth|scope|guard|lock)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 32768,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": ["OMH-029", "OMH-030", "OMH-056", "OMH-088"]
   },
@@ -6004,7 +6015,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Add an app-owned customer support cases page to the installed portal. Use frontend/[orgSlug]/portal/**/page.tsx with sibling metadata, customer auth/features, principal-derived scope, optional nav only for the list destination, portal menu injection only for links without a backing page, DataTable for the list, shared responsive and accessible components, loading/empty/not-found/denial/error/conflict/success states, wildcard-aware authorization, direct-route protection, and portal integration tests.",
+    "prompt": "Add an app-owned customer support cases page to the installed portal. Use frontend/[orgSlug]/portal/**/page.tsx with sibling metadata, customer auth/features for guarded pages while preserving public-page semantics, principal-derived scope, optional nav only for the list destination, frozen portal hooks/spots/handles, portal menu injection only for links without a backing page, DataTable for the list, shared responsive and accessible components, loading/empty/not-found/denial/error/conflict/success states, wildcard-aware authorization, direct-route protection, and portal integration tests.",
     "tags": ["frontend", "portal", "navigation", "umes", "ux"],
     "owner": {
       "kind": "skill",
@@ -6021,7 +6032,7 @@
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
-    "requiredDecisions": ["portal-route-convention", "portal-page-metadata", "principal-derived-scope", "nav-only-list-destination", "menu-injection-external-links", "datatable-portal-list", "direct-route-authorization", "portal-state-matrix"],
+    "requiredDecisions": ["portal-route-convention", "portal-page-metadata", "public-versus-guarded-portal-auth", "principal-derived-scope", "frozen-portal-identifiers", "nav-only-list-destination", "menu-injection-external-links", "datatable-portal-list", "direct-route-authorization", "portal-state-matrix"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:customer|organization).{0,30}(?:request body|route id only)", "hand-roll.{0,20}table", "UI visibility.{0,30}(?:is|as) authorization"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 8,
@@ -6036,7 +6047,7 @@
     "mode": "review",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "Review and redesign a dense standalone operations page that currently uses raw forms, hand-built cards, hard-coded status colors, arbitrary Tailwind sizes, inline SVG, fixed desktop widths, vague errors, and inaccessible icon actions. Preserve behavior while selecting shared page/table/form/detail/chart/banner components, semantic tokens, status versus category semantics, clear information hierarchy and primary action, mobile and long-translation layouts, loading/empty/not-found/denial/validation/network/conflict/success states, keyboard/dialog/focus/screen-reader behavior, reduced motion, and real API/UI verification.",
+    "prompt": "Review and redesign a dense standalone operations page that currently uses raw forms, hand-built cards, hard-coded status colors, arbitrary Tailwind sizes, inline SVG, fixed desktop widths, vague errors, window.confirm, and inaccessible icon actions. Preserve behavior while selecting shared page/table/form/detail/chart/banner components, the current Alert and confirmation APIs, standalone FormField versus CrudForm-owned layout, semantic tokens, system-status versus user-tag semantics, approved brand-gradient exceptions, mobile-first standard breakpoints and long translations, loading/empty/not-found/denial/validation/network/conflict/success states, keyboard/dialog/focus/screen-reader behavior, reduced motion, and real API/UI verification.",
     "tags": ["frontend", "design-system", "ui", "ux", "accessibility"],
     "owner": {
       "kind": "skill",
@@ -6052,7 +6063,7 @@
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
-    "requiredDecisions": ["shared-component-families", "semantic-tokens", "status-category-semantics", "information-hierarchy", "responsive-translated-layout", "complete-ux-state-matrix", "keyboard-focus-accessibility", "reduced-motion", "api-ui-verification"],
+    "requiredDecisions": ["shared-component-families", "semantic-tokens", "status-category-semantics", "alert-and-confirm-contract", "formfield-crudform-boundary", "brand-gradient-exception", "information-hierarchy", "responsive-translated-layout", "complete-ux-state-matrix", "keyboard-focus-accessibility", "reduced-motion", "api-ui-verification"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:hex|rgb|hard-coded status|arbitrary tailwind)", "raw (?:form|fetch)", "inline SVG", "fixed desktop"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 6,

@@ -8,12 +8,15 @@ Use the smallest extension mechanism that preserves installed-module ownership. 
 |---|---|---|
 | Add computed/read data | Response enricher | `data/enrichers.ts` |
 | Rewrite/validate request or augment response | API interceptor | `api/interceptors.ts` |
-| Block/rewrite a mutation with post-success work | Mutation guard widget/contract | widget injection + guard metadata |
+| Block/rewrite a mutation with post-success work | Mutation guard contract | `data/guards.ts`; add widget injection only for a UI surface |
+| Enrich query-engine reads | Query enricher | `data/enrichers.ts` with `queryEngine.enabled` |
 | Add form fields/table columns/actions/filters/toolbar | Headless widget injection | `widgets/injection/**`, `widgets/injection-table.ts` |
 | Add/reorder menu items | Headless menu widget | same widget files, `menu:*` host |
 | Render a card/tab/section in another page | UI widget injection | same widget files |
 | Add app data linked to installed entity | Entity extension | `data/extensions.ts` |
-| React after lifecycle change | Typed subscriber | `subscribers/*.ts` |
+| React after lifecycle change | Typed subscriber | `subscribers/*.ts`; `metadata.sync`/`priority` for in-pipeline lifecycle work |
+| React to query lifecycle | Sync query subscriber | `subscribers/*.ts` for `*.querying`/`*.queried` |
+| React in the browser | Notification handler or DOM bridge | `notifications.handlers.ts`, or `events.ts` with `clientBroadcast` plus UI hooks |
 | Replace/wrap/transform component props | Component override | `widgets/components.ts` |
 | Disable/replace route, page, event, worker, widget, agent/tool, setup, ACL, DI, or encryption contract | Unified module entry override | `src/modules.ts` `entry.overrides` |
 | Own unsupported installed internals | Eject, only after decision gate | `om-eject-and-customize` |
@@ -47,6 +50,7 @@ Use the smallest extension mechanism that preserves installed-module ownership. 
 - Preserve host `entityId`/`extensionTableId`; injected actions use guarded/scoped API calls and shared states.
 - For editable injected fields, implement all three paths: render/input, read/enricher, and save/interceptor or command. Test save/reload/clear.
 - Gate display and execution separately. UI hiding never substitutes for backend authorization.
+- Scope client handlers with `eventHandlers.filter.operations`; use `clientBroadcast`, `useAppEvent`, and `useOperationProgress` for typed real-time behavior instead of polling by default.
 
 Common host families include `crud-form:<entityId>:fields`, `data-table:<tableId>:columns`, `:row-actions`, `:bulk-actions`, `:filters`, `:toolbar`, `:search-trailing`, and `menu:sidebar:*`/`menu:topbar:*`. Resolve the concrete IDs; do not derive them by guess.
 
@@ -64,7 +68,14 @@ Common host families include `crud-form:<entityId>:fields`, `data-table:<tableId
 - In `src/modules.ts`, `null` disables a supported contract and a value replaces it. Keep override IDs aligned with the replaced value.
 - Add a route/page replacement only once; verify generated registries select it and that disabling leaves no stale nav/cache entry.
 - Use AI extensions for small prompt/tool/suggestion changes; use full AI overrides only for replacement/disable.
-- The complete wired override catalog spans AI, API/page routes, subscribers, workers, injection/component/dashboard widgets, notification types/handlers, API/command interceptors, enrichers, page guards, CLI, setup, ACL, DI, and encryption. Use `om-system-extension` → `references/unified-overrides.md`; never guess a domain/key.
+- The complete wired override catalog spans AI agents/tools/extensions, API/page routes, subscribers, workers, injection/component/dashboard widgets, notification types/handlers, API/command interceptors, enrichers, page guards, CLI, setup, ACL, DI, and encryption. Use `om-system-extension` → `references/unified-overrides.md`; never guess a domain/key.
+
+## Specialized Extension Families
+
+- Integration onboarding/status/detail contributions use the typed integration registry, `InjectionWizard`, `StatusBadgeRenderer`, and provider detail `widgetSpotId`; route to the integration skill as well as UI/UMES.
+- Search/vector work includes `search.ts`, `vector.ts`, query enrichers, and query lifecycle subscribers; route to module/data work and inspect exact installed search contracts.
+- Embedded AI uses `<AiChat agent="module.agent_id">`; provider/currency/workflow registrations belong to their owning integration or workflow contracts.
+- Reactive notification handlers use `notifications.handlers.ts`/`useNotificationEffect`; message/inbox definitions remain stable typed surfaces.
 
 ## Feature Toggles
 
