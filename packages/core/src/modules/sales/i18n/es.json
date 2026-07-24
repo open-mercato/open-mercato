@@ -948,6 +948,7 @@
   "sales.documents.items.deletedCatalogReference.title": "Este artículo del catálogo fue eliminado",
   "sales.documents.items.editTitle": "Editar línea",
   "sales.documents.items.empty": "Aún no hay artículos.",
+  "sales.documents.items.errorAddToFulfilled": "No puedes añadir un nuevo artículo a un pedido ya completado. Cambia primero el estado del pedido.",
   "sales.documents.items.errorCurrency": "La moneda es obligatoria.",
   "sales.documents.items.errorDelete": "No se pudo eliminar la línea.",
   "sales.documents.items.errorDeleteShipped": "No puedes eliminar una línea que ya tiene envíos.",

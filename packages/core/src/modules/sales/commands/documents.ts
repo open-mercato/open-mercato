@@ -6585,6 +6585,32 @@ async function assertShippedOrderLineEditable(
   }
 }
 
+const FULFILLED_ORDER_STATUS = "fulfilled";
+
+const isFulfilledOrder = (order: SalesOrder): boolean => {
+  const normalize = (value: string | null | undefined): string =>
+    (value ?? "").trim().toLowerCase();
+  return (
+    normalize(order.status) === FULFILLED_ORDER_STATUS ||
+    normalize(order.fulfillmentStatus) === FULFILLED_ORDER_STATUS
+  );
+};
+
+async function assertOrderAcceptsNewLine(
+  order: SalesOrder,
+  existingSnapshot: SalesLineSnapshot | null,
+): Promise<void> {
+  if (existingSnapshot) return;
+  if (!isFulfilledOrder(order)) return;
+  const { translate } = await resolveTranslations();
+  throw new CrudHttpError(409, {
+    error: translate(
+      "sales.documents.items.errorAddToFulfilled",
+      "You cannot add a new item to a fulfilled order. Change the order status first.",
+    ),
+  });
+}
+
 const orderLineUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string; lineId: string }
@@ -6629,6 +6655,7 @@ const orderLineUpsertCommand: CommandHandler<
     const existingSnapshot = parsed.id
       ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
       : null;
+    await assertOrderAcceptsNewLine(order, existingSnapshot);
     await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
     const priceMode =
       parsed.priceMode === "gross"

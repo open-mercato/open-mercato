@@ -948,6 +948,7 @@
   "sales.documents.items.deletedCatalogReference.title": "This catalog item was deleted",
   "sales.documents.items.editTitle": "Edit line",
   "sales.documents.items.empty": "No items yet.",
+  "sales.documents.items.errorAddToFulfilled": "You cannot add a new item to a fulfilled order. Change the order status first.",
   "sales.documents.items.errorCurrency": "Currency is required.",
   "sales.documents.items.errorDelete": "Failed to delete line.",
   "sales.documents.items.errorDeleteShipped": "You cannot delete a line that has shipped items.",
