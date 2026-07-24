@@ -124,6 +124,7 @@ export function DictionaryEntrySelect({
   sortOptions = 'label_asc',
   showActiveAppearance = true,
 }: DictionaryEntrySelectProps) {
+  const unavailableMessageId = React.useId()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [options, setOptions] = React.useState<DictionaryOption[]>([])
@@ -309,7 +310,9 @@ export function DictionaryEntrySelect({
   return (
     <div className="space-y-2">
       {unavailableMessage ? (
-        <p className="text-xs text-muted-foreground">{unavailableMessage}</p>
+        <p id={unavailableMessageId} className="text-xs text-muted-foreground">
+          {unavailableMessage}
+        </p>
       ) : null}
       <div className="flex items-center gap-2">
         <Select
@@ -323,6 +326,7 @@ export function DictionaryEntrySelect({
         >
           <SelectTrigger
             id={id}
+            aria-describedby={unavailableMessage ? unavailableMessageId : undefined}
             className={selectClassName}
             title={activeOption?.label ?? undefined}
           >

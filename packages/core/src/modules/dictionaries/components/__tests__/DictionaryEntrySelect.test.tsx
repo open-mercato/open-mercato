@@ -57,7 +57,11 @@ jest.mock('@open-mercato/ui/primitives/select', () => ({
   SelectItem: ({ children, value }: { children: React.ReactNode; value: string }) => (
     <option value={value}>{children}</option>
   ),
-  SelectTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectTrigger: ({ children, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
+    <span data-testid="dictionary-entry-trigger" {...props}>
+      {children}
+    </span>
+  ),
   SelectValue: () => null,
 }))
 
@@ -158,6 +162,13 @@ describe('DictionaryEntrySelect', () => {
 
     await waitFor(() =>
       expect(screen.getByText('Organization context is required')).toBeInTheDocument(),
+    )
+    const hint = screen.getByText('Organization context is required')
+    await waitFor(() =>
+      expect(screen.getByTestId('dictionary-entry-trigger')).toHaveAttribute(
+        'aria-describedby',
+        hint.id,
+      ),
     )
     expect(flash).not.toHaveBeenCalled()
     expect(optionLabels()).toEqual([])

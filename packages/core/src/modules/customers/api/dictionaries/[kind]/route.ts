@@ -296,6 +296,7 @@ const dictionaryListResponseSchema = z.object({
 
 const dictionaryErrorSchema = z.object({
   error: z.string(),
+  code: z.string().optional(),
 })
 
 export const openApi: OpenApiRouteDoc = {
