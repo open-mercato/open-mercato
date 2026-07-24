@@ -69,6 +69,7 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | Tier | Default? | Skills | What's inside |
 |------|----------|--------|---------------|
 | `core` | yes | 11 | Daily-driver skills installed by default. |
+| `design` | opt-in | 5 | Design-tooling skills (DS mockup composer + UX skills layer). Opt-in. |
 | `automation` | opt-in | 2 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
 | `migration` | opt-in | 1 | One-shot, version-pinned migrations. Install only when needed. |
@@ -200,6 +201,16 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | `om-migrate-mikro-orm` | Migrate custom module code from MikroORM v6 to v7. Fixes v7 type errors (FilterQuery, RequiredEntityData), replaces Knex raw queries with Kysely, migrates persistAndFlush/removeAndFlush, updates decorator imports. Triggers on "mikro-orm v7", "persistAndFlush deprecated", "knex to kysely". |
 | `om-create-ai-agent` | Scaffold AI agents (`ai-agents.ts`) and MCP tools (`ai-tools.ts`) for Open Mercato modules. Use when adding a new AI agent definition, configuring tool allowlists, mutation policies, or model selection. Triggers on "add ai agent", "create ai tool", "ai-agents.ts", "ai-tools.ts". |
 | `om-help` | Open Mercato workflow navigator. Use when asking "what should I do now?", "which skill?", "next steps?", "where do I start?", or "how do I add/build X in Open Mercato?". Covers navigation (recommends the next skill based on git/spec/PR state) and knowledge (answers how-to questions grounded in AGENTS.md). |
+
+### design
+
+| Skill | When to use |
+|-------|-------------|
+| `om-ds-mockup` | Compose and iterate live, DS-true screen mockups for Open Mercato as *.mockup.json documents rendered with the real shipped components. Use when asked to 'mock up a screen', 'compose a mockup', 'add a mockup to the spec', edit or annotate an existing *.mockup.json, mark blocks implemented/proposed, or preview a mockup at /backend/design-system/mockups. Triggers on 'mockup', 'mock this feature up', 'screen mockup', 'mockup.json', 'mockup composer', 'makieta'. Replaces ASCII screen mockups and detached HTML mockups for new specs. |
+| `om-ux-product-design` | Evidence-first UX decision system for Open Mercato — the umbrella over om-ux-heuristics and om-ux-copy. Use when asked to 'design this flow', 'review the UX', 'is this good UX', 'which pattern should we use', 'audit this screen', 'plan a usability test', or whenever a UX recommendation must be justified, weighed, and made testable. Triggers on 'UX decision', 'evidence', 'pattern selection', 'state matrix', 'accessibility criteria', 'UX audit', 'design review', 'ocena UX'. Governs UX decisions ABOVE the DS layer (tokens/primitives are om-ds-guardian's); its findings land in mockup documents as evidence-tagged finding annotations. |
+| `om-ux-flows` | Turn an Open Mercato user story (or story set) into a validated flow outline (*.flow.json): which screens exist, what belongs on each, task order, required data, and the state-matrix rows to cover. Use when asked to 'plan the flow', 'break this story into screens', 'prepare a flow outline', 'generate a draft mockup from a story', or as the first stage of the flows → compose → heuristics → copy chain. Triggers on 'flow outline', 'flow.json', 'user story to screens', 'story to mockup', 'draft generation', 'zaplanuj przepływ'. The only UX pipeline stage that reads prose; everything downstream reads the structured artifact. |
+| `om-ux-heuristics` | Critique an Open Mercato *.mockup.json screen against the om-ux-product-design audit dimensions (Nielsen's 10, the project's executable UX contracts, the anti-pattern blocklist, the state matrix) and write the results INTO the document as evidence-tagged `finding` annotations rendered in the mockup ledger. Use when asked to 'review this mockup', 'run a UX critique', 'check the heuristics', 'audit this screen before implementation', or after om-ds-mockup composes or edits a screen. Triggers on 'heuristics', 'UX critique', 'usability findings', 'mockup review', 'przejrzyj makietę'. Pre-implementation counterpart of the synthetic-user walkthroughs. |
+| `om-ux-copy` | Run a microcopy pass over every text-bearing compose prop of an Open Mercato *.mockup.json screen and emit ready i18n keys with en/pl/es/de values as a companion <slug>.copy.json file. Use when asked to 'write the copy for this mockup', 'polish the microcopy', 'prepare the i18n keys', 'translate the mockup texts', or after om-ux-heuristics finishes a critique pass. Triggers on 'microcopy', 'copy pass', 'copy.json', 'mockup i18n', 'teksty makiety'. The renderer prefers copy-file values, so the reviewed screen shows the finished copy live. |
 
 ### automation
 

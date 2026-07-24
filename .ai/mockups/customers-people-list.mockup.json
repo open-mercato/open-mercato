@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "slug": "customers-people-list",
+  "title": "Customers people list",
+  "description": "The customers people list page (the DS reference implementation) recomposed as a mockup: header, KPI row, filter bar, people table, a proposed saved-views switcher, and a proposed enrichment side panel placeholder. All sample data is fictional.",
+  "routeHint": "/backend/customers/people",
+  "width": "desktop",
+  "spec": ".ai/specs/2026-07-05-ds-live-mockup-composer.md",
+  "documentFindings": [
+    {
+      "id": "f-nielsen-03",
+      "heuristicId": "nielsen-03",
+      "severity": "low",
+      "summary": "Bulk actions on the people grid have no visible undo path on this screen.",
+      "suggestion": "Pair destructive bulk actions with an undo toast per the platform contract.",
+      "atHash": "ec51a9e3b63cd7824573335b7a748d613c3de09555fee6cce968f62e49df61b4",
+      "evidence": "heuristic"
+    }
+  ],
+  "root": {
+    "type": "stack",
+    "id": "page",
+    "gap": 6,
+    "children": [
+      {
+        "type": "block",
+        "id": "people-header",
+        "entry": "section-header",
+        "props": { "title": "People", "count": 248 },
+        "status": "implemented",
+        "userStory": "US-CRM-101",
+        "note": "Header with the live people count; count updates with active filters."
+      },
+      {
+        "type": "columns",
+        "id": "kpi-row",
+        "weights": [1, 1, 1],
+        "children": [
+          {
+            "type": "block",
+            "id": "kpi-active-people",
+            "entry": "kpi-card",
+            "props": {
+              "title": "Active people",
+              "value": 1284,
+              "trend": { "value": 4.2, "direction": "up" },
+              "comparisonLabel": "vs. previous month"
+            },
+            "status": "implemented",
+            "userStory": "US-CRM-201"
+          },
+          {
+            "type": "block",
+            "id": "kpi-new-this-week",
+            "entry": "kpi-card",
+            "props": {
+              "title": "New this week",
+              "value": 42,
+              "trend": { "value": 12.5, "direction": "up" },
+              "comparisonLabel": "vs. previous week"
+            },
+            "status": "implemented",
+            "userStory": "US-CRM-201"
+          },
+          {
+            "type": "block",
+            "id": "kpi-open-deal-value",
+            "entry": "kpi-card",
+            "props": {
+              "title": "Open deal value",
+              "value": 96800,
+              "prefix": "€",
+              "comparisonLabel": "across 87 open deals"
+            },
+            "status": "implemented",
+            "userStory": "US-CRM-201"
+          }
+        ]
+      },
+      {
+        "type": "block",
+        "id": "view-switcher",
+        "entry": "segmented-control",
+        "variant": "default",
+        "status": "proposed",
+        "userStory": "US-CRM-102",
+        "note": "Proposed saved-views switcher above the list; persists the last choice per user.",
+        "findings": [
+          {
+            "id": "f-nielsen-04--view-switcher",
+            "heuristicId": "nielsen-04",
+            "severity": "medium",
+            "summary": "The saved-views switcher used a custom control in an earlier draft; verify it matches the platform view-switcher pattern.",
+            "atHash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "evidence": "assumption"
+          }
+        ]
+      },
+      {
+        "type": "block",
+        "id": "people-filter-bar",
+        "entry": "filter-bar",
+        "variant": "trailing-items",
+        "status": "om-default",
+        "note": "Stock platform FilterBar with the standard export action."
+      },
+      {
+        "type": "block",
+        "id": "people-table",
+        "entry": "table",
+        "variant": "default",
+        "status": "implemented",
+        "userStory": "US-CRM-101",
+        "note": "People grid with status badges; columns follow the customers reference implementation.",
+        "findings": [
+          {
+            "id": "f-om-empty-state-next-action--people-table",
+            "heuristicId": "om-empty-state-next-action",
+            "severity": "high",
+            "summary": "List block \"people-table\" declares no empty state — every list needs an empty state with a next action.",
+            "suggestion": "Add an empty-state prop to the block, or state the empty-state behavior (and its call to action) in the block note.",
+            "atHash": "ec51a9e3b63cd7824573335b7a748d613c3de09555fee6cce968f62e49df61b4",
+            "evidence": "heuristic"
+          }
+        ]
+      },
+      {
+        "type": "placeholder",
+        "id": "enrichment-panel",
+        "label": "Person enrichment side panel",
+        "status": "proposed",
+        "userStory": "US-CRM-102",
+        "note": "No registry entry yet — side panel enriching a selected person with company and deal context."
+      }
+    ]
+  }
+}
