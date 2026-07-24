@@ -206,3 +206,136 @@ export async function bootstrapFromAppRoot(appRoot?: string): Promise<BootstrapD
 
   return data
 }
+
+type GeneratedImport = Record<string, unknown>
+
+async function loadGeneratedExport(
+  generatedDir: string,
+  fileName: string,
+  exportName: string,
+  fallback: unknown = undefined,
+): Promise<unknown> {
+  try {
+    const mod = await compileAndImport(path.join(generatedDir, fileName))
+    return mod[exportName] ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
+export type IntrospectionBootstrapData = BootstrapData & {
+  eventModuleConfigs: unknown[]
+  notificationTypes: unknown[]
+  messageTypes: unknown[]
+  messageObjectTypes: unknown[]
+  aiToolConfigEntries: Array<{ moduleId: string; tools: unknown[] }>
+  codeWorkflows: unknown[]
+  runBootstrapRegistrations: (() => void) | null
+}
+
+export type IntrospectionBootstrapLoadOptions = {
+  requiredFiles?: import('../introspection/surface-bootstrap-deps').IntrospectionBootstrapFile[]
+}
+
+function shouldLoadFile(
+  file: import('../introspection/surface-bootstrap-deps').IntrospectionBootstrapFile,
+  requiredFiles: Set<import('../introspection/surface-bootstrap-deps').IntrospectionBootstrapFile> | null,
+): boolean {
+  return requiredFiles === null || requiredFiles.has(file)
+}
+
+/**
+ * Load registry data for platform introspection (CLI / dev tooling).
+ * When `requiredFiles` is set, only the generated dictionaries needed for the
+ * requested surfaces are compiled/imported.
+ */
+export async function loadIntrospectionBootstrapData(
+  appRoot?: string,
+  options: IntrospectionBootstrapLoadOptions = {},
+): Promise<IntrospectionBootstrapData> {
+  const base = await loadBootstrapData(appRoot)
+  const resolved = appRoot
+    ? path.join(appRoot, '.mercato', 'generated')
+    : findAppRoot()?.generatedDir
+
+  if (!resolved) {
+    throw new Error('[internal] Could not resolve generated directory for introspection bootstrap')
+  }
+
+  const requiredFiles = options.requiredFiles
+    ? new Set(options.requiredFiles)
+    : null
+
+  const loadOptional = <T>(
+    file: import('../introspection/surface-bootstrap-deps').IntrospectionBootstrapFile,
+    loader: () => Promise<T>,
+    fallback: T,
+  ): Promise<T> => (shouldLoadFile(file, requiredFiles) ? loader() : Promise.resolve(fallback))
+
+  const [
+    modulesAppModule,
+    eventModuleConfigs,
+    notificationTypes,
+    messageTypes,
+    messageObjectTypes,
+    aiToolConfigEntries,
+    codeWorkflows,
+    dashboardWidgetEntries,
+    injectionWidgetEntries,
+    injectionTables,
+    enricherEntries,
+    interceptorEntries,
+    componentOverrideEntries,
+    guardEntries,
+    commandInterceptorEntries,
+    notificationHandlerEntries,
+    analyticsModuleConfigs,
+    bootstrapRegsModule,
+  ] = await Promise.all([
+    loadOptional('modulesApp', () => compileAndImport(path.join(resolved, 'modules.app.generated.ts')), { modules: base.modules }),
+    loadOptional('events', () => loadGeneratedExport(resolved, 'events.generated.ts', 'eventModuleConfigs', []), []),
+    loadOptional('notifications', () => loadGeneratedExport(resolved, 'notifications.generated.ts', 'notificationTypes', []), []),
+    loadOptional('messageTypes', () => loadGeneratedExport(resolved, 'message-types.generated.ts', 'messageTypes', []), []),
+    loadOptional('messageObjectTypes', () => loadGeneratedExport(resolved, 'message-objects.generated.ts', 'messageObjectTypes', []), []),
+    loadOptional('aiTools', () => loadGeneratedExport(resolved, 'ai-tools.generated.ts', 'aiToolConfigEntries', []), []),
+    loadOptional('workflows', () => loadGeneratedExport(resolved, 'workflows.generated.ts', 'allCodeWorkflows', []), []),
+    loadOptional('dashboardWidgets', () => loadGeneratedExport(resolved, 'dashboard-widgets.generated.ts', 'dashboardWidgetEntries', []), []),
+    loadOptional('injectionWidgets', () => loadGeneratedExport(resolved, 'injection-widgets.generated.ts', 'injectionWidgetEntries', []), []),
+    loadOptional('injectionTables', () => loadGeneratedExport(resolved, 'injection-tables.generated.ts', 'injectionTables', []), []),
+    loadOptional('enrichers', () => loadGeneratedExport(resolved, 'enrichers.generated.ts', 'enricherEntries', []), []),
+    loadOptional('interceptors', () => loadGeneratedExport(resolved, 'interceptors.generated.ts', 'interceptorEntries', []), []),
+    loadOptional('componentOverrides', () => loadGeneratedExport(resolved, 'component-overrides.generated.ts', 'componentOverrideEntries', []), []),
+    loadOptional('guards', () => loadGeneratedExport(resolved, 'guards.generated.ts', 'guardEntries', []), []),
+    loadOptional('commandInterceptors', () => loadGeneratedExport(resolved, 'command-interceptors.generated.ts', 'commandInterceptorEntries', []), []),
+    loadOptional('notificationHandlers', () => loadGeneratedExport(resolved, 'notification-handlers.generated.ts', 'notificationHandlerEntries', []), []),
+    loadOptional('analytics', () => loadGeneratedExport(resolved, 'analytics.generated.ts', 'analyticsModuleConfigs', []), []),
+    loadOptional('bootstrapRegistrations', () => compileAndImport(path.join(resolved, 'bootstrap-registrations.generated.ts')), null),
+  ])
+
+  const appModules = (modulesAppModule as GeneratedImport).modules as BootstrapData['modules'] | undefined
+
+  return {
+    ...base,
+    modules: appModules ?? base.modules,
+    dashboardWidgetEntries: (dashboardWidgetEntries as BootstrapData['dashboardWidgetEntries']) ?? [],
+    injectionWidgetEntries: (injectionWidgetEntries as BootstrapData['injectionWidgetEntries']) ?? [],
+    injectionTables: (injectionTables as BootstrapData['injectionTables']) ?? [],
+    enricherEntries: (enricherEntries as BootstrapData['enricherEntries']) ?? [],
+    interceptorEntries: (interceptorEntries as BootstrapData['interceptorEntries']) ?? [],
+    componentOverrideEntries: (componentOverrideEntries as BootstrapData['componentOverrideEntries']) ?? [],
+    guardEntries: (guardEntries as BootstrapData['guardEntries']) ?? [],
+    commandInterceptorEntries: (commandInterceptorEntries as BootstrapData['commandInterceptorEntries']) ?? [],
+    notificationHandlerEntries: (notificationHandlerEntries as BootstrapData['notificationHandlerEntries']) ?? [],
+    analyticsModuleConfigs: (analyticsModuleConfigs as BootstrapData['analyticsModuleConfigs']) ?? [],
+    eventModuleConfigs: (eventModuleConfigs as unknown[]) ?? [],
+    notificationTypes: (notificationTypes as unknown[]) ?? [],
+    messageTypes: (messageTypes as unknown[]) ?? [],
+    messageObjectTypes: (messageObjectTypes as unknown[]) ?? [],
+    aiToolConfigEntries: (aiToolConfigEntries as IntrospectionBootstrapData['aiToolConfigEntries']) ?? [],
+    codeWorkflows: (codeWorkflows as unknown[]) ?? [],
+    runBootstrapRegistrations:
+      bootstrapRegsModule && typeof (bootstrapRegsModule as GeneratedImport).runBootstrapRegistrations === 'function'
+        ? ((bootstrapRegsModule as GeneratedImport).runBootstrapRegistrations as () => void)
+        : null,
+  }
+}

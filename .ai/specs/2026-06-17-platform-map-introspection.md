@@ -280,3 +280,50 @@ Each phase leaves a working app and is independently shippable.
 
 None blocking. (Q5 promotion to a stable contract deferred; revisit if external tooling demand
 appears.)
+
+## Memory & RSS (review follow-up — PR #3141)
+
+Platform Map introspection must not inflate steady-state dev RSS when unused.
+
+| Requirement | Implementation |
+|---|---|
+| Lazy provider loading | `registry.ts` dynamically imports `./providers`; each provider dynamically imports its registry getters inside `collect()` |
+| Scoped bootstrap (CLI) | `resolveBootstrapFilesForSurfaces()` + `loadIntrospectionBootstrapData({ requiredFiles })` compile only the generated dictionaries needed for the requested surface(s) |
+| Runtime API path | `buildRuntimeIntrospectionContext()` reads live in-memory registries (`getModules()`, DI container); no `bootstrapForIntrospection()` re-import |
+| Snapshot fields on demand | `registerIntrospectionSnapshotLoader()` in `apps/mercato/src/bootstrap.ts` lazy-imports `notifications.generated` / `ai-tools.generated` only when those surfaces are requested |
+| UI off idle path | Client leaf imports `surface-catalog` + types only; map fetched per surface via API |
+| Dev gating unchanged | `isPlatformMapEnabled()` + `platform.inspect.view` |
+
+Verification: `yarn dev:profile --label platform-map-idle` (do not open `/backend/platform/map`); compare peak RSS with baseline via `yarn dev:profile:report`.
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Introspection core + Tier-1 CLI | Done | 2026-06-29 | `packages/shared/src/lib/introspection/*`, `mercato inspect`, unit tests |
+| Phase 2 — Tier 2 + Tier 3 + derived views | Done | 2026-06-29 | DI keys, tenant-scoped grants/custom fields, event-flow + acl-matrix |
+| Phase 3 — dev-gated backoffice UI | Done | 2026-06-29 | `platform` module, `/backend/platform/map`, `GET /api/platform/inspect` |
+
+### Phase 1 — Detailed Progress
+- [x] Step 1: Introspection core (`types`, `registry`, `providers`, `render`, `surface-catalog`)
+- [x] Step 2: `mercato inspect` CLI (`--json`, `--tier`, `--tenant`, `--org`, `--surface`)
+- [x] Step 3: Unit tests (registry shape, catalog sync, args parsing)
+
+### Phase 2 — Detailed Progress
+- [x] Step 4: `di-key` provider (Tier 2)
+- [x] Step 5: `acl-role-grant` + `custom-field` providers with tenant isolation tests
+- [x] Step 6: Derived `event-flow` + `acl-matrix` providers
+- [x] Step 7: Tier 2–3 unit coverage
+
+### Phase 3 — Detailed Progress
+- [x] Step 8: `platform` module (`acl`, `setup`, API route, bootstrap helper)
+- [x] Step 9: Dev-only gating (`NODE_ENV` + `OM_PLATFORM_MAP_ENABLED`) + ACL feature
+- [x] Step 10: Backend page + `PlatformMapScreen` client leaf, i18n, component test scaffold
+
+### Verification
+- `yarn workspace @open-mercato/shared build` — pass
+- `yarn workspace @open-mercato/cli build` — pass
+- `yarn workspace @open-mercato/core build` — pass
+- `yarn workspace @open-mercato/app generate` — pass (403 API routes incl. `/api/platform/inspect`)
+- Jest unit tests — blocked locally by `TS5103: Invalid value for '--ignoreDeprecations'` (pre-existing env/tooling)
+- Integration tests added: `TC-PLAT-001` (API), `TC-PLAT-002-cli` (CLI JSON smoke)
