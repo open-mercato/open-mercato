@@ -64,6 +64,7 @@ export interface BootstrapData {
   commandInterceptorEntries?: CommandInterceptorBootstrapEntry[]
   commandLoaderEntries?: CommandLoaderBootstrapEntry[]
   notificationHandlerEntries?: NotificationHandlerBootstrapEntry[]
+  codeWorkflows?: import('../../modules/workflows/types').CodeWorkflowDefinition[]
 }
 
 export interface BootstrapOptions {

@@ -8,6 +8,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import type { ExchangeRateService, RateResult } from '@open-mercato/core/modules/currencies/services/exchangeRateService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
+import { resolveDealsOrganizationIds } from '../../../lib/dealsOrganizationScope'
 import {
   computeDelta,
   convertSumsToBase,
@@ -163,7 +164,7 @@ function sumsByCurrency(entries: Array<{ currency: string | null; total: number 
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -172,14 +173,10 @@ export async function GET(req: Request) {
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const effectiveTenantId = scope.tenantId ?? auth.tenantId
-  const orgFilterIds = Array.isArray(scope.filterIds) && scope.filterIds.length > 0
-    ? scope.filterIds.filter((id) => typeof id === 'string' && id.length > 0)
-    : auth.orgId
-      ? [auth.orgId]
-      : []
-  if (!effectiveTenantId || orgFilterIds.length === 0) {
+  if (!effectiveTenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const orgFilterIds = await resolveDealsOrganizationIds({ em, scope, auth, tenantId: effectiveTenantId })
 
   const today = new Date()
   const currentQuarter = getQuarterWindow(today)

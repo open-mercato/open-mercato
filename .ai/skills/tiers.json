@@ -13,7 +13,7 @@
       "om-auto-fix-issue",
       "om-auto-review-pr",
       "om-auto-update-changelog",
-      "om-auto-verify-pr-ui",
+      "om-auto-qa-pr",
       "om-check-and-commit",
       "om-code-review",
       "om-fix",
@@ -27,8 +27,8 @@
       "om-root-cause",
       "om-setup-agent-pipeline",
       "om-spec-writing",
-      "om-stabilize-ci",
-      "om-sync-merged-pr-issues",
+      "om-auto-fix-pr",
+      "om-close-fixed-issues",
       "om-verify-in-repo"
     ]
   },

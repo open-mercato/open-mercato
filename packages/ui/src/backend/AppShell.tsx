@@ -1494,13 +1494,13 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                       aria-selected={isActive}
                       aria-controls="mobile-drawer-tabpanel"
                       onClick={() => setMobileDrawerView(tab.id === 'main' ? 'main' : 'auto')}
-                      className="relative inline-flex items-center pb-2 text-sm font-medium leading-5 tracking-tight transition-colors focus:outline-none data-[active=true]:text-foreground data-[active=false]:text-muted-foreground hover:text-foreground"
+                      className="relative inline-flex items-center pb-2 text-sm font-medium leading-5 tracking-tight transition-colors outline-none focus-visible:shadow-focus data-[active=true]:text-foreground data-[active=false]:text-muted-foreground hover:text-foreground"
                       data-active={isActive}
                     >
                       <span>{tab.label}</span>
                       {isActive ? (
                         <span
-                          className="absolute -bottom-px left-0 right-0 h-0.5 bg-foreground"
+                          className="absolute -bottom-px left-0 right-0 h-0.5 bg-accent-indigo"
                           aria-hidden="true"
                         />
                       ) : null}

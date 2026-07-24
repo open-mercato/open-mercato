@@ -4,6 +4,13 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(async () => ({ tenantId: 'tenant-1', orgId: 'org-1', roles: ['admin'] })),
 }))
 
+// Serving routes scope by the selected-organization (#3765), not raw auth.orgId.
+// Default to the auth home org so existing assertions hold; override per test.
+const mockResolveAttachmentOrganizationId = jest.fn(async (_container: unknown, auth: any) => auth?.orgId ?? null)
+jest.mock('@open-mercato/core/modules/attachments/lib/requestScope', () => ({
+  resolveAttachmentOrganizationId: (...args: unknown[]) => mockResolveAttachmentOrganizationId(...args),
+}))
+
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   Attachment: class Attachment {},
   AttachmentPartition: class AttachmentPartition {},
@@ -68,6 +75,31 @@ describe('attachments file route', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockResolveAttachmentOrganizationId.mockImplementation(async (_container: unknown, auth: any) => auth?.orgId ?? null)
+  })
+
+  it('scopes the lookup to the currently selected organization, not the uploader home org (#3765)', async () => {
+    // A multi-org admin viewing an attachment stored under the selected org:
+    // auth.orgId stays 'org-1' (home) but the request scope resolves the selected org.
+    mockResolveAttachmentOrganizationId.mockResolvedValueOnce('selected-org')
+
+    const response = await GET(
+      new Request('http://localhost/api/attachments/file/att-1') as Parameters<FileRoute['GET']>[0],
+      { params: Promise.resolve({ id: 'att-1' }) },
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockEm.findOne.mock.calls[0][1]).toMatchObject({
+      id: 'att-1',
+      tenantId: 'tenant-1',
+      organizationId: 'selected-org',
+    })
+    const { checkAttachmentAccess } = await import('@open-mercato/core/modules/attachments/lib/access') as any
+    expect(checkAttachmentAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: 'selected-org' }),
+      expect.anything(),
+      expect.anything(),
+    )
   })
 
   it('returns 404 when authenticated non-super-admin queries cross-tenant attachment (query layer blocks before access check)', async () => {

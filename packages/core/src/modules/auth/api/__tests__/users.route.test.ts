@@ -852,6 +852,56 @@ describe('GET /api/auth/users', () => {
     expect(body.isSuperAdmin).toBe(true)
   })
 
+  test('scopeToActiveOrganization=1 narrows non-superadmin results to the caller active organization', async () => {
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    const response = await GET(makeRequest(
+      '/api/auth/users?page=1&pageSize=100&scopeToActiveOrganization=1',
+    ))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+      { organizationId },
+    ]))
+    expect(body.isSuperAdmin).toBe(false)
+  })
+
+  test('omits the active-organization filter when scopeToActiveOrganization is not requested', async () => {
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    await GET(makeRequest('/api/auth/users?page=1&pageSize=100'))
+
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+    ]))
+    expect(where.$and).not.toEqual(expect.arrayContaining([
+      { organizationId: expect.anything() },
+    ]))
+  })
+
+  test('scopeToActiveOrganization=1 filters to organization-less users when the caller has no active organization', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: 'user-1',
+      tenantId,
+      orgId: null,
+      isSuperAdmin: false,
+      roles: ['admin'],
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: false })
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    await GET(makeRequest('/api/auth/users?page=1&pageSize=100&scopeToActiveOrganization=1'))
+
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { organizationId: null },
+    ]))
+  })
+
   test('allows assigning a role whose wildcard ACL is covered by actor wildcard ACL', async () => {
     const employeeRoleId = '323e4567-e89b-12d3-a456-426614174776'
     mockLoadAcl.mockResolvedValueOnce({

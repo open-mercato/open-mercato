@@ -4,7 +4,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
@@ -130,7 +130,7 @@ async function resolveEntityRouteScope(
     { tenantId: auth.tenantId, organizationId: scope?.selectedId ?? auth.orgId ?? null },
   )
   if (!entity || entity.tenantId !== auth.tenantId) {
-    throw new CrudHttpError(404, { error: translate('customers.errors.customer_not_found', 'Customer not found') })
+    throw notFound(translate('customers.errors.customer_not_found', 'Customer not found'))
   }
   ensureRouteOrganizationAccess(entity.organizationId, scope, auth, translate)
   return {
@@ -162,7 +162,7 @@ async function resolveRoleRouteScope(
     role.entityType !== entityType ||
     role.entityId !== entityId
   ) {
-    throw new CrudHttpError(404, { error: translate('customers.errors.role_not_found', 'Role not found') })
+    throw notFound(translate('customers.errors.role_not_found', 'Role not found'))
   }
   ensureRouteOrganizationAccess(role.organizationId, scope, auth, translate)
   return {

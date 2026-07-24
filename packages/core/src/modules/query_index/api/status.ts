@@ -415,10 +415,7 @@ export async function GET(req: Request) {
     errorQuery = errorQuery.where('tenant_id' as any, 'is', null as any)
   }
   if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
-    errorQuery = errorQuery.where((eb: any) => eb.or([
-      eb('organization_id' as any, 'is', null),
-      eb('organization_id' as any, 'in', organizationScopeIds),
-    ]))
+    errorQuery = errorQuery.where('organization_id' as any, 'in', organizationScopeIds)
   } else {
     errorQuery = errorQuery.where('organization_id' as any, 'is', null as any)
   }
@@ -456,10 +453,7 @@ export async function GET(req: Request) {
     logsQuery = logsQuery.where('tenant_id' as any, 'is', null as any)
   }
   if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
-    logsQuery = logsQuery.where((eb: any) => eb.or([
-      eb('organization_id' as any, 'is', null),
-      eb('organization_id' as any, 'in', organizationScopeIds),
-    ]))
+    logsQuery = logsQuery.where('organization_id' as any, 'in', organizationScopeIds)
   } else {
     logsQuery = logsQuery.where('organization_id' as any, 'is', null as any)
   }

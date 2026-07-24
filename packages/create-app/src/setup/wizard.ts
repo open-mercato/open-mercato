@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { generateShared } from './tools/shared.js'
 import { generateClaudeCode } from './tools/claude-code.js'
@@ -150,9 +150,28 @@ export async function runAgenticSetup(
   if (selectedIds.includes('codex')) generateCodex(config)
   if (selectedIds.includes('cursor')) generateCursor(config)
 
+  persistAgentSelection(targetDir, selectedIds)
   installSkills(targetDir)
   printSummary(selectedIds)
   return true
+}
+
+/**
+ * Persist the agent selection so later `yarn install-skills` runs keep honoring
+ * it: agents the user did not pick go into `agents.ignore` in tiers.json and
+ * never get a skills directory of their own.
+ */
+function persistAgentSelection(targetDir: string, selectedIds: string[]): void {
+  const manifestPath = join(targetDir, '.ai', 'skills', 'tiers.json')
+  if (!existsSync(manifestPath)) return
+  const ignore = AGENT_TOOL_IDS.filter((id) => !selectedIds.includes(id))
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as Record<string, unknown>
+  if (ignore.length > 0) {
+    manifest.agents = { ignore }
+  } else {
+    delete manifest.agents
+  }
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
 function installSkills(targetDir: string): void {
