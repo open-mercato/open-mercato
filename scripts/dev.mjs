@@ -211,6 +211,9 @@ const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = resolveSplashBindHost(process.env)
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
+const monorepoPackageWatchScript = path.join(process.cwd(), 'scripts', 'watch-packages.mjs')
+const monorepoAppDir = path.join(process.cwd(), 'apps', 'mercato')
+const monorepoAppDevScript = path.join(monorepoAppDir, 'scripts', 'dev.mjs')
 const warmupReadyFilePath = path.join(
   process.cwd(),
   isMonorepo ? 'apps/mercato/.mercato/dev-warmup-ready.json' : '.mercato/dev-warmup-ready.json',
@@ -629,10 +632,19 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
 }
 
 function buildAppDevEnv(options = {}) {
-  return applyLocalDevBackgroundServiceDefaults({
+  const env = applyLocalDevBackgroundServiceDefaults({
     ...(buildSplashChildEnv(options) ?? {}),
     ...(memoryTraceEnabled ? { OM_DEV_MEMORY_TRACE_OWNER: 'parent' } : {}),
   })
+  if (isMonorepo) {
+    // `yarn workspace ... dev` used to inject the workspace binaries into PATH.
+    // Preserve that contract for the direct Node child so nested `mercato`
+    // generator/server spawns still resolve without retaining a Yarn process.
+    env.PATH = [path.join(process.cwd(), 'node_modules', '.bin'), process.env.PATH]
+      .filter(Boolean)
+      .join(path.delimiter)
+  }
+  return env
 }
 
 function launchStandaloneDev(options = {}) {
@@ -1663,12 +1675,15 @@ function resolveActiveWatchScope(watchScopeEnv = buildWatchScopeEnv()) {
 
 function startPackageWatch() {
   const watchScript = resolveWatchPackagesScript()
+  const watchCommand = watchScript === 'watch:packages'
+    ? { command: process.execPath, args: [monorepoPackageWatchScript] }
+    : { command: yarnCommand, args: [watchScript] }
   const watchScopeEnv = buildWatchScopeEnv()
   const activeScope = resolveActiveWatchScope(watchScopeEnv)
   markMemoryTrace('package-watch:start', 'Watching workspace packages', { script: watchScript, scope: activeScope })
 
   if (classic) {
-    const child = spawnCommand(yarnCommand, [watchScript], {
+    const child = spawnCommand(watchCommand.command, watchCommand.args, {
       label: watchScript,
       logFile: getDevRunnerLog(),
       mirrorOutput: true,
@@ -1711,7 +1726,7 @@ function startPackageWatch() {
     activity: 'Workspace package watch started',
   })
 
-  const child = spawnCommand(yarnCommand, [watchScript], {
+  const child = spawnCommand(watchCommand.command, watchCommand.args, {
     label: 'Watching workspace packages',
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
@@ -1767,15 +1782,14 @@ function startPackageWatch() {
 }
 
 function launchMonorepoAppDev() {
-  const appArgs = ['workspace', '@open-mercato/app', classic ? 'dev:classic' : 'dev']
-  if (!classic && verbose) {
-    appArgs.push('--verbose')
-  }
+  const appArgs = [monorepoAppDevScript]
+  if (classic) appArgs.push('--classic')
+  else if (verbose) appArgs.push('--verbose')
 
   const stageCurrent = greenfield ? 5 : 3
   const stageTotal = greenfield ? 5 : 3
   console.log(`🚀 ${formatProgressLine('Starting app runtime', stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}`)
-  markMemoryTrace('app-runtime:start', 'Starting app runtime', { command: ['yarn', ...appArgs].join(' ') })
+  markMemoryTrace('app-runtime:start', 'Starting app runtime', { command: [process.execPath, ...appArgs].join(' ') })
   updateSplashState({
     phase: 'Preparing app runtime',
     detail: 'Launching app runtime, queue workers, and scheduler',
@@ -1785,7 +1799,8 @@ function launchMonorepoAppDev() {
     progressLabel: 'Launching app runtime',
     activity: 'App runtime is starting',
   })
-  const app = spawnCommand(yarnCommand, appArgs, {
+  const app = spawnCommand(process.execPath, appArgs, {
+    cwd: monorepoAppDir,
     stdio: 'inherit',
     env: buildAppDevEnv({ stageCurrent, stageTotal }),
   })

@@ -578,6 +578,66 @@ export { POST, PUT, DELETE }
     expect(apiRoutes).toContain('methods: ["GET", "POST", "PUT", "DELETE"]')
   })
 
+  it('partitions API and backend loader graphs while preserving legacy manifests', async () => {
+    scaffoldModule(tmpDir, 'customers', 'pkg', ['api/people/route.ts', 'backend/people/page.tsx'])
+    scaffoldModule(tmpDir, 'sales', 'pkg', ['api/orders/route.ts', 'backend/orders/page.tsx'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'customers', 'api', 'people', 'route.ts'),
+      `export const metadata = { path: '/customers/people' }\nexport function GET() { return null }\n`,
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'customers', 'backend', 'people', 'page.tsx'),
+      `export const metadata = { pageTitle: 'People' }\nexport default function Page() { return null }\n`,
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'sales', 'api', 'orders', 'route.ts'),
+      `export const metadata = { path: '/sales/orders' }\nexport function POST() { return null }\n`,
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'sales', 'backend', 'orders', 'page.tsx'),
+      `export const metadata = { pageTitle: 'Orders' }\nexport default function Page() { return null }\n`,
+    )
+
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'customers', from: '@open-mercato/core' },
+      { id: 'sales', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const outputDir = path.join(tmpDir, 'output', 'generated')
+    const generatedNames = fs.readdirSync(outputDir)
+    const apiShardNames = generatedNames.filter((name) => /^api-route-shard\..+\.generated\.ts$/.test(name))
+    const backendShardNames = generatedNames.filter((name) => /^backend-route-shard\..+\.generated\.ts$/.test(name))
+    const apiShards = apiShardNames.map((name) => fs.readFileSync(path.join(outputDir, name), 'utf8'))
+    const backendShards = backendShardNames.map((name) => fs.readFileSync(path.join(outputDir, name), 'utf8'))
+
+    expect(apiShardNames).toHaveLength(2)
+    expect(backendShardNames).toHaveLength(2)
+    expect(apiShards.filter((source) => source.includes('/customers/people'))).toHaveLength(1)
+    expect(apiShards.filter((source) => source.includes('/sales/orders'))).toHaveLength(1)
+    expect(backendShards.filter((source) => source.includes('/backend/people'))).toHaveLength(1)
+    expect(backendShards.filter((source) => source.includes('/backend/orders'))).toHaveLength(1)
+
+    const apiLoader = readGenerated(tmpDir, 'api-route-shards.generated.ts')!
+    const backendLoader = readGenerated(tmpDir, 'backend-route-shards.generated.ts')!
+    expect(apiLoader).not.toContain('@open-mercato/core/modules/customers/api')
+    expect(backendLoader).not.toContain('@open-mercato/core/modules/customers/backend')
+
+    const apiMetadata = readGenerated(tmpDir, 'api-route-metadata.generated.ts')!
+    const backendMetadata = readGenerated(tmpDir, 'backend-route-metadata.generated.ts')!
+    expect(apiMetadata).not.toContain('load: async')
+    expect(backendMetadata).not.toContain('load: async')
+    expect(readGenerated(tmpDir, 'api-routes.generated.ts')).toContain('/customers/people')
+    expect(readGenerated(tmpDir, 'backend-routes.generated.ts')).toContain('/backend/orders')
+
+    const customersOnlyResolver = createMockResolver(tmpDir, [
+      { id: 'customers', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver: customersOnlyResolver, quiet: true })
+    const remainingApiShards = fs.readdirSync(outputDir).filter((name) => /^api-route-shard\..+\.generated\.ts$/.test(name))
+    expect(remainingApiShards).toHaveLength(1)
+  })
+
   it('keeps all HTTP methods for route.ts files that destructure-export crud handlers', async () => {
     scaffoldModule(tmpDir, 'example', 'pkg', ['api/todos/route.ts'])
     touchFile(
@@ -1044,6 +1104,85 @@ export default async function handle(): Promise<void> {}
     expect(output).toContain("workers:")
   })
 
+  it('writes a content-stable primitive dev supervisor manifest', async () => {
+    scaffoldModule(tmpDir, 'events', 'pkg', ['workers/dispatch.ts'])
+    scaffoldModule(tmpDir, 'scheduler', 'pkg', ['cli.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'events', 'workers', 'dispatch.ts'),
+      `export const metadata = { id: 'events:dispatch', queue: 'events', concurrency: 3 }\nexport default async function dispatch() {}\n`,
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'scheduler', 'cli.ts'),
+      `export default [{ command: 'start', run() {} }]\n`,
+    )
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'events', from: '@open-mercato/core' },
+      { id: 'scheduler', from: '@open-mercato/core' },
+    ])
+
+    const first = await generateModuleRegistryCli({ resolver, quiet: true })
+    const manifestPath = path.join(tmpDir, 'output', 'generated', 'dev-supervisor.generated.json')
+    expect(JSON.parse(fs.readFileSync(manifestPath, 'utf8'))).toEqual({
+      version: 1,
+      workers: [{
+        id: 'events:dispatch',
+        moduleId: 'events',
+        queue: 'events',
+        concurrency: 3,
+      }],
+      schedulerStartStatus: 'ok',
+      requiresFullBootstrap: false,
+    })
+    expect(first.filesWritten).toContain(manifestPath)
+
+    const second = await generateModuleRegistryCli({ resolver, quiet: true })
+    expect(second.filesUnchanged).toContain(manifestPath)
+    expect(second.filesWritten).not.toContain(manifestPath)
+  })
+
+  it('falls back to full bootstrap for worker overrides and computed scheduler commands', async () => {
+    scaffoldModule(tmpDir, 'events', 'pkg', ['workers/dispatch.ts'])
+    scaffoldModule(tmpDir, 'scheduler', 'pkg', ['cli.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'events', 'workers', 'dispatch.ts'),
+      `export const metadata = { id: 'events:dispatch', queue: 'events', concurrency: 3 }\nexport default async function dispatch() {}\n`,
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'scheduler', 'cli.ts'),
+      `const command = 'start'\nexport default [{ command, run() {} }]\n`,
+    )
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'events', from: '@open-mercato/core', devSupervisorRequiresFullBootstrap: true },
+      { id: 'scheduler', from: '@open-mercato/core' },
+    ])
+
+    await generateModuleRegistryCli({ resolver, quiet: true })
+    const manifestPath = path.join(tmpDir, 'output', 'generated', 'dev-supervisor.generated.json')
+    expect(JSON.parse(fs.readFileSync(manifestPath, 'utf8'))).toMatchObject({
+      schedulerStartStatus: 'missing-command',
+      requiresFullBootstrap: true,
+    })
+  })
+
+  it('falls back to full bootstrap when app code registers programmatic worker overrides', async () => {
+    scaffoldModule(tmpDir, 'events', 'pkg', ['workers/dispatch.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'events', 'workers', 'dispatch.ts'),
+      `export const metadata = { id: 'events:dispatch', queue: 'events', concurrency: 3 }\nexport default async function dispatch() {}\n`,
+    )
+    touchFile(
+      path.join(tmpDir, 'app', 'src', 'bootstrap-overrides.ts'),
+      `import { applyWorkerOverrides as overrideWorkers } from '@open-mercato/shared/modules/overrides'\noverrideWorkers({ 'events:dispatch': null })\n`,
+    )
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'events', from: '@open-mercato/core' },
+    ])
+
+    await generateModuleRegistryCli({ resolver, quiet: true })
+    const manifestPath = path.join(tmpDir, 'output', 'generated', 'dev-supervisor.generated.json')
+    expect(JSON.parse(fs.readFileSync(manifestPath, 'utf8')).requiresFullBootstrap).toBe(true)
+  })
+
   it('handles disabling a module that was previously enabled', async () => {
     scaffoldModule(tmpDir, 'keep_mod', 'pkg', [
       'subscribers/handler.ts',
@@ -1462,6 +1601,109 @@ describe('generateModuleRegistryApp with module subsets', () => {
     const bootstrapOutput = readGenerated(tmpDir, 'modules.bootstrap.generated.ts')
     expect(bootstrapOutput).not.toBeNull()
     expect(bootstrapOutput).toContain('export const modules: Module[] = [')
+
+    const i18nLoadersOutput = readGenerated(tmpDir, 'modules.i18n.loaders.generated.ts')
+    expect(i18nLoadersOutput).toContain('export async function loadI18nModules')
+    expect(i18nLoadersOutput).toContain('default:')
+    expect(i18nLoadersOutput).toContain('return []')
+  })
+
+  it('keeps the legacy i18n registry while emitting deterministic locale-specific shards', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'localized', 'i18n', 'en.json'),
+      JSON.stringify({ localized: { title: 'Core title' } }),
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'localized', 'i18n', 'pl.json'),
+      JSON.stringify({ localized: { title: 'Tytuł' } }),
+    )
+    touchFile(
+      path.join(tmpDir, 'app', 'src', 'modules', 'localized', 'i18n', 'en.json'),
+      JSON.stringify({ localized: { title: 'App title' } }),
+    )
+
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'localized', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistryApp({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const legacyI18nOutput = readGenerated(tmpDir, 'modules.i18n.generated.ts')!
+    expect(legacyI18nOutput).toContain('@open-mercato/core/modules/localized/i18n/en.json')
+    expect(legacyI18nOutput).toContain('@/modules/localized/i18n/en.json')
+    expect(legacyI18nOutput).toContain('@open-mercato/core/modules/localized/i18n/pl.json')
+    expect(legacyI18nOutput).toContain('export const modules: Module[] = [')
+
+    const bootstrapOutput = readGenerated(tmpDir, 'modules.bootstrap.generated.ts')!
+    expect(bootstrapOutput).not.toContain('/i18n/')
+    expect(bootstrapOutput).not.toContain('translations:')
+
+    const loadersOutput = readGenerated(tmpDir, 'modules.i18n.loaders.generated.ts')!
+    expect(loadersOutput).not.toContain('.json')
+    expect(loadersOutput).toContain('case "en":')
+    expect(loadersOutput).toContain('import("./modules.i18n.en.generated")')
+    expect(loadersOutput).toContain('case "pl":')
+    expect(loadersOutput.indexOf('case "en":')).toBeLessThan(loadersOutput.indexOf('case "pl":'))
+
+    const enShard = readGenerated(tmpDir, 'modules.i18n.en.generated.ts')!
+    expect(enShard).toContain('@open-mercato/core/modules/localized/i18n/en.json')
+    expect(enShard).toContain('@/modules/localized/i18n/en.json')
+    expect(enShard).not.toContain('/i18n/pl.json')
+    expect(enShard).toContain('id: "localized"')
+    expect(enShard).toContain('translations:')
+
+    const plShard = readGenerated(tmpDir, 'modules.i18n.pl.generated.ts')!
+    expect(plShard).toContain('@open-mercato/core/modules/localized/i18n/pl.json')
+    expect(plShard).not.toContain('/i18n/en.json')
+    expect(plShard).not.toContain('@/modules/localized/i18n/pl.json')
+
+    const secondResult = await generateModuleRegistryApp({ resolver, quiet: true })
+    expect(secondResult.filesWritten).toEqual([])
+
+    fs.rmSync(path.join(
+      tmpDir,
+      'packages',
+      'core',
+      'src',
+      'modules',
+      'localized',
+      'i18n',
+      'pl.json',
+    ))
+    await generateModuleRegistryApp({ resolver, quiet: true })
+    expect(readGenerated(tmpDir, 'modules.i18n.pl.generated.ts')).toBeNull()
+    expect(fs.existsSync(path.join(
+      tmpDir,
+      'output',
+      'generated',
+      'modules.i18n.pl.generated.checksum',
+    ))).toBe(false)
+    expect(readGenerated(tmpDir, 'modules.i18n.loaders.generated.ts')).not.toContain('case "pl":')
+  })
+
+  it('uses standalone source-mirror translations in locale-specific shards', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'customers', 'i18n', 'en.json'),
+      JSON.stringify({ customers: { people: { title: 'People' } } }),
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'customers', 'index.js'),
+      'export const metadata = { id: "customers" }\n',
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'customers', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistryApp({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const shard = fs.readFileSync(
+      path.join(tmpDir, '.mercato', 'generated', 'modules.i18n.en.generated.ts'),
+      'utf8',
+    )
+    expect(shard).toContain('@open-mercato/core/modules/customers/i18n/en.json')
+    expect(shard).toContain('id: "customers"')
   })
 
   it('app output excludes CLI commands and keeps lazy workers/subscribers', async () => {

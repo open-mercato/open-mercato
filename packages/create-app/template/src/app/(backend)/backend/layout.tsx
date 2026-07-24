@@ -1,6 +1,6 @@
 import { cookies, headers } from 'next/headers'
-import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
-import { findRouteManifestMatch, registerBackendRouteManifests } from '@open-mercato/shared/modules/registry'
+import { backendRouteMetadata } from '@/.mercato/generated/backend-route-metadata.generated'
+import { findRouteManifestMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -13,11 +13,9 @@ import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageIn
 import { DemoFeedbackWidget } from '@/components/DemoFeedbackWidget'
 import { BackendHeaderChrome } from '@/components/BackendHeaderChrome'
 
-registerBackendRouteManifests(backendRoutes)
-
 function collectStaticSettingsPathPrefixes(): string[] {
   const prefixes = new Set<string>()
-  for (const route of backendRoutes) {
+  for (const route of backendRouteMetadata) {
     if (route.pageContext !== 'settings') continue
     const href = route.pattern ?? route.path ?? ''
     if (!href || href.includes('[')) continue
@@ -69,7 +67,7 @@ export default async function BackendLayout({
     'Search requires configuring an embedding provider for semantic search.',
   )
 
-  const match = findRouteManifestMatch(backendRoutes, path)
+  const match = findRouteManifestMatch(backendRouteMetadata, path)
   const currentTitle = match?.route.titleKey
     ? translate(match.route.titleKey, match.route.title)
     : (match?.route.title ?? '')
