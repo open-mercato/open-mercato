@@ -17,9 +17,40 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { assertActorCanModifySuperAdminRoleTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { enforceRoleTenantAccess } from '@open-mercato/core/modules/auth/lib/roleTenantGuard'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { runWithCacheTenant } from '@open-mercato/cache'
+import {
+  buildCollectionTags,
+  isCrudCacheEnabled,
+  resolveCrudCache,
+} from '@open-mercato/shared/lib/crud/cache'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
+const ROLES_LIST_CACHE_TTL_MS = 120_000
 const logger = createLogger('auth').child({ component: 'roles' })
+
+function buildRolesListCacheKey(scope: {
+  tenantId: string | null
+  isSuperAdmin: boolean
+  actorTenantId: string | null
+  tenantFilter: string | null
+  id?: string
+  page: number
+  pageSize: number
+  search?: string
+}): string {
+  const parts = [
+    'auth:roles:list',
+    `tenant:${scope.tenantId ?? 'null'}`,
+    `super:${scope.isSuperAdmin ? '1' : '0'}`,
+    `actor:${scope.actorTenantId ?? 'null'}`,
+    `filter:${scope.tenantFilter ?? 'null'}`,
+    `id:${scope.id ?? ''}`,
+    `page:${scope.page}`,
+    `size:${scope.pageSize}`,
+    `q:${scope.search ?? ''}`,
+  ]
+  return parts.join('|')
+}
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -146,6 +177,28 @@ export async function GET(req: Request) {
   if (!isSuperAdmin && !actorTenantId) {
     return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
   }
+  const { id, page, pageSize, search, tenantId: requestedTenantId } = parsed.data
+  const tenantFilter = isSuperAdmin && requestedTenantId ? String(requestedTenantId) : null
+  const cacheTenantId = isSuperAdmin ? tenantFilter : actorTenantId
+  // An unfiltered super-admin response spans tenants and cannot be invalidated
+  // by any one tenant's collection tags, so keep that view uncached.
+  const cache = isCrudCacheEnabled() && cacheTenantId ? resolveCrudCache(container) : null
+  const cacheKey = cache
+    ? buildRolesListCacheKey({
+        tenantId: cacheTenantId,
+        isSuperAdmin,
+        actorTenantId,
+        tenantFilter,
+        id,
+        page,
+        pageSize,
+        search,
+      })
+    : null
+  if (cache && cacheKey) {
+    const cached = await runWithCacheTenant(cacheTenantId, () => cache.get(cacheKey))
+    if (cached) return NextResponse.json(cached)
+  }
   let superAdminRoleIds: Set<string> | null = null
   if (!isSuperAdmin && actorTenantId) {
     const superAdminAcls = await findWithDecryption(em, RoleAcl, { tenantId: actorTenantId, isSuperAdmin: true }, {}, { tenantId: actorTenantId, organizationId: null })
@@ -163,8 +216,6 @@ export async function GET(req: Request) {
       superAdminRoleIds = new Set()
     }
   }
-  const { id, page, pageSize, search, tenantId: requestedTenantId } = parsed.data
-  const tenantFilter = isSuperAdmin && requestedTenantId ? String(requestedTenantId) : null
   const filters: any[] = [{ deletedAt: null }]
   if (id) filters.push({ id })
   if (search) filters.push({ name: { $ilike: `%${escapeLikePattern(search)}%` } })
@@ -253,7 +304,28 @@ export async function GET(req: Request) {
     query: parsed.data,
     accessType: id ? 'read:item' : undefined,
   })
-  return NextResponse.json({ items, total: count, totalPages, isSuperAdmin })
+  const payload = { items, total: count, totalPages, isSuperAdmin }
+  if (cache && cacheKey) {
+    try {
+      await runWithCacheTenant(cacheTenantId, () =>
+        cache.set(cacheKey, payload, {
+          ttl: ROLES_LIST_CACHE_TTL_MS,
+          tags: [
+            // Roles are tenant-level (org:null) — flushed on auth.roles.* command writes.
+            ...buildCollectionTags('auth.role', cacheTenantId, [null]),
+            // usersCount derives from UserRole grants — auth.users.* command writes
+            // flush both tenant-level and record-organization collection tags.
+            ...buildCollectionTags('auth.user', cacheTenantId, [null]),
+            // Role-ACL feature changes flush rbac:tenant:<T> from the roles/acl route.
+            `rbac:tenant:${cacheTenantId ?? 'null'}`,
+          ],
+        }),
+      )
+    } catch (err) {
+      logger.warn('Failed to set roles list cache', { err })
+    }
+  }
+  return NextResponse.json(payload)
 }
 
 export const POST = crud.POST

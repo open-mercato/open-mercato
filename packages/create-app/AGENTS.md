@@ -157,7 +157,16 @@ The `agentic/` directory contains standalone-app-specific AI coding tool configu
 packages/create-app/agentic/
 ├── shared/                      # Always generated (AGENTS.md, .ai/ structure)
 │   ├── AGENTS.md.template       # {{PROJECT_NAME}} placeholder substitution
-│   └── ai/specs/                # Spec templates for standalone apps
+│   ├── scripts/
+│   │   └── install-skills.sh    # Copied to <app>/scripts/; `yarn install-skills` (canonical .agents/skills/ + npx skills add/update)
+│   └── ai/
+│       ├── agentic.config.json  # Standalone agentic config (baseBranch auto → tracker default-branch, tracker github, validation, labels off)
+│       ├── trackers/github.md   # GitHub tracker descriptor (copied verbatim from the monorepo)
+│       ├── skills/
+│       │   ├── tiers.json       # Local tier manifest + external open-mercato/skills subset
+│       │   ├── tiers.schema.json
+│       │   └── om-*/            # Local skills + repo-local OVERRIDE folders (SKILL.md only) for external auto-* skills
+│       └── specs/               # Spec templates for standalone apps
 ├── claude-code/                 # Claude Code tool config
 │   ├── CLAUDE.md.template       # {{PROJECT_NAME}} placeholder substitution
 │   ├── settings.json            # PostToolUse hook registration
@@ -173,9 +182,21 @@ packages/create-app/agentic/
     └── mcp.json.example
 ```
 
+### Skills Mixin (external open-mercato/skills + local overrides)
+
+Scaffolded apps handle skills the same mixin way the monorepo does. Both the agentic wizard and the CLI `agentic:init` command run `scripts/install-skills.sh` automatically at the end of setup (best-effort: a failed install prints a warning and the user re-runs `yarn install-skills`). `--skip-agentic-setup` / `--agents none` skips it entirely, and `OM_SKIP_EXTERNAL_SKILLS=1` keeps the run offline (local tier symlinks only, no `npx skills add`/`update`). The `--skill` subset MUST be passed as repeated `--skill <name>` flags — the skills CLI matches each value verbatim and does not split commas.
+
+- **`agentic/shared/ai/skills/tiers.json`** — declares the local tiers (standalone-only + kept-local skills, one tier each) and an `external` block listing the exact subset of the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection this app installs: the auto-* PR family, `om-code-review`, `om-spec-writing`, `om-integration-tests`, `om-prepare-issue`, `om-auto-fix-issue`, plus the hard dependencies those skills invoke — `om-prepare-test-env` (required by `om-integration-tests`), the autofix chain steps `om-verify-in-repo`/`om-root-cause`/`om-fix`/`om-open-pr` (required by `om-auto-fix-issue`) — and the pipeline maintenance pair `om-setup-agent-pipeline` and `om-apply-upgrade-notes`. When adding an external skill, install its dependency closure too (the overlay test's `EXTERNAL_SKILL_HARD_DEPS` map guards the known chains). External skills MUST NOT also appear in a local tier.
+- **`agentic/shared/scripts/install-skills.sh`** — POSIX `sh`. Reads `tiers.json` and symlinks local tier skills into the canonical cross-agent directory `.agents/skills/<name>` (one location, not one per agent), then optionally runs `npx skills add … --skill '<csv>'` (only the explicit subset, never `'*'`) + `npx skills update` into the same directory. Per-agent symlinks are created ONLY for agents that cannot read `.agents/skills/`: Claude Code gets `.claude/skills/<name>`; Codex and Cursor read the canonical path natively and MUST NOT get a directory. Legacy per-agent links (and legacy directory-level symlinks) are swept on every run. Supports `--legacy-links` (restores the old `.claude` + `.codex` layout), `--ignore-agents <csv>` (persistent form: an `agents.ignore` block in `tiers.json`), `--no-external` / `OM_SKIP_EXTERNAL_SKILLS=1`, `--list`, `--clean`, `--with`/`--tiers`/`--all`. The external step runs BEFORE the local symlinks are written — `skills update --project` owns `.agents/skills/` and would otherwise prune entries it does not know. Wired via the `install-skills` script in `template/package.json.template`; `.agents/skills/` + `skills-lock.json` are gitignored. The layout contract is guarded by `src/lib/install-skills-layout.test.ts`, which drives this script and the monorepo's `scripts/install-skills.sh` through the same harness.
+- **Repo-local override folders** — the auto-* skills (`om-auto-create-pr`, `om-auto-continue-pr`, `om-auto-create-pr-loop`, `om-auto-continue-pr-loop`, `om-auto-review-pr`) and `om-auto-fix-issue` ship as slim OVERRIDE folders under `agentic/shared/ai/skills/` containing only a `SKILL.md` (the standalone deltas — default-branch discovery, opt-in labels, `src/modules/…` layout). The external skill reads these on top of its built-in workflow; they are never installed as standalone skills. `om-prepare-test-env` ships a knowledge-only override (environment commands via the cross-platform mercato CLI ephemeral runner, probe contract, teardown) — the repo MUST NOT ship generated `test-env-*.sh` entrypoints; those are machine-bound, compiled locally by the skill, and gitignored (`.ai/scripts/test-env-*`). The remaining external skills (`om-code-review`, `om-spec-writing`, `om-integration-tests`, `om-prepare-issue`, `om-verify-in-repo`, `om-root-cause`, `om-fix`, `om-open-pr`, `om-setup-agent-pipeline`, `om-apply-upgrade-notes`) have NO override (config covers them) — do not ship a folder for them.
+- **`agentic/shared/ai/agentic.config.json` + `ai/trackers/github.md`** — the repo-specific agentic settings and tracker descriptor the external skills read. The tracker is copied verbatim from the monorepo (keep its `attach-image-evidence` operation).
+
+Both copy pipelines read from `agentic/` and MUST stay in sync when the skill set changes: `src/setup/tools/shared.ts` (create-app wizard) and `packages/cli/src/lib/agentic-setup.ts` (CLI `agentic:init`). `build.mjs` copies the whole `agentic/` tree verbatim to `dist/agentic/`, so new files under it need no build change. The overlay/override contract is guarded by `src/lib/agentic-skills-standalone-overlays.test.ts`.
+
 ### When to Update `agentic/`
 
 - When module conventions change (entity lifecycle, migration workflow, `yarn generate` behavior)
+- When the local skill set or the external open-mercato/skills subset changes (update `tiers.json`, both copy pipelines, and the overlay test)
 - When adding new auto-discovery paths or module files
 - When changing CLI commands that standalone apps use
 - When the entity-migration hook logic needs adjustment
