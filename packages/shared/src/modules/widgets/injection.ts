@@ -248,6 +248,13 @@ export type InjectionWidgetModule<TContext = unknown, TData = unknown> = {
 
 export type InjectionColumnDefinition = {
   id: string
+  /**
+   * i18n translation key for the column header.
+   * When present, consumers should call `t(headerKey, header)` instead of treating `header` as a key.
+   * Follows the same `label`/`labelKey` convention used by `InjectionFieldDefinition`.
+   */
+  headerKey?: string
+  /** Display text (and i18n fallback) for the column header. */
   header: string
   accessorKey: string
   cell?: (props: { getValue: () => unknown }) => ReactNode

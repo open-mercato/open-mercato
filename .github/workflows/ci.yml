@@ -378,6 +378,10 @@ jobs:
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
       needs.lint.result == 'success'
+    env:
+      # app typecheck (tsc --noEmit on the full Next.js app) peaks at ~4 GB;
+      # raise the heap so it does not OOM on cache-miss runs.
+      NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7

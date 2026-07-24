@@ -1,0 +1,1340 @@
+"use client"
+
+import * as React from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { z } from 'zod'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
+import { CrudForm, type CrudField, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { Boxes, Layers, MapPinned, Warehouse } from 'lucide-react'
+import { E } from '#generated/entities.ids.generated'
+import {
+  buildQuery,
+  loadCatalogVariantOptions,
+  loadWarehouseOptions,
+} from './wmsLookupLoaders'
+import {
+  createInventoryQuantityFormatter,
+  formatCatalogProductLabel,
+  formatCatalogVariantLabel,
+  formatInventoryQuantity,
+  inventoryRotationStrategyLabel,
+} from '../../lib/inventoryDisplayUi'
+import { LocationEditDialog } from './LocationEditDialog'
+import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
+import { flashMutationError } from '../../lib/flashMutationError'
+
+type PagedResponse<T> = {
+  items: T[]
+  total: number
+  totalPages: number
+  page?: number
+  pageSize?: number
+}
+
+type WarehouseRow = {
+  id: string
+  name?: string | null
+  code?: string | null
+  city?: string | null
+  country?: string | null
+  timezone?: string | null
+  is_active?: boolean | null
+  is_primary?: boolean | null
+}
+
+type LocationRow = {
+  id: string
+  warehouse_id?: string | null
+  warehouse_name?: string | null
+  warehouse_code?: string | null
+  code?: string | null
+  type?: string | null
+  capacity_units?: string | number | null
+  capacity_weight?: string | number | null
+  is_active?: boolean | null
+  updated_at?: string | null
+}
+
+type ZoneRow = {
+  id: string
+  warehouse_id?: string | null
+  warehouse_name?: string | null
+  warehouse_code?: string | null
+  code?: string | null
+  name?: string | null
+  priority?: number | null
+}
+
+type InventoryProfileRow = {
+  id: string
+  catalog_product_id?: string | null
+  catalog_variant_id?: string | null
+  product_title?: string | null
+  product_sku?: string | null
+  variant_name?: string | null
+  variant_sku?: string | null
+  default_uom?: string | null
+  default_strategy?: string | null
+  track_lot?: boolean | null
+  track_serial?: boolean | null
+  track_expiration?: boolean | null
+  reorder_point?: string | number | null
+  safety_stock?: string | number | null
+}
+
+type WarehouseFormValues = {
+  name: string
+  code: string
+  city?: string
+  country?: string
+  timezone?: string
+  isActive: boolean
+  isPrimary: boolean
+}
+
+type ZoneFormValues = {
+  warehouseId: string
+  code: string
+  name: string
+  priority?: number
+}
+
+type InventoryProfileFormValues = {
+  catalogProductId: string
+  catalogVariantId?: string
+  defaultUom: string
+  defaultStrategy: 'fifo' | 'lifo' | 'fefo'
+  trackLot: boolean
+  trackSerial: boolean
+  trackExpiration: boolean
+  reorderPoint?: number
+  safetyStock?: number
+}
+
+type DialogMode<T> =
+  | { mode: 'create' }
+  | { mode: 'edit'; row: T }
+
+const warehouseFormSchema = z.object({
+  name: z.string().trim().min(1),
+  code: z.string().trim().min(1),
+  city: z.string().trim().optional(),
+  country: z.string().trim().optional(),
+  timezone: z.string().trim().optional(),
+  isActive: z.boolean().default(true),
+  isPrimary: z.boolean().default(false),
+})
+
+const zoneFormSchema = z.object({
+  warehouseId: z.string().uuid(),
+  code: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(200),
+  priority: z.coerce.number().int().min(0).optional(),
+})
+
+function buildInventoryProfileFormSchema(fefoRequiredMsg: string) {
+  return z.object({
+    catalogProductId: z.string().uuid(),
+    catalogVariantId: z.string().uuid().optional().or(z.literal('')),
+    defaultUom: z.string().trim().min(1),
+    defaultStrategy: z.enum(['fifo', 'lifo', 'fefo']),
+    trackLot: z.boolean().default(false),
+    trackSerial: z.boolean().default(false),
+    trackExpiration: z.boolean().default(false),
+    reorderPoint: z.coerce.number().min(0).optional(),
+    safetyStock: z.coerce.number().min(0).optional(),
+  }).superRefine((payload, ctx) => {
+    if (payload.trackExpiration && payload.defaultStrategy !== 'fefo') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['defaultStrategy'],
+        message: fefoRequiredMsg,
+      })
+    }
+  })
+}
+
+const STRATEGY_OPTIONS: CrudFieldOption[] = [
+  { value: 'fifo', label: 'FIFO' },
+  { value: 'lifo', label: 'LIFO' },
+  { value: 'fefo', label: 'FEFO' },
+]
+
+/** Merge a newly created row into all cached warehouse list queries so the table updates immediately (refetch can lag or match stale HTTP cache). */
+function mergeCreatedWarehouseIntoWarehousesCaches(
+  queryClient: QueryClient,
+  newId: string,
+  values: WarehouseFormValues,
+) {
+  const row: WarehouseRow = {
+    id: newId,
+    name: values.name,
+    code: values.code,
+    city: values.city || null,
+    country: values.country || null,
+    timezone: values.timezone || null,
+    is_active: values.isActive,
+    is_primary: values.isPrimary,
+  }
+  const haystack = `${values.name}\n${values.code}`.toLowerCase()
+
+  const entries = queryClient.getQueriesData<PagedResponse<WarehouseRow>>({
+    queryKey: ['wms-config', 'warehouses'],
+    exact: false,
+  })
+  for (const [key, old] of entries) {
+    if (!old || !Array.isArray(old.items)) continue
+    if (old.items.some((r: WarehouseRow) => r.id === newId)) continue
+
+    const paramStr = Array.isArray(key) && typeof key[2] === 'string' ? key[2] : ''
+    const sp = new URLSearchParams(paramStr)
+    const searchTerm = (sp.get('search') || '').trim().toLowerCase()
+    if (searchTerm && !haystack.includes(searchTerm)) continue
+
+    const pageSize = typeof old.pageSize === 'number' && old.pageSize > 0 ? old.pageSize : 10
+    const nextTotal = (old.total ?? 0) + 1
+    queryClient.setQueryData<PagedResponse<WarehouseRow>>(key, {
+      ...old,
+      items: [row, ...old.items.filter((r: WarehouseRow) => r.id !== newId)].slice(0, pageSize),
+      total: nextTotal,
+      totalPages: Math.max(1, Math.ceil(nextTotal / pageSize)),
+    })
+  }
+}
+
+async function loadCatalogProductOptions(query?: string): Promise<CrudFieldOption[]> {
+  const params = buildQuery({ page: 1, pageSize: 25, search: query?.trim() || undefined })
+  const call = await apiCall<PagedResponse<{ id?: string | null; title?: string | null; sku?: string | null }>>(`/api/catalog/products?${params}`)
+  if (!call.ok) return []
+  return (call.result?.items ?? [])
+    .map((item) => {
+      const value = typeof item.id === 'string' ? item.id : null
+      if (!value) return null
+      const label = item.title || item.sku || value
+      return { value, label }
+    })
+    .filter((option): option is CrudFieldOption => option !== null)
+}
+
+function SectionCard({
+  title,
+  description,
+  icon,
+  viewAllHref,
+  viewAllLabel,
+  children,
+}: {
+  title: string
+  description: string
+  icon: React.ReactNode
+  viewAllHref?: string
+  viewAllLabel?: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
+      <div className="mb-4 flex items-start gap-3">
+        <div className="rounded-md border bg-muted/40 p-2 text-muted-foreground">{icon}</div>
+        <div className="flex flex-1 items-start justify-between gap-2">
+          <div className="space-y-1">
+            <h2 className="text-xl font-semibold">{title}</h2>
+            <p className="text-sm text-muted-foreground">{description}</p>
+          </div>
+          {viewAllHref && (
+            <Link href={viewAllHref} className="shrink-0 text-sm font-medium text-primary hover:underline">
+              {viewAllLabel}
+            </Link>
+          )}
+        </div>
+      </div>
+      {children}
+    </section>
+  )
+}
+
+type ConfigSectionOptions = {
+  /** When set, show a "View all" link to the standalone list page. Omit on that list page itself. */
+  viewAllHref?: string
+}
+
+export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
+  const t = useT()
+  const queryClient = useQueryClient()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-warehouses' })
+  const access = useWmsInventoryMutationAccess()
+  const [page, setPage] = React.useState(1)
+  const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
+  const [submitting, setSubmitting] = React.useState(false)
+  const [dialog, setDialog] = React.useState<DialogMode<WarehouseRow> | null>(null)
+
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
+
+  const params = React.useMemo(() => {
+    const sortCol = sorting[0]
+    return buildQuery({
+      page,
+      pageSize: 10,
+      search: search.trim() || undefined,
+      sortField: sortCol ? sortCol.id : 'updatedAt',
+      sortDir: sortCol ? (sortCol.desc ? 'desc' : 'asc') : 'desc',
+    })
+  }, [page, search, sorting])
+
+  const query = useQuery({
+    queryKey: ['wms-config', 'warehouses', params],
+    queryFn: async () => {
+      const call = await apiCall<PagedResponse<WarehouseRow>>(`/api/wms/warehouses?${params}`, {
+        cache: 'no-store',
+      })
+      if (!call.ok) {
+        await raiseCrudError(call.response, t('wms.backend.config.warehouses.errors.load', 'Failed to load warehouses.'))
+      }
+      return call.result ?? { items: [], total: 0, totalPages: 1 }
+    },
+  })
+
+  const fields = React.useMemo<CrudField[]>(() => [
+    { id: 'name', type: 'text', label: t('wms.backend.config.warehouses.form.name', 'Name'), required: true },
+    { id: 'code', type: 'text', label: t('wms.backend.config.warehouses.form.code', 'Code'), required: true },
+    { id: 'city', type: 'text', label: t('wms.backend.config.warehouses.form.city', 'City') },
+    { id: 'country', type: 'text', label: t('wms.backend.config.warehouses.form.country', 'Country') },
+    { id: 'timezone', type: 'text', label: t('wms.backend.config.warehouses.form.timezone', 'Timezone') },
+    { id: 'isPrimary', type: 'checkbox', label: t('wms.backend.config.warehouses.form.primary', 'Primary warehouse') },
+    { id: 'isActive', type: 'checkbox', label: t('wms.backend.config.warehouses.form.active', 'Active') },
+  ], [t])
+
+  const columns = React.useMemo<ColumnDef<WarehouseRow>[]>(() => [
+    {
+      accessorKey: 'name',
+      header: t('wms.backend.config.warehouses.columns.name', 'Warehouse'),
+      enableSorting: true,
+      cell: ({ row }) => row.original.name || row.original.code || row.original.id,
+    },
+    { accessorKey: 'code', header: t('wms.backend.config.warehouses.columns.code', 'Code'), enableSorting: true },
+    { accessorKey: 'city', header: t('wms.backend.config.warehouses.columns.city', 'City'), cell: ({ row }) => row.original.city || '—' },
+    { accessorKey: 'country', header: t('wms.backend.config.warehouses.columns.country', 'Country'), cell: ({ row }) => row.original.country || '—' },
+    {
+      accessorKey: 'is_primary',
+      header: t('wms.backend.config.warehouses.columns.primary', 'Primary'),
+      cell: ({ row }) =>
+        row.original.is_primary
+          ? t('wms.backend.config.warehouses.primary.yes', 'Primary')
+          : '—',
+    },
+    {
+      accessorKey: 'is_active',
+      header: t('wms.backend.config.warehouses.columns.status', 'Status'),
+      cell: ({ row }) =>
+        row.original.is_active === false
+          ? t('wms.common.inactive', 'Inactive')
+          : t('wms.common.active', 'Active'),
+    },
+  ], [t])
+
+  const initialValues = React.useMemo<WarehouseFormValues>(() => {
+    if (dialog?.mode === 'edit') {
+      return {
+        name: dialog.row.name || '',
+        code: dialog.row.code || '',
+        city: dialog.row.city || '',
+        country: dialog.row.country || '',
+        timezone: dialog.row.timezone || '',
+        isActive: dialog.row.is_active !== false,
+        isPrimary: dialog.row.is_primary === true,
+      }
+    }
+    return {
+      name: '',
+      code: '',
+      city: '',
+      country: '',
+      timezone: '',
+      isActive: true,
+      isPrimary: false,
+    }
+  }, [dialog])
+
+  const closeDialog = React.useCallback(() => {
+    setDialog(null)
+    setSubmitting(false)
+  }, [])
+
+  const refresh = React.useCallback(async () => {
+    await queryClient.cancelQueries({ queryKey: ['wms-config', 'warehouses'] })
+    await queryClient.invalidateQueries({ queryKey: ['wms-config', 'warehouses'] })
+    await queryClient.refetchQueries({ queryKey: ['wms-config', 'warehouses'], type: 'all' })
+  }, [queryClient])
+
+  const handleSubmit = React.useCallback(async (values: WarehouseFormValues) => {
+    if (!dialog) return
+    const submitMode = dialog.mode
+    setSubmitting(true)
+    try {
+      const call = await runMutation({
+        operation: async () => {
+          const result = await apiCall<{ id?: string | null }>(
+            '/api/wms/warehouses',
+            {
+              method: submitMode === 'edit' ? 'PUT' : 'POST',
+              body: JSON.stringify(
+                submitMode === 'edit'
+                  ? { id: dialog.row.id, ...values }
+                  : values,
+              ),
+            },
+          )
+          if (!result.ok) {
+            await raiseCrudError(result.response, t('wms.backend.config.warehouses.errors.save', 'Failed to save warehouse.'))
+          }
+          return result
+        },
+        context: {},
+        mutationPayload: submitMode === 'edit' ? { id: dialog.row.id, ...values } : values,
+      })
+      flash(
+        submitMode === 'edit'
+          ? t('wms.backend.config.warehouses.flash.updated', 'Warehouse updated')
+          : t('wms.backend.config.warehouses.flash.created', 'Warehouse created'),
+        'success',
+      )
+
+      const createdId =
+        submitMode === 'create' &&
+        call?.result &&
+        typeof call.result === 'object' &&
+        typeof (call.result as { id?: unknown }).id === 'string'
+          ? (call.result as { id: string }).id.trim()
+          : null
+
+      closeDialog()
+
+      if (submitMode === 'create' && createdId) {
+        mergeCreatedWarehouseIntoWarehousesCaches(queryClient, createdId, values)
+        setSearch('')
+        setPage(1)
+      }
+
+      await refresh()
+    } catch (error) {
+      flashMutationError(error, t('wms.backend.config.warehouses.errors.save', 'Failed to save warehouse.'), t)
+      setSubmitting(false)
+    }
+  }, [closeDialog, dialog, queryClient, refresh, runMutation, t])
+
+  const handleDelete = React.useCallback(async (row: WarehouseRow) => {
+    const confirmed = await confirm({
+      title: t('wms.backend.config.warehouses.confirmDelete', 'Archive warehouse "{name}"?', {
+        name: row.name || row.code || row.id,
+      }),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
+    try {
+      await runMutation({
+        operation: async () => {
+          const call = await apiCall(`/api/wms/warehouses?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('wms.backend.config.warehouses.errors.delete', 'Failed to archive warehouse.'))
+          }
+          return call
+        },
+        context: {},
+        mutationPayload: { id: row.id },
+      })
+      flash(t('wms.backend.config.warehouses.flash.deleted', 'Warehouse archived'), 'success')
+      await refresh()
+    } catch (error) {
+      flashMutationError(error, t('wms.backend.config.warehouses.errors.delete', 'Failed to archive warehouse.'), t)
+    }
+  }, [confirm, refresh, runMutation, t])
+
+  return (
+    <>
+      <SectionCard
+        title={t('wms.backend.config.warehouses.title', 'Warehouses')}
+        description={t('wms.backend.config.warehouses.description', 'Manage the high-level warehouse nodes used by WMS reservations and inventory movements.')}
+        icon={<Warehouse className="size-5" />}
+        viewAllHref={viewAllHref}
+        viewAllLabel={viewAllHref ? t('wms.backend.config.viewAll', 'View all →') : undefined}
+      >
+        <DataTable
+          embedded
+          title={t('wms.backend.config.warehouses.title', 'Warehouses')}
+          columns={columns}
+          data={query.data?.items ?? []}
+          isLoading={query.isLoading}
+          error={query.isError ? t('wms.backend.config.warehouses.errors.load', 'Failed to load warehouses.') : null}
+          entityId={E.wms.warehouse}
+          searchValue={search}
+          onSearchChange={(value) => {
+            setSearch(value)
+            setPage(1)
+          }}
+          searchPlaceholder={t('wms.backend.config.warehouses.search', 'Search warehouses')}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
+          sortable
+          manualSorting
+          actions={access.canManageWarehouses ? (
+            <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
+              {t('wms.backend.config.actions.addWarehouse', 'Add warehouse')}
+            </Button>
+          ) : null}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                { id: 'edit', label: t('common.edit', 'Edit'), onSelect: () => setDialog({ mode: 'edit', row }) },
+                { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
+              ]}
+            />
+          )}
+          pagination={{
+            page,
+            pageSize: 10,
+            total: query.data?.total ?? 0,
+            totalPages: query.data?.totalPages ?? 1,
+            onPageChange: setPage,
+          }}
+          perspective={{ tableId: 'wms.config.warehouses' }}
+          emptyState={(
+            <EmptyState
+              title={t('wms.backend.config.warehouses.empty.title', 'No warehouses')}
+              description={t('wms.backend.config.warehouses.empty.description', 'Create the first warehouse to expose topology and inventory assignment in WMS.')}
+              action={access.canManageWarehouses ? { label: t('wms.backend.config.actions.addWarehouse', 'Add warehouse'), onClick: () => setDialog({ mode: 'create' }) } : undefined}
+            />
+          )}
+        />
+      </SectionCard>
+
+      <Dialog open={dialog !== null} onOpenChange={(next) => !next && closeDialog()}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              {dialog?.mode === 'edit'
+                ? t('wms.backend.config.warehouses.dialog.edit', 'Edit warehouse')
+                : t('wms.backend.config.warehouses.dialog.create', 'Create warehouse')}
+            </DialogTitle>
+          </DialogHeader>
+          <CrudForm<WarehouseFormValues>
+            schema={warehouseFormSchema}
+            fields={fields}
+            entityId={E.wms.warehouse}
+            initialValues={initialValues}
+            submitLabel={t('common.save', 'Save')}
+            onSubmit={handleSubmit}
+            embedded
+            isLoading={submitting}
+            twoColumn
+          />
+        </DialogContent>
+      </Dialog>
+      {ConfirmDialogElement}
+    </>
+  )
+}
+
+export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
+  const t = useT()
+  const queryClient = useQueryClient()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-zones' })
+  const access = useWmsInventoryMutationAccess()
+  const [page, setPage] = React.useState(1)
+  const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'priority', desc: false }])
+  const [submitting, setSubmitting] = React.useState(false)
+  const [dialog, setDialog] = React.useState<DialogMode<ZoneRow> | null>(null)
+
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
+
+  const params = React.useMemo(() => {
+    const sortCol = sorting[0]
+    return buildQuery({
+      page,
+      pageSize: 10,
+      search: search.trim() || undefined,
+      sortField: sortCol ? sortCol.id : 'priority',
+      sortDir: sortCol ? (sortCol.desc ? 'desc' : 'asc') : 'asc',
+    })
+  }, [page, search, sorting])
+
+  const query = useQuery({
+    queryKey: ['wms-config', 'zones', params],
+    queryFn: async () => {
+      const call = await apiCall<PagedResponse<ZoneRow>>(`/api/wms/zones?${params}`, {
+        cache: 'no-store',
+      })
+      if (!call.ok) {
+        await raiseCrudError(call.response, t('wms.backend.config.zones.errors.load', 'Failed to load zones.'))
+      }
+      return call.result ?? { items: [], total: 0, totalPages: 1 }
+    },
+  })
+
+  const fields = React.useMemo<CrudField[]>(() => [
+    {
+      id: 'warehouseId',
+      type: 'combobox',
+      label: t('wms.backend.config.zones.form.warehouse', 'Warehouse'),
+      required: true,
+      loadOptions: loadWarehouseOptions,
+      allowCustomValues: false,
+    },
+    { id: 'code', type: 'text', label: t('wms.backend.config.zones.form.code', 'Code'), required: true },
+    { id: 'name', type: 'text', label: t('wms.backend.config.zones.form.name', 'Name'), required: true },
+    { id: 'priority', type: 'number', label: t('wms.backend.config.zones.form.priority', 'Priority') },
+  ], [t])
+
+  const columns = React.useMemo<ColumnDef<ZoneRow>[]>(() => [
+    {
+      accessorKey: 'name',
+      header: t('wms.backend.config.zones.columns.name', 'Zone'),
+      enableSorting: true,
+      cell: ({ row }) => row.original.name || row.original.code || row.original.id,
+    },
+    { accessorKey: 'code', header: t('wms.backend.config.zones.columns.code', 'Code'), enableSorting: true },
+    {
+      accessorKey: 'warehouse_name',
+      header: t('wms.backend.config.zones.columns.warehouse', 'Warehouse'),
+      enableSorting: false,
+      cell: ({ row }) =>
+        row.original.warehouse_name
+        || row.original.warehouse_code
+        || row.original.warehouse_id
+        || '—',
+    },
+    {
+      accessorKey: 'priority',
+      header: t('wms.backend.config.zones.columns.priority', 'Priority'),
+      enableSorting: true,
+      cell: ({ row }) => (row.original.priority == null ? '—' : String(row.original.priority)),
+    },
+  ], [t])
+
+  const initialValues = React.useMemo<ZoneFormValues>(() => {
+    if (dialog?.mode === 'edit') {
+      return {
+        warehouseId: dialog.row.warehouse_id || '',
+        code: dialog.row.code || '',
+        name: dialog.row.name || '',
+        priority: dialog.row.priority == null ? undefined : Number(dialog.row.priority),
+      }
+    }
+    return {
+      warehouseId: '',
+      code: '',
+      name: '',
+      priority: undefined,
+    }
+  }, [dialog])
+
+  const closeDialog = React.useCallback(() => {
+    setDialog(null)
+    setSubmitting(false)
+  }, [])
+
+  const refresh = React.useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ['wms-config', 'zones'] })
+  }, [queryClient])
+
+  const handleSubmit = React.useCallback(async (values: ZoneFormValues) => {
+    if (!dialog) return
+    const submitMode = dialog.mode
+    setSubmitting(true)
+    try {
+      const payload = {
+        ...values,
+        priority: values.priority === undefined || Number.isNaN(values.priority) ? undefined : Number(values.priority),
+      }
+      await runMutation({
+        operation: async () => {
+          const call = await apiCall(
+            '/api/wms/zones',
+            {
+              method: submitMode === 'edit' ? 'PUT' : 'POST',
+              body: JSON.stringify(submitMode === 'edit' ? { id: dialog.row.id, ...payload } : payload),
+            },
+          )
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('wms.backend.config.zones.errors.save', 'Failed to save zone.'))
+          }
+          return call
+        },
+        context: {},
+        mutationPayload: submitMode === 'edit' ? { id: dialog.row.id, ...payload } : payload,
+      })
+      flash(
+        submitMode === 'edit'
+          ? t('wms.backend.config.zones.flash.updated', 'Zone updated')
+          : t('wms.backend.config.zones.flash.created', 'Zone created'),
+        'success',
+      )
+      closeDialog()
+      await refresh()
+    } catch (error) {
+      flashMutationError(error, t('wms.backend.config.zones.errors.save', 'Failed to save zone.'), t)
+      setSubmitting(false)
+    }
+  }, [closeDialog, dialog, refresh, runMutation, t])
+
+  const handleDelete = React.useCallback(async (row: ZoneRow) => {
+    const confirmed = await confirm({
+      title: t('wms.backend.config.zones.confirmDelete', 'Archive zone "{name}"?', {
+        name: row.name || row.code || row.id,
+      }),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
+    try {
+      await runMutation({
+        operation: async () => {
+          const call = await apiCall(`/api/wms/zones?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('wms.backend.config.zones.errors.delete', 'Failed to archive zone.'))
+          }
+          return call
+        },
+        context: {},
+        mutationPayload: { id: row.id },
+      })
+      flash(t('wms.backend.config.zones.flash.deleted', 'Zone archived'), 'success')
+      await refresh()
+    } catch (error) {
+      flashMutationError(error, t('wms.backend.config.zones.errors.delete', 'Failed to archive zone.'), t)
+    }
+  }, [confirm, refresh, runMutation, t])
+
+  return (
+    <>
+      <SectionCard
+        title={t('wms.backend.config.zones.title', 'Zones')}
+        description={t('wms.backend.config.zones.description', 'Group locations into functional zones (e.g. receiving, pick face, bulk) to drive routing and priority.')}
+        icon={<Layers className="size-5" />}
+        viewAllHref={viewAllHref}
+        viewAllLabel={viewAllHref ? t('wms.backend.config.viewAll', 'View all →') : undefined}
+      >
+        <DataTable
+          embedded
+          title={t('wms.backend.config.zones.title', 'Zones')}
+          columns={columns}
+          data={query.data?.items ?? []}
+          isLoading={query.isLoading}
+          error={query.isError ? t('wms.backend.config.zones.errors.load', 'Failed to load zones.') : null}
+          entityId={E.wms.warehouse_zone}
+          searchValue={search}
+          onSearchChange={(value) => {
+            setSearch(value)
+            setPage(1)
+          }}
+          searchPlaceholder={t('wms.backend.config.zones.search', 'Search zones')}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
+          sortable
+          manualSorting
+          actions={access.canManageZones ? (
+            <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
+              {t('wms.backend.config.actions.addZone', 'Add zone')}
+            </Button>
+          ) : null}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                { id: 'edit', label: t('common.edit', 'Edit'), onSelect: () => setDialog({ mode: 'edit', row }) },
+                { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
+              ]}
+            />
+          )}
+          pagination={{
+            page,
+            pageSize: 10,
+            total: query.data?.total ?? 0,
+            totalPages: query.data?.totalPages ?? 1,
+            onPageChange: setPage,
+          }}
+          perspective={{ tableId: 'wms.config.zones' }}
+          emptyState={(
+            <EmptyState
+              title={t('wms.backend.config.zones.empty.title', 'No zones')}
+              description={t('wms.backend.config.zones.empty.description', 'Zones group locations into functional areas to drive picking priority and routing rules.')}
+              action={access.canManageZones ? { label: t('wms.backend.config.actions.addZone', 'Add zone'), onClick: () => setDialog({ mode: 'create' }) } : undefined}
+            />
+          )}
+        />
+      </SectionCard>
+
+      <Dialog open={dialog !== null} onOpenChange={(next) => !next && closeDialog()}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              {dialog?.mode === 'edit'
+                ? t('wms.backend.config.zones.dialog.edit', 'Edit zone')
+                : t('wms.backend.config.zones.dialog.create', 'Create zone')}
+            </DialogTitle>
+          </DialogHeader>
+          <CrudForm<ZoneFormValues>
+            schema={zoneFormSchema}
+            fields={fields}
+            entityId={E.wms.warehouse_zone}
+            initialValues={initialValues}
+            submitLabel={t('common.save', 'Save')}
+            onSubmit={handleSubmit}
+            embedded
+            isLoading={submitting}
+            twoColumn
+          />
+        </DialogContent>
+      </Dialog>
+      {ConfirmDialogElement}
+    </>
+  )
+}
+
+export function LocationSection({ viewAllHref }: ConfigSectionOptions = {}) {
+  const t = useT()
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-locations' })
+  const access = useWmsInventoryMutationAccess()
+  const [page, setPage] = React.useState(1)
+  const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
+  const [dialog, setDialog] = React.useState<DialogMode<LocationRow> | null>(null)
+
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
+
+  const params = React.useMemo(() => {
+    const sortCol = sorting[0]
+    return buildQuery({
+      page,
+      pageSize: 10,
+      search: search.trim() || undefined,
+      sortField: sortCol ? sortCol.id : 'updatedAt',
+      sortDir: sortCol ? (sortCol.desc ? 'desc' : 'asc') : 'desc',
+    })
+  }, [page, search, sorting])
+
+  const query = useQuery({
+    queryKey: ['wms-config', 'locations', params],
+    queryFn: async () => {
+      const call = await apiCall<PagedResponse<LocationRow>>(`/api/wms/locations?${params}`)
+      if (!call.ok) {
+        await raiseCrudError(call.response, t('wms.backend.config.locations.errors.load', 'Failed to load locations.'))
+      }
+      return call.result ?? { items: [], total: 0, totalPages: 1 }
+    },
+  })
+
+  const columns = React.useMemo<ColumnDef<LocationRow>[]>(() => [
+    {
+      accessorKey: 'code',
+      header: t('wms.backend.config.locations.columns.code', 'Location'),
+      enableSorting: true,
+      cell: ({ row }) => {
+        const locationId = row.original.id?.trim()
+        const code = row.original.code || '—'
+        if (!locationId) return code
+        return (
+          <Link
+            href={`/backend/wms/location/${encodeURIComponent(locationId)}`}
+            className="font-medium text-primary hover:underline"
+          >
+            {code}
+          </Link>
+        )
+      },
+    },
+    { accessorKey: 'type', header: t('wms.backend.config.locations.columns.type', 'Type'), enableSorting: true, cell: ({ row }) => row.original.type || '—' },
+    {
+      accessorKey: 'warehouse_name',
+      header: t('wms.backend.config.locations.columns.warehouse', 'Warehouse'),
+      enableSorting: false,
+      cell: ({ row }) =>
+        row.original.warehouse_name
+        || row.original.warehouse_code
+        || row.original.warehouse_id
+        || '—',
+    },
+    { accessorKey: 'capacity_units', header: t('wms.backend.config.locations.columns.capacityUnits', 'Capacity units'), cell: ({ row }) => String(row.original.capacity_units ?? '—') },
+    {
+      accessorKey: 'is_active',
+      header: t('wms.backend.config.locations.columns.status', 'Status'),
+      cell: ({ row }) =>
+        row.original.is_active === false
+          ? t('wms.common.inactive', 'Inactive')
+          : t('wms.common.active', 'Active'),
+    },
+  ], [t])
+
+  const closeDialog = React.useCallback(() => {
+    setDialog(null)
+  }, [])
+
+  const refresh = React.useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ['wms-config', 'locations'] })
+  }, [queryClient])
+
+  const handleDelete = React.useCallback(async (row: LocationRow) => {
+    const confirmed = await confirm({
+      title: t('wms.backend.config.locations.confirmDelete', 'Archive location "{code}"?', {
+        code: row.code || row.id,
+      }),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
+    try {
+      await runMutation({
+        operation: async () => {
+          const call = await apiCall(`/api/wms/locations?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('wms.backend.config.locations.errors.delete', 'Failed to archive location.'))
+          }
+          return call
+        },
+        context: {},
+        mutationPayload: { id: row.id },
+      })
+      flash(t('wms.backend.config.locations.flash.deleted', 'Location archived'), 'success')
+      await refresh()
+    } catch (error) {
+      flashMutationError(error, t('wms.backend.config.locations.errors.delete', 'Failed to archive location.'), t)
+    }
+  }, [confirm, refresh, runMutation, t])
+
+  return (
+    <>
+      <SectionCard
+        title={t('wms.backend.config.locations.title', 'Locations')}
+        description={t('wms.backend.config.locations.description', 'Maintain aisle/bin/dock level topology buckets that hold operational inventory.')}
+        icon={<MapPinned className="size-5" />}
+        viewAllHref={viewAllHref}
+        viewAllLabel={viewAllHref ? t('wms.backend.config.viewAll', 'View all →') : undefined}
+      >
+        <DataTable
+          embedded
+          title={t('wms.backend.config.locations.title', 'Locations')}
+          columns={columns}
+          data={query.data?.items ?? []}
+          isLoading={query.isLoading}
+          error={query.isError ? t('wms.backend.config.locations.errors.load', 'Failed to load locations.') : null}
+          entityId={E.wms.warehouse_location}
+          searchValue={search}
+          onSearchChange={(value) => {
+            setSearch(value)
+            setPage(1)
+          }}
+          searchPlaceholder={t('wms.backend.config.locations.search', 'Search locations')}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
+          sortable
+          manualSorting
+          actions={access.canManageLocations ? (
+            <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
+              {t('wms.backend.config.actions.addLocation', 'Add location')}
+            </Button>
+          ) : null}
+          onRowClick={(row) => {
+            const locationId = row.id?.trim()
+            if (locationId) {
+              router.push(`/backend/wms/location/${encodeURIComponent(locationId)}`)
+            }
+          }}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                { id: 'edit', label: t('common.edit', 'Edit'), onSelect: () => setDialog({ mode: 'edit', row }) },
+                { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
+              ]}
+            />
+          )}
+          pagination={{
+            page,
+            pageSize: 10,
+            total: query.data?.total ?? 0,
+            totalPages: query.data?.totalPages ?? 1,
+            onPageChange: setPage,
+          }}
+          perspective={{ tableId: 'wms.config.locations' }}
+          emptyState={(
+            <EmptyState
+              title={t('wms.backend.config.locations.empty.title', 'No locations')}
+              description={t('wms.backend.config.locations.empty.description', 'Create locations to define the buckets used by balances, reservations, and movement ledger rows.')}
+              action={access.canManageLocations ? { label: t('wms.backend.config.actions.addLocation', 'Add location'), onClick: () => setDialog({ mode: 'create' }) } : undefined}
+            />
+          )}
+        />
+      </SectionCard>
+
+      <LocationEditDialog
+        open={dialog !== null}
+        onOpenChange={(next) => !next && closeDialog()}
+        mode={dialog?.mode ?? 'create'}
+        row={dialog?.mode === 'edit' ? dialog.row : null}
+        onSaved={refresh}
+      />
+      {ConfirmDialogElement}
+    </>
+  )
+}
+
+export function InventoryProfilesSection() {
+  const t = useT()
+  const locale = useLocale()
+  const queryClient = useQueryClient()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-profiles' })
+  const access = useWmsInventoryMutationAccess()
+  const [page, setPage] = React.useState(1)
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
+  const [submitting, setSubmitting] = React.useState(false)
+  const [dialog, setDialog] = React.useState<DialogMode<InventoryProfileRow> | null>(null)
+  const inventoryProfileFormSchema = React.useMemo(
+    () => buildInventoryProfileFormSchema(t('wms.backend.config.profiles.validation.fefoRequired', 'FEFO is required when expiration tracking is enabled.')),
+    [t],
+  )
+
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
+
+  const params = React.useMemo(() => {
+    const sortCol = sorting[0]
+    return buildQuery({
+      page,
+      pageSize: 10,
+      sortField: sortCol ? sortCol.id : 'updatedAt',
+      sortDir: sortCol ? (sortCol.desc ? 'desc' : 'asc') : 'desc',
+    })
+  }, [page, sorting])
+
+  const query = useQuery({
+    queryKey: ['wms-config', 'inventory-profiles', params],
+    queryFn: async () => {
+      const call = await apiCall<PagedResponse<InventoryProfileRow>>(`/api/wms/inventory-profiles?${params}`)
+      if (!call.ok) {
+        await raiseCrudError(call.response, t('wms.backend.config.profiles.errors.load', 'Failed to load inventory profiles.'))
+      }
+      return call.result ?? { items: [], total: 0, totalPages: 1 }
+    },
+  })
+
+  const fields = React.useMemo<CrudField[]>(() => [
+    {
+      id: 'catalogProductId',
+      type: 'combobox',
+      label: t('wms.backend.config.profiles.form.product', 'Product'),
+      required: true,
+      loadOptions: loadCatalogProductOptions,
+      allowCustomValues: false,
+    },
+    {
+      id: 'catalogVariantId',
+      type: 'combobox',
+      label: t('wms.backend.config.profiles.form.variant', 'Variant'),
+      loadOptions: loadCatalogVariantOptions,
+      allowCustomValues: false,
+    },
+    { id: 'defaultUom', type: 'text', label: t('wms.backend.config.profiles.form.uom', 'Default UOM'), required: true },
+    {
+      id: 'defaultStrategy',
+      type: 'select',
+      label: t('wms.backend.config.profiles.form.strategy', 'Rotation strategy'),
+      required: true,
+      options: STRATEGY_OPTIONS,
+    },
+    { id: 'reorderPoint', type: 'number', label: t('wms.backend.config.profiles.form.reorderPoint', 'Reorder point') },
+    { id: 'safetyStock', type: 'number', label: t('wms.backend.config.profiles.form.safetyStock', 'Safety stock') },
+    { id: 'trackLot', type: 'checkbox', label: t('wms.backend.config.profiles.form.trackLot', 'Track lots') },
+    { id: 'trackSerial', type: 'checkbox', label: t('wms.backend.config.profiles.form.trackSerial', 'Track serials') },
+    { id: 'trackExpiration', type: 'checkbox', label: t('wms.backend.config.profiles.form.trackExpiration', 'Track expiration') },
+  ], [t])
+
+  const quantityFormatter = React.useMemo(
+    () => createInventoryQuantityFormatter(locale),
+    [locale],
+  )
+
+  const columns = React.useMemo<ColumnDef<InventoryProfileRow>[]>(() => [
+    {
+      accessorKey: 'catalog_product_id',
+      header: t('wms.backend.config.profiles.columns.product', 'Product'),
+      cell: ({ row }) => formatCatalogProductLabel(row.original),
+    },
+    {
+      accessorKey: 'catalog_variant_id',
+      header: t('wms.backend.config.profiles.columns.variant', 'Variant'),
+      cell: ({ row }) => {
+        if (!row.original.catalog_variant_id?.trim()) {
+          return t('wms.backend.config.profiles.allVariants', 'All variants')
+        }
+        return formatCatalogVariantLabel(row.original)
+      },
+    },
+    { accessorKey: 'default_uom', header: t('wms.backend.config.profiles.columns.uom', 'UOM'), cell: ({ row }) => row.original.default_uom || '—' },
+    {
+      accessorKey: 'default_strategy',
+      id: 'defaultStrategy',
+      header: t('wms.backend.config.profiles.columns.strategy', 'Strategy'),
+      enableSorting: true,
+      cell: ({ row }) => {
+        const strategy = row.original.default_strategy?.trim()
+        if (!strategy) return '—'
+        return inventoryRotationStrategyLabel(strategy, t)
+      },
+    },
+    {
+      accessorKey: 'reorder_point',
+      id: 'reorderPoint',
+      header: t('wms.backend.config.profiles.columns.reorderPoint', 'Reorder point'),
+      enableSorting: true,
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {formatInventoryQuantity(row.original.reorder_point, quantityFormatter)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'safety_stock',
+      id: 'safetyStock',
+      header: t('wms.backend.config.profiles.columns.safetyStock', 'Safety stock'),
+      enableSorting: true,
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {formatInventoryQuantity(row.original.safety_stock, quantityFormatter)}
+        </span>
+      ),
+    },
+  ], [quantityFormatter, t])
+
+  const initialValues = React.useMemo<InventoryProfileFormValues>(() => {
+    if (dialog?.mode === 'edit') {
+      return {
+        catalogProductId: dialog.row.catalog_product_id || '',
+        catalogVariantId: dialog.row.catalog_variant_id || '',
+        defaultUom: dialog.row.default_uom || '',
+        defaultStrategy: (dialog.row.default_strategy as InventoryProfileFormValues['defaultStrategy']) || 'fifo',
+        trackLot: dialog.row.track_lot === true,
+        trackSerial: dialog.row.track_serial === true,
+        trackExpiration: dialog.row.track_expiration === true,
+        reorderPoint: dialog.row.reorder_point == null ? undefined : Number(dialog.row.reorder_point),
+        safetyStock: dialog.row.safety_stock == null ? undefined : Number(dialog.row.safety_stock),
+      }
+    }
+    return {
+      catalogProductId: '',
+      catalogVariantId: '',
+      defaultUom: 'pcs',
+      defaultStrategy: 'fifo',
+      trackLot: false,
+      trackSerial: false,
+      trackExpiration: false,
+      reorderPoint: 0,
+      safetyStock: 0,
+    }
+  }, [dialog])
+
+  const closeDialog = React.useCallback(() => {
+    setDialog(null)
+    setSubmitting(false)
+  }, [])
+
+  const refresh = React.useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ['wms-config', 'inventory-profiles'] })
+  }, [queryClient])
+
+  const handleSubmit = React.useCallback(async (values: InventoryProfileFormValues) => {
+    setSubmitting(true)
+    try {
+      const payload = {
+        ...values,
+        catalogVariantId: values.catalogVariantId?.trim() ? values.catalogVariantId : null,
+      }
+      await runMutation({
+        operation: async () => {
+          const call = await apiCall(
+            '/api/wms/inventory-profiles',
+            {
+              method: dialog?.mode === 'edit' ? 'PUT' : 'POST',
+              body: JSON.stringify(dialog?.mode === 'edit' ? { id: dialog.row.id, ...payload } : payload),
+            },
+          )
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('wms.backend.config.profiles.errors.save', 'Failed to save inventory profile.'))
+          }
+          return call
+        },
+        context: {},
+        mutationPayload: dialog?.mode === 'edit' ? { id: dialog.row.id, ...payload } : payload,
+      })
+      flash(
+        dialog?.mode === 'edit'
+          ? t('wms.backend.config.profiles.flash.updated', 'Inventory profile updated')
+          : t('wms.backend.config.profiles.flash.created', 'Inventory profile created'),
+        'success',
+      )
+      closeDialog()
+      await refresh()
+    } catch (error) {
+      flashMutationError(error, t('wms.backend.config.profiles.errors.save', 'Failed to save inventory profile.'), t)
+      setSubmitting(false)
+    }
+  }, [closeDialog, dialog, refresh, runMutation, t])
+
+  const handleDelete = React.useCallback(async (row: InventoryProfileRow) => {
+    const confirmed = await confirm({
+      title: t('wms.backend.config.profiles.confirmDelete', 'Archive inventory profile "{id}"?', {
+        id: row.id,
+      }),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
+    try {
+      await runMutation({
+        operation: async () => {
+          const call = await apiCall(`/api/wms/inventory-profiles?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('wms.backend.config.profiles.errors.delete', 'Failed to archive inventory profile.'))
+          }
+          return call
+        },
+        context: {},
+        mutationPayload: { id: row.id },
+      })
+      flash(t('wms.backend.config.profiles.flash.deleted', 'Inventory profile archived'), 'success')
+      await refresh()
+    } catch (error) {
+      flashMutationError(error, t('wms.backend.config.profiles.errors.delete', 'Failed to archive inventory profile.'), t)
+    }
+  }, [confirm, refresh, runMutation, t])
+
+  return (
+    <>
+      <SectionCard
+        title={t('wms.backend.config.profiles.title', 'Inventory profiles')}
+        description={t('wms.backend.config.profiles.description', 'Configure tracking strategy, reorder thresholds, and lot/serial behavior per product scope.')}
+        icon={<Boxes className="size-5" />}
+      >
+        <DataTable
+          embedded
+          title={t('wms.backend.config.profiles.title', 'Inventory profiles')}
+          columns={columns}
+          data={query.data?.items ?? []}
+          isLoading={query.isLoading}
+          error={query.isError ? t('wms.backend.config.profiles.errors.load', 'Failed to load inventory profiles.') : null}
+          entityId={E.wms.product_inventory_profile}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
+          sortable
+          manualSorting
+          actions={access.canManage ? (
+            <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
+              {t('wms.backend.config.actions.addProfile', 'Add profile')}
+            </Button>
+          ) : null}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                { id: 'edit', label: t('common.edit', 'Edit'), onSelect: () => setDialog({ mode: 'edit', row }) },
+                { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
+              ]}
+            />
+          )}
+          pagination={{
+            page,
+            pageSize: 10,
+            total: query.data?.total ?? 0,
+            totalPages: query.data?.totalPages ?? 1,
+            onPageChange: setPage,
+          }}
+          perspective={{ tableId: 'wms.config.inventoryProfiles' }}
+          emptyState={(
+            <EmptyState
+              title={t('wms.backend.config.profiles.empty.title', 'No inventory profiles')}
+              description={t('wms.backend.config.profiles.empty.description', 'Create profiles to control reservation strategy, lot/serial tracking, and low-stock thresholds.')}
+              action={access.canManage ? { label: t('wms.backend.config.actions.addProfile', 'Add profile'), onClick: () => setDialog({ mode: 'create' }) } : undefined}
+            />
+          )}
+        />
+      </SectionCard>
+
+      <Dialog open={dialog !== null} onOpenChange={(next) => !next && closeDialog()}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              {dialog?.mode === 'edit'
+                ? t('wms.backend.config.profiles.dialog.edit', 'Edit inventory profile')
+                : t('wms.backend.config.profiles.dialog.create', 'Create inventory profile')}
+            </DialogTitle>
+          </DialogHeader>
+          <CrudForm<InventoryProfileFormValues>
+            schema={inventoryProfileFormSchema}
+            fields={fields}
+            entityId={E.wms.product_inventory_profile}
+            initialValues={initialValues}
+            submitLabel={t('common.save', 'Save')}
+            onSubmit={handleSubmit}
+            embedded
+            isLoading={submitting}
+            twoColumn
+          />
+        </DialogContent>
+      </Dialog>
+      {ConfirmDialogElement}
+    </>
+  )
+}
+
+export default function WmsConfigurationPage() {
+  const t = useT()
+
+  return (
+    <Page>
+      <PageBody>
+        <div className="space-y-6">
+          <section className="rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
+            <div className="space-y-1">
+              <h1 className="text-2xl font-bold tracking-tight">{t('wms.backend.config.title', 'WMS configuration')}</h1>
+              <p className="text-sm text-muted-foreground">
+                {t('wms.backend.config.description', 'Phase-1 operational configuration for warehouses, storage locations, and inventory tracking policies.')}
+              </p>
+            </div>
+          </section>
+          <WarehouseSection viewAllHref="/backend/wms/warehouses" />
+          <ZoneSection viewAllHref="/backend/wms/zones" />
+          <LocationSection viewAllHref="/backend/wms/locations" />
+          <InventoryProfilesSection />
+        </div>
+      </PageBody>
+    </Page>
+  )
+}

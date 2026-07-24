@@ -158,23 +158,29 @@ describe('RbacService', () => {
   })
 
   describe('getGrantedFeatures', () => {
-    it('returns the raw user grants when a per-user ACL exists', async () => {
-      const uacl: Partial<UserAcl> = {
-        isSuperAdmin: false,
-        featuresJson: ['entities.records.view', 'example.*'],
-        organizationsJson: null,
-      }
+    it('returns user grants after enabled-module filtering', async () => {
+      jest
+        .spyOn(enabledModulesRegistry, 'filterGrantsByEnabledModules')
+        .mockImplementation((granted) => granted.filter((feature) => !feature.startsWith('search.')))
+
       em.findOne.mockImplementation(async (entity: any, where: any) => {
         if (entity === User && where?.id === baseUser.id) return baseUser
-        if (entity === UserAcl && where?.user === baseUser.id && where?.tenantId === baseUser.tenantId) return uacl
+        if (entity === UserAcl && where?.user === baseUser.id && where?.tenantId === baseUser.tenantId) {
+          return {
+            isSuperAdmin: false,
+            featuresJson: ['wms.view', 'search.global'],
+            organizationsJson: null,
+          }
+        }
         return null
       })
 
-      const grants = await service.getGrantedFeatures(baseUser.id!, { tenantId: null, organizationId: null })
-      expect(grants.sort()).toEqual(['entities.records.view', 'example.*'])
+      const granted = await service.getGrantedFeatures(baseUser.id!, { tenantId: null, organizationId: null })
+      expect(enabledModulesRegistry.filterGrantsByEnabledModules).toHaveBeenCalledWith(['wms.view', 'search.global'])
+      expect(granted).toEqual(['wms.view'])
     })
 
-    it('returns the union of role-aggregated grants when no per-user ACL', async () => {
+    it('returns the union of role-aggregated grants after enabled-module filtering', async () => {
       const roleA: Partial<Role> = { id: 'role-a' }
       const roleB: Partial<Role> = { id: 'role-b' }
       const links: Array<Partial<UserRole>> = [{ role: roleA as any }, { role: roleB as any }]
@@ -197,27 +203,79 @@ describe('RbacService', () => {
       expect(grants.sort()).toEqual(['entities.*', 'example.todos.view'])
     })
 
-    it('returns ["*"] for a global super-admin user so wildcard-aware consumers match every feature', async () => {
+    it('passes ["*"] through filterGrantsByEnabledModules for super admin users', async () => {
+      jest
+        .spyOn(enabledModulesRegistry, 'filterGrantsByEnabledModules')
+        .mockReturnValue(['auth.*', 'wms.*'])
+
       em.findOne.mockImplementation(async (entity: any, where: any) => {
         if (entity === User && where?.id === baseUser.id) return baseUser
-        if (entity === UserAcl && where?.user === baseUser.id && where?.isSuperAdmin === true) {
-          return { isSuperAdmin: true }
+        if (entity === UserAcl && where?.user === baseUser.id && where?.tenantId === baseUser.tenantId) {
+          return { isSuperAdmin: true, featuresJson: [] }
         }
         return null
       })
 
-      const grants = await service.getGrantedFeatures(baseUser.id!, { tenantId: null, organizationId: null })
-      expect(grants).toEqual(['*'])
+      const granted = await service.getGrantedFeatures(baseUser.id!, { tenantId: null, organizationId: null })
+      expect(enabledModulesRegistry.filterGrantsByEnabledModules).toHaveBeenCalledWith(['*'])
+      expect(granted).toEqual(['auth.*', 'wms.*'])
     })
 
-    it('returns an empty array when the user has no ACL in scope', async () => {
-      em.findOne.mockImplementation(async (entity: any) => {
-        if (entity === User) return null
+    it('returns [] when the requested organization is outside the user restricted list', async () => {
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && where?.user === baseUser.id && where?.tenantId === baseUser.tenantId) {
+          return {
+            isSuperAdmin: false,
+            featuresJson: ['wms.view'],
+            organizationsJson: ['org-1'],
+          }
+        }
         return null
       })
 
-      const grants = await service.getGrantedFeatures('missing', { tenantId: null, organizationId: null })
-      expect(grants).toEqual([])
+      const granted = await service.getGrantedFeatures(baseUser.id!, { tenantId: null, organizationId: 'org-2' })
+      expect(granted).toEqual([])
+    })
+
+    it('returns [] for unknown users', async () => {
+      em.findOne.mockImplementation(async () => null)
+      const granted = await service.getGrantedFeatures('missing', { tenantId: null, organizationId: null })
+      expect(granted).toEqual([])
+    })
+
+    it('returns filtered features for api_key users via role ACL aggregation', async () => {
+      jest
+        .spyOn(enabledModulesRegistry, 'filterGrantsByEnabledModules')
+        .mockImplementation((grants) => grants.filter((f) => !f.startsWith('search.')))
+
+      const apiKeyId = 'key-abc'
+      const apiKey: Partial<ApiKey> = {
+        id: apiKeyId,
+        tenantId: 'tenant-1',
+        organizationId: null,
+        rolesJson: ['role-x'],
+        expiresAt: null,
+        deletedAt: null,
+      }
+      const racl: Partial<RoleAcl> = {
+        tenantId: 'tenant-1',
+        isSuperAdmin: false,
+        featuresJson: ['wms.view', 'search.global'],
+        organizationsJson: null,
+      }
+
+      em.findOne.mockImplementation(async (entity: any) => {
+        if (entity === ApiKey) return apiKey
+        return null
+      })
+      em.find.mockImplementation(async (entity: any) => {
+        if (entity === RoleAcl) return [racl]
+        return []
+      })
+
+      const granted = await service.getGrantedFeatures(`api_key:${apiKeyId}`, { tenantId: null, organizationId: null })
+      expect(granted).toEqual(['wms.view'])
     })
   })
 
