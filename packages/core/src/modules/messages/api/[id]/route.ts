@@ -402,6 +402,25 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
+  const recipient = await findOneWithDecryption(
+    em,
+    MessageRecipient,
+    {
+      messageId: params.id,
+      recipientUserId: scope.userId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+
+  const isSender = message.senderUserId === scope.userId
+  const isRecipient = Boolean(recipient)
+
+  if (!isSender && !isRecipient) {
+    return Response.json({ error: 'Access denied' }, { status: 403 })
+  }
+
   const guardResult = await runMessageMutationGuards(
     ctx.container,
     {
