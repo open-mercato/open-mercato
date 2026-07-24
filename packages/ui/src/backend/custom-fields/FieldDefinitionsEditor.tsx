@@ -936,6 +936,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                   <SelectItem value="markdown">{t('entities.customFields.editor.editorMarkdown', 'Markdown (UIW)')}</SelectItem>
                   <SelectItem value="simpleMarkdown">{t('entities.customFields.editor.editorSimpleMarkdown', 'Simple Markdown')}</SelectItem>
                   <SelectItem value="htmlRichText">{t('entities.customFields.editor.editorHtmlRichText', 'HTML Rich Text')}</SelectItem>
+                  <SelectItem value="plain">{t('entities.customFields.editor.editorPlain', 'Plain textarea')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
