@@ -978,6 +978,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 - 2026-07-10 · storage_s3: Temp-path tests hard-coded POSIX separators → build expected paths with `node:path` so Windows coverage stays valid.
 - 2026-07-10 · ai_assistant: A TOCTOU test that swaps only before descriptor validation does not prove same-handle reads → also swap after identity validation and assert the validated descriptor content is returned.
 
+## Classify entity metadata by ORM ownership before custom declarations
+
+**Context**: Entity metadata ACL filtering must distinguish module-owned ORM entities from genuinely custom entities, but `ce.ts` declarations can describe both kinds.
+
+**Problem**: Treating every declared entity as custom made ORM-backed entities require `entities.records.view`, bypassing their owning module's mapped view permission.
+
+**Rule**: Check `isOrmBackedSystemEntityId` first; only classify non-ORM declarations or registrations as custom for metadata authorization.
+
+**Applies to**: entity definitions, entity catalogues, schema discovery, and other target-aware entity metadata ACL checks.
+
 ## Security caches must outlive request-scoped providers and cover reserved IPv6 space
 
 **Context**: OIDC discovery hardening initially cached configurations on a provider that dependency injection recreates per request, while the shared IP classifier omitted several IANA-reserved IPv6 prefixes.

@@ -2,6 +2,7 @@
 
 import {
   assertEntityAclForRequest,
+  canReadEntityMetadata,
   resolveEntityAclRequirement,
 } from '@open-mercato/core/modules/entities/lib/entityAcl'
 
@@ -41,6 +42,48 @@ describe('resolveEntityAclRequirement', () => {
 
   test('returns null for an unmapped entity id', () => {
     expect(resolveEntityAclRequirement('unknown:thing')).toBeNull()
+  })
+})
+
+describe('canReadEntityMetadata', () => {
+  test('allows Data Designer readers to inspect every non-platform entity', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'some_module:unmapped',
+      isCustomEntity: false,
+      acl: { isSuperAdmin: false, features: ['entities.definitions.view'] },
+    })).toBe(true)
+  })
+
+  test('allows owning-module readers without granting tenant-wide schema access', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'customers:customer_person_profile',
+      isCustomEntity: false,
+      acl: { isSuperAdmin: false, features: ['customers.people.view'] },
+    })).toBe(true)
+    expect(canReadEntityMetadata({
+      entityId: 'sales:sales_order',
+      isCustomEntity: false,
+      acl: { isSuperAdmin: false, features: ['customers.people.view'] },
+    })).toBe(false)
+  })
+
+  test('requires records view for custom entity metadata', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'custom:thing',
+      isCustomEntity: true,
+      acl: { isSuperAdmin: false, features: ['entities.records.view'] },
+    })).toBe(true)
+    expect(canReadEntityMetadata({
+      entityId: 'custom:thing',
+      isCustomEntity: true,
+      acl: { isSuperAdmin: false, features: [] },
+    })).toBe(false)
+  })
+
+  test('fails closed for platform-only and unmapped system metadata', () => {
+    const acl = { isSuperAdmin: false, features: ['directory.*'] }
+    expect(canReadEntityMetadata({ entityId: 'directory:tenant', isCustomEntity: false, acl })).toBe(false)
+    expect(canReadEntityMetadata({ entityId: 'some_module:unmapped', isCustomEntity: false, acl })).toBe(false)
   })
 })
 

@@ -9,7 +9,7 @@ const installCustomEntitiesFromModulesMock = jest.fn(async () => ({
 }))
 
 const loadEntityFieldsetConfigsMock = jest.fn(async () => new Map())
-const mockRbac = { userHasAllFeatures: jest.fn() }
+const mockRbac = { userHasAllFeatures: jest.fn(), loadAcl: jest.fn() }
 const mockResolveOrganizationScopeForRequest = jest.fn(async () => ({ tenantId: 'tenant-1', selectedId: 'org-1' }))
 
 const mockEm = {
@@ -67,7 +67,31 @@ describe('entities/definitions API', () => {
     mockEm.find.mockResolvedValue([])
     mockEm.findOne.mockResolvedValue(null)
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: ['*'], organizations: null })
     mockResolveOrganizationScopeForRequest.mockResolvedValue({ tenantId: 'tenant-1', selectedId: 'org-1' })
+  })
+
+  it('does not expose definitions when the caller lacks Data Designer and owning-module view access', async () => {
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: [], organizations: null })
+    mockEm.find
+      .mockResolvedValueOnce([{
+        key: 'private_note',
+        kind: 'text',
+        entityId: 'customers:customer_person_profile',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        updatedAt: new Date(),
+        configJson: { label: 'Private note' },
+      }])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=customers:customer_person_profile'),
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ items: [] })
   })
 
   it('synchronizes module-backed definitions for requested entities when the caller can manage definitions', async () => {
