@@ -1,3 +1,3 @@
 export const integrationMeta = {
-  dependsOnModules: ['feature_toggles'],
+  dependsOnModules: ['feature_toggles', 'query_index'],
 }

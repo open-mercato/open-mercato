@@ -52,14 +52,11 @@ const featureToggleCrudIndexer = { entityType: E.feature_toggles.feature_toggle 
 
 const FEATURE_TOGGLE_LOCK_RESOURCE_KIND = 'feature_toggles.feature_toggle'
 
-function featureToggleIdentifiers(
-  toggle: FeatureToggle | ToggleSnapshot,
-  ctx: { auth?: { tenantId?: string | null } | null },
-) {
+function featureToggleIdentifiers(toggle: FeatureToggle | ToggleSnapshot) {
   return {
     id: toggle.id,
     organizationId: null,
-    tenantId: ctx.auth?.tenantId ?? null,
+    tenantId: null,
   }
 }
 
@@ -113,7 +110,7 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
       dataEngine,
       action: 'created',
       entity: toggle,
-      identifiers: featureToggleIdentifiers(toggle, ctx),
+      identifiers: featureToggleIdentifiers(toggle),
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })
@@ -157,7 +154,7 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
         dataEngine,
         action: 'deleted',
         entity: toggle,
-        identifiers: featureToggleIdentifiers(toggle, ctx),
+        identifiers: featureToggleIdentifiers(toggle),
         syncOrigin: ctx.syncOrigin,
         indexer: featureToggleCrudIndexer,
       })
@@ -196,7 +193,7 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
       dataEngine,
       action: 'created',
       entity: toggle,
-      identifiers: featureToggleIdentifiers(toggle, ctx),
+      identifiers: featureToggleIdentifiers(toggle),
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })
@@ -245,7 +242,7 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
       dataEngine,
       action: 'updated',
       entity: toggle,
-      identifiers: featureToggleIdentifiers(toggle, ctx),
+      identifiers: featureToggleIdentifiers(toggle),
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })
@@ -328,7 +325,7 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
       dataEngine,
       action: 'updated',
       entity: toggle,
-      identifiers: featureToggleIdentifiers(toggle, ctx),
+      identifiers: featureToggleIdentifiers(toggle),
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })
@@ -369,7 +366,7 @@ const deleteToggleCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       dataEngine,
       action: 'deleted',
       entity: toggle,
-      identifiers: featureToggleIdentifiers(toggle, ctx),
+      identifiers: featureToggleIdentifiers(toggle),
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })
@@ -443,7 +440,7 @@ const deleteToggleCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       dataEngine,
       action: 'updated',
       entity: toggle,
-      identifiers: featureToggleIdentifiers(toggle, ctx),
+      identifiers: featureToggleIdentifiers(toggle),
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })

@@ -1,9 +1,12 @@
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { sql } from 'kysely'
 import { markDeleted } from '../lib/indexer'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '../lib/coverage'
-import { loadQueryIndexRowScope, resolveQueryIndexRecordScope } from '../lib/subscriber-scope'
+import {
+  loadQueryIndexRowScope,
+  resolveQueryIndexRecordScope,
+  resolveQueryIndexSourceMetadata,
+} from '../lib/subscriber-scope'
 
 export const metadata = { event: 'query_index.delete_one', persistent: false }
 
@@ -40,13 +43,14 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   try {
     const hasPayloadOrganizationId = Object.prototype.hasOwnProperty.call(payload ?? {}, 'organizationId')
     const hasPayloadTenantId = Object.prototype.hasOwnProperty.call(payload ?? {}, 'tenantId')
-    const rowScope = await loadQueryIndexRowScope(em, entityType, recordId).catch(() => null)
+    const source = resolveQueryIndexSourceMetadata(em, entityType)
+    const sourceScope = await loadQueryIndexRowScope(em, source, recordId)
     const resolvedScope = resolveQueryIndexRecordScope({
       payloadOrganizationId: payload?.organizationId,
       payloadTenantId: payload?.tenantId,
       hasPayloadOrganizationId,
       hasPayloadTenantId,
-      rowScope,
+      sourceScope,
     })
     organizationId = resolvedScope.organizationId
     tenantId = resolvedScope.tenantId
@@ -57,14 +61,21 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     let baseCheckSucceeded = false
     try {
       const db = (em as any).getKysely()
-      const table = resolveEntityTableName(em, entityType)
-      const row = await db
-        .selectFrom(table as any)
+      let baseQuery = db
+        .selectFrom(source.table as any)
         .select(['deleted_at' as any])
         .where('id' as any, '=', recordId)
-        .where('organization_id' as any, organizationId === null ? 'is' : '=', organizationId as any)
-        .where(sql`tenant_id is not distinct from ${tenantId}`)
-        .executeTakeFirst() as { deleted_at: Date | null } | undefined
+      if (source.organizationColumn) {
+        baseQuery = baseQuery.where(
+          source.organizationColumn as any,
+          organizationId === null ? 'is' : '=',
+          organizationId as any,
+        )
+      }
+      if (source.tenantColumn) {
+        baseQuery = baseQuery.where(sql`${sql.ref(source.tenantColumn)} is not distinct from ${tenantId}`)
+      }
+      const row = await baseQuery.executeTakeFirst() as { deleted_at: Date | null } | undefined
       const baseMissing = !row
       const baseDeleted = baseMissing || (row && row.deleted_at != null)
       baseCheckSucceeded = true

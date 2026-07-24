@@ -1,7 +1,11 @@
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { upsertIndexRow, reindexSearchTokensForRecord } from '../lib/indexer'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '../lib/coverage'
-import { loadQueryIndexRowScope, resolveQueryIndexRecordScope } from '../lib/subscriber-scope'
+import {
+  loadQueryIndexRowScope,
+  resolveQueryIndexRecordScope,
+  resolveQueryIndexSourceMetadata,
+} from '../lib/subscriber-scope'
 
 export const metadata = { event: 'query_index.upsert_one', persistent: false }
 
@@ -25,13 +29,14 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   try {
     const hasPayloadOrganizationId = Object.prototype.hasOwnProperty.call(payload ?? {}, 'organizationId')
     const hasPayloadTenantId = Object.prototype.hasOwnProperty.call(payload ?? {}, 'tenantId')
-    const rowScope = await loadQueryIndexRowScope(em, entityType, recordId).catch(() => null)
+    const source = resolveQueryIndexSourceMetadata(em, entityType)
+    const sourceScope = await loadQueryIndexRowScope(em, source, recordId)
     const resolvedScope = resolveQueryIndexRecordScope({
       payloadOrganizationId: payload?.organizationId,
       payloadTenantId: payload?.tenantId,
       hasPayloadOrganizationId,
       hasPayloadTenantId,
-      rowScope,
+      sourceScope,
     })
     organizationId = resolvedScope.organizationId
     tenantId = resolvedScope.tenantId
