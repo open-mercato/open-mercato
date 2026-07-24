@@ -249,7 +249,7 @@ function AssignmentInputRow({
   )
 }
 
-function AttachmentAssignmentsEditor({
+export function AttachmentAssignmentsEditor({
   value,
   onChange,
   labels,
@@ -290,7 +290,7 @@ function AttachmentAssignmentsEditor({
       <div className="space-y-2">
         {value.length ? value.map((entry, idx) => (
           <AssignmentInputRow
-            key={`${entry.type}-${entry.id}-${idx}`}
+            key={idx}
             value={entry}
             labels={labels}
             disabled={disabled}
