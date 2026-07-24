@@ -235,6 +235,7 @@
   "entities.userEntities.form.loading": "Ładowanie…",
   "entities.userEntities.form.showInSidebar.label": "Pokaż w panelu bocznym",
   "entities.userEntities.form.submit": "Utwórz",
+  "entities.userEntities.form.systemEntityNotice": "To jest encja systemowa zdefiniowana w kodzie. Jej etykieta i opis są zarządzane w kodzie i nie można ich tutaj edytować — edytowalne są tylko definicje pól poniżej.",
   "entities.userEntities.form.title": "Utwórz encję",
   "entities.userEntities.records.errors.deleteFailed": "Nie udało się usunąć rekordu",
   "entities.userEntities.records.errors.entityIdRequired": "Wymagany jest identyfikator encji",

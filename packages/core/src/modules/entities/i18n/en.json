@@ -235,6 +235,7 @@
   "entities.userEntities.form.loading": "Loading…",
   "entities.userEntities.form.showInSidebar.label": "Show in sidebar",
   "entities.userEntities.form.submit": "Create",
+  "entities.userEntities.form.systemEntityNotice": "This is a system entity defined in code. Its label and description are managed in code and cannot be edited here — only the field definitions below are editable.",
   "entities.userEntities.form.title": "Create Entity",
   "entities.userEntities.records.errors.deleteFailed": "Failed to delete record",
   "entities.userEntities.records.errors.entityIdRequired": "Entity identifier is required",
