@@ -30,6 +30,7 @@ function columnFromKind(kind: string): keyof CustomFieldValue {
     case 'select':
     case 'currency':
     case 'dictionary':
+    case 'phone':
       return 'valueText'
     case 'multiline':
       return 'valueMultiline'

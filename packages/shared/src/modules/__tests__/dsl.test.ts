@@ -39,6 +39,18 @@ describe('DSL helpers', () => {
     expect(cf.datetime('seen_at')).toMatchObject({ key: 'seen_at', kind: 'datetime' })
   })
 
+  test('cf.phone helper produces a phone kind (#62)', () => {
+    expect(cf.phone('work_phone', { label: 'Work phone', formEditable: true })).toMatchObject({
+      key: 'work_phone',
+      kind: 'phone',
+      label: 'Work phone',
+      formEditable: true,
+    })
+    expect(CUSTOM_FIELD_KINDS).toContain('phone')
+    const phoneField: CustomFieldDefinition = { key: 'work_phone', kind: 'phone' }
+    expect(phoneField.kind).toBe('phone')
+  })
+
   test('CustomFieldKind type stays in sync with the runtime kinds list (#3042)', () => {
     // The CustomFieldKind type is derived from CUSTOM_FIELD_KINDS, so declaring a
     // field with any runtime kind — including date/datetime — must type-check.

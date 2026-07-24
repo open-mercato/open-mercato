@@ -5,6 +5,7 @@ import { FieldRegistry } from '../fields/registry'
 describe('buildFormFieldsFromCustomFields', () => {
   beforeAll(() => {
     FieldRegistry.register('dictionary', { input: () => null })
+    FieldRegistry.register('phone', { input: () => null })
   })
 
   it('maps kinds to CrudField and filters by formEditable', () => {
@@ -33,6 +34,7 @@ describe('buildFormFieldsFromCustomFields', () => {
         filterable: true,
         formEditable: true,
       },
+      { key: 'work_phone', kind: 'phone', filterable: true, formEditable: true },
       { key: 'notes', kind: 'multiline', filterable: false, formEditable: true },
       // text with editor hint should render richtext
       { key: 'desc', kind: 'text', filterable: false, formEditable: true, editor: 'htmlRichText' },
@@ -65,6 +67,8 @@ describe('buildFormFieldsFromCustomFields', () => {
     if (byId['cf_labels']?.type === 'select') {
       expect(byId['cf_labels'].multiple).toBe(true)
     }
+    // Phone resolves to a custom input via the field registry
+    expect(byId['cf_work_phone']?.type).toBe('custom')
     // Multiline now defaults to richtext (markdown editor)
     expect(byId['cf_notes']?.type).toBe('richtext')
     expect(byId['cf_desc']?.type).toBe('richtext')
