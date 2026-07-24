@@ -2534,8 +2534,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-034"
@@ -2678,8 +2678,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-036"
@@ -2751,8 +2751,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-037"
@@ -2824,8 +2824,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-038"
@@ -2897,8 +2897,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-037"
