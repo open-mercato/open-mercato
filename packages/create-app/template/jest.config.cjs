@@ -2,9 +2,12 @@
 // Unit-test config for a standalone Open Mercato app.
 // Integration tests run through Playwright (`yarn test:integration:ephemeral`)
 // and are excluded here.
+// `create-mercato-app` skips `__tests__`/`__integration__` while copying the
+// template, so a freshly scaffolded app owns no test files until you write one.
 module.exports = {
   testEnvironment: 'node',
   testTimeout: 30000,
+  passWithNoTests: true,
   rootDir: '.',
   roots: ['<rootDir>/src'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
