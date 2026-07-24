@@ -358,15 +358,20 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
   const writableEntries = releaseMatrix?.writable ?? []
   if (JSON.stringify(writableEntries.map((entry) => entry.caseId)) !== JSON.stringify(writableIds)) globalErrors.push('writable release matrix differs from the catalog writable set')
   const families = new Map()
+  const runnerCounts = new Map([['codex', 0], ['claude', 0]])
   for (const entry of writableEntries) {
     const item = cases.find((candidate) => candidate.id === entry.caseId)
     if (!item || !['codex', 'claude'].includes(entry.runner) || typeof entry.modelSelector !== 'string') globalErrors.push(`invalid writable release entry ${entry.caseId ?? '<missing>'}`)
     if (item) {
-      if (!families.has(item.family)) families.set(item.family, new Set())
-      families.get(item.family).add(entry.runner)
+      if (!families.has(item.family)) families.set(item.family, [])
+      families.get(item.family).push(entry.runner)
+      runnerCounts.set(entry.runner, (runnerCounts.get(entry.runner) ?? 0) + 1)
     }
   }
-  for (const [family, runners] of families) if (runners.size !== 2) globalErrors.push(`writable family ${family} must represent both runners`)
+  for (const [family, runners] of families) {
+    if (runners.length > 1 && new Set(runners).size !== 2) globalErrors.push(`writable family ${family} must represent both runners when it has multiple cases`)
+  }
+  if (Math.abs(runnerCounts.get('codex') - runnerCounts.get('claude')) > 1) globalErrors.push('writable release matrix must balance Codex and Claude assignments')
   const releaseSuite = releaseMatrix?.releaseSuite
   if (JSON.stringify(releaseSuite?.routingRunners) !== JSON.stringify(['codex', 'claude'])) globalErrors.push('release suite must run Codex and Claude routing')
   if (releaseSuite?.requireGeneratedCodeReview !== true) globalErrors.push('release suite must require generated-code review')
