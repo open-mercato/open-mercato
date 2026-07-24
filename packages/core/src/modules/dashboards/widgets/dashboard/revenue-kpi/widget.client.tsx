@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
+import type { DashboardDateRangeCompare, DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { KpiCard, type KpiTrend } from '@open-mercato/ui/backend/charts'
@@ -11,33 +11,71 @@ import {
   type DateRangePreset,
   getComparisonLabelKey,
 } from '@open-mercato/ui/backend/date-range'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrency } from '../../../lib/formatters'
+import { buildKpiWidgetRequests, mapKpiSeriesToTrend } from '../../../lib/kpiRequests'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'revenue-kpi' })
 
-async function fetchRevenueData(settings: RevenueKpiSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
-  const body = {
-    entityType: 'sales:orders',
-    metric: {
-      field: 'grandTotalGrossAmount',
-      aggregate: 'sum',
-    },
-    dateRange: {
-      field: 'placedAt',
-      preset: settings.dateRange,
-    },
-    comparison: settings.showComparison ? { type: 'previous_period' } : undefined,
-  }
+function getWidgetCompare(settings: RevenueKpiSettings): DashboardDateRangeCompare {
+  return settings.showComparison ? 'previous_period' : 'none'
+}
 
-  return fetchWidgetData<WidgetDataResponse>(body)
+function getComparisonLabel(
+  compare: DashboardDateRangeCompare,
+  settings: RevenueKpiSettings,
+  usesDashboardDateRange: boolean,
+  t: (key: string, fallback: string) => string,
+): string | undefined {
+  if (compare === 'none') return undefined
+  if (usesDashboardDateRange) {
+    if (compare === 'previous_year') {
+      return t('dashboards.analytics.comparison.vsLastYear', 'vs last year')
+    }
+    return t('dashboards.analytics.comparison.vsPreviousPeriod', 'vs previous period')
+  }
+  const comparisonLabelInfo = getComparisonLabelKey(settings.dateRange)
+  return t(comparisonLabelInfo.key, comparisonLabelInfo.fallback)
+}
+
+async function fetchRevenueData(
+  settings: RevenueKpiSettings,
+  context: DashboardWidgetComponentProps<RevenueKpiSettings>['context'],
+  fetchWidgetData: WidgetDataFetcher,
+): Promise<{ data: WidgetDataResponse; trend?: number[]; compare: DashboardDateRangeCompare; usesDashboardDateRange: boolean }> {
+  const requests = buildKpiWidgetRequests('revenue', {
+    dateRangeMode: settings.dateRangeMode,
+    dateRange: settings.dateRange,
+    compare: getWidgetCompare(settings),
+    dashboardDateRange: context.dateRange,
+  })
+  const seriesPromise = fetchWidgetData<WidgetDataResponse>(requests.seriesRequest)
+    .then(mapKpiSeriesToTrend)
+    .catch((err) => {
+      logger.error('Failed to load revenue KPI sparkline data', { err })
+      return undefined
+    })
+  const [data, trend] = await Promise.all([
+    fetchWidgetData<WidgetDataResponse>(requests.valueRequest),
+    seriesPromise,
+  ])
+  return { data, trend, compare: requests.compare, usesDashboardDateRange: requests.usesDashboardDateRange }
 }
 
 const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSettings>> = ({
   mode,
   settings = DEFAULT_SETTINGS,
+  context,
   onSettingsChange,
   refreshToken,
   onRefreshStateChange,
@@ -45,25 +83,30 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
   const t = useT()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [value, setValue] = React.useState<number | null>(null)
-  const [trend, setTrend] = React.useState<KpiTrend | undefined>(undefined)
+  const [delta, setDelta] = React.useState<KpiTrend | undefined>(undefined)
+  const [sparkline, setSparkline] = React.useState<number[] | undefined>(undefined)
+  const [comparisonLabel, setComparisonLabel] = React.useState<string | undefined>(undefined)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
   const fetchWidgetData = useWidgetData()
+  const showDateRangeControls = hydrated.dateRangeMode === 'custom' || !context.dateRange
   const refresh = React.useCallback(async () => {
     onRefreshStateChange?.(true)
     setLoading(true)
     setError(null)
     try {
-      const data = await fetchRevenueData(hydrated, fetchWidgetData)
+      const { data, trend, compare, usesDashboardDateRange } = await fetchRevenueData(hydrated, context, fetchWidgetData)
       setValue(data.value)
+      setSparkline(trend)
+      setComparisonLabel(getComparisonLabel(compare, hydrated, usesDashboardDateRange, t))
       if (data.comparison) {
-        setTrend({
+        setDelta({
           value: data.comparison.change,
           direction: data.comparison.direction,
         })
       } else {
-        setTrend(undefined)
+        setDelta(undefined)
       }
     } catch (err) {
       logger.error('Failed to load revenue KPI data', { err })
@@ -72,7 +115,7 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
       setLoading(false)
       onRefreshStateChange?.(false)
     }
-  }, [hydrated, fetchWidgetData, onRefreshStateChange, t])
+  }, [context, hydrated, fetchWidgetData, onRefreshStateChange, t])
 
   React.useEffect(() => {
     refresh().catch(() => {})
@@ -81,46 +124,56 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
   if (mode === 'settings') {
     return (
       <div className="space-y-4 text-sm">
-        <DateRangeSelect
-          id="revenue-kpi-date-range"
-          label={t('dashboards.analytics.settings.dateRange', 'Date Range')}
-          value={hydrated.dateRange}
-          onChange={(dateRange: DateRangePreset) => onSettingsChange({ ...hydrated, dateRange })}
-        />
         <div className="space-y-1.5">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={hydrated.showComparison}
-              onChange={(e) => onSettingsChange({ ...hydrated, showComparison: e.target.checked })}
-              className="h-4 w-4 rounded border focus-visible:ring-ring"
-            />
-            {t('dashboards.analytics.settings.showComparison', 'Show comparison')}
+          <label htmlFor="revenue-kpi-date-range-mode" className="text-xs font-semibold uppercase text-muted-foreground">
+            {t('dashboards.widgets.dateRange.mode.label', 'Date range source')}
           </label>
+          <Select
+            value={hydrated.dateRangeMode}
+            onValueChange={(dateRangeMode) => onSettingsChange({ ...hydrated, dateRangeMode: dateRangeMode as 'global' | 'custom' })}
+          >
+            <SelectTrigger id="revenue-kpi-date-range-mode" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="global">{t('dashboards.widgets.dateRange.mode.global', 'Dashboard range')}</SelectItem>
+              <SelectItem value="custom">{t('dashboards.widgets.dateRange.mode.custom', 'Custom range')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
+        {showDateRangeControls && (
+          <DateRangeSelect
+            id="revenue-kpi-date-range"
+            label={t('dashboards.analytics.settings.dateRange', 'Date Range')}
+            value={hydrated.dateRange}
+            onChange={(dateRange: DateRangePreset) => onSettingsChange({ ...hydrated, dateRange })}
+          />
+        )}
+        <CheckboxField
+          id="revenue-kpi-show-comparison"
+          checked={hydrated.showComparison}
+          onCheckedChange={(checked) => onSettingsChange({ ...hydrated, showComparison: checked === true })}
+          label={t('dashboards.analytics.settings.showComparison', 'Show comparison')}
+        />
       </div>
     )
   }
 
-  const comparisonLabelInfo = getComparisonLabelKey(hydrated.dateRange)
-  const comparisonLabel = hydrated.showComparison
-    ? t(comparisonLabelInfo.key, comparisonLabelInfo.fallback)
-    : undefined
-
   return (
     <KpiCard
       value={value}
-      trend={trend}
+      trend={sparkline}
+      delta={delta}
       comparisonLabel={comparisonLabel}
       loading={loading}
       error={error}
       formatValue={formatCurrency}
-      headerAction={
+      headerAction={showDateRangeControls ? (
         <InlineDateRangeSelect
           value={hydrated.dateRange}
           onChange={(dateRange) => onSettingsChange({ ...hydrated, dateRange })}
         />
-      }
+      ) : null}
     />
   )
 }

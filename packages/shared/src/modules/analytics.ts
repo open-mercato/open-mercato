@@ -18,6 +18,13 @@ export type AnalyticsEntityTypeConfig = {
 export type AnalyticsFieldMapping = {
   dbColumn: string
   type: AnalyticsFieldType
+  /**
+   * True when the column is encrypted at rest. Encrypted columns must never be
+   * offered as a group-by dimension: grouping happens on the raw ciphertext,
+   * which is opaque (and random-IV, so every row is its own group). Resolve the
+   * decrypted value through a `labelResolvers` entry on the owning id instead.
+   */
+  encrypted?: boolean
 }
 
 export type AnalyticsLabelResolverConfig = {
@@ -28,6 +35,13 @@ export type AnalyticsLabelResolverConfig = {
 
 export type AnalyticsEntityConfig = {
   entityId: string
+  /**
+   * ACL features the caller must ALL hold (wildcard-aware) to read this entity's
+   * analytics. An EMPTY array makes the entity world-readable to every
+   * authenticated dashboard user: the catalog lists it and the widget-data /
+   * insights routes aggregate it for anyone. Always list the gating feature(s)
+   * (e.g. the owning module's `*.view`) unless the data is deliberately public.
+   */
   requiredFeatures: string[]
   entityConfig: AnalyticsEntityTypeConfig
   fieldMappings: Record<string, AnalyticsFieldMapping>

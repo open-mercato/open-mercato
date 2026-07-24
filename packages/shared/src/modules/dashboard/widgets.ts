@@ -3,7 +3,34 @@ import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('dashboard').child({ component: 'widgets' })
 
-export type DashboardWidgetSize = 'sm' | 'md' | 'lg'
+export type DashboardWidgetSize = 'sm' | 'md' | 'lg' | 'full'
+
+export type DashboardWidgetAccent = 'neutral' | 'info' | 'success' | 'warning' | 'error' | 'brand'
+
+export type DashboardDateRangeCompare = 'previous_period' | 'previous_year' | 'none'
+
+export type DashboardDateRangePreset =
+  | 'today'
+  | 'yesterday'
+  | 'this_week'
+  | 'last_week'
+  | 'this_month'
+  | 'last_month'
+  | 'this_quarter'
+  | 'last_quarter'
+  | 'this_year'
+  | 'last_year'
+  | 'last_7_days'
+  | 'last_30_days'
+  | 'last_90_days'
+  | 'custom'
+
+export type DashboardGlobalDateRange = {
+  preset: DashboardDateRangePreset
+  from: string
+  to: string
+  compare: DashboardDateRangeCompare
+}
 
 export type DashboardWidgetMetadata = {
   id: string
@@ -18,6 +45,8 @@ export type DashboardWidgetMetadata = {
   category?: string
   icon?: string
   supportsRefresh?: boolean
+  respectsDashboardDateRange?: boolean
+  supportsMultipleInstances?: boolean
 }
 
 export type DashboardLayoutItem = {
@@ -26,6 +55,7 @@ export type DashboardLayoutItem = {
   order: number
   priority?: number
   size?: DashboardWidgetSize
+  accent?: DashboardWidgetAccent
   settings?: unknown
 }
 
@@ -38,6 +68,7 @@ export type DashboardWidgetRenderContext = {
   userName?: string | null
   userEmail?: string | null
   userLabel?: string | null
+  dateRange?: DashboardGlobalDateRange
 }
 
 export type DashboardWidgetComponentProps<TSettings = unknown> = {
@@ -50,11 +81,25 @@ export type DashboardWidgetComponentProps<TSettings = unknown> = {
   onRefreshStateChange?: (refreshing: boolean) => void
 }
 
+export type DashboardWidgetSetupProps<TSettings = unknown> = {
+  open: boolean
+  initialSettings: TSettings
+  context: DashboardWidgetRenderContext
+  onComplete: (settings: TSettings) => void
+  onCancel: () => void
+}
+
 export type DashboardWidgetModule<TSettings = unknown> = {
   metadata: DashboardWidgetMetadata
   Widget: ComponentType<DashboardWidgetComponentProps<TSettings>>
   hydrateSettings?: (raw: unknown) => TSettings
   dehydrateSettings?: (settings: TSettings) => unknown
+  /**
+   * Optional guided setup surface. When present, the dashboard shell opens this
+   * instead of appending the widget with defaults, and reuses it for editing.
+   * Additive/optional — widgets without a wizard keep the inline settings panel.
+   */
+  SetupWizard?: ComponentType<DashboardWidgetSetupProps<TSettings>>
 }
 
 export type DashboardWidgetRenderProps<TSettings = unknown> = DashboardWidgetComponentProps<TSettings>
