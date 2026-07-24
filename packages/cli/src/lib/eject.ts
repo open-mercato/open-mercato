@@ -194,12 +194,34 @@ type ResolvedModuleSource = {
   metadata: ModuleMetadata
 }
 
+// Standalone installs resolve getModulePaths' pkgBase to the package's
+// dist/modules tree when it exists (compiled JS, no index.ts), which made every
+// ejectable module read as "not ejectable" and eject copies of compiled output
+// (#4272). Prefer the shipped TypeScript sources under src/modules; fall back
+// to the resolved base for packages that ship dist only.
+function resolveModuleSourceBase(resolver: PackageResolver, entry: ModuleEntry): string {
+  const { pkgBase } = resolver.getModulePaths(entry)
+  const from = entry.from || '@open-mercato/core'
+  if (from === '@app') return pkgBase
+  const sourceBase = path.join(resolver.getPackageRoot(from), 'src', 'modules', entry.id)
+  if (path.resolve(sourceBase) !== path.resolve(pkgBase) && fs.existsSync(sourceBase)) {
+    return sourceBase
+  }
+  return pkgBase
+}
+
+function readModuleMetadata(moduleDir: string): ModuleMetadata {
+  const tsIndex = path.join(moduleDir, 'index.ts')
+  if (fs.existsSync(tsIndex)) return parseModuleMetadata(tsIndex)
+  return parseModuleMetadata(path.join(moduleDir, 'index.js'))
+}
+
 function resolveModuleSource(
   resolver: PackageResolver,
   entry: ModuleEntry,
 ): ResolvedModuleSource {
-  const { pkgBase } = resolver.getModulePaths(entry)
-  const fallbackMetadata = parseModuleMetadata(path.join(pkgBase, 'index.ts'))
+  const pkgBase = resolveModuleSourceBase(resolver, entry)
+  const fallbackMetadata = readModuleMetadata(pkgBase)
   const from = entry.from || '@open-mercato/core'
 
   if (from === '@app' || from === '@open-mercato/core') {
