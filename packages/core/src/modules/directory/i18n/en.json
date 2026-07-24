@@ -52,6 +52,7 @@
   "directory.organizations.form.field.slug": "Slug",
   "directory.organizations.form.field.slug.description": "URL-safe identifier used for the customer portal (lowercase letters, numbers, hyphens, underscores).",
   "directory.organizations.form.field.tenant": "Tenant",
+  "directory.organizations.form.field.tenant.readonly": "Tenant cannot be changed for an existing organization.",
   "directory.organizations.form.group.customFields": "Custom Data",
   "directory.organizations.form.group.details": "Details",
   "directory.organizations.form.loading": "Loading organization...",
