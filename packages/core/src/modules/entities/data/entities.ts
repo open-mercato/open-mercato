@@ -136,6 +136,12 @@ export class CustomEntity {
   @Property({ name: 'show_in_sidebar', type: 'boolean', default: false })
   showInSidebar: boolean = false
 
+  // When true, records require an explicit per-entity ACL grant
+  // (entities.records.<entity_id>.view/.manage) beyond the coarse
+  // entities.records.* feature. Defaults to unrestricted for backward compat.
+  @Property({ name: 'access_restricted', type: 'boolean', default: false })
+  accessRestricted: boolean = false
+
   // Note: Per-field UI preferences (list visibility, filter visibility, form editability)
   // are stored in CustomFieldDef.configJson, not at entity level.
 
