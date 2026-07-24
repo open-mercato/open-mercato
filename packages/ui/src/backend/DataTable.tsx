@@ -3,7 +3,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState, type RowSelectionState } from '@tanstack/react-table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronsUpDown, Check, Inbox } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronRight, ChevronsUpDown, Check, Inbox } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
@@ -235,6 +235,58 @@ export type DataTableProps<T> = {
   onRowClick?: (row: T) => void
   rowClickActionIds?: string[]
   disableRowClick?: boolean
+  /**
+   * Native inline row-expand (sub-row detail). When set, DataTable renders a
+   * full-width `<tr>` with a single `colSpan` cell immediately beneath every
+   * row for which `isExpanded(row)` returns true, containing `render(row)`.
+   * The expanded detail pushes the following rows down (accordion) rather than
+   * overlaying them, so hosts no longer need a popover/drawer workaround to
+   * reveal a row's detail in place.
+   *
+   * DataTable stays presentational: the host owns expansion state and decides
+   * how it toggles (e.g. an `onRowClick` handler, or a dedicated chevron column
+   * whose cell flips a `Set` of expanded row ids). Backward compatible — no
+   * extra `<tr>` is rendered while a row is collapsed or when the prop is unset.
+   *
+   * Not measured under `virtualized`: the row virtualizer estimates a uniform
+   * row height, so a detail taller than a normal row can clip or offset
+   * virtualized scrolling. Prefer a non-virtualized table when using
+   * `rowDetail`, or keep the detail height close to a single row.
+   */
+  rowDetail?: {
+    /** Renders the detail content for an expanded row. */
+    render: (row: T) => React.ReactNode
+    /** Returns true when the given row's detail should be shown. */
+    isExpanded: (row: T) => boolean
+    /**
+     * Opt-in built-in leading toggle column — a `w-8` cell before the data
+     * columns (after the bulk-selection column). It composes with the host's
+     * own `columns`, which still render untouched.
+     * - `true` → a default chevron button (▸/▾) reflecting `isExpanded` that
+     *   calls `onToggle` on click.
+     * - a render function → render your own cell content instead of the chevron.
+     *   You receive `{ row, expanded, toggle }` — call `toggle()` to flip the
+     *   row (it delegates to `onToggle`). Put anything here: an icon, a label,
+     *   a badge, a custom button.
+     * Leave it off (default) to own the toggle affordance elsewhere (e.g.
+     * `onRowClick`, a custom column, or a kebab action). The cell stops click
+     * propagation so it never also fires `onRowClick`.
+     */
+    toggleColumn?: boolean | ((ctx: { row: T; expanded: boolean; toggle: () => void }) => React.ReactNode)
+    /**
+     * Called when the built-in toggle column is activated — the default chevron
+     * click, or `toggle()` from a custom `toggleColumn` renderer. The host
+     * updates its own expansion state here (e.g. flip a `Set` of expanded ids).
+     * Ignored when `toggleColumn` is unset.
+     */
+    onToggle?: (row: T) => void
+    /**
+     * Optional className applied to the full-width detail `<td>`. Defaults to a
+     * subtle muted panel (`bg-muted/30`). The cell carries no padding so the
+     * rendered content controls its own spacing.
+     */
+    className?: string
+  }
   bulkActions?: BulkAction<T>[]
   selectionScopeKey?: string
 
@@ -1101,6 +1153,7 @@ export function DataTable<T>({
   onRowClick,
   rowClickActionIds,
   disableRowClick = false,
+  rowDetail,
   bulkActions: bulkActionsProp,
   selectionScopeKey,
   searchValue,
@@ -1595,6 +1648,10 @@ export function DataTable<T>({
   }, [data, injectedClientFilters, filterValues])
   const hasPropBulkActions = Array.isArray(bulkActionsProp) && bulkActionsProp.length > 0
   const hasInjectedBulkActions = injectedBulkActions.length > 0 || hasPropBulkActions
+  // Opt-in native chevron toggle column for row-detail (leading, after the
+  // bulk-selection column). Rendered outside the TanStack column model so the
+  // host's own columns are unaffected.
+  const rowDetailToggleColumn = Boolean(rowDetail?.toggleColumn)
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
   const selectionScopeKeyRef = React.useRef<string | undefined>(selectionScopeKey)
   const enableClientSorting = sortable && !manualSorting
@@ -3000,6 +3057,7 @@ export function DataTable<T>({
                     />
                   </TableHead>
                 ) : null}
+                {rowDetailToggleColumn ? <TableHead className="w-8" aria-hidden /> : null}
                 {hg.headers.map((header, headerIndex) => {
                   const columnMeta = (header.column.columnDef as any)?.meta
                   const priority = resolvePriority(header.column)
@@ -3066,7 +3124,7 @@ export function DataTable<T>({
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="h-24 text-center">
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0) + (rowDetailToggleColumn ? 1 : 0)} className="h-24 text-center">
                   <div className="flex items-center justify-center gap-2">
                     <Spinner size="md" />
                     <span className="text-muted-foreground">{t('ui.dataTable.loading', 'Loading data...')}</span>
@@ -3075,7 +3133,7 @@ export function DataTable<T>({
               </TableRow>
             ) : error ? (
               <TableRow>
-                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="h-24 text-center text-destructive">
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0) + (rowDetailToggleColumn ? 1 : 0)} className="h-24 text-center text-destructive">
                   {error}
                 </TableCell>
               </TableRow>
@@ -3095,10 +3153,17 @@ export function DataTable<T>({
                 const rowActionsElement = resolvedRowActions(row.original as T)
                 const defaultRowAction = onRowClick ? null : pickDefaultRowAction(rowActionsElement, resolvedRowClickActionIds)
                 const isClickable = !disableRowClick && (onRowClick || defaultRowAction)
-                
+                const rowDetailExpanded = Boolean(rowDetail && rowDetail.isExpanded(row.original as T))
+                const rowDetailNode = rowDetailExpanded ? rowDetail!.render(row.original as T) : null
+                const rowDetailColSpan =
+                  row.getVisibleCells().length
+                  + (hasInjectedBulkActions ? 1 : 0)
+                  + (rowDetailToggleColumn ? 1 : 0)
+                  + (rowActions || injectedRowActions.length > 0 ? 1 : 0)
+
                 return (
-                  <TableRow 
-                    key={row.id} 
+                  <React.Fragment key={row.id}>
+                  <TableRow
                     data-state={row.getIsSelected() && 'selected'}
                     className={isClickable ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''}
                     onClick={isClickable ? (e) => {
@@ -3126,6 +3191,29 @@ export function DataTable<T>({
                           aria-label={t('ui.dataTable.bulkAction.selectRow', 'Select row')}
                           onClick={(event) => event.stopPropagation()}
                         />
+                      </TableCell>
+                    ) : null}
+                    {rowDetailToggleColumn ? (
+                      <TableCell className="w-8" onClick={(event) => event.stopPropagation()}>
+                        {typeof rowDetail!.toggleColumn === 'function' ? (
+                          rowDetail!.toggleColumn({
+                            row: row.original as T,
+                            expanded: rowDetailExpanded,
+                            toggle: () => rowDetail?.onToggle?.(row.original as T),
+                          })
+                        ) : (
+                          <button
+                            type="button"
+                            aria-expanded={rowDetailExpanded}
+                            aria-label={rowDetailExpanded
+                              ? t('ui.dataTable.rowDetail.collapse', 'Collapse row')
+                              : t('ui.dataTable.rowDetail.expand', 'Expand row')}
+                            onClick={() => rowDetail?.onToggle?.(row.original as T)}
+                            className="flex items-center rounded text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            {rowDetailExpanded ? <ChevronDown className="size-4" aria-hidden /> : <ChevronRight className="size-4" aria-hidden />}
+                          </button>
+                        )}
                       </TableCell>
                     ) : null}
                     {row.getVisibleCells().map((cell, cellIndex) => {
@@ -3201,6 +3289,14 @@ export function DataTable<T>({
                       </TableCell>
                     ) : null}
                   </TableRow>
+                  {rowDetailNode != null ? (
+                    <TableRow className="hover:bg-transparent" data-row-detail={row.id}>
+                      <TableCell colSpan={rowDetailColSpan} className={cn('bg-muted/30 p-0', rowDetail?.className)}>
+                        {rowDetailNode}
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                  </React.Fragment>
                 )
               })}
               {virtualized && rowVirtualizer ? (() => {
@@ -3212,7 +3308,7 @@ export function DataTable<T>({
               </>
             ) : (
               <TableRow>
-                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="p-0">
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0) + (rowDetailToggleColumn ? 1 : 0)} className="p-0">
                   <div
                     className={cn('sticky left-0 flex justify-center py-6', emptyStateViewportWidth ? '' : 'w-fit')}
                     style={emptyStateViewportWidth ? { width: emptyStateViewportWidth } : undefined}

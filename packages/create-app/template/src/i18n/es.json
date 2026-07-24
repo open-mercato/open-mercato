@@ -719,6 +719,8 @@
   "ui.dataTable.export.label": "Exportar",
   "ui.dataTable.fieldset.label": "Columns",
   "ui.dataTable.loading": "Loading table…",
+  "ui.dataTable.rowDetail.expand": "Expandir fila",
+  "ui.dataTable.rowDetail.collapse": "Contraer fila",
   "ui.dataTable.pagination.cache.ariaLabel": "Caché {status}",
   "ui.dataTable.pagination.cache.srOnly": "Caché {status}",
   "ui.dataTable.pagination.cache.title": "Caché {status}",
