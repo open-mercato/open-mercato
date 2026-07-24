@@ -416,7 +416,7 @@ async function loadLegacyTriggers(
  * Load embedded triggers from workflow definitions.
  * New triggers are embedded directly in the definition JSONB.
  *
- * Also returns the set of every enabled DB definition's `workflowId` — even
+ * Also returns the set of every non-deleted DB definition's `workflowId` — even
  * those with no triggers — so the caller can let a materialized (customized)
  * definition suppress its code-registry counterpart regardless of whether the
  * customization kept any triggers (#4425).
@@ -427,14 +427,14 @@ async function loadEmbeddedTriggers(
   organizationId: string
 ): Promise<{ triggers: UnifiedTrigger[]; workflowIds: Set<string> }> {
   const postgresEm = em as unknown as PostgreSqlEntityManager
-  // Load all enabled definitions that may have triggers
+  // Load all definitions so disabled customizations still shadow their code
+  // counterpart. Only enabled definitions contribute embedded triggers below.
   const definitions = await findWithDecryption(
     postgresEm,
     WorkflowDefinition,
     {
       tenantId,
       organizationId,
-      enabled: true,
       deletedAt: null,
     },
     {},
@@ -446,6 +446,7 @@ async function loadEmbeddedTriggers(
 
   for (const def of definitions) {
     workflowIds.add(def.workflowId)
+    if (!def.enabled) continue
 
     const embeddedTriggers = def.definition?.triggers as WorkflowDefinitionTrigger[] | undefined
     if (!embeddedTriggers || embeddedTriggers.length === 0) continue

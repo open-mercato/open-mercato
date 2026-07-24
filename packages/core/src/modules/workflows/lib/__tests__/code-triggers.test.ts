@@ -11,17 +11,26 @@ jest.mock('../workflow-executor', () => ({
   executeWorkflow: jest.fn(),
   startWorkflow: jest.fn(),
 }))
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: jest.fn(),
+}))
 
 import {
   registerCodeWorkflowEntries,
   clearCodeWorkflowRegistry,
 } from '@open-mercato/shared/modules/workflows/code-registry'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'
-import { loadCodeTriggers } from '../event-trigger-service'
+import {
+  invalidateTriggerCache,
+  loadCodeTriggers,
+  loadTriggersForTenant,
+} from '../event-trigger-service'
 import { codeWorkflowUuid } from '../find-definition'
 
 const TENANT = 'tenant-1'
 const ORG = 'org-1'
+const mockFindWithDecryption = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
 
 function codeWorkflow(overrides: Partial<CodeWorkflowDefinition> = {}): CodeWorkflowDefinition {
   return {
@@ -54,7 +63,11 @@ function codeWorkflow(overrides: Partial<CodeWorkflowDefinition> = {}): CodeWork
 }
 
 describe('loadCodeTriggers (#4425)', () => {
-  afterEach(() => clearCodeWorkflowRegistry())
+  afterEach(() => {
+    clearCodeWorkflowRegistry()
+    invalidateTriggerCache(TENANT, ORG)
+    mockFindWithDecryption.mockReset()
+  })
 
   it('projects a code workflow trigger into a UnifiedTrigger', () => {
     registerCodeWorkflowEntries([codeWorkflow()])
@@ -83,6 +96,34 @@ describe('loadCodeTriggers (#4425)', () => {
     const triggers = loadCodeTriggers(TENANT, ORG, new Set(['sales.order-approval']))
 
     expect(triggers).toHaveLength(0)
+  })
+
+  it('keeps a disabled DB override from falling back to the code trigger', async () => {
+    registerCodeWorkflowEntries([codeWorkflow()])
+    mockFindWithDecryption
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          workflowId: 'sales.order-approval',
+          enabled: false,
+          definition: codeWorkflow().definition,
+        },
+      ] as never)
+
+    const triggers = await loadTriggersForTenant({} as never, TENANT, ORG)
+
+    expect(triggers).toHaveLength(0)
+    expect(mockFindWithDecryption).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.anything(),
+      {
+        tenantId: TENANT,
+        organizationId: ORG,
+        deletedAt: null,
+      },
+      {},
+      { tenantId: TENANT, organizationId: ORG },
+    )
   })
 
   it('skips disabled code workflows and disabled triggers', () => {
