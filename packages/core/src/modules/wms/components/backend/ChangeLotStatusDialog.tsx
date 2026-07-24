@@ -102,6 +102,10 @@ export function ChangeLotStatusDialog({
     [t],
   )
 
+  const statusChanged = status !== safeCurrentStatus
+  const hasNotes = notes.trim().length > 0
+  const canSubmit = statusChanged || hasNotes
+
   const handleSubmit = React.useCallback(
     async (event?: React.FormEvent) => {
       event?.preventDefault()
@@ -116,6 +120,10 @@ export function ChangeLotStatusDialog({
         setFieldErrors(nextErrors)
         return
       }
+
+      const nextStatusChanged = parsed.data.status !== safeCurrentStatus
+      const nextHasNotes = Boolean(parsed.data.notes)
+      if (!nextStatusChanged && !nextHasNotes) return
 
       if (!access.scopeReady || !access.organizationId || !access.tenantId) {
         flash(
@@ -190,6 +198,7 @@ export function ChangeLotStatusDialog({
       onSuccess,
       queryClient,
       runMutation,
+      safeCurrentStatus,
       status,
       t,
     ],
@@ -204,10 +213,10 @@ export function ChangeLotStatusDialog({
       }
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
         event.preventDefault()
-        if (!submitting) void handleSubmit()
+        if (!submitting && canSubmit) void handleSubmit()
       }
     },
-    [closeDialog, handleSubmit, submitting],
+    [canSubmit, closeDialog, handleSubmit, submitting],
   )
 
   return (
@@ -289,7 +298,7 @@ export function ChangeLotStatusDialog({
               <Button type="button" variant="outline" onClick={closeDialog} disabled={submitting}>
                 {t('wms.backend.lot.changeStatus.form.cancel', 'Cancel')}
               </Button>
-              <Button type="submit" disabled={submitting || status === safeCurrentStatus}>
+              <Button type="submit" disabled={submitting || !canSubmit}>
                 {submitting
                   ? t('wms.backend.lot.changeStatus.form.submitting', 'Saving…')
                   : t('wms.backend.lot.changeStatus.form.submit', 'Update status')}

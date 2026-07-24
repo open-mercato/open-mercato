@@ -833,6 +833,7 @@
   "wms.backend.lot.kpis.onHand.title": "Insgesamt vorhanden",
   "wms.backend.lot.kpis.qualityStatus.caption": "Charge-Hold und QC-Status",
   "wms.backend.lot.kpis.qualityStatus.cta": "Edit lot profile",
+  "wms.backend.lot.kpis.qualityStatus.notesCaption": "Notiz: {notes}",
   "wms.backend.lot.kpis.qualityStatus.title": "Qualitätsstatus",
   "wms.backend.lot.kpis.reserved.badge": "{count} Einheiten gehalten",
   "wms.backend.lot.kpis.reserved.caption": "Aus diesem Charge verpflichtet",

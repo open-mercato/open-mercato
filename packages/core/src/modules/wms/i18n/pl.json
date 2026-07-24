@@ -833,6 +833,7 @@
   "wms.backend.lot.kpis.onHand.title": "Łącznie na stanie",
   "wms.backend.lot.kpis.qualityStatus.caption": "Status blokady i QC partii",
   "wms.backend.lot.kpis.qualityStatus.cta": "Edytuj profil partii",
+  "wms.backend.lot.kpis.qualityStatus.notesCaption": "Notatka: {notes}",
   "wms.backend.lot.kpis.qualityStatus.title": "Status jakości",
   "wms.backend.lot.kpis.reserved.badge": "{count} szt. zablokowanych",
   "wms.backend.lot.kpis.reserved.caption": "Zarezerwowane z tej partii",

@@ -59,6 +59,7 @@ const crud = makeCrudRoute({
       'best_before_at',
       'expires_at',
       'status',
+      'metadata',
       'created_at',
       'updated_at',
     ],
@@ -177,6 +178,7 @@ const lotListItemSchema = z.object({
   best_before_at: z.string().nullable().optional(),
   expires_at: z.string().nullable().optional(),
   status: z.string().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
 })

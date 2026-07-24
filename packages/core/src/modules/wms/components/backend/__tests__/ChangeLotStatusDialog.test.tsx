@@ -164,9 +164,11 @@ describe('ChangeLotStatusDialog', () => {
       />,
     )
 
-    const form = document.querySelector('form')
-    expect(form).toBeTruthy()
-    fireEvent.submit(form!)
+    // Notes alone enable submit when status is unchanged (jsdom Select is unreliable).
+    fireEvent.change(screen.getByPlaceholderText('Optional reason for the status change'), {
+      target: { value: 'Enable submit' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Update status/i }))
 
     await waitFor(() => {
       expect(mockedApiCall).toHaveBeenCalledWith(
@@ -177,6 +179,38 @@ describe('ChangeLotStatusDialog', () => {
         }),
       )
     })
+  })
+
+  it('includes notes in the status update payload when provided', async () => {
+    const mockedApiCall = apiCall as jest.MockedFunction<typeof apiCall>
+    mockedApiCall.mockResolvedValue({
+      ok: true,
+      status: 200,
+      response: new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      result: { ok: true },
+    })
+
+    render(
+      <ChangeLotStatusDialog
+        open
+        onOpenChange={jest.fn()}
+        access={buildAccess()}
+        lotId="cdf758fc-fc4d-4399-ba25-3ec1bd5a17a9"
+        currentStatus="hold"
+        lotUpdatedAt="2026-06-17T10:00:00.000Z"
+      />,
+    )
+
+    const notesField = screen.getByPlaceholderText('Optional reason for the status change')
+    fireEvent.change(notesField, { target: { value: 'QA hold pending inspection' } })
+    fireEvent.click(screen.getByRole('button', { name: /Update status/i }))
+
+    await waitFor(() => {
+      expect(mockedApiCall).toHaveBeenCalled()
+    })
+    const body = JSON.parse(String((mockedApiCall.mock.calls[0]?.[1] as { body?: string })?.body ?? '{}'))
+    expect(body.notes).toBe('QA hold pending inspection')
+    expect(body.status).toBe('hold')
   })
 
   // Regression coverage for #4103: a failed save must surface a visible
@@ -207,8 +241,10 @@ describe('ChangeLotStatusDialog', () => {
       />,
     )
 
-    const form = document.querySelector('form')
-    fireEvent.submit(form!)
+    fireEvent.change(screen.getByPlaceholderText('Optional reason for the status change'), {
+      target: { value: 'Enable submit' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Update status/i }))
 
     await waitFor(() => {
       expect(flash).toHaveBeenCalledWith('Lot is already expired.', 'error')

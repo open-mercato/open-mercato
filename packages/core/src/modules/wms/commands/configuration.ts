@@ -1705,6 +1705,16 @@ const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId
     if (parsed.expiresAt !== undefined) lot.expiresAt = parsed.expiresAt ?? null
     if (parsed.status !== undefined) lot.status = parsed.status
     if (parsed.metadata !== undefined) lot.metadata = toJsonValue(parsed.metadata)
+    if (parsed.notes !== undefined) {
+      const existing =
+        lot.metadata && typeof lot.metadata === 'object' && !Array.isArray(lot.metadata)
+          ? { ...(lot.metadata as Record<string, unknown>) }
+          : {}
+      const trimmedNotes = parsed.notes.trim()
+      if (trimmedNotes) existing.notes = trimmedNotes
+      else delete existing.notes
+      lot.metadata = toJsonValue(existing)
+    }
     await em.flush()
     return { lotId: lot.id }
   },

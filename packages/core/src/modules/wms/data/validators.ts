@@ -167,7 +167,11 @@ const enforceLotDateOrdering = (
 export const inventoryLotCreateSchema = inventoryLotBaseSchema.superRefine(enforceLotDateOrdering)
 
 export const inventoryLotUpdateSchema = z
-  .object({ id: uuid() })
+  .object({
+    id: uuid(),
+    // Optional status-change note merged into lot.metadata.notes by the update command.
+    notes: z.string().trim().max(500).optional(),
+  })
   .merge(inventoryLotBaseSchema.partial())
   .superRefine(enforceLotDateOrdering)
 

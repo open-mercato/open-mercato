@@ -833,6 +833,7 @@
   "wms.backend.lot.kpis.onHand.title": "Total en existencia",
   "wms.backend.lot.kpis.qualityStatus.caption": "Estado de retención y QC del lote",
   "wms.backend.lot.kpis.qualityStatus.cta": "Edit lot profile",
+  "wms.backend.lot.kpis.qualityStatus.notesCaption": "Nota: {notes}",
   "wms.backend.lot.kpis.qualityStatus.title": "Estado de calidad",
   "wms.backend.lot.kpis.reserved.badge": "{count} unidades retenidas",
   "wms.backend.lot.kpis.reserved.caption": "Comprometido desde este lote",

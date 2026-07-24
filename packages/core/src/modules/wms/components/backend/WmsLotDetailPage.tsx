@@ -68,8 +68,15 @@ type InventoryLotRow = {
   best_before_at?: string | null
   expires_at?: string | null
   status?: string | null
+  metadata?: Record<string, unknown> | null
   created_at?: string | null
   updated_at?: string | null
+}
+
+function extractLotStatusNotes(metadata: InventoryLotRow['metadata']): string | null {
+  if (!metadata || typeof metadata !== 'object') return null
+  const notes = metadata.notes
+  return typeof notes === 'string' && notes.trim().length > 0 ? notes.trim() : null
 }
 
 type InventoryProfileRow = {
@@ -661,6 +668,10 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
     () => resolveLotQualityStatus(lotData?.status, lotData?.expires_at, nowMs),
     [lotData?.expires_at, lotData?.status, nowMs],
   )
+  const statusNotes = React.useMemo(
+    () => extractLotStatusNotes(lotData?.metadata),
+    [lotData?.metadata],
+  )
 
   const daysToExpiry = daysUntilExpiry(lotData?.expires_at, nowMs)
   const lotAgeDays = daysSince(lotData?.created_at, nowMs)
@@ -1125,7 +1136,13 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
               />
               <LotKpiCard
                 title={t('wms.backend.lot.kpis.qualityStatus.title', 'Quality status')}
-                caption={t('wms.backend.lot.kpis.qualityStatus.caption', 'Lot hold and QC state')}
+                caption={
+                  statusNotes
+                    ? t('wms.backend.lot.kpis.qualityStatus.notesCaption', 'Note: {notes}', {
+                        notes: statusNotes,
+                      })
+                    : t('wms.backend.lot.kpis.qualityStatus.caption', 'Lot hold and QC state')
+                }
                 value={qualityStatus.value}
                 badgeLabel={t(qualityStatus.labelKey, qualityStatus.labelFallback)}
                 badgeVariant={qualityStatus.variant}
