@@ -29,12 +29,8 @@ test.describe('TC-CRM-086: DataTable column resize + persistence', () => {
       await page.locator('tbody tr').first().waitFor({ state: 'visible', timeout: 10_000 });
     };
 
-    // Anchor the interaction to one semantic header instead of a separator's
-    // DOM index. Resizing rerenders the header row, so an nth() separator
-    // locator can resolve to a different column between measurements.
-    const targetHeader = () => page.getByRole('columnheader').filter({
-      has: page.getByRole('button', { name: 'Name', exact: true }),
-    }).first();
+    const targetHeader = () =>
+      page.locator('thead th:has([role="separator"][aria-orientation="vertical"])').first();
     const resizeHandle = () => targetHeader().getByRole('separator');
     const targetColumnWidth = () =>
       targetHeader().evaluate((el) => Math.round((el as HTMLElement).getBoundingClientRect().width));
