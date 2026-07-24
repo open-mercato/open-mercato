@@ -1465,20 +1465,24 @@
     "expectedRouter": {
       "required": [
         "module-data",
-        "backend-ui"
+        "backend-ui",
+        "umes"
       ],
       "allowedExtra": []
     },
     "requiredSkills": [
       "om-module-scaffold",
-      "om-backend-ui-design"
+      "om-backend-ui-design",
+      "om-system-extension"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
         ".ai/guides/backend-ui.md",
-        ".ai/skills/om-module-scaffold/SKILL.md"
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-system-extension/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -1505,8 +1509,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-021"

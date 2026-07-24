@@ -47,7 +47,7 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 ## Three-Axis Context Assembler
 
-Start with this root. Match all axes and load their de-duplicated union. A CRM lead-capture app may need a module, `customers`/`sales` facts, data, commands, UI, events, integration, and SDLC rows.
+Start with this root. Match all axes and load their de-duplicated union. A CRM lead-capture app may need a module, `customers`/`sales` facts, data, commands, UI, events, integration, and SDLC rows. A compound notification request can independently match its owned notification contract (`module-data`), renderer/browser UI (`backend-ui`), and reactive handler/injection (`umes`); never collapse distinct work units into only the most specialized route.
 
 Route IDs: `architecture`, `module-data`, `backend-ui`, `umes`, `integration`, `ai-workflow`, `testing`, `debugging`, `framework-context`, `spec-pr`.
 
