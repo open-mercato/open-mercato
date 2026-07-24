@@ -332,19 +332,46 @@ export function externalCliInvocation(external, sourceDir, platform = process.pl
   return { executable, args }
 }
 
-function filesRecursively(root, current = '') {
+function filesystemEntryKind(entry) {
+  if (entry.isSymbolicLink()) return 'symbolic link'
+  if (entry.isFIFO()) return 'FIFO'
+  if (entry.isSocket()) return 'socket'
+  if (entry.isBlockDevice()) return 'block device'
+  if (entry.isCharacterDevice()) return 'character device'
+  return 'unsupported filesystem node'
+}
+
+function regularFilesRecursively(root, current = '') {
+  const directory = join(root, current)
+  const directoryEntry = lstatSync(directory, { throwIfNoEntry: false })
+  const displayDirectory = current ? current.split(sep).join('/') : '.'
+  if (!directoryEntry) fail(`skill tree entry disappeared during validation: '${displayDirectory}'`)
+  if (directoryEntry.isSymbolicLink() || !directoryEntry.isDirectory()) {
+    fail(`skill tree requires a real directory at '${displayDirectory}', found ${filesystemEntryKind(directoryEntry)}`)
+  }
+
   const result = []
-  for (const entry of readdirSync(join(root, current), { withFileTypes: true })) {
-    const child = join(current, entry.name)
-    if (entry.isDirectory()) result.push(...filesRecursively(root, child))
+  for (const name of readdirSync(directory)) {
+    const child = join(current, name)
+    const childPath = join(root, child)
+    const entry = lstatSync(childPath, { throwIfNoEntry: false })
+    const displayChild = child.split(sep).join('/')
+    if (!entry) fail(`skill tree entry disappeared during validation: '${displayChild}'`)
+    if (entry.isSymbolicLink()) fail(`skill tree contains a symbolic link at '${displayChild}'`)
+    if (entry.isDirectory()) result.push(...regularFilesRecursively(root, child))
     else if (entry.isFile()) result.push(child)
+    else fail(`skill tree contains an unsupported ${filesystemEntryKind(entry)} at '${displayChild}'`)
   }
   return result
 }
 
+export function assertRegularSkillTree(root) {
+  regularFilesRecursively(root)
+}
+
 export function hashSkillDirectory(root) {
   const hash = createHash('sha256')
-  for (const file of filesRecursively(root).sort()) {
+  for (const file of regularFilesRecursively(root).sort()) {
     hash.update(file.split(sep).join('/'))
     hash.update('\0')
     hash.update(readFileSync(join(root, file)))
@@ -359,7 +386,9 @@ function externalOwnershipPath(rootDir) {
 
 function readExternalOwnership(rootDir) {
   const ledgerPath = externalOwnershipPath(rootDir)
-  if (!existsSync(ledgerPath)) return null
+  const ledgerEntry = lstatSync(ledgerPath, { throwIfNoEntry: false })
+  if (!ledgerEntry) return null
+  if (ledgerEntry.isSymbolicLink() || !ledgerEntry.isFile()) fail('external skill ownership ledger must be a regular file')
   let ledger
   try {
     ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'))
@@ -412,7 +441,14 @@ export function reconcileExternalSkillVisibility(rootDir, external) {
     const skillDir = join(canonicalDir, skill)
     const entry = lstatSync(skillDir, { throwIfNoEntry: false })
     if (!entry) continue
-    const actual = entry.isDirectory() ? hashSkillDirectory(skillDir) : 'non-directory'
+    let actual = 'non-directory'
+    if (entry.isDirectory() && !entry.isSymbolicLink()) {
+      try {
+        actual = hashSkillDirectory(skillDir)
+      } catch (error) {
+        actual = `unsafe (${error.message})`
+      }
+    }
     const expected = external.skills.includes(skill) ? external.contentHashes[skill] : undefined
     if (actual === expected) {
       active[skill] = expected
@@ -447,10 +483,11 @@ export function assertExternalDestinationsReplaceable(rootDir, external) {
   }
 }
 
-async function installExternal(rootDir, external, platform, spawn, fetchImpl) {
+async function installExternal(rootDir, external, platform, spawn, fetchImpl, downloadSource) {
   let downloaded
   try {
-    downloaded = await downloadPinnedSource(external, fetchImpl)
+    downloaded = await downloadSource(external, fetchImpl)
+    assertRegularSkillTree(downloaded.sourceDir)
     const invocation = externalCliInvocation(external, downloaded.sourceDir, platform)
     const installRoot = join(downloaded.tempRoot, 'install')
     mkdirSync(installRoot, { recursive: true })
@@ -477,13 +514,33 @@ async function installExternal(rootDir, external, platform, spawn, fetchImpl) {
       const existing = lstatSync(destination, { throwIfNoEntry: false })
       const stagedDestination = join(canonicalDir, `.om-install-${skill}-${nonce}`)
       const backupDestination = join(canonicalDir, `.om-backup-${skill}-${nonce}`)
-      cpSync(join(stagedSkillsDir, skill), stagedDestination, { recursive: true, errorOnExist: true })
-      if (existing) renameSync(destination, backupDestination)
+      let backedUp = false
+      let activated = false
       try {
+        cpSync(join(stagedSkillsDir, skill), stagedDestination, { recursive: true, errorOnExist: true })
+        const copiedHash = hashSkillDirectory(stagedDestination)
+        if (copiedHash !== external.contentHashes[skill]) {
+          fail(`external skill changed while copying '${skill}' (${copiedHash})`)
+        }
+        if (existing) {
+          renameSync(destination, backupDestination)
+          backedUp = true
+        }
         renameSync(stagedDestination, destination)
-        if (existing) rmSync(backupDestination, { recursive: true, force: true })
+        activated = true
+        const installedHash = hashSkillDirectory(destination)
+        if (installedHash !== external.contentHashes[skill]) {
+          fail(`external skill changed while activating '${skill}' (${installedHash})`)
+        }
+        if (backedUp) {
+          rmSync(backupDestination, { recursive: true, force: true })
+          backedUp = false
+        }
       } catch (error) {
-        if (lstatSync(backupDestination, { throwIfNoEntry: false }) && !lstatSync(destination, { throwIfNoEntry: false })) {
+        if (activated && lstatSync(destination, { throwIfNoEntry: false })) {
+          rmSync(destination, { recursive: true, force: true })
+        }
+        if (backedUp && lstatSync(backupDestination, { throwIfNoEntry: false })) {
           renameSync(backupDestination, destination)
         }
         throw error
@@ -491,7 +548,13 @@ async function installExternal(rootDir, external, platform, spawn, fetchImpl) {
         rmSync(stagedDestination, { recursive: true, force: true })
       }
     }
-    writeExternalOwnership(rootDir, external)
+    const verified = {}
+    for (const skill of external.skills) {
+      const actual = hashSkillDirectory(join(canonicalDir, skill))
+      if (actual !== external.contentHashes[skill]) fail(`installed external skill integrity check failed: ${skill} (${actual})`)
+      verified[skill] = actual
+    }
+    writeExternalOwnership(rootDir, external, verified)
     return `installed ${external.source}@${external.ref}`
   } finally {
     if (downloaded?.tempRoot) rmSync(downloaded.tempRoot, { recursive: true, force: true })
@@ -526,8 +589,13 @@ function installedExternalSkills(rootDir, external) {
   const canonicalDir = join(rootDir, '.agents', 'skills')
   return external.skills.filter((skill) => {
     const skillDir = join(canonicalDir, skill)
-    return lstatSync(skillDir, { throwIfNoEntry: false })?.isDirectory()
-      && hashSkillDirectory(skillDir) === external.contentHashes[skill]
+    const entry = lstatSync(skillDir, { throwIfNoEntry: false })
+    if (!entry?.isDirectory() || entry.isSymbolicLink()) return false
+    try {
+      return hashSkillDirectory(skillDir) === external.contentHashes[skill]
+    } catch {
+      return false
+    }
   })
 }
 
@@ -565,6 +633,7 @@ export async function runInstaller({
   platform = process.platform,
   spawn = spawnSync,
   fetchImpl = globalThis.fetch,
+  downloadSource = downloadPinnedSource,
 } = {}) {
   const options = parseArgs(args, env)
   if (options.help) {
@@ -593,7 +662,7 @@ export async function runInstaller({
   let externalStatus = 'skipped (--no-external)'
   if (!options.noExternal) {
     try {
-      externalStatus = await installExternal(rootDir, manifest.external, platform, spawn, fetchImpl)
+      externalStatus = await installExternal(rootDir, manifest.external, platform, spawn, fetchImpl, downloadSource)
     } catch (error) {
       externalStatus = `unavailable (${error.message})`
       console.warn(`install-skills: warning: ${error.message}`)
