@@ -4948,9 +4948,10 @@
       "required": [
         "debugging"
       ],
-      "allowedExtra": [
-        "module-data",
-        "framework-context"
+    "allowedExtra": [
+      "module-data",
+      "framework-context",
+      "architecture"
       ]
     },
     "requiredSkills": [
