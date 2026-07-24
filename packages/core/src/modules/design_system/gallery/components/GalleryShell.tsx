@@ -151,7 +151,7 @@ export function GalleryShell() {
               <a
                 key={entry.id}
                 href={`#gallery-entry-${entry.id}`}
-                className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
+                className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:shadow-focus"
               >
                 {entry.title}
               </a>

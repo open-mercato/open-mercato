@@ -46,7 +46,7 @@ function IconTile({ name }: { name: string }) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex flex-col items-center gap-1.5 rounded-md border border-transparent p-2 transition-colors hover:border-border hover:bg-muted/40"
+          className="flex flex-col items-center gap-1.5 rounded-md border border-transparent p-2 transition-colors hover:border-border hover:bg-muted/40 focus-visible:outline-none focus-visible:shadow-focus"
         >
           <Icon aria-hidden className="size-5 text-foreground" strokeWidth={1.75} />
           <code className="max-w-full truncate text-[10px] leading-tight text-muted-foreground">{name}</code>
@@ -58,7 +58,7 @@ function IconTile({ name }: { name: string }) {
             <button
               type="button"
               onClick={() => copy(name)}
-              className="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted"
+              className="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:shadow-focus"
             >
               <span className="text-xs font-medium text-foreground">
                 {t('design_system.gallery.iconCopyMeta', 'Copy name for page.meta icon')}
@@ -70,7 +70,7 @@ function IconTile({ name }: { name: string }) {
             <button
               type="button"
               onClick={() => copy(jsxSnippet)}
-              className="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted"
+              className="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:shadow-focus"
             >
               <span className="text-xs font-medium text-foreground">
                 {t('design_system.gallery.iconCopyJsx', 'Copy JSX (lucide-react)')}

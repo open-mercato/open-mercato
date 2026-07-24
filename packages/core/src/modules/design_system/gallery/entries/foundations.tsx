@@ -25,7 +25,7 @@ function SwatchCard({ copyText, label, children }: { copyText: string; label: st
     <button
       type="button"
       onClick={onCopy}
-      className="flex w-36 flex-col items-start gap-1 rounded-md border border-border bg-background p-2 text-left transition-colors hover:bg-muted/40"
+      className="flex w-36 flex-col items-start gap-1 rounded-md border border-border bg-background p-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:shadow-focus"
       title={`Copy ${copyText}`}
     >
       {children}
@@ -367,7 +367,7 @@ function RoleCard({ role }: { role: ColorRole }) {
       type="button"
       onClick={onCopy}
       title={`Copy ${role.surfaceCls} ${role.onSurfaceCls}`}
-      className={`flex h-24 w-full flex-col justify-between rounded-md border p-3 text-left transition-opacity hover:opacity-90 ${role.surfaceCls} ${role.onSurfaceCls} ${role.borderCls ?? 'border-border'}`}
+      className={`flex h-24 w-full flex-col justify-between rounded-md border p-3 text-left transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:shadow-focus ${role.surfaceCls} ${role.onSurfaceCls} ${role.borderCls ?? 'border-border'}`}
     >
       <span className="text-sm font-medium leading-tight">{role.surface}</span>
       <code className="text-xs opacity-80">{role.onSurface}</code>
