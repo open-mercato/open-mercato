@@ -1,10 +1,15 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isSingleDeliveryRequested } from './single-delivery'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
+import {
+  inferModuleIdFromResourceId,
+  withModuleResourceUsage,
+} from '@open-mercato/shared/lib/modules/resource-usage'
 export { registerCrossProcessEventListener } from './bridge'
 import { publishCrossProcessEvent } from './bridge'
 import type {
@@ -18,6 +23,16 @@ import type {
 
 /** Queue name for persistent events */
 const EVENTS_QUEUE_NAME = 'events'
+
+const logger = createLogger('events')
+
+type RegisteredSubscriber = {
+  id?: string
+  moduleId?: string
+  event: string
+  handler: SubscriberHandler
+  persistent?: boolean
+}
 
 /**
  * When enabled, a persistent emit delivers each subscriber on exactly one path:
@@ -137,10 +152,10 @@ function registerProducerShutdownHook(): void {
  */
 export function createEventBus(opts: CreateBusOptions): EventBus {
   // In-memory listeners for immediate event delivery
-  const listeners = new Map<string, Set<SubscriberHandler>>()
-  // Handlers registered as persistent (worker-dispatched). Used by the
+  const listeners = new Map<string, Set<RegisteredSubscriber>>()
+  // Subscribers registered as persistent (worker-dispatched). Used by the
   // single-delivery path to skip them inline on a persistent emit.
-  const persistentHandlers = new Set<SubscriberHandler>()
+  const persistentSubscribers = new Set<RegisteredSubscriber>()
 
   // Determine queue strategy from options or environment
   const queueStrategy = opts.queueStrategy ??
@@ -198,35 +213,58 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       if (!matchEventPattern(event, pattern)) continue
       if (!handlers || handlers.size === 0) continue
 
-      for (const handler of handlers) {
+      for (const subscriber of handlers) {
         // Single-delivery: persistent subscribers are dispatched by the worker,
         // so skip them inline to avoid double execution.
-        if (skipPersistent && persistentHandlers.has(handler)) continue
+        if (skipPersistent && persistentSubscribers.has(subscriber)) continue
         try {
           // Pass eventName in context for wildcard handlers
-          await Promise.resolve(handler(payload, {
-            resolve: opts.resolve,
-            eventName: event,
-            tenantId: options?.tenantId ?? null,
-            organizationId: options?.organizationId ?? null,
-          }))
+          const moduleId = subscriber.moduleId ?? inferModuleIdFromResourceId(subscriber.id)
+          await withModuleResourceUsage(
+            {
+              moduleId,
+              surface: 'subscriber',
+              operation: `${event} -> ${subscriber.id ?? subscriber.event}`,
+              resourceId: subscriber.id ?? subscriber.event,
+            },
+            () => subscriber.handler(payload, {
+              resolve: opts.resolve,
+              eventName: event,
+              tenantId: options?.tenantId ?? null,
+              organizationId: options?.organizationId ?? null,
+            }),
+          )
         } catch (error) {
-          console.error(`[events] Handler error for "${event}" (pattern: "${pattern}"):`, error)
+          logger.error('Handler error', { event, pattern, err: error })
         }
       }
     }
   }
 
   /**
-   * Registers a handler for an event.
+   * Registers a handler for an event. Pass `moduleId` whenever the subscribing
+   * module is known (e.g. a module reacting to another module's event) so
+   * resource-usage telemetry attributes the handler correctly instead of
+   * guessing a module id from the event name.
    */
-  function on(event: string, handler: SubscriberHandler, options?: { persistent?: boolean }): void {
+  function on(
+    event: string,
+    handler: SubscriberHandler,
+    options?: { persistent?: boolean; moduleId?: string; id?: string },
+  ): void {
     if (!listeners.has(event)) {
       listeners.set(event, new Set())
     }
-    listeners.get(event)!.add(handler)
+    const subscriber: RegisteredSubscriber = {
+      id: options?.id,
+      moduleId: options?.moduleId,
+      event,
+      handler,
+      persistent: options?.persistent,
+    }
+    listeners.get(event)!.add(subscriber)
     if (options?.persistent) {
-      persistentHandlers.add(handler)
+      persistentSubscribers.add(subscriber)
     }
   }
 
@@ -235,7 +273,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    */
   function registerModuleSubscribers(subs: SubscriberDescriptor[]): void {
     for (const sub of subs) {
-      on(sub.event, sub.handler, { persistent: sub.persistent })
+      on(sub.event, sub.handler, { persistent: sub.persistent, moduleId: sub.moduleId, id: sub.id })
     }
   }
 
@@ -254,7 +292,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       try {
         await Promise.resolve(tap(event, payload, options))
       } catch (error) {
-        console.error(`[events] Global tap error for "${event}":`, error)
+        logger.error('Global tap error', { event, err: error })
       }
     }
 
@@ -277,7 +315,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       try {
         await publishCrossProcessEvent(event, payload, options)
       } catch (error) {
-        console.error(`[events] Cross-process publish error for "${event}":`, error)
+        logger.error('Cross-process publish error', { event, err: error })
       }
     }
 

@@ -2,11 +2,28 @@
  * Activity Executor Unit Tests
  */
 
+const mockLoggerInstance = {
+  debug: jest.fn(),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  child: jest.fn(),
+}
+mockLoggerInstance.child.mockImplementation(() => mockLoggerInstance)
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: jest.fn(() => mockLoggerInstance),
+}))
+
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../../data/entities'
 import * as activityExecutor from '../activity-executor'
 import type { ActivityDefinition, ActivityContext } from '../activity-executor'
+import {
+  clearWorkflowSafeCommandsForTests,
+  registerWorkflowSafeCommands,
+} from '../workflow-safe-commands'
 
 // Mock global fetch
 global.fetch = jest.fn()
@@ -22,6 +39,8 @@ describe('Activity Executor (Unit Tests)', () => {
   const testOrgId = 'test-org-id'
 
   beforeEach(() => {
+    clearWorkflowSafeCommandsForTests()
+
     // Create mock EntityManager
     mockEm = {
       findOne: jest.fn(),
@@ -92,7 +111,7 @@ describe('Activity Executor (Unit Tests)', () => {
         throw new Error('emailService not registered')
       })
 
-      const consoleSpy = jest.spyOn(console, 'log').mockImplementation()
+      mockLoggerInstance.info.mockClear()
 
       const result = await activityExecutor.executeActivity(
         mockEm,
@@ -105,11 +124,10 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.output.sent).toBe(true)
       expect(result.output.to).toBe('user@example.com')
       expect(result.output.via).toBe('console')
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Send email to user@example.com')
+      expect(mockLoggerInstance.info).toHaveBeenCalledWith(
+        'Send email activity invoked',
+        expect.objectContaining({ subject: 'Welcome!' }),
       )
-
-      consoleSpy.mockRestore()
     })
 
     test('should execute SEND_EMAIL with email service if available', async () => {
@@ -191,7 +209,7 @@ describe('Activity Executor (Unit Tests)', () => {
         throw new Error('emailService not registered')
       })
 
-      const consoleSpy = jest.spyOn(console, 'log').mockImplementation()
+      mockLoggerInstance.info.mockClear()
 
       const result = await activityExecutor.executeActivity(
         mockEm,
@@ -203,11 +221,10 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(true)
       expect(result.output.to).toBe('user@example.com')
       expect(result.output.subject).toBe('Hello John Doe')
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('user@example.com: Hello John Doe')
+      expect(mockLoggerInstance.info).toHaveBeenCalledWith(
+        'Send email activity invoked',
+        expect.objectContaining({ subject: 'Hello John Doe' }),
       )
-
-      consoleSpy.mockRestore()
     })
   })
 
@@ -261,6 +278,58 @@ describe('Activity Executor (Unit Tests)', () => {
           tenantId: testTenantId,
         },
       )
+    })
+
+    test('should not interpolate non-allowlisted env vars into event payloads', async () => {
+      const originalSecret = process.env.OM_WORKFLOWS_TEST_EVENT_SECRET
+      process.env.OM_WORKFLOWS_TEST_EVENT_SECRET = 'event-secret-value'
+
+      const mockEventBus = {
+        emitEvent: jest.fn().mockResolvedValue(undefined),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockEventBus)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-event-secret',
+        activityName: 'Sensitive Event',
+        activityType: 'EMIT_EVENT',
+        config: {
+          eventName: 'test.event',
+          payload: {
+            secret: '{{env.OM_WORKFLOWS_TEST_EVENT_SECRET}}',
+            message: 'prefix {{env.OM_WORKFLOWS_TEST_EVENT_SECRET}} suffix',
+          },
+        },
+      }
+
+      try {
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(true)
+        expect(mockEventBus.emitEvent).toHaveBeenCalledWith(
+          'test.event',
+          expect.objectContaining({
+            secret: '',
+            message: 'prefix  suffix',
+          }),
+          {
+            organizationId: testOrgId,
+            tenantId: testTenantId,
+          },
+        )
+      } finally {
+        if (originalSecret === undefined) {
+          delete process.env.OM_WORKFLOWS_TEST_EVENT_SECRET
+        } else {
+          process.env.OM_WORKFLOWS_TEST_EVENT_SECRET = originalSecret
+        }
+      }
     })
 
     test('should fail EMIT_EVENT if event bus not available', async () => {
@@ -330,8 +399,19 @@ describe('Activity Executor (Unit Tests)', () => {
           logEntry: { id: 'log-123' },
         }),
       }
+      const mockRbacService = {
+        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+      }
 
-      mockContainer.resolve.mockReturnValue(mockCommandBus)
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'rbacService') return mockRbacService as any
+        if (name === 'commandBus') return mockCommandBus as any
+        throw new Error(`Unexpected service: ${name}`)
+      })
 
       const activity: ActivityDefinition = {
         activityId: 'activity-8',
@@ -356,6 +436,10 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(true)
       expect(result.output.executed).toBe(true)
       expect(result.output.commandId).toBe('sales.orders.update')
+      expect(mockRbacService.getGrantedFeatures).toHaveBeenCalledWith('user-123', {
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
         'sales.orders.update',
         expect.objectContaining({
@@ -363,12 +447,126 @@ describe('Activity Executor (Unit Tests)', () => {
             id: 'order-123',
             statusEntryId: 'status-confirmed-id',
           }),
+          ctx: expect.objectContaining({
+            auth: expect.objectContaining({
+              sub: 'user-123',
+              isSuperAdmin: false,
+            }),
+          }),
         })
       )
     })
 
+    test('should fail UPDATE_ENTITY if command is not workflow-safe', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {} }),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockCommandBus as any)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8b',
+        activityName: 'Delete User',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'auth.users.delete',
+          input: { id: 'user-456' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('command is not allowed')
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
+    test('should fail UPDATE_ENTITY if workflow has no real user context', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {} }),
+      }
+
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+      mockContainer.resolve.mockReturnValue(mockCommandBus as any)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8c',
+        activityName: 'Update Order Status',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'sales.orders.update',
+          input: { id: 'order-123' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        { ...mockContext, userId: undefined }
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('authenticated workflow user')
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
+    test('should fail UPDATE_ENTITY if actor lacks the required command feature', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {} }),
+      }
+      const mockRbacService = {
+        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.view']),
+      }
+
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'rbacService') return mockRbacService as any
+        if (name === 'commandBus') return mockCommandBus as any
+        throw new Error(`Unexpected service: ${name}`)
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8d',
+        activityName: 'Update Order Status',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'sales.orders.update',
+          input: { id: 'order-123' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('command is not authorized')
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
     test('should fail UPDATE_ENTITY if command bus not available', async () => {
-      mockContainer.resolve.mockImplementation(() => {
+      const mockRbacService = {
+        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+      }
+
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'rbacService') return mockRbacService as any
         throw new Error('commandBus not registered')
       })
 
@@ -398,7 +596,7 @@ describe('Activity Executor (Unit Tests)', () => {
         execute: jest.fn().mockResolvedValue({ result: {} }),
       }
 
-      mockContainer.resolve.mockReturnValue(mockCommandBus)
+      mockContainer.resolve.mockReturnValue(mockCommandBus as any)
 
       const activity: ActivityDefinition = {
         activityId: 'activity-10',
@@ -449,6 +647,16 @@ describe('Activity Executor (Unit Tests)', () => {
       ['http://[fe80::1%25eth0]/'],   // link-local with zone ID (URL-encoded %)
       ['http://[fc00::1]/'],          // unique local fc00::/7
       ['http://[fd12:3456:789a::1]/'],// unique local fd::/7
+      ['http://[100::1]/'],           // discard-only 100::/64
+      ['http://[64:ff9b:1::1]/'],     // local-use IPv4 translation 64:ff9b:1::/48
+      ['http://[100:0:0:1::1]/'],     // dummy IPv6 prefix 100:0:0:1::/64
+      ['http://[2001:2::1]/'],        // benchmarking 2001:2::/48
+      ['http://[2001:1::4]/'],        // unassigned within 2001::/23
+      ['http://[2001:2:1::1]/'],      // outside the 2001:2::/48 benchmark block
+      ['http://[2001:db8::1]/'],      // documentation 2001:db8::/32
+      ['http://[2001:10::1]/'],       // ORCHID 2001:10::/28
+      ['http://[3fff::1]/'],           // documentation 3fff::/20
+      ['http://[5f00::1]/'],           // SRv6 SIDs 5f00::/16
     ])('blocks IPv6 private address %s', (url) => {
       expect(activityExecutor.isPrivateUrl(url)).toBe(true)
     })
@@ -497,7 +705,12 @@ describe('Activity Executor (Unit Tests)', () => {
       ['https://hooks.slack.com/services/T00/B00/abc'],
       ['http://172.15.255.255/'],   // just outside 172.16/12
       ['http://172.32.0.1/'],       // just outside 172.16/12 upper bound
-      ['http://[2001:db8::1]/'],    // documentation range (public)
+      ['http://[64:ff9b::5db8:d822]/'], // NAT64 representation of 93.184.216.34
+      ['http://[2001:1::1]/'],      // PCP anycast
+      ['http://[2001:3::1]/'],      // AMT
+      ['http://[2001:4:112::1]/'],  // AS112-v6
+      ['http://[2001:20::1]/'],     // ORCHIDv2
+      ['http://[2001:30::1]/'],     // Drone Remote ID protocol
       ['http://[2606:4700:4700::1111]/'], // Cloudflare DNS (public)
     ])('allows public address %s', (url) => {
       expect(activityExecutor.isPrivateUrl(url)).toBe(false)
@@ -568,6 +781,61 @@ describe('Activity Executor (Unit Tests)', () => {
           body: expect.any(String),
         })
       )
+    })
+
+    test('should not interpolate non-allowlisted env vars into webhook headers or body', async () => {
+      const originalSecret = process.env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET
+      process.env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET = 'webhook-secret-value'
+
+      ;(global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ success: true }),
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-webhook-secret',
+        activityName: 'Sensitive Webhook',
+        activityType: 'CALL_WEBHOOK',
+        config: {
+          url: 'https://example.com/webhook',
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer {{env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET}}',
+          },
+          body: {
+            secret: '{{env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET}}',
+          },
+        },
+      }
+
+      try {
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(true)
+        expect(global.fetch).toHaveBeenCalledWith(
+          'https://example.com/webhook',
+          expect.objectContaining({
+            headers: expect.objectContaining({
+              Authorization: 'Bearer ',
+            }),
+            body: JSON.stringify({ secret: '' }),
+          })
+        )
+      } finally {
+        if (originalSecret === undefined) {
+          delete process.env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET
+        } else {
+          process.env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET = originalSecret
+        }
+      }
     })
 
     test('should handle non-JSON webhook responses', async () => {
@@ -863,8 +1131,13 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prevNodeEnv = process.env.NODE_ENV
+      mockLoggerInstance.warn.mockClear()
       try {
         process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = 'true'
+        delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        process.env.NODE_ENV = 'test'
 
         const result = await activityExecutor.executeActivity(
           mockEm,
@@ -878,11 +1151,85 @@ describe('Activity Executor (Unit Tests)', () => {
           'http://10.255.255.1/health',
           expect.any(Object)
         )
+        expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+          expect.stringContaining('SSRF protection is bypassed'),
+          expect.any(Object),
+        )
       } finally {
         if (prev === undefined) {
           delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
         } else {
           process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
+        }
+        if (prevLegacy === undefined) {
+          delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prevLegacy
+        }
+        if (prevNodeEnv === undefined) {
+          delete process.env.NODE_ENV
+        } else {
+          process.env.NODE_ENV = prevNodeEnv
+        }
+      }
+    })
+
+    test('should ignore OM_WORKFLOWS_ALLOW_PRIVATE_URLS in production', async () => {
+      ;(global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ ok: true }),
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-14f',
+        activityName: 'Production Internal Webhook',
+        activityType: 'CALL_WEBHOOK',
+        config: {
+          url: 'http://10.255.255.1/health',
+        },
+      }
+
+      const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prevNodeEnv = process.env.NODE_ENV
+      mockLoggerInstance.warn.mockClear()
+      try {
+        process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = 'true'
+        delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        process.env.NODE_ENV = 'production'
+
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
+        expect(global.fetch).not.toHaveBeenCalled()
+        expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+          expect.stringContaining('ignored in production'),
+          expect.any(Object),
+        )
+      } finally {
+        if (prev === undefined) {
+          delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
+        }
+        if (prevLegacy === undefined) {
+          delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prevLegacy
+        }
+        if (prevNodeEnv === undefined) {
+          delete process.env.NODE_ENV
+        } else {
+          process.env.NODE_ENV = prevNodeEnv
         }
       }
     })
@@ -905,10 +1252,14 @@ describe('Activity Executor (Unit Tests)', () => {
         },
       }
 
-      const prev = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prevNodeEnv = process.env.NODE_ENV
+      mockLoggerInstance.warn.mockClear()
       try {
+        delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
         process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = 'true'
+        process.env.NODE_ENV = 'test'
 
         const result = await activityExecutor.executeActivity(
           mockEm,
@@ -922,15 +1273,85 @@ describe('Activity Executor (Unit Tests)', () => {
           'http://10.255.255.1/health',
           expect.any(Object)
         )
-        expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('deprecated')
+        expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+          expect.stringContaining('deprecated'),
+          expect.any(Object),
         )
       } finally {
-        warnSpy.mockRestore()
         if (prev === undefined) {
+          delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
+        }
+        if (prevLegacy === undefined) {
           delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
         } else {
-          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prev
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prevLegacy
+        }
+        if (prevNodeEnv === undefined) {
+          delete process.env.NODE_ENV
+        } else {
+          process.env.NODE_ENV = prevNodeEnv
+        }
+      }
+    })
+
+    test('should ignore WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS in production', async () => {
+      ;(global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ ok: true }),
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-14g',
+        activityName: 'Production Legacy Internal Webhook',
+        activityType: 'CALL_WEBHOOK',
+        config: {
+          url: 'http://10.255.255.1/health',
+        },
+      }
+
+      const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prevNodeEnv = process.env.NODE_ENV
+      mockLoggerInstance.warn.mockClear()
+      try {
+        delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = 'true'
+        process.env.NODE_ENV = 'production'
+
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
+        expect(global.fetch).not.toHaveBeenCalled()
+        expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+          expect.stringContaining('deprecated and ignored in production'),
+          expect.any(Object),
+        )
+      } finally {
+        if (prev === undefined) {
+          delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
+        }
+        if (prevLegacy === undefined) {
+          delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prevLegacy
+        }
+        if (prevNodeEnv === undefined) {
+          delete process.env.NODE_ENV
+        } else {
+          process.env.NODE_ENV = prevNodeEnv
         }
       }
     })
@@ -1392,6 +1813,79 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(mockFunction).toHaveBeenCalled()
     })
 
+    test('should interpolate allowlisted env vars only', async () => {
+      const originalAppUrl = process.env.APP_URL
+      const originalAllowlist = process.env.OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST
+      const originalEndpoint = process.env.OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT
+      const originalSecret = process.env.OM_WORKFLOWS_TEST_TYPE_SECRET
+      process.env.APP_URL = 'https://app.example.com'
+      process.env.OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST =
+        'OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT'
+      process.env.OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT = 'https://endpoint.example.com'
+      process.env.OM_WORKFLOWS_TEST_TYPE_SECRET = 'type-secret-value'
+
+      const mockFunction = jest.fn().mockImplementation((args) => {
+        expect(args.appUrl).toBe('https://app.example.com')
+        expect(args.endpoint).toBe('https://endpoint.example.com')
+        expect(args.secret).toBe('')
+        expect(args.message).toBe(
+          'App https://app.example.com endpoint https://endpoint.example.com secret '
+        )
+        return { success: true }
+      })
+
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-env-allowlist',
+        activityName: 'Test Env Allowlist',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'testFunction',
+          args: {
+            appUrl: '{{env.APP_URL}}',
+            endpoint: '{{env.OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT}}',
+            secret: '{{env.OM_WORKFLOWS_TEST_TYPE_SECRET}}',
+            message:
+              'App {{env.APP_URL}} endpoint {{env.OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT}} secret {{env.OM_WORKFLOWS_TEST_TYPE_SECRET}}',
+          },
+        },
+      }
+
+      try {
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(true)
+        expect(mockFunction).toHaveBeenCalled()
+      } finally {
+        if (originalAppUrl === undefined) {
+          delete process.env.APP_URL
+        } else {
+          process.env.APP_URL = originalAppUrl
+        }
+        if (originalAllowlist === undefined) {
+          delete process.env.OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST
+        } else {
+          process.env.OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST = originalAllowlist
+        }
+        if (originalEndpoint === undefined) {
+          delete process.env.OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT
+        } else {
+          process.env.OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT = originalEndpoint
+        }
+        if (originalSecret === undefined) {
+          delete process.env.OM_WORKFLOWS_TEST_TYPE_SECRET
+        } else {
+          process.env.OM_WORKFLOWS_TEST_TYPE_SECRET = originalSecret
+        }
+      }
+    })
+
     test('should handle nested objects with mixed type interpolations', async () => {
       const mockFunction = jest.fn().mockImplementation((args) => {
         // Verify nested structure with mixed types
@@ -1492,10 +1986,17 @@ describe('Activity Executor (Unit Tests)', () => {
           logEntry: { id: 'log-123' },
         }),
       }
+      const mockRbacService = {
+        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+      }
 
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
       mockContainer.resolve
         .mockReturnValueOnce(mockEventBus) // First activity
-        .mockReturnValueOnce(mockCommandBus) // Second activity
+        .mockReturnValueOnce(mockRbacService) // Second activity authz
+        .mockReturnValueOnce(mockCommandBus) // Second activity command dispatch
 
       const activities: ActivityDefinition[] = [
         {

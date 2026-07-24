@@ -7,6 +7,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, symlinkSync, lstatSync, unlinkSync, readdirSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Project, SyntaxKind } from 'ts-morph'
@@ -178,23 +179,17 @@ function generateShared(config: AgenticConfig): void {
   copyFile(srcDir, 'ai/specs/SPEC-000-template.md', join(targetDir, '.ai', 'specs', 'SPEC-000-template.md'))
   copyFile(srcDir, 'ai/lessons.md', join(targetDir, '.ai', 'lessons.md'))
 
-  // .ai/skills/
-  writeTemplate(
-    srcDir,
-    'ai/skills/om-spec-writing/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'SKILL.md'),
-    config,
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-spec-writing/references/spec-template.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-template.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-spec-writing/references/spec-checklist.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-checklist.md'),
-  )
+  // .ai/skills/ — the shared skills-mixin manifest + tracker + external installer.
+  // Skills owned by the external open-mercato/skills collection (code review, spec
+  // writing, integration tests, prepare-issue, the auto-* PR family) are NOT copied
+  // here; the user installs them with `yarn install-skills` (npx skills add). Only
+  // standalone-only + kept-local skills and repo-local override folders are copied.
+  copyFile(srcDir, 'ai/skills/tiers.json', join(targetDir, '.ai', 'skills', 'tiers.json'))
+  copyFile(srcDir, 'ai/skills/tiers.schema.json', join(targetDir, '.ai', 'skills', 'tiers.schema.json'))
+  copyFile(srcDir, 'ai/agentic.config.json', join(targetDir, '.ai', 'agentic.config.json'))
+  copyFile(srcDir, 'ai/trackers/github.md', join(targetDir, '.ai', 'trackers', 'github.md'))
+  copyFile(srcDir, 'scripts/install-skills.sh', join(targetDir, 'scripts', 'install-skills.sh'))
+
   copyFile(
     srcDir,
     'ai/skills/om-backend-ui-design/SKILL.md',
@@ -204,16 +199,6 @@ function generateShared(config: AgenticConfig): void {
     srcDir,
     'ai/skills/om-backend-ui-design/references/ui-components.md',
     join(targetDir, '.ai', 'skills', 'om-backend-ui-design', 'references', 'ui-components.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-code-review/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-code-review', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-code-review/references/review-checklist.md',
-    join(targetDir, '.ai', 'skills', 'om-code-review', 'references', 'review-checklist.md'),
   )
   copyFile(srcDir, 'ai/skills/om-integration-builder/SKILL.md', join(targetDir, '.ai', 'skills', 'om-integration-builder', 'SKILL.md'))
   if (existsSync(join(srcDir, 'ai', 'skills', 'om-integration-builder', 'STANDALONE.md'))) {
@@ -299,12 +284,6 @@ function generateShared(config: AgenticConfig): void {
 
   copyFile(
     srcDir,
-    'ai/skills/om-integration-tests/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-integration-tests', 'SKILL.md'),
-  )
-
-  copyFile(
-    srcDir,
     'ai/skills/om-help/SKILL.md',
     join(targetDir, '.ai', 'skills', 'om-help', 'SKILL.md'),
   )
@@ -325,27 +304,29 @@ function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'om-auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
   )
 
+  // Slim repo-local OVERRIDE folders (SKILL.md only) for the external auto-* PR
+  // family + single autofix skill. The workflow bodies live in open-mercato/skills
+  // (installed via `yarn install-skills`); these overrides adjust them for a
+  // standalone app and are read on top of the external skill's built-in workflow.
+  // om-prepare-test-env's override carries environment knowledge (cross-platform
+  // mercato CLI runner commands) rather than tracker adjustments.
   for (const autoSkill of [
     'om-auto-create-pr',
     'om-auto-continue-pr',
     'om-auto-create-pr-loop',
     'om-auto-continue-pr-loop',
     'om-auto-review-pr',
-    'om-auto-fix-github',
-    'om-prepare-issue',
+    'om-auto-fix-issue',
+    'om-prepare-test-env',
   ]) {
+    if (!existsSync(join(srcDir, 'ai', 'skills', autoSkill, 'SKILL.md'))) {
+      continue
+    }
     copyFile(
       srcDir,
       `ai/skills/${autoSkill}/SKILL.md`,
       join(targetDir, '.ai', 'skills', autoSkill, 'SKILL.md'),
     )
-    if (existsSync(join(srcDir, 'ai', 'skills', autoSkill, 'STANDALONE.md'))) {
-      copyFile(
-        srcDir,
-        `ai/skills/${autoSkill}/STANDALONE.md`,
-        join(targetDir, '.ai', 'skills', autoSkill, 'STANDALONE.md'),
-      )
-    }
   }
 
   copyFile(
@@ -428,8 +409,8 @@ function generateCodex(config: AgenticConfig): void {
 
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.codex', 'mcp.json.example'))
 
-  // Symlink .codex/skills → ../.ai/skills
-  ensureSkillsLink(join(targetDir, '.codex', 'skills'), join('..', '.ai', 'skills'))
+  // No .codex/skills directory: Codex reads the canonical .agents/skills/,
+  // which scripts/install-skills.sh populates.
 }
 
 function generateCursor(config: AgenticConfig): void {
@@ -443,8 +424,8 @@ function generateCursor(config: AgenticConfig): void {
   copyFile(srcDir, 'hooks/entity-migration-check.mjs', join(targetDir, '.cursor', 'hooks', 'entity-migration-check.mjs'))
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.cursor', 'mcp.json.example'))
 
-  // Symlink .cursor/skills → ../.ai/skills
-  ensureSkillsLink(join(targetDir, '.cursor', 'skills'), join('..', '.ai', 'skills'))
+  // No .cursor/skills directory: Cursor reads the canonical .agents/skills/,
+  // which scripts/install-skills.sh populates.
 }
 
 function ensureSkillsLink(linkPath: string, target: string): void {
@@ -537,6 +518,9 @@ export async function runAgenticSetup(
   if (selectedIds.includes('codex')) generateCodex(config)
   if (selectedIds.includes('cursor')) generateCursor(config)
 
+  persistAgentSelection(targetDir, selectedIds)
+  installSkills(targetDir)
+
   console.log('')
   console.log('   Agentic setup complete:')
   if (selectedIds.includes('claude-code')) {
@@ -549,4 +533,38 @@ export async function runAgenticSetup(
     console.log('   ✓ Cursor — .cursor/rules/, .cursor/hooks/, .cursor/mcp.json.example')
   }
   console.log('')
+  console.log('   .ai/agentic.config.json ships preconfigured (GitHub tracker, labels off);')
+  console.log('   run /om-setup-agent-pipeline in your agent CLI to tailor labels, QA gate,')
+  console.log('   tracker, or validation commands. Re-run `yarn install-skills` anytime to')
+  console.log('   refresh the external open-mercato/skills subset.')
+  console.log('')
+}
+
+/**
+ * Persist the agent selection so later `yarn install-skills` runs keep honoring
+ * it: agents the user did not pick go into `agents.ignore` in tiers.json and
+ * never get a skills directory of their own.
+ */
+function persistAgentSelection(targetDir: string, selectedIds: string[]): void {
+  const manifestPath = join(targetDir, '.ai', 'skills', 'tiers.json')
+  if (!existsSync(manifestPath)) return
+  const ignore = SELECTABLE.map((tool) => tool.id).filter((id) => !selectedIds.includes(id))
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as Record<string, unknown>
+  if (ignore.length > 0) {
+    manifest.agents = { ignore }
+  } else {
+    delete manifest.agents
+  }
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+}
+
+function installSkills(targetDir: string): void {
+  const installScript = join(targetDir, 'scripts', 'install-skills.sh')
+  if (!existsSync(installScript)) return
+  console.log('')
+  console.log('   Installing agent skills (local tiers + external open-mercato/skills subset)...')
+  const result = spawnSync('sh', [installScript], { cwd: targetDir, stdio: 'inherit' })
+  if (result.error || result.status !== 0) {
+    console.log('   ⚠ Skill installation did not complete; run `yarn install-skills` inside the app when online.')
+  }
 }

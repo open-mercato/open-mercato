@@ -24,6 +24,9 @@ import { runBestEffortProvisioningStep } from '@open-mercato/onboarding/modules/
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('onboarding').child({ component: 'verify' })
 
 export const metadata = {
   path: '/onboarding/onboarding/verify',
@@ -47,7 +50,7 @@ async function runModuleSetupHook(args: {
   run: () => Promise<void>
 }) {
   const startedAt = Date.now()
-  console.info('[onboarding.verify] module hook started', {
+  logger.info('Module hook started', {
     moduleId: args.moduleId,
     phase: args.phase,
     timeoutMs: args.timeoutMs,
@@ -57,7 +60,7 @@ async function runModuleSetupHook(args: {
       args.run(),
       createTimeoutPromise(`module ${args.moduleId} ${args.phase}`, args.timeoutMs),
     ])
-    console.info('[onboarding.verify] module hook completed', {
+    logger.info('Module hook completed', {
       moduleId: args.moduleId,
       phase: args.phase,
       durationMs: Math.max(0, Date.now() - startedAt),
@@ -68,18 +71,18 @@ async function runModuleSetupHook(args: {
       // provisioned) re-runs seedDefaults against rows that exist. seed hooks
       // are not fully idempotent, so the collision is expected and harmless —
       // the workspace already exists. Log at info so real failures stand out.
-      console.info('[onboarding.verify] module hook skipped (already seeded)', {
+      logger.info('Module hook skipped (already seeded)', {
         moduleId: args.moduleId,
         phase: args.phase,
         durationMs: Math.max(0, Date.now() - startedAt),
       })
     } else {
-      console.error('[onboarding.verify] module hook failed', {
+      logger.error('Module hook failed', {
         moduleId: args.moduleId,
         phase: args.phase,
         durationMs: Math.max(0, Date.now() - startedAt),
         timeoutMs: args.timeoutMs,
-        error,
+        err: error,
       })
     }
     throw error
@@ -142,11 +145,11 @@ export async function GET(req: Request) {
           requestId: request.id,
           tenantId: request.tenantId!,
         }).catch((error) => {
-          console.error('[onboarding.verify] retry ready email failed', {
+          logger.error('Retry ready email failed', {
             requestId: request.id,
             tenantId: request.tenantId,
             organizationId: request.organizationId,
-            error,
+            err: error,
           })
         })
       })
@@ -189,7 +192,7 @@ export async function GET(req: Request) {
     return redirectToPreparing(baseUrl, current?.tenantId ?? request.tenantId ?? null)
   }
   if (!request.passwordHash) {
-    console.error('[onboarding.verify] missing password hash for request', request.id)
+    logger.error('Missing password hash for request', { requestId: request.id })
     await service.resetProcessing(request)
     return redirectWithStatus(baseUrl, 'error')
   }
@@ -313,7 +316,7 @@ export async function GET(req: Request) {
       await service.resetProcessing(request)
       return redirectWithStatus(baseUrl, 'already_exists')
     }
-    console.error('[onboarding.verify] failed', error)
+    logger.error('Verification failed', { err: error })
     await service.resetProcessing(request)
     return redirectWithStatus(baseUrl, 'error')
   }

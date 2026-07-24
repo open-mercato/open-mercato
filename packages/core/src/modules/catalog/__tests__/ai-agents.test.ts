@@ -9,6 +9,18 @@
  * here would let the generic catalog agent shadow the demo entry
  * point.
  */
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
   findOneWithDecryption: jest.fn(),
@@ -468,8 +480,9 @@ describe('catalog.catalog_assistant resolvePageContext hydration (Step 5.2)', ()
   })
 
   it('returns null without throwing when the tool handler throws', async () => {
-    const warn = jest.fn()
-    console.warn = warn
+    const { createLogger } = jest.requireMock('@open-mercato/shared/lib/logger')
+    const warn = createLogger('catalog').warn as jest.Mock
+    warn.mockClear()
     const handler = jest.fn(async () => {
       throw new Error('downstream blew up')
     })
@@ -622,8 +635,9 @@ describe('catalog.merchandising_assistant resolvePageContext hydration (Step 5.2
   })
 
   it('returns null without throwing when the tool handler throws', async () => {
-    const warn = jest.fn()
-    console.warn = warn
+    const { createLogger } = jest.requireMock('@open-mercato/shared/lib/logger')
+    const warn = createLogger('catalog').warn as jest.Mock
+    warn.mockClear()
     const handler = jest.fn(async () => {
       throw new Error('downstream blew up')
     })

@@ -17,6 +17,9 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { assertActorCanModifySuperAdminRoleTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { enforceRoleTenantAccess } from '@open-mercato/core/modules/auth/lib/roleTenantGuard'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'roles' })
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -137,7 +140,7 @@ export async function GET(req: Request) {
       isSuperAdmin = !!acl?.isSuperAdmin
     }
   } catch (err) {
-    console.error('roles: failed to resolve rbac', err)
+    logger.error('Failed to resolve rbac', { err })
   }
   const actorTenantId = auth.tenantId ? String(auth.tenantId) : null
   if (!isSuperAdmin && !actorTenantId) {

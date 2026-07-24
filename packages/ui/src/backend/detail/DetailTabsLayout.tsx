@@ -3,6 +3,7 @@
 import * as React from 'react'
 import type { SectionAction } from './NotesSection'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Plus } from 'lucide-react'
 
@@ -46,31 +47,19 @@ export function DetailTabsLayout<TId extends string = string>({
   return (
     <div className={cn('space-y-4', className)}>
       <div className={cn('flex flex-wrap items-center justify-between gap-3', headerClassName)}>
-        <nav
-          className={cn('flex flex-wrap items-center gap-3 text-sm', navClassName)}
-          role="tablist"
-          aria-label={navAriaLabel}
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => handleTabChange(value as TId)}
+          variant="underline"
         >
-          {tabs.map((tab) => (
-            <Button
-              key={tab.id}
-              type="button"
-              variant="ghost"
-              size="sm"
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              onClick={() => handleTabChange(tab.id)}
-              className={cn(
-                'h-auto rounded-none border-b-2 px-0 py-1',
-                activeTab === tab.id
-                  ? 'border-accent-indigo text-foreground hover:bg-transparent'
-                  : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-transparent'
-              )}
-            >
-              {tab.label}
-            </Button>
-          ))}
-        </nav>
+          <TabsList className={cn('h-auto flex-wrap border-b-0', navClassName)} aria-label={navAriaLabel}>
+            {tabs.map((tab) => (
+              <TabsTrigger key={tab.id} value={tab.id}>
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
         {sectionAction ? (
           <Button
             type="button"

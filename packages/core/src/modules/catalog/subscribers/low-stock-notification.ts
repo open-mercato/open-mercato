@@ -2,6 +2,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildFeatureNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 export const metadata = {
   event: 'catalog.product.stock_low',
@@ -47,6 +50,6 @@ export default async function handle(payload: LowStockPayload, ctx: ResolverCont
       organizationId: payload.organizationId ?? null,
     })
   } catch (err) {
-    console.error('[catalog:low-stock-notification] Failed to create notification:', err)
+    logger.error('catalog.low-stock-notification Failed to create notification', { err })
   }
 }

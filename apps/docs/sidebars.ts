@@ -228,6 +228,7 @@ const sidebars: SidebarsConfig = {
       label: "REST API",
       items: [
         "api/overview",
+        "api/exporting",
         {
           type: "category",
           label: "Module Guides",
@@ -495,6 +496,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/runtime/data-engine",
             "framework/runtime/request-lifecycle",
+            "framework/runtime/logging",
           ],
         },
         {

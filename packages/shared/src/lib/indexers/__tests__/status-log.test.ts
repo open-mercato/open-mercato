@@ -1,4 +1,20 @@
 import { recordIndexerLog } from '../status-log'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerError = createLogger('shared').error as jest.Mock
+const loggerWarn = createLogger('shared').warn as jest.Mock
+
 
 type Behaviors = {
   insert?: () => unknown
@@ -29,17 +45,13 @@ function makeDb(behaviors: Behaviors): any {
 const INPUT = { source: 'vector' as const, handler: 'event:test', message: 'hi' }
 
 describe('recordIndexerLog — inactive-transaction de-noising', () => {
-  let errorSpy: jest.SpyInstance
-  let warnSpy: jest.SpyInstance
 
   beforeEach(() => {
-    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    loggerError.mockClear()
+    loggerWarn.mockClear()
   })
 
   afterEach(() => {
-    errorSpy.mockRestore()
-    warnSpy.mockRestore()
   })
 
   it('skips quietly when the insert hits an already-committed transaction', async () => {
@@ -51,7 +63,7 @@ describe('recordIndexerLog — inactive-transaction de-noising', () => {
 
     await recordIndexerLog({ db }, INPUT)
 
-    expect(errorSpy).not.toHaveBeenCalled()
+    expect(loggerError).not.toHaveBeenCalled()
   })
 
   it('still logs an unexpected insert failure', async () => {
@@ -63,7 +75,7 @@ describe('recordIndexerLog — inactive-transaction de-noising', () => {
 
     await recordIndexerLog({ db }, INPUT)
 
-    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(loggerError).toHaveBeenCalledTimes(1)
   })
 
   it('skips quietly when the prune hits a rolled-back transaction', async () => {
@@ -76,7 +88,7 @@ describe('recordIndexerLog — inactive-transaction de-noising', () => {
 
     await recordIndexerLog({ db }, INPUT)
 
-    expect(warnSpy).not.toHaveBeenCalled()
+    expect(loggerWarn).not.toHaveBeenCalled()
   })
 
   it('still warns on an unexpected prune failure', async () => {
@@ -89,6 +101,6 @@ describe('recordIndexerLog — inactive-transaction de-noising', () => {
 
     await recordIndexerLog({ db }, INPUT)
 
-    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(loggerWarn).toHaveBeenCalledTimes(1)
   })
 })

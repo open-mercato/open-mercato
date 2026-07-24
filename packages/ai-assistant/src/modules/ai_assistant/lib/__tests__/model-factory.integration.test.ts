@@ -27,8 +27,12 @@ import type { AwilixContainer } from 'awilix'
 import {
   AiModelFactoryError,
   createModelFactory,
+  type AiModelFactoryRegistry,
   type CreateModelFactoryDependencies,
 } from '../model-factory'
+import { createOpenAICompatibleProvider } from '../llm-adapters/openai'
+import { createAnthropicAdapter } from '../llm-adapters/anthropic'
+import { OPENAI_COMPATIBLE_PRESETS } from '../openai-compatible-presets'
 
 type FakeProvider = {
   id: string
@@ -201,5 +205,45 @@ describe('Step 5.16 — model factory fallback chain (integration)', () => {
       kind: 'fake-model',
       modelId: 'gpt-5-mini',
     })
+  })
+})
+
+describe('model factory — vendor-prefix gateway (real adapters + presets)', () => {
+  // Registry backed by the REAL OpenRouter preset adapter (which surfaces
+  // usesVendorPrefixedModelIds) plus the real native Anthropic adapter, to
+  // pin the full port wiring end-to-end.
+  function realGatewayRegistry(): AiModelFactoryRegistry {
+    const openrouterPreset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === 'openrouter')!
+    const providers = [createOpenAICompatibleProvider(openrouterPreset), createAnthropicAdapter()]
+    return {
+      get: (id: string) => providers.find((p) => p.id === id) ?? null,
+      list: () => providers,
+      resolveFirstConfigured: (options) => {
+        const order = options?.order ?? []
+        const env = options?.env
+        for (const id of order) {
+          const found = providers.find((p) => p.id === id)
+          if (found && found.isConfigured(env)) return found
+        }
+        for (const provider of providers) {
+          if (provider.isConfigured(env)) return provider
+        }
+        return null
+      },
+    }
+  }
+
+  it('routes OM_AI_PROVIDER=openrouter + OM_AI_MODEL=anthropic/claude-sonnet-4.5 to OpenRouter, id intact', () => {
+    const factory = createModelFactory(fakeContainer, {
+      registry: realGatewayRegistry(),
+      env: {
+        OPENROUTER_API_KEY: 'or-test-key',
+        OM_AI_PROVIDER: 'openrouter',
+        OM_AI_MODEL: 'anthropic/claude-sonnet-4.5',
+      },
+    })
+    const resolution = factory.resolveModel({})
+    expect(resolution.providerId).toBe('openrouter')
+    expect(resolution.modelId).toBe('anthropic/claude-sonnet-4.5')
   })
 })
