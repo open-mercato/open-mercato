@@ -91,7 +91,7 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
     try {
       const createResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
         token,
-        data: { currencyCode: 'USD', customerReference: `ATOMIC-ORD-${stamp}` },
+        data: { currencyCode: 'USD', customerReference: `ATOMIC-ORD-${stamp}` , lines: [{ currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 }] },
       })
       expect(createResponse.status(), 'POST /api/sales/orders should be 201').toBe(201)
       const created = await readJson(createResponse)
@@ -136,10 +136,12 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
       expect(adjustmentResponse.status(), 'POST /api/sales/order-adjustments should be 201').toBe(201)
 
       // Line fields round-trip (decimals come back as fixed-scale strings).
+      // The order was created with a zero-priced seed line (issue #4021 requires
+      // at least one line at creation), so the added line is the second line here.
       const lines = await listChildItems(request, token, 'order-lines', `orderId=${encodeURIComponent(orderId!)}`)
-      expect(lines.length).toBe(1)
-      const line = lines[0]
-      expect(line.id).toBe(lineId)
+      expect(lines.length).toBe(2)
+      const line = lines.find((candidate) => candidate.id === lineId)!
+      expect(line, 'added line should be present').toBeTruthy()
       expect(line.name).toBe(`ATOMIC line ${stamp}`)
       expect(num(line.quantity)).toBe(3)
       expect(num(line.unit_price_net)).toBe(100)
@@ -162,7 +164,7 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
 
       // Parent totals recalc on read: subtotal = line + surcharge, surcharge bucket isolated.
       const afterChildren = await readSingleDocument(request, token, 'orders', orderId!)
-      expect(afterChildren.lineItemCount).toBe(1)
+      expect(afterChildren.lineItemCount).toBe(2) // zero-priced seed line (#4021) + added line
       expect(num(afterChildren.subtotalNetAmount)).toBe(310) // 300 line + 10 surcharge
       expect(num(afterChildren.subtotalGrossAmount)).toBe(312) // 300 line + 12 surcharge
       expect(num(afterChildren.surchargeTotalAmount)).toBe(10)
@@ -392,7 +394,7 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
     try {
       const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
         token,
-        data: { currencyCode: 'USD' },
+        data: { currencyCode: 'USD' , lines: [{ currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 }] },
       })
       expect(orderResponse.status()).toBe(201)
       orderId = (await readJson(orderResponse)).id as string
@@ -479,7 +481,7 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
       // (1) Undo of order create removes the order entirely.
       const createResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
         token,
-        data: { currencyCode: 'USD', customerReference: `UNDO-CREATE-${stamp}` },
+        data: { currencyCode: 'USD', customerReference: `UNDO-CREATE-${stamp}` , lines: [{ currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 }] },
       })
       expect(createResponse.status()).toBe(201)
       orderId = (await readJson(createResponse)).id as string
@@ -500,7 +502,7 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
       // (2) Undo of a line upsert removes the line and reverts parent totals.
       const lineOrderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
         token,
-        data: { currencyCode: 'USD' },
+        data: { currencyCode: 'USD' , lines: [{ currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 }] },
       })
       expect(lineOrderResponse.status()).toBe(201)
       lineUndoOrderId = (await readJson(lineOrderResponse)).id as string
@@ -526,7 +528,7 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
         'order-lines',
         `orderId=${encodeURIComponent(lineUndoOrderId)}`,
       )
-      expect(beforeLineUndo.length).toBe(1)
+      expect(beforeLineUndo.length).toBe(2) // zero-priced seed line (#4021) + added line
 
       await runUndo(request, token, lineUndoToken!)
       const afterLineUndo = await listChildItems(
@@ -535,16 +537,16 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
         'order-lines',
         `orderId=${encodeURIComponent(lineUndoOrderId)}`,
       )
-      expect(afterLineUndo.length, 'line should be removed after upsert undo').toBe(0)
+      expect(afterLineUndo.length, 'added line should be removed after upsert undo (seed line remains)').toBe(1)
       const orderAfterLineUndo = await readSingleDocument(request, token, 'orders', lineUndoOrderId)
-      expect(orderAfterLineUndo.lineItemCount).toBe(0)
+      expect(orderAfterLineUndo.lineItemCount).toBe(1) // zero-priced seed line (#4021) remains
       expect(num(orderAfterLineUndo.grandTotalGrossAmount)).toBe(0)
 
       // (3) Undo of an order update reverts the prior field state. The update-undo
       // restores the document graph snapshot (`comment`/totals/lines/adjustments).
       const updateOrderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
         token,
-        data: { currencyCode: 'USD' },
+        data: { currencyCode: 'USD' , lines: [{ currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 }] },
       })
       expect(updateOrderResponse.status()).toBe(201)
       updateUndoOrderId = (await readJson(updateOrderResponse)).id as string

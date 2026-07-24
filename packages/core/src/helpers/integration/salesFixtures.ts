@@ -47,7 +47,27 @@ export async function createSalesOrderFixture(
   token: string,
   currencyCode = 'USD',
 ): Promise<string> {
-  return createEntity(request, token, '/api/sales/orders', { currencyCode }, ['id', 'orderId']);
+  // A sales order must contain at least one line (see issue #4021). Seed a
+  // zero-priced placeholder line so the order is valid on creation without
+  // perturbing totals in specs that add their own priced lines afterwards.
+  return createEntity(
+    request,
+    token,
+    '/api/sales/orders',
+    {
+      currencyCode,
+      lines: [
+        {
+          currencyCode,
+          quantity: 1,
+          name: `QA seed line ${Date.now()}`,
+          unitPriceNet: 0,
+          unitPriceGross: 0,
+        },
+      ],
+    },
+    ['id', 'orderId'],
+  );
 }
 
 export async function createOrderLineFixture(
@@ -108,7 +128,19 @@ export async function canManageSalesOrders(
 ): Promise<boolean> {
   const response = await apiRequest(request, 'POST', '/api/sales/orders', {
     token,
-    data: { currencyCode: 'USD' },
+    // A sales order must contain at least one line (issue #4021).
+    data: {
+      currencyCode: 'USD',
+      lines: [
+        {
+          currencyCode: 'USD',
+          quantity: 1,
+          name: 'QA probe line',
+          unitPriceNet: 0,
+          unitPriceGross: 0,
+        },
+      ],
+    },
   });
   if (response.status() === 403) return false;
   if (!response.ok()) return false;
