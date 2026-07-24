@@ -1,5 +1,10 @@
 import { createModuleEvents } from '@open-mercato/shared/modules/events'
 
+/**
+ * Phone Calls Module Events
+ *
+ * Declares all events that can be emitted by the phone_calls module.
+ */
 const events = [
   { id: 'phone_calls.call.ingested', label: 'Phone Call Ingested', entity: 'call', category: 'crud' },
   { id: 'phone_calls.call.updated', label: 'Phone Call Updated', entity: 'call', category: 'crud' },

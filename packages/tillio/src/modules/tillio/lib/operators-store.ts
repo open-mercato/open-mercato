@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 
+// Own key in the credentials store rather than a table: `integration_credentials.integration_id` is
+// plain text with no registry lookup, so a provider key is accepted and the token inherits the
+// store's encryption. Distinct from TILLIO_INTEGRATION_ID so detaching never touches the environment.
 export const TILLIO_OPERATORS_INTEGRATION_ID = 'tillio_operators'
 
 export const operatorPluginSchema = z.enum(['Ringostat'])

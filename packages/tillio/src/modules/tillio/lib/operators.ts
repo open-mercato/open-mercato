@@ -127,6 +127,9 @@ export async function attachOperator(
     config,
     token,
     tenantDomain,
+    // Pins the operator to the environment that issued its token. If the environment is later
+    // edited the pairing is stale, and comparing this fingerprint is what raises `environment_drift`
+    // instead of pulling against an instance the operator never belonged to.
     envFingerprint: computeEnvFingerprint(environment),
   }
 
@@ -136,6 +139,8 @@ export async function attachOperator(
       defaultOperatorId: operatorId,
     })
   } catch (err) {
+    // `addConfig` already registered this operator on Tillio's side. If we cannot persist it
+    // locally we would lose the only reference to that remote config, so undo it before failing.
     await client.deleteConfig(plugin, token, tenantDomain).catch(() => undefined)
     throw err
   }

@@ -24,6 +24,9 @@ export function evaluatePullReadiness(input: EvaluatePullReadinessInput): PullRe
     Boolean(input.operator) &&
     input.operator!.envFingerprint !== computeEnvFingerprint(input.environment!)
 
+  // Ordered so the reported blocker is the one the user can act on first: an unhealthy environment
+  // makes operator state meaningless, and drift only matters once both levels exist. Each code
+  // routes the UI to the settings section that fixes it.
   if (!environmentReady) return { environmentReady, operatorAttached, envDrift, blocker: 'environment_not_ready' }
   if (!operatorAttached) return { environmentReady, operatorAttached, envDrift, blocker: 'operator_missing' }
   if (envDrift) return { environmentReady, operatorAttached, envDrift, blocker: 'environment_drift' }
