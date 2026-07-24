@@ -26,6 +26,20 @@ export const upsertDictionarySchema = z.object({
 
 export type UpsertDictionaryInput = z.infer<typeof upsertDictionarySchema>
 
+export const DICTIONARY_ENTRIES_MAX_LIMIT = 500
+
+export const listDictionaryEntriesQuerySchema = z.object({
+  limit: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(DICTIONARY_ENTRIES_MAX_LIMIT)
+    .catch(DICTIONARY_ENTRIES_MAX_LIMIT),
+  offset: z.coerce.number().int().min(0).catch(0),
+})
+
+export type ListDictionaryEntriesQuery = z.infer<typeof listDictionaryEntriesQuerySchema>
+
 export const createDictionaryEntrySchema = z.object({
   value: z.string().trim().min(1).max(150),
   label: z.string().trim().min(1).max(150).optional(),

@@ -3,7 +3,11 @@ import { z } from 'zod'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext, resolveDictionaryActorId } from '@open-mercato/core/modules/dictionaries/api/context'
-import { createDictionaryEntrySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
+import {
+  createDictionaryEntrySchema,
+  listDictionaryEntriesQuerySchema,
+  DICTIONARY_ENTRIES_MAX_LIMIT,
+} from '@open-mercato/core/modules/dictionaries/data/validators'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -14,6 +18,7 @@ import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/op
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   createDictionaryEntrySchema as createEntryDocSchema,
+  dictionaryEntriesQuerySchema,
   dictionaryEntryListResponseSchema,
   dictionaryEntryResponseSchema,
   dictionaryIdParamsSchema,
@@ -45,8 +50,10 @@ function buildEntriesCacheKey(params: {
   dictionaryId: string
   organizationId: string | null
   sortMode: string
+  limit: number
+  offset: number
 }): string {
-  return `dictionaries:entries:${params.dictionaryId}:org=${params.organizationId ?? 'null'}:sort=${params.sortMode}`
+  return `dictionaries:entries:${params.dictionaryId}:org=${params.organizationId ?? 'null'}:sort=${params.sortMode}:limit=${params.limit}:offset=${params.offset}`
 }
 
 async function loadDictionary(
@@ -93,6 +100,11 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
+    const requestUrl = new URL(req.url)
+    const { limit, offset } = listDictionaryEntriesQuerySchema.parse({
+      limit: requestUrl.searchParams.get('limit') ?? undefined,
+      offset: requestUrl.searchParams.get('offset') ?? undefined,
+    })
     const dictionary = await loadDictionary(context, dictionaryId, { allowInherited: true })
     const dictionaryTenantId = dictionary.tenantId
     const dictionaryOrgId = dictionary.organizationId ?? null
@@ -102,9 +114,12 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
     // decrypted+sorted options payload. The entry writes flow through the
     // command bus (resourceKind dictionaries.entry), which already flushes the
     // matching collection tag post-commit — no new invalidation wiring needed.
-    const cache = isCrudCacheEnabled() ? resolveCrudCache(context.container) : null
+    // Only the default page is cached: keying the cache on caller-supplied
+    // pagination would let any reader mint unbounded distinct cache entries.
+    const isDefaultPage = limit === DICTIONARY_ENTRIES_MAX_LIMIT && offset === 0
+    const cache = isCrudCacheEnabled() && isDefaultPage ? resolveCrudCache(context.container) : null
     const cacheKey = cache
-      ? buildEntriesCacheKey({ dictionaryId, organizationId: dictionaryOrgId, sortMode })
+      ? buildEntriesCacheKey({ dictionaryId, organizationId: dictionaryOrgId, sortMode, limit, offset })
       : null
 
     if (cache && cacheKey) {
@@ -114,15 +129,19 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
       }
     }
 
+    const entriesFilter = {
+      dictionary,
+      organizationId: dictionary.organizationId,
+      tenantId: dictionary.tenantId,
+    }
+    const total = await context.em.count(DictionaryEntry, entriesFilter)
+    // Bound the decrypt+sort work per request: page membership is decided by a
+    // stable database ordering, and the dictionary's sort mode orders the page.
     const entries = await findWithDecryption(
       context.em,
       DictionaryEntry,
-      {
-        dictionary,
-        organizationId: dictionary.organizationId,
-        tenantId: dictionary.tenantId,
-      },
-      {},
+      entriesFilter,
+      { orderBy: { position: 'asc', id: 'asc' }, limit, offset },
       { tenantId: dictionary.tenantId, organizationId: dictionary.organizationId },
     )
     const sortedEntries = sortDictionaryEntries(entries, sortMode)
@@ -139,6 +158,14 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
         createdAt: entry.createdAt,
         updatedAt: entry.updatedAt,
       })),
+      total,
+      limit,
+      offset,
+      hasMore: offset + sortedEntries.length < total,
+      // Page membership comes from the database ordering, while the page itself
+      // is ordered in memory. A client assembling several pages has to re-apply
+      // the same comparator, so it needs the mode that produced this ordering.
+      sortMode,
     }
 
     if (cache && cacheKey) {
@@ -259,8 +286,9 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
 
 const dictionaryEntriesGetDoc: OpenApiMethodDoc = {
   summary: 'List dictionary entries',
-  description: 'Returns entries for the specified dictionary ordered by its configured entry sort mode.',
+  description: `Returns entries for the specified dictionary ordered by its configured entry sort mode. The number of entries returned per request is capped at ${DICTIONARY_ENTRIES_MAX_LIMIT}; use \`limit\` and \`offset\` with the \`total\`/\`hasMore\` response fields to page through larger dictionaries.`,
   tags: [dictionariesTag],
+  query: dictionaryEntriesQuerySchema,
   responses: [
     { status: 200, description: 'Dictionary entries.', schema: dictionaryEntryListResponseSchema },
   ],
