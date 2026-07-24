@@ -75,3 +75,20 @@ test('install-skills is a successful no-op before agentic setup', () => {
   assert.equal(result.status, 0, result.stderr || result.stdout)
   assert.match(result.stdout, /mercato agentic:init/)
 })
+
+test('agentic operational placeholders fail closed with actionable setup guidance', () => {
+  for (const script of [
+    'evaluate-agent-harness.mjs',
+    'framework-context.mjs',
+    'prepare-agent-harness-fixture.mjs',
+    'run-agent-harness-release.mjs',
+  ]) {
+    const result = spawnSync(process.execPath, [`scripts/${script}`], {
+      cwd: fileURLToPath(TEMPLATE_DIR),
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 2, `${script}: ${result.stderr || result.stdout}`)
+    assert.match(result.stderr, /mercato agentic:init/, `${script} must explain how to install the agentic harness`)
+  }
+})
