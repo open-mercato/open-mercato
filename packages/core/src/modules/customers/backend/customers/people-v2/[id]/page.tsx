@@ -95,9 +95,11 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     return resolveLegacyTab(searchParams?.get('tab'))
   }, [searchParams])
   const [activeTab, setActiveTab] = React.useState<PersonTabId>(initialTab)
+  const userSelectedTabRef = React.useRef(false)
 
   const handleTabChange = React.useCallback(
     (tab: PersonTabId) => {
+      userSelectedTabRef.current = true
       setActiveTab(tab)
       if (!pathname) return
       const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
@@ -341,7 +343,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const restoredInjectedTabRef = React.useRef(false)
   React.useEffect(() => {
-    if (restoredInjectedTabRef.current) return
+    if (restoredInjectedTabRef.current || userSelectedTabRef.current) return
     const requestedTab = searchParams?.get('tab')
     if (!requestedTab || requestedTab === activeTab) return
     if (!injectedTabs.some((tab) => tab.id === requestedTab)) return

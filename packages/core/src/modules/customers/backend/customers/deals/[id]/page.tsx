@@ -70,6 +70,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const initialTab = React.useMemo(() => resolveLegacyTab(searchParams?.get('tab')), [searchParams])
   const [activeTab, setActiveTab] = React.useState<DealTabId>(initialTab)
+  const userSelectedTabRef = React.useRef(false)
 
   React.useEffect(() => {
     setActiveTab(initialTab)
@@ -109,7 +110,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const restoredInjectedTabRef = React.useRef(false)
   React.useEffect(() => {
-    if (restoredInjectedTabRef.current) return
+    if (restoredInjectedTabRef.current || userSelectedTabRef.current) return
     const requestedTab = searchParams?.get('tab')
     if (!requestedTab || requestedTab === activeTab) return
     if (!injectedTabs.some((tab) => tab.id === requestedTab)) return
@@ -232,6 +233,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const handleTabChange = React.useCallback(async (tab: DealTabId) => {
     if (!(await confirmDiscardIfDirty())) return
+    userSelectedTabRef.current = true
     setActiveTab(tab)
     const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
     nextParams.set('tab', tab)

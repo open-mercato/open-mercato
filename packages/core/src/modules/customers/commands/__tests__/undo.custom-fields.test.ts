@@ -594,6 +594,7 @@ describe('customers commands undo custom fields', () => {
               source: 'event',
             },
             people: ['person-1'],
+            primaryPersonEntityId: 'person-1',
             companies: ['company-1'],
             custom: { priority: 'high' },
           },
@@ -635,6 +636,10 @@ describe('customers commands undo custom fields', () => {
     )
     expect(existingDeal.title).toBe('Before Deal')
     expect(existingDeal.expectedCloseAt).toEqual(new Date('2026-07-20T12:00:00.000Z'))
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ person: personEntity, isPrimary: true }),
+    )
   })
 
   it('activities.update undo restores custom fields', async () => {

@@ -36,6 +36,7 @@ const plannedActivitiesSectionMock = jest.fn(
 const dealFormMock = jest.fn(() => <div>form</div>)
 let activeTabParam: string | null = 'activities'
 let detailRequestCount = 0
+let injectedTabWidgets: Array<Record<string, unknown>> = []
 
 jest.mock('next/link', () => ({
   __esModule: true,
@@ -104,7 +105,7 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 
 jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
   InjectionSpot: () => null,
-  useInjectionWidgets: () => ({ widgets: [] }),
+  useInjectionWidgets: () => ({ widgets: injectedTabWidgets }),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
@@ -355,6 +356,7 @@ describe('DealDetailPage', () => {
   beforeEach(() => {
     activeTabParam = 'activities'
     detailRequestCount = 0
+    injectedTabWidgets = []
     readApiResultOrThrowMock.mockReset()
     updateCrudMock.mockReset()
     deleteCrudMock.mockReset()
@@ -411,6 +413,29 @@ describe('DealDetailPage', () => {
         return { items: [] }
       }
       throw new Error(`Unexpected URL: ${url}`)
+    })
+  })
+
+  it('does not restore a late injected tab after the user has selected another tab (#4379)', async () => {
+    activeTabParam = 'crm.custom-tab'
+    const view = renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await screen.findByText('Expansion renewal')
+    fireEvent.click(screen.getByRole('button', { name: 'tab-companies' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-tab')).toHaveTextContent('companies')
+    })
+
+    injectedTabWidgets = [{
+      widgetId: 'crm.custom-tab',
+      placement: { kind: 'tab', groupId: 'crm.custom-tab' },
+      module: { metadata: { title: 'Custom' }, Widget: () => <div>custom</div> },
+    }]
+    view.rerender(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-tab')).toHaveTextContent('companies')
     })
   })
 

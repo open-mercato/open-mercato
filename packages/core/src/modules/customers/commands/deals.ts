@@ -273,6 +273,7 @@ type DealSnapshot = {
     lossNotes: string | null
   }
   people: string[]
+  primaryPersonEntityId?: string | null
   companies: string[]
   transitions: DealStageTransitionSnapshot[]
   custom?: Record<string, unknown>
@@ -324,6 +325,7 @@ async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnap
     tenantId: deal.tenantId,
     organizationId: deal.organizationId,
   })
+  const primaryPerson = peopleLinks.find((link) => link.isPrimary)?.person
   return {
     deal: {
       id: deal.id,
@@ -348,6 +350,8 @@ async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnap
     people: peopleLinks.map((link) =>
       typeof link.person === 'string' ? link.person : link.person.id
     ),
+    primaryPersonEntityId:
+      typeof primaryPerson === 'string' ? primaryPerson : primaryPerson?.id ?? null,
     companies: companyLinks.map((link) =>
       typeof link.company === 'string' ? link.company : link.company.id
     ),
@@ -589,7 +593,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     }
     const restoredDeal = deal
     await withAtomicFlush(em, [
-      () => syncDealPeople(em, restoredDeal, after.people),
+      () => syncDealPeople(em, restoredDeal, after.people, after.primaryPersonEntityId),
       () => syncDealCompanies(em, restoredDeal, after.companies),
       () => deleteDealStageTransitions(em, restoredDeal),
       () => restoreDealStageTransitions(em, restoredDeal, after.transitions),
@@ -903,7 +907,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           transitionedByUserId: normalizedTransitionAuthorUserId,
         })
       },
-      () => syncDealPeople(em, deal, before.people),
+      () => syncDealPeople(em, deal, before.people, before.primaryPersonEntityId),
       () => syncDealCompanies(em, deal, before.companies),
     ], { transaction: true })
 
@@ -1022,7 +1026,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         em.persist(deal)
       }
       await withAtomicFlush(em, [
-        () => syncDealPeople(em, deal, before.people),
+        () => syncDealPeople(em, deal, before.people, before.primaryPersonEntityId),
         () => syncDealCompanies(em, deal, before.companies),
         () => deleteDealStageTransitions(em, deal),
         () => restoreDealStageTransitions(em, deal, before.transitions),
