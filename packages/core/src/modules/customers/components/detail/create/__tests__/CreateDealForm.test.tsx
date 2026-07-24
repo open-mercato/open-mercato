@@ -173,7 +173,58 @@ beforeEach(() => {
   mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
 })
 
-describe('CreateDealForm custom fields', () => {
+describe('CreateDealForm', () => {
+  it('starts with the existing empty values when initialValues is omitted', () => {
+    render(<CreateDealForm returnTo="/backend/customers/deals" />)
+
+    expect(screen.getByLabelText('Deal title')).toHaveValue('')
+  })
+
+  it('prefills initialValues and includes them in the create payload', async () => {
+    render(
+      <CreateDealForm
+        returnTo="/backend/customers/deals"
+        initialValues={{
+          title: 'Copperleaf renewal',
+          status: 'active',
+          valueCurrency: 'USD',
+          description: 'Renewal seeded by the host application',
+        }}
+      />,
+    )
+
+    expect(screen.getByLabelText('Deal title')).toHaveValue('Copperleaf renewal')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
+
+    await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
+    const expectedPayload = expect.objectContaining({
+      title: 'Copperleaf renewal',
+      status: 'active',
+      valueCurrency: 'USD',
+      description: 'Renewal seeded by the host application',
+    })
+    expect(mockCreateCrud).toHaveBeenCalledWith('customers/deals', expectedPayload, expect.any(Object))
+    expect(mockRunMutation).toHaveBeenCalledWith(expect.objectContaining({ mutationPayload: expectedPayload }))
+  })
+
+  it('ignores explicitly undefined initialValues entries', async () => {
+    render(
+      <CreateDealForm
+        returnTo="/backend/customers/deals"
+        initialValues={{ title: 'Copperleaf renewal', personIds: undefined }}
+      />,
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
+
+    await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
+    expect(mockCreateCrud).toHaveBeenCalledWith(
+      'customers/deals',
+      expect.objectContaining({ title: 'Copperleaf renewal', personIds: undefined }),
+      expect.any(Object),
+    )
+  })
+
   it('applies custom-field defaults and passes the create payload to guarded mutation handlers', async () => {
     mockCustomDefinitions = [
       {

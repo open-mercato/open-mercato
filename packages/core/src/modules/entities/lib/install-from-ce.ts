@@ -49,6 +49,7 @@ const FIELD_DETAIL_KEYS: Array<keyof CustomFieldDefinition> = [
   'formEditable',
   'listVisible',
   'indexed',
+  'priority',
   'editor',
   'input',
   'relatedEntityId',
@@ -108,14 +109,28 @@ function buildAggregatedConfigs(): AggregatedEntityConfig[] {
   return Array.from(map.values())
 }
 
-function resolveFields(fieldSets: CustomFieldSet[]): CustomFieldDefinition[] {
+export function resolveFields(fieldSets: CustomFieldSet[]): CustomFieldDefinition[] {
   const byKey = new Map<string, CustomFieldDefinition>()
+  const declarationOrder = new Map<string, number>()
   for (const set of fieldSets) {
     for (const field of set.fields ?? []) {
+      if (!declarationOrder.has(field.key)) declarationOrder.set(field.key, declarationOrder.size)
       byKey.set(field.key, { ...field })
     }
   }
-  return Array.from(byKey.values()).sort((a, b) => a.key.localeCompare(b.key))
+  // Declaration order is the author's intent, so it drives `priority` (and the
+  // resulting render order) unless a field states its own. Sorting alphabetically
+  // by key here would silently discard that intent (#4378).
+  const resolved = Array.from(byKey.values()).map((field) => (
+    typeof field.priority === 'number'
+      ? field
+      : { ...field, priority: declarationOrder.get(field.key) ?? 0 }
+  ))
+  return resolved.sort((a, b) => {
+    const byPriority = (a.priority ?? 0) - (b.priority ?? 0)
+    if (byPriority !== 0) return byPriority
+    return (declarationOrder.get(a.key) ?? 0) - (declarationOrder.get(b.key) ?? 0)
+  })
 }
 
 function normalizeField(field: CustomFieldDefinition) {
