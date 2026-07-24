@@ -46,7 +46,8 @@
         "om-fix-specs",
         "om-migrate-mikro-orm",
         "om-create-ai-agent",
-        "om-help"
+        "om-help",
+        "om-refresh-standalone-harness"
       ]
     },
     "automation": {
