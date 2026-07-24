@@ -426,6 +426,41 @@ function extractJsonCandidate(stdout, outputFile, runner) {
   throw new Error('runner output did not contain a structured response')
 }
 
+function extractClaudeFailureEvent(stdout) {
+  const lines = String(stdout ?? '').trim().split(/\r?\n/).filter(Boolean)
+  let fallback
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    try {
+      const event = JSON.parse(lines[index])
+      if (!isPlainObject(event) || (event.type === 'system' && event.subtype === 'init')) continue
+      const serialized = JSON.stringify(event)
+      fallback ??= serialized
+      if (event.type === 'result' || event.type === 'error' || event.is_error === true || event.error || event.errors) return serialized
+    } catch { /* stream diagnostics may include non-JSON lines */ }
+  }
+  return fallback
+}
+
+function processFailureDiagnostic(runner, processResult) {
+  const stderr = String(processResult.stderr ?? '').trim()
+  const stdout = String(processResult.stdout ?? '').trim()
+  if (runner !== 'claude') return stderr || stdout || `runner exited ${processResult.status}`
+  const terminalEvent = extractClaudeFailureEvent(stdout)
+  return [terminalEvent, stderr].filter(Boolean).join('\n') || `runner exited ${processResult.status}`
+}
+
+const RETRYABLE_CLAUDE_FAILURES = [
+  /\b(?:rate[- ]?limit(?:ed|ing)?|too many requests|rate_limit_error)\b/i,
+  /\b(?:overloaded(?:_error)?|service (?:is )?unavailable|temporar(?:y|ily) unavailable|internal server error)\b/i,
+  /\b(?:HTTP|status(?: code)?|API error)\s*(?:429|500|502|503|504|529)\b/i,
+  /\b(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|socket hang up|network error|transport error)\b/i,
+  /\b(?:connection (?:reset|closed|terminated|timed out)|failed to connect|request timed out|api_connection_error)\b/i,
+]
+
+function isRetryableClaudeFailure(execution) {
+  return execution.kind === 'process-failure' && RETRYABLE_CLAUDE_FAILURES.some((pattern) => pattern.test(execution.error))
+}
+
 function validateRoutingResponse(response) {
   if (!isPlainObject(response)) return ['structured response must be an object']
   const keys = ['selectedRouter', 'selectedSkills', 'selectedContext', 'decisions', 'violations']
@@ -747,7 +782,7 @@ function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, wr
   }
   const schema = JSON.stringify(readJson(schemaPath))
   const tools = writable ? 'Read,Glob,Grep,Edit,Write' : 'Read,Glob,Grep'
-  const args = ['-p', '--permission-mode', writable ? 'acceptEdits' : 'plan', '--tools', tools, '--no-session-persistence', '--output-format', 'stream-json', '--verbose', '--json-schema', schema]
+  const args = ['-p', '--safe-mode', '--permission-mode', writable ? 'acceptEdits' : 'plan', '--tools', tools, '--no-session-persistence', '--output-format', 'stream-json', '--verbose', '--json-schema', schema]
   if (model && model !== 'default') args.push('--model', model)
   return { command: 'claude', args }
 }
@@ -784,7 +819,7 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
       return { kind: 'process-failure', durationMs, exitStatus: processResult.status, error: `runner timed out or was terminated (${processResult.signal ?? 'timeout'})`, stdout: processResult.stdout ?? '' }
     }
     if (processResult.error) return { kind: 'environment-failure', durationMs, exitStatus: processResult.status, error: processResult.error.message, stdout: processResult.stdout ?? '' }
-    if (processResult.status !== 0) return { kind: 'process-failure', durationMs, exitStatus: processResult.status, error: processResult.stderr || processResult.stdout || `runner exited ${processResult.status}`, stdout: processResult.stdout ?? '' }
+    if (processResult.status !== 0) return { kind: 'process-failure', durationMs, exitStatus: processResult.status, error: processFailureDiagnostic(runner, processResult), stdout: processResult.stdout ?? '' }
     try {
       const response = recursivelySanitize(extractJsonCandidate(processResult.stdout ?? '', outputPath, runner), root)
       const schemaErrors = [...validateRoutingResponse(response), ...validateJsonSchema(response, readJson(schemaPath))]
@@ -963,8 +998,11 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
       const prompt = buildPrompt(caseRecord, runRoot, writable) + (writable ? `\n\nImplement the task only under these allowed app-relative paths: ${caseRecord.allowedWrites.join(', ')}. Do not change anything else.` : '')
       const executions = [runAgentOnce({ runner: options.runner, root: runRoot, schemaPath, prompt, timeout: options.timeout, model, writable })]
       let execution = executions[0]
-      if (execution.kind === 'invalid-structured-output') {
-        execution = runAgentOnce({ runner: options.runner, root: runRoot, schemaPath, prompt: `${prompt}\n\nYour previous response was not valid structured output. Return only the schema object.`, timeout: options.timeout, model, writable })
+      if (execution.kind === 'invalid-structured-output' || (options.runner === 'claude' && isRetryableClaudeFailure(execution))) {
+        const retryPrompt = execution.kind === 'invalid-structured-output'
+          ? `${prompt}\n\nYour previous response was not valid structured output. Return only the schema object.`
+          : prompt
+        execution = runAgentOnce({ runner: options.runner, root: runRoot, schemaPath, prompt: retryPrompt, timeout: options.timeout, model, writable })
         executions.push(execution)
       }
       const trace = observedContext(executions.map((attempt) => attempt.stdout ?? '').join('\n'), runRoot, caseRecord, writable)

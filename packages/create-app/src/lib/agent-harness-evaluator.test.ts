@@ -253,7 +253,7 @@ for (const command of [
   }
 })
 
-test('live Claude adapter uses plan mode, a read-only tool list, structured output, and no persistence', { skip: process.platform === 'win32' }, () => {
+test('live Claude adapter uses safe plan mode, a read-only tool list, structured output, and no persistence', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin)
@@ -261,7 +261,7 @@ test('live Claude adapter uses plan mode, a read-only tool list, structured outp
   fs.writeFileSync(fake, `#!/usr/bin/env node
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
-if (args[args.indexOf('--permission-mode') + 1] !== 'plan' || args[args.indexOf('--tools') + 1] !== 'Read,Glob,Grep' || !args.includes('--no-session-persistence') || args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--verbose') || !args.includes('--json-schema')) process.exit(9)
+if (!args.includes('--safe-mode') || args[args.indexOf('--permission-mode') + 1] !== 'plan' || args[args.indexOf('--tools') + 1] !== 'Read,Glob,Grep' || !args.includes('--no-session-persistence') || args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--verbose') || !args.includes('--json-schema')) process.exit(9)
 console.log(JSON.stringify({ type: 'assistant', message: { content: [
   { type: 'tool_use', name: 'Glob', input: { pattern: '.ai/{guides,skills}/**/*.md' } },
   { type: 'tool_use', name: 'Read', input: { file_path: require('node:path').join(process.cwd(), 'AGENTS.md') } },
@@ -282,6 +282,113 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
     })
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
     assert.match(result.stdout, /PASS OMH-009/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live Claude retries one recognized transient process failure and then succeeds', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const attemptsPath = path.join(root, 'claude-attempts')
+  const bin = installFakeRunner(root, 'claude', `
+const fs = require('node:fs')
+const path = require('node:path')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+if (!args.includes('--safe-mode')) process.exit(9)
+const attemptsPath = ${JSON.stringify(attemptsPath)}
+const attempt = fs.existsSync(attemptsPath) ? Number(fs.readFileSync(attemptsPath, 'utf8')) + 1 : 1
+fs.writeFileSync(attemptsPath, String(attempt))
+if (attempt === 1) {
+  console.log(JSON.stringify({ type: 'system', subtype: 'init', plugins: Array.from({ length: 800 }, (_, index) => 'plugin-' + index) }))
+  console.log(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'API Error 529: overloaded_error' }))
+  process.exit(1)
+}
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), 'AGENTS.md') } },
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/guides/contracts.md') } },
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/skills/om-data-model-design/SKILL.md') } }
+] } }))
+console.log(JSON.stringify({ type: 'result', structured_output: {
+  selectedRouter: ['module-data'], selectedSkills: ['om-data-model-design'],
+  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+  decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
+} }))
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-009'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.equal(fs.readFileSync(attemptsPath, 'utf8'), '2')
+    assert.match(result.stdout, /PASS OMH-009/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live Claude preserves its terminal error event without retrying a non-transient failure', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const attemptsPath = path.join(root, 'claude-attempts')
+  const bin = installFakeRunner(root, 'claude', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+const attemptsPath = ${JSON.stringify(attemptsPath)}
+const attempt = fs.existsSync(attemptsPath) ? Number(fs.readFileSync(attemptsPath, 'utf8')) + 1 : 1
+fs.writeFileSync(attemptsPath, String(attempt))
+console.log(JSON.stringify({ type: 'system', subtype: 'init', plugins: Array.from({ length: 800 }, (_, index) => 'plugin-' + index) }))
+console.log(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'authentication failed: invalid account' }))
+process.exit(1)
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-009'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.equal(fs.readFileSync(attemptsPath, 'utf8'), '1')
+    const [stored] = storedResults(root)
+    assert.match(stored.sanitizedError ?? '', /authentication failed: invalid account/)
+    assert.doesNotMatch(stored.sanitizedError ?? '', /plugin-0/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live Claude does not retry routing or safety assertion failures', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const attemptsPath = path.join(root, 'claude-attempts')
+  const bin = installFakeRunner(root, 'claude', `
+const fs = require('node:fs')
+const path = require('node:path')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+const attemptsPath = ${JSON.stringify(attemptsPath)}
+const attempt = fs.existsSync(attemptsPath) ? Number(fs.readFileSync(attemptsPath, 'utf8')) + 1 : 1
+fs.writeFileSync(attemptsPath, String(attempt))
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), 'AGENTS.md') } },
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/guides/contracts.md') } },
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/skills/om-data-model-design/SKILL.md') } }
+] } }))
+console.log(JSON.stringify({ type: 'result', structured_output: {
+  selectedRouter: ['testing'], selectedSkills: ['om-data-model-design'],
+  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+  decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: ['safety assertion failed']
+} }))
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-009'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.equal(fs.readFileSync(attemptsPath, 'utf8'), '1')
+    const [stored] = storedResults(root)
+    assert.ok(stored.violations.includes('unexpected route testing'))
+    assert.ok(stored.violations.includes('runner violation: safety assertion failed'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
