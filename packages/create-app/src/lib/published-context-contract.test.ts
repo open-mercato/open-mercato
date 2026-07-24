@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
@@ -16,6 +16,18 @@ function packedFiles(packageDir: string): string[] {
   assert.equal(result.status, 0, result.stderr)
   const parsed = JSON.parse(result.stdout) as Array<{ files?: Array<{ path?: string }> }>
   return (parsed[0]?.files ?? []).flatMap((entry) => typeof entry.path === 'string' ? [entry.path] : [])
+}
+
+function nearestModuleAgents(packageDir: string, moduleId: string): string | null {
+  const modulesRoot = join(packageDir, 'src', 'modules')
+  let cursor = join(modulesRoot, moduleId)
+  while (cursor === modulesRoot || cursor.startsWith(`${modulesRoot}${sep}`)) {
+    const candidate = join(cursor, 'AGENTS.md')
+    if (existsSync(candidate)) return relative(packageDir, candidate).split(sep).join('/')
+    if (cursor === modulesRoot) break
+    cursor = dirname(cursor)
+  }
+  return null
 }
 
 test('every package declared by the standalone template publishes its module source and available AGENTS context', () => {
@@ -37,6 +49,7 @@ test('every package declared by the standalone template publishes its module sou
     byPackage.set(entry.packageName, ids)
   }
 
+  let moduleAgentsAssertions = 0
   for (const [packageName, moduleIds] of byPackage) {
     const packageDir = packageDirs.get(packageName)
     assert.ok(packageDir, `${packageName} must resolve to a workspace package`)
@@ -46,13 +59,23 @@ test('every package declared by the standalone template publishes its module sou
         [...files].some((file) => file.startsWith(`src/modules/${moduleId}/`)),
         `${packageName} package is missing exact source for module ${moduleId}`,
       )
+      const nearestAgents = nearestModuleAgents(packageDir, moduleId)
+      if (nearestAgents) {
+        moduleAgentsAssertions += 1
+        assert.equal(
+          files.has(nearestAgents),
+          true,
+          `${packageName} package is missing nearest module instructions ${nearestAgents}`,
+        )
+      }
     }
     if (existsSync(join(packageDir, 'AGENTS.md'))) {
       assert.equal(files.has('AGENTS.md'), true, `${packageName} package is missing its root AGENTS.md`)
     }
   }
 
+  assert.ok(moduleAgentsAssertions > 1, 'expected multiple declared modules to carry nearest AGENTS context')
+
   const coreFiles = new Set(packedFiles(join(packagesRoot, 'core')))
-  assert.equal(coreFiles.has('src/modules/customers/AGENTS.md'), true)
   assert.equal(coreFiles.has('src/modules/customers/data/entities.ts'), true)
 })

@@ -19,7 +19,8 @@ test('standalone discovery catalog covers every public module contribution famil
     'backend/middleware.ts', 'frontend/middleware.ts', 'events.ts', 'subscribers/*.ts', 'workers/*.ts', 'workflows.ts',
     'search.ts', 'vector.ts', 'analytics.ts', 'translations.ts', 'i18n/<locale>.json', 'widgets/injection-table.ts', 'widgets/components.ts',
     'notifications.ts', 'notifications.client.ts', 'notifications.handlers.ts', 'message-types.ts', 'message-objects.ts',
-    'inbox-actions.ts', 'ai-tools.ts', 'ai-agents.ts', 'cli.ts', 'integration.ts', 'generators.ts',
+    'inbox-actions.ts', 'ai-tools.ts', 'ai-agents.ts', 'security.mfa-providers.ts', 'security.sudo.ts',
+    'cli.ts', 'integration.ts', 'generators.ts',
   ]
   for (const expected of expectedPaths) assert.ok(catalog.includes(`\`${expected}\``), `missing discovery surface ${expected}`)
   assert.match(catalog, /Do not use legacy HTTP-method directories or new flat page files/)
@@ -96,7 +97,7 @@ test('standalone provider guidance defaults app integrations to local modules, n
 test('scope guidance preserves explicit tenant-wide host contracts without widening organization data', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{ id: string; prompt: string; requiredDecisions: string[] }>
   const worker = cases.find((entry) => entry.id === 'OMH-019')
-  assert.match(read('shared/AGENTS.md.template'), /Tenant-wide\/system scope is valid only when the installed contract declares it/)
+  assert.match(read('shared/AGENTS.md.template'), /Only an installed contract may use system scope \(`organizationId: null`\)/)
   assert.match(read('guides/contracts.md'), /explicitly authorizes nullable organization scope/)
   assert.match(read('guides/ai-workflows.md'), /organizationId: null/)
   assert.match(worker?.prompt ?? '', /tenant-wide scheduler worker/)

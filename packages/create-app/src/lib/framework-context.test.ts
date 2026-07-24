@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -63,6 +63,33 @@ function createFixture(options: FixtureOptions = {}): string {
   return root
 }
 
+function installPackage(
+  root: string,
+  packageName: string,
+  version: string,
+  options: { under?: string; modules?: string[] } = {},
+): string {
+  const packageRoot = join(
+    root,
+    'node_modules',
+    ...(options.under ? [options.under, 'node_modules'] : []),
+    ...packageName.split('/'),
+  )
+  write(join(packageRoot, 'package.json'), JSON.stringify({
+    name: packageName,
+    version,
+    type: 'module',
+    exports: { '.': './dist/index.js' },
+  }))
+  write(join(packageRoot, 'dist', 'index.js'), 'export {}\n')
+  write(join(packageRoot, 'AGENTS.md'), `# ${packageName}\n`)
+  for (const moduleId of options.modules ?? []) {
+    write(join(packageRoot, 'src', 'modules', moduleId, 'AGENTS.md'), `# ${moduleId}\n`)
+    write(join(packageRoot, 'src', 'modules', moduleId, 'index.ts'), `export const id = '${moduleId}'\n`)
+  }
+  return packageRoot
+}
+
 test('resolves a declared installed module and materializes its exact source and instruction chain', () => {
   const root = createFixture()
   const result = spawnSync(
@@ -88,6 +115,127 @@ test('resolves a declared installed module and materializes its exact source and
   assert.equal(
     existsSync(join(root, '.ai', 'framework-context', 'open-mercato-core@0.6.6', 'source', 'customers', 'data', 'entities.ts')),
     true,
+  )
+})
+
+test('reports a deterministic mixed-version cohort without combining package context', () => {
+  const root = createFixture()
+  write(join(root, 'package.json'), JSON.stringify({
+    name: 'context-fixture',
+    type: 'module',
+    dependencies: {
+      '@open-mercato/core': '0.6.6',
+      '@open-mercato/shared': '0.6.5',
+    },
+  }))
+  write(
+    join(root, 'src', 'modules.ts'),
+    `export const enabledModules = [
+  { id: 'customers', from: '@open-mercato/core' },
+  { id: 'shared_fixture', from: '@open-mercato/shared' },
+]\n`,
+  )
+  installPackage(root, '@open-mercato/shared', '0.6.5', { modules: ['shared_fixture'] })
+
+  const result = spawnSync(
+    process.execPath,
+    ['scripts/framework-context.mjs', '--module', 'customers', '--json', '--no-materialize'],
+    { cwd: root, encoding: 'utf8' },
+  )
+  assert.equal(result.status, 0, result.stderr)
+  const parsed = JSON.parse(result.stdout) as {
+    package: { name: string; version: string }
+    installedPackages: { cohort: Array<{ name: string; version: string }>; duplicates: unknown[] }
+    warnings: string[]
+  }
+  assert.deepEqual(
+    parsed.installedPackages.cohort.map(({ name, version }) => ({ name, version })),
+    [
+      { name: '@open-mercato/core', version: '0.6.6' },
+      { name: '@open-mercato/shared', version: '0.6.5' },
+    ],
+  )
+  assert.deepEqual(parsed.installedPackages.duplicates, [])
+  assert.equal(parsed.package.version, '0.6.6')
+  assert.ok(parsed.warnings.some((warning) => warning.includes(
+    'Installed Open Mercato package cohort uses mixed versions: @open-mercato/core@0.6.6',
+  )))
+  assert.ok(parsed.warnings.some((warning) => warning.includes('Context remains package-specific')))
+})
+
+test('reports nested duplicate package installs while keeping app-root resolution exact and read-only', () => {
+  const root = createFixture()
+  const nestedRoot = installPackage(root, '@open-mercato/core', '0.6.5', {
+    under: 'nested-dependency',
+    modules: ['customers'],
+  })
+  const sentinel = join(nestedRoot, 'src', 'modules', 'customers', 'sentinel.ts')
+  write(sentinel, 'export const untouched = true\n')
+
+  const result = spawnSync(
+    process.execPath,
+    ['scripts/framework-context.mjs', '--module', 'customers', '--json', '--no-materialize'],
+    { cwd: root, encoding: 'utf8' },
+  )
+  assert.equal(result.status, 0, result.stderr)
+  const parsed = JSON.parse(result.stdout) as {
+    package: { version: string; root: string }
+    sourceRoot: string
+    installedPackages: {
+      duplicates: Array<{ name: string; installations: Array<{ version: string; root: string }> }>
+    }
+    warnings: string[]
+  }
+  assert.equal(parsed.package.version, '0.6.6')
+  assert.equal(parsed.package.root, realpathSync(join(root, 'node_modules', '@open-mercato', 'core')))
+  assert.equal(parsed.sourceRoot.startsWith(parsed.package.root), true)
+  assert.deepEqual(
+    parsed.installedPackages.duplicates.map((duplicate) => ({
+      name: duplicate.name,
+      versions: duplicate.installations.map((entry) => entry.version),
+    })),
+    [{ name: '@open-mercato/core', versions: ['0.6.5', '0.6.6'] }],
+  )
+  assert.ok(parsed.warnings.some((warning) => warning.includes('Multiple installed copies of @open-mercato/core were found')))
+  assert.ok(parsed.warnings.some((warning) => warning.includes('App resolution selected @open-mercato/core@0.6.6')))
+  assert.equal(readFileSync(sentinel, 'utf8'), 'export const untouched = true\n')
+  assert.equal(existsSync(join(root, '.ai', 'framework-context')), false)
+})
+
+test('fails closed for duplicate or ambiguous module declarations', () => {
+  const duplicateRoot = createFixture()
+  write(
+    join(duplicateRoot, 'src', 'modules.ts'),
+    `export const enabledModules = [
+  { id: 'customers', from: '@open-mercato/core' },
+  { id: 'customers', from: '@open-mercato/core' },
+]\n`,
+  )
+  const duplicate = spawnSync(
+    process.execPath,
+    ['scripts/framework-context.mjs', '--module', 'customers', '--json', '--no-materialize'],
+    { cwd: duplicateRoot, encoding: 'utf8' },
+  )
+  assert.equal(duplicate.status, 2)
+  assert.match(duplicate.stderr, /module customers is declared 2 times for @open-mercato\/core/)
+
+  const ambiguousRoot = createFixture()
+  write(
+    join(ambiguousRoot, 'src', 'modules.ts'),
+    `export const enabledModules = [
+  { id: 'customers', from: '@open-mercato/core' },
+  { id: 'customers', from: '@open-mercato/shared' },
+]\n`,
+  )
+  const ambiguous = spawnSync(
+    process.execPath,
+    ['scripts/framework-context.mjs', '--module', 'customers', '--json', '--no-materialize'],
+    { cwd: ambiguousRoot, encoding: 'utf8' },
+  )
+  assert.equal(ambiguous.status, 2)
+  assert.match(
+    ambiguous.stderr,
+    /module customers is ambiguous; pass --package \(@open-mercato\/core, @open-mercato\/shared\)/,
   )
 })
 

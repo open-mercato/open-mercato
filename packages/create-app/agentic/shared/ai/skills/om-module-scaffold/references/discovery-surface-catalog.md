@@ -64,6 +64,8 @@ Compatibility scanners may still read `data/entities.override.*`, `data/entities
 | Message types/objects | `message-types.ts`, `message-objects.ts` | Stable message/object definitions and supported UI renderers. |
 | Inbox actions | `inbox-actions.ts` | Stable action IDs with authorization and guarded execution. |
 | AI tools and agents | `ai-tools.ts`, `ai-agents.ts` | Typed IDs, ACL/scope, tool allowlists, approval-gated mutations. |
+| MFA provider contributions | `security.mfa-providers.ts` | Generator-plugin surface enabled by the installed security module; export provider setups with stable provider types and inspect the exact installed provider interface before authoring. |
+| Sudo target contributions | `security.sudo.ts` | Generator-plugin surface enabled by the installed security module; export stable target identifiers with explicit TTL/challenge policy and never treat elevation as a replacement for route/command authorization. |
 | CLI | `cli.ts` | Stable commands that work from compiled/published packages. |
 | Integration metadata | `integration.ts` | Provider/integration contribution when that subsystem requires it. |
 | Provider/domain registration | owning integration/module files | Payment, shipping, currency, workflow activity/signal, and other registries use their typed installed contract; route to the integration/workflow skill for exact paths. |

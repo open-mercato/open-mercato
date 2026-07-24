@@ -17,6 +17,7 @@ import { spawnSync } from 'node:child_process'
 const appRoot = realpathSync(process.cwd())
 const requireFromApp = createRequire(join(appRoot, 'package.json'))
 const SEARCH_MATCH_LIMIT = 200
+const INSTALLED_PACKAGE_SCAN_LIMIT = 1000
 
 function fail(message) {
   console.error(`framework-context: ${message}`)
@@ -113,7 +114,13 @@ function encodePackageVersion(value) {
 
 function candidatePackages(moduleId) {
   const declared = parseModuleEntries().filter((entry) => entry.id === moduleId)
-  if (declared.length > 0) return [...new Set(declared.map((entry) => entry.from))]
+  if (declared.length > 0) {
+    const providers = [...new Set(declared.map((entry) => entry.from))].sort()
+    if (declared.length > 1 && providers.length === 1) {
+      throw new Error(`module ${moduleId} is declared ${declared.length} times for ${providers[0]}`)
+    }
+    return providers
+  }
 
   const appManifest = readJson(join(appRoot, 'package.json'))
   const names = Object.keys({ ...appManifest.dependencies, ...appManifest.devDependencies })
@@ -166,6 +173,102 @@ function runRg(args, label, maxBuffer = 4 * 1024 * 1024) {
     throw new Error(`${label} (exit ${String(result.status)}): ${detail || 'unknown rg error'}`)
   }
   return result
+}
+
+function packageRecord(packageName, packageRoot) {
+  const manifest = readJson(join(packageRoot, 'package.json'))
+  if (manifest.name !== packageName) {
+    throw new Error(`resolved package ${packageName} has manifest name ${String(manifest.name)}`)
+  }
+  const version = typeof manifest.version === 'string' ? manifest.version : 'unknown'
+  encodePackageVersion(version)
+  return {
+    name: packageName,
+    version,
+    root: packageRoot,
+  }
+}
+
+function relevantPackageNames(selectedPackage) {
+  const appManifest = readJson(join(appRoot, 'package.json'))
+  return [...new Set([
+    selectedPackage,
+    ...parseModuleEntries().map((entry) => entry.from),
+    ...Object.keys({ ...appManifest.dependencies, ...appManifest.devDependencies }),
+  ].filter((name) => typeof name === 'string' && name.startsWith('@open-mercato/')))].sort()
+}
+
+function installedPackageDiagnostics(selectedPackage, selectedRoot) {
+  const packageNames = relevantPackageNames(selectedPackage)
+  const packageNameSet = new Set(packageNames)
+  const cohort = []
+  for (const packageName of packageNames) {
+    const packageRoot = packageName === selectedPackage ? selectedRoot : findPackageRoot(packageName)
+    if (packageRoot) cohort.push(packageRecord(packageName, packageRoot))
+  }
+  cohort.sort((left, right) => left.name.localeCompare(right.name) || left.root.localeCompare(right.root))
+
+  const installations = new Map()
+  for (const record of cohort) installations.set(`${record.name}\0${record.root}`, record)
+  const nodeModulesRoot = join(appRoot, 'node_modules')
+  if (existsSync(nodeModulesRoot)) {
+    const manifests = runRg(
+      [
+        '--no-ignore',
+        '--hidden',
+        '--files',
+        '--sort',
+        'path',
+        '--glob',
+        '**/@open-mercato/*/package.json',
+        nodeModulesRoot,
+      ],
+      'installed package scan failed',
+    ).stdout.split(/\r?\n/).filter(Boolean)
+    if (manifests.length > INSTALLED_PACKAGE_SCAN_LIMIT) {
+      throw new Error(`installed package scan exceeded ${INSTALLED_PACKAGE_SCAN_LIMIT} manifests`)
+    }
+    for (const manifestPath of manifests) {
+      const packageName = `@open-mercato/${basename(dirname(manifestPath))}`
+      if (!packageNameSet.has(packageName)) continue
+      const packageRoot = realpathSync(dirname(manifestPath))
+      const record = packageRecord(packageName, packageRoot)
+      installations.set(`${record.name}\0${record.root}`, record)
+    }
+  }
+
+  const allInstallations = [...installations.values()]
+    .sort((left, right) => left.name.localeCompare(right.name)
+      || left.version.localeCompare(right.version)
+      || left.root.localeCompare(right.root))
+  const duplicates = []
+  for (const packageName of packageNames) {
+    const records = allInstallations.filter((record) => record.name === packageName)
+    if (records.length > 1) duplicates.push({ name: packageName, installations: records })
+  }
+  return { cohort, duplicates }
+}
+
+function displayPackageRecord(record) {
+  const location = relative(appRoot, record.root).split(sep).join('/') || '.'
+  return `${record.name}@${record.version} (${location})`
+}
+
+function packageDiagnosticWarnings(diagnostics) {
+  const warnings = []
+  const versions = new Set(diagnostics.cohort.map((record) => record.version))
+  if (versions.size > 1) {
+    warnings.push(
+      `Installed Open Mercato package cohort uses mixed versions: ${diagnostics.cohort.map(displayPackageRecord).join(', ')}. Context remains package-specific; do not combine generated facts or source across versions.`,
+    )
+  }
+  for (const duplicate of diagnostics.duplicates) {
+    const selected = diagnostics.cohort.find((record) => record.name === duplicate.name)
+    warnings.push(
+      `Multiple installed copies of ${duplicate.name} were found: ${duplicate.installations.map(displayPackageRecord).join(', ')}.${selected ? ` App resolution selected ${displayPackageRecord(selected)}; no other copy was read.` : ''}`,
+    )
+  }
+  return warnings
 }
 
 function runBoundedSearch(query, sourceRoot) {
@@ -305,6 +408,7 @@ function buildResult(args) {
   const packageRoot = findPackageRoot(packageName)
   if (!packageRoot) throw new Error(`cannot resolve ${packageName} from ${appRoot}`)
   const packageManifest = readJson(join(packageRoot, 'package.json'))
+  const installedPackages = installedPackageDiagnostics(packageName, packageRoot)
   const sourceCandidate = moduleId
     ? join(packageRoot, 'src', 'modules', moduleId)
     : join(packageRoot, 'src')
@@ -334,6 +438,7 @@ function buildResult(args) {
     mode: moduleId ? 'module' : 'package',
     module: moduleId,
     package: { name: packageName, version: packageManifest.version ?? 'unknown', root: packageRoot },
+    installedPackages,
     sourceRoot,
     sourceKind,
     degraded,
@@ -369,6 +474,7 @@ function buildResult(args) {
       ...(!factsCurrent
         ? [`Generated facts for ${moduleId} are stale and must not be used until yarn generate/agentic:init refreshes them.`]
         : []),
+      ...packageDiagnosticWarnings(installedPackages),
     ],
   }
 }

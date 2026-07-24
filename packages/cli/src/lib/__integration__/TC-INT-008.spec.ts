@@ -14,6 +14,7 @@ const cliIntegrationRunnerPath = path.join(cliDir, 'src', 'lib', 'testing', 'int
 const standaloneTemplatePackageJsonPath = path.join(repoRoot, 'packages', 'create-app', 'template', 'package.json.template')
 const agenticRoot = path.join(repoRoot, 'packages', 'create-app', 'agentic')
 const packagesRoot = path.join(repoRoot, 'packages')
+const coreVersion = JSON.parse(fs.readFileSync(path.join(packagesRoot, 'core', 'package.json'), 'utf8')).version as string
 
 // Modules the standalone fixture enables in src/modules.ts. Both are on the
 // fact-sheet allowlist, so agentic:init must ship exactly their fact-sheets
@@ -61,14 +62,46 @@ function createStandaloneFixture(rootDir: string): string {
       {
         name: 'sample-store',
         private: true,
+        dependencies: { '@open-mercato/core': coreVersion },
       },
       null,
       2,
     ),
   )
-  const moduleEntries = FIXTURE_ENABLED_MODULES.map((moduleId) => `  { id: '${moduleId}' },`).join('\n')
+  const moduleEntries = FIXTURE_ENABLED_MODULES
+    .map((moduleId) => `  { id: '${moduleId}', from: '@open-mercato/core' },`)
+    .join('\n')
   writeFile(path.join(appDir, 'src', 'modules.ts'), `export const enabledModules = [\n${moduleEntries}\n]\n`)
   return appDir
+}
+
+function installFakeFrameworkPackage(appDir: string): string {
+  const packageRoot = path.join(appDir, 'node_modules', '@open-mercato', 'core')
+  writeFile(path.join(packageRoot, 'package.json'), JSON.stringify({
+    name: '@open-mercato/core',
+    version: coreVersion,
+    type: 'module',
+    exports: { '.': './dist/index.js' },
+  }))
+  writeFile(path.join(packageRoot, 'dist', 'index.js'), 'export {}\n')
+  writeFile(path.join(packageRoot, 'AGENTS.md'), '# Installed core instructions\n')
+  for (const moduleId of FIXTURE_ENABLED_MODULES) {
+    writeFile(path.join(packageRoot, 'src', 'modules', moduleId, 'AGENTS.md'), `# Installed ${moduleId} instructions\n`)
+    writeFile(
+      path.join(packageRoot, 'src', 'modules', moduleId, 'data', 'entities.ts'),
+      `export class ${moduleId === 'customers' ? 'Person' : 'Sale'} {}\n`,
+    )
+  }
+  return packageRoot
+}
+
+function snapshotTextFiles(rootDir: string): Record<string, string> {
+  return Object.fromEntries(
+    listRelativeFiles(rootDir).map((relativePath) => [
+      relativePath,
+      fs.readFileSync(path.join(rootDir, relativePath), 'utf8'),
+    ]),
+  )
 }
 
 function listRelativeFiles(rootDir: string): string[] {
@@ -216,6 +249,9 @@ function expectedGuideOutputNames(): string[] {
   // fixture's enabled modules. The legacy core.<module>.md redirect stubs are no longer
   // emitted (#3754).
   collected.add('module-facts.json')
+  collected.add('upstream/AGENTS.md')
+  collected.add('upstream/BACKWARD_COMPATIBILITY.md')
+  collected.add('upstream/manifest.json')
   for (const moduleId of FIXTURE_ENABLED_MODULES) {
     collected.add(normalizePath(path.join('modules', `${moduleId}.md`)))
   }
@@ -262,7 +298,7 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
 
       const agentsSource = fs.readFileSync(path.join(appDir, 'AGENTS.md'), 'utf8')
       expect(agentsSource).toContain('<!-- CODEX_ENFORCEMENT_RULES_START -->')
-      expect(agentsSource).toContain('.ai/guides/core.md')
+      expect(agentsSource).toContain('.ai/guides/upstream/BACKWARD_COMPATIBILITY.md')
 
       // The Module-Specific Guides marker block is a compact enabled-module ID
       // index (enabled ∩ bundled) plus one progressively loaded path pattern.
@@ -307,6 +343,57 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
 
       expect(fs.existsSync(path.join(appDir, '.codex', 'skills'))).toBe(false)
       expect(fs.existsSync(path.join(appDir, '.cursor', 'skills'))).toBe(false)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('emits a runnable exact-version framework context escape hatch for an installed package', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-framework-context-'))
+
+    try {
+      const appDir = createStandaloneFixture(tempRoot)
+      const packageRoot = installFakeFrameworkPackage(appDir)
+      const resolvedPackageRoot = fs.realpathSync(packageRoot)
+      const packageBefore = snapshotTextFiles(packageRoot)
+
+      runMercato(['agentic:init', '--tool=codex'], appDir)
+      const generatedScript = path.join(appDir, 'scripts', 'framework-context.mjs')
+      expect(fs.existsSync(generatedScript)).toBe(true)
+
+      const output = runCommand(
+        process.execPath,
+        [generatedScript, '--module', 'customers', '--query', 'Person', '--json'],
+        appDir,
+      )
+      const context = JSON.parse(output) as {
+        module: string
+        package: { name: string; version: string; root: string }
+        sourceKind: string
+        sourceRoot: string
+        materializedSource: string
+        instructions: Array<{ kind: string; path: string | null; materializedPath?: string }>
+        boundedSearch: { status: string; matches: number; maxMatches: number; result: string }
+        warnings: string[]
+      }
+
+      expect(context.module).toBe('customers')
+      expect(context.package).toEqual({ name: '@open-mercato/core', version: coreVersion, root: resolvedPackageRoot })
+      expect(context.sourceKind).toBe('source')
+      expect(normalizePath(context.sourceRoot)).toBe(normalizePath(path.join(resolvedPackageRoot, 'src', 'modules', 'customers')))
+      expect(context.instructions.filter((entry) => entry.path).map((entry) => entry.kind)).toEqual([
+        'standalone-root',
+        'upstream-bc',
+        'package',
+        'module-1',
+        'upstream-root',
+      ])
+      expect(context.instructions.filter((entry) => entry.path).every((entry) => entry.materializedPath)).toBe(true)
+      expect(context.boundedSearch).toMatchObject({ status: 'matched', matches: 1, maxMatches: 200 })
+      expect(fs.existsSync(path.join(appDir, context.materializedSource))).toBe(true)
+      expect(fs.existsSync(path.join(appDir, context.boundedSearch.result))).toBe(true)
+      expect(context.warnings.some((warning) => warning.includes('Generated facts for customers are stale'))).toBe(false)
+      expect(snapshotTextFiles(packageRoot)).toEqual(packageBefore)
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true })
     }
