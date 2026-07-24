@@ -36,6 +36,7 @@ export default function CreateEntityPage() {
         { value: 'markdown', label: t('entities.userEntities.form.defaultEditor.options.markdown', 'Markdown (UIW)') },
         { value: 'simpleMarkdown', label: t('entities.userEntities.form.defaultEditor.options.simpleMarkdown', 'Simple Markdown') },
         { value: 'htmlRichText', label: t('entities.userEntities.form.defaultEditor.options.htmlRichText', 'HTML Rich Text') },
+        { value: 'plain', label: t('entities.userEntities.form.defaultEditor.options.plain', 'Plain textarea') },
       ],
     } as unknown as CrudField,
     { id: 'showInSidebar', label: t('entities.userEntities.form.showInSidebar.label', 'Show in sidebar'), type: 'checkbox' } as CrudField,

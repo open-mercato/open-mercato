@@ -416,7 +416,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     .pick({ label: true, description: true, defaultEditor: true as any })
     .extend({
       // Allow empty string in the UI select, treat as undefined later
-      defaultEditor: z.union([z.enum(['markdown','simpleMarkdown','htmlRichText']).optional(), z.literal('')]).optional(),
+      defaultEditor: z.union([z.enum(['markdown','simpleMarkdown','htmlRichText','plain']).optional(), z.literal('')]).optional(),
       // Include showInSidebar so CrudForm doesn't strip it on submit
       showInSidebar: z.boolean().optional(),
     }) as z.ZodType<Record<string, unknown>>
@@ -435,6 +435,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         { value: 'markdown', label: t('entities.userEntities.form.defaultEditor.options.markdown', 'Markdown (UIW)') },
         { value: 'simpleMarkdown', label: t('entities.userEntities.form.defaultEditor.options.simpleMarkdown', 'Simple Markdown') },
         { value: 'htmlRichText', label: t('entities.userEntities.form.defaultEditor.options.htmlRichText', 'HTML Rich Text') },
+        { value: 'plain', label: t('entities.userEntities.form.defaultEditor.options.plain', 'Plain textarea') },
       ],
     } as any,
     ...(entitySource === 'custom' ? [{ id: 'showInSidebar', label: t('entities.userEntities.form.showInSidebar.label', 'Show in sidebar'), type: 'checkbox' }] : []),
