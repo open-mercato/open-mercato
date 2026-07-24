@@ -1,4 +1,5 @@
 import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CHECKOUT_ENTITY_IDS } from './lib/constants'
 
 function asSearchText(value: unknown): string {
@@ -34,16 +35,23 @@ export const searchConfig: SearchModuleConfig = {
         searchable: ['name', 'title'],
         excluded: ['passwordHash', 'gatewaySettings', 'customerFieldsSchema'],
       },
-      buildSource: async (ctx) => ({
-        text: [`${asSearchText(ctx.record.name)}: ${asSearchText(ctx.record.title)}`],
-        presenter: { title: asSearchText(ctx.record.name), subtitle: 'Link Template' },
-        checksumSource: { record: ctx.record, customFields: ctx.customFields },
-      }),
-      formatResult: async (ctx) => ({
-        title: asSearchText(ctx.record.name),
-        subtitle: 'Link Template',
-        icon: 'lucide:file-text',
-      }),
+      buildSource: async (ctx) => {
+        const { t } = await resolveTranslations()
+        const linkTemplate = t('checkout.search.subtitle.linkTemplate', 'Link Template')
+        return {
+          text: [`${asSearchText(ctx.record.name)}: ${asSearchText(ctx.record.title)}`],
+          presenter: { title: asSearchText(ctx.record.name), subtitle: linkTemplate },
+          checksumSource: { record: ctx.record, customFields: ctx.customFields },
+        }
+      },
+      formatResult: async (ctx) => {
+        const { t } = await resolveTranslations()
+        return {
+          title: asSearchText(ctx.record.name),
+          subtitle: t('checkout.search.subtitle.linkTemplate', 'Link Template'),
+          icon: 'lucide:file-text',
+        }
+      },
     },
   ],
 }

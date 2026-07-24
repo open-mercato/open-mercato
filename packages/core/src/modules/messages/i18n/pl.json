@@ -213,6 +213,8 @@
   "messages.replyBody": "Odpowiedź",
   "messages.saveDraft": "Zapisz szkic",
   "messages.savingDraft": "Zapisywanie szkicu...",
+  "messages.search.badge.message": "Wiadomość",
+  "messages.search.fallback.title": "Wiadomość",
   "messages.searchPlaceholder": "Szukaj wiadomości",
   "messages.send": "Wyślij",
   "messages.sendViaEmail": "Wyślij także e-mailem",
