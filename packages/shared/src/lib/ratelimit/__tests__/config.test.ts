@@ -13,6 +13,18 @@ describe('readRateLimitConfig', () => {
     expect(readRateLimitConfig().enabled).toBe(true)
   })
 
+  it('defaults to direct mode when proxy depth is not configured', () => {
+    delete process.env.RATE_LIMIT_TRUST_PROXY_DEPTH
+
+    expect(readRateLimitConfig().trustProxyDepth).toBe(0)
+  })
+
+  it.each(['-1', '1.5', 'not-a-number'])('falls back to direct mode for invalid proxy depth %s', (value) => {
+    process.env.RATE_LIMIT_TRUST_PROXY_DEPTH = value
+
+    expect(readRateLimitConfig().trustProxyDepth).toBe(0)
+  })
+
   it('honors RATE_LIMIT_ENABLED=false', () => {
     process.env.RATE_LIMIT_ENABLED = 'false'
     delete process.env.OM_INTEGRATION_TEST
