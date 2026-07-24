@@ -51,7 +51,7 @@ Start with this root. Match all axes and load their de-duplicated union. A CRM l
 
 Route IDs: `architecture`, `module-data`, `backend-ui`, `umes`, `integration`, `ai-workflow`, `testing`, `debugging`, `framework-context`, `spec-pr`.
 
-Route only the requested outcome. `testing` requires writing/running tests; `debugging` requires a failure, security issue, or drift. Spec decomposition selects only `spec-pr`; phase names do not load implementation routes. For a plan-only module request, select `om-module-scaffold` plus architecture/contracts context and describe downstream units without loading their backend, data, UMES, integration, AI/workflow, or testing execution skills. Do not infer areas from specs/PRs.
+Route only the requested outcome. `testing` requires an explicit request to write or run tests; merely identifying or recommending the smallest validation does not select `testing` or its guide. `debugging` requires a failure, security issue, or drift. Spec decomposition selects only `spec-pr`; phase names do not load implementation routes. For a plan-only module request, select `om-module-scaffold` plus architecture/contracts context and describe downstream units without loading their backend, data, UMES, integration, AI/workflow, or testing execution skills. Do not infer areas from specs/PRs.
 
 ### Axis 1 — Area and Ownership
 
