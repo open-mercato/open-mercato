@@ -5486,7 +5486,7 @@
     "requiredDecisions": ["public-scope-derived-server-side", "idempotent-submission", "encrypted-pii", "deterministic-deduplication", "cross-module-id-link", "optional-crm", "retry-safe-handoff"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "scope.{0,30}(?:request body|payload)", "direct ORM relationship"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 10,
+    "maxContextFiles": 12,
     "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 229376,
     "relatedCases": ["OMH-018", "OMH-034", "OMH-071"]

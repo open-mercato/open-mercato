@@ -76,7 +76,7 @@ Split the outcome into verifiable units; match all rows.
 | Evaluator route ID | Work unit | Procedure and concept context |
 |---|---|---|
 | `architecture` | Explain capabilities or choose module vs UMES vs package vs eject | `.ai/guides/architecture.md`; `om-help` for an unfamiliar decision |
-| `module-data` | Convert a business outcome into a complete vertical slice | `om-module-scaffold` business blueprint, then union concrete rows below: customer management, deal pipeline, CRM lead capture, library, booking, rental, support, or purchasing |
+| `module-data` | Convert a business outcome into a complete vertical slice | `om-module-scaffold`; load `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md`, then union concrete rows below: customer management, deal pipeline, CRM lead capture, library, booking, rental, support, or purchasing |
 | `spec-pr` | Split or implement cohesive specification phases | Axis 3's skill; keep every phase deployable |
 | `architecture` | Audit an upgrade or disable an unused built-in | `om-troubleshooter` + `om-framework-context`, or `om-trim-unused-modules` |
 | `architecture` + `integration` + `framework-context` | Audit a provider phase superseded by installed capability | `om-integration-builder` + `om-framework-context`; add troubleshoot/removal only for a failure or whole-module disable |
