@@ -87,6 +87,7 @@ function isBooleanRecord(value: unknown): value is Record<string, boolean> {
 export type ShellLogo = {
   src: string
   alt?: string
+  preserveAspectRatio?: boolean
 }
 
 export type AppShellProps = {
@@ -184,6 +185,56 @@ function resolveInjectedMenuLabel(
 function shouldBypassLogoOptimization(src?: string | null): boolean {
   const value = src ?? ''
   return /^https?:\/\//.test(value) || /^\/api\/attachments\/(?:image|file)\//.test(value)
+}
+
+function ShellBrandLogo({
+  logo,
+  brandName,
+  unoptimized,
+  compact = false,
+  mobile = false,
+}: {
+  logo?: ShellLogo
+  brandName: string
+  unoptimized?: boolean
+  compact?: boolean
+  mobile?: boolean
+}) {
+  const src = logo?.src ?? '/open-mercato.svg'
+  const alt = logo?.alt ?? brandName
+  const isCustomLogo = Boolean(logo?.src)
+  const preserveAspectRatio = Boolean(logo?.preserveAspectRatio)
+  if (!isCustomLogo || !preserveAspectRatio) {
+    return (
+      <Image
+        src={src}
+        alt={alt}
+        width={mobile ? 28 : 40}
+        height={mobile ? 28 : 40}
+        className={`${mobile ? 'rounded' : 'rounded-full'} shrink-0 object-cover`}
+        unoptimized={unoptimized ? true : undefined}
+      />
+    )
+  }
+
+  const width = compact ? 40 : mobile ? 96 : 120
+  const height = mobile ? 28 : 40
+  const className = compact
+    ? 'h-10 max-w-10 w-auto shrink-0 object-contain'
+    : mobile
+      ? 'h-7 max-w-24 w-auto shrink-0 object-contain'
+      : 'h-10 max-w-[120px] w-auto shrink-0 object-contain'
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      width={width}
+      height={height}
+      className={className}
+      unoptimized={unoptimized ? true : undefined}
+    />
+  )
 }
 
 function mergeSidebarItemsWithInjected(
@@ -760,7 +811,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+              <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
               {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
@@ -893,7 +944,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                 className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
                 aria-label={t('appShell.goToDashboard')}
               >
-                <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+                <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
                 {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
               </Link>
             </div>
@@ -959,7 +1010,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+              <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
               {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
@@ -1458,7 +1509,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           <aside className="absolute left-0 top-0 flex h-full w-[280px] max-w-[85vw] flex-col bg-background border-r shadow-lg overflow-hidden">
             <div className="shrink-0 flex items-center justify-between gap-2 border-b px-4 py-3">
               <Link href="/backend" className="flex items-center gap-2 min-w-0 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={28} height={28} className="rounded shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+                <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} mobile unoptimized={resolvedLogoBypassesOptimization} />
                 <span className="truncate">{resolvedBrandName}</span>
               </Link>
               <IconButton variant="ghost" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>

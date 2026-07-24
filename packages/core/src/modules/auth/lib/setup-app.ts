@@ -320,6 +320,7 @@ export async function setupInitialTenant(
         ancestorIds: [],
         childIds: [],
         descendantIds: [],
+        logoPreserveAspectRatio: false,
         createdAt: new Date(),
         updatedAt: new Date(),
       })

@@ -425,6 +425,7 @@ export async function resolveBackendChromePayload({
           logo: {
             src: organization.logoUrl,
             alt: `${organization.name} logo`,
+            preserveAspectRatio: !!organization.logoPreserveAspectRatio,
           },
         }
       }
