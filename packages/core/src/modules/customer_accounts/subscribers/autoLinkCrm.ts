@@ -53,7 +53,11 @@ export default async function handle(
       if (!linked) {
         // Not resolvable inside the user's own org — a cross-org (or deleted)
         // entity. Clear it rather than leave it: this FK is the portal scope key.
-        await em.nativeUpdate(CustomerUser, { id: userId }, { customerEntityId: null })
+        await em.nativeUpdate(
+          CustomerUser,
+          { id: userId, tenantId, organizationId: user.organizationId },
+          { customerEntityId: null },
+        )
         user.customerEntityId = null
       } else if (linked.kind === 'person') {
         const profile = await em.findOne(CustomerPersonProfile as any, {
@@ -66,7 +70,11 @@ export default async function handle(
         const replacement = candidate && (await isOwnedCompanyEntity(em, candidate, ownScope))
           ? candidate
           : null
-        await em.nativeUpdate(CustomerUser, { id: userId }, { customerEntityId: replacement })
+        await em.nativeUpdate(
+          CustomerUser,
+          { id: userId, tenantId, organizationId: user.organizationId },
+          { customerEntityId: replacement },
+        )
         user.customerEntityId = replacement
       }
     }
@@ -98,7 +106,11 @@ export default async function handle(
       updates.customerEntityId = companyEntityId
     }
 
-    await em.nativeUpdate(CustomerUser, { id: userId }, updates)
+    await em.nativeUpdate(
+      CustomerUser,
+      { id: userId, tenantId, organizationId: user.organizationId },
+      updates,
+    )
   } catch (err) {
     logger.error('Failed to link customer user to CRM person', { err })
   }

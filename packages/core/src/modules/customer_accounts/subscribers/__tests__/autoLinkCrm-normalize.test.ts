@@ -64,7 +64,11 @@ describe('autoLinkCrm — poisoned customerEntityId normalization (#4362)', () =
     const { default: handle } = await import('../autoLinkCrm')
     await handle({ id: userId, tenantId, organizationId }, makeCtx(em))
 
-    expect(em.nativeUpdate).toHaveBeenCalledWith(CustomerUser, { id: userId }, { customerEntityId: companyEntityId })
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      CustomerUser,
+      { id: userId, tenantId, organizationId },
+      { customerEntityId: companyEntityId },
+    )
   })
 
   it('clears a person-pointing customerEntityId when no company can be recovered', async () => {
@@ -81,7 +85,11 @@ describe('autoLinkCrm — poisoned customerEntityId normalization (#4362)', () =
     const { default: handle } = await import('../autoLinkCrm')
     await handle({ id: userId, tenantId, organizationId }, makeCtx(em))
 
-    expect(em.nativeUpdate).toHaveBeenCalledWith(CustomerUser, { id: userId }, { customerEntityId: null })
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      CustomerUser,
+      { id: userId, tenantId, organizationId },
+      { customerEntityId: null },
+    )
   })
 
   it('clears a customerEntityId that does not resolve inside the user own org', async () => {
@@ -100,7 +108,11 @@ describe('autoLinkCrm — poisoned customerEntityId normalization (#4362)', () =
     const { default: handle } = await import('../autoLinkCrm')
     await handle({ id: userId, tenantId, organizationId }, makeCtx(em))
 
-    expect(em.nativeUpdate).toHaveBeenCalledWith(CustomerUser, { id: userId }, { customerEntityId: null })
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      CustomerUser,
+      { id: userId, tenantId, organizationId },
+      { customerEntityId: null },
+    )
   })
 
   it('does not adopt a recovered company that belongs to another org', async () => {
@@ -122,7 +134,11 @@ describe('autoLinkCrm — poisoned customerEntityId normalization (#4362)', () =
     const { default: handle } = await import('../autoLinkCrm')
     await handle({ id: userId, tenantId, organizationId }, makeCtx(em))
 
-    expect(em.nativeUpdate).toHaveBeenCalledWith(CustomerUser, { id: userId }, { customerEntityId: null })
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      CustomerUser,
+      { id: userId, tenantId, organizationId },
+      { customerEntityId: null },
+    )
   })
 
   it('leaves a correct company customerEntityId untouched', async () => {
