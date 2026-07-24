@@ -35,10 +35,12 @@ describe('Migration20260724120000_customer_accounts', () => {
     // order in dbMigrate), so on a fresh database these tables do not exist.
     const sql = normalize(buildRepairPoisonedCustomerEntityLinksSql())
 
-    expect(sql).toContain(`to_regclass('customer_entities') is null`)
-    expect(sql).toContain(`to_regclass('customer_people') is null`)
-    // The guard must short-circuit, not fall through into the update.
-    expect(sql).toMatch(/if to_regclass\(.+\) is null.+then return; end if;/)
+    // Asserted as one exact clause rather than loose fragments: a guard that
+    // checks only one table, or that falls through into the update instead of
+    // returning, must fail here.
+    expect(sql).toContain(
+      `if to_regclass('customer_entities') is null or to_regclass('customer_people') is null then return; end if;`,
+    )
   })
 
   test('only touches rows whose FK is not an in-org, non-deleted company', async () => {

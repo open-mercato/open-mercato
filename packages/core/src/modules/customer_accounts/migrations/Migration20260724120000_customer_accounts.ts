@@ -28,6 +28,13 @@ import { Migration } from '@mikro-orm/migrations';
  * in alphabetical order, so `customer_accounts` migrations run BEFORE `customers`
  * ones — on a fresh database these tables do not exist yet. A database in that
  * state has no poisoned rows to repair either, so skipping is the correct no-op.
+ * `catalog/Migration20251116191744` already ships the same guarded `do $$` idiom.
+ *
+ * This SQL is hand-written rather than produced by `yarn db:generate`, which the
+ * review checklist otherwise requires. The generator only diffs entities against
+ * the schema snapshot, so it cannot emit a data repair, and there is no schema
+ * change here to diff: no column, index, or constraint is touched, which is why
+ * `.snapshot-open-mercato.json` is deliberately left untouched by this migration.
  *
  * @public Exported for testing
  */
