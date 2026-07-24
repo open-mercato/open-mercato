@@ -9,6 +9,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const releaseScript = fileURLToPath(new URL('../../agentic/shared/scripts/run-agent-harness-release.mjs', import.meta.url))
 const releaseSchema = fileURLToPath(new URL('../../agentic/shared/ai/harness/release-result.schema.json', import.meta.url))
 const targetValidationSchema = fileURLToPath(new URL('../../agentic/shared/ai/harness/target-validation-result.schema.json', import.meta.url))
+const executionSandboxScript = fileURLToPath(new URL('../../agentic/shared/scripts/execution-sandbox.mjs', import.meta.url))
+const monorepoNodeModules = fs.realpathSync(fileURLToPath(new URL('../../../../node_modules', import.meta.url)))
 const release = await import(pathToFileURL(releaseScript).href) as {
   buildReleasePlan: (input: Record<string, unknown>) => any
   aggregateQualityMetrics: (results: any[]) => any
@@ -16,7 +18,11 @@ const release = await import(pathToFileURL(releaseScript).href) as {
   prepareWritableTargets: (input: { root: string; prepareRoot: string; caseIds: string[] }) => { schemaVersion: number; targets: Record<string, string> }
   resolvePreparationRoot: (requested: string, controllerRoot: string) => string
   dependencyContentFingerprint: (appRoot: string) => string
-  runTargetValidationSteps: (input: { steps: any[]; target: string; timeout: number; roots: string[]; yarnCommand: string }) => any[]
+  runTargetValidationSteps: (input: { steps: any[]; target: string; timeout: number; roots: string[]; yarnCommand: string; pathValue?: string }) => any[]
+  runGeneratedTestStep: (input: { steps?: never; step: any; target: string; timeout: number; roots: string[]; browserRuntimeResolver?: (target: string, cache: string) => any }) => any
+}
+const executionSandbox = await import(pathToFileURL(executionSandboxScript).href) as {
+  linuxNamespaceArgs: (network: string) => string[]
 }
 const targetSandboxAvailable = process.platform === 'darwin'
   || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
@@ -60,10 +66,12 @@ function releaseInputs() {
       { caseId: 'OMH-003', runner: 'claude', modelSelector: 'sonnet' },
     ],
     generatedCodeReview: {
+      required: true,
       skill: 'om-code-review',
-      caseIds: ['OMH-002'],
+      caseIds: ['OMH-002', 'OMH-003'],
       runners: { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } },
     },
+    generatedTests: { required: true, entries: [] },
   }
   const fixtures = { fixtures: { module: {}, regression: {} } }
   const seeds = { fixtures: { module: {}, regression: {} } }
@@ -74,10 +82,10 @@ function releaseInputs() {
 test('release plan derives every count and command from catalog and matrix data', () => {
   const plan = release.buildReleasePlan(releaseInputs())
   assert.deepEqual(plan.violations, [])
-  assert.deepEqual(plan.catalog, { caseCount: 3, writableCaseCount: 2, reviewEligibleCaseCount: 1 })
+  assert.deepEqual(plan.catalog, { caseCount: 3, writableCaseCount: 2, reviewEligibleCaseCount: 2 })
   assert.deepEqual(plan.coverage.deterministic.configuredCaseIds, ['OMH-001', 'OMH-002', 'OMH-003'])
   assert.deepEqual(plan.coverage.writable.configuredCaseIds, ['OMH-002', 'OMH-003'])
-  assert.deepEqual(plan.coverage.review.configuredCaseIds, ['OMH-002'])
+  assert.deepEqual(plan.coverage.review.configuredCaseIds, ['OMH-002', 'OMH-003'])
   assert.deepEqual(plan.steps.map((step: { id: string }) => step.id), [
     'deterministic:all',
     'validation:generate', 'validation:typecheck', 'validation:lint', 'validation:build',
@@ -87,6 +95,7 @@ test('release plan derives every count and command from catalog and matrix data'
     'review:OMH-002',
     'fixture:OMH-003', 'writable:OMH-003',
     'target-validation:OMH-003:generate', 'target-validation:OMH-003:typecheck', 'target-validation:OMH-003:lint', 'target-validation:OMH-003:build',
+    'review:OMH-003',
   ])
 })
 
@@ -127,6 +136,34 @@ test('automatic target preparation clones only fresh source inputs and safely sh
     fs.rmSync(parent, { recursive: true, force: true })
     fs.rmSync(controller, { recursive: true, force: true })
   }
+})
+
+test('externally prepared targets must be realpath-disjoint from the controller and every other target', () => {
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-disjoint-')))
+  const controller = path.join(parent, 'controller')
+  const outside = path.join(parent, 'outside')
+  fs.mkdirSync(controller)
+  fs.mkdirSync(outside)
+  const sentinel = path.join(outside, 'sentinel.txt')
+  fs.writeFileSync(sentinel, 'outside-original')
+  try {
+    const controllerOverlap = releaseInputs()
+    controllerOverlap.targetsManifest.targets = {
+      'OMH-002': path.join(controller, 'nested-target'),
+      'OMH-003': parent,
+    }
+    const controllerPlan = release.buildReleasePlan({ ...controllerOverlap, root: controller, targetsMayNotExist: true })
+    assert.deepEqual(controllerPlan.coverage.writable.invalidTargetCaseIds, ['OMH-002', 'OMH-003'])
+
+    const targetOverlap = releaseInputs()
+    targetOverlap.targetsManifest.targets = {
+      'OMH-002': path.join(outside, 'target'),
+      'OMH-003': path.join(outside, 'target', 'nested'),
+    }
+    const targetPlan = release.buildReleasePlan({ ...targetOverlap, root: controller, targetsMayNotExist: true })
+    assert.deepEqual(targetPlan.coverage.writable.duplicateTargetCaseIds, ['OMH-002', 'OMH-003'])
+    assert.equal(fs.readFileSync(sentinel, 'utf8'), 'outside-original')
+  } finally { fs.rmSync(parent, { recursive: true, force: true }) }
 })
 
 test('every target validation command runs and failures retain actionable sanitized diagnostics', { skip: !targetSandboxAvailable }, () => {
@@ -206,6 +243,191 @@ fs.writeFileSync('node_modules/example/nested.js', 'tampered')
     fs.rmSync(target, { recursive: true, force: true })
     fs.rmSync(controllerDependencies, { recursive: true, force: true })
   }
+})
+
+test('Linux sandbox namespaces are private by default and host networking is shared only when explicitly requested', () => {
+  assert.deepEqual(executionSandbox.linuxNamespaceArgs('none'), ['--unshare-all'])
+  assert.deepEqual(executionSandbox.linuxNamespaceArgs('loopback'), ['--unshare-all'])
+  assert.deepEqual(executionSandbox.linuxNamespaceArgs('all'), ['--unshare-all', '--share-net'])
+  assert.throws(() => executionSandbox.linuxNamespaceArgs('provider'), /invalid sandbox network mode/)
+})
+
+test('macOS validation resolves a lexical PATH node launcher without authorizing a broad temporary parent', { skip: process.platform !== 'darwin' }, () => {
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-xfs-target-')))
+  const launcherBase = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-xfs-parent-')))
+  const launcherParent = path.join(launcherBase, 'xfs-deadbeef')
+  fs.mkdirSync(launcherParent)
+  const launcher = path.join(launcherParent, 'node')
+  const fakeYarn = path.join(target, 'fake-yarn')
+  fs.writeFileSync(launcher, `#!/bin/sh\nexec ${JSON.stringify(fs.realpathSync(process.execPath))}  "$@"\n`)
+  fs.chmodSync(launcher, 0o755)
+  fs.writeFileSync(fakeYarn, '#!/usr/bin/env node\nrequire("node:fs").writeFileSync("xfs-ok.txt", "ok")\n')
+  fs.chmodSync(fakeYarn, 0o755)
+  try {
+    const [result] = release.runTargetValidationSteps({
+      steps: [{ id: 'target-validation:OMH-002:build', kind: 'target-validation', caseId: 'OMH-002', command: 'yarn build' }],
+      target, timeout: 10_000, roots: [target, launcherParent], yarnCommand: fakeYarn,
+      pathValue: `${launcherParent}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 'pass', result.sanitizedError)
+    assert.equal(fs.readFileSync(path.join(target, 'xfs-ok.txt'), 'utf8'), 'ok')
+  } finally {
+    fs.rmSync(target, { recursive: true, force: true })
+    fs.rmSync(launcherBase, { recursive: true, force: true })
+  }
+})
+
+test('macOS validation rejects a lookalike XFS node wrapper', { skip: process.platform !== 'darwin' }, () => {
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-xfs-reject-target-')))
+  const launcherBase = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-xfs-reject-parent-')))
+  const launcherParent = path.join(launcherBase, 'xfs-badc0de')
+  fs.mkdirSync(launcherParent)
+  const launcher = path.join(launcherParent, 'node')
+  const fakeYarn = path.join(target, 'fake-yarn')
+  fs.writeFileSync(launcher, `#!/bin/sh\nexec ${JSON.stringify(fs.realpathSync(process.execPath))} "$@"\n`)
+  fs.chmodSync(launcher, 0o755)
+  fs.writeFileSync(fakeYarn, '#!/usr/bin/env node\nrequire("node:fs").writeFileSync("unsafe.txt", "ran")\n')
+  fs.chmodSync(fakeYarn, 0o755)
+  try {
+    const [result] = release.runTargetValidationSteps({
+      steps: [{ id: 'target-validation:OMH-002:build', kind: 'target-validation', caseId: 'OMH-002', command: 'yarn build' }],
+      target, timeout: 10_000, roots: [target, launcherParent], yarnCommand: fakeYarn,
+      pathValue: `${launcherParent}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 'fail')
+    assert.equal(fs.existsSync(path.join(target, 'unsafe.txt')), false)
+  } finally {
+    fs.rmSync(target, { recursive: true, force: true })
+    fs.rmSync(launcherBase, { recursive: true, force: true })
+  }
+})
+
+function stageGeneratedTestTarget(): string {
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-generated-tests-')))
+  fs.mkdirSync(path.join(target, 'src', 'modules'), { recursive: true })
+  fs.mkdirSync(path.join(target, '.ai', 'qa', 'tests'), { recursive: true })
+  fs.writeFileSync(path.join(target, 'package.json'), '{"name":"generated-test-target","private":true,"type":"module"}\n')
+  fs.writeFileSync(path.join(target, 'jest.config.cjs'), 'module.exports = { testEnvironment: "node", transform: {} }\n')
+  fs.writeFileSync(path.join(target, '.ai', 'qa', 'tests', 'playwright.config.ts'), `
+import { defineConfig } from '@playwright/test'
+export default defineConfig({ testDir: ${JSON.stringify(target)}, timeout: 10000, retries: 0, workers: 1, use: { headless: true } })
+`)
+  fs.symlinkSync(monorepoNodeModules, path.join(target, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+  return target
+}
+
+function writeGeneratedTest(target: string, relative: string, source: string): void {
+  const file = path.join(target, relative)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, source)
+}
+
+function generatedTestStep(caseId: string, testRunner: string, artifact: string, network: string): any {
+  const command = testRunner === 'jest'
+    ? `yarn test --runInBand --runTestsByPath ${artifact}`
+    : `yarn test:integration ${artifact} --retries=0 --workers=1`
+  return { id: `generated-test:${caseId}:${testRunner}`, kind: 'generated-test', caseId, testRunner, artifact, network, command }
+}
+
+test('generated Jest tests run through the direct fixed runner with a read-only target and no network', { skip: !targetSandboxAvailable }, () => {
+  const target = stageGeneratedTestTarget()
+  const artifact = 'src/modules/quote_approval/commands/__tests__/approve-quote.test.ts'
+  fs.writeFileSync(path.join(target, 'package.json'), JSON.stringify({
+    name: 'generated-test-target', private: true, type: 'module',
+    scripts: { test: 'node -e "require(\\"node:fs\\").writeFileSync(\\"TARGET_SCRIPT_RAN\\",\\"unsafe\\")"' },
+  }))
+  writeGeneratedTest(target, artifact, `
+test('already approved', () => expect(() => { throw new Error('already approved') }).toThrow('already approved'))
+test('requester', () => expect(() => { throw new Error('requester') }).toThrow('requester'))
+test('injected failure rolls back', () => expect(0).toBe(0))
+`)
+  try {
+    const result = release.runGeneratedTestStep({ step: generatedTestStep('OMH-163', 'jest', artifact, 'none'), target, timeout: 30_000, roots: [target] })
+    assert.equal(result.status, 'pass', result.sanitizedError)
+    assert.equal(result.exitStatus, 0)
+    assert.equal(fs.existsSync(path.join(target, 'TARGET_SCRIPT_RAN')), false)
+  } finally { fs.rmSync(target, { recursive: true, force: true }) }
+})
+
+test('generated test code cannot mutate the read-only target', { skip: !targetSandboxAvailable }, () => {
+  const target = stageGeneratedTestTarget()
+  const artifact = 'src/modules/quote_approval/commands/__tests__/approve-quote.test.ts'
+  const packageBefore = fs.readFileSync(path.join(target, 'package.json'), 'utf8')
+  writeGeneratedTest(target, artifact, `
+import fs from 'node:fs'
+test('cannot rewrite trusted target inputs', () => { fs.writeFileSync('package.json', '{"tampered":true}') })
+`)
+  try {
+    const result = release.runGeneratedTestStep({ step: generatedTestStep('OMH-163', 'jest', artifact, 'none'), target, timeout: 30_000, roots: [target] })
+    assert.equal(result.status, 'fail')
+    assert.equal(fs.readFileSync(path.join(target, 'package.json'), 'utf8'), packageBefore)
+  } finally { fs.rmSync(target, { recursive: true, force: true }) }
+})
+
+test('generated API Playwright tests can use isolated loopback but cannot reach an external address', { skip: !targetSandboxAvailable }, () => {
+  const target = stageGeneratedTestTarget()
+  const artifact = 'src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts'
+  writeGeneratedTest(target, artifact, `
+import { createServer } from 'node:http'
+import { expect, test } from '@playwright/test'
+test('loopback only', async ({ request }) => {
+  const server = createServer((_request, response) => response.end('ok'))
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address')
+    expect(await (await request.get('http://127.0.0.1:' + address.port)).text()).toBe('ok')
+    await expect(request.get('http://1.1.1.1', { timeout: 500 })).rejects.toThrow()
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())) }
+})
+`)
+  try {
+    const result = release.runGeneratedTestStep({ step: generatedTestStep('OMH-164', 'playwright-api', artifact, 'loopback'), target, timeout: 30_000, roots: [target] })
+    assert.equal(result.status, 'pass', result.sanitizedError)
+  } finally { fs.rmSync(target, { recursive: true, force: true }) }
+})
+
+test('generated browser Playwright tests launch the exact bounded headless runtime', { skip: !targetSandboxAvailable }, () => {
+  const target = stageGeneratedTestTarget()
+  const artifact = 'src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts'
+  writeGeneratedTest(target, artifact, `
+import { createServer } from 'node:http'
+import { expect, test } from '@playwright/test'
+test('real browser', async ({ page }) => {
+  const server = createServer((_request, response) => response.end('<button>Approve quote</button><p role="status">Ready</p>'))
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address')
+    await page.goto('http://127.0.0.1:' + address.port)
+    await expect(page.getByRole('button', { name: 'Approve quote' })).toBeVisible()
+    await expect(page.getByRole('status')).toHaveText('Ready')
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())) }
+})
+`)
+  try {
+    const result = release.runGeneratedTestStep({ step: generatedTestStep('OMH-165', 'playwright-browser', artifact, 'loopback'), target, timeout: 45_000, roots: [target] })
+    assert.equal(result.status, 'pass', result.sanitizedError)
+  } finally { fs.rmSync(target, { recursive: true, force: true }) }
+})
+
+test('generated-test execution fails closed for missing runtimes and browser prerequisites', { skip: !targetSandboxAvailable }, () => {
+  const target = stageGeneratedTestTarget()
+  const artifact = 'src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts'
+  writeGeneratedTest(target, artifact, "import { test } from '@playwright/test'; test('x', async () => {})\n")
+  try {
+    const browserFailure = release.runGeneratedTestStep({
+      step: generatedTestStep('OMH-165', 'playwright-browser', artifact, 'loopback'), target, timeout: 10_000, roots: [target],
+      browserRuntimeResolver: () => { throw new Error('browser runtime absent') },
+    })
+    assert.equal(browserFailure.status, 'fail')
+    assert.match(browserFailure.sanitizedError, /browser runtime absent/)
+    fs.rmSync(path.join(target, 'node_modules'))
+    fs.mkdirSync(path.join(target, 'node_modules'))
+    const runtimeFailure = release.runGeneratedTestStep({
+      step: generatedTestStep('OMH-163', 'jest', artifact, 'none'), target, timeout: 10_000, roots: [target],
+    })
+    assert.equal(runtimeFailure.status, 'fail')
+    assert.match(runtimeFailure.sanitizedError, /Cannot find module|CLI/)
+  } finally { fs.rmSync(target, { recursive: true, force: true }) }
 })
 
 test('the suite-level dependency fingerprint detects nested package file mutations', () => {

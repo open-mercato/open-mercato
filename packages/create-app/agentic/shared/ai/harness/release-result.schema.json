@@ -35,7 +35,7 @@
     "coverage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["deterministic", "routing", "writable", "review", "registry", "validation", "targetValidation"],
+      "required": ["deterministic", "routing", "writable", "review", "registry", "validation", "targetValidation", "generatedTests"],
       "properties": {
         "deterministic": {
           "type": "object",
@@ -133,6 +133,22 @@
             "failedCaseIds": { "$ref": "#/$defs/caseIds" },
             "missingCaseIds": { "$ref": "#/$defs/caseIds" }
           }
+        },
+        "generatedTests": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expectedCaseIds", "configuredCaseIds", "missingMatrixCaseIds", "unexpectedMatrixCaseIds", "duplicateMatrixCaseIds", "executedCaseIds", "passedCaseIds", "failedCaseIds", "missingCaseIds"],
+          "properties": {
+            "expectedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "configuredCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingMatrixCaseIds": { "$ref": "#/$defs/caseIds" },
+            "unexpectedMatrixCaseIds": { "$ref": "#/$defs/caseIds" },
+            "duplicateMatrixCaseIds": { "$ref": "#/$defs/caseIds" },
+            "executedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "passedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "failedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingCaseIds": { "$ref": "#/$defs/caseIds" }
+          }
         }
       }
     },
@@ -145,10 +161,13 @@
         "required": ["id", "kind", "status", "exitStatus", "durationMs", "resultPaths"],
         "properties": {
           "id": { "type": "string", "maxLength": 160 },
-          "kind": { "enum": ["deterministic", "validation", "routing", "fixture", "writable", "target-validation", "review", "dependency-guard"] },
+          "kind": { "enum": ["deterministic", "validation", "routing", "fixture", "writable", "target-validation", "generated-test", "review", "dependency-guard"] },
           "caseId": { "type": "string", "pattern": "^OMH-[0-9]{3}$" },
           "runner": { "enum": ["codex", "claude"] },
-          "command": { "type": "string", "maxLength": 100 },
+          "testRunner": { "enum": ["jest", "playwright-api", "playwright-browser"] },
+          "artifact": { "type": "string", "maxLength": 300 },
+          "network": { "enum": ["none", "loopback"] },
+          "command": { "type": "string", "maxLength": 400 },
           "status": { "enum": ["pass", "fail", "skipped"] },
           "exitStatus": { "type": ["integer", "null"] },
           "durationMs": { "type": "integer", "minimum": 0 },

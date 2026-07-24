@@ -19,7 +19,7 @@ const EXPECTED_WRITABLE_CASE_IDS = [
   'OMH-042', 'OMH-045', 'OMH-049', 'OMH-054', 'OMH-057', 'OMH-060', 'OMH-061', 'OMH-070',
   'OMH-093', 'OMH-105', 'OMH-107', 'OMH-115', 'OMH-122', 'OMH-128', 'OMH-130', 'OMH-133',
   'OMH-137', 'OMH-140', 'OMH-144', 'OMH-146', 'OMH-149', 'OMH-150', 'OMH-151', 'OMH-153',
-  'OMH-156', 'OMH-165', 'OMH-171', 'OMH-172', 'OMH-181',
+  'OMH-156', 'OMH-163', 'OMH-164', 'OMH-165', 'OMH-171', 'OMH-172', 'OMH-181',
 ]
 
 type OracleResult = {

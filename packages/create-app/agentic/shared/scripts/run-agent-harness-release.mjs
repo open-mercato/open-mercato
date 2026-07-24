@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -12,6 +13,7 @@ import { sandboxedInvocation } from './execution-sandbox.mjs'
 const WRITABLE_KINDS = new Set(['implementation', 'regression'])
 const RUNNERS = new Set(['codex', 'claude'])
 const ALLOWED_VALIDATION_COMMANDS = new Set(['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'])
+const GENERATED_TEST_RUNNERS = new Set(['jest', 'playwright-api', 'playwright-browser'])
 const RESULT_LIMIT = 262_144
 const ERROR_LIMIT = 2_000
 const VIOLATION_LIMIT = 300
@@ -239,13 +241,77 @@ function validTargetsManifest(targetsManifest) {
   return targetsManifest?.schemaVersion === 1 && targetsManifest?.targets && typeof targetsManifest.targets === 'object' && !Array.isArray(targetsManifest.targets)
 }
 
+function generatedTestCommand(entry) {
+  if (entry.runner === 'jest') {
+    return {
+      command: `yarn test --runInBand --runTestsByPath ${entry.artifact}`,
+      args: ['test', '--runInBand', '--runTestsByPath', entry.artifact],
+    }
+  }
+  return {
+    command: `yarn test:integration ${entry.artifact} --retries=0 --workers=1`,
+    args: ['test:integration', entry.artifact, '--retries=0', '--workers=1'],
+  }
+}
+
+function resolveTargetTestCli(target, runner) {
+  const dependencyRoot = fs.realpathSync(path.join(target, 'node_modules'))
+  const requireFromTarget = createRequire(path.join(target, 'package.json'))
+  const cli = runner === 'jest'
+    ? path.join(path.dirname(requireFromTarget.resolve('jest/package.json')), 'bin', 'jest.js')
+    : requireFromTarget.resolve('@playwright/test/cli')
+  const realCli = fs.realpathSync(cli)
+  const stat = fs.lstatSync(cli)
+  if (!isPathInside(dependencyRoot, realCli) || !stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error(`${runner} CLI must be a regular file in the protected target dependency tree`)
+  }
+  return realCli
+}
+
+function resolveBrowserRuntime(target, isolatedCache) {
+  const dependencyRoot = fs.realpathSync(path.join(target, 'node_modules'))
+  const requireFromTarget = createRequire(path.join(target, 'package.json'))
+  const playwrightCoreEntry = fs.realpathSync(requireFromTarget.resolve('playwright-core'))
+  if (!isPathInside(dependencyRoot, playwrightCoreEntry)) throw new Error('playwright-core must resolve from the protected target dependency tree')
+  let playwrightCoreRoot = path.dirname(playwrightCoreEntry)
+  while (path.dirname(playwrightCoreRoot) !== playwrightCoreRoot && path.basename(playwrightCoreRoot) !== 'playwright-core') playwrightCoreRoot = path.dirname(playwrightCoreRoot)
+  const browsersFile = path.join(playwrightCoreRoot, 'browsers.json')
+  const browsersStat = fs.lstatSync(browsersFile)
+  if (!browsersStat.isFile() || browsersStat.isSymbolicLink() || browsersStat.size > 262_144) throw new Error('playwright-core browsers.json is unsafe')
+  const browserDeclaration = readJson(browsersFile)?.browsers?.find((entry) => entry.name === 'chromium-headless-shell')
+  if (!/^[0-9]+$/.test(browserDeclaration?.revision ?? '')) throw new Error('Playwright does not declare a bounded Chromium headless-shell revision')
+  const chromiumExecutable = requireFromTarget('@playwright/test').chromium.executablePath()
+  let chromiumRoot = path.dirname(fs.realpathSync(chromiumExecutable))
+  while (path.dirname(chromiumRoot) !== chromiumRoot && !/^chromium-[0-9]+$/.test(path.basename(chromiumRoot))) chromiumRoot = path.dirname(chromiumRoot)
+  if (!/^chromium-[0-9]+$/.test(path.basename(chromiumRoot))) throw new Error('the Playwright browser cache root could not be bounded')
+  const browserRoot = path.join(path.dirname(chromiumRoot), `chromium_headless_shell-${browserDeclaration.revision}`)
+  const browserStat = fs.lstatSync(browserRoot)
+  if (!browserStat.isDirectory() || browserStat.isSymbolicLink()) throw new Error('the exact Playwright Chromium headless-shell runtime is unavailable')
+  const marker = path.join(browserRoot, 'INSTALLATION_COMPLETE')
+  if (!fs.lstatSync(marker).isFile()) throw new Error('the Playwright Chromium headless-shell runtime is incomplete')
+  const executableNames = new Set(process.platform === 'win32' ? ['headless_shell.exe'] : ['chrome-headless-shell', 'headless_shell'])
+  const executables = []
+  const visit = (directory) => {
+    for (const name of fs.readdirSync(directory)) {
+      const child = path.join(directory, name)
+      const entry = fs.lstatSync(child)
+      if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) throw new Error('the Playwright Chromium headless-shell runtime contains an unsafe entry')
+      if (entry.isDirectory()) visit(child)
+      else if (executableNames.has(name)) executables.push(child)
+    }
+  }
+  visit(browserRoot)
+  if (executables.length !== 1) throw new Error('the Playwright Chromium headless-shell executable could not be identified exactly')
+  const cacheLink = path.join(isolatedCache, path.basename(browserRoot))
+  fs.symlinkSync(browserRoot, cacheLink, process.platform === 'win32' ? 'junction' : 'dir')
+  return { browserRoot: fs.realpathSync(browserRoot), isolatedCache, executable: fs.realpathSync(executables[0]) }
+}
+
 export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest, root, targetsMayNotExist = false }) {
   const allCaseIds = cases.map((item) => item.id)
   const writableCases = cases.filter((item) => WRITABLE_KINDS.has(item.evaluationKind))
   const writableCaseIds = writableCases.map((item) => item.id)
-  const reviewEligibleCaseIds = cases
-    .filter((item) => item.evaluationKind === 'implementation' && item.mode === 'one-shot')
-    .map((item) => item.id)
+  const reviewEligibleCaseIds = [...writableCaseIds]
   const violations = []
   const release = releaseMatrix?.releaseSuite ?? {}
   const deterministicIds = resolveCaseSelector(releaseMatrix?.deterministic?.caseIds, allCaseIds)
@@ -290,6 +356,7 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
   addCoverageViolation(violations, 'generated-code review matrix contains ineligible cases', unexpectedReviewMatrixCaseIds)
   if (release.requireGeneratedCodeReview !== true) violations.push('release suite must require generated-code review')
   if (releaseMatrix?.generatedCodeReview?.skill !== 'om-code-review') violations.push('generated-code review must explicitly use om-code-review')
+  if (releaseMatrix?.generatedCodeReview?.required !== true) violations.push('generated-code review must be mandatory for every writable case')
   const reviewSkillFiles = [
     '.agents/skills/om-code-review/SKILL.md',
     '.agents/skills/om-code-review/references/agentic-setup.md',
@@ -339,6 +406,7 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
   const duplicateTargetCaseIds = []
   const invalidTargetCaseIds = []
   const targetOwners = new Map()
+  const controllerRoot = root ? fs.realpathSync(root) : undefined
   for (const id of writableCaseIds) {
     const target = targetEntries[id]
     if (typeof target !== 'string' || !path.isAbsolute(target)) continue
@@ -368,8 +436,11 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
           || fs.existsSync(path.join(normalized, '.ai', 'harness', 'DISPOSABLE'))) invalidTargetCaseIds.push(id)
       } catch { invalidTargetCaseIds.push(id) }
     }
-    if (targetOwners.has(normalized)) duplicateTargetCaseIds.push(id, targetOwners.get(normalized))
-    else targetOwners.set(normalized, id)
+    if (controllerRoot && (isPathInside(controllerRoot, normalized) || isPathInside(normalized, controllerRoot))) invalidTargetCaseIds.push(id)
+    for (const [ownedRoot, ownerId] of targetOwners) {
+      if (isPathInside(ownedRoot, normalized) || isPathInside(normalized, ownedRoot)) duplicateTargetCaseIds.push(id, ownerId)
+    }
+    targetOwners.set(normalized, id)
   }
   addCoverageViolation(violations, 'writable target manifest is missing absolute targets', sortedUnique(missingTargetCaseIds))
   addCoverageViolation(violations, 'writable target manifest contains unknown cases', unexpectedTargetCaseIds)
@@ -384,6 +455,34 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
   const missingValidationCommands = difference([...ALLOWED_VALIDATION_COMMANDS], validationCommands)
   addCoverageViolation(violations, 'release suite is missing validation commands', missingValidationCommands)
 
+  const generatedTestCases = writableCases.filter((item) => item.tags?.some((tag) => ['unit-tests', 'api-tests', 'browser-tests'].includes(tag)))
+  const expectedGeneratedTestIds = generatedTestCases.map((item) => item.id)
+  const generatedTestEntries = Array.isArray(releaseMatrix?.generatedTests?.entries) ? releaseMatrix.generatedTests.entries : []
+  const configuredGeneratedTestIds = generatedTestEntries.map((entry) => entry.caseId)
+  const missingGeneratedTestIds = difference(expectedGeneratedTestIds, configuredGeneratedTestIds)
+  const unexpectedGeneratedTestIds = difference(configuredGeneratedTestIds, expectedGeneratedTestIds)
+  const duplicateGeneratedTestIds = duplicates(configuredGeneratedTestIds)
+  if (releaseMatrix?.generatedTests?.required !== true) violations.push('generated test execution must be required')
+  addCoverageViolation(violations, 'generated test execution matrix is missing cases', missingGeneratedTestIds)
+  addCoverageViolation(violations, 'generated test execution matrix contains ineligible cases', unexpectedGeneratedTestIds)
+  addCoverageViolation(violations, 'generated test execution matrix contains duplicate cases', duplicateGeneratedTestIds)
+  for (const entry of generatedTestEntries) {
+    const item = generatedTestCases.find((candidate) => candidate.id === entry.caseId)
+    const expectedRunner = item?.tags?.includes('unit-tests') ? 'jest'
+      : item?.tags?.includes('api-tests') ? 'playwright-api'
+        : item?.tags?.includes('browser-tests') ? 'playwright-browser' : undefined
+    const expectedNetwork = expectedRunner === 'jest' ? 'none' : 'loopback'
+    const canonicalPath = expectedRunner === 'jest'
+      ? /^src\/modules\/[a-z0-9_]+\/(?:[^/]+\/)*__tests__\/[A-Za-z0-9._-]+\.(?:test|spec)\.tsx?$/
+      : /^src\/modules\/[a-z0-9_]+\/(?:[^/]+\/)*__integration__\/[A-Za-z0-9._-]+\.spec\.tsx?$/
+    if (!item || !GENERATED_TEST_RUNNERS.has(entry.runner) || entry.runner !== expectedRunner
+      || entry.network !== expectedNetwork || typeof entry.artifact !== 'string'
+      || !canonicalPath.test(entry.artifact) || !item.oracle?.expectedArtifacts?.includes(entry.artifact)
+      || !item.allowedWrites?.includes(entry.artifact)) {
+      violations.push(`generated test execution assignment is invalid: ${String(entry.caseId)}`)
+    }
+  }
+
   const steps = [
     { id: 'deterministic:all', kind: 'deterministic', expectedCaseIds: deterministicIds },
     ...validationCommands.map((command) => ({ id: `validation:${command.slice('yarn '.length)}`, kind: 'validation', command })),
@@ -396,6 +495,18 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
     steps.push({ id: `writable:${caseId}`, kind: 'writable', caseId, runner: assignment.runner, modelSelector: assignment.modelSelector })
     for (const command of validationCommands) {
       steps.push({ id: `target-validation:${caseId}:${command.slice('yarn '.length)}`, kind: 'target-validation', caseId, command })
+    }
+    const generatedTest = generatedTestEntries.find((entry) => entry.caseId === caseId)
+    if (generatedTest) {
+      steps.push({
+        id: `generated-test:${caseId}:${generatedTest.runner}`,
+        kind: 'generated-test',
+        caseId,
+        testRunner: generatedTest.runner,
+        artifact: generatedTest.artifact,
+        network: generatedTest.network,
+        command: generatedTestCommand(generatedTest).command,
+      })
     }
     if (configuredReviewIds.includes(caseId)) {
       const modelSelector = releaseMatrix.generatedCodeReview?.runners?.[assignment.runner]?.modelSelector
@@ -430,6 +541,13 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
       registry: { caseCountMatches: registryCaseCountMatches, missingWritableCaseIds: registryMissingWritableCaseIds, unexpectedWritableCaseIds: registryUnexpectedWritableCaseIds },
       validation: { expectedCommands: [...ALLOWED_VALIDATION_COMMANDS], configuredCommands: validationCommands, missingCommands: missingValidationCommands },
       targetValidation: { expectedCaseIds: writableCaseIds, commands: validationCommands },
+      generatedTests: {
+        expectedCaseIds: expectedGeneratedTestIds,
+        configuredCaseIds: configuredGeneratedTestIds,
+        missingMatrixCaseIds: missingGeneratedTestIds,
+        unexpectedMatrixCaseIds: unexpectedGeneratedTestIds,
+        duplicateMatrixCaseIds: duplicateGeneratedTestIds,
+      },
     },
     targets: targetEntries,
     steps,
@@ -701,6 +819,9 @@ function stepResult(step, execution, artifacts, roots, expectedArtifacts) {
     kind: step.kind,
     ...(step.caseId ? { caseId: step.caseId } : {}),
     ...(step.runner ? { runner: step.runner } : {}),
+    ...(step.testRunner ? { testRunner: step.testRunner } : {}),
+    ...(step.artifact ? { artifact: step.artifact } : {}),
+    ...(step.network ? { network: step.network } : {}),
     ...(step.command ? { command: step.command } : {}),
     status,
     exitStatus: execution.status,
@@ -716,6 +837,9 @@ function skippedStep(step, reason) {
     kind: step.kind,
     ...(step.caseId ? { caseId: step.caseId } : {}),
     ...(step.runner ? { runner: step.runner } : {}),
+    ...(step.testRunner ? { testRunner: step.testRunner } : {}),
+    ...(step.artifact ? { artifact: step.artifact } : {}),
+    ...(step.network ? { network: step.network } : {}),
     ...(step.command ? { command: step.command } : {}),
     status: 'skipped',
     exitStatus: null,
@@ -725,13 +849,13 @@ function skippedStep(step, reason) {
   }
 }
 
-function targetValidationEnvironment(tempRoot) {
+function targetValidationEnvironment(tempRoot, pathValue = process.env.PATH ?? '') {
   const home = path.join(tempRoot, 'home')
   const temporary = path.join(tempRoot, 'tmp')
   const cache = path.join(tempRoot, 'cache')
   for (const directory of [home, temporary, cache]) fs.mkdirSync(directory, { recursive: true, mode: 0o700 })
   const env = {
-    PATH: process.env.PATH ?? '',
+    PATH: pathValue,
     HOME: home,
     TMPDIR: temporary,
     TEMP: temporary,
@@ -745,6 +869,7 @@ function targetValidationEnvironment(tempRoot) {
     YARN_ENABLE_TELEMETRY: '0',
     COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
     TZ: 'UTC',
+    __CF_USER_TEXT_ENCODING: '0x1F5:0x0:0x0',
   }
   const configuredCorepackHome = process.env.COREPACK_HOME || path.join(os.homedir(), '.cache', 'node', 'corepack')
   const corepackHome = fs.existsSync(configuredCorepackHome) && fs.statSync(configuredCorepackHome).isDirectory()
@@ -757,10 +882,10 @@ function targetValidationEnvironment(tempRoot) {
   return { env, toolReadRoots: corepackHome ? [corepackHome] : [] }
 }
 
-export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCommand = process.platform === 'win32' ? 'yarn.cmd' : 'yarn' }) {
+export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCommand = process.platform === 'win32' ? 'yarn.cmd' : 'yarn', pathValue }) {
   const results = []
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-validation-'))
-  const { env, toolReadRoots } = targetValidationEnvironment(tempRoot)
+  const { env, toolReadRoots } = targetValidationEnvironment(tempRoot, pathValue)
   const dependencyPath = path.join(target, 'node_modules')
   const readOnlyRoots = [...(fs.existsSync(dependencyPath) ? [fs.realpathSync(dependencyPath)] : []), ...toolReadRoots]
   let before = targetSnapshot(target)
@@ -798,6 +923,68 @@ export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCo
   }
 }
 
+export function runGeneratedTestStep({ step, target, timeout, roots, browserRuntimeResolver = resolveBrowserRuntime }) {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-generated-test-'))
+  const { env, toolReadRoots } = targetValidationEnvironment(tempRoot)
+  const dependencyPath = path.join(target, 'node_modules')
+  const readOnlyRoots = [fs.realpathSync(target), ...(fs.existsSync(dependencyPath) ? [fs.realpathSync(dependencyPath)] : []), ...toolReadRoots]
+  let execution
+  let before
+  try {
+    const artifact = path.resolve(target, step.artifact)
+    const artifactStat = fs.lstatSync(artifact)
+    if (!isPathInside(fs.realpathSync(target), fs.realpathSync(artifact)) || !artifactStat.isFile() || artifactStat.isSymbolicLink()) {
+      throw new Error('generated test artifact must be a regular file inside the target')
+    }
+    if (!GENERATED_TEST_RUNNERS.has(step.testRunner) || !['none', 'loopback'].includes(step.network)) {
+      throw new Error('generated test runner contract is invalid')
+    }
+    if (step.testRunner === 'jest' && step.network !== 'none') throw new Error('generated Jest tests must run without network access')
+    if (step.testRunner !== 'jest' && step.network !== 'loopback') throw new Error('generated Playwright tests must run with isolated loopback only')
+    const cli = resolveTargetTestCli(target, step.testRunner)
+    if (step.testRunner === 'playwright-browser') {
+      const isolatedBrowserCache = path.join(tempRoot, 'browser-cache')
+      fs.mkdirSync(isolatedBrowserCache, { mode: 0o700 })
+      const browser = browserRuntimeResolver(target, isolatedBrowserCache)
+      readOnlyRoots.push(browser.browserRoot)
+      env.PLAYWRIGHT_BROWSERS_PATH = browser.isolatedCache
+    }
+    const fixed = generatedTestCommand({ runner: step.testRunner, artifact: step.artifact })
+    if (step.command !== fixed.command) throw new Error('generated test command differs from the fixed controller command')
+    const runnerArgs = step.testRunner === 'jest'
+      ? [cli, '--config', 'jest.config.cjs', '--runInBand', '--runTestsByPath', step.artifact, '--cacheDirectory', path.join(tempRoot, 'jest-cache')]
+      : [cli, 'test', '--config', '.ai/qa/tests/playwright.config.ts', step.artifact, '--retries=0', '--workers=1', '--forbid-only', '--reporter=line', '--output', path.join(tempRoot, 'playwright-output'), '--update-snapshots=none']
+    before = targetSnapshot(target)
+    const invocation = sandboxedInvocation({
+      command: process.execPath,
+      args: runnerArgs,
+      cwd: target,
+      writableRoots: [tempRoot],
+      readOnlyRoots,
+      networkMode: step.network,
+      env,
+    })
+    execution = execute(invocation.command, invocation.args, invocation.cwd, timeout, invocation.env)
+  } catch (error) {
+    execution = { status: null, error, stdout: '', stderr: '', durationMs: 0 }
+  }
+  try {
+    const after = targetSnapshot(target)
+    const changed = before
+      ? [...new Set([...before.keys(), ...after.keys()])].filter((key) => before.get(key) !== after.get(key)).sort()
+      : []
+    const unsafeEntries = unsafeChangedTargetEntries(after, changed)
+    const result = stepResult(step, execution, [], roots)
+    if (unsafeEntries.length) {
+      result.status = 'fail'
+      result.sanitizedError = sanitizeReportText(`generated test created unsafe filesystem entries: ${unsafeEntries.join(', ')}`, roots)
+    }
+    return result
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  }
+}
+
 function executedCoverage(plan, steps, results) {
   const deterministic = steps.find((step) => step.kind === 'deterministic')?.observedCaseIds ?? []
   const routing = plan.coverage.routing.map((entry) => {
@@ -817,6 +1004,9 @@ function executedCoverage(plan, steps, results) {
     if (caseSteps.every((step) => step.status === 'pass')) targetValidationPassed.push(caseId)
     else targetValidationFailed.push(caseId)
   }
+  const generatedTestExecuted = sortedUnique(steps.filter((step) => step.kind === 'generated-test' && step.status !== 'skipped').map((step) => step.caseId))
+  const generatedTestPassed = sortedUnique(steps.filter((step) => step.kind === 'generated-test' && step.status === 'pass').map((step) => step.caseId))
+  const generatedTestFailed = sortedUnique(steps.filter((step) => step.kind === 'generated-test' && step.status === 'fail').map((step) => step.caseId))
   return {
     deterministic: { ...plan.coverage.deterministic, executedCaseIds: deterministic, missingCaseIds: difference(plan.coverage.deterministic.expectedCaseIds, deterministic) },
     routing,
@@ -830,6 +1020,13 @@ function executedCoverage(plan, steps, results) {
       passedCaseIds: targetValidationPassed,
       failedCaseIds: targetValidationFailed,
       missingCaseIds: difference(plan.coverage.targetValidation.expectedCaseIds, targetValidationExecuted),
+    },
+    generatedTests: {
+      ...plan.coverage.generatedTests,
+      executedCaseIds: generatedTestExecuted,
+      passedCaseIds: generatedTestPassed,
+      failedCaseIds: generatedTestFailed,
+      missingCaseIds: difference(plan.coverage.generatedTests.expectedCaseIds, generatedTestExecuted),
     },
   }
 }
@@ -846,7 +1043,7 @@ function writeReport(root, report, roots, schema) {
   return path.relative(root, file).replaceAll(path.sep, '/')
 }
 
-function writeTargetValidationResult(root, target, caseId, sourceArtifact, commandSteps, schema) {
+function writeTargetValidationResult(root, target, caseId, sourceArtifact, commandSteps, generatedTestStep, schema) {
   const sourcePath = path.join(root, sourceArtifact.path)
   const record = {
     schemaVersion: 1,
@@ -860,7 +1057,17 @@ function writeTargetValidationResult(root, target, caseId, sourceArtifact, comma
       exitStatus: step.exitStatus,
       durationMs: step.durationMs,
     })),
-    status: commandSteps.every((step) => step.status === 'pass') ? 'pass' : 'fail',
+    generatedTests: generatedTestStep ? [{
+      runner: generatedTestStep.testRunner,
+      artifact: generatedTestStep.artifact,
+      artifactSha256: sha256(fs.readFileSync(path.join(target, generatedTestStep.artifact))),
+      command: generatedTestStep.command,
+      network: generatedTestStep.network,
+      status: generatedTestStep.status,
+      exitStatus: generatedTestStep.exitStatus,
+      durationMs: generatedTestStep.durationMs,
+    }] : [],
+    status: commandSteps.every((step) => step.status === 'pass') && (!generatedTestStep || generatedTestStep.status === 'pass') ? 'pass' : 'fail',
   }
   const schemaErrors = validateJsonSchema(record, schema)
   if (schemaErrors.length) throw new Error(`target validation result schema failed: ${schemaErrors.slice(0, 8).join('; ')}`)
@@ -1001,7 +1208,7 @@ export function main(argv = process.argv.slice(2)) {
 
   const foundationsPassed = deterministicResult.status === 'pass'
     && steps.filter((step) => step.kind === 'validation').every((step) => step.status === 'pass')
-  const modelSteps = plan.steps.filter((step) => ['routing', 'fixture', 'writable', 'target-validation', 'review'].includes(step.kind))
+  const modelSteps = plan.steps.filter((step) => ['routing', 'fixture', 'writable', 'target-validation', 'generated-test', 'review'].includes(step.kind))
   if (!foundationsPassed) {
     for (const step of modelSteps) steps.push(skippedStep(step, 'deterministic or validation foundation failed'))
   } else {
@@ -1020,6 +1227,7 @@ export function main(argv = process.argv.slice(2)) {
       const fixtureStep = plan.steps.find((step) => step.id === `fixture:${caseId}`)
       const writableStep = plan.steps.find((step) => step.id === `writable:${caseId}`)
       const targetValidationSteps = plan.steps.filter((step) => step.kind === 'target-validation' && step.caseId === caseId)
+      const generatedTestStep = plan.steps.find((step) => step.kind === 'generated-test' && step.caseId === caseId)
       const reviewStep = plan.steps.find((step) => step.id === `review:${caseId}`)
       const target = plan.targets[caseId]
       const fixtureExecution = execute(process.execPath, [preparer, '--case', caseId, '--target', target, '--acknowledge-writes'], root, 120_000)
@@ -1028,6 +1236,7 @@ export function main(argv = process.argv.slice(2)) {
       if (fixtureResult.status !== 'pass') {
         steps.push(skippedStep(writableStep, 'fixture preparation failed'))
         for (const step of targetValidationSteps) steps.push(skippedStep(step, 'writable gate did not pass'))
+        if (generatedTestStep) steps.push(skippedStep(generatedTestStep, 'writable gate did not pass'))
         if (reviewStep) steps.push(skippedStep(reviewStep, 'writable gate did not pass'))
         continue
       }
@@ -1050,6 +1259,22 @@ export function main(argv = process.argv.slice(2)) {
       })
       steps.push(...targetValidationResults)
       const failedTargetCommands = targetValidationResults.filter((step) => step.status !== 'pass')
+      let generatedTestResult
+      if (generatedTestStep) {
+        if (writableResult.status !== 'pass' || !sourceArtifact || sourceArtifact.value.status !== 'pass') {
+          generatedTestResult = skippedStep(generatedTestStep, 'trusted writable oracle did not pass')
+        } else if (failedTargetCommands.length) {
+          generatedTestResult = skippedStep(generatedTestStep, 'target validation did not pass')
+        } else {
+          generatedTestResult = runGeneratedTestStep({
+            step: generatedTestStep,
+            target,
+            timeout: options.validationTimeout,
+            roots,
+          })
+        }
+        steps.push(generatedTestResult)
+      }
       if (!reviewStep) continue
       if (writableResult.status !== 'pass' || !sourceArtifact || sourceArtifact.value.status !== 'pass') {
         steps.push(skippedStep(reviewStep, 'writable gate did not pass'))
@@ -1059,10 +1284,14 @@ export function main(argv = process.argv.slice(2)) {
         steps.push(skippedStep(reviewStep, `target validation failed: ${failedTargetCommands.map((step) => step.command).join(', ')}`))
         continue
       }
+      if (generatedTestResult && generatedTestResult.status !== 'pass') {
+        steps.push(skippedStep(reviewStep, 'generated test execution did not pass'))
+        continue
+      }
       let targetValidationArtifact
       try {
         targetValidationArtifact = writeTargetValidationResult(
-          root, target, caseId, sourceArtifact, targetValidationResults, targetValidationResultSchema,
+          root, target, caseId, sourceArtifact, targetValidationResults, generatedTestResult, targetValidationResultSchema,
         )
       } catch (error) {
         const finalValidation = targetValidationResults.at(-1)
@@ -1116,6 +1345,8 @@ export function main(argv = process.argv.slice(2)) {
     || coverage.validation.missingExecutedCommands.length
     || coverage.targetValidation.missingCaseIds.length
     || coverage.targetValidation.failedCaseIds.length
+    || coverage.generatedTests.missingCaseIds.length
+    || coverage.generatedTests.failedCaseIds.length
   const status = executionViolations.length === 0 && !coverageIncomplete ? 'pass' : 'fail'
   const report = {
     schemaVersion: 1,

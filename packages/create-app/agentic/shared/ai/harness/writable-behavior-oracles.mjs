@@ -41,7 +41,6 @@ const CASES = {
   'OMH-151': { file: 'src/modules/carrier_shipping/lib/client.ts', family: 'provider-adapter', exportName: 'bookCarrierShipment' },
   'OMH-153': { file: 'src/modules/erp_sync/data-sync.ts', family: 'data-flow', exportName: 'synchronizeErpPage' },
   'OMH-156': { file: 'src/modules/product_transfer/lib/flow.ts', family: 'data-flow', exportName: 'transferProductRows' },
-  'OMH-165': { file: 'tests/e2e/portal-quote-approval.spec.ts', family: 'test-authoring-mutation', exportName: 'runPortalQuoteApprovalScenario' },
   'OMH-171': { file: 'src/modules/harness_fixture/api/scope/route.ts', probeCase: 'OMH-057' },
   'OMH-172': { file: 'src/modules/harness_fixture/backend/edit/page.tsx', probeCase: 'OMH-061', allowedCompiledImport: '@open-mercato/ui/backend/CrudForm' },
   'OMH-181': { file: 'src/modules/order_risk/widgets/injection/order-risk-review/widget.ts', family: 'data-table-extension', exportName: 'reviewOrderRisk' },
@@ -310,39 +309,6 @@ const FAMILY_PROBES = {
       })
     } catch { fetchRejected = true }
     checks.push({ id: 'preserves-cursor-on-page-failure', passed: fetchRejected && !failedCommit })
-    return { checks }
-  `,
-  'test-authoring-mutation': `
-    const config = __oracleConfig
-    const action = module.exports[config.exportName]
-    if (typeof action !== 'function') throw new Error('required browser scenario export is missing')
-    const checks = []
-    const events = []
-    const harness = {
-      async createFixture() { events.push('fixture'); return { id: 'quote-1' } },
-      async open() { events.push('open') },
-      async approve() { events.push('approve') },
-      async expectConflict() { events.push('conflict') },
-      async verifyBackend() { events.push('backend') },
-      async cleanup() { events.push('cleanup') },
-    }
-    let successError
-    try { await action(harness) } catch (error) { successError = error }
-    checks.push({ id: 'covers-semantic-browser-and-backend-path', passed: !successError && events.join(',') === 'fixture,open,approve,conflict,backend,cleanup' })
-
-    const failedEvents = []
-    let failureObserved = false
-    try {
-      await action({
-        async createFixture() { failedEvents.push('fixture'); return { id: 'quote-2' } },
-        async open() { failedEvents.push('open') },
-        async approve() { failedEvents.push('approve'); throw new Error('injected browser failure') },
-        async expectConflict() { failedEvents.push('conflict') },
-        async verifyBackend() { failedEvents.push('backend') },
-        async cleanup() { failedEvents.push('cleanup') },
-      })
-    } catch { failureObserved = true }
-    checks.push({ id: 'cleans-up-after-browser-failure', passed: failureObserved && failedEvents.at(-1) === 'cleanup' })
     return { checks }
   `,
 }

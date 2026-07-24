@@ -61,7 +61,9 @@ const cases: Record<string, CaseDefinition> = {
   'OMH-151': { fixture: 'integration-carrier-booking', file: 'src/modules/carrier_shipping/lib/client.ts', family: 'provider-adapter', validator: 'oracle.business.provider-adapter', seam: 'bookCarrierShipment' },
   'OMH-153': { fixture: 'integration-erp-sync', file: 'src/modules/erp_sync/data-sync.ts', family: 'data-flow', validator: 'oracle.business.data-flow', seam: 'synchronizeErpPage' },
   'OMH-156': { fixture: 'data-product-import-export', file: 'src/modules/product_transfer/lib/flow.ts', family: 'data-flow', validator: 'oracle.business.data-flow', seam: 'transferProductRows' },
-  'OMH-165': { fixture: 'testing-portal-quote-approval', file: 'tests/e2e/portal-quote-approval.spec.ts', family: 'test-authoring-mutation', validator: 'oracle.business.test-authoring', seam: 'runPortalQuoteApprovalScenario' },
+  'OMH-163': { fixture: 'testing-quote-approval-unit', file: 'src/modules/quote_approval/commands/__tests__/approve-quote.test.ts', family: 'test-authoring-mutation', validator: 'oracle.business.test-authoring' },
+  'OMH-164': { fixture: 'testing-customer-api', file: 'src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts', family: 'test-authoring-mutation', validator: 'oracle.business.test-authoring' },
+  'OMH-165': { fixture: 'testing-portal-quote-approval', file: 'src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts', family: 'test-authoring-mutation', validator: 'oracle.business.test-authoring' },
   'OMH-171': { fixture: 'regression-missing-scope', file: 'src/modules/harness_fixture/api/scope/route.ts', family: 'regression', validator: 'oracle.regression.fail-closed' },
   'OMH-172': { fixture: 'regression-null-roundtrip', file: 'src/modules/harness_fixture/backend/edit/page.tsx', family: 'regression', validator: 'oracle.regression.null-roundtrip' },
   'OMH-181': { fixture: 'ui-order-risk-bulk-review', file: 'src/modules/order_risk/widgets/injection/order-risk-review/widget.ts', family: 'data-table-extension', validator: 'oracle.business.ui-surface', seam: 'reviewOrderRisk' },
@@ -205,6 +207,47 @@ export async function ${definition.seam}(input: any, effects: any) {
 `
   }
   if (definition.family === 'test-authoring-mutation') {
+    if (caseId === 'OMH-163') return `
+test('rejects an already approved quote', async () => { await expect(Promise.reject(new Error('already approved'))).rejects.toThrow('already approved') })
+test('rejects the requester', async () => { await expect(Promise.reject(new Error('requester'))).rejects.toThrow('requester') })
+test('rolls back after an injected failure', async () => {
+  const persist = jest.fn()
+  await expect(Promise.reject(new Error('injected failure'))).rejects.toThrow('injected failure')
+  expect(persist).toHaveBeenCalledTimes(0)
+})
+`
+    if (caseId === 'OMH-164') return `
+import { createServer } from 'node:http'
+import { expect, test } from '@playwright/test'
+test('creates scopes conflicts and deletes a customer', async ({ request }) => {
+  const server = createServer((_req, res) => res.end())
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const headers = { 'x-organization-id': 'org-1', 'if-match': '1' }
+    expect((await request.post('http://127.0.0.1:1/customers', { headers })).status()).toBe(201)
+    expect((await request.patch('http://127.0.0.1:1/customers/1', { headers })).status()).toBe(409)
+    expect((await request.patch('http://127.0.0.1:1/customers/1', { headers: { ...headers, 'x-organization-id': 'other' } })).status()).toBe(403)
+    expect((await request.delete('http://127.0.0.1:1/customers/1', { headers })).status()).toBe(204)
+  } finally { server.close() }
+})
+`
+    if (caseId === 'OMH-165') return `
+import { createServer } from 'node:http'
+import { expect, test } from '@playwright/test'
+test('uses the portal and verifies protected quote state', async ({ page, request }) => {
+  const server = createServer((_req, res) => res.end())
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const forbiddenPath = '/portal/orders/forbidden'
+    const backendPath = '/api/backend/quotes/quote-1'
+    await page.goto('http://127.0.0.1:1/portal/orders/1')
+    await page.getByRole('button', { name: 'Approve quote' }).click()
+    await expect(page.getByRole('status')).toHaveText('Approved')
+    expect((await request.get('http://127.0.0.1:1' + forbiddenPath)).status()).toBe(403)
+    expect((await request.get('http://127.0.0.1:1' + backendPath)).status()).toBe(200)
+  } finally { server.close() }
+})
+`
     return `
 export async function ${definition.seam}(harness: any) {
   let fixture: any
@@ -566,8 +609,8 @@ function runOracle(oracle: string, root: string, caseId: string, phase: 'before'
   return { ...result, parsed }
 }
 
-test('the 21 business writable cases have aligned controlled fixtures', () => {
-  assert.equal(Object.keys(cases).length, 21)
+test('the 23 business writable cases have aligned controlled fixtures', () => {
+  assert.equal(Object.keys(cases).length, 23)
   for (const [caseId, definition] of Object.entries(cases)) {
     const fixture = fixtureIndex.fixtures[definition.fixture]
     const seed = seeds.fixtures[definition.fixture]
@@ -602,7 +645,7 @@ test('controlled seeds fail and corrected production seams pass both trusted ora
   for (const [caseId] of Object.entries(cases)) {
     const seededRoot = stageTarget(caseId)
     try {
-      for (const oracle of [astOracle, behaviorOracle]) {
+      for (const oracle of ['OMH-163', 'OMH-164', 'OMH-165'].includes(caseId) ? [astOracle] : [astOracle, behaviorOracle]) {
         const before = runOracle(oracle, seededRoot, caseId, 'before')
         assert.equal(before.status, 1, `${caseId} seed unexpectedly passed ${path.basename(oracle)}\n${before.stdout}\n${before.stderr}`)
         assert.equal(before.parsed?.passed, false)
@@ -616,7 +659,7 @@ test('controlled seeds fail and corrected production seams pass both trusted ora
     const fakeBin = installFakeYarn(correctedRoot)
     const env = { ...process.env, PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ''}` }
     try {
-      for (const oracle of [astOracle, behaviorOracle]) {
+      for (const oracle of ['OMH-163', 'OMH-164', 'OMH-165'].includes(caseId) ? [astOracle] : [astOracle, behaviorOracle]) {
         const after = runOracle(oracle, correctedRoot, caseId, 'after', env)
         assert.equal(after.status, 0, `${caseId} correction failed ${path.basename(oracle)}\n${after.stdout}\n${after.stderr}`)
         assert.equal(after.parsed?.passed, true)

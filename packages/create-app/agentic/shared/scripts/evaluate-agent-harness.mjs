@@ -74,6 +74,18 @@ const RUNNER_ENV_KEYS = {
     'CLOUD_ML_REGION', 'AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT',
   ],
 }
+const SENSITIVE_RUNNER_ENV_KEYS = new Set([
+  'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_ORG_ID', 'OPENAI_PROJECT_ID',
+  'AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT', 'AZURE_OPENAI_API_VERSION',
+  'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN',
+  'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_REGION',
+  'AWS_DEFAULT_REGION', 'GOOGLE_APPLICATION_CREDENTIALS', 'ANTHROPIC_VERTEX_PROJECT_ID',
+  'CLOUD_ML_REGION',
+])
+const IN_MEMORY_SECRET_VALUES = new Set([...SENSITIVE_RUNNER_ENV_KEYS]
+  .map((key) => process.env[key])
+  .filter((value) => typeof value === 'string' && value.length > 0)
+)
 const HARD_FORBIDDEN_READ_PATTERNS = ['.env*', '.git', '.git/**', '.ai/harness', '.ai/harness/**']
 
 function usage() {
@@ -390,10 +402,10 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
   if (releaseSuite?.requireGeneratedCodeReview !== true) globalErrors.push('release suite must require generated-code review')
   if (JSON.stringify(releaseSuite?.validationCommands) !== JSON.stringify(RELEASE_VALIDATION_COMMANDS)) globalErrors.push('release suite validation commands are invalid')
   const review = releaseMatrix?.generatedCodeReview
-  const reviewIds = cases.filter((item) => item.evaluationKind === 'implementation' && item.mode === 'one-shot').map((item) => item.id)
+  const reviewIds = writableIds
   if (review?.skill !== REVIEW_SKILL) globalErrors.push(`generated-code review skill must be ${REVIEW_SKILL}`)
-  if (review?.required !== false) globalErrors.push('generated-code review must remain an optional explicit lane')
-  if (JSON.stringify(review?.caseIds) !== JSON.stringify(reviewIds)) globalErrors.push('generated-code review matrix must cover every one-shot implementation case')
+  if (review?.required !== true) globalErrors.push('generated-code review must be mandatory for every writable case')
+  if (JSON.stringify(review?.caseIds) !== JSON.stringify(reviewIds)) globalErrors.push('generated-code review matrix must exactly cover every writable case')
   for (const runner of ['codex', 'claude']) {
     if (typeof review?.runners?.[runner]?.modelSelector !== 'string') globalErrors.push(`generated-code review requires a ${runner} model selector`)
   }
@@ -403,6 +415,30 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     ['maxContextBytes', 16_384, 1_048_576],
   ]) {
     if (!Number.isInteger(review?.[key]) || review[key] < minimum || review[key] > maximum) globalErrors.push(`generated-code review ${key} is invalid`)
+  }
+  const generatedTests = releaseMatrix?.generatedTests
+  const generatedTestCases = cases.filter((item) => WRITABLE_KINDS.has(item.evaluationKind)
+    && item.tags.some((tag) => ['unit-tests', 'api-tests', 'browser-tests'].includes(tag)))
+  const generatedTestEntries = Array.isArray(generatedTests?.entries) ? generatedTests.entries : []
+  if (generatedTests?.required !== true) globalErrors.push('generated test execution must be required')
+  if (JSON.stringify(generatedTestEntries.map((entry) => entry.caseId)) !== JSON.stringify(generatedTestCases.map((item) => item.id))) {
+    globalErrors.push('generated test execution matrix must exactly cover writable unit/API/browser authoring cases')
+  }
+  for (const entry of generatedTestEntries) {
+    const item = generatedTestCases.find((candidate) => candidate.id === entry.caseId)
+    const expectedRunner = item?.tags.includes('unit-tests') ? 'jest'
+      : item?.tags.includes('api-tests') ? 'playwright-api'
+        : item?.tags.includes('browser-tests') ? 'playwright-browser' : undefined
+    const expectedNetwork = expectedRunner === 'jest' ? 'none' : 'loopback'
+    const canonicalPath = expectedRunner === 'jest'
+      ? /^src\/modules\/[a-z0-9_]+\/(?:[^/]+\/)*__tests__\/[A-Za-z0-9._-]+\.(?:test|spec)\.tsx?$/
+      : /^src\/modules\/[a-z0-9_]+\/(?:[^/]+\/)*__integration__\/[A-Za-z0-9._-]+\.spec\.tsx?$/
+    if (!item || entry.runner !== expectedRunner || entry.network !== expectedNetwork
+      || !canonicalPath.test(entry.artifact)
+      || !item.oracle?.expectedArtifacts?.includes(entry.artifact)
+      || !item.allowedWrites?.includes(entry.artifact)) {
+      globalErrors.push(`generated test execution entry is invalid: ${String(entry.caseId)}`)
+    }
   }
   return { globalErrors, errorsByCase }
 }
@@ -434,10 +470,25 @@ function sanitize(value, root, maxLength = 4096) {
   let text = String(value ?? '')
   const replacements = [os.homedir(), process.env.HOME, root].filter(Boolean).sort((a, b) => b.length - a.length)
   for (const sensitivePath of replacements) text = text.split(sensitivePath).join('<redacted-path>')
+  for (const inheritedValue of [...IN_MEMORY_SECRET_VALUES].sort((left, right) => right.length - left.length)) {
+    text = text.split(inheritedValue).join('<redacted-provider-value>')
+  }
   text = text
     .replace(/\b(?:sk|ghp|github_pat|xox[baprs])[-_A-Za-z0-9]{8,}\b/g, '<redacted-token>')
     .replace(/\b(?:api[_-]?key|authorization|password|secret|token)\s*[:=]\s*[^\s,;]+/gi, '$1=<redacted>')
   return text.slice(0, maxLength)
+}
+
+function rememberCredentialFileSecrets(file) {
+  if (!fs.existsSync(file)) return
+  let value
+  try { value = JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return }
+  const visit = (current) => {
+    if (typeof current === 'string' && current.length > 0) IN_MEMORY_SECRET_VALUES.add(current)
+    else if (Array.isArray(current)) current.forEach(visit)
+    else if (isPlainObject(current)) Object.values(current).forEach(visit)
+  }
+  visit(value)
 }
 
 function recursivelySanitize(value, root) {
@@ -612,10 +663,21 @@ function looksLikePathToken(token) {
   return SAFE_TEXT_EXTENSIONS.has(path.extname(token))
 }
 
+const TRACE_READ_COMMANDS = new Set(['cat', 'head', 'tail', 'grep', 'rg', 'sed'])
+const TRACE_METADATA_COMMANDS = new Set(['find', 'ls', 'stat', 'wc'])
+const TRACE_INTERPRETERS = new Set([
+  'node', 'nodejs', 'deno', 'bun', 'python', 'python2', 'python3', 'ruby', 'perl', 'php',
+  'lua', 'osascript', 'powershell', 'pwsh', 'sh', 'bash', 'zsh', 'fish', 'dash', 'ksh',
+])
+const TRACE_VALIDATION_SCRIPTS = new Set(['generate', 'typecheck', 'lint', 'build'])
+
 function analyzeCommand(command, root) {
   const candidates = []
   const violations = []
   const commandText = String(command)
+  if (/[`]|\$\(|\$\{|<(?:\(|<)|>(?:\(|>)/.test(commandText)) {
+    violations.push('forbidden shell expansion or redirection')
+  }
   if (/(?:^|[;&|]\s*|-[a-z]*c\s+['"]\s*)(?:\/usr\/bin\/|\/bin\/)?(?:env|printenv|export|set)(?:\s|$)/i.test(commandText)) {
     violations.push('forbidden environment inspection command')
   }
@@ -637,8 +699,44 @@ function analyzeCommand(command, root) {
       return
     }
     const tokens = commandPart.match(/"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|`(?:\\.|[^`])*`|[^\s|;&<>]+/g) ?? []
-    const executable = stripShellToken(tokens[0], root).replace(/^.*\//, '')
-    const discovery = ['find', 'ls', 'stat', 'wc'].includes(executable)
+    const executable = stripShellToken(tokens[0], root).replace(/^.*\//, '').toLowerCase()
+    if (!executable) {
+      violations.push('untraceable empty command execution')
+      return
+    }
+    if (TRACE_INTERPRETERS.has(executable)) {
+      violations.push(`forbidden interpreter or eval command: ${executable}`)
+      return
+    }
+    if (executable === 'apply_patch') return
+    if (executable === 'yarn' || executable === 'yarn.cmd') {
+      const script = stripShellToken(tokens[1], root)
+      const args = tokens.slice(2).map((token) => stripShellToken(token, root))
+      const unsafeShellToken = tokens.some((token) => /[;&|><`$()\n]/.test(String(token)))
+      const fixedValidation = TRACE_VALIDATION_SCRIPTS.has(script) && tokens.length === 2
+      const fixedJest = script === 'test' && args.length === 3
+        && args[0] === '--runInBand' && args[1] === '--runTestsByPath' && looksLikePathToken(args[2])
+      const fixedPlaywright = script === 'test:integration' && args.length === 3
+        && looksLikePathToken(args[0]) && args[1] === '--retries=0' && args[2] === '--workers=1'
+      if (unsafeShellToken || (!fixedValidation && !fixedJest && !fixedPlaywright)) {
+        violations.push('forbidden non-fixed yarn command')
+        return
+      }
+      if (fixedJest) candidates.push({ raw: args[2], expand: false })
+      if (fixedPlaywright) candidates.push({ raw: args[0], expand: false })
+      return
+    }
+    const readerTokens = tokens.slice(1).map((token) => stripShellToken(token, root))
+    const readerHasOption = (...names) => readerTokens.some((token) => names.some((name) => token === name || token.startsWith(`${name}=`)))
+    const readerHasShortOption = (...letters) => readerTokens.some((token) => /^-[^-]/.test(token)
+      && letters.some((letter) => token.slice(1).includes(letter)))
+    if ((executable === 'rg' && (readerHasOption('--pre', '--pre-glob', '--hostname-bin', '--ignore-file', '--file') || readerHasShortOption('f')))
+      || (executable === 'grep' && (readerHasOption('--exclude-from', '--include-from', '--file', '--recursive') || readerHasShortOption('f', 'r', 'R')))
+      || (executable === 'ls' && (readerHasOption('--recursive') || readerHasShortOption('R')))) {
+      violations.push(`forbidden executable reader option: ${executable}`)
+      return
+    }
+    const discovery = TRACE_METADATA_COMMANDS.has(executable)
       || (executable === 'rg' && tokens.some((token) => stripShellToken(token, root) === '--files'))
     if (discovery) {
       const operands = []
@@ -656,12 +754,25 @@ function analyzeCommand(command, root) {
       else for (const operand of operands) candidates.push({ raw: operand, expand: false, metadataOnly: true })
       return
     }
+    if (!TRACE_READ_COMMANDS.has(executable)) {
+      violations.push(`untraceable command execution: ${executable}`)
+      return
+    }
+    const normalizedTokens = tokens.slice(1).map((token) => stripShellToken(token, root))
+    const hasOption = (...names) => normalizedTokens.some((token) => names.some((name) => token === name || token.startsWith(`${name}=`)))
+    const hasShortOption = (...letters) => normalizedTokens.some((token) => /^-[^-]/.test(token)
+      && letters.some((letter) => token.slice(1).includes(letter)))
+    const sedScripts = normalizedTokens.filter((token) => token && !token.startsWith('-') && !looksLikePathToken(token))
+    if (executable === 'sed' && (hasOption('--file', '--expression', '--in-place') || hasShortOption('e', 'f', 'i')
+        || sedScripts.some((script) => /(?:^|[;{}\n]|[0-9$,/])\s*[erw](?:\s|$)/i.test(script)))) {
+      violations.push(`forbidden executable reader option: ${executable}`)
+      return
+    }
     tokens.forEach((token, index) => {
       const stripped = stripShellToken(token, root)
-      if (index === 0 && /\/(?:ba|z|fi)?sh$|\/env$/.test(stripped)) return
+      if (index === 0) return
       if (['/dev/null', '/dev/stdin', '/dev/stdout', '/dev/stderr'].includes(stripped)) return
-      if (/\s/.test(stripped) && /\b(?:cat|sed|head|tail|less|more|grep|rg|find|ls|stat|wc|awk)\b/.test(stripped)) visit(stripped, depth + 1)
-      else if (looksLikePathToken(stripped)) candidates.push({ raw: stripped, expand: /\b(?:grep|rg)\b/.test(String(command)) })
+      if (looksLikePathToken(stripped)) candidates.push({ raw: stripped, expand: ['grep', 'rg'].includes(executable) })
     })
   }
   visit(command)
@@ -709,7 +820,7 @@ function recursivelyFindTraceCandidates(value, state, inheritedContentTool = fal
   if (state.reviewExpectedReads && /mcp_tool_call|file_search|\bglob\b|\bgrep\b|\bbash\b|\bshell\b/.test(marker)) {
     state.violations.add('forbidden review discovery or execution tool')
   }
-  const ownContentTool = /command_execution|\bread\b|\bgrep\b/.test(marker) && !/\bglob\b|file_search/.test(marker)
+  const ownContentTool = /command_execution|\bread\b|\bgrep\b|\bbash\b|\bshell\b|\bterminal\b|\bexecute\b/.test(marker) && !/\bglob\b|file_search/.test(marker)
   const isContentTool = inheritedContentTool || ownContentTool
   const toolName = String(value.name ?? value.tool_name ?? value.type ?? inheritedName).toLowerCase()
   for (const [key, child] of Object.entries(value)) {
@@ -736,6 +847,14 @@ function recursivelyFindTraceCandidates(value, state, inheritedContentTool = fal
 function isPathInside(root, absolute) {
   const relative = path.relative(root, absolute)
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+}
+
+function assertFilesystemDisjoint(left, right, label) {
+  const realLeft = fs.realpathSync(left)
+  const realRight = fs.realpathSync(right)
+  if (isPathInside(realLeft, realRight) || isPathInside(realRight, realLeft)) {
+    throw new Error(`${label} must be filesystem-disjoint from the controller app`)
+  }
 }
 
 function normalizeObservedCandidate(raw, root) {
@@ -846,6 +965,10 @@ function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads
         if (entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())
           || !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute))) {
           violations.add(`unsafe observed context entry ${relative}`)
+          continue
+        }
+        if (entry.isDirectory()) {
+          violations.add(`unsafe recursive content read ${relative}`)
           continue
         }
       } catch {
@@ -1010,6 +1133,7 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
     const configuredCodexHome = runnerEnv.CODEX_HOME || path.join(os.homedir(), '.codex')
     const authSource = path.join(configuredCodexHome, 'auth.json')
     if (fs.existsSync(authSource)) {
+      rememberCredentialFileSecrets(authSource)
       const isolatedAuth = path.join(isolatedCodexHome, 'auth.json')
       fs.copyFileSync(authSource, isolatedAuth, fs.constants.COPYFILE_EXCL)
       fs.chmodSync(isolatedAuth, 0o600)
@@ -1022,6 +1146,7 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
     const configuredConfig = runnerEnv.CLAUDE_CONFIG_DIR || path.join(runnerEnv.HOME || os.homedir(), '.claude')
     const credentialSource = path.join(configuredConfig, '.credentials.json')
     if (fs.existsSync(credentialSource)) {
+      rememberCredentialFileSecrets(credentialSource)
       const credentialTarget = path.join(isolatedConfig, '.credentials.json')
       fs.copyFileSync(credentialSource, credentialTarget)
       fs.chmodSync(credentialTarget, 0o600)
@@ -1056,9 +1181,13 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
     if (processResult.error) return { kind: 'environment-failure', durationMs, exitStatus: processResult.status, error: processResult.error.message, stdout: processResult.stdout ?? '' }
     if (processResult.status !== 0) return { kind: 'process-failure', durationMs, exitStatus: processResult.status, error: processFailureDiagnostic(runner, processResult), stdout: processResult.stdout ?? '' }
     try {
-      const response = recursivelySanitize(extractJsonCandidate(processResult.stdout ?? '', outputPath, runner), root)
-      const schemaErrors = [...validateResponse(response), ...validateJsonSchema(response, readJson(schemaPath))]
+      const rawResponse = extractJsonCandidate(processResult.stdout ?? '', outputPath, runner)
+      const schemaErrors = [...validateResponse(rawResponse), ...validateJsonSchema(rawResponse, readJson(schemaPath))]
       if (schemaErrors.length) return { kind: 'invalid-structured-output', durationMs, exitStatus: processResult.status, error: schemaErrors.join('; '), stdout: processResult.stdout ?? '' }
+      const response = recursivelySanitize(rawResponse, root)
+      for (const key of ['selectedRouter', 'selectedSkills', 'selectedContext', 'decisions', 'violations']) {
+        if (Array.isArray(response[key])) response[key] = [...new Set(response[key])]
+      }
       return { kind: 'success', durationMs, exitStatus: processResult.status, response, stdout: processResult.stdout ?? '' }
     } catch (error) {
       return { kind: 'invalid-structured-output', durationMs, exitStatus: processResult.status, error: error.message, stdout: processResult.stdout ?? '' }
@@ -1336,7 +1465,7 @@ function readReviewSourceResult(root, requestedPath, resultSchema) {
   }
 }
 
-function readTargetValidationResult(root, requestedPath, schema, sourceRecord) {
+function readTargetValidationResult(root, requestedPath, schema, sourceRecord, releaseMatrix, targetRoot) {
   const resultsRoot = path.join(root, '.ai', 'harness', 'results')
   const absolute = fs.realpathSync(requestedPath)
   if (!isPathInside(fs.realpathSync(resultsRoot), absolute)) throw new Error('--review-validation-result must be inside the controller results directory')
@@ -1355,6 +1484,22 @@ function readTargetValidationResult(root, requestedPath, schema, sourceRecord) {
     || value.sourceResult.sha256 !== sourceRecord.sha256
     || value.beforeValidationFingerprint !== sourceRecord.source.writable.targetFingerprint) {
     throw new Error('target validation result does not match the writable source result')
+  }
+  const expectedTest = releaseMatrix?.generatedTests?.entries?.find((entry) => entry.caseId === value.caseId)
+  const observedTests = Array.isArray(value.generatedTests) ? value.generatedTests : []
+  if (!expectedTest && observedTests.length) throw new Error('target validation result contains unexpected generated-test evidence')
+  if (expectedTest) {
+    const [observed] = observedTests
+    const expectedCommand = expectedTest.runner === 'jest'
+      ? `yarn test --runInBand --runTestsByPath ${expectedTest.artifact}`
+      : `yarn test:integration ${expectedTest.artifact} --retries=0 --workers=1`
+    const artifact = path.join(targetRoot, expectedTest.artifact)
+    if (observedTests.length !== 1 || observed?.runner !== expectedTest.runner || observed?.artifact !== expectedTest.artifact
+      || observed?.command !== expectedCommand || observed?.network !== expectedTest.network
+      || observed?.status !== 'pass' || observed?.exitStatus !== 0
+      || !fs.existsSync(artifact) || observed?.artifactSha256 !== sha256(fs.readFileSync(artifact))) {
+      throw new Error('target validation result does not contain matching passing generated-test evidence')
+    }
   }
   return {
     absolute,
@@ -1489,12 +1634,16 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
   const reviewPolicy = releaseMatrix.generatedCodeReview
   const caseRecord = cases.find((item) => item.id === source.caseId)
   if (!caseRecord || !reviewPolicy.caseIds.includes(caseRecord.id)) throw new Error(`${source.caseId} is not eligible for generated-code review`)
+  if (releaseMatrix?.generatedTests?.entries?.some((entry) => entry.caseId === caseRecord.id) && !options.reviewValidationResult) {
+    throw new Error(`${caseRecord.id} review requires passing generated-test evidence`)
+  }
   if (source.status !== 'pass' || source.violations.length || !source.writable || source.writable.beforeOraclePassed || !source.writable.afterOraclePassed) {
     throw new Error('generated-code review requires a passing writable result with before-fail/after-pass oracle evidence')
   }
   if (source.promptHash !== sha256(caseRecord.prompt) || !WRITABLE_KINDS.has(source.evaluationKind)) throw new Error('source writable result does not match the current case contract')
   let targetRoot
   try { targetRoot = fs.realpathSync(options.writableRoot) } catch { throw new Error('writable root is unavailable') }
+  assertFilesystemDisjoint(root, targetRoot, 'review writable root')
   const targetErrors = verifyWritableTarget(targetRoot, caseRecord, fixtures)
   if (targetErrors.length) throw new Error(`${caseRecord.id}: ${targetErrors.join('; ')}`)
   const reviewedPaths = source.writable.changedPaths
@@ -1504,7 +1653,7 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
     if (!SAFE_TEXT_EXTENSIONS.has(path.extname(relative))) throw new Error(`reviewed path is not a supported text file: ${relative}`)
   }
   const targetValidationRecord = options.reviewValidationResult
-    ? readTargetValidationResult(root, options.reviewValidationResult, targetValidationResultSchema, sourceRecord)
+    ? readTargetValidationResult(root, options.reviewValidationResult, targetValidationResultSchema, sourceRecord, releaseMatrix, targetRoot)
     : undefined
   const currentFingerprint = snapshotFingerprint(snapshot(targetRoot))
   const expectedTargetFingerprint = targetValidationRecord?.value.targetFingerprint ?? source.writable.targetFingerprint
@@ -1522,6 +1671,7 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
     { id: 'oracle:allowed-writes', status: 'pass' },
     ...oracleRunnerNames(caseRecord, registry).map((runner) => ({ id: `oracle:${runner}`, status: 'pass' })),
     ...(targetValidationRecord ? RELEASE_VALIDATION_COMMANDS.map((command) => ({ id: `validation:${command.slice('yarn '.length)}`, status: 'pass' })) : []),
+    ...(targetValidationRecord?.value.generatedTests ?? []).map((entry) => ({ id: `generated-test:${entry.runner}`, status: 'pass' })),
     { id: 'oracle:target-fingerprint', status: 'pass' },
   ]
   const evidenceIds = validationEvidence.map((entry) => entry.id)
@@ -1626,6 +1776,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
   const version = runnerVersion(options.runner, root)
   const model = options.model ?? releaseMatrix.routing[options.runner].modelSelector
   const writableRoot = options.writableRoot ? path.resolve(options.writableRoot) : undefined
+  if (writableRoot) assertFilesystemDisjoint(root, writableRoot, 'writable root')
   let failures = 0
   console.log(`Runner: ${options.runner} ${version}; model selector: ${model}; cases: ${selected.length}; fresh process per case`)
   for (let offset = 0; offset < selected.length; offset += options.batchSize) {

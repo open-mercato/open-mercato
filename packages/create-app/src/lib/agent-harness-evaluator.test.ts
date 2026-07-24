@@ -215,6 +215,7 @@ test('the catalog count and release coverage are derived from the validator regi
     routing: { codex: { caseIds: string }; claude: { caseIds: string[] } }
     writable: Array<{ caseId: string; runner: string }>
     generatedCodeReview: { required: boolean; skill: string; caseIds: string[] }
+    generatedTests: { required: boolean; entries: Array<{ caseId: string; runner: string; artifact: string; network: string }> }
     releaseSuite: { routingRunners: string[]; requireGeneratedCodeReview: boolean; validationCommands: string[] }
   }
   assert.equal(cases.length, validators.catalog.expectedCaseCount)
@@ -223,9 +224,16 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(matrix.routing.claude.caseIds, validators.catalog.writableCaseIds)
   assert.equal(matrix.routing.codex.caseIds, 'all')
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
-  assert.equal(matrix.generatedCodeReview.required, false)
+  assert.equal(validators.catalog.writableCaseIds.length, 39)
+  assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
-  assert.deepEqual(matrix.generatedCodeReview.caseIds, cases.filter((entry) => entry.evaluationKind === 'implementation' && entry.mode === 'one-shot').map((entry) => entry.id))
+  assert.deepEqual(matrix.generatedCodeReview.caseIds, validators.catalog.writableCaseIds)
+  assert.equal(matrix.generatedTests.required, true)
+  assert.deepEqual(matrix.generatedTests.entries, [
+    { caseId: 'OMH-163', runner: 'jest', artifact: 'src/modules/quote_approval/commands/__tests__/approve-quote.test.ts', network: 'none' },
+    { caseId: 'OMH-164', runner: 'playwright-api', artifact: 'src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts', network: 'loopback' },
+    { caseId: 'OMH-165', runner: 'playwright-browser', artifact: 'src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts', network: 'loopback' },
+  ])
   assert.deepEqual(matrix.releaseSuite.routingRunners, ['codex', 'claude'])
   assert.equal(matrix.releaseSuite.requireGeneratedCodeReview, true)
   assert.deepEqual(matrix.releaseSuite.validationCommands, ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'])
@@ -381,8 +389,8 @@ fs.writeFileSync(output, JSON.stringify({
   decisions: ['standalone-boundary', 'facts-first'], violations: []
 }))
 for (const command of [
-  "/bin/zsh -lc \\\"sed -n '1,120p' AGENTS.md; sed -n '1,120p' .ai/guides/architecture.md\\\"",
-  "rg -n '\\\\.ai/guides/(architecture|testing-debugging)\\\\.md$|SKILL.md' 2>/dev/null",
+  "sed -n '1,120p' AGENTS.md",
+  "sed -n '1,120p' .ai/guides/architecture.md",
 ]) console.log(JSON.stringify({ type: 'item.completed', item: {
   type: 'command_execution', command, exit_code: 0, status: 'completed'
 }}))
@@ -745,6 +753,37 @@ for (const command of [
   }
 })
 
+test('fixed focused test commands remain traceable without opening arbitrary package scripts', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+for (const command of [
+  'cat AGENTS.md .ai/guides/architecture.md',
+  'yarn test --runInBand --runTestsByPath .ai/guides/architecture.md',
+  'yarn test:integration .ai/guides/architecture.md --retries=0 --workers=1'
+]) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command } }))
+`)
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    const [stored] = storedResults(root)
+    assert.deepEqual(stored.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+    assert.ok(!stored.violations.includes('forbidden non-fixed yarn command'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('dangerous and out-of-scope discovery commands fail closed', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
@@ -805,6 +844,108 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
     assert.ok(stored.violations.includes('unsafe arbitrary app-root read .ai/guides/testing-debugging.md'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('Codex and Claude traces reject interpreter execution even after required bounded reads', { skip: process.platform === 'win32' }, () => {
+  for (const runner of ['codex', 'claude'] as const) {
+    const root = stageApp()
+    const response = `{
+      selectedRouter: ['architecture'], selectedSkills: [],
+      selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+      decisions: ['standalone-boundary', 'facts-first'], violations: []
+    }`
+    const source = runner === 'codex' ? `
+const fs = require('node:fs'); const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify(${response}))
+for (const command of ['cat AGENTS.md .ai/guides/architecture.md', 'node -e "require(\\'node:fs\\').readdirSync(\\'.\\')"']) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command } }))
+` : `
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', name: 'Read', input: { file_path: require('node:path').join(process.cwd(), 'AGENTS.md') } },
+  { type: 'tool_use', name: 'Read', input: { file_path: require('node:path').join(process.cwd(), '.ai/guides/architecture.md') } },
+  { type: 'tool_use', name: 'Bash', input: { command: 'node -e "require(\\'node:fs\\').readdirSync(\\'.\\')"' } }
+] } }))
+console.log(JSON.stringify({ type: 'result', structured_output: ${response} }))
+`
+    const bin = installFakeRunner(root, runner, source)
+    try {
+      const run = runEvaluator(root, ['--runner', runner, '--case', 'OMH-001'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+      assert.equal(run.status, 1, `${runner}\n${run.stdout}\n${run.stderr}`)
+      const [stored] = storedResults(root)
+      assert.ok(stored.violations.some((entry) => entry.includes('forbidden interpreter or eval command: node')), `${runner}: ${stored.violations.join('\n')}`)
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  }
+})
+
+test('trace readers reject command-supplied files recursive reads sed side effects and unknown commands', { skip: process.platform === 'win32' }, () => {
+  const commands = [
+    "rg --files --ignore-file .ai/guides/architecture.md .ai/guides",
+    "grep -f .ai/guides/architecture.md AGENTS.md",
+    "sed -e '1e id' AGENTS.md",
+    "rg architecture .ai/guides",
+    'pwd',
+  ]
+  for (const unsafe of commands) {
+    const root = stageApp()
+    const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs'); const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ selectedRouter: ['architecture'], selectedSkills: [], selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'], decisions: ['standalone-boundary', 'facts-first'], violations: [] }))
+for (const command of ['cat AGENTS.md .ai/guides/architecture.md', ${JSON.stringify(unsafe)}]) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command } }))
+`)
+    try {
+      const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+      assert.equal(run.status, 1, `${unsafe}\n${run.stdout}\n${run.stderr}`)
+      const [stored] = storedResults(root)
+      assert.ok(stored.violations.some((entry) => /forbidden executable reader option|unsafe recursive content read|untraceable command execution/.test(entry)), `${unsafe}: ${stored.violations.join('\n')}`)
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  }
+})
+
+test('every inherited provider value and credential-file scalar is redacted for Codex and Claude', { skip: process.platform === 'win32' }, () => {
+  for (const runner of ['codex', 'claude'] as const) {
+    const root = stageApp()
+    const configured = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `om-${runner}-credentials-`)))
+    const credential = `random-credential-${runner}-4f52a8bc910d`
+    const inherited = `random-provider-${runner}-71de398ac064`
+    const credentialFile = runner === 'codex' ? path.join(configured, 'auth.json') : path.join(configured, '.credentials.json')
+    fs.writeFileSync(credentialFile, JSON.stringify({ nested: { scalar: credential } }))
+    const source = runner === 'codex' ? `
+const fs = require('node:fs'); const path = require('node:path'); const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const scalar = JSON.parse(fs.readFileSync(path.join(process.env.CODEX_HOME, 'auth.json'))).nested.scalar
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ selectedRouter: ['architecture'], selectedSkills: [], selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'], decisions: ['standalone-boundary', 'facts-first'], violations: [scalar, process.env.OPENAI_BASE_URL] }))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md .ai/guides/architecture.md' } }))
+` : `
+const fs = require('node:fs'); const path = require('node:path'); const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+const scalar = JSON.parse(fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR, '.credentials.json'))).nested.scalar
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), 'AGENTS.md') } },
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/guides/architecture.md') } }
+] } }))
+console.log(JSON.stringify({ type: 'result', structured_output: { selectedRouter: ['architecture'], selectedSkills: [], selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'], decisions: ['standalone-boundary', 'facts-first'], violations: [scalar, process.env.ANTHROPIC_AUTH_TOKEN] } }))
+`
+    const bin = installFakeRunner(root, runner, source)
+    const env = {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+      ...(runner === 'codex' ? { CODEX_HOME: configured, OPENAI_BASE_URL: inherited } : { CLAUDE_CONFIG_DIR: configured, ANTHROPIC_AUTH_TOKEN: inherited }),
+    }
+    try {
+      const run = runEvaluator(root, ['--runner', runner, '--case', 'OMH-001'], env)
+      assert.equal(run.status, 1, `${runner}\n${run.stdout}\n${run.stderr}`)
+      const serialized = JSON.stringify(storedResults(root))
+      assert.doesNotMatch(serialized, new RegExp(credential))
+      assert.doesNotMatch(serialized, new RegExp(inherited))
+      assert.match(serialized, /<redacted-provider-value>/)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(configured, { recursive: true, force: true })
+    }
   }
 })
 
@@ -1020,6 +1161,7 @@ test('generated-code review binds all four release commands to the writable resu
       beforeValidationFingerprint: source.writable.targetFingerprint,
       targetFingerprint: source.writable.targetFingerprint,
       commands: ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'].map((command) => ({ command, status: 'pass', exitStatus: 0, durationMs: 1 })),
+      generatedTests: [],
       status: 'pass',
     }, null, 2)}\n`)
     installFakeCodeReviewSkill(controller)

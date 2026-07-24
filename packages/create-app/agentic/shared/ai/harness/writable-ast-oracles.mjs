@@ -269,11 +269,20 @@ const WRITABLE_CASES = Object.freeze({
     sources: ['src/modules/product_transfer/lib/flow.ts'],
     artifacts: ['src/modules/product_transfer/lib/flow.ts'],
   },
+  'OMH-163': {
+    family: 'test-authoring-unit',
+    sources: ['src/modules/quote_approval/commands/__tests__/approve-quote.test.ts'],
+    artifacts: ['src/modules/quote_approval/commands/__tests__/approve-quote.test.ts'],
+  },
+  'OMH-164': {
+    family: 'test-authoring-api',
+    sources: ['src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts'],
+    artifacts: ['src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts'],
+  },
   'OMH-165': {
-    family: 'test-authoring-mutation',
-    seam: 'runPortalQuoteApprovalScenario',
-    sources: ['tests/e2e/portal-quote-approval.spec.ts'],
-    artifacts: ['tests/e2e/portal-quote-approval.spec.ts'],
+    family: 'test-authoring-browser',
+    sources: ['src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts'],
+    artifacts: ['src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts'],
   },
   'OMH-171': {
     family: 'regression',
@@ -440,6 +449,7 @@ function newFacts() {
     exportedFunctions: new Map(),
     exportedVariables: new Set(),
     functions: new Set(),
+    finallyBlocks: 0,
     importedBindings: new Map(),
     importSources: new Set(),
     jsxLiteralAttributes: new Map(),
@@ -638,6 +648,7 @@ function collectFacts(ts, sourceFiles) {
       if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) facts.strings.add(node.text)
       if (node.kind === ts.SyntaxKind.NullKeyword) facts.nullNodes += 1
       if (ts.isThrowStatement(node)) facts.throwStatements += 1
+      if (ts.isTryStatement(node) && node.finallyBlock) facts.finallyBlocks += 1
       if (ts.isForStatement(node) || ts.isForInStatement(node) || ts.isForOfStatement(node) || ts.isWhileStatement(node) || ts.isDoStatement(node)) {
         facts.loops += 1
       }
@@ -833,11 +844,30 @@ function caseChecks(ts, caseId, facts) {
       check('business.data-loop', (fact?.loops ?? 0) > 0, `exported ${definition.seam} isolates rows in a loop`),
     ]
   }
-  if (definition.family === 'test-authoring-mutation') {
-    const fact = facts.exportedFunctions.get(definition.seam)
+  if (definition.family === 'test-authoring-unit') {
     return [
-      check('business.test-seam', exportedFunctionCalls(facts, definition.seam, ['harness.createFixture', 'harness.open', 'harness.approve', 'harness.expectConflict', 'harness.verifyBackend', 'harness.cleanup']), `exported ${definition.seam} exercises fixture, UI, conflict, backend verification, and cleanup seams`),
-      check('business.test-finally', (fact?.finallyBlocks ?? 0) > 0, `exported ${definition.seam} cleans up in finally`),
+      check('business.test-unit-runner', (facts.calls.get('test') ?? 0) >= 3 && (facts.calls.get('expect') ?? 0) >= 3, 'at least three executable Jest tests with assertions'),
+      check('business.test-unit-enabled', !hasCall(facts, 'test.skip', 'test.todo', 'test.only'), 'generated Jest coverage contains no skipped, todo, or focused-only tests'),
+      check('business.test-unit-invariants', ['already approved', 'requester', 'injected failure'].every((value) => [...facts.strings].some((entry) => entry.toLowerCase().includes(value))), 'test titles or assertions cover duplicate approval, separation of duties, and injected failure'),
+      check('business.test-unit-failure', hasCall(facts, 'toThrow', 'toReject', 'rejects.toThrow') && hasCall(facts, 'toHaveBeenCalledTimes', 'toEqual', 'toBe'), 'failure and rollback outcomes are asserted'),
+    ]
+  }
+  if (definition.family === 'test-authoring-api') {
+    return [
+      check('business.test-api-runner', facts.importedBindings.get('test') === '@playwright/test' && facts.importedBindings.get('expect') === '@playwright/test', 'the module-local spec uses the Playwright test runner'),
+      check('business.test-api-enabled', !hasCall(facts, 'test.skip', 'test.todo', 'test.only'), 'generated API coverage contains no skipped, todo, or focused-only tests'),
+      check('business.test-api-http', ['request.post', 'request.patch', 'request.delete'].every((name) => hasCall(facts, name)), 'real HTTP creation, stale update, and cleanup requests are executed'),
+      check('business.test-api-scope-conflict', hasString(facts, 'x-organization-id') && hasString(facts, 'if-match') && (facts.calls.get('toBe') ?? 0) >= 4, 'organization denial and optimistic conflict statuses are asserted'),
+      check('business.test-api-lifecycle', hasString(facts, '127.0.0.1') && hasCall(facts, 'listen') && hasCall(facts, 'close') && facts.finallyBlocks > 0, 'the ephemeral server binds 127.0.0.1 and is closed in finally'),
+    ]
+  }
+  if (definition.family === 'test-authoring-browser') {
+    return [
+      check('business.test-browser-runner', facts.importedBindings.get('test') === '@playwright/test' && facts.importedBindings.get('expect') === '@playwright/test', 'the module-local spec uses the Playwright test runner'),
+      check('business.test-browser-enabled', !hasCall(facts, 'test.skip', 'test.todo', 'test.only'), 'generated browser coverage contains no skipped, todo, or focused-only tests'),
+      check('business.test-browser-real-page', hasCall(facts, 'page.goto') && hasCall(facts, 'page.getByRole') && hasCall(facts, 'click'), 'a real browser navigates loopback HTTP and interacts through semantic roles'),
+      check('business.test-browser-coverage', hasString(facts, '/portal/orders/forbidden') && hasString(facts, '/api/backend/quotes/quote-1') && hasCall(facts, 'toHaveText', 'toContainText', 'toBe'), 'direct-route denial, stale conflict, and backend state are asserted'),
+      check('business.test-browser-lifecycle', hasString(facts, '127.0.0.1') && hasCall(facts, 'listen') && hasCall(facts, 'close') && facts.finallyBlocks > 0, 'the ephemeral server binds 127.0.0.1 and is closed in finally'),
     ]
   }
   switch (caseId) {

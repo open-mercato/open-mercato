@@ -3,7 +3,7 @@
   "$id": "https://open-mercato.dev/schemas/standalone-target-validation-result.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "caseId", "sourceResult", "beforeValidationFingerprint", "targetFingerprint", "commands", "status"],
+  "required": ["schemaVersion", "caseId", "sourceResult", "beforeValidationFingerprint", "targetFingerprint", "commands", "generatedTests", "status"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "caseId": { "type": "string", "pattern": "^OMH-[0-9]{3}$" },
@@ -28,6 +28,25 @@
         "required": ["command", "status", "exitStatus", "durationMs"],
         "properties": {
           "command": { "enum": ["yarn generate", "yarn typecheck", "yarn lint", "yarn build"] },
+          "status": { "const": "pass" },
+          "exitStatus": { "const": 0 },
+          "durationMs": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "generatedTests": {
+      "type": "array",
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["runner", "artifact", "artifactSha256", "command", "network", "status", "exitStatus", "durationMs"],
+        "properties": {
+          "runner": { "enum": ["jest", "playwright-api", "playwright-browser"] },
+          "artifact": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "artifactSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "command": { "type": "string", "minLength": 1, "maxLength": 400 },
+          "network": { "enum": ["none", "loopback"] },
           "status": { "const": "pass" },
           "exitStatus": { "const": 0 },
           "durationMs": { "type": "integer", "minimum": 0 }

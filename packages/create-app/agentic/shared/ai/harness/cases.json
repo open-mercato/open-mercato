@@ -11625,29 +11625,35 @@
     "maxContextFiles":6,"maxInitialContextBytes":40960,"maxTotalContextBytes":131072,"relatedCases":["OMH-007","OMH-048"]
   },
   {
-    "id":"OMH-163","title":"Test quote approval rules and failure paths with focused unit tests","family":"testing","mode":"one-shot","evaluationKind":"routing","risk":"medium",
+    "id":"OMH-163","title":"Test quote approval rules and failure paths with focused unit tests","family":"testing","mode":"one-shot","evaluationKind":"implementation","risk":"medium",
     "prompt":"Write focused unit tests proving a quote cannot be approved twice, cannot be approved by its requester, and rolls back after an injected failure.",
-    "tags":["business-language","unit-tests","quote-approval"],
+    "tags":["business-language","unit-tests","quote-approval","writable"],
     "owner":{"kind":"guide","path":".ai/guides/testing-debugging.md","ruleIds":["BC-01","BC-02","BC-05"]},
     "expectedRouter":{"required":["testing"],"allowedExtra":["module-data","debugging"]},
     "requiredSkills":[],
     "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["unit-regression-oracle","failure-injection","focused-test-command","honest-test-result","separation-of-duties"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:skip|todo|only).{0,30}test","mock.{0,30}(?:the assertion|everything)"] ,
-    "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
+    "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden","writable.allowed-paths","oracle.artifacts","oracle.business.test-authoring"],
+    "fixture":{"scaffold":"fresh-standalone","setup":["fixture:testing-quote-approval-unit"]},
+    "oracle":{"validatorIds":["oracle.artifacts","oracle.business.test-authoring"],"expectedArtifacts":["src/modules/quote_approval/commands/__tests__/approve-quote.test.ts"]},
+    "allowedWrites":["src/modules/quote_approval/commands/__tests__/approve-quote.test.ts"],
     "maxContextFiles":4,"maxInitialContextBytes":32768,"maxTotalContextBytes":98304,"relatedCases":["OMH-060","OMH-077","OMH-083"]
   },
   {
-    "id":"OMH-164","title":"Test the customer API through success denial conflict and cleanup","family":"testing","mode":"one-shot","evaluationKind":"routing","risk":"medium",
+    "id":"OMH-164","title":"Test the customer API through success denial conflict and cleanup","family":"testing","mode":"one-shot","evaluationKind":"implementation","risk":"medium",
     "prompt":"Test the customer API from creation through stale update and deletion, including forbidden access from another company and reliable cleanup.",
-    "tags":["business-language","api-tests","customer-api"],
+    "tags":["business-language","api-tests","customer-api","writable"],
     "owner":{"kind":"guide","path":".ai/guides/testing-debugging.md","ruleIds":["BC-01","BC-02","BC-05","BC-10"]},
     "expectedRouter":{"required":["testing"],"allowedExtra":["module-data","debugging"]},
     "requiredSkills":["om-integration-tests"],
     "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["self-contained-fixtures","api-fixtures","finally-cleanup","scope-denial-coverage","stale-write-conflict","filtered-integration-run"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:demo|seeded) data","(?:skip|todo|only).{0,30}test"],
-    "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
+    "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden","writable.allowed-paths","oracle.artifacts","oracle.business.test-authoring"],
+    "fixture":{"scaffold":"fresh-standalone","setup":["fixture:testing-customer-api"]},
+    "oracle":{"validatorIds":["oracle.artifacts","oracle.business.test-authoring"],"expectedArtifacts":["src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts"]},
+    "allowedWrites":["src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts"],
     "maxContextFiles":5,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-057","OMH-062","OMH-084"]
   },
   {
@@ -11752,11 +11758,11 @@
         "oracle.business.test-authoring"
       ],
       "expectedArtifacts": [
-        "tests/e2e/portal-quote-approval.spec.ts"
+        "src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts"
       ]
     },
     "allowedWrites": [
-      "tests/e2e/portal-quote-approval.spec.ts"
+      "src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts"
     ]
   },
   {
