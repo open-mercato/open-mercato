@@ -14,6 +14,7 @@ import {
   type NotificationTenantContext,
 } from './notificationFactory'
 import { toNotificationDto } from './notificationMapper'
+import { buildNotificationReadScopeWhere } from './notificationScope'
 import {
   getRecipientUserIdsForFeature,
   getRecipientUserIdsForRole,
@@ -184,6 +185,7 @@ async function createOrRefreshNotification(
 export interface NotificationServiceContext {
   tenantId: string
   organizationId?: string | null
+  organizationIds?: string[] | null
   userId?: string | null
 }
 
@@ -594,6 +596,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         recipientUserId: ctx.userId,
         tenantId: ctx.tenantId,
         status: 'unread',
+        ...buildNotificationReadScopeWhere(ctx),
       })
     },
 
@@ -602,6 +605,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const filters: Record<string, unknown> = {
         recipientUserId: ctx.userId,
         tenantId: ctx.tenantId,
+        ...buildNotificationReadScopeWhere(ctx),
       }
 
       if (since) {
@@ -617,6 +621,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           recipientUserId: ctx.userId,
           tenantId: ctx.tenantId,
           status: 'unread',
+          ...buildNotificationReadScopeWhere(ctx),
         }),
       ])
 

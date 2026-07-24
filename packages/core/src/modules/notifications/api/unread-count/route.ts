@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/core'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import {
@@ -8,6 +9,10 @@ import {
 import { Notification } from '../../data/entities'
 import { unreadCountResponseSchema } from '../openapi'
 import { resolveNotificationContext } from '../../lib/routeHelpers'
+import {
+  buildNotificationReadScopeWhere,
+  getNotificationReadScopeTagOrganizationIds,
+} from '../../lib/notificationScope'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -16,8 +21,21 @@ export const metadata = {
 const UNREAD_COUNT_RESOURCE = 'notifications.notification'
 const UNREAD_COUNT_TTL_MS = 10_000
 
-function buildUnreadCountCacheKey(userId: string): string {
-  return `notifications:unread-count:u=${userId}`
+function buildUnreadCountCacheKey(params: {
+  userId: string
+  organizationId: string | null
+  organizationIds: string[]
+}): string {
+  const normalizedIds = Array.from(new Set(
+    params.organizationIds.filter((value) => value.trim().length > 0),
+  )).sort((left, right) => left.localeCompare(right))
+  const scopeKey = normalizedIds.length === 0
+    ? 'no-access'
+    : `${params.organizationId ?? 'none'}:scope=${createHash('sha256')
+        .update(normalizedIds.join('\0'))
+        .digest('hex')
+        .slice(0, 16)}`
+  return `notifications:unread-count:u=${params.userId}:org=${scopeKey}`
 }
 
 export async function GET(req: Request) {
@@ -25,8 +43,22 @@ export async function GET(req: Request) {
   const em = ctx.container.resolve('em') as EntityManager
 
   const userId = scope.userId
-  const cache = userId && isCrudCacheEnabled() ? resolveCrudCache(ctx.container) : null
-  const cacheKey = cache && userId ? buildUnreadCountCacheKey(userId) : null
+  const cacheableOrganizationIds = Array.isArray(scope.organizationIds)
+    ? scope.organizationIds
+    : null
+  // Unrestricted and omitted legacy scopes cannot be safely tagged for invalidation:
+  // org-specific writes only invalidate their own collection tag. Keep those scopes
+  // uncached rather than serving a stale tenant-wide total until the TTL expires.
+  const cache = userId && cacheableOrganizationIds && isCrudCacheEnabled()
+    ? resolveCrudCache(ctx.container)
+    : null
+  const cacheKey = cache && userId && cacheableOrganizationIds
+    ? buildUnreadCountCacheKey({
+        userId,
+        organizationId: scope.organizationId,
+        organizationIds: cacheableOrganizationIds,
+      })
+    : null
 
   if (cache && cacheKey) {
     try {
@@ -41,6 +73,7 @@ export async function GET(req: Request) {
     recipientUserId: userId,
     tenantId: scope.tenantId,
     status: 'unread',
+    ...buildNotificationReadScopeWhere(scope),
   })
 
   if (cache && cacheKey) {
@@ -48,7 +81,11 @@ export async function GET(req: Request) {
       await runWithCacheTenant(scope.tenantId, () =>
         cache.set(cacheKey, count, {
           ttl: UNREAD_COUNT_TTL_MS,
-          tags: buildCollectionTags(UNREAD_COUNT_RESOURCE, scope.tenantId, [null]),
+          tags: buildCollectionTags(
+            UNREAD_COUNT_RESOURCE,
+            scope.tenantId,
+            getNotificationReadScopeTagOrganizationIds(scope),
+          ),
         }),
       )
     } catch {}

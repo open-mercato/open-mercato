@@ -970,6 +970,7 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
 
+- Notification read scopes must distinguish selected, unrestricted, no-access, and omitted legacy semantics in filters, cache behavior, and isolated integration fixtures.
 - 2026-07-10 · payment_gateways: mock-only idempotency coverage missed Stripe partial-refund terminalization and retry advancement → test production adapters, successor-state reconciliation, and rerunnable operation IDs.
 - 2026-07-09 · customer_accounts: organization-scoped RBAC queries can still trust pre-hardening ACL caches → version the cache-key namespace when authorization semantics change
 - 2026-07-10 · payment_gateways: a stale-claim lease without owner heartbeats can steal slow live provider calls; renew token-scoped leases during provider I/O and let followers wait for the shared result.

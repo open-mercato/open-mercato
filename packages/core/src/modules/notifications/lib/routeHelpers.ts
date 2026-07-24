@@ -4,6 +4,7 @@ import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveNotificationService, type NotificationService } from './notificationService'
 
 /**
@@ -22,6 +23,7 @@ export const NOTIFICATION_SETTINGS_RESOURCE_KIND = 'notifications.settings'
 export interface NotificationScope {
   tenantId: string
   organizationId: string | null
+  organizationIds?: string[] | null
   userId: string | null
 }
 
@@ -64,11 +66,26 @@ export function notificationCrudErrorResponse(error: unknown): Response | null {
  */
 export async function resolveNotificationContext(req: Request): Promise<NotificationRequestContext> {
   const { ctx } = await resolveRequestContext(req)
+  const organizationScope = await resolveOrganizationScopeForRequest({
+    container: ctx.container,
+    auth: ctx.auth,
+    request: req,
+    ...(ctx.selectedOrganizationId === undefined
+      ? {}
+      : { selectedId: ctx.selectedOrganizationId }),
+  })
+  const tenantId = organizationScope.tenantId ?? ctx.auth?.tenantId ?? ''
+  const organizationId = organizationScope.selectedId
+  const organizationIds = organizationScope.filterIds
+  ctx.organizationScope = organizationScope
+  ctx.selectedOrganizationId = organizationId
+  ctx.organizationIds = organizationIds
   return {
     service: resolveNotificationService(ctx.container),
     scope: {
-      tenantId: ctx.auth?.tenantId ?? '',
-      organizationId: ctx.selectedOrganizationId ?? null,
+      tenantId,
+      organizationId,
+      organizationIds,
       userId: ctx.auth?.sub ?? null,
     },
     ctx,
