@@ -525,7 +525,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           providerKey: link.gatewayProviderKey,
           err: error,
         })
-        throw new CrudHttpError(502, { error: 'Unable to start the payment session' })
+        throw new CrudHttpError(502, { error: 'checkout.payPage.errors.sessionStart' })
       }
       const refreshedTransaction = await findOneWithDecryption(em, CheckoutTransaction, {
         id: transaction.id,
