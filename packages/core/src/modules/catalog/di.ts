@@ -12,9 +12,7 @@ export function register(container: AppContainer) {
   container.register({
     catalogPricingService: asFunction(({ eventBus }: AppCradle) => {
       return new DefaultCatalogPricingService(eventBus ?? null)
-    })
-      .singleton()
-      .proxy(),
+    }).singleton(),
     CatalogProduct: asValue(CatalogProduct),
     CatalogProductPrice: asValue(CatalogProductPrice),
   })
