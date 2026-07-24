@@ -115,7 +115,7 @@ If the selected skill is absent, run `yarn install-skills` once and retry; do no
 - For spec lookup, list names and open only a task-specific spec; never read README/template unless doing spec work.
 - Inspect app call sites first; use `framework-context` last for one bounded exact target.
 - Load `BACKWARD_COMPATIBILITY.md` before altering a public ID/contract, not for an additive change that preserves it.
-- Never recursively content-search or preload guide, skill, fact, reference, or source trees; open only routed paths.
+- Never run recursive `grep`/`rg`/`find` content searches over guide/skill/fact/source trees; list names if needed, then open routed paths directly.
 - Each unit carries only its area, contract, facts, and delivery workflow.
 
 ## Module-Specific Facts
