@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { CustomerEntity } from '../../../../data/entities'
 import { buildPersonEmailThreads } from '../../../../lib/personEmailThreads'
 
@@ -33,12 +34,12 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
 
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? (auth as { orgId?: string | null }).orgId ?? null
   const em = (container.resolve('em') as EntityManager).fork()
-  const dscope = { tenantId: auth.tenantId as string, organizationId }
 
-  // Verify the Person exists in the caller's tenant/org (ownership check,
-  // same pattern as the [id]/emails compose route).
+  // Verify the Person exists in the caller's tenant, then fail-closed on the
+  // record's own organization — same pattern as the [id] detail route. Loading
+  // by tenant + id (not a hand-rolled selected org) keeps this working under the
+  // "All organizations" scope, where no concrete org is carried.
   const person = await findOneWithDecryption(
     em,
     CustomerEntity,
@@ -46,13 +47,16 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
       id: personId,
       kind: 'person',
       tenantId: auth.tenantId,
-      organizationId,
       deletedAt: null,
     } as never,
     undefined,
-    dscope,
+    { tenantId: auth.tenantId as string, organizationId: scope?.selectedId ?? (auth as { orgId?: string | null }).orgId ?? null },
   )
   if (!person) {
+    return NextResponse.json({ error: 'Person not found' }, { status: 404 })
+  }
+  const organizationId = (person as { organizationId?: string | null }).organizationId ?? null
+  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId })) {
     return NextResponse.json({ error: 'Person not found' }, { status: 404 })
   }
 
