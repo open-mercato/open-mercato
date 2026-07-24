@@ -42,8 +42,8 @@ Port the ESLint 10.7.0 dependency update from PR #4295 onto `develop`, keep the 
 
 ### Phase 1: Port dependency update
 
-- [ ] 1.1 Apply the ESLint 10.7.0 ranges to all aligned package manifests
-- [ ] 1.2 Regenerate the lockfile and confirm the diff contains no unrelated dependency changes
+- [x] 1.1 Apply the ESLint 10.7.0 ranges to all aligned package manifests — 833b906ce
+- [x] 1.2 Regenerate the lockfile and confirm the diff contains no unrelated dependency changes — 833b906ce
 
 ### Phase 2: Verify and publish
 
