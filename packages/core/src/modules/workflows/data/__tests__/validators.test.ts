@@ -9,6 +9,7 @@ import {
   workflowStepSchema,
   workflowTransitionSchema,
   activityDefinitionSchema,
+  validateActivityConfig,
   createWorkflowDefinitionSchema,
   updateWorkflowDefinitionSchema,
   workflowDefinitionFilterSchema,
@@ -434,6 +435,81 @@ describe('Workflows Validators', () => {
           })
         ).not.toThrow()
       })
+    })
+  })
+
+  describe('validateActivityConfig', () => {
+    test('accepts a complete CALL_API config', () => {
+      expect(validateActivityConfig('CALL_API', { endpoint: '/api/orders' })).toEqual([])
+    })
+
+    test('flags a CALL_API config missing endpoint', () => {
+      const issues = validateActivityConfig('CALL_API', { method: 'POST' })
+      expect(issues).toHaveLength(1)
+      expect(issues[0].field).toBe('endpoint')
+      expect(issues[0].message).toMatch(/endpoint/i)
+    })
+
+    test('treats an interpolation template as present', () => {
+      expect(validateActivityConfig('CALL_API', { endpoint: '{{context.url}}' })).toEqual([])
+    })
+
+    test('treats empty-string and missing config as missing', () => {
+      expect(validateActivityConfig('CALL_API', { endpoint: '   ' })).toHaveLength(1)
+      expect(validateActivityConfig('CALL_API', {})).toHaveLength(1)
+      expect(validateActivityConfig('CALL_API', undefined)).toHaveLength(1)
+    })
+
+    test('flags a raw non-object config (unparsed JSON string)', () => {
+      const issues = validateActivityConfig('CALL_API', '{"endpoint":')
+      expect(issues).toHaveLength(1)
+      expect(issues[0].message).toMatch(/valid JSON object/i)
+    })
+
+    test('requires url for CALL_WEBHOOK', () => {
+      expect(validateActivityConfig('CALL_WEBHOOK', {})).toEqual([{ field: 'url', message: expect.any(String) }])
+      expect(validateActivityConfig('CALL_WEBHOOK', { url: 'https://example.com/hook' })).toEqual([])
+    })
+
+    test('requires to and subject for SEND_EMAIL', () => {
+      const issues = validateActivityConfig('SEND_EMAIL', {})
+      expect(issues.map((i) => i.field)).toEqual(['to', 'subject'])
+      expect(validateActivityConfig('SEND_EMAIL', { to: 'a@b.c', subject: 'Hi' })).toEqual([])
+    })
+
+    test('requires eventName for EMIT_EVENT', () => {
+      expect(validateActivityConfig('EMIT_EVENT', { eventType: 'x' })).toEqual([
+        { field: 'eventName', message: expect.any(String) },
+      ])
+      expect(validateActivityConfig('EMIT_EVENT', { eventName: 'order.created' })).toEqual([])
+    })
+
+    test('requires commandId and input for UPDATE_ENTITY', () => {
+      const issues = validateActivityConfig('UPDATE_ENTITY', { entity: 'x', id: '1' })
+      expect(issues.map((i) => i.field)).toEqual(['commandId', 'input'])
+      expect(
+        validateActivityConfig('UPDATE_ENTITY', { commandId: 'sales.documents.update', input: { a: 1 } }),
+      ).toEqual([])
+    })
+
+    test('requires functionName for EXECUTE_FUNCTION', () => {
+      expect(validateActivityConfig('EXECUTE_FUNCTION', { function: 'x' })).toEqual([
+        { field: 'functionName', message: expect.any(String) },
+      ])
+      expect(validateActivityConfig('EXECUTE_FUNCTION', { functionName: 'doThing' })).toEqual([])
+    })
+
+    test('WAIT requires duration or until, but not both', () => {
+      expect(validateActivityConfig('WAIT', {})).toHaveLength(1)
+      expect(validateActivityConfig('WAIT', { duration: 'PT5M' })).toEqual([])
+      expect(validateActivityConfig('WAIT', { duration: 'PT5M', until: new Date(Date.now() + 3600000).toISOString() }))
+        .toHaveLength(1)
+      expect(validateActivityConfig('WAIT', { duration: 'not-a-duration' })[0].message).toMatch(/duration/i)
+      expect(validateActivityConfig('WAIT', { until: '2020-01-01T00:00:00.000Z' })[0].message).toMatch(/future/i)
+    })
+
+    test('returns no issues for unknown/aliased activity types', () => {
+      expect(validateActivityConfig('SOMETHING_ELSE', {})).toEqual([])
     })
   })
 

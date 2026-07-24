@@ -260,6 +260,97 @@ export const activityDefinitionSchema = z.object({
   }
 })
 
+// ============================================================================
+// Activity config validation (edit-time)
+// ============================================================================
+
+// Required config fields per activity type, kept in lock-step with the runtime
+// executor (lib/activity-executor.ts) so the visual editor blocks an activity at
+// edit time instead of persisting a config that only throws later at run time.
+// A value that is an interpolation template ({{...}}) is treated as present since
+// it is resolved at run time. WAIT is handled below with its duration/until rules.
+
+export interface ActivityConfigIssue {
+  field?: string
+  message: string
+}
+
+const isPresent = (value: unknown): boolean => {
+  if (value == null) return false
+  if (typeof value === 'string') return value.trim().length > 0
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === 'object') return Object.keys(value as Record<string, unknown>).length > 0
+  return true
+}
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * Validate a single activity's `config` against the required fields its
+ * activityType needs to run. Pure and side-effect-free so both the visual
+ * editor dialogs and unit tests can consume it. Returns an empty array when the
+ * config is complete (or when the type has no required fields).
+ */
+export function validateActivityConfig(
+  activityType: string,
+  config: unknown,
+): ActivityConfigIssue[] {
+  const issues: ActivityConfigIssue[] = []
+  // A config that came through the JSON editor as a raw (unparsed) string can
+  // never satisfy any required field — surface it rather than silently dropping.
+  if (config != null && !isPlainObject(config)) {
+    return [{ message: 'Activity configuration must be a valid JSON object' }]
+  }
+  const cfg = (config ?? {}) as Record<string, unknown>
+  const require = (field: string, message: string) => {
+    if (!isPresent(cfg[field])) issues.push({ field, message })
+  }
+
+  switch (activityType) {
+    case 'CALL_API':
+      require('endpoint', 'CALL_API requires an "endpoint" (e.g. "/api/...")')
+      break
+    case 'CALL_WEBHOOK':
+      require('url', 'CALL_WEBHOOK requires a "url"')
+      break
+    case 'SEND_EMAIL':
+      require('to', 'SEND_EMAIL requires a "to" recipient')
+      require('subject', 'SEND_EMAIL requires a "subject"')
+      break
+    case 'EMIT_EVENT':
+      require('eventName', 'EMIT_EVENT requires an "eventName"')
+      break
+    case 'UPDATE_ENTITY':
+      require('commandId', 'UPDATE_ENTITY requires a "commandId" (e.g. "sales.documents.update")')
+      require('input', 'UPDATE_ENTITY requires an "input" object with entity data')
+      break
+    case 'EXECUTE_FUNCTION':
+      require('functionName', 'EXECUTE_FUNCTION requires a "functionName"')
+      break
+    case 'WAIT': {
+      const hasDuration = isPresent(cfg.duration)
+      const hasUntil = isPresent(cfg.until)
+      if (!hasDuration && !hasUntil) {
+        issues.push({ field: 'duration', message: 'WAIT activity requires "duration" or "until"' })
+      } else if (hasDuration && hasUntil) {
+        issues.push({ field: 'duration', message: 'WAIT activity accepts "duration" OR "until", not both' })
+      } else if (hasDuration && !isValidDurationString(cfg.duration)) {
+        issues.push({ field: 'duration', message: DURATION_ERROR })
+      } else if (hasUntil && !isValidIsoDateString(cfg.until)) {
+        issues.push({ field: 'until', message: UNTIL_ERROR })
+      } else if (hasUntil && !isFutureIsoDateString(cfg.until)) {
+        issues.push({ field: 'until', message: UNTIL_PAST_ERROR })
+      }
+      break
+    }
+    default:
+      break
+  }
+
+  return issues
+}
+
 // Localized validation message schema (for START step pre-conditions)
 export const localizedMessageSchema = z.record(z.string(), z.string())
 
