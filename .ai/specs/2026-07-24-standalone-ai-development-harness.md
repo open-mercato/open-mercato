@@ -1,6 +1,6 @@
 # Standalone AI Development Harness
 
-- **Status:** Ready — research and pre-implementation audit complete
+- **Status:** Implemented — final release evidence and PR handoff pending
 - **Date:** 2026-07-24
 - **Scope:** OSS, standalone applications emitted by `create-mercato-app` only
 - **Tracking plan:** `.ai/runs/2026-07-24-standalone-app-ai-harness.md`
@@ -489,9 +489,9 @@ Every case is evaluated against a fresh standalone scaffold. Cases 57–70 are m
 
 ### Evaluation levels and release matrix
 
-All 184 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. The writable release target is 37 representative cases. A case counts toward that target only after its release-matrix entry, disposable fixture, controller-owned oracle, and narrow write allowlist land together; catalog classification alone does not make a case executable.
+All 184 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. The writable release target is 39 representative cases (21.2% of the catalog). A case counts toward that target only after its release-matrix entry, disposable fixture, controller-owned oracle, and narrow write allowlist land together; catalog classification alone does not make a case executable.
 
-Executable coverage is distributed across these slices; the release matrix and trusted oracles must remain aligned for all 37 cases:
+Executable coverage is distributed across these slices; the release matrix and trusted oracles must remain aligned for all 39 cases:
 
 - module vertical slice: 9, 11, 12, 14;
 - extension/UI: 26, 27, 29, 31;
@@ -500,18 +500,21 @@ Executable coverage is distributed across these slices; the release matrix and t
 - business command and workflow slices: 93, 105, 107, 122, 128, 133, 140;
 - business UI and portal slices: 115, 130, 137, 165, 181;
 - business AI and provider slices: 144, 146, 149, 150, 151, 153, 156;
+- business test-authoring slices: 163, 164, 165;
 - business regressions: 171, 172.
 
 Implementation cases use a fresh disposable scaffold, explicit allowed-write paths, deterministic fixture setup, expected artifacts, and executable validator IDs. A fixed controller-owned TypeScript AST oracle covers every registered writable case and rejects comment/import token stuffing; isolated mocked behavior probes additionally exercise provider/workflow effects and seeded regressions. The target cannot replace executable oracle code. The after phase also runs the target's fixed `yarn typecheck` gate. Regression cases must fail their oracle before the agent change and pass it afterward. Provider cases use mocked effects or contract servers unless explicit test credentials are supplied. Broad cases may use parameterized variants, but each variant has a distinct result and oracle.
 
-All 31 one-shot implementation cases additionally support an explicit generated-code review lane after the writable result passes. It never launches a nested reviewer automatically. The evaluator binds the review to the prior result's passing target-command attestation and final post-build whole-target fingerprint, then copies changed regular text files as line-numbered inert snapshots, plus the controller-installed pinned `om-code-review` skill, a static review policy, controller oracle evidence, and UI/design-system references only for UI-routed cases into a bounded temporary read-only bundle. Target scripts, dependencies, Git/tracker state, original executable source files, and the target's absolute path are not copied or supplied. Trace-verified out-of-bundle, environment, or process inspection and any bundle/target mutation fail closed. A separate sanitized review artifact records the source-result, target, skill, policy, command-attestation, and final-fingerprint hashes plus the strict report/findings/verdict; this supplemental gate does not claim the skill's full repository validation gate or CI passed.
+All 39 writable implementation and regression cases must pass an isolated generated-code review after their trusted oracle, target commands, and any declared generated-test execution pass. The evaluator binds review to those attestations and the final whole-target fingerprint, then copies changed regular text files as line-numbered inert snapshots, plus the controller-installed pinned `om-code-review` skill, a static review policy, controller oracle evidence, and UI/design-system references only for UI-routed cases into a bounded temporary read-only bundle. Target scripts, dependencies, Git/tracker state, original executable source files, and the target's absolute path are not copied or supplied. Trace-verified out-of-bundle, environment, or process inspection and any bundle/target mutation fail closed. A separate sanitized review artifact records the source-result, target, skill, policy, command and generated-test attestations, and final-fingerprint hashes plus the strict report/findings/verdict; this supplemental gate does not claim the skill's full repository validation gate or CI passed.
+
+Cases 163, 164, and 165 are executable test-authoring evaluations. They produce a focused Jest unit test, a Playwright API integration test over real contained loopback HTTP, and a Playwright browser integration test respectively. Their files live in canonical module-local `__tests__` or `__integration__` paths and must be executed by fixed controller-owned argv inside the writable sandbox. AST or mocked-helper inspection is not test-execution evidence. External network, Docker sockets, host test credentials, and inherited application/database environment values remain unavailable; missing test/browser containment prerequisites fail the release lane.
 
 The checked-in `releaseMatrix` pins runner, model selector, and case IDs. Acceptance for this PR is:
 
 1. deterministic validation: 184/184 pass, including 100% forbidden/safety assertions;
 2. Codex routing: 184/184 pass with one retry allowed only for invalid structured output;
-3. Claude routing: the 37-case representative release target passes with the same retry rule once its matrix expansion is complete;
-4. writable implementation/regression: all 37 target oracles pass, with at least one runner per case and both runners represented in every family;
+3. Claude routing: the 39-case representative release target passes with the same retry rule once its matrix expansion is complete;
+4. writable implementation/regression: all 39 target oracles, fixed target commands, declared generated tests, and mandatory generated-code reviews pass, with at least one runner per case and both runners represented in every family;
 5. results are produced from the final commit, record CLI/model versions and prompt hashes, and are summarized without committing raw private transcripts.
 
 Runner unavailability blocks claiming live release evidence; it does not invalidate deterministic CI. A maintainer may explicitly waive one unavailable runner in the PR with the failed command/version and reason, but may not waive a failed safety, forbidden-pattern, or executable oracle. No score averaging hides a failed mandatory case.
@@ -585,9 +588,10 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 | Deterministic harness validation | 184 schema-valid cases, existing references, no contradictory stale patterns, context budgets, dependency closure. |
 | Instruction-budget regression | Both root sources ≤12 KiB; named representative generated initial chains ≤32,768 bytes, measured as bytes. |
 | Codex live runner | Read-only structured routing/decision result for all 184 cases, one fresh session per case. |
-| Claude live runner | Plan/read-only structured routing/decision result for the 37-case release target. |
-| Writable live runner | Disposable scaffolds and executable oracles for the 37-case implementation/regression target. |
-| Optional generated-code review | Explicit post-oracle review of one-shot implementation output in a bounded source-only bundle using the pinned installed `om-code-review` skill. |
+| Claude live runner | Plan/read-only structured routing/decision result for the 39-case release target. |
+| Writable live runner | Disposable scaffolds and executable oracles for the 39-case implementation/regression target. |
+| Generated test execution | Fixed-argv execution of the generated Jest unit, Playwright API, and Playwright browser cases in canonical module-local paths. |
+| Mandatory generated-code review | Post-oracle/command/test review of every writable result in a bounded source-only bundle using the pinned installed `om-code-review` skill. |
 | Generated standalone install/generate/typecheck/test/build | Real npm/Verdaccio package boundary and published-path validation. |
 | Semantic smoke | `/login`, one CRUD plan/flow, one UMES flow, one worker/CLI flow, and package source-context lookup. |
 
@@ -658,7 +662,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Implement deterministic, read-only Codex/Claude routing, and writable disposable-scaffold evaluation modes plus sanitized result artifacts.
 2. Generate a fresh standalone app, install local/external skills, resolve upstream context, and run deterministic validation.
-3. Run all 184 Codex routing cases, the 37-case Claude routing target, and the 37 writable implementation/regression target oracles; fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
+3. Run all 184 Codex routing cases, the 39-case Claude routing target, and the 39 writable implementation/regression target oracles, generated tests, target commands, and code reviews; fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
 4. Run create-app targeted tests, Verdaccio standalone parity where package boundaries changed, and the configured full repository gate.
 5. Complete automated code review/autofix, final compliance report, PR evidence, and rollback notes.
 
@@ -666,15 +670,15 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 | Check | Design verdict |
 |---|---|
-| Standalone-only placement | Planned — create-app/CLI scaffold assets and tests; no app/core runtime module changes. |
-| Tenant/security/data integrity | Planned — universal boundaries plus mandatory cases 57–70; no runtime data access added. |
-| Canonical module mechanisms | Planned — routed guides/skills reference real helpers; generated facts/source resolve installed contracts. |
-| Backward compatibility | Planned — stable script/skill/path contracts retained; additive commands/files; conservative rerun. |
-| Progressive disclosure | Planned — root/skill byte and line budgets, branch references, facts-first context. |
-| External skill dependency closure | Required test; manifest is explicit and no local/external duplication is allowed. |
-| Cross-platform installer | Required tests on Node path handling, Windows command resolution, and junctions; no jq/POSIX dependency. |
-| Integration coverage | Spec lists fresh/skipped/rerun/install/context/eval/Verdaccio and semantic smoke paths. |
-| New feature integration tests | Included as generator/installer/context/live-runner integration tests; no HTTP/UI test is applicable. |
+| Standalone-only placement | Implemented in create-app/CLI scaffold assets and tests; no core runtime business module or database contract changed. The root app files touched are required create-app template mirrors. |
+| Tenant/security/data integrity | Implemented as universal boundaries, mandatory cases 57–70, writable oracles, and contained release execution; no runtime data access was added. |
+| Canonical module mechanisms | Implemented through routed guides/skills, generated installed-module facts, and exact installed source plus nearest `AGENTS.md` resolution. |
+| Backward compatibility | Implemented with stable script/skill/path contracts, additive commands/files, conservative reruns, and ownership-aware upgrades. |
+| Progressive disclosure | Implemented with byte-guarded compact roots, branch-specific references, facts-first context, and measured per-case budgets. |
+| External skill dependency closure | Implemented with an explicit exact pin, per-skill hashes, source/stage/install verification, ownership ledger, and no local/external duplication. |
+| Cross-platform installer | Implemented with Node path handling, simulated Windows command/junction coverage, and no `jq`/POSIX dependency; writable release evaluation intentionally fails closed on native Windows. |
+| Integration coverage | Implemented for fresh/skipped/rerun/install/context/eval/Verdaccio and semantic smoke paths. |
+| New feature integration tests | Three generated test cases execute a focused Jest unit test, real loopback Playwright API test, and real Playwright browser test under release containment. |
 | Rollback | Revert and rebuild; no data migration. |
 
 ## Changelog
@@ -692,3 +696,4 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 - **2026-07-24** — Compacted the generated enabled-module marker from per-module description/path rows to an identifier-only index with one progressive fact-sheet path rule, preserving enabled/bundled selection and fallback semantics while keeping compound routing under the initial context budget.
 - **2026-07-24** — Added an independent generated-code review lane for all 31 one-shot implementation cases, binding the pinned installed `om-code-review` skill to passing target-command attestation, controller oracle evidence, and the final post-build fingerprint inside a bounded source-only bundle with sanitized strict verdict artifacts.
 - **2026-07-24** — Doubled the catalog to 184 cases, grouped cases 93–184 by developer outcome, and set the writable release target to 37 cases with aligned fixture, oracle, evaluator, and release-matrix gates.
+- **2026-07-24** — Strengthened the release target to 39 cases (21.2%), made generated-code review mandatory for every writable implementation/regression, and added fixed-argv execution of generated Jest, Playwright API, and Playwright browser tests under fail-closed host containment.
