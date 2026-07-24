@@ -70,6 +70,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const initialTab = React.useMemo(() => resolveLegacyTab(searchParams?.get('tab')), [searchParams])
   const [activeTab, setActiveTab] = React.useState<DealTabId>(initialTab)
+  const userSelectedTabRef = React.useRef(false)
 
   React.useEffect(() => {
     setActiveTab(initialTab)
@@ -107,6 +108,16 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     setData,
   })
 
+  const restoredInjectedTabRef = React.useRef(false)
+  React.useEffect(() => {
+    if (restoredInjectedTabRef.current || userSelectedTabRef.current) return
+    const requestedTab = searchParams?.get('tab')
+    if (!requestedTab || requestedTab === activeTab) return
+    if (!injectedTabs.some((tab) => tab.id === requestedTab)) return
+    restoredInjectedTabRef.current = true
+    setActiveTab(requestedTab)
+  }, [activeTab, injectedTabs, searchParams])
+
   const { searchPeoplePage, fetchPeopleByIds, searchCompaniesPage, fetchCompaniesByIds } = useDealAssociationLookups({
     excludeLinkedDealId: data?.deal.id ?? null,
   })
@@ -130,6 +141,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           id: entry.id,
           label: entry.subtitle ? `${entry.label} · ${entry.subtitle}` : entry.label,
           kind: entry.kind,
+          isPrimary: entry.isPrimary === true,
         }))
       : []),
     [data],
@@ -140,7 +152,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     setSelectedActivityEntityId((current) => {
       if (activityEntities.length === 1) return activityEntities[0].id
       if (current && activityEntities.some((entry) => entry.id === current)) return current
-      return null
+      const primary = activityEntities.find((entry) => entry.isPrimary)
+      return (primary ?? activityEntities[0])?.id ?? null
     })
   }, [activityEntities])
 
@@ -220,6 +233,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const handleTabChange = React.useCallback(async (tab: DealTabId) => {
     if (!(await confirmDiscardIfDirty())) return
+    userSelectedTabRef.current = true
     setActiveTab(tab)
     const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
     nextParams.set('tab', tab)
@@ -628,7 +642,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             isSaving={isSaving}
           />
 
-          <InjectionSpot spotId="detail:customers.deal:status-badges" context={injectionContext} data={data} />
+          <InjectionSpot spotId="detail:customers.deal:status-badges" context={injectionContext} data={data} onDataChange={setData} />
 
           <PipelineStepper
             stages={data.pipelineStages}

@@ -34,6 +34,7 @@ type CompanyDetailTabsProps = {
   activeTab: CompanyTabId
   onTabChange: (tab: CompanyTabId) => void
   injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+  hiddenTabIds?: string[]
   peopleCount?: number
   dealsCount?: number
   activitiesCount?: number
@@ -67,6 +68,7 @@ export function CompanyDetailTabs({
   activeTab,
   onTabChange,
   injectedTabs = [],
+  hiddenTabIds = [],
   peopleCount = 0,
   dealsCount = 0,
   activitiesCount = 0,
@@ -117,16 +119,16 @@ export function CompanyDetailTabs({
     [t, canViewDeals, peopleCount, dealsCount, activitiesCount, filesCount],
   )
 
-  const allTabs: TabDef[] = React.useMemo(
-    () => [
+  const allTabs: TabDef[] = React.useMemo(() => {
+    const hidden = new Set(hiddenTabIds)
+    return [
       ...builtInTabs,
       ...injectedTabs.map((tab) => ({
         id: tab.id as CompanyTabId,
         label: tab.label,
       })),
-    ],
-    [builtInTabs, injectedTabs],
-  )
+    ].filter((tab) => !hidden.has(tab.id))
+  }, [builtInTabs, hiddenTabIds, injectedTabs])
 
   return (
     <div>

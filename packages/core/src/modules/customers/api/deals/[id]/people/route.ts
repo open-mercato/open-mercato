@@ -39,6 +39,7 @@ type DealPersonItem = {
   subtitle: string | null
   kind: 'person'
   linkedAt: string
+  isPrimary: boolean
 }
 
 function matchesSearch(item: DealPersonItem, query: string): boolean {
@@ -124,6 +125,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
           subtitle: person.primaryEmail ?? person.primaryPhone ?? null,
           kind: 'person',
           linkedAt: link.createdAt.toISOString(),
+          isPrimary: link.isPrimary === true,
         } satisfies DealPersonItem
       })
       .filter((item): item is DealPersonItem => item !== null)
@@ -169,6 +171,7 @@ export const openApi: OpenApiRouteDoc = {
                 subtitle: z.string().nullable(),
                 kind: z.literal('person'),
                 linkedAt: z.string(),
+                isPrimary: z.boolean(),
               }),
             ),
             total: z.number().int().nonnegative(),
