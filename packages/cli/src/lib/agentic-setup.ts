@@ -359,7 +359,7 @@ function finalizeHarnessManifest(config: AgenticConfig, selectedTools: string[])
   paths.delete(manifestPath)
   const files = [...paths]
     .filter((path) => existsSync(path))
-    .sort()
+    .sort((left, right) => left.localeCompare(right))
     .map((path) => {
       const relativePath = normalizeManifestRelativePath(relative(targetDir, path))
       const skillName = relativePath.match(/^\.ai\/skills\/([^/]+)\//)?.[1]
