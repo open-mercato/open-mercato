@@ -98,6 +98,10 @@ package-lock.json
 .agents/skills/
 skills-lock.json
 
+# on-demand installed framework context and local LLM evaluation evidence
+.ai/framework-context/
+.ai/harness/results/
+
 # QA runtime state written by the om-prepare-test-env / om-integration-tests /
 # om-auto-verify-pr-ui skills (generated per run, never source)
 .ai/qa/test-env.json

@@ -1,88 +1,90 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://open-mercato.dev/schemas/skills/tiers.schema.json",
-  "title": "Open Mercato skills tier manifest",
-  "description": "Manifest mapping skill folders under .ai/skills/ to install tiers consumed by scripts/install-skills.sh.",
+  "title": "Standalone Open Mercato skill manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["default", "tiers"],
+  "required": ["default", "external", "tiers"],
   "properties": {
-    "$schema": {
-      "type": "string"
-    },
+    "$schema": { "type": "string" },
     "default": {
       "type": "array",
       "minItems": 1,
-      "items": {
-        "type": "string",
-        "minLength": 1
-      },
-      "description": "Tier names installed when install-skills.sh is invoked with no flags."
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/tierName" }
     },
     "agents": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Agent harness settings for install-skills.sh. Skills always install into the canonical .agents/skills/ directory; per-agent symlinks are created only for agents that cannot read it.",
       "properties": {
         "ignore": {
           "type": "array",
-          "description": "Agents whose directories install-skills.sh must never write. Overridden by --ignore-agents.",
-          "items": {
-            "type": "string",
-            "enum": ["claude-code", "codex", "cursor"]
-          }
+          "uniqueItems": true,
+          "items": { "enum": ["claude-code", "codex", "cursor"] }
         }
       }
     },
     "external": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source", "skills"],
-      "description": "Skills owned by an external collection and installed via `npx skills add` instead of local symlinks. Folders under .ai/skills/ matching these names are repo-local overrides, not installable skills.",
+      "required": ["source", "ref", "cli", "skills", "dependencies", "contentHashes"],
       "properties": {
-        "source": {
-          "type": "string",
-          "minLength": 1,
-          "description": "The skills package source, e.g. a GitHub owner/repo."
+        "source": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "ref": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "cli": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["package", "version"],
+          "properties": {
+            "package": { "const": "skills" },
+            "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
+          }
         },
-        "description": {
-          "type": "string"
-        },
+        "description": { "type": "string" },
         "skills": {
           "type": "array",
           "minItems": 1,
-          "items": {
-            "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]*$"
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/skillName" }
+        },
+        "dependencies": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "additionalProperties": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/skillName" }
           }
+        },
+        "contentHashes": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "additionalProperties": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
         }
       }
     },
     "tiers": {
       "type": "object",
       "minProperties": 1,
-      "propertyNames": {
-        "pattern": "^[a-z][a-z0-9-]*$"
-      },
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
         "required": ["description", "skills"],
         "properties": {
-          "description": {
-            "type": "string",
-            "minLength": 1
-          },
+          "description": { "type": "string", "minLength": 1 },
           "skills": {
             "type": "array",
             "minItems": 1,
-            "items": {
-              "type": "string",
-              "pattern": "^[a-z0-9][a-z0-9._-]*$"
-            }
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/skillName" }
           }
         }
       }
     }
+  },
+  "$defs": {
+    "skillName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+    "tierName": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
   }
 }

@@ -29,7 +29,7 @@ Build a four-layer harness:
 1. A boundary-first root `AGENTS.md` that only routes tasks and carries universal safety rules.
 2. Focused guides and thin standalone skills loaded only for the selected task.
 3. Generated module facts plus an exact installed-source/original-AGENTS escape hatch.
-4. A versioned 70-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
+4. A versioned 86-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
 
 ## 📝 Architecture
 
@@ -81,7 +81,7 @@ scripts/
 The generated `AGENTS.md` MUST:
 
 - use the exact `Always`, `Ask First`, `Never`, and `Validation Commands` boundaries;
-- stay under 180 lines and 16 KiB and avoid long code examples;
+- stay at or below 12 KiB and avoid long code examples, leaving substantial headroom under Codex's 32,768-byte default project-instruction budget reported in issue #4484;
 - identify the app as a standalone extension layer over read-only installed packages;
 - route a task to all matching task families (module/data, UI, UMES, integration, AI/workflows, debugging, spec/PR automation);
 - route module-specific analysis to generated facts first and `om-framework-context` only when those facts are insufficient;
@@ -89,7 +89,7 @@ The generated `AGENTS.md` MUST:
 - never hard-code a tool-specific skills directory for external skills;
 - contain only generated module-fact rows between stable markers so `agentic:init` can replace them idempotently.
 
-The deterministic budget gate also caps every daily `SKILL.md` router at 120 lines/12 KiB unless it is explicitly allowlisted with a reason. Each case declares initial routed-context and total-context byte budgets; token estimates and actually accessed bytes are recorded in live results and compared with the checked-in baseline.
+The deterministic budget gate measures bytes, not characters. It caps both standalone root sources at 12 KiB and checks representative generated root-only, module/data, UI, integration, and AI initial chains against Codex's 32,768-byte default. It also caps every daily `SKILL.md` router at 120 lines/12 KiB unless explicitly allowlisted with a reason. Each case declares initial routed-context and total-context byte budgets; progressive references and generated module facts are charged to total context rather than the initial bundle. Token estimates and actually accessed bytes are recorded in live results and compared with the checked-in baseline.
 
 The bare `packages/create-app/template/AGENTS.md` becomes the same small safety/router contract with an explicit `agentic:init` fallback when local skills are absent. Agentic setup enriches generated module rows and tool configuration; it does not replace the app's architecture rules with a second conflicting document.
 
@@ -172,15 +172,15 @@ Every generated call site uses Node directly: the package script, create-app wiz
 
 The manifest is finalized atomically only after shared emission, module-row injection, tool patching, and persisted agent selection. Relative paths are normalized and rejected if they escape the app root. Rerun behavior is explicit:
 
-| Existing state | Normal setup / explicit `--update-harness` | `--clean` | `--force` |
+| Existing state | Default setup | `--update-harness` | `--force` |
 |---|---|---|---|
-| Owned and hash unchanged | Replace/update and refresh hash. | Remove. | Replace. |
-| Owned but user-modified | Preserve; write an adjacent `.incoming` candidate and report conflict. | Preserve and report. | Replace only after explicit force confirmation/flag. |
-| Unknown/user-authored | Preserve. | Preserve. | Preserve unless an exact file is explicitly targeted. |
-| Missing prior owned file | Recreate if still emitted. | No-op. | Recreate. |
-| Missing/corrupt manifest | Conservatively recognize only exact hashes from a versioned historical-hash table and marker blocks; preserve everything else. | Preserve and report. | Replace only known generated targets, never unknown skill directories. |
+| Owned and hash unchanged | Existing-file warning and no-op. | Replace/update and refresh hash. | Replace. |
+| Owned but user-modified | Existing-file warning and no-op. | Preserve; write an adjacent `.incoming` candidate and report conflict. | Replace. |
+| Unknown/user-authored | Preserve. | Preserve; an exact-path collision gets `.incoming`. | Preserve unless it is an exact generated target. |
+| Missing prior owned file | Existing-file policy applies to the selected tool. | Recreate if still emitted. | Recreate. |
+| Missing/corrupt manifest | Existing-file policy applies. | Treat existing targets as unknown, preserve them, and emit `.incoming`; add missing targets. | Replace exact generated targets, never unrelated unknown files. |
 
-`agentic:init --tool` and `--force` keep their existing meaning and default no-force early-exit behavior. The additive `--update-harness` path performs the ownership-aware upgrade. A failed emission or external install cannot publish a partial manifest: files are staged, then the manifest is renamed atomically after the selected phase succeeds.
+`agentic:init --tool` and `--force` keep their existing meaning and default no-force early-exit behavior. The additive `--update-harness` path performs the ownership-aware upgrade. Candidate generation and validation happen in staging; the manifest is renamed atomically only after file publication succeeds. External skill installation runs afterward as a separate, non-fatal phase, so an offline registry does not invalidate the emitted harness manifest.
 
 ## 📝 Data Model
 
@@ -339,9 +339,31 @@ Every case is evaluated against a fresh standalone scaffold. Cases 57–70 are m
 69. Preserve mode/status invariants through retry, reconciliation, undo, and recovery.
 70. Ensure transient external-page failure cannot advance a cursor or lose a page.
 
+### Business one-shot applications
+
+71. Deliver customer/contact management by using the installed CRM identity and extending it rather than cloning it.
+72. Customize the installed customers deal pipeline with tenant stages, policies, UI, ACL, and conflict handling.
+73. Generate a localized public lead-capture app with consent, deduplication, qualification, and retry-safe CRM handoff.
+74. Add customer-success health, ownership, renewal, tasks, notifications, and durable escalation to CRM.
+75. Build a scoped, currency-aware sales forecast and deal-coaching dashboard.
+76. Add customer-specific catalog assortments and exact price lists with deterministic precedence.
+77. Add quote approval and exactly-once approved-quote conversion into orders.
+78. Build returns/RMA across orders, catalog, customers, portal, notifications, and guarded refunds.
+79. Build exact payment reconciliation, exception retention, dispute management, and progress reporting.
+80. Build provider-neutral carrier selection, retry-safe booking, labels, and fulfillment convergence.
+81. Let portal customers view orders and approve eligible quotes under principal-derived scope.
+82. Synchronize CRM customers and catalog products with an ERP through a resumable DataSync provider.
+
+### Test authoring and execution
+
+83. Write and run focused unit tests for command success, denial, scope, conflict, atomic failure, and retry invariants.
+84. Build and run self-contained CRUD API integration tests with API fixtures and `finally` cleanup.
+85. Build and run self-contained browser integration coverage for a portal flow without demo data or sleeps.
+86. Run generation and the smallest affected unit/integration tests first, then the configured broad validation tail.
+
 ### Evaluation levels and release matrix
 
-All 70 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. A representative writable matrix supplies implementation evidence:
+All 86 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. A representative writable matrix supplies implementation evidence:
 
 - module vertical slice: 9, 11, 12, 14;
 - extension/UI: 26, 27, 29, 31;
@@ -352,8 +374,8 @@ Implementation cases use a fresh disposable scaffold, explicit allowed-write pat
 
 The checked-in `releaseMatrix` pins runner, model selector, and case IDs. Acceptance for this PR is:
 
-1. deterministic validation: 70/70 pass, including 100% forbidden/safety assertions;
-2. Codex routing: 70/70 pass with one retry allowed only for invalid structured output;
+1. deterministic validation: 86/86 pass, including 100% forbidden/safety assertions;
+2. Codex routing: 86/86 pass with one retry allowed only for invalid structured output;
 3. Claude routing: the fixed 16-case representative set above passes with the same retry rule;
 4. writable implementation/regression: all 16 representative oracles pass, with at least one runner per case and both runners represented in every family;
 5. results are produced from the final commit, record CLI/model versions and prompt hashes, and are summarized without committing raw private transcripts.
@@ -399,7 +421,8 @@ The case assertions cover every frozen/stable surface even though the harness do
 
 | Risk | Severity | Mitigation | Residual risk |
 |---|---|---|---|
-| Rewriting generated guidance changes agent behavior broadly. | High | 70 semantic cases, mandatory safety subset, live dual-runner evidence, draft PR and review gate. | Model behavior remains probabilistic. |
+| Rewriting generated guidance changes agent behavior broadly. | High | 86 semantic cases, mandatory safety subset, live dual-runner evidence, draft PR and review gate. | Model behavior remains probabilistic. |
+| Root instructions are silently truncated by a default agent budget. | High | 12 KiB byte cap on both root sources plus representative generated initial-chain checks against 32,768 bytes (issue #4484). | Other tools may impose smaller undocumented budgets. |
 | Context files still drift from framework contracts. | High | Generated facts, installed source/AGENTS escape hatch, semantic contradiction scan, release version stamps. | Hand-written conceptual guides still require maintenance. |
 | Installer removes user content or breaks Windows. | High | Node path-safe implementation, ownership checks, junction tests, preserve stable flags/wrapper, generated-app tests. | Windows junction semantics vary by corporate policy. |
 | Context escape hatch causes huge prompt loads. | Medium | Facts first, explicit opt-in skill, bounded module/package search, context-file budget per case. | A complex upstream bug may legitimately need wider source. |
@@ -425,8 +448,9 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 | Windows simulated filesystem/command resolution | Junction/link behavior and `.cmd` spawning. |
 | `yarn framework:context --module customers` | Installed core version, root/package/module AGENTS chain, `src/modules/customers`, bounded no-ignore search. |
 | Missing source/duplicate module/version skew fixtures | Explicit degraded/ambiguous/skew output; no guessed edit path. |
-| Deterministic harness validation | 70 schema-valid cases, existing references, no contradictory stale patterns, context budgets, dependency closure. |
-| Codex live runner | Read-only structured routing/decision result for all 70 cases, one fresh session per case. |
+| Deterministic harness validation | 86 schema-valid cases, existing references, no contradictory stale patterns, context budgets, dependency closure. |
+| Instruction-budget regression | Both root sources ≤12 KiB; named representative generated initial chains ≤32,768 bytes, measured as bytes. |
+| Codex live runner | Read-only structured routing/decision result for all 86 cases, one fresh session per case. |
 | Claude live runner | Plan/read-only structured routing/decision result for the fixed 16-case release matrix. |
 | Writable live runner | Disposable scaffolds and executable oracles for the 16-case implementation/regression matrix. |
 | Generated standalone install/generate/typecheck/test/build | Real npm/Verdaccio package boundary and published-path validation. |
@@ -479,7 +503,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Finalize this spec from current scaffold/package/PR evidence and run the 13-surface compatibility audit.
 2. Add case/result schemas, validator registry, release matrix, and tests that fail on missing paths/owners/rule IDs, duplicate IDs, dangling relations, excessive byte/token budgets, stale route/entity/signature patterns, unsafe commands, and unresolved references.
-3. Add baseline cases for all 70 tasks and mark cases 57–70 mandatory.
+3. Add baseline cases for all 86 tasks and mark cases 57–70 mandatory.
 
 ### Phase 2: Root context and local skills
 
@@ -499,7 +523,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Implement deterministic, read-only Codex/Claude routing, and writable disposable-scaffold evaluation modes plus sanitized result artifacts.
 2. Generate a fresh standalone app, install local/external skills, resolve upstream context, and run deterministic validation.
-3. Run all 70 Codex routing cases, the fixed 16-case Claude routing matrix, and the 16 writable implementation/regression oracles; fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
+3. Run all 86 Codex routing cases, the fixed 16-case Claude routing matrix, and the 16 writable implementation/regression oracles; fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
 4. Run create-app targeted tests, Verdaccio standalone parity where package boundaries changed, and the configured full repository gate.
 5. Complete automated code review/autofix, final compliance report, PR evidence, and rollback notes.
 
@@ -521,5 +545,6 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 ## Changelog
 
 - **2026-07-24** — Skeleton created under the autonomous Open Questions policy; standalone boundary, source-context, evaluation, and migration assumptions resolved from the user brief.
-- **2026-07-24** — Added prior-spec/PR-history findings, 70-case catalog, thin-skill/router architecture, cross-platform installer, exact installed-source escape hatch, harness-evolution workflow, compatibility, failure scenarios, integration coverage, and phased implementation plan.
+- **2026-07-24** — Added prior-spec/PR-history findings, 86-case catalog, thin-skill/router architecture, cross-platform installer, exact installed-source escape hatch, harness-evolution workflow, compatibility, failure scenarios, integration coverage, and phased implementation plan.
+- **2026-07-24** — Added a three-axis context assembler, 12 business one-shot cases, four test authoring/execution cases, and byte-accurate issue #4484 instruction-budget regressions.
 - **2026-07-24** — Fresh-context and pre-implementation reviews split routing evidence from writable implementation/regression oracles, pinned the external collection, defined concern-specific instruction precedence, added ownership state transitions, expanded all 14 BC assertions, and made create-app/CLI snapshot and installer call-site parity explicit.

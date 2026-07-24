@@ -1,4 +1,5 @@
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { atomicWriteFileSync } from '../../scripts/lib/add-js-extension.mjs'
@@ -26,9 +27,23 @@ await buildPackage(packageDir, {
     // Copy agentic source files from create-app so generators can read them at runtime.
     const agenticSrc = join(packageDir, '..', 'create-app', 'agentic')
     if (existsSync(agenticSrc)) {
+      rmSync(join(outdir, 'agentic'), { recursive: true, force: true })
       cpSync(agenticSrc, join(outdir, 'agentic'), { recursive: true })
       console.log('Copied create-app/agentic/ → dist/agentic/')
     }
+
+    const repositoryRoot = join(packageDir, '..', '..')
+    const upstreamDir = join(outdir, 'agentic', 'guides', 'upstream')
+    mkdirSync(upstreamDir, { recursive: true })
+    const cliVersion = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')).version ?? null
+    const upstreamManifest = { version: 1, generator: `@open-mercato/cli@${cliVersion ?? 'unknown'}`, files: {} }
+    for (const file of ['AGENTS.md', 'BACKWARD_COMPATIBILITY.md']) {
+      const source = join(repositoryRoot, file)
+      const destination = join(upstreamDir, file)
+      cpSync(source, destination)
+      upstreamManifest.files[file] = createHash('sha256').update(readFileSync(source)).digest('hex')
+    }
+    writeFileSync(join(upstreamDir, 'manifest.json'), `${JSON.stringify(upstreamManifest, null, 2)}\n`)
 
     // Discover standalone guides across sibling packages.
     const packagesDir = join(packageDir, '..')

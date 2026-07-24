@@ -17,7 +17,11 @@ const loadRunAgenticInit = async ({
 }: {
   existingPaths: Set<string>
   questionAnswer?: string
-  runAgenticSetupImplementation?: (targetDir: string, ask: (question: string) => Promise<string>, options?: { tool?: string; force?: boolean }) => Promise<void>
+  runAgenticSetupImplementation?: (
+    targetDir: string,
+    ask: (question: string) => Promise<string>,
+    options?: { tool?: string; force?: boolean; updateHarness?: boolean },
+  ) => Promise<void>
 }): Promise<AgenticInitTestContext> => {
   jest.resetModules()
 
@@ -150,7 +154,7 @@ describe('runAgenticInit', () => {
     expect(consoleLogSpy.mock.calls.flat()).toEqual(expect.arrayContaining([
       '⚠️  Agentic files already exist:',
       '   • .codex/mcp.json.example',
-      'Run with --force to regenerate from current templates.',
+      'Run with --update-harness to preserve local edits, or --force to replace generated files.',
     ]))
   })
 
@@ -160,7 +164,7 @@ describe('runAgenticInit', () => {
       questionAnswer: '  cursor  ',
       runAgenticSetupImplementation: async (currentTargetDir, ask, options) => {
         expect(currentTargetDir).toBe(targetDir)
-        expect(options).toEqual({ tool: undefined, force: undefined })
+        expect(options).toEqual({ tool: undefined, force: undefined, updateHarness: undefined })
         await expect(ask('Select a tool')).resolves.toBe('cursor')
       },
     })
@@ -188,7 +192,7 @@ describe('runAgenticInit', () => {
     expect(testContext.runAgenticSetup).toHaveBeenCalledWith(
       targetDir,
       expect.any(Function),
-      { tool: 'codex', force: undefined },
+      { tool: 'codex', force: undefined, updateHarness: undefined },
     )
     expect(consoleLogSpy.mock.calls.flat()).not.toContain('⚠️  Agentic files already exist:')
     expect(testContext.closeInterface).toHaveBeenCalledTimes(1)
@@ -205,7 +209,23 @@ describe('runAgenticInit', () => {
     expect(testContext.runAgenticSetup).toHaveBeenCalledWith(
       targetDir,
       expect.any(Function),
-      { tool: 'codex', force: true },
+      { tool: 'codex', force: true, updateHarness: undefined },
+    )
+    expect(testContext.closeInterface).toHaveBeenCalledTimes(1)
+  })
+
+  it('bypasses overwrite warnings and requests an ownership-aware update', async () => {
+    const testContext = await loadRunAgenticInit({
+      existingPaths: new Set<string>([appModulesPath, codexConfigPath]),
+    })
+
+    const exitCode = await testContext.runAgenticInit(['--tool=codex', '--update-harness'])
+
+    expect(exitCode).toBe(0)
+    expect(testContext.runAgenticSetup).toHaveBeenCalledWith(
+      targetDir,
+      expect.any(Function),
+      { tool: 'codex', force: undefined, updateHarness: true },
     )
     expect(testContext.closeInterface).toHaveBeenCalledTimes(1)
   })

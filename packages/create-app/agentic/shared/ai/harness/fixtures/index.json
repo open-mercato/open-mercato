@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "notice": "Fixture declarations are interfaces for disposable scaffolds. They are not evidence that an agent run passed.",
+  "fixtures": {
+    "module-editable-entity": { "purpose": "Fresh library module with an intentionally absent editable entity vertical slice.", "seededArtifacts": ["src/modules/library/index.ts"] },
+    "module-crud-routes": { "purpose": "Library entity without CRUD route coverage.", "seededArtifacts": ["src/modules/library/data/entities.ts"] },
+    "module-command-action": { "purpose": "Library checkout action missing command/mutation safety.", "seededArtifacts": ["src/modules/library/api/books/checkout/route.ts"] },
+    "module-backend-ui": { "purpose": "Library module without backend list/edit/detail pages.", "seededArtifacts": ["src/modules/library/index.ts"] },
+    "umes-form-field": { "purpose": "App customization module with a missing core CrudForm field round trip.", "seededArtifacts": ["src/modules/app_customizations/index.ts"] },
+    "umes-data-table": { "purpose": "App customization module with a missing DataTable injection.", "seededArtifacts": ["src/modules/app_customizations/index.ts"] },
+    "umes-page-override": { "purpose": "App customization module with an installed page still visible.", "seededArtifacts": ["src/modules/app_customizations/index.ts"] },
+    "umes-api-interceptor": { "purpose": "App customization module with an unsafe request rewrite stub.", "seededArtifacts": ["src/modules/app_customizations/api/interceptors.ts"] },
+    "integration-data-sync": { "purpose": "Mock provider workspace lacking a complete DataSyncAdapter.", "seededArtifacts": ["packages/provider-magento/package.json"] },
+    "integration-rest-client": { "purpose": "Mock contract server and client with retry/cursor gaps.", "seededArtifacts": ["src/modules/external_sync/lib/client.ts"] },
+    "ai-agent": { "purpose": "Module ready for a typed AI agent registration.", "seededArtifacts": ["src/modules/library/index.ts"] },
+    "workflow-call-api": { "purpose": "Workflow activity whose idempotency key currently lives inside the transaction.", "seededArtifacts": ["src/modules/automation/workflows/call-api.ts"] },
+    "regression-missing-scope": { "purpose": "Route fixture whose missing organization context currently widens a query.", "seededArtifacts": ["src/modules/harness_fixture/api/scope/route.ts"], "precondition": "oracle.regression.fail-closed must fail" },
+    "regression-partial-write": { "purpose": "Injected second-phase failure currently leaves the first phase committed.", "seededArtifacts": ["src/modules/harness_fixture/commands/update-record.ts"], "precondition": "oracle.regression.atomic must fail" },
+    "regression-null-roundtrip": { "purpose": "Editable nullable field currently disappears or cannot be cleared.", "seededArtifacts": ["src/modules/harness_fixture/backend/edit/page.tsx"], "precondition": "oracle.regression.null-roundtrip must fail" },
+    "regression-cursor-advance": { "purpose": "Transient provider page error currently advances the cursor.", "seededArtifacts": ["src/modules/harness_fixture/workers/sync.ts"], "precondition": "oracle.regression.cursor must fail" }
+  }
+}

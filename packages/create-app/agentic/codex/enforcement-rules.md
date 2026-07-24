@@ -1,20 +1,11 @@
 <!-- CODEX_ENFORCEMENT_RULES_START -->
-## CRITICAL rules — always follow without exception
+## Codex enforcement
 
-1. **After editing any entity file** (`src/modules/<id>/entities/*.ts`):
-   - STOP immediately before any further action
-   - Tell the user: "I modified an entity in module <id>. Should I create a migration?"
-   - If yes: run `yarn mercato db generate`
-   - Show the generated migration to the user before applying
-   - Ask for confirmation, then run `yarn mercato db migrate`
-   - Run `yarn generate` after migration is applied
+Read and route through the root `AGENTS.md`; it is the architecture and safety authority.
 
-2. **After editing `src/modules.ts`**: immediately run `yarn generate`
+- After editing `src/modules/<id>/data/entities.ts`, run `yarn db:generate` as a schema-diff probe, review the scoped migration and module snapshot, and ask before `yarn db:migrate`.
+- After changing `src/modules.ts` or an auto-discovered module file, run `yarn generate`.
+- Never edit `.mercato/generated/**`, generated module facts, or `node_modules/**`.
+- Before a significant feature, inspect `.ai/specs/` and follow the root task router.
 
-3. **Never edit `.mercato/generated/*`**: edit the source and run `yarn generate` instead
-
-4. **Before significant features**: check `.ai/specs/` for an existing spec.
-   If none exists, ask the user whether to create one first.
-
----
 <!-- CODEX_ENFORCEMENT_RULES_END -->

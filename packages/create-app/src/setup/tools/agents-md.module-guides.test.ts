@@ -83,6 +83,14 @@ test('selectModuleFactSheets returns enabled ∩ bundled only (T5)', () => {
   assert.deepEqual(selected, ['customers', 'sales'])
 })
 
+test('selectModuleFactSheets keeps a valid empty intersection empty', () => {
+  const targetDir = makeTmpDir()
+  writeModulesTs(targetDir, ['app_only_module'])
+  const modulesSubdir = makeFactSheetDir(BUNDLED_FIXTURE)
+
+  assert.deepEqual(selectModuleFactSheets(targetDir, modulesSubdir), [])
+})
+
 test('selectModuleFactSheets falls back to the full bundled set when the enabled set cannot be read (T5, R5)', () => {
   const targetDir = makeTmpDir() // no src/modules.ts written
   const modulesSubdir = makeFactSheetDir(BUNDLED_FIXTURE)

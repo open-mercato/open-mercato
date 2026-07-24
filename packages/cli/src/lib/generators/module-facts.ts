@@ -40,6 +40,8 @@ export interface ModuleFacts {
   title: string | null
   description: string | null
   coreVersion: string | null
+  sourcePackage: string | null
+  sourceVersion: string | null
   entities: ModuleEntityFact[]
   events: ModuleEventFact[]
   aclFeatures: string[]
@@ -64,6 +66,8 @@ export interface ExtractModuleFactsOptions {
   /** Explicit module source directory. When set it overrides `coreSrcRoot + moduleId`. */
   moduleRoot?: string
   coreVersion?: string | null
+  sourcePackage?: string | null
+  sourceVersion?: string | null
   registryPath?: string | null
   registrySource?: string | null
 }
@@ -73,6 +77,7 @@ export interface ModuleFactSource {
   moduleId: string
   moduleRoot: string
   from?: string
+  packageVersion?: string | null
 }
 
 function readSourceFile(filePath: string): ts.SourceFile | null {
@@ -724,7 +729,7 @@ function extractModuleMeta(indexFilePath: string | null): { title: string | null
 }
 
 export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFacts {
-  const { moduleId, coreVersion = null } = options
+  const { moduleId, coreVersion = null, sourcePackage = null, sourceVersion = null } = options
   const moduleRoot = options.moduleRoot
     ?? (options.coreSrcRoot ? path.join(options.coreSrcRoot, moduleId) : null)
   if (!moduleRoot) {
@@ -768,6 +773,8 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     title,
     description,
     coreVersion,
+    sourcePackage,
+    sourceVersion,
     entities,
     events,
     aclFeatures,
@@ -791,6 +798,8 @@ export interface ModuleFactsJsonEntry {
   title: string | null
   description: string | null
   coreVersion: string | null
+  sourcePackage: string | null
+  sourceVersion: string | null
   entities: ModuleEntityFact[]
   events: ModuleFactsJsonEvent[]
   aclFeatures: string[]
@@ -804,7 +813,14 @@ export interface ModuleFactsJsonEntry {
 
 const EMPTY_SECTION_MARKER = '_none_'
 
-function renderVersionStamp(coreVersion: string | null): string {
+function renderVersionStamp(
+  coreVersion: string | null,
+  sourcePackage: string | null,
+  sourceVersion: string | null,
+): string {
+  if (sourcePackage) {
+    return `<!-- generated from ${sourcePackage} ${sourceVersion || '<unknown>'}; core ${coreVersion || '<unknown>'} — R1 staleness stamp -->`
+  }
   const version = coreVersion && coreVersion.length > 0 ? coreVersion : '<unknown>'
   return `<!-- generated from @open-mercato/core ${version} — R1 staleness stamp -->`
 }
@@ -873,7 +889,7 @@ function renderHostTokensSection(hostTokens: ModuleHostTokens): string {
 export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
   const sections = [
     `# ${facts.module} — module facts (generated, do not edit)`,
-    renderVersionStamp(facts.coreVersion),
+    renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
     '',
     renderEntitiesSection(facts.entities),
     '',
@@ -902,6 +918,8 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     title: facts.title,
     description: facts.description,
     coreVersion: facts.coreVersion,
+    sourcePackage: facts.sourcePackage,
+    sourceVersion: facts.sourceVersion,
     entities: facts.entities,
     events: facts.events.map((event) => ({ id: event.id, category: event.category, entity: event.entity })),
     aclFeatures: facts.aclFeatures,
@@ -967,6 +985,8 @@ export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): Ex
       moduleId: source.moduleId,
       moduleRoot: source.moduleRoot,
       coreVersion: options.coreVersion ?? null,
+      sourcePackage: source.from ?? null,
+      sourceVersion: source.packageVersion ?? null,
       registryPath: options.registryPath ?? null,
       registrySource: options.registrySource ?? null,
     })

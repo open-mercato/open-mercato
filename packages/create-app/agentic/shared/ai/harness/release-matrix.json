@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "policy": {
+    "invalidStructuredOutputRetries": 1,
+    "rawTranscriptsCommitted": false,
+    "mandatoryFailuresWaivable": false
+  },
+  "deterministic": {
+    "caseIds": "all"
+  },
+  "routing": {
+    "codex": {
+      "modelSelector": "default",
+      "caseIds": "all"
+    },
+    "claude": {
+      "modelSelector": "sonnet",
+      "caseIds": [
+        "OMH-009", "OMH-011", "OMH-012", "OMH-014", "OMH-026", "OMH-027", "OMH-029", "OMH-031",
+        "OMH-042", "OMH-045", "OMH-049", "OMH-054", "OMH-057", "OMH-060", "OMH-061", "OMH-070"
+      ]
+    }
+  },
+  "writable": [
+    { "caseId": "OMH-009", "runner": "codex", "modelSelector": "default" },
+    { "caseId": "OMH-011", "runner": "claude", "modelSelector": "sonnet" },
+    { "caseId": "OMH-012", "runner": "codex", "modelSelector": "default" },
+    { "caseId": "OMH-014", "runner": "claude", "modelSelector": "sonnet" },
+    { "caseId": "OMH-026", "runner": "codex", "modelSelector": "default" },
+    { "caseId": "OMH-027", "runner": "claude", "modelSelector": "sonnet" },
+    { "caseId": "OMH-029", "runner": "codex", "modelSelector": "default" },
+    { "caseId": "OMH-031", "runner": "claude", "modelSelector": "sonnet" },
+    { "caseId": "OMH-042", "runner": "codex", "modelSelector": "default" },
+    { "caseId": "OMH-045", "runner": "claude", "modelSelector": "sonnet" },
+    { "caseId": "OMH-049", "runner": "codex", "modelSelector": "default" },
+    { "caseId": "OMH-054", "runner": "claude", "modelSelector": "sonnet" },
+    { "caseId": "OMH-057", "runner": "codex", "modelSelector": "default" },
+    { "caseId": "OMH-060", "runner": "claude", "modelSelector": "sonnet" },
+    { "caseId": "OMH-061", "runner": "codex", "modelSelector": "default" },
+    { "caseId": "OMH-070", "runner": "claude", "modelSelector": "sonnet" }
+  ]
+}

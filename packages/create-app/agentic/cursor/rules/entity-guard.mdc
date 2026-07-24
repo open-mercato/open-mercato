@@ -1,29 +1,17 @@
 ---
-description: Entity modification guard — triggers migration workflow
+description: Entity schema-diff guard for the canonical standalone entity file
 globs:
-  - src/modules/*/entities/**/*.ts
+  - src/modules/*/data/entities.ts
 alwaysApply: false
 ---
 
-# Entity Modification — Migration Required
+# Entity Schema Change
 
-You are editing an entity file. After saving, you MUST:
+Follow root `AGENTS.md` and `om-data-model-design`:
 
-1. **Create a migration** — ask the user before running:
-   ```
-   yarn db:generate
-   ```
+1. Run `yarn db:generate` as a schema-diff probe.
+2. Review and keep only scoped migration SQL plus the touched module snapshot.
+3. Run `yarn generate` when discovery changed.
+4. Ask before applying with `yarn db:migrate`.
 
-2. **Show the migration** to the user and wait for confirmation before applying
-
-3. **Apply the migration** (only after user confirms):
-   ```
-   yarn db:migrate
-   ```
-
-4. **Regenerate registries**:
-   ```
-   yarn generate
-   ```
-
-Do NOT skip any step. Do NOT run migrations without user confirmation.
+Never edit a shipped migration or generated registry.
