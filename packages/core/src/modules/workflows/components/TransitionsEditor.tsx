@@ -26,7 +26,11 @@ interface Activity {
     retryDelay?: number
     backoffMultiplier?: number
   }
-  timeout?: number
+  // Milliseconds, matching the executor and the definition schema. This field
+  // used to be written as `timeout` (a number) while the schema typed `timeout`
+  // as an ISO 8601 string, so saving a timeout from this editor failed
+  // validation outright (#4424).
+  timeoutMs?: number
   compensation?: Record<string, any>
 }
 
@@ -461,8 +465,8 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                             <Input
                               id={`activity-${index}-${activityIndex}-timeout`}
                               type="number"
-                              value={activity.timeout || ''}
-                              onChange={(e) => updateActivity(index, activityIndex, 'timeout', e.target.value ? parseInt(e.target.value) : undefined)}
+                              value={activity.timeoutMs || ''}
+                              onChange={(e) => updateActivity(index, activityIndex, 'timeoutMs', e.target.value ? parseInt(e.target.value) : undefined)}
                               placeholder="30000"
                               className="mt-1 text-xs h-8"
                             />
