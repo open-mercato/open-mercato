@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 const require = createRequire(import.meta.url)
 const astOracle = fileURLToPath(new URL('../../agentic/shared/ai/harness/writable-ast-oracles.mjs', import.meta.url))
 const behaviorOracle = fileURLToPath(new URL('../../agentic/shared/ai/harness/writable-behavior-oracles.mjs', import.meta.url))
+const casesPath = fileURLToPath(new URL('../../agentic/shared/ai/harness/cases.json', import.meta.url))
 const fixtureIndexPath = fileURLToPath(new URL('../../agentic/shared/ai/harness/fixtures/index.json', import.meta.url))
 const seedsPath = fileURLToPath(new URL('../../agentic/shared/ai/harness/fixtures/seeds.json', import.meta.url))
 const typescriptRoot = path.dirname(require.resolve('typescript/package.json'))
@@ -21,6 +22,7 @@ type Family =
   | 'ai-safe-agent'
   | 'provider-adapter'
   | 'data-flow'
+  | 'data-table-extension'
   | 'test-authoring-mutation'
   | 'regression'
 
@@ -45,12 +47,12 @@ const cases: Record<string, CaseDefinition> = {
   'OMH-093': { fixture: 'business-contact-merge', file: 'src/modules/customer_merge/commands/merge-contacts.ts', family: 'business-command', validator: 'oracle.business.command', seam: 'mergeContacts', requiredFlags: ['scopeValid', 'survivorSelected'] },
   'OMH-105': { fixture: 'business-deal-stage-transition', file: 'src/modules/deal_stages/commands/change-stage.ts', family: 'business-command', validator: 'oracle.business.command', seam: 'changeDealStage', requiredFlags: ['transitionAllowed', 'requiredFieldsPresent'] },
   'OMH-107': { fixture: 'business-quote-discount-approval', file: 'src/modules/quote_approval/commands/request-discount.ts', family: 'business-command', validator: 'oracle.business.command', seam: 'requestQuoteDiscount', requiredFlags: ['approvalSatisfied', 'separationOfDuties'] },
-  'OMH-115': { fixture: 'ui-deal-board-accessibility', file: 'src/modules/deal_accessibility/backend/board/page.tsx', family: 'ui-business-surface', validator: 'oracle.business.ui-surface', seam: 'moveDealAccessibly', handler: 'handleDealBoardAction', requiredFlags: ['accessGranted', 'keyboardEquivalent'] },
+  'OMH-115': { fixture: 'ui-deal-board-accessibility', file: 'src/modules/deal_accessibility/lib/move-deal.ts', family: 'ui-business-surface', validator: 'oracle.business.ui-surface', seam: 'moveDealAccessibly', handler: 'handleDealBoardAction', requiredFlags: ['accessGranted', 'keyboardEquivalent'] },
   'OMH-122': { fixture: 'business-stock-reservation', file: 'src/modules/stock_reservations/commands/reserve-stock.ts', family: 'business-command', validator: 'oracle.business.command', seam: 'reserveStock', requiredFlags: ['stockAvailable', 'reservationKeyPresent'] },
   'OMH-128': { fixture: 'async-bulk-price-update', file: 'src/modules/bulk_pricing/commands/update-prices.ts', family: 'async-operation', validator: 'oracle.business.async-operation', seam: 'updatePrices' },
-  'OMH-130': { fixture: 'ui-public-lead-capture', file: 'src/modules/demo_requests/frontend/request-demo.tsx', family: 'ui-business-surface', validator: 'oracle.business.ui-surface', seam: 'submitDemoRequest', handler: 'handleDemoRequest', requiredFlags: ['scopeDerived', 'consentAccepted'] },
+  'OMH-130': { fixture: 'ui-public-lead-capture', file: 'src/modules/demo_requests/lib/submit-demo-request.ts', family: 'ui-business-surface', validator: 'oracle.business.ui-surface', seam: 'submitDemoRequest', handler: 'handleDemoRequest', requiredFlags: ['scopeDerived', 'consentAccepted'] },
   'OMH-133': { fixture: 'business-portal-quote-approval', file: 'src/modules/portal_quote_approval/commands/approve-quote.ts', family: 'business-command', validator: 'oracle.business.command', seam: 'approvePortalQuote', requiredFlags: ['portalScoped', 'latestVersion'] },
-  'OMH-137': { fixture: 'ui-resumable-setup-wizard', file: 'src/modules/setup_wizard/backend/setup/page.tsx', family: 'ui-business-surface', validator: 'oracle.business.ui-surface', seam: 'advanceSetupWizard', handler: 'handleSetupWizardAction', requiredFlags: ['draftPersisted', 'transitionAllowed'] },
+  'OMH-137': { fixture: 'ui-resumable-setup-wizard', file: 'src/modules/setup_wizard/lib/advance-setup.ts', family: 'ui-business-surface', validator: 'oracle.business.ui-surface', seam: 'advanceSetupWizard', handler: 'handleSetupWizardAction', requiredFlags: ['draftPersisted', 'transitionAllowed'] },
   'OMH-140': { fixture: 'workflow-invoice-dunning', file: 'src/modules/invoice_dunning/workflows/run-dunning.ts', family: 'async-operation', validator: 'oracle.business.async-operation', seam: 'runInvoiceDunning' },
   'OMH-144': { fixture: 'ai-quote-mutation', file: 'src/modules/quote_assistant/ai-tools.ts', family: 'ai-safe-agent', validator: 'oracle.business.ai-safe-agent', seam: 'saveQuoteDraftWithApproval', mode: 'mutation' },
   'OMH-146': { fixture: 'ai-sales-orchestrator', file: 'src/modules/sales_orchestrator/ai-agents.ts', family: 'ai-safe-agent', validator: 'oracle.business.ai-safe-agent', seam: 'coordinateSalesQuestion', mode: 'delegate' },
@@ -62,12 +64,17 @@ const cases: Record<string, CaseDefinition> = {
   'OMH-165': { fixture: 'testing-portal-quote-approval', file: 'tests/e2e/portal-quote-approval.spec.ts', family: 'test-authoring-mutation', validator: 'oracle.business.test-authoring', seam: 'runPortalQuoteApprovalScenario' },
   'OMH-171': { fixture: 'regression-missing-scope', file: 'src/modules/harness_fixture/api/scope/route.ts', family: 'regression', validator: 'oracle.regression.fail-closed' },
   'OMH-172': { fixture: 'regression-null-roundtrip', file: 'src/modules/harness_fixture/backend/edit/page.tsx', family: 'regression', validator: 'oracle.regression.null-roundtrip' },
-  'OMH-181': { fixture: 'ui-order-risk-bulk-review', file: 'src/modules/order_risk/widgets/orders-table.tsx', family: 'ui-business-surface', validator: 'oracle.business.ui-surface', seam: 'reviewOrderRisk', handler: 'handleOrderRiskReview', requiredFlags: ['authorized', 'versionCurrent'] },
+  'OMH-181': { fixture: 'ui-order-risk-bulk-review', file: 'src/modules/order_risk/widgets/injection/order-risk-review/widget.ts', family: 'data-table-extension', validator: 'oracle.business.ui-surface', seam: 'reviewOrderRisk' },
 }
 
 const fixtureIndex = JSON.parse(fs.readFileSync(fixtureIndexPath, 'utf8')) as {
   fixtures: Record<string, { seededArtifacts: string[]; precondition: string }>
 }
+const catalogCases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{
+  id: string
+  oracle?: { expectedArtifacts: string[] }
+  allowedWrites?: string[]
+}>
 const seeds = JSON.parse(fs.readFileSync(seedsPath, 'utf8')) as {
   fixtures: Record<string, Record<string, string>>
 }
@@ -92,14 +99,40 @@ export async function ${definition.seam}(input: any, effects: any) {
     return `
 export async function ${definition.seam}(input: any, effects: any) {
   for (const flag of ${flags}) if (!input[flag]) throw new Error('UI business invariant failed')
-  const result = await effects.execute(input)
-  await effects.restoreFocus(input.focusTarget)
-  await effects.announce(result.message)
-  return result
+  try {
+    const result = await effects.execute(input)
+    await effects.announce(result.message)
+    return result
+  } catch (error) {
+    await effects.announce('error')
+    throw error
+  } finally {
+    await effects.restoreFocus(input.focusTarget)
+  }
+}
+`
+  }
+  if (definition.family === 'data-table-extension') {
+    return `
+export async function reviewOrderRisk(rows: any[], effects: any) {
+  if (!await effects.authorize('sales.orders.manage')) throw new Error('not authorized')
+  for (const row of rows) {
+    if (!await effects.checkVersion(row)) {
+      await effects.surfaceConflict(row)
+      throw new Error('stale order')
+    }
+  }
+  return effects.execute(rows)
 }
 
-export async function ${definition.handler}(input: any, effects: any) {
-  return ${definition.seam}(input, effects)
+export const orderRiskReviewWidget = {
+  metadata: { id: 'order_risk.injection.order-risk-review' },
+  bulkActions: [{
+    id: 'review-order-risk',
+    label: 'order_risk.actions.review.label',
+    requiresSelection: true,
+    onExecute: reviewOrderRisk,
+  }],
 }
 `
   }
@@ -206,6 +239,161 @@ export function EditFixture({ record }: { record: { note: string | null } }) {
 `
 }
 
+function correctedArtifacts(caseId: string, definition: CaseDefinition): Record<string, string> {
+  const artifacts = { [definition.file]: correctedSource(caseId, definition) }
+  if (caseId === 'OMH-115') {
+    return {
+      ...artifacts,
+      'src/modules/deal_accessibility/backend/board/page.tsx': `
+'use client'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
+import { Alert } from '@open-mercato/ui/primitives/alert'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { moveDealAccessibly } from '../../lib/move-deal'
+
+export async function handleDealBoardAction(input: any, effects: any) {
+  return moveDealAccessibly(input, effects)
+}
+
+export default function DealBoardPage() {
+  const t = useT()
+  const effects = {} as any
+  return (
+    <Page>
+      <PageHeader title={t('deal_accessibility.board.title')} />
+      <PageBody className="grid gap-4 text-muted-foreground md:grid-cols-2">
+        <Button
+          type="button"
+          aria-label={t('deal_accessibility.board.move')}
+          onClick={() => { void handleDealBoardAction({ accessGranted: true, keyboardEquivalent: true, focusTarget: 'deal-row' }, effects) }}
+        >
+          {t('deal_accessibility.board.move')}
+        </Button>
+        <Alert status="information"><span aria-live="polite">{t('deal_accessibility.board.status')}</span></Alert>
+      </PageBody>
+    </Page>
+  )
+}
+`,
+      'src/modules/deal_accessibility/backend/board/page.meta.ts': `export const metadata = { requireAuth: true, requireFeatures: ['deal_accessibility.view'] }\n`,
+      'src/modules/deal_accessibility/i18n/en.json': '{"deal_accessibility":{"board":{"title":"Deal board","move":"Move deal","status":"Deal move status"}}}\n',
+    }
+  }
+  if (caseId === 'OMH-130') {
+    return {
+      ...artifacts,
+      'src/modules/demo_requests/frontend/request-demo/page.tsx': `
+'use client'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Alert } from '@open-mercato/ui/primitives/alert'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
+import { FormField } from '@open-mercato/ui/primitives/form-field'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { submitDemoRequest } from '../../lib/submit-demo-request'
+
+export async function handleDemoRequest(input: any, effects: any) {
+  return submitDemoRequest(input, effects)
+}
+
+export default function RequestDemoPage() {
+  const t = useT()
+  const effects = {} as any
+  return (
+    <form
+      className="grid gap-4 bg-background text-foreground md:grid-cols-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void handleDemoRequest({ scopeDerived: true, consentAccepted: true, focusTarget: 'demo-submit' }, effects)
+      }}
+    >
+      <FormField label={t('demo_requests.form.email')}><Input name="email" aria-label={t('demo_requests.form.email')} /></FormField>
+      <CheckboxField label={t('demo_requests.form.consent')} />
+      <Button type="submit">{t('demo_requests.form.submit')}</Button>
+      <Alert status="information"><span aria-live="polite">{t('demo_requests.form.status')}</span></Alert>
+    </form>
+  )
+}
+`,
+      'src/modules/demo_requests/frontend/request-demo/page.meta.ts': 'export const metadata = { navHidden: true }\n',
+      'src/modules/demo_requests/i18n/en.json': '{"demo_requests":{"form":{"email":"Work email","consent":"I consent to contact","submit":"Request demo","status":"Request status"}}}\n',
+    }
+  }
+  if (caseId === 'OMH-137') {
+    return {
+      ...artifacts,
+      'src/modules/setup_wizard/backend/setup/page.tsx': `
+'use client'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
+import { Alert } from '@open-mercato/ui/primitives/alert'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { StepIndicator } from '@open-mercato/ui/primitives/step-indicator'
+import { advanceSetupWizard } from '../../lib/advance-setup'
+
+export async function handleSetupWizardAction(input: any, effects: any) {
+  return advanceSetupWizard(input, effects)
+}
+
+export default function SetupWizardPage() {
+  const t = useT()
+  const effects = {} as any
+  const loading = false
+  if (loading) return <LoadingMessage message={t('setup_wizard.states.loading')} />
+  return (
+    <Page>
+      <PageHeader title={t('setup_wizard.title')} />
+      <PageBody className="grid gap-4 text-foreground md:grid-cols-2">
+        <StepIndicator steps={[{ id: 'profile', label: t('setup_wizard.steps.profile'), status: 'current' }]} />
+        <Button
+          type="button"
+          onClick={() => { void handleSetupWizardAction({ draftPersisted: true, transitionAllowed: true, focusTarget: 'wizard-next' }, effects) }}
+        >
+          {t('setup_wizard.actions.continue')}
+        </Button>
+        <Alert status="information"><span aria-live="polite">{t('setup_wizard.states.status')}</span></Alert>
+      </PageBody>
+    </Page>
+  )
+}
+`,
+      'src/modules/setup_wizard/backend/setup/page.meta.ts': `export const metadata = { requireAuth: true, requireFeatures: ['setup_wizard.manage'] }\n`,
+      'src/modules/setup_wizard/i18n/en.json': '{"setup_wizard":{"title":"Business setup","steps":{"profile":"Profile"},"actions":{"continue":"Continue"},"states":{"loading":"Loading setup","status":"Setup status"}}}\n',
+    }
+  }
+  if (caseId === 'OMH-181') {
+    return {
+      ...artifacts,
+      'src/modules/order_risk/widgets/injection/order-risk-filter/widget.ts': `
+export const orderRiskFilterWidget = {
+  metadata: { id: 'order_risk.injection.order-risk-filter' },
+  filters: [{
+    id: 'order-risk',
+    label: 'order_risk.filters.risk.label',
+    type: 'select',
+    strategy: 'server',
+    queryParam: 'risk',
+    options: [
+      { value: 'high', label: 'order_risk.filters.risk.high' },
+      { value: 'low', label: 'order_risk.filters.risk.low' },
+    ],
+  }],
+}
+`,
+      'src/modules/order_risk/widgets/injection-table.ts': `
+export const injectionTable = {
+  'data-table:sales.orders:filters': [{ widgetId: 'order_risk.injection.order-risk-filter' }],
+  'data-table:sales.orders:bulk-actions': [{ widgetId: 'order_risk.injection.order-risk-review' }],
+}
+`,
+      'src/modules/order_risk/i18n/en.json': '{"order_risk":{"filters":{"risk":{"label":"Order risk","high":"High","low":"Low"}},"actions":{"review":{"label":"Review risk"}}}}\n',
+    }
+  }
+  return artifacts
+}
+
 function writeFile(root: string, relative: string, source: string): void {
   const target = path.join(root, relative)
   fs.mkdirSync(path.dirname(target), { recursive: true })
@@ -219,7 +407,9 @@ function stageTarget(caseId: string, corrected = false): string {
   fs.symlinkSync(typescriptRoot, path.join(root, 'node_modules', 'typescript'), process.platform === 'win32' ? 'junction' : 'dir')
   fs.writeFileSync(path.join(root, 'package.json'), '{"name":"business-oracle-target","private":true}\n')
   for (const [relative, source] of Object.entries(seeds.fixtures[definition.fixture] ?? {})) writeFile(root, relative, source)
-  if (corrected) writeFile(root, definition.file, correctedSource(caseId, definition))
+  if (corrected) {
+    for (const [relative, source] of Object.entries(correctedArtifacts(caseId, definition))) writeFile(root, relative, source)
+  }
   return root
 }
 
@@ -259,6 +449,15 @@ test('the 21 business writable cases have aligned controlled fixtures', () => {
     assert.equal(fixture.precondition, `${definition.validator} must fail`, `${caseId}: wrong trusted validator precondition`)
     assert.equal(typeof seed[definition.file], 'string', `${caseId}: behavior target is not seeded`)
   }
+  for (const caseId of ['OMH-115', 'OMH-130', 'OMH-137', 'OMH-181']) {
+    const definition = cases[caseId]
+    const fixture = fixtureIndex.fixtures[definition.fixture]
+    const catalogCase = catalogCases.find((entry) => entry.id === caseId)
+    assert.deepEqual([...(catalogCase?.oracle?.expectedArtifacts ?? [])].sort(), [...fixture.seededArtifacts].sort(), `${caseId}: case and fixture artifacts differ`)
+    assert.deepEqual(catalogCase?.allowedWrites, [`src/modules/${definition.file.split('/')[2]}/**`], `${caseId}: allowed writes do not cover the complete isolated UI module`)
+  }
+  assert.ok(fixtureIndex.fixtures['ui-public-lead-capture'].seededArtifacts.includes('src/modules/demo_requests/frontend/request-demo/page.tsx'))
+  assert.ok(fixtureIndex.fixtures['ui-public-lead-capture'].seededArtifacts.includes('src/modules/demo_requests/frontend/request-demo/page.meta.ts'))
 })
 
 test('controlled seeds fail and corrected production seams pass both trusted oracles', { skip: process.platform === 'win32' }, () => {
@@ -308,6 +507,36 @@ export async function decoy(input: any, effects: any) {
     const result = runOracle(astOracle, root, 'OMH-093', 'before')
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
     assert.equal(result.parsed?.checks.find((check) => check.id === 'business.command-seam')?.passed, false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('rendered UI policy rejects inline SVG, palette colors, and arbitrary Tailwind values', () => {
+  const root = stageTarget('OMH-115', true)
+  const page = path.join(root, 'src/modules/deal_accessibility/backend/board/page.tsx')
+  fs.writeFileSync(page, fs.readFileSync(page, 'utf8').replace(
+    '</PageBody>',
+    '<svg className="text-red-600 w-[13px]" /></PageBody>',
+  ))
+  try {
+    const result = runOracle(astOracle, root, 'OMH-115', 'before')
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.parsed?.checks.find((check) => check.id === 'business.ui-policy')?.passed, false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('order-risk widgets must target the exact sales.orders filter and bulk-action hosts', () => {
+  const root = stageTarget('OMH-181', true)
+  const table = path.join(root, 'src/modules/order_risk/widgets/injection-table.ts')
+  fs.writeFileSync(table, fs.readFileSync(table, 'utf8').replaceAll('data-table:sales.orders:', 'data-table:sales.quotes:'))
+  try {
+    const result = runOracle(astOracle, root, 'OMH-181', 'before')
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.parsed?.checks.find((check) => check.id === 'business.table-filter-host')?.passed, false)
+    assert.equal(result.parsed?.checks.find((check) => check.id === 'business.table-bulk-host')?.passed, false)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

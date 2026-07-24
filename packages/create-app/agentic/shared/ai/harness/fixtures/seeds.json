@@ -47,7 +47,10 @@
       "src/modules/quote_approval/commands/request-discount.ts": "export async function requestQuoteDiscount(input: any, effects: any) {\n  const result = await effects.apply(input)\n  await effects.record({ result })\n  return result\n}\n"
     },
     "ui-deal-board-accessibility": {
-      "src/modules/deal_accessibility/backend/board/page.tsx": "export async function moveDealAccessibly(input: any, effects: any) {\n  return effects.execute(input)\n}\n\nexport async function handleDealBoardAction(input: any, effects: any) {\n  return moveDealAccessibly(input, effects)\n}\n"
+      "src/modules/deal_accessibility/backend/board/page.tsx": "import { moveDealAccessibly } from '../../lib/move-deal'\n\nexport async function handleDealBoardAction(input: any, effects: any) {\n  return moveDealAccessibly(input, effects)\n}\n\nexport default function DealBoardPage() {\n  return <main><button className=\"text-red-600 text-[13px]\" onClick={() => handleDealBoardAction({}, {})}><svg />Move deal</button></main>\n}\n",
+      "src/modules/deal_accessibility/backend/board/page.meta.ts": "export const metadata = { requireAuth: true, requireFeatures: ['deal_accessibility.view'] }\n",
+      "src/modules/deal_accessibility/lib/move-deal.ts": "export async function moveDealAccessibly(input: any, effects: any) {\n  return effects.execute(input)\n}\n",
+      "src/modules/deal_accessibility/i18n/en.json": "{\"deal_accessibility\":{\"board\":{\"move\":\"Move deal\"}}}\n"
     },
     "business-stock-reservation": {
       "src/modules/stock_reservations/commands/reserve-stock.ts": "export async function reserveStock(input: any, effects: any) {\n  const result = await effects.apply(input)\n  await effects.record({ result })\n  return result\n}\n"
@@ -56,13 +59,19 @@
       "src/modules/bulk_pricing/commands/update-prices.ts": "export async function updatePrices(items: any[], effects: any) {\n  for (const item of items) await effects.applyChunk([item])\n}\n"
     },
     "ui-public-lead-capture": {
-      "src/modules/demo_requests/frontend/request-demo.tsx": "export async function submitDemoRequest(input: any, effects: any) {\n  return effects.execute(input)\n}\n\nexport async function handleDemoRequest(input: any, effects: any) {\n  return submitDemoRequest(input, effects)\n}\n"
+      "src/modules/demo_requests/frontend/request-demo/page.tsx": "import { submitDemoRequest } from '../../lib/submit-demo-request'\n\nexport async function handleDemoRequest(input: any, effects: any) {\n  return submitDemoRequest(input, effects)\n}\n\nexport default function RequestDemoPage() {\n  return <form onSubmit={() => handleDemoRequest({}, {})}><label>Email<input type=\"email\" /></label><input type=\"checkbox\" /><button className=\"bg-green-600\">Request demo</button></form>\n}\n",
+      "src/modules/demo_requests/frontend/request-demo/page.meta.ts": "export const metadata = { navHidden: true }\n",
+      "src/modules/demo_requests/lib/submit-demo-request.ts": "export async function submitDemoRequest(input: any, effects: any) {\n  return effects.execute(input)\n}\n",
+      "src/modules/demo_requests/i18n/en.json": "{\"demo_requests\":{\"form\":{\"submit\":\"Request demo\"}}}\n"
     },
     "business-portal-quote-approval": {
       "src/modules/portal_quote_approval/commands/approve-quote.ts": "export async function approvePortalQuote(input: any, effects: any) {\n  const result = await effects.apply(input)\n  await effects.record({ result })\n  return result\n}\n"
     },
     "ui-resumable-setup-wizard": {
-      "src/modules/setup_wizard/backend/setup/page.tsx": "export async function advanceSetupWizard(input: any, effects: any) {\n  return effects.execute(input)\n}\n\nexport async function handleSetupWizardAction(input: any, effects: any) {\n  return advanceSetupWizard(input, effects)\n}\n"
+      "src/modules/setup_wizard/backend/setup/page.tsx": "import { advanceSetupWizard } from '../../lib/advance-setup'\n\nexport async function handleSetupWizardAction(input: any, effects: any) {\n  return advanceSetupWizard(input, effects)\n}\n\nexport default function SetupWizardPage() {\n  return <form><button className=\"bg-blue-600 w-[420px]\" onClick={() => handleSetupWizardAction({}, {})}><svg />Continue</button></form>\n}\n",
+      "src/modules/setup_wizard/backend/setup/page.meta.ts": "export const metadata = { requireAuth: true, requireFeatures: ['setup_wizard.manage'] }\n",
+      "src/modules/setup_wizard/lib/advance-setup.ts": "export async function advanceSetupWizard(input: any, effects: any) {\n  return effects.execute(input)\n}\n",
+      "src/modules/setup_wizard/i18n/en.json": "{\"setup_wizard\":{\"actions\":{\"continue\":\"Continue\"}}}\n"
     },
     "workflow-invoice-dunning": {
       "src/modules/invoice_dunning/workflows/run-dunning.ts": "export async function runInvoiceDunning(items: any[], effects: any) {\n  for (const item of items) await effects.applyChunk([item])\n}\n",
@@ -98,7 +107,10 @@
       "tests/e2e/portal-quote-approval.spec.ts": "export async function runPortalQuoteApprovalScenario(harness: any) {\n  const fixture = await harness.createFixture()\n  await harness.open(fixture)\n  await harness.approve(fixture)\n}\n"
     },
     "ui-order-risk-bulk-review": {
-      "src/modules/order_risk/widgets/orders-table.tsx": "export async function reviewOrderRisk(input: any, effects: any) {\n  return effects.execute(input)\n}\n\nexport async function handleOrderRiskReview(input: any, effects: any) {\n  return reviewOrderRisk(input, effects)\n}\n"
+      "src/modules/order_risk/widgets/injection/order-risk-filter/widget.ts": "export const orderRiskFilterWidget = { metadata: { id: 'order_risk.detached-filter' }, filters: [] }\n",
+      "src/modules/order_risk/widgets/injection/order-risk-review/widget.ts": "export async function reviewOrderRisk(rows: any[], effects: any) {\n  return effects.execute(rows)\n}\n\nexport const orderRiskReviewWidget = { metadata: { id: 'order_risk.detached-review' }, bulkActions: [] }\n",
+      "src/modules/order_risk/widgets/injection-table.ts": "export const injectionTable = {}\n",
+      "src/modules/order_risk/i18n/en.json": "{\"order_risk\":{\"actions\":{\"review\":\"Review risk\"}}}\n"
     },
     "regression-missing-scope": {
       "src/modules/harness_fixture/api/scope/route.ts": "export type RecordScope = { tenantId?: string; organizationId?: string }\nexport type RecordStore = { find(filter: { tenant_id: string | undefined; organization_id: string | undefined }): Promise<unknown> }\n\nexport async function listRecords(scope: RecordScope, store: RecordStore) {\n  return store.find({ tenant_id: scope.tenantId, organization_id: scope.organizationId })\n}\n"

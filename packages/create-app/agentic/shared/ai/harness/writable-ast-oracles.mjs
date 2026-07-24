@@ -104,8 +104,21 @@ const WRITABLE_CASES = Object.freeze({
     family: 'ui-business-surface',
     seam: 'moveDealAccessibly',
     handler: 'handleDealBoardAction',
-    sources: ['src/modules/deal_accessibility/backend/board/page.tsx'],
-    artifacts: ['src/modules/deal_accessibility/backend/board/page.tsx'],
+    render: 'DealBoardPage',
+    event: 'onClick',
+    components: ['Page', 'PageHeader', 'PageBody', 'Button', 'Alert'],
+    metadata: ['requireAuth', 'requireFeatures'],
+    sources: [
+      'src/modules/deal_accessibility/backend/board/page.tsx',
+      'src/modules/deal_accessibility/backend/board/page.meta.ts',
+      'src/modules/deal_accessibility/lib/move-deal.ts',
+    ],
+    artifacts: [
+      'src/modules/deal_accessibility/backend/board/page.tsx',
+      'src/modules/deal_accessibility/backend/board/page.meta.ts',
+      'src/modules/deal_accessibility/lib/move-deal.ts',
+      'src/modules/deal_accessibility/i18n/en.json',
+    ],
   },
   'OMH-122': {
     family: 'business-command',
@@ -123,8 +136,22 @@ const WRITABLE_CASES = Object.freeze({
     family: 'ui-business-surface',
     seam: 'submitDemoRequest',
     handler: 'handleDemoRequest',
-    sources: ['src/modules/demo_requests/frontend/request-demo.tsx'],
-    artifacts: ['src/modules/demo_requests/frontend/request-demo.tsx'],
+    render: 'RequestDemoPage',
+    event: 'onSubmit',
+    components: ['FormField', 'Input', 'CheckboxField', 'Button', 'Alert'],
+    metadata: ['navHidden'],
+    allowFormTag: true,
+    sources: [
+      'src/modules/demo_requests/frontend/request-demo/page.tsx',
+      'src/modules/demo_requests/frontend/request-demo/page.meta.ts',
+      'src/modules/demo_requests/lib/submit-demo-request.ts',
+    ],
+    artifacts: [
+      'src/modules/demo_requests/frontend/request-demo/page.tsx',
+      'src/modules/demo_requests/frontend/request-demo/page.meta.ts',
+      'src/modules/demo_requests/lib/submit-demo-request.ts',
+      'src/modules/demo_requests/i18n/en.json',
+    ],
   },
   'OMH-133': {
     family: 'business-command',
@@ -136,8 +163,21 @@ const WRITABLE_CASES = Object.freeze({
     family: 'ui-business-surface',
     seam: 'advanceSetupWizard',
     handler: 'handleSetupWizardAction',
-    sources: ['src/modules/setup_wizard/backend/setup/page.tsx'],
-    artifacts: ['src/modules/setup_wizard/backend/setup/page.tsx'],
+    render: 'SetupWizardPage',
+    event: 'onClick',
+    components: ['Page', 'PageHeader', 'PageBody', 'StepIndicator', 'Button', 'Alert', 'LoadingMessage'],
+    metadata: ['requireAuth', 'requireFeatures'],
+    sources: [
+      'src/modules/setup_wizard/backend/setup/page.tsx',
+      'src/modules/setup_wizard/backend/setup/page.meta.ts',
+      'src/modules/setup_wizard/lib/advance-setup.ts',
+    ],
+    artifacts: [
+      'src/modules/setup_wizard/backend/setup/page.tsx',
+      'src/modules/setup_wizard/backend/setup/page.meta.ts',
+      'src/modules/setup_wizard/lib/advance-setup.ts',
+      'src/modules/setup_wizard/i18n/en.json',
+    ],
   },
   'OMH-140': {
     family: 'async-operation',
@@ -207,11 +247,19 @@ const WRITABLE_CASES = Object.freeze({
     artifacts: ['src/modules/harness_fixture/backend/edit/page.tsx'],
   },
   'OMH-181': {
-    family: 'ui-business-surface',
+    family: 'data-table-extension',
     seam: 'reviewOrderRisk',
-    handler: 'handleOrderRiskReview',
-    sources: ['src/modules/order_risk/widgets/orders-table.tsx'],
-    artifacts: ['src/modules/order_risk/widgets/orders-table.tsx'],
+    sources: [
+      'src/modules/order_risk/widgets/injection/order-risk-filter/widget.ts',
+      'src/modules/order_risk/widgets/injection/order-risk-review/widget.ts',
+      'src/modules/order_risk/widgets/injection-table.ts',
+    ],
+    artifacts: [
+      'src/modules/order_risk/widgets/injection/order-risk-filter/widget.ts',
+      'src/modules/order_risk/widgets/injection/order-risk-review/widget.ts',
+      'src/modules/order_risk/widgets/injection-table.ts',
+      'src/modules/order_risk/i18n/en.json',
+    ],
   },
 })
 
@@ -330,13 +378,19 @@ function newFacts() {
     declarations: new Set(),
     decorators: new Set(),
     exportedFunctions: new Map(),
+    exportedVariables: new Set(),
     functions: new Set(),
+    importedBindings: new Map(),
+    importSources: new Set(),
+    jsxLiteralAttributes: new Map(),
     jsxAttributes: new Set(),
     jsxTags: new Set(),
+    jsxText: [],
     loops: 0,
     newCalls: new Set(),
     nullNodes: 0,
     objectProperties: new Set(),
+    propertyIdentifiers: new Map(),
     propertyAccesses: new Set(),
     strings: new Set(),
     throwStatements: 0,
@@ -350,6 +404,25 @@ function isExportedFunction(ts, node) {
   return Boolean(node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword))
 }
 
+function isExportedVariable(ts, node) {
+  const statement = node.parent?.parent
+  return Boolean(statement && ts.isVariableStatement(statement) && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword))
+}
+
+function addMappedValue(map, key, value) {
+  if (!map.has(key)) map.set(key, new Set())
+  map.get(key).add(value)
+}
+
+function jsxAttributeLiteral(ts, attribute) {
+  if (!attribute.initializer) return undefined
+  if (ts.isStringLiteral(attribute.initializer)) return attribute.initializer.text
+  if (ts.isJsxExpression(attribute.initializer) && attribute.initializer.expression && ts.isStringLiteralLike(attribute.initializer.expression)) {
+    return attribute.initializer.expression.text
+  }
+  return undefined
+}
+
 function collectFunctionFact(ts, node) {
   const fact = {
     binaryOperators: new Set(),
@@ -357,8 +430,13 @@ function collectFunctionFact(ts, node) {
     callOptions: new Map(),
     conditionalExpressions: 0,
     finallyBlocks: 0,
+    jsxAttributes: new Set(),
+    jsxLiteralAttributes: new Map(),
+    jsxTags: new Set(),
+    jsxText: [],
     loops: 0,
     nullNodes: 0,
+    strings: new Set(),
     throws: 0,
   }
   const visit = (current) => {
@@ -378,6 +456,18 @@ function collectFunctionFact(ts, node) {
     if (ts.isBinaryExpression(current)) fact.binaryOperators.add(current.operatorToken.kind)
     if (ts.isConditionalExpression(current)) fact.conditionalExpressions += 1
     if (current.kind === ts.SyntaxKind.NullKeyword) fact.nullNodes += 1
+    if (ts.isStringLiteralLike(current) || ts.isNoSubstitutionTemplateLiteral(current)) fact.strings.add(current.text)
+    if (ts.isJsxText(current) && current.text.trim()) fact.jsxText.push(current.text.trim())
+    if (ts.isJsxOpeningElement(current) || ts.isJsxSelfClosingElement(current)) {
+      fact.jsxTags.add(jsxTagName(ts, current.tagName))
+      for (const attribute of current.attributes.properties) {
+        if (!ts.isJsxAttribute(attribute)) continue
+        const name = attribute.name.text
+        fact.jsxAttributes.add(name)
+        const literal = jsxAttributeLiteral(ts, attribute)
+        if (literal !== undefined) addMappedValue(fact.jsxLiteralAttributes, name, literal)
+      }
+    }
     if (ts.isTryStatement(current) && current.finallyBlock) fact.finallyBlocks += 1
     if (ts.isForStatement(current) || ts.isForInStatement(current) || ts.isForOfStatement(current) || ts.isWhileStatement(current) || ts.isDoStatement(current)) {
       fact.loops += 1
@@ -405,7 +495,19 @@ function collectFacts(ts, sourceFiles) {
       file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
     )
     const visit = (node) => {
-      if (ts.isImportDeclaration(node) || ts.isImportEqualsDeclaration(node) || ts.isExportDeclaration(node)) return
+      if (ts.isImportDeclaration(node)) {
+        const source = node.moduleSpecifier.text
+        facts.importSources.add(source)
+        const clause = node.importClause
+        if (clause?.name) facts.importedBindings.set(clause.name.text, source)
+        if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+          for (const element of clause.namedBindings.elements) facts.importedBindings.set(element.name.text, source)
+        } else if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+          facts.importedBindings.set(clause.namedBindings.name.text, source)
+        }
+        return
+      }
+      if (ts.isImportEqualsDeclaration(node) || ts.isExportDeclaration(node)) return
 
       if (ts.isClassDeclaration(node)) {
         const members = new Set(node.members.map((member) => propertyName(ts, member.name)).filter(Boolean))
@@ -426,6 +528,7 @@ function collectFacts(ts, sourceFiles) {
       }
       if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
         facts.declarations.add(node.name.text)
+        if (isExportedVariable(ts, node)) facts.exportedVariables.add(node.name.text)
         const properties = new Set()
         if (node.initializer && ts.isObjectLiteralExpression(node.initializer)) {
           for (const property of node.initializer.properties) {
@@ -453,6 +556,10 @@ function collectFacts(ts, sourceFiles) {
         const name = propertyName(ts, node.name)
         if (name) facts.objectProperties.add(name)
       }
+      if (ts.isPropertyAssignment(node)) {
+        const name = propertyName(ts, node.name)
+        if (name && ts.isIdentifier(node.initializer)) addMappedValue(facts.propertyIdentifiers, name, node.initializer.text)
+      }
       if (ts.isPropertyAccessExpression(node)) facts.propertyAccesses.add(node.name.text)
       if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) facts.strings.add(node.text)
       if (node.kind === ts.SyntaxKind.NullKeyword) facts.nullNodes += 1
@@ -467,9 +574,14 @@ function collectFacts(ts, sourceFiles) {
       if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
         facts.jsxTags.add(jsxTagName(ts, node.tagName))
         for (const attribute of node.attributes.properties) {
-          if (ts.isJsxAttribute(attribute)) facts.jsxAttributes.add(attribute.name.text)
+          if (!ts.isJsxAttribute(attribute)) continue
+          const name = attribute.name.text
+          facts.jsxAttributes.add(name)
+          const literal = jsxAttributeLiteral(ts, attribute)
+          if (literal !== undefined) addMappedValue(facts.jsxLiteralAttributes, name, literal)
         }
       }
+      if (ts.isJsxText(node) && node.text.trim()) facts.jsxText.push(node.text.trim())
       ts.forEachChild(node, visit)
     }
     visit(source)
@@ -504,6 +616,45 @@ function exportedFunctionHasCallOptions(facts, functionName, callName, requiredO
   return Boolean(fact && (fact.callOptions.get(callName) ?? []).some((options) => requiredOptions.every((name) => options.has(name))))
 }
 
+function importsSharedComponent(facts, name) {
+  return facts.importedBindings.get(name)?.startsWith('@open-mercato/ui') === true
+}
+
+function uiPolicyFailures(facts, { allowFormTag = false } = {}) {
+  const rawTags = ['button', 'input', 'select', 'textarea', 'svg', ...(allowFormTag ? [] : ['form'])]
+  const failures = []
+  for (const tag of rawTags) if (facts.jsxTags.has(tag)) failures.push(`raw <${tag}>`)
+  if (facts.jsxAttributes.has('style')) failures.push('inline style')
+  const strings = [...facts.strings]
+  if (strings.some((value) => /(?:^|\s)(?:[a-z-]+:)*(?:text|bg|border|ring)-(?:red|green|emerald|blue|amber|orange|yellow|rose|lime|cyan|teal|indigo|violet|purple|pink)-\d{2,3}(?:\/\d+)?\b/.test(value))) {
+    failures.push('hard-coded palette class')
+  }
+  if (strings.some((value) => /(?:^|\s)\S*\[[^\]]+\]/.test(value))) failures.push('arbitrary Tailwind value')
+  if (strings.some((value) => /(?:^|\s)dark:/.test(value))) failures.push('manual dark-mode override')
+  for (const name of ['label', 'title', 'placeholder', 'aria-label', 'alt']) {
+    if ((facts.jsxLiteralAttributes.get(name)?.size ?? 0) > 0) failures.push(`hard-coded ${name}`)
+  }
+  if (facts.jsxText.length > 0) failures.push('hard-coded JSX copy')
+  return failures
+}
+
+function renderedUiChecks(definition, facts) {
+  const render = facts.exportedFunctions.get(definition.render)
+  const handler = facts.exportedFunctions.get(definition.handler)
+  const policyFailures = uiPolicyFailures(facts, { allowFormTag: definition.allowFormTag })
+  const strings = [...(render?.strings ?? [])]
+  return [
+    check('business.ui-rendered-components', Boolean(render) && definition.components.every((name) => render.jsxTags.has(name) && importsSharedComponent(facts, name)), `exported ${definition.render} renders the required shared Open Mercato components`),
+    check('business.ui-event-link', Boolean(render) && render.jsxAttributes.has(definition.event) && render.calls.has(definition.handler) && handler?.calls.has(definition.seam), `rendered ${definition.event} reaches ${definition.handler} and the tested ${definition.seam} seam`),
+    check('business.ui-localized', Boolean(render) && render.calls.has('useT') && render.calls.has('t') && render.jsxText.length === 0, `exported ${definition.render} obtains all visible copy through useT`),
+    check('business.ui-accessible-feedback', Boolean(render) && render.jsxAttributes.has('aria-live') && render.jsxTags.has('Alert') && render.jsxAttributes.has('status'), `exported ${definition.render} renders an accessible shared Alert status region`),
+    check('business.ui-responsive', strings.some((value) => /(?:^|\s)(?:sm|md|lg|xl|2xl):/.test(value)), `exported ${definition.render} includes a standard responsive breakpoint`),
+    check('business.ui-semantic-token', strings.some((value) => /(?:^|\s)(?:text-(?:foreground|muted-foreground)|bg-(?:background|muted)|border-border)\b/.test(value)), `exported ${definition.render} uses semantic design tokens`),
+    check('business.ui-metadata', hasObjectVariable(facts, 'metadata', definition.metadata), `the sibling page metadata declares ${definition.metadata.join(' and ')}`),
+    check('business.ui-policy', policyFailures.length === 0, `case-owned UI avoids raw controls/forms, inline SVG/style, hard-coded copy/colors, arbitrary Tailwind, and manual dark overrides${policyFailures.length ? ` (${policyFailures.join(', ')})` : ''}`),
+  ]
+}
+
 function check(id, passed, requirement) {
   return { id, passed: Boolean(passed), requirement }
 }
@@ -522,7 +673,20 @@ function caseChecks(ts, caseId, facts) {
     return [
       check('business.ui-seam', exportedFunctionCalls(facts, definition.seam, ['effects.execute', 'effects.restoreFocus', 'effects.announce']), `exported ${definition.seam} executes, restores focus, and announces the result`),
       check('business.ui-guard', (fact?.throws ?? 0) > 0, `exported ${definition.seam} rejects an invalid UI business action`),
-      check('business.ui-handler', exportedFunctionCalls(facts, definition.handler, [definition.seam]), `exported ${definition.handler} invokes the tested production seam`),
+      check('business.ui-finally', (fact?.finallyBlocks ?? 0) > 0, `exported ${definition.seam} restores focus after both success and failure`),
+      ...renderedUiChecks(definition, facts),
+    ]
+  }
+  if (definition.family === 'data-table-extension') {
+    const fact = facts.exportedFunctions.get(definition.seam)
+    const onExecute = facts.propertyIdentifiers.get('onExecute')
+    return [
+      check('business.table-filter-host', hasObjectVariable(facts, 'injectionTable', ['data-table:sales.orders:filters']) && hasString(facts, 'order_risk.injection.order-risk-filter'), 'the exact sales.orders filters host loads the order-risk filter widget'),
+      check('business.table-bulk-host', hasObjectVariable(facts, 'injectionTable', ['data-table:sales.orders:bulk-actions']) && hasString(facts, 'order_risk.injection.order-risk-review'), 'the exact sales.orders bulk-actions host loads the order-risk review widget'),
+      check('business.table-filter', facts.exportedVariables.has('orderRiskFilterWidget') && hasObjectVariable(facts, 'orderRiskFilterWidget', ['metadata', 'filters']) && ['order-risk', 'order_risk.filters.risk.label', 'server', 'risk'].every((value) => hasString(facts, value)), 'an exported localized server-backed order-risk filter is registered'),
+      check('business.table-bulk-action', facts.exportedVariables.has('orderRiskReviewWidget') && hasObjectVariable(facts, 'orderRiskReviewWidget', ['metadata', 'bulkActions']) && hasString(facts, 'review-order-risk') && onExecute?.has(definition.seam), `the exported bulk action links onExecute directly to ${definition.seam}`),
+      check('business.table-safe-seam', exportedFunctionCalls(facts, definition.seam, ['effects.authorize', 'effects.checkVersion', 'effects.surfaceConflict', 'effects.execute']) && (fact?.loops ?? 0) > 0 && (fact?.throws ?? 0) > 0, `exported ${definition.seam} authorizes and version-checks every selected order before execution`),
+      check('business.table-ui-policy', uiPolicyFailures(facts).length === 0, 'the injected table extension avoids raw UI, inline SVG/style, hard-coded copy/colors, arbitrary Tailwind, and manual dark overrides'),
     ]
   }
   if (definition.family === 'async-operation') {

@@ -27,12 +27,12 @@ const CASES = {
   'OMH-093': { file: 'src/modules/customer_merge/commands/merge-contacts.ts', family: 'business-command', exportName: 'mergeContacts', requiredFlags: ['scopeValid', 'survivorSelected'] },
   'OMH-105': { file: 'src/modules/deal_stages/commands/change-stage.ts', family: 'business-command', exportName: 'changeDealStage', requiredFlags: ['transitionAllowed', 'requiredFieldsPresent'] },
   'OMH-107': { file: 'src/modules/quote_approval/commands/request-discount.ts', family: 'business-command', exportName: 'requestQuoteDiscount', requiredFlags: ['approvalSatisfied', 'separationOfDuties'] },
-  'OMH-115': { file: 'src/modules/deal_accessibility/backend/board/page.tsx', family: 'ui-business-surface', exportName: 'moveDealAccessibly', requiredFlags: ['accessGranted', 'keyboardEquivalent'] },
+  'OMH-115': { file: 'src/modules/deal_accessibility/lib/move-deal.ts', family: 'ui-business-surface', exportName: 'moveDealAccessibly', requiredFlags: ['accessGranted', 'keyboardEquivalent'] },
   'OMH-122': { file: 'src/modules/stock_reservations/commands/reserve-stock.ts', family: 'business-command', exportName: 'reserveStock', requiredFlags: ['stockAvailable', 'reservationKeyPresent'] },
   'OMH-128': { file: 'src/modules/bulk_pricing/commands/update-prices.ts', family: 'async-operation', exportName: 'updatePrices' },
-  'OMH-130': { file: 'src/modules/demo_requests/frontend/request-demo.tsx', family: 'ui-business-surface', exportName: 'submitDemoRequest', requiredFlags: ['scopeDerived', 'consentAccepted'] },
+  'OMH-130': { file: 'src/modules/demo_requests/lib/submit-demo-request.ts', family: 'ui-business-surface', exportName: 'submitDemoRequest', requiredFlags: ['scopeDerived', 'consentAccepted'] },
   'OMH-133': { file: 'src/modules/portal_quote_approval/commands/approve-quote.ts', family: 'business-command', exportName: 'approvePortalQuote', requiredFlags: ['portalScoped', 'latestVersion'] },
-  'OMH-137': { file: 'src/modules/setup_wizard/backend/setup/page.tsx', family: 'ui-business-surface', exportName: 'advanceSetupWizard', requiredFlags: ['draftPersisted', 'transitionAllowed'] },
+  'OMH-137': { file: 'src/modules/setup_wizard/lib/advance-setup.ts', family: 'ui-business-surface', exportName: 'advanceSetupWizard', requiredFlags: ['draftPersisted', 'transitionAllowed'] },
   'OMH-140': { file: 'src/modules/invoice_dunning/workflows/run-dunning.ts', family: 'async-operation', exportName: 'runInvoiceDunning' },
   'OMH-144': { file: 'src/modules/quote_assistant/ai-tools.ts', family: 'ai-safe-agent', exportName: 'saveQuoteDraftWithApproval', mode: 'mutation' },
   'OMH-146': { file: 'src/modules/sales_orchestrator/ai-agents.ts', family: 'ai-safe-agent', exportName: 'coordinateSalesQuestion', mode: 'delegate' },
@@ -44,7 +44,7 @@ const CASES = {
   'OMH-165': { file: 'tests/e2e/portal-quote-approval.spec.ts', family: 'test-authoring-mutation', exportName: 'runPortalQuoteApprovalScenario' },
   'OMH-171': { file: 'src/modules/harness_fixture/api/scope/route.ts', probeCase: 'OMH-057' },
   'OMH-172': { file: 'src/modules/harness_fixture/backend/edit/page.tsx', probeCase: 'OMH-061', allowedCompiledImport: '@open-mercato/ui/backend/CrudForm' },
-  'OMH-181': { file: 'src/modules/order_risk/widgets/orders-table.tsx', family: 'ui-business-surface', exportName: 'reviewOrderRisk', requiredFlags: ['authorized', 'versionCurrent'] },
+  'OMH-181': { file: 'src/modules/order_risk/widgets/injection/order-risk-review/widget.ts', family: 'data-table-extension', exportName: 'reviewOrderRisk' },
 }
 
 const FAMILY_PROBES = {
@@ -120,6 +120,62 @@ const FAMILY_PROBES = {
     checks.push({ id: 'executes-authorized-ui-action-once', passed: !successError && result?.message === 'updated' && events.filter((entry) => entry === 'execute').length === 1 })
     checks.push({ id: 'restores-semantic-focus', passed: events.includes('focus:row-1') })
     checks.push({ id: 'announces-observable-result', passed: events.includes('announce:updated') })
+
+    const failedEvents = []
+    let failureObserved = false
+    try {
+      await action(validInput, {
+        async execute() { failedEvents.push('execute'); throw new Error('injected UI failure') },
+        async restoreFocus(target) { failedEvents.push('focus:' + target) },
+        async announce(message) { failedEvents.push('announce:' + message) },
+      })
+    } catch { failureObserved = true }
+    checks.push({ id: 'restores-focus-after-ui-failure', passed: failureObserved && failedEvents.includes('focus:row-1') })
+    checks.push({ id: 'announces-ui-failure', passed: failedEvents.some((entry) => entry.startsWith('announce:')) })
+    return { checks }
+  `,
+  'data-table-extension': `
+    const config = __oracleConfig
+    const action = module.exports[config.exportName]
+    if (typeof action !== 'function') throw new Error('required DataTable bulk action export is missing')
+    const checks = []
+    const rows = [{ id: 'one', updatedAt: 'v1' }, { id: 'two', updatedAt: 'v2' }]
+
+    let deniedExecutions = 0
+    let denied = false
+    try {
+      await action(rows, {
+        async authorize() { return false },
+        async checkVersion() { return true },
+        async surfaceConflict() {},
+        async execute() { deniedExecutions += 1 },
+      })
+    } catch { denied = true }
+    checks.push({ id: 'denies-unauthorized-bulk-review', passed: denied && deniedExecutions === 0 })
+
+    const conflicts = []
+    let staleExecutions = 0
+    let stale = false
+    try {
+      await action(rows, {
+        async authorize() { return true },
+        async checkVersion(row) { return row.id !== 'two' },
+        async surfaceConflict(row) { conflicts.push(row.id) },
+        async execute() { staleExecutions += 1 },
+      })
+    } catch { stale = true }
+    checks.push({ id: 'checks-every-selected-version', passed: stale && conflicts.join(',') === 'two' && staleExecutions === 0 })
+
+    const checked = []
+    let executedRows = []
+    const result = await action(rows, {
+      async authorize(feature) { return feature === 'sales.orders.manage' },
+      async checkVersion(row) { checked.push(row.id + ':' + row.updatedAt); return true },
+      async surfaceConflict() {},
+      async execute(selectedRows) { executedRows = selectedRows; return { ok: true, progressJobId: 'job-1' } },
+    })
+    checks.push({ id: 'executes-exact-selected-orders', passed: checked.join(',') === 'one:v1,two:v2' && executedRows === rows })
+    checks.push({ id: 'returns-shared-progress-job', passed: result?.ok === true && result?.progressJobId === 'job-1' })
     return { checks }
   `,
   'async-operation': `

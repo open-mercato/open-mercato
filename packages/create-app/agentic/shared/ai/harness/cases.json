@@ -8299,6 +8299,7 @@
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/guides/modules/customers.md"
       ],
       "forbidden": [
@@ -8349,11 +8350,14 @@
         "oracle.business.ui-surface"
       ],
       "expectedArtifacts": [
-        "src/modules/deal_accessibility/backend/board/page.tsx"
+        "src/modules/deal_accessibility/backend/board/page.tsx",
+        "src/modules/deal_accessibility/backend/board/page.meta.ts",
+        "src/modules/deal_accessibility/lib/move-deal.ts",
+        "src/modules/deal_accessibility/i18n/en.json"
       ]
     },
     "allowedWrites": [
-      "src/modules/deal_accessibility/backend/board/page.tsx"
+      "src/modules/deal_accessibility/**"
     ]
   },
   {
@@ -9690,6 +9694,8 @@
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/guides/modules/customers.md"
       ],
       "forbidden": [
@@ -9740,11 +9746,14 @@
         "oracle.business.ui-surface"
       ],
       "expectedArtifacts": [
-        "src/modules/demo_requests/frontend/request-demo.tsx"
+        "src/modules/demo_requests/frontend/request-demo/page.tsx",
+        "src/modules/demo_requests/frontend/request-demo/page.meta.ts",
+        "src/modules/demo_requests/lib/submit-demo-request.ts",
+        "src/modules/demo_requests/i18n/en.json"
       ]
     },
     "allowedWrites": [
-      "src/modules/demo_requests/frontend/request-demo.tsx"
+      "src/modules/demo_requests/**"
     ]
   },
   {
@@ -10342,6 +10351,7 @@
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
         ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/guides/modules/onboarding.md"
       ],
@@ -10394,11 +10404,14 @@
         "oracle.business.ui-surface"
       ],
       "expectedArtifacts": [
-        "src/modules/setup_wizard/backend/setup/page.tsx"
+        "src/modules/setup_wizard/backend/setup/page.tsx",
+        "src/modules/setup_wizard/backend/setup/page.meta.ts",
+        "src/modules/setup_wizard/lib/advance-setup.ts",
+        "src/modules/setup_wizard/i18n/en.json"
       ]
     },
     "allowedWrites": [
-      "src/modules/setup_wizard/backend/setup/page.tsx"
+      "src/modules/setup_wizard/**"
     ]
   },
   {
@@ -12091,6 +12104,8 @@
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/guides/modules/sales.md"
       ],
       "forbidden": [
@@ -12144,11 +12159,14 @@
         "oracle.business.ui-surface"
       ],
       "expectedArtifacts": [
-        "src/modules/order_risk/widgets/orders-table.tsx"
+        "src/modules/order_risk/widgets/injection/order-risk-filter/widget.ts",
+        "src/modules/order_risk/widgets/injection/order-risk-review/widget.ts",
+        "src/modules/order_risk/widgets/injection-table.ts",
+        "src/modules/order_risk/i18n/en.json"
       ]
     },
     "allowedWrites": [
-      "src/modules/order_risk/widgets/orders-table.tsx"
+      "src/modules/order_risk/**"
     ]
   },
   {
