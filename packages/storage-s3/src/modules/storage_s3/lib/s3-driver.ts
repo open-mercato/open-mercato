@@ -12,6 +12,11 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from '@open-mercato/core/modules/attachments/lib/drivers'
 import {
+  assertSafeS3Endpoint,
+  assertStaticallySafeS3Endpoint,
+  createSafeS3RequestHandler,
+} from './endpoint-safety'
+import {
   assertS3KeyAddressableByTenantScope,
   assertS3KeyScopedToTenant,
   assertS3ListPrefixScopedToTenant,
@@ -71,12 +76,14 @@ export class S3StorageDriver implements StorageDriver {
   readonly key = 's3'
   private readonly client: S3Client
   private readonly bucket: string
+  private readonly endpoint?: string
   private readonly pathPrefix: string
   private readonly scope: S3TenantScope | null
 
   constructor(config: Record<string, unknown>) {
     const cfg = config as S3DriverConfig
     this.bucket = cfg.bucket
+    this.endpoint = cfg.endpoint
     this.pathPrefix = cfg.pathPrefix ?? ''
     this.scope = cfg.organizationId && cfg.tenantId
       ? { organizationId: cfg.organizationId, tenantId: cfg.tenantId }
@@ -109,11 +116,15 @@ export class S3StorageDriver implements StorageDriver {
       }
     }
 
+    assertStaticallySafeS3Endpoint(cfg.endpoint)
+    const requestHandler = createSafeS3RequestHandler(cfg.endpoint)
+
     this.client = new S3Client({
       region: cfg.region ?? 'us-east-1',
       endpoint: cfg.endpoint,
       forcePathStyle: cfg.forcePathStyle ?? false,
       credentials,
+      ...(requestHandler ? { requestHandler } : {}),
     })
   }
 
@@ -137,6 +148,7 @@ export class S3StorageDriver implements StorageDriver {
   }
 
   async store(payload: StoreFilePayload): Promise<StoredFile> {
+    await this.assertEndpointSafe()
     const orgSegment = resolveOrgSegment(payload.orgId ?? null)
     const tenantSegment = resolveTenantSegment(payload.tenantId ?? null)
     const safeName = sanitizeFileName(payload.fileName || 'file')
@@ -159,6 +171,7 @@ export class S3StorageDriver implements StorageDriver {
   async read(partitionCode: string, storagePath: string): Promise<ReadFileResult> {
     this.assertPartitionScoped(partitionCode, storagePath)
     this.assertKeyAddressable(storagePath)
+    await this.assertEndpointSafe()
     const response = await this.client.send(
       new GetObjectCommand({ Bucket: this.bucket, Key: storagePath }),
     )
@@ -173,6 +186,7 @@ export class S3StorageDriver implements StorageDriver {
     this.assertPartitionScoped(partitionCode, storagePath)
     this.assertKeyAddressable(storagePath)
     try {
+      await this.assertEndpointSafe()
       await this.client.send(
         new DeleteObjectCommand({ Bucket: this.bucket, Key: storagePath }),
       )
@@ -207,6 +221,7 @@ export class S3StorageDriver implements StorageDriver {
    */
   async putObject(key: string, buffer: Buffer, contentType?: string): Promise<void> {
     this.assertKeyScoped(key)
+    await this.assertEndpointSafe()
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,
@@ -234,6 +249,7 @@ export class S3StorageDriver implements StorageDriver {
   }> {
     const activeScope = scope ?? this.scope
     assertS3ListPrefixScopedToTenant(prefix, activeScope, this.pathPrefix)
+    await this.assertEndpointSafe()
     const response = await this.client.send(
       new ListObjectsV2Command({
         Bucket: this.bucket,
@@ -269,6 +285,7 @@ export class S3StorageDriver implements StorageDriver {
     } else {
       this.assertKeyAddressable(storagePath, scope)
     }
+    await this.assertEndpointSafe()
     if (operation === 'upload') {
       const command = new PutObjectCommand({
         Bucket: this.bucket,
@@ -279,5 +296,9 @@ export class S3StorageDriver implements StorageDriver {
     }
     const command = new GetObjectCommand({ Bucket: this.bucket, Key: storagePath })
     return getSignedUrl(this.client, command, { expiresIn })
+  }
+
+  private async assertEndpointSafe(): Promise<void> {
+    await assertSafeS3Endpoint(this.endpoint)
   }
 }
