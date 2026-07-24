@@ -1596,6 +1596,77 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(false)
       expect(result.error).toContain('timeout after 50ms')
     })
+
+    test('should honor the deprecated timeout alias given as a millisecond string', async () => {
+      const mockFunction = jest.fn().mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 200))
+        return { success: true }
+      })
+
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-22',
+        activityName: 'Slow Function',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'slowFunction',
+          args: {},
+        },
+        timeout: '50',
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('timeout after 50ms')
+    })
+
+    test('should honor the deprecated timeout alias given as milliseconds', async () => {
+      const mockFunction = jest.fn().mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 200))
+        return { success: true }
+      })
+
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-23',
+        activityName: 'Slow Function',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'slowFunction',
+          args: {},
+        },
+        timeout: 50,
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('timeout after 50ms')
+    })
+
+    test('should prefer timeoutMs over the deprecated timeout alias', () => {
+      expect(
+        activityExecutor.resolveActivityTimeoutMs({ timeoutMs: 1000, timeout: 'PT30S' })
+      ).toBe(1000)
+      expect(activityExecutor.resolveActivityTimeoutMs({ timeout: 'PT30S' })).toBe(30_000)
+      expect(activityExecutor.resolveActivityTimeoutMs({ timeout: '5m' })).toBe(300_000)
+      expect(activityExecutor.resolveActivityTimeoutMs({ timeout: '30000' })).toBe(30_000)
+      expect(activityExecutor.resolveActivityTimeoutMs({ timeout: '' })).toBeUndefined()
+      expect(activityExecutor.resolveActivityTimeoutMs({})).toBeUndefined()
+    })
   })
 
   // ============================================================================

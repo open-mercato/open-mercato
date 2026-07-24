@@ -26,7 +26,7 @@ import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
-import { parseDuration } from './duration'
+import { parseDuration, toTimeoutMs } from './duration'
 import { getWorkflowSafeCommand } from './workflow-safe-commands'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
@@ -106,7 +106,13 @@ export interface ActivityDefinition {
   config: any
   async?: boolean // Flag to execute activity asynchronously via queue
   retryPolicy?: RetryPolicy
-  timeoutMs?: number
+  timeoutMs?: number // Canonical timeout, in milliseconds
+  /**
+   * @deprecated Use `timeoutMs`. Kept for definitions authored with a duration
+   * string ("PT30S", "5m") or a raw millisecond value; resolved through
+   * `resolveActivityTimeoutMs()`.
+   */
+  timeout?: string | number
   compensate?: boolean // Flag to execute compensation on failure
 }
 
@@ -127,6 +133,18 @@ export interface ActivityContext {
   branchInstanceId?: string | null
   transitionId?: string
   userId?: string
+}
+
+/**
+ * Resolve the effective activity timeout in milliseconds
+ *
+ * `timeoutMs` is canonical; the deprecated `timeout` alias (duration string or
+ * milliseconds) is honored so definitions saved by any editor behave the same.
+ */
+export function resolveActivityTimeoutMs(
+  activity: Pick<ActivityDefinition, 'timeoutMs' | 'timeout'>
+): number | undefined {
+  return toTimeoutMs(activity.timeoutMs) ?? toTimeoutMs(activity.timeout)
 }
 
 type RbacFeatureResolver = {
@@ -230,7 +248,7 @@ export async function enqueueActivity(
     workflowContext,
     stepContext,
     retryPolicy: activity.retryPolicy,
-    timeoutMs: activity.timeoutMs,
+    timeoutMs: resolveActivityTimeoutMs(activity),
     tenantId: workflowInstance.tenantId,
     organizationId: workflowInstance.organizationId,
     userId: context.userId,
@@ -327,16 +345,17 @@ export async function executeActivity(
 
   let lastError: any
   let retryCount = 0
+  const timeoutMs = resolveActivityTimeoutMs(activity)
 
   for (let attempt = 0; attempt < retryPolicy.maxAttempts; attempt++) {
     try {
       const startTime = Date.now()
 
       // Execute with timeout if specified
-      const result = activity.timeoutMs
+      const result = timeoutMs
         ? await executeWithTimeout(
             () => executeActivityByType(em, container, activity, context),
-            activity.timeoutMs
+            timeoutMs
           )
         : await executeActivityByType(em, container, activity, context)
 

@@ -49,3 +49,36 @@ export function parseDuration(duration: string): number {
 
   throw new Error(`Invalid duration format: ${duration}`)
 }
+
+/**
+ * Normalize a timeout value to milliseconds
+ *
+ * Accepts what the different workflow editors and stored definitions carry:
+ * - a millisecond number (30000)
+ * - a millisecond string ("30000")
+ * - a duration string ("PT30S", "5m")
+ *
+ * @param value - Raw timeout value
+ * @returns Milliseconds, or undefined when the value is absent or unusable
+ */
+export function toTimeoutMs(value: unknown): number | undefined {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : undefined
+  }
+  if (typeof value !== 'string') return undefined
+
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+
+  if (/^\d+$/.test(trimmed)) {
+    const ms = Number(trimmed)
+    return ms > 0 ? ms : undefined
+  }
+
+  try {
+    const ms = parseDuration(trimmed)
+    return Number.isFinite(ms) && ms > 0 ? ms : undefined
+  } catch {
+    return undefined
+  }
+}

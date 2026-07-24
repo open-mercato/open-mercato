@@ -364,6 +364,31 @@ describe('Workflows Validators', () => {
       expect(result.retryPolicy?.backoffCoefficient).toBe(2)
     })
 
+    test('should keep timeoutMs so the executor can honor it', () => {
+      const result = activityDefinitionSchema.parse({ ...validActivity, timeoutMs: 30000 })
+      expect(result.timeoutMs).toBe(30000)
+    })
+
+    test('should keep the deprecated timeout alias as a duration string', () => {
+      const result = activityDefinitionSchema.parse({ ...validActivity, timeout: 'PT30S' })
+      expect(result.timeout).toBe('PT30S')
+    })
+
+    test('should keep the deprecated timeout alias as milliseconds', () => {
+      expect(activityDefinitionSchema.parse({ ...validActivity, timeout: 30000 }).timeout).toBe(30000)
+      expect(activityDefinitionSchema.parse({ ...validActivity, timeout: '30000' }).timeout).toBe('30000')
+    })
+
+    test('should reject an unusable timeout alias instead of silently dropping it', () => {
+      expect(() =>
+        activityDefinitionSchema.parse({ ...validActivity, timeout: 'whenever' })
+      ).toThrow(/Invalid timeout/i)
+    })
+
+    test('should reject a non-positive timeoutMs', () => {
+      expect(() => activityDefinitionSchema.parse({ ...validActivity, timeoutMs: 0 })).toThrow()
+    })
+
     test('should validate activity with compensation flag', () => {
       const withCompensation = {
         ...validActivity,

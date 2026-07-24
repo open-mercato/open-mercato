@@ -25,6 +25,7 @@ import {useT} from '@open-mercato/shared/lib/i18n/context'
 import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
 import {isFutureIsoDateString, isValidDurationString} from '../data/validators'
+import {toTimeoutMs} from '../lib/duration'
 
 export interface NodeEditDialogProps {
   node: Node | null
@@ -1023,10 +1024,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   <Input
                                     type="text"
                                     size="sm"
-                                    value={activity.timeoutMs || ''}
+                                    value={activity.timeoutMs ?? toTimeoutMs(activity.timeout) ?? ''}
                                     onChange={(e) => {
                                       const updated = [...stepActivities]
-                                      updated[index].timeoutMs = e.target.value ? parseInt(e.target.value) : undefined
+                                      const { timeout: _deprecatedAlias, ...rest } = updated[index]
+                                      updated[index] = {
+                                        ...rest,
+                                        timeoutMs: e.target.value ? parseInt(e.target.value) : undefined,
+                                      }
                                       setStepActivities(updated)
                                     }}
                                     placeholder={t('workflows.form.placeholders.timeoutMs')}

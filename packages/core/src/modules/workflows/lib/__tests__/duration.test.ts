@@ -1,4 +1,4 @@
-import { parseDuration } from '../duration'
+import { parseDuration, toTimeoutMs } from '../duration'
 
 describe('parseDuration', () => {
   describe('ISO 8601 format', () => {
@@ -66,5 +66,33 @@ describe('parseDuration', () => {
     test('throws on random text', () => {
       expect(() => parseDuration('abc')).toThrow('Invalid duration format')
     })
+  })
+})
+
+describe('toTimeoutMs', () => {
+  test('passes through positive millisecond numbers', () => {
+    expect(toTimeoutMs(30000)).toBe(30000)
+  })
+
+  test('parses millisecond strings', () => {
+    expect(toTimeoutMs('30000')).toBe(30000)
+    expect(toTimeoutMs(' 30000 ')).toBe(30000)
+  })
+
+  test('parses duration strings', () => {
+    expect(toTimeoutMs('PT30S')).toBe(30 * 1000)
+    expect(toTimeoutMs('5m')).toBe(5 * 60 * 1000)
+  })
+
+  test('returns undefined for absent, empty, or unusable values', () => {
+    expect(toTimeoutMs(undefined)).toBeUndefined()
+    expect(toTimeoutMs(null)).toBeUndefined()
+    expect(toTimeoutMs('')).toBeUndefined()
+    expect(toTimeoutMs('   ')).toBeUndefined()
+    expect(toTimeoutMs('whenever')).toBeUndefined()
+    expect(toTimeoutMs(0)).toBeUndefined()
+    expect(toTimeoutMs(-1)).toBeUndefined()
+    expect(toTimeoutMs(Number.NaN)).toBeUndefined()
+    expect(toTimeoutMs({})).toBeUndefined()
   })
 })

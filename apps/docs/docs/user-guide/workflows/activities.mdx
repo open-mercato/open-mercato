@@ -251,6 +251,30 @@ The workflow continues immediately while the activity runs in the background.
 
 > 💡 **Tip**: Long-running API calls should be async to avoid blocking the workflow.
 
+## Timeouts
+
+Bound how long a single activity attempt may run. When the timeout elapses, the attempt fails with a
+timeout error and the retry policy (if any) decides whether another attempt follows.
+
+```json
+{
+  "timeoutMs": 30000
+}
+```
+
+`timeoutMs` (milliseconds) is the canonical field and is what the activity editors write. The older
+`timeout` field is still accepted for existing definitions and takes either a duration string or a
+millisecond value:
+
+```json
+{
+  "timeout": "30s"
+}
+```
+
+Both `"PT30S"` (ISO 8601) and `"30s"` (short form) are valid durations. When both fields are present,
+`timeoutMs` wins. A value that cannot be interpreted is rejected at save time rather than ignored.
+
 ## Retry Policies
 
 Configure automatic retries for activities that might fail temporarily (network errors, rate limits).

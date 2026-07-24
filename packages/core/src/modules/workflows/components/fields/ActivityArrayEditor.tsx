@@ -26,8 +26,9 @@ export interface Activity {
   activityName: string
   activityType: 'SEND_EMAIL' | 'CALL_API' | 'UPDATE_ENTITY' | 'EMIT_EVENT' | 'CALL_WEBHOOK' | 'EXECUTE_FUNCTION' | 'WAIT'
   config: Record<string, any>
-  timeout?: string
   timeoutMs?: number
+  /** @deprecated Use `timeoutMs`. Duration string ("PT30S") or milliseconds. */
+  timeout?: string | number
   async?: boolean
   compensate?: boolean
   retryPolicy?: {
@@ -114,6 +115,13 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
   const updateActivity = (index: number, field: keyof Activity, fieldValue: any) => {
     const updated = [...activities]
     updated[index] = { ...updated[index], [field]: fieldValue }
+    setValue(updated)
+  }
+
+  const updateActivityTimeout = (index: number, rawValue: string) => {
+    const updated = [...activities]
+    const { timeoutMs: _canonical, ...activity } = updated[index]
+    updated[index] = { ...activity, timeout: rawValue }
     setValue(updated)
   }
 
@@ -251,8 +259,8 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                       <Input
                         id={`${id}-${index}-timeout`}
                         type="text"
-                        value={activity.timeout || ''}
-                        onChange={(e) => updateActivity(index, 'timeout', e.target.value)}
+                        value={activity.timeout ?? activity.timeoutMs ?? ''}
+                        onChange={(e) => updateActivityTimeout(index, e.target.value)}
                         placeholder={t('workflows.fieldEditors.activities.timeoutPlaceholder')}
                         className="text-xs"
                         disabled={disabled}

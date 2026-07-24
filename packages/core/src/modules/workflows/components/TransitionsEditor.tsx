@@ -14,6 +14,7 @@ import {
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { toTimeoutMs } from '../lib/duration'
 
 interface Activity {
   activityId: string
@@ -26,7 +27,9 @@ interface Activity {
     retryDelay?: number
     backoffMultiplier?: number
   }
-  timeout?: number
+  timeoutMs?: number
+  /** @deprecated Use `timeoutMs`. Duration string ("PT30S") or milliseconds. */
+  timeout?: string | number
   compensation?: Record<string, any>
 }
 
@@ -130,6 +133,15 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
     const updated = [...value]
     const activities = [...(updated[transitionIndex].activities || [])]
     activities[activityIndex] = { ...activities[activityIndex], [field]: fieldValue }
+    updated[transitionIndex] = { ...updated[transitionIndex], activities }
+    onChange(updated)
+  }
+
+  const updateActivityTimeout = (transitionIndex: number, activityIndex: number, rawValue: string) => {
+    const updated = [...value]
+    const activities = [...(updated[transitionIndex].activities || [])]
+    const { timeout: _deprecatedAlias, ...activity } = activities[activityIndex]
+    activities[activityIndex] = { ...activity, timeoutMs: rawValue ? parseInt(rawValue) : undefined }
     updated[transitionIndex] = { ...updated[transitionIndex], activities }
     onChange(updated)
   }
@@ -461,8 +473,8 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                             <Input
                               id={`activity-${index}-${activityIndex}-timeout`}
                               type="number"
-                              value={activity.timeout || ''}
-                              onChange={(e) => updateActivity(index, activityIndex, 'timeout', e.target.value ? parseInt(e.target.value) : undefined)}
+                              value={activity.timeoutMs ?? toTimeoutMs(activity.timeout) ?? ''}
+                              onChange={(e) => updateActivityTimeout(index, activityIndex, e.target.value)}
                               placeholder="30000"
                               className="mt-1 text-xs h-8"
                             />

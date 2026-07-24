@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { parseDuration } from '../lib/duration'
+import { parseDuration, toTimeoutMs } from '../lib/duration'
 
 /**
  * Workflows Module - Zod Validators
@@ -42,6 +42,7 @@ export function isFutureIsoDateString(value: unknown): boolean {
 const DURATION_ERROR = 'Invalid duration. Use ISO 8601 (e.g., PT5M, PT1H, P1D) or simple format (5m, 1h, 3d)'
 const UNTIL_ERROR = 'Invalid "until". Provide an ISO 8601 datetime string'
 const UNTIL_PAST_ERROR = '"until" must be a future datetime'
+const TIMEOUT_ERROR = 'Invalid timeout. Use milliseconds (e.g., 30000) or a duration (e.g., PT30S, 5m)'
 
 // ============================================================================
 // Enum Schemas - Workflow Types and Statuses
@@ -210,12 +211,23 @@ export const activityDefinitionSchema = z.object({
   config: z.record(z.string(), z.any()),
   async: z.boolean().default(false).optional(), // For Phase 8.3
   retryPolicy: activityRetryPolicySchema.optional(),
-  timeout: z.string().optional(), // ISO 8601 duration
+  timeoutMs: z.number().int().positive().optional(), // Canonical activity timeout
+  // Deprecated alias for `timeoutMs`: duration string ("PT30S", "5m") or milliseconds
+  timeout: z.union([z.string(), z.number()]).optional(),
   compensation: z.object({
     activityId: z.string().min(1), // ID of compensation activity
     automatic: z.boolean().default(true).optional() // Auto-trigger on failure
   }).optional(), // Compensation configuration (Phase 8.2)
 }).superRefine((activity, ctx) => {
+  const timeoutAlias = activity.timeout
+  if (timeoutAlias != null && timeoutAlias !== '' && toTimeoutMs(timeoutAlias) == null) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['timeout'],
+      message: TIMEOUT_ERROR,
+    })
+  }
+
   if (activity.activityType !== 'WAIT') return
   const config = activity.config || {}
   const hasDuration = config.duration != null && config.duration !== ''
