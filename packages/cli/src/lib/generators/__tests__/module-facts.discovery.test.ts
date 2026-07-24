@@ -5,10 +5,12 @@ import type { PackageResolver } from '../../resolver'
 import { discoverPackageModuleSources, hasReadableModuleSource } from '../module-facts-discovery'
 
 type FakePackage = { name: string; version?: string | null; path: string; modulesPath: string }
+type FakeModuleEntry = { id: string; from?: string }
 
-function makeResolver(packages: FakePackage[]): PackageResolver {
+function makeResolver(packages: FakePackage[], enabledModules: FakeModuleEntry[] = []): PackageResolver {
   return {
     discoverPackages: () => packages,
+    loadEnabledModules: () => enabledModules,
   } as unknown as PackageResolver
 }
 
@@ -74,19 +76,41 @@ describe('module-facts discovery (T1)', () => {
     expect(source.moduleRoot).toBe(path.join(pkgSrc, 'src', 'modules', 'gamma'))
   })
 
-  it('dedupes duplicate module ids first-wins', () => {
+  it('fails closed on duplicate module ids and reports every provider independent of discovery order', () => {
     const pkgA = path.join(tmp, 'dup-a')
     writeModule(path.join(pkgA, 'src', 'modules'), 'shared', 'index.ts')
     const pkgB = path.join(tmp, 'dup-b')
     writeModule(path.join(pkgB, 'src', 'modules'), 'shared', 'index.ts')
 
-    const resolver = makeResolver([
+    const packages = [
       { name: '@open-mercato/dup-a', path: pkgA, modulesPath: path.join(pkgA, 'src', 'modules') },
       { name: '@open-mercato/dup-b', path: pkgB, modulesPath: path.join(pkgB, 'src', 'modules') },
-    ])
+    ]
+    const expected = '[module-facts] duplicate module id "shared" is provided by '
+      + '@open-mercato/dup-a, @open-mercato/dup-b; src/modules.ts does not select a provider. '
+      + 'Select exactly one matching provider in src/modules.ts.'
 
-    const sources = discoverPackageModuleSources(resolver)
-    expect(sources).toHaveLength(1)
-    expect(sources[0].moduleRoot).toBe(path.join(pkgA, 'src', 'modules', 'shared'))
+    expect(() => discoverPackageModuleSources(makeResolver(packages))).toThrow(expected)
+    expect(() => discoverPackageModuleSources(makeResolver([...packages].reverse()))).toThrow(expected)
+  })
+
+  it('uses the exact src/modules.ts provider even when package discovery order is reversed', () => {
+    const pkgA = path.join(tmp, 'selected-a')
+    writeModule(path.join(pkgA, 'src', 'modules'), 'shared', 'index.ts')
+    const pkgB = path.join(tmp, 'selected-b')
+    writeModule(path.join(pkgB, 'src', 'modules'), 'shared', 'index.ts')
+
+    const packages = [
+      { name: '@open-mercato/selected-a', path: pkgA, modulesPath: path.join(pkgA, 'src', 'modules') },
+      { name: '@open-mercato/selected-b', path: pkgB, modulesPath: path.join(pkgB, 'src', 'modules') },
+    ]
+    const enabled = [{ id: 'shared', from: '@open-mercato/selected-b' }]
+
+    for (const discoveredPackages of [packages, [...packages].reverse()]) {
+      const sources = discoverPackageModuleSources(makeResolver(discoveredPackages, enabled))
+      expect(sources).toHaveLength(1)
+      expect(sources[0]).toMatchObject({ moduleId: 'shared', from: '@open-mercato/selected-b' })
+      expect(sources[0].moduleRoot).toBe(path.join(pkgB, 'src', 'modules', 'shared'))
+    }
   })
 })

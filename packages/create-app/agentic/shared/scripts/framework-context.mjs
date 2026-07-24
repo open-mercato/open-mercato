@@ -16,6 +16,7 @@ import { spawnSync } from 'node:child_process'
 
 const appRoot = realpathSync(process.cwd())
 const requireFromApp = createRequire(join(appRoot, 'package.json'))
+const SEARCH_MATCH_LIMIT = 200
 
 function fail(message) {
   console.error(`framework-context: ${message}`)
@@ -92,6 +93,24 @@ function assertInside(root, candidate, label) {
   throw new Error(`${label} escapes ${root}`)
 }
 
+function assertStrictlyInside(root, candidate, label) {
+  const delta = relative(root, candidate)
+  if (delta !== '' && !delta.startsWith(`..${sep}`) && delta !== '..' && !isAbsolute(delta)) return candidate
+  throw new Error(`${label} escapes ${root}`)
+}
+
+function encodePackageVersion(value) {
+  if (
+    typeof value !== 'string'
+    || value.length === 0
+    || value.length > 128
+    || !/^[0-9A-Za-z][0-9A-Za-z._+-]*$/.test(value)
+  ) {
+    throw new Error(`invalid package version: ${String(value)}`)
+  }
+  return encodeURIComponent(value)
+}
+
 function candidatePackages(moduleId) {
   const declared = parseModuleEntries().filter((entry) => entry.id === moduleId)
   if (declared.length > 0) return [...new Set(declared.map((entry) => entry.from))]
@@ -101,7 +120,10 @@ function candidatePackages(moduleId) {
     .filter((name) => name.startsWith('@open-mercato/'))
   return names.filter((name) => {
     const root = findPackageRoot(name)
-    return root && existsSync(join(root, 'src', 'modules', moduleId))
+    return root && (
+      existsSync(join(root, 'src', 'modules', moduleId))
+      || existsSync(join(root, 'dist', 'modules', moduleId))
+    )
   })
 }
 
@@ -132,11 +154,80 @@ function copyContextFile(source, destination) {
   })
 }
 
+function runRg(args, label, maxBuffer = 4 * 1024 * 1024) {
+  const result = spawnSync('rg', args, {
+    cwd: appRoot,
+    encoding: 'utf8',
+    maxBuffer,
+  })
+  if (result.error) throw new Error(`${label}: ${result.error.message}`)
+  if (result.status !== 0 && result.status !== 1) {
+    const detail = (result.stderr || result.stdout || '').trim()
+    throw new Error(`${label} (exit ${String(result.status)}): ${detail || 'unknown rg error'}`)
+  }
+  return result
+}
+
+function runBoundedSearch(query, sourceRoot) {
+  const fileSearch = runRg(
+    ['--no-ignore', '--hidden', '--files-with-matches', '--sort', 'path', '--', query, sourceRoot],
+    'bounded search failed',
+  )
+  if (fileSearch.status === 1) {
+    return { output: '', matches: 0, truncated: false, status: 'no-matches' }
+  }
+
+  const matchingFiles = fileSearch.stdout
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .sort()
+  const matches = []
+
+  for (const file of matchingFiles.slice(0, SEARCH_MATCH_LIMIT + 1)) {
+    const remaining = SEARCH_MATCH_LIMIT + 1 - matches.length
+    if (remaining <= 0) break
+    const search = runRg(
+      [
+        '--no-ignore',
+        '--hidden',
+        '--line-number',
+        '--with-filename',
+        '--color',
+        'never',
+        '--max-columns',
+        '500',
+        '--max-columns-preview',
+        '--max-count',
+        String(remaining),
+        '--',
+        query,
+        file,
+      ],
+      `bounded search failed for ${file}`,
+      512 * 1024,
+    )
+    if (search.status === 0) {
+      matches.push(...search.stdout.split(/\r?\n/).filter(Boolean))
+    }
+  }
+
+  const truncated = matches.length > SEARCH_MATCH_LIMIT
+  const boundedMatches = matches.slice(0, SEARCH_MATCH_LIMIT)
+  return {
+    output: boundedMatches.length > 0 ? `${boundedMatches.join('\n')}\n` : '',
+    matches: boundedMatches.length,
+    truncated,
+    status: boundedMatches.length > 0 ? 'matched' : 'no-matches',
+  }
+}
+
 function materialize(result, query) {
   const safePackage = result.package.name.replace(/^@/, '').replaceAll('/', '-')
-  const outputRoot = assertInside(
-    appRoot,
-    resolve(appRoot, '.ai', 'framework-context', `${safePackage}@${result.package.version}`),
+  const safeVersion = encodePackageVersion(result.package.version)
+  const contextRoot = resolve(appRoot, '.ai', 'framework-context')
+  const outputRoot = assertStrictlyInside(
+    contextRoot,
+    resolve(contextRoot, `${safePackage}@${safeVersion}`),
     'context output',
   )
   rmSync(outputRoot, { recursive: true, force: true })
@@ -156,14 +247,18 @@ function materialize(result, query) {
   }
 
   if (query && result.sourceRoot) {
-    const search = spawnSync('rg', ['--no-ignore', '--hidden', '--max-count', '200', '--', query, result.sourceRoot], {
-      cwd: appRoot,
-      encoding: 'utf8',
-      maxBuffer: 2 * 1024 * 1024,
-    })
+    const search = runBoundedSearch(query, result.sourceRoot)
     const searchPath = join(outputRoot, 'search.txt')
-    writeFileSync(searchPath, (search.stdout || search.stderr || '').slice(0, 1024 * 1024))
+    writeFileSync(searchPath, search.output)
     result.searchResult = relative(appRoot, searchPath)
+    result.boundedSearch = {
+      query,
+      maxMatches: SEARCH_MATCH_LIMIT,
+      matches: search.matches,
+      truncated: search.truncated,
+      status: search.status,
+      result: result.searchResult,
+    }
   }
 
   const manifestPath = join(outputRoot, 'manifest.json')
@@ -216,27 +311,38 @@ function buildResult(args) {
   const distCandidate = moduleId
     ? join(packageRoot, 'dist', 'modules', moduleId)
     : join(packageRoot, 'dist')
-  const sourceRoot = existsSync(sourceCandidate)
+  const sourceKind = existsSync(sourceCandidate) ? 'source' : existsSync(distCandidate) ? 'dist' : 'missing'
+  const sourceRoot = sourceKind === 'source'
     ? assertInside(packageRoot, realpathSync(sourceCandidate), 'source root')
-    : existsSync(distCandidate)
+    : sourceKind === 'dist'
       ? assertInside(packageRoot, realpathSync(distCandidate), 'dist root')
       : null
-  const degraded = sourceRoot ? !sourceRoot.includes(`${sep}src${sep}`) && !sourceRoot.endsWith(`${sep}src`) : true
+  const degraded = sourceKind !== 'source'
   const snapshotVersion = typeof snapshot?.generator === 'string'
     ? snapshot.generator.match(/@(\d+\.\d+\.\d+(?:-[^\s]+)?)/)?.[1] ?? null
     : null
   const factsPath = join(appRoot, '.ai', 'guides', 'module-facts.json')
   const moduleFact = moduleId && existsSync(factsPath) ? readJson(factsPath)?.[moduleId] ?? null : null
-  const factsCurrent = !moduleFact || !moduleFact.sourceVersion || moduleFact.sourceVersion === packageManifest.version
+  const factSourcePackage = moduleFact?.sourcePackage ?? null
+  const factSourceVersion = moduleFact?.sourceVersion ?? moduleFact?.coreVersion ?? null
+  const factsCurrent = !moduleFact || (
+    (!factSourcePackage || factSourcePackage === packageName)
+    && (!factSourceVersion || factSourceVersion === packageManifest.version)
+  )
 
   return {
     mode: moduleId ? 'module' : 'package',
     module: moduleId,
     package: { name: packageName, version: packageManifest.version ?? 'unknown', root: packageRoot },
     sourceRoot,
+    sourceKind,
     degraded,
     snapshot,
-    generatedFacts: moduleFact ? { current: factsCurrent, sourceVersion: moduleFact.sourceVersion ?? moduleFact.coreVersion ?? null } : null,
+    generatedFacts: moduleFact ? {
+      current: factsCurrent,
+      sourcePackage: factSourcePackage,
+      sourceVersion: factSourceVersion,
+    } : null,
     instructions: [
       { kind: 'standalone-root', path: existsSync(standaloneRoot) ? standaloneRoot : null },
       { kind: 'upstream-bc', path: existsSync(upstreamBc) ? upstreamBc : null },
@@ -246,9 +352,16 @@ function buildResult(args) {
       })),
       { kind: 'upstream-root', path: existsSync(upstreamRoot) ? upstreamRoot : null },
     ],
-    boundedSearch: sourceRoot ? ['rg', '--no-ignore', '--hidden', '--', args.query ?? '<query>', sourceRoot] : null,
+    boundedSearch: sourceRoot ? {
+      query: args.query ?? null,
+      maxMatches: SEARCH_MATCH_LIMIT,
+      matches: null,
+      truncated: null,
+      status: args.query ? 'pending' : 'query-required',
+      result: null,
+    } : null,
     warnings: [
-      ...(degraded ? ['Package source is unavailable; analysis is limited to dist/types.'] : []),
+      ...(degraded ? ['TypeScript package source is unavailable; analysis is limited to dist/types.'] : []),
       ...(!existsSync(join(packageRoot, 'AGENTS.md')) ? ['Package AGENTS.md is unavailable.'] : []),
       ...(snapshotVersion && snapshotVersion !== packageManifest.version
         ? [`Upstream snapshot ${snapshotVersion} differs from installed ${packageName}@${packageManifest.version}.`]
