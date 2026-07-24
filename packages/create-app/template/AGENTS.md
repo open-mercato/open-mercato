@@ -690,7 +690,7 @@ Detail/read-model APIs that expose `customFields` must return bare field keys vi
 
 ### i18n
 
-Translation files in `src/i18n/{locale}.json`. Supported locales: en, pl, es, de.
+Translation files in `src/i18n/{locale}.json`. Supported locales: en, pl, es, de, ko.
 
 ## Requirements
 
