@@ -31,6 +31,7 @@ import {
 } from './command-interceptor-runner'
 import type { CommandInterceptorContext } from './command-interceptor'
 import { CommandInterceptorError } from './errors'
+import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { createLogger } from '../logger'
 
 const logger = createLogger('shared').child({ component: 'commands' })
@@ -674,7 +675,10 @@ export class CommandBus {
     try {
       const dataEngine = (container.resolve('dataEngine') as DataEngine)
       await dataEngine.flushOrmEntityChanges(suppress)
-    } catch {
+    } catch (error) {
+      if (isReadProjectionAlwaysConsistent()) {
+        throw error
+      }
       // best-effort: failures should not block command execution
     }
   }

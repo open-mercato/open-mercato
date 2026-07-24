@@ -1,9 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { type Kysely, sql } from 'kysely'
+import { type Kysely, type Transaction, sql } from 'kysely'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('query_index').child({ component: 'coverage' })
+
+type CoverageExecutor = Kysely<any> | Transaction<any>
 
 export type CoverageScope = {
   entityType: string
@@ -95,7 +97,7 @@ function applyOrganizationCondition<QB extends { where: (...args: any[]) => QB }
 }
 
 async function fetchCoverageRow(
-  db: Kysely<any>,
+  db: CoverageExecutor,
   scope: CoverageScope
 ): Promise<(CoverageRow & { organization_id: string | null }) | null> {
   const { entityType, tenantId, organizationId, withDeleted } = scope
@@ -120,7 +122,7 @@ async function fetchCoverageRow(
 }
 
 async function pruneDuplicateCoverageRows(
-  db: Kysely<any>,
+  db: CoverageExecutor,
   scope: CoverageScope,
   keepId: string | null
 ): Promise<void> {
@@ -139,7 +141,7 @@ async function pruneDuplicateCoverageRows(
 }
 
 async function upsertCoverageRow(
-  db: Kysely<any>,
+  db: CoverageExecutor,
   scope: CoverageScope,
   counts: { baseCount: number; indexedCount: number; vectorIndexedCount: number }
 ): Promise<void> {
@@ -260,10 +262,11 @@ export async function readCoverageSnapshots(
 
 export async function applyCoverageAdjustments(
   em: EntityManager,
-  adjustments: CoverageAdjustment[]
+  adjustments: CoverageAdjustment[],
+  options?: { trx?: CoverageExecutor },
 ): Promise<void> {
   if (!adjustments.length) return
-  const db = (em as any).getKysely() as Kysely<any>
+  const db = options?.trx ?? ((em as any).getKysely() as Kysely<any>)
   const aggregated = aggregateAdjustments(adjustments)
   for (const entry of aggregated) {
     const scope = entry.scope

@@ -18,6 +18,7 @@ import { resolveRegisteredEntityTableName } from '../query/engine'
 import { getEntityIds } from '../encryption/entityIds'
 import { normalizeCustomFieldValues } from '../custom-fields/normalize'
 import { parseBooleanToken } from '../boolean'
+import { isReadProjectionAlwaysConsistent } from './consistency'
 import { isEventDeclared } from '../../modules/events'
 import { createLogger } from '../logger'
 
@@ -610,6 +611,7 @@ export class DefaultDataEngine implements DataEngine {
     }
 
     if (indexer && !suppress?.skipReindex) {
+      const alwaysConsistent = isReadProjectionAlwaysConsistent()
       const resolveCoverageBaseDelta = (): number | undefined => {
         if (action === 'created') return 1
         if (action === 'deleted') return -1
@@ -635,9 +637,14 @@ export class DefaultDataEngine implements DataEngine {
         // returns. The subscriber removes the projection row + tokens synchronously and
         // defers the coverage recompute + fulltext delete, so this stays bounded.
         // Errors are logged, not thrown — index drift never fails the originating write.
-        await bus.emitEvent('query_index.delete_one', enrichedPayload).catch((err: unknown) => {
-          logger.error('query_index.delete_one emit failed', { err })
-        })
+        // Always-consistent mode rethrows so drift is loud and retryable.
+        if (alwaysConsistent) {
+          await bus.emitEvent('query_index.delete_one', enrichedPayload, { rethrowHandlerErrors: true })
+        } else {
+          await bus.emitEvent('query_index.delete_one', enrichedPayload).catch((err: unknown) => {
+            logger.error('query_index.delete_one emit failed', { err })
+          })
+        }
       } else {
         const payload = indexer.buildUpsertPayload
           ? indexer.buildUpsertPayload(ctx)
@@ -655,18 +662,27 @@ export class DefaultDataEngine implements DataEngine {
         // (see delete_one above). The subscriber updates `entity_indexes` synchronously
         // and defers the heavy token-reindex pipeline (build doc + encrypt + decrypt +
         // tokenize + DELETE + chunked INSERT) so write latency stays bounded.
-        await bus.emitEvent('query_index.upsert_one', enrichedPayload).catch((err: unknown) => {
-          logger.error('query_index.upsert_one emit failed', { err })
-        })
+        if (alwaysConsistent) {
+          await bus.emitEvent('query_index.upsert_one', enrichedPayload, { rethrowHandlerErrors: true })
+        } else {
+          await bus.emitEvent('query_index.upsert_one', enrichedPayload).catch((err: unknown) => {
+            logger.error('query_index.upsert_one emit failed', { err })
+          })
+        }
       }
 
-      if (shouldTriggerCoverageRefresh(indexer.entityType, ctx.identifiers.tenantId ?? null)) {
-        void bus.emitEvent('query_index.coverage.refresh', {
+      if (alwaysConsistent || shouldTriggerCoverageRefresh(indexer.entityType, ctx.identifiers.tenantId ?? null)) {
+        const coveragePayload = {
           entityType: indexer.entityType,
           tenantId: ctx.identifiers.tenantId ?? null,
           organizationId: null,
           delayMs: 0,
-        }).catch(() => undefined)
+        }
+        if (alwaysConsistent) {
+          await bus.emitEvent('query_index.coverage.refresh', coveragePayload, { rethrowHandlerErrors: true })
+        } else {
+          void bus.emitEvent('query_index.coverage.refresh', coveragePayload).catch(() => undefined)
+        }
       }
     }
   }
@@ -731,7 +747,10 @@ export class DefaultDataEngine implements DataEngine {
           indexer: entry.indexer as CrudIndexerConfig<unknown>,
           suppress,
         })
-      } catch {
+      } catch (error) {
+        if (isReadProjectionAlwaysConsistent()) {
+          throw error
+        }
         // best-effort; continue with remaining side effects
       }
     }

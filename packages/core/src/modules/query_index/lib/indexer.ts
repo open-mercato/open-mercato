@@ -2,9 +2,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
-import { sql } from 'kysely'
+import { type Kysely, type Transaction, sql } from 'kysely'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField } from './document'
+
+type QueryIndexExecutor = Kysely<any> | Transaction<any>
 
 type BuildDocParams = {
   entityType: string // '<module>:<entity>'
@@ -158,12 +160,13 @@ function scopeEntityIndexes<QB extends { where: (...args: any[]) => QB }>(
 
 export async function upsertIndexRow(
   em: EntityManager,
-  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; searchTokenDoc?: Record<string, unknown> | null; deferSearchTokens?: boolean }
+  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; searchTokenDoc?: Record<string, unknown> | null; deferSearchTokens?: boolean; trx?: QueryIndexExecutor }
 ): Promise<UpsertIndexResult> {
   const db = (em as any).getKysely()
+  const executor = args.trx ?? db
 
   const existing = await scopeEntityIndexes(
-    db.selectFrom('entity_indexes' as any).select(['id' as any, 'deleted_at' as any]),
+    executor.selectFrom('entity_indexes' as any).select(['id' as any, 'deleted_at' as any]),
     args,
   ).executeTakeFirst() as { id: string; deleted_at: Date | null } | undefined
 
@@ -182,12 +185,15 @@ export async function upsertIndexRow(
           organizationId: args.organizationId ?? null,
           tenantId: args.tenantId ?? null,
           doc: null,
+          trx: args.trx,
         })
-      } catch {}
+      } catch (error) {
+        if (args.trx) throw error
+      }
     }
     if (existed) {
       await scopeEntityIndexes(
-        db.deleteFrom('entity_indexes' as any) as any,
+        executor.deleteFrom('entity_indexes' as any) as any,
         args,
       ).execute()
     }
@@ -207,7 +213,7 @@ export async function upsertIndexRow(
 
   // Prefer modern upsert keyed by coalesced org id when available; fallback to update-then-insert
   try {
-    await db
+    await executor
       .insertInto('entity_indexes' as any)
       .values({ ...payload, created_at: sql`now()` } as any)
       .onConflict((oc: any) => oc
@@ -223,16 +229,18 @@ export async function upsertIndexRow(
   } catch {
     // Fallback for schemas without organization_id_coalesced column/index
     const updated = await scopeEntityIndexes(
-      db.updateTable('entity_indexes' as any).set(payload as any) as any,
+      executor.updateTable('entity_indexes' as any).set(payload as any) as any,
       args,
     ).executeTakeFirst() as { numUpdatedRows?: bigint | number } | undefined
     if (!updated || Number(updated.numUpdatedRows ?? 0) === 0) {
       try {
-        await db
+        await executor
           .insertInto('entity_indexes' as any)
           .values({ ...payload, created_at: sql`now()` } as any)
           .execute()
-      } catch {}
+      } catch (error) {
+        if (args.trx) throw error
+      }
     }
   }
 
@@ -250,8 +258,11 @@ export async function upsertIndexRow(
         tenantId: args.tenantId ?? null,
         doc,
         searchTokenDoc: args.searchTokenDoc ?? null,
+        trx: args.trx,
       })
-    } catch {}
+    } catch (error) {
+      if (args.trx) throw error
+    }
   }
   return { doc, existed, wasDeleted, created, revived }
 }
@@ -271,6 +282,7 @@ export async function reindexSearchTokensForRecord(
     tenantId?: string | null
     doc: Record<string, any> | null
     searchTokenDoc?: Record<string, unknown> | null
+    trx?: QueryIndexExecutor
   },
 ): Promise<void> {
   const db = (em as any).getKysely()
@@ -280,7 +292,7 @@ export async function reindexSearchTokensForRecord(
       recordId: args.recordId,
       organizationId: args.organizationId ?? null,
       tenantId: args.tenantId ?? null,
-    })
+    }, { trx: args.trx })
     return
   }
   const tokenDoc = args.searchTokenDoc ?? (() => {
@@ -300,16 +312,17 @@ export async function reindexSearchTokensForRecord(
     organizationId: args.organizationId ?? null,
     tenantId: args.tenantId ?? null,
     doc: await tokenDoc,
-  })
+  }, { trx: args.trx })
 }
 
 export async function markDeleted(
   em: EntityManager,
-  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }
+  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; trx?: QueryIndexExecutor }
 ): Promise<{ wasActive: boolean }> {
   const db = (em as any).getKysely()
+  const executor = args.trx ?? db
   const existing = await scopeEntityIndexes(
-    db.selectFrom('entity_indexes' as any).select(['deleted_at' as any]),
+    executor.selectFrom('entity_indexes' as any).select(['deleted_at' as any]),
     args,
   ).executeTakeFirst() as { deleted_at: Date | null } | undefined
 
@@ -322,10 +335,12 @@ export async function markDeleted(
         recordId: args.recordId,
         organizationId: args.organizationId ?? null,
         tenantId: args.tenantId ?? null,
-      })
-    } catch {}
+      }, { trx: args.trx })
+    } catch (error) {
+      if (args.trx) throw error
+    }
     await scopeEntityIndexes(
-      db.deleteFrom('entity_indexes' as any) as any,
+      executor.deleteFrom('entity_indexes' as any) as any,
       args,
     ).execute()
   }

@@ -176,3 +176,17 @@ Integration (Playwright, per-module under `__integration__/`):
 ## 11. Changelog
 
 - _Unreleased_ — Spec drafted (follow-up to PR #2549).
+
+- 2026-06-18 - Implemented `OM_CACHE_SAFETY_ALWAYS_CONSISTENT`: flag helper, transaction-threaded query-index tail, flag-gated error propagation, docs/env updates, and focused unit coverage.
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| 1. Flag helper | Done | 2026-06-18 | Added shared parser/memoized helper and unit tests. |
+| 2. Indexer `trx` threading | Done | 2026-06-18 | Threaded optional executor through projection, search tokens, and coverage delta writes. |
+| 3. Subscriber inline+transaction path | Done | 2026-06-18 | Added flag-gated inline paths for upsert/delete with one Kysely transaction for index state. |
+| 4. Engine + bus + command-bus error propagation | Done | 2026-06-18 | Added opt-in event handler rethrow and flag-gated propagation through data/command side effects. |
+| 5. Coverage inline | Done | 2026-06-18 | Flag ON bypasses the engine throttle and awaits coverage refresh. |
+| 6. Docs/skills parity | Done | 2026-06-18 | Updated env examples and monorepo/standalone agent guidance from planned to implemented behavior. |
+| 7. Coverage + validation | Partial | 2026-06-18 | Focused unit coverage added for the new helper, handler error propagation, and transaction-threaded index writes; local full-gate blockers are documented in the PR. |

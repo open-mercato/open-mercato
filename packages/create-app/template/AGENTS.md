@@ -291,7 +291,7 @@ await withAtomicFlush(em, [
 await emitCrudSideEffects({ /* ... */ })
 ```
 
-Cache invalidation running post-commit means reads can briefly observe a query-index convergence window. The opt-in `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` env flag (default OFF, backward compatible) is planned to make the query-index read-projection tail converge synchronously on write, at a write-latency cost — opt-in/forthcoming, not on by default.
+Cache invalidation running post-commit means reads can briefly observe a query-index convergence window by default. The opt-in `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` env flag (default OFF, backward compatible) makes the query-index read-projection tail converge synchronously on write and propagates index-write failures, at a write-latency cost. It does not move side effects into the domain-write transaction.
 
 ## AI Assistant — adding agents, tools, UI parts, and overrides
 
