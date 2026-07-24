@@ -106,6 +106,14 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   'directory:Organization': { status: 'enabled', resourceKind: 'directory.organization', reason: 'enabled — Phase 5; presence + CRUD decorator (admin view).' },
   'directory:Tenant': { status: 'enabled', resourceKind: 'directory.tenant', reason: 'enabled — Phase 5; presence + CRUD decorator.' },
 
+  // --- eudr ---
+  'eudr:EudrProductMapping': { status: 'enabled', resourceKind: 'eudr.product_mapping', reason: 'enabled — presence + CRUD decorator.' },
+  'eudr:EudrEvidenceSubmission': { status: 'enabled', resourceKind: 'eudr.evidence_submission', reason: 'enabled — presence + CRUD decorator.' },
+  'eudr:EudrDueDiligenceStatement': { status: 'enabled', resourceKind: 'eudr.due_diligence_statement', reason: 'enabled — presence + CRUD decorator.' },
+  'eudr:EudrPlot': { status: 'enabled', resourceKind: 'eudr.plot', reason: 'enabled — presence + CRUD decorator.' },
+  'eudr:EudrRiskAssessment': { status: 'enabled', resourceKind: 'eudr.risk_assessment', reason: 'enabled — presence + CRUD decorator.' },
+  'eudr:EudrMitigationAction': { status: 'enabled', resourceKind: 'eudr.mitigation_action', reason: 'enabled — presence + CRUD decorator.' },
+
   // --- messages ---
   'messages:Message': { status: 'exempt', resourceKind: 'messages.message', reason: 'OSS-floor-only — draft edits + message actions are hand-written command routes (no makeCrudRoute decorator surface); they enforce the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and surface the conflict on the shared banner (#3260). The two call sites are allowlisted in optimistic-lock-command-coverage. Enterprise record_locks migration deferred.' },
 }

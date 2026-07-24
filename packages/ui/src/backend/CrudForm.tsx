@@ -3078,13 +3078,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }
 
   const renderFields = (fieldList: CrudField[]) => {
-    const usesResponsive = fieldList.some(
+    const visibleFieldList = fieldList.filter(
+      (field) => !hiddenBaseFieldIds.has(field.id) && !hiddenInjectedFieldIds.has(field.id)
+    )
+    const usesResponsive = visibleFieldList.some(
       (field) => field.layout === 'half' || field.layout === 'third'
     )
     const gridClass = usesResponsive ? 'grid grid-cols-1 gap-4 md:grid-cols-6' : 'grid grid-cols-1 gap-4'
     return (
       <div className={gridClass}>
-        {fieldList.map((f) => {
+        {visibleFieldList.map((f) => {
           const layout = f.layout ?? 'full'
           const wrapperClassName = usesResponsive ? resolveLayoutClass(layout) : undefined
           return (
