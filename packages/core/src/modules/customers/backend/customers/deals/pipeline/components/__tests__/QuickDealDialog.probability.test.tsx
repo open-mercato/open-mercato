@@ -11,8 +11,9 @@
 import * as React from 'react'
 import { render } from '@testing-library/react'
 import {
-  registerComponent,
   getComponentEntry,
+  registerComponentOverrides,
+  resolveRegisteredComponent,
 } from '@open-mercato/shared/modules/widgets/component-registry'
 
 // `t` accepts either (key, fallback, params) or (key, params) — mirror the real
@@ -23,15 +24,30 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 let capturedInitialValues: Record<string, unknown> | null = null
+let capturedOnSubmit: ((values: Record<string, unknown>) => Promise<void>) | null = null
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   __esModule: true,
-  CrudForm: (props: { initialValues?: Record<string, unknown> }) => {
+  CrudForm: (props: {
+    initialValues?: Record<string, unknown>
+    onSubmit?: (values: Record<string, unknown>) => Promise<void>
+  }) => {
     capturedInitialValues = props.initialValues ?? null
+    capturedOnSubmit = props.onSubmit ?? null
     return null
   },
 }))
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
-  useGuardedMutation: () => ({ runMutation: jest.fn(), retryLastMutation: jest.fn() }),
+  useGuardedMutation: () => ({
+    runMutation: ({ operation }: { operation: () => Promise<unknown> }) => operation(),
+    retryLastMutation: jest.fn(),
+  }),
+}))
+const mockCreateCrud = jest.fn().mockResolvedValue({})
+jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
+  createCrud: (...args: unknown[]) => mockCreateCrud(...args),
+}))
+jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
+  flash: jest.fn(),
 }))
 
 import {
@@ -64,6 +80,9 @@ function renderDialog(props: Partial<React.ComponentProps<typeof QuickDealDialog
 describe('QuickDealDialog default probability (#4329)', () => {
   afterEach(() => {
     capturedInitialValues = null
+    capturedOnSubmit = null
+    mockCreateCrud.mockClear()
+    registerComponentOverrides([])
   })
 
   it('keeps the historic default when the host passes no override', () => {
@@ -76,9 +95,39 @@ describe('QuickDealDialog default probability (#4329)', () => {
     expect(capturedInitialValues?.probability).toBe(60)
   })
 
-  it('leaves the field empty when the default is null, so no probability is seeded', () => {
+  it('leaves the field empty when the default is null', () => {
     renderDialog({ defaultProbability: null })
     expect(capturedInitialValues?.probability).toBeNull()
+  })
+
+  it('omits probability from the create payload when the default is null', async () => {
+    renderDialog({ defaultProbability: null })
+
+    await capturedOnSubmit?.({
+      ...capturedInitialValues,
+      title: 'Derived probability deal',
+    })
+
+    expect(mockCreateCrud).toHaveBeenCalledWith(
+      'customers/deals',
+      expect.not.objectContaining({ probability: expect.anything() }),
+      expect.any(Object),
+    )
+  })
+
+  it('includes an explicit numeric probability in the create payload', async () => {
+    renderDialog({ defaultProbability: 60 })
+
+    await capturedOnSubmit?.({
+      ...capturedInitialValues,
+      title: 'Explicit probability deal',
+    })
+
+    expect(mockCreateCrud).toHaveBeenCalledWith(
+      'customers/deals',
+      expect.objectContaining({ probability: 60 }),
+      expect.any(Object),
+    )
   })
 
   it('is registered so apps can override it without forking the kanban page', () => {
@@ -87,9 +136,33 @@ describe('QuickDealDialog default probability (#4329)', () => {
     expect(getComponentEntry(QUICK_DEAL_DIALOG_COMPONENT_ID)?.component).toBe(QuickDealDialog)
   })
 
-  it('registry registration is the documented override seam (propsTransform reaches the default)', () => {
-    const Spy = jest.fn(() => null)
-    registerComponent({ id: 'test:quick-deal-probe', component: Spy })
-    expect(getComponentEntry('test:quick-deal-probe')?.component).toBe(Spy)
+  it('allows a propsTransform override to clear the default probability', () => {
+    registerComponentOverrides([
+      {
+        target: { componentId: QUICK_DEAL_DIALOG_COMPONENT_ID },
+        priority: 50,
+        metadata: { module: 'test' },
+        propsTransform: (props: React.ComponentProps<typeof QuickDealDialog>) => ({
+          ...props,
+          defaultProbability: null,
+        }),
+      },
+    ])
+    const Resolved = resolveRegisteredComponent(
+      QUICK_DEAL_DIALOG_COMPONENT_ID,
+      QuickDealDialog,
+    )
+
+    render(
+      <Resolved
+        open
+        context={context}
+        onClose={jest.fn()}
+        onCreated={jest.fn()}
+        currencies={[{ code: 'PLN', isBase: true }]}
+      />,
+    )
+
+    expect(capturedInitialValues?.probability).toBeNull()
   })
 })
