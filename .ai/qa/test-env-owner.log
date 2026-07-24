@@ -1,0 +1,97 @@
+◇ injected env (99) from apps/mercato/.env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+╔═══════════════════════╗
+║  🧩 Open Mercato CLI  ║
+╚═══════════════════════╝
+
+🚀 Running test:ephemeral 
+[ephemeral] Found stale ephemeral state. Clearing /home/pkarw/Projects/mercato-development/.ai/cezar/worktrees/aec2887a-e3e7-4e3f-aa44-6b9179bcd54d/.ai/qa/ephemeral-env.json.
+[ephemeral] Existing ephemeral environment could not be reused. Starting a fresh instance on isolated port 45197.
+[ephemeral] Removed stale ephemeral runtime lock from exited process 4154844.
+[ephemeral] Build cache disabled: build-shaping environment changed since last build.
+[ephemeral] Ephemeral database ready at localhost:33066
+[ephemeral] Initializing application data (includes migrations)...
+[ephemeral] Initializing application data... 2s elapsed, ~43s left
+[ephemeral] Initializing application data... 4s elapsed, ~41s left
+[ephemeral] Initializing application data... 6s elapsed, ~39s left
+[ephemeral] Initializing application data... 8s elapsed, ~37s left
+[ephemeral] Initializing application data... 10s elapsed, ~35s left
+[ephemeral] Initializing application data... 12s elapsed, ~33s left
+[ephemeral] Initializing application data... 14s elapsed, ~31s left
+[ephemeral] Initializing application data... 16s elapsed, ~29s left
+[ephemeral] Initializing application data... 18s elapsed, ~27s left
+[ephemeral] Initializing application data... 20s elapsed, ~25s left
+[ephemeral] Initializing application data... 22s elapsed, ~23s left
+[ephemeral] Initializing application data... 24s elapsed, ~21s left
+[ephemeral] Initializing application data... 26s elapsed, ~19s left
+[ephemeral] Initializing application data... 28s elapsed, ~17s left
+[ephemeral] Initializing application data... 30s elapsed, ~15s left
+[ephemeral] Initializing application data... 32s elapsed, ~13s left
+[ephemeral] Initializing application data... 34s elapsed, ~11s left
+[ephemeral] Initializing application data... 36s elapsed, ~9s left
+[ephemeral] Initializing application data completed in 36s.
+[ephemeral] Build artifacts missing, stale, or out of date; rebuilding artifacts.
+[ephemeral] Building packages...
+[ephemeral] Building packages completed in 1s.
+[ephemeral] Regenerating module artifacts...
+[ephemeral] Regenerating module artifacts... 2s elapsed, ~6s left
+[ephemeral] Regenerating module artifacts... 4s elapsed, ~4s left
+[ephemeral] Regenerating module artifacts... 6s elapsed, ~2s left
+[ephemeral] Regenerating module artifacts completed in 7s.
+[ephemeral] Rebuilding packages after generation...
+[ephemeral] Rebuilding packages after generation completed in 1s.
+[ephemeral] Building application...
+[ephemeral] Reset Next build output directory at /home/pkarw/Projects/mercato-development/.ai/cezar/worktrees/aec2887a-e3e7-4e3f-aa44-6b9179bcd54d/apps/mercato/.mercato/next.
+[ephemeral] Building application... 2s elapsed, ~74s left
+[ephemeral] Building application... 4s elapsed, ~72s left
+[ephemeral] Building application... 6s elapsed, ~70s left
+[ephemeral] Building application... 8s elapsed, ~68s left
+[ephemeral] Building application... 10s elapsed, ~66s left
+[ephemeral] Building application... 12s elapsed, ~64s left
+[ephemeral] Building application... 14s elapsed, ~62s left
+[ephemeral] Building application... 16s elapsed, ~60s left
+[ephemeral] Building application... 18s elapsed, ~58s left
+[ephemeral] Building application... 20s elapsed, ~56s left
+[ephemeral] Building application... 22s elapsed, ~54s left
+[ephemeral] Building application... 24s elapsed, ~52s left
+[ephemeral] Building application... 26s elapsed, ~50s left
+[ephemeral] Building application... 28s elapsed, ~48s left
+[ephemeral] Building application... 30s elapsed, ~46s left
+[ephemeral] Building application... 32s elapsed, ~44s left
+[ephemeral] Building application... 34s elapsed, ~42s left
+[ephemeral] Building application... 36s elapsed, ~40s left
+[ephemeral] Building application... 38s elapsed, ~38s left
+[ephemeral] Building application... 40s elapsed, ~36s left
+[ephemeral] Building application... 42s elapsed, ~34s left
+[ephemeral] Building application... 44s elapsed, ~32s left
+[ephemeral] Building application... 46s elapsed, ~30s left
+[ephemeral] Building application... 48s elapsed, ~28s left
+[ephemeral] Building application... 50s elapsed, ~26s left
+[ephemeral] Building application... 52s elapsed, ~24s left
+[ephemeral] Building application... 54s elapsed, ~22s left
+[ephemeral] Building application... 56s elapsed, ~20s left
+[ephemeral] Building application... 58s elapsed, ~18s left
+[ephemeral] Building application... 60s elapsed, ~16s left
+[ephemeral] Building application... 62s elapsed, ~14s left
+[ephemeral] Building application... 64s elapsed, ~12s left
+[ephemeral] Building application... 66s elapsed, ~10s left
+[ephemeral] Building application... 68s elapsed, ~8s left
+[ephemeral] Building application... 70s elapsed, ~6s left
+[ephemeral] Building application... 72s elapsed, ~4s left
+[ephemeral] Building application... 74s elapsed, ~2s left
+[ephemeral] Building application... 76s elapsed, ~0s left
+[ephemeral] Building application... 78s elapsed, ~0s left
+[ephemeral] Building application... 80s elapsed, ~0s left
+[ephemeral] Building application... 82s elapsed, ~0s left
+[ephemeral] Building application... 84s elapsed, ~0s left
+[ephemeral] Building application completed in 85s.
+[ephemeral] Starting application on http://127.0.0.1:45197...
+[ephemeral] Waiting for application readiness... 2s elapsed, ~238s left
+[ephemeral] Waiting for application readiness... 4s elapsed, ~236s left
+[ephemeral] Waiting for application readiness... 6s elapsed, ~234s left
+[ephemeral] Waiting for application readiness completed in 7s.
+[ephemeral] Application is ready at http://127.0.0.1:45197
+[ephemeral] Ready for QA exploration at http://127.0.0.1:45197
+[ephemeral] Use Playwright MCP against this URL to avoid interference with other local instances.
+[ephemeral] Default credentials: admin@acme.com / secret
+[ephemeral] Press Ctrl+C to stop.
+[ephemeral] Received SIGINT, stopping ephemeral environment...
