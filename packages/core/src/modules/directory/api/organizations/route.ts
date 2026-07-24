@@ -52,7 +52,7 @@ type TreeNode = {
 
 const viewSchema = z.object({
   page: z.coerce.number().min(1).default(1),
-  pageSize: z.coerce.number().min(1).max(200).default(50),
+  pageSize: z.coerce.number().min(1).max(100).default(50),
   search: z.string().optional(),
   view: z.enum(['options', 'manage', 'tree']).default('options'),
   ids: z.string().optional(),
