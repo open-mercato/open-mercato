@@ -372,9 +372,22 @@ function toNumericString(value: number | null | undefined): string | null {
 async function syncDealPeople(
   em: EntityManager,
   deal: CustomerDeal,
-  personIds: string[] | undefined | null
+  personIds: string[] | undefined | null,
+  primaryPersonEntityId?: string | null
 ): Promise<void> {
-  if (personIds === undefined) return
+  if (personIds === undefined) {
+    if (primaryPersonEntityId === undefined) return
+    const links = await em.find(CustomerDealPersonLink, { deal })
+    for (const link of links) {
+      link.isPrimary = link.person.id === primaryPersonEntityId
+    }
+    return
+  }
+  let effectivePrimaryId = primaryPersonEntityId
+  if (effectivePrimaryId === undefined) {
+    const existingPrimary = await em.findOne(CustomerDealPersonLink, { deal, isPrimary: true })
+    effectivePrimaryId = existingPrimary?.person?.id ?? null
+  }
   await em.nativeDelete(CustomerDealPersonLink, { deal })
   if (!personIds || !personIds.length) return
   const unique = Array.from(new Set(personIds))
@@ -384,6 +397,7 @@ async function syncDealPeople(
     const link = em.create(CustomerDealPersonLink, {
       deal,
       person,
+      isPrimary: personId === effectivePrimaryId,
     })
     em.persist(link)
   }
@@ -479,7 +493,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           transitionedByUserId: normalizedTransitionAuthorUserId,
         })
       },
-      () => syncDealPeople(em, deal, parsed.personIds ?? []),
+      () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId),
       () => syncDealCompanies(em, deal, parsed.companyIds ?? []),
     ], { transaction: true })
 
@@ -746,7 +760,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             transitionedByUserId: normalizedTransitionAuthorUserId,
           })
         },
-        () => syncDealPeople(em, record, parsed.personIds),
+        () => syncDealPeople(em, record, parsed.personIds, parsed.primaryPersonEntityId),
         () => syncDealCompanies(em, record, parsed.companyIds),
       ],
     })

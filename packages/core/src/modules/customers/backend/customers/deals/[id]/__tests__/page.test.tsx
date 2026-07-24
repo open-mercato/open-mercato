@@ -506,7 +506,48 @@ describe('DealDetailPage', () => {
     expect(detailRequestCount).toBe(1)
   })
 
-  it('requires an explicit entity selection before quick activity actions bind to a linked customer', async () => {
+  it('defaults the activity target to the primary linked person when one is flagged (#4376)', async () => {
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/deals/deal-123')) {
+        const payload = createDealPayload()
+        payload.people = [
+          {
+            id: 'person-1',
+            label: 'Ada Lovelace',
+            subtitle: 'VP Partnerships',
+            kind: 'person' as const,
+          },
+          {
+            id: 'person-2',
+            label: 'Grace Hopper',
+            subtitle: 'Procurement lead',
+            kind: 'person' as const,
+            isPrimary: true,
+          },
+        ]
+        payload.linkedPersonIds = ['person-1', 'person-2']
+        payload.counts.people = 2
+        return payload
+      }
+      if (url.startsWith('/api/customers/interactions')) {
+        return { items: [] }
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    const selector = await screen.findByLabelText('Choose customer record')
+
+    await waitFor(() => {
+      expect((selector as HTMLSelectElement).value).toBe('person-2')
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('inline-activity-composer')).toHaveTextContent('person:person-2')
+    })
+  })
+
+  it('falls back to the first linked record when no primary is flagged, and honors manual changes (#4376)', async () => {
     readApiResultOrThrowMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/customers/deals/deal-1/stats')) {
         return {
@@ -552,8 +593,12 @@ describe('DealDetailPage', () => {
 
     const selector = await screen.findByLabelText('Choose customer record')
 
-    expect(screen.queryByTestId('inline-activity-composer')).not.toBeInTheDocument()
-    expect(screen.getByTestId('planned-activities-section')).toHaveTextContent('schedule-disabled')
+    await waitFor(() => {
+      expect((selector as HTMLSelectElement).value).toBe('person-1')
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('inline-activity-composer')).toHaveTextContent('person:person-1')
+    })
 
     fireEvent.change(selector, { target: { value: 'company-1' } })
 

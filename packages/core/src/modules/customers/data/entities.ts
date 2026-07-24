@@ -441,13 +441,16 @@ export class CustomerDealStageTransition {
 @Index({ name: 'customer_deal_people_person_idx', properties: ['person'] })
 @Unique({ name: 'customer_deal_people_unique', properties: ['deal', 'person'] })
 export class CustomerDealPersonLink {
-  [OptionalProps]?: 'createdAt'
+  [OptionalProps]?: 'isPrimary' | 'createdAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
   @Property({ name: 'role', type: 'text', nullable: true })
   participantRole?: string | null
+
+  @Property({ name: 'is_primary', type: 'boolean', default: false })
+  isPrimary: boolean = false
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

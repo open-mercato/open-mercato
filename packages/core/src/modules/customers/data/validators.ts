@@ -180,6 +180,7 @@ export const dealCreateSchema = scopedSchema.extend({
   lossNotes: z.string().max(4000).optional(),
   companyIds: z.array(uuid()).optional(),
   personIds: z.array(uuid()).optional(),
+  primaryPersonEntityId: uuid().nullable().optional(),
 })
 
 export const dealUpdateSchema = z
