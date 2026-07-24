@@ -67,9 +67,9 @@ Replace the AI development harness emitted by `create-mercato-app` with a standa
 
 ### Phase 1: Research, specification, and readiness
 
-- [ ] 1.1 Audit current harness, history, packages, and agent CLIs
-- [ ] 1.2 Write standalone harness specification and 40+ use-case matrix
-- [ ] 1.3 Complete pre-implementation audit and spec remediation
+- [x] 1.1 Audit current harness, history, packages, and agent CLIs — 8d676591d
+- [x] 1.2 Write standalone harness specification and 40+ use-case matrix — 8d676591d
+- [x] 1.3 Complete pre-implementation audit and spec remediation — 8d676591d
 
 ### Phase 2: Context architecture and local skills
 
