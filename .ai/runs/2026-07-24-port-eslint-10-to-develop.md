@@ -35,6 +35,7 @@ Port the ESLint 10.7.0 dependency update from PR #4295 onto `develop`, keep the 
 - ESLint 10 is a major toolchain update and may expose new lint incompatibilities.
 - Lockfile regeneration on `develop` can pull unrelated resolutions unless the manifest edits and resulting diff are reviewed closely.
 - The create-app template must remain aligned with the monorepo package versions.
+- **Validation blocker:** `yarn lint` crashes under ESLint 10.7.0 because the current `eslint-plugin-react` and `eslint-config-next` parser still use APIs removed by ESLint 10. `@eslint/compat` fixes the rule API failure but cannot fix the parser scope-manager incompatibility. The replacement PR must remain draft until upstream-compatible plugin/parser releases are available or the project chooses a broader parser migration.
 
 ## Progress
 
