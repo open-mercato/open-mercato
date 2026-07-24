@@ -78,6 +78,8 @@ shared validator, without penalizing untouched pre-existing data.
 
 ## Progress
 
+PR: #4474 (https://github.com/open-mercato/open-mercato/pull/4474)
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Shared activity-config validator
@@ -95,5 +97,5 @@ shared validator, without penalizing untouched pre-existing data.
 
 ### Phase 4: Validation gate + finalize
 
-- [ ] 4.1 Run full validation gate green
-- [ ] 4.2 Finalize PR (labels, summary, ready)
+- [x] 4.1 Run full validation gate green (Runner: local — all 8 commands passed)
+- [x] 4.2 Finalize PR (labels, summary, ready)
