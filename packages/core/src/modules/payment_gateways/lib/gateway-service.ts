@@ -45,6 +45,12 @@ function assertManualActionAllowed(action: ManualGatewayAction, transaction: Gat
   }
 }
 
+function assertCaptureAmountAllowed(amount: number | undefined, transaction: GatewayTransaction): void {
+  if (amount !== undefined && amount > Number(transaction.amount)) {
+    throw conflict(`Capture amount ${amount} exceeds authorized transaction amount ${transaction.amount}`)
+  }
+}
+
 function applyAdapterResultStatus(
   action: ManualGatewayAction,
   transaction: GatewayTransaction,
@@ -192,6 +198,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     operationId?: string
     payload: Record<string, unknown>
     scope: { organizationId: string; tenantId: string }
+    assertInitialAllowed?: (transaction: GatewayTransaction) => void
     invoke: (context: {
       adapter: GatewayAdapter
       credentials: Record<string, unknown>
@@ -210,7 +217,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       operationId: input.operationId,
       payload: input.payload,
       scope: input.scope,
-      assertInitialAllowed: () => assertManualActionAllowed(input.action, transaction),
+      assertInitialAllowed: () => {
+        assertManualActionAllowed(input.action, transaction)
+        input.assertInitialAllowed?.(transaction)
+      },
     })
     if (prepared.kind === 'completed') {
       if (prepared.result.status !== transaction.unifiedStatus) {
@@ -487,6 +497,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         operationId,
         payload: { amount: amount ?? null },
         scope,
+        assertInitialAllowed: (transaction) => assertCaptureAmountAllowed(amount, transaction),
         invoke: ({ adapter, credentials, transaction, idempotencyKey }) => adapter.capture({
           sessionId: readProviderSessionId(transaction),
           amount,

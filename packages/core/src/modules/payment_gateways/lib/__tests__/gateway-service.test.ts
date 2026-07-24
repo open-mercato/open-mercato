@@ -27,6 +27,7 @@ function makeTransaction(status: UnifiedPaymentStatus): GatewayTransaction {
     providerKey: PROVIDER_KEY,
     providerSessionId: 'sess_1',
     unifiedStatus: status,
+    amount: '100.00',
     gatewayMetadata: {},
     gatewayRefundId: null,
     organizationId: scope.organizationId,
@@ -232,6 +233,19 @@ describe('payment gateway service — status-machine guard (#3271)', () => {
     expect(result.status).toBe('captured')
     expect(transaction.unifiedStatus).toBe('captured')
     expect(flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a capture above the authorized transaction amount before calling the adapter', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn, flush } = buildService(transaction, {
+      capture: { status: 'captured', capturedAmount: 125 },
+    })
+
+    await expect(service.capturePayment(transaction.id, 125, scope)).rejects.toMatchObject({ status: 409 })
+
+    expect(captureFn).not.toHaveBeenCalled()
+    expect(transaction.unifiedStatus).toBe('authorized')
+    expect(flush).not.toHaveBeenCalled()
   })
 
   it('treats a same-status capture as idempotent (double capture stays captured)', async () => {
