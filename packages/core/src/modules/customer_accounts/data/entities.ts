@@ -291,6 +291,9 @@ export class CustomerUserInvitation {
   @Property({ name: 'customer_entity_id', type: 'uuid', nullable: true })
   customerEntityId?: string | null
 
+  @Property({ name: 'person_entity_id', type: 'uuid', nullable: true })
+  personEntityId?: string | null
+
   @Property({ name: 'role_ids_json', type: 'json', nullable: true })
   roleIdsJson?: string[] | null
 

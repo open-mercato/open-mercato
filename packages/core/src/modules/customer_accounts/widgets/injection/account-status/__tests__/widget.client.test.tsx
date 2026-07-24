@@ -105,7 +105,8 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
       mutationPayload: Record<string, unknown>
     }
     expect(runArgs.context.entityType).toBe('customer_accounts:user')
-    expect(runArgs.mutationPayload.customerEntityId).toBe('person-entity-1')
+    expect(runArgs.mutationPayload.personEntityId).toBe('person-entity-1')
+    expect(runArgs.mutationPayload.customerEntityId).toBeUndefined()
 
     await waitFor(() => {
       const inviteCall = mockApiCall.mock.calls.find(
@@ -150,7 +151,7 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
           email: 'buyer@example.test',
           roleIds: ['role-1'],
           displayName: 'Buyer Contact',
-          customerEntityId: 'person-entity-1',
+          personEntityId: 'person-entity-1',
         }),
       }),
     ))
