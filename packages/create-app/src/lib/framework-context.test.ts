@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync, existsSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -368,4 +377,58 @@ test('rejects unsafe package versions before materialization without deleting ap
   assert.equal(result.status, 2)
   assert.match(result.stderr, /invalid package version/)
   assert.equal(readFileSync(sentinel, 'utf8'), 'keep me\n')
+})
+
+test('rejects symlinked framework-context ancestors without mutating their targets', () => {
+  const linkType = process.platform === 'win32' ? 'junction' : 'dir'
+  for (const linkedRelative of ['.ai', '.ai/framework-context']) {
+    const root = createFixture()
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), 'om-framework-context-outside-')))
+    const sentinel = join(outside, 'sentinel.txt')
+    write(sentinel, 'untouched\n')
+    try {
+      const linkedPath = join(root, linkedRelative)
+      rmSync(linkedPath, { recursive: true, force: true })
+      mkdirSync(dirname(linkedPath), { recursive: true })
+      symlinkSync(outside, linkedPath, linkType)
+
+      const result = spawnSync(
+        process.execPath,
+        ['scripts/framework-context.mjs', '--module', 'customers', '--json'],
+        { cwd: root, encoding: 'utf8' },
+      )
+      assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`)
+      assert.match(result.stderr, /must not be a symbolic link/)
+      assert.equal(readFileSync(sentinel, 'utf8'), 'untouched\n')
+      assert.equal(existsSync(join(outside, 'open-mercato-core@0.6.6')), false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+      rmSync(outside, { recursive: true, force: true })
+    }
+  }
+})
+
+test('rejects a symlinked package output before recursive cleanup and preserves outside data', () => {
+  const root = createFixture()
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'om-framework-context-outside-')))
+  const sentinel = join(outside, 'sentinel.txt')
+  const contextRoot = join(root, '.ai', 'framework-context')
+  const outputRoot = join(contextRoot, 'open-mercato-core@0.6.6')
+  write(sentinel, 'untouched\n')
+  mkdirSync(contextRoot, { recursive: true })
+  symlinkSync(outside, outputRoot, process.platform === 'win32' ? 'junction' : 'dir')
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/framework-context.mjs', '--module', 'customers', '--json'],
+      { cwd: root, encoding: 'utf8' },
+    )
+    assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /context output must not be a symbolic link/)
+    assert.equal(readFileSync(sentinel, 'utf8'), 'untouched\n')
+    assert.equal(existsSync(join(outside, 'manifest.json')), false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(outside, { recursive: true, force: true })
+  }
 })

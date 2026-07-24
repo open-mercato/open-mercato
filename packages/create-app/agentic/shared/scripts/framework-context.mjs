@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
 import {
+  closeSync,
+  constants,
   cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -14,7 +17,12 @@ import { createRequire } from 'node:module'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-const appRoot = realpathSync(process.cwd())
+const workingDirectory = process.cwd()
+const workingDirectoryStat = lstatSync(workingDirectory)
+if (workingDirectoryStat.isSymbolicLink() || !workingDirectoryStat.isDirectory()) {
+  throw new Error('app root must be a regular directory, not a symbolic link')
+}
+const appRoot = realpathSync(workingDirectory)
 const requireFromApp = createRequire(join(appRoot, 'package.json'))
 const SEARCH_MATCH_LIMIT = 200
 const INSTALLED_PACKAGE_SCAN_LIMIT = 1000
@@ -100,6 +108,73 @@ function assertStrictlyInside(root, candidate, label) {
   throw new Error(`${label} escapes ${root}`)
 }
 
+function lstatIfPresent(candidate) {
+  try {
+    return lstatSync(candidate)
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null
+    throw error
+  }
+}
+
+function assertRegularDirectory(root, candidate, label) {
+  const lexical = resolve(candidate)
+  assertInside(root, lexical, label)
+  const stat = lstatIfPresent(lexical)
+  if (!stat) return false
+  if (stat.isSymbolicLink()) throw new Error(`${label} must not be a symbolic link`)
+  if (!stat.isDirectory()) throw new Error(`${label} must be a directory`)
+  assertInside(root, realpathSync(lexical), label)
+  return true
+}
+
+function ensureDirectoryChain(root, candidate, label) {
+  const lexical = resolve(candidate)
+  assertInside(root, lexical, label)
+  if (!assertRegularDirectory(root, root, 'app root')) throw new Error('app root is unavailable')
+  const delta = relative(root, lexical)
+  if (!delta) return
+
+  let cursor = root
+  for (const component of delta.split(sep).filter(Boolean)) {
+    cursor = join(cursor, component)
+    if (assertRegularDirectory(root, cursor, `${label} parent`)) continue
+    try {
+      mkdirSync(cursor, { mode: 0o755 })
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error
+    }
+    if (!assertRegularDirectory(root, cursor, `${label} parent`)) {
+      throw new Error(`failed to create ${label} parent`)
+    }
+  }
+}
+
+function writeContextFile(destination, content) {
+  const parent = dirname(destination)
+  ensureDirectoryChain(appRoot, parent, 'context output')
+  assertStrictlyInside(appRoot, resolve(destination), 'context output')
+  const flags = constants.O_CREAT
+    | constants.O_EXCL
+    | constants.O_WRONLY
+    | (constants.O_NOFOLLOW ?? 0)
+  let descriptor
+  try {
+    descriptor = openSync(destination, flags, 0o644)
+    writeFileSync(descriptor, content)
+  } catch (error) {
+    if (error?.code === 'EEXIST' || error?.code === 'ELOOP') {
+      throw new Error(`context output already exists: ${relative(appRoot, destination)}`)
+    }
+    throw error
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor)
+  }
+  const stat = lstatSync(destination)
+  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error('context output is not a regular file')
+  assertInside(appRoot, realpathSync(destination), 'context output')
+}
+
 function encodePackageVersion(value) {
   if (
     typeof value !== 'string'
@@ -153,12 +228,18 @@ function nearestAgentsFiles(packageRoot, sourceRoot) {
 }
 
 function copyContextFile(source, destination) {
-  mkdirSync(dirname(destination), { recursive: true })
+  ensureDirectoryChain(appRoot, dirname(destination), 'context output')
+  assertStrictlyInside(appRoot, resolve(destination), 'context output')
+  if (lstatIfPresent(destination)) throw new Error(`context output already exists: ${relative(appRoot, destination)}`)
   cpSync(source, destination, {
     recursive: true,
-    force: true,
+    errorOnExist: true,
+    force: false,
     filter: (candidate) => !lstatSync(candidate).isSymbolicLink(),
   })
+  const stat = lstatSync(destination)
+  if (stat.isSymbolicLink()) throw new Error('context output must not be a symbolic link')
+  assertInside(appRoot, realpathSync(destination), 'context output')
 }
 
 function runRg(args, label, maxBuffer = 4 * 1024 * 1024) {
@@ -333,8 +414,14 @@ function materialize(result, query) {
     resolve(contextRoot, `${safePackage}@${safeVersion}`),
     'context output',
   )
-  rmSync(outputRoot, { recursive: true, force: true })
-  mkdirSync(outputRoot, { recursive: true })
+  ensureDirectoryChain(appRoot, contextRoot, 'framework context root')
+  const existingOutput = lstatIfPresent(outputRoot)
+  if (existingOutput) {
+    assertRegularDirectory(appRoot, outputRoot, 'context output')
+    ensureDirectoryChain(appRoot, contextRoot, 'framework context root')
+    rmSync(outputRoot, { recursive: true, force: true })
+  }
+  ensureDirectoryChain(appRoot, outputRoot, 'context output')
 
   for (const instruction of result.instructions) {
     if (!instruction.path || !existsSync(instruction.path)) continue
@@ -352,7 +439,7 @@ function materialize(result, query) {
   if (query && result.sourceRoot) {
     const search = runBoundedSearch(query, result.sourceRoot)
     const searchPath = join(outputRoot, 'search.txt')
-    writeFileSync(searchPath, search.output)
+    writeContextFile(searchPath, search.output)
     result.searchResult = relative(appRoot, searchPath)
     result.boundedSearch = {
       query,
@@ -365,7 +452,7 @@ function materialize(result, query) {
   }
 
   const manifestPath = join(outputRoot, 'manifest.json')
-  writeFileSync(manifestPath, `${JSON.stringify({ ...result, generatedAt: new Date().toISOString() }, null, 2)}\n`)
+  writeContextFile(manifestPath, `${JSON.stringify({ ...result, generatedAt: new Date().toISOString() }, null, 2)}\n`)
   result.manifest = relative(appRoot, manifestPath)
 }
 
