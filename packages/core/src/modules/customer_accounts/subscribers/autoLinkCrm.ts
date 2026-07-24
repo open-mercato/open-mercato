@@ -128,4 +128,3 @@ export default async function handle(
     logger.error('Failed to link customer user to CRM person', { err })
   }
 }
-
