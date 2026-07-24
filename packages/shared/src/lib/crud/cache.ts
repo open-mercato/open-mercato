@@ -1,6 +1,9 @@
 import type { AwilixContainer } from 'awilix'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { parseBooleanToken } from '../boolean'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'crud-cache' })
 
 export type CrudCacheIdentifiers = {
   id?: string | null
@@ -25,7 +28,7 @@ export function isCrudCacheDebugEnabled(): boolean {
 export function debugCrudCache(event: string, context: Record<string, unknown>) {
   if (!isCrudCacheDebugEnabled()) return
   try {
-    console.debug('[crud][cache]', event, context)
+    logger.debug(event, context)
   } catch {}
 }
 
@@ -188,11 +191,14 @@ export async function invalidateCrudCache(
     if (recordId) {
       tags.add(buildRecordTag(key, tenantId, recordId))
     }
-    const organizationIds: Array<string | null> = []
-    if (identifiers.organizationId !== undefined) {
-      organizationIds.push(identifiers.organizationId ?? null)
-    }
-    if (!organizationIds.length) organizationIds.push(null)
+    // Always flush the tenant-level (org:null) collection tag alongside the
+    // write's own org. Tenant-scoped entities (orgField: null — e.g. auth roles)
+    // cache their collections under org:null, but the command bus resolves a
+    // write's organizationId from the actor's auth context, so the org-specific
+    // tag alone never matches those entries and they only expire on TTL (#2919).
+    const organizationIds: Array<string | null> = [null]
+    const recordOrganizationId = identifiers.organizationId ?? null
+    if (recordOrganizationId) organizationIds.push(recordOrganizationId)
     for (const tag of buildCollectionTags(key, tenantId, organizationIds)) {
       tags.add(tag)
     }

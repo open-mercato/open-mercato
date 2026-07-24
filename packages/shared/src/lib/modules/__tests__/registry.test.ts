@@ -1,4 +1,19 @@
 import type { Module } from '@open-mercato/shared/modules/registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerDebug = createLogger('shared').debug as jest.Mock
+
 
 const GLOBAL_KEY = '__openMercatoModulesRegistry__'
 
@@ -85,30 +100,49 @@ describe('shared modules registry', () => {
 
   it('emits the HMR debug log on re-registration in development', () => {
     process.env.NODE_ENV = 'development'
-    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {})
-    try {
-      const registry = loadRegistry()
-      registry.registerModules(sampleModules)
-      expect(debugSpy).not.toHaveBeenCalled()
-      registry.registerModules(sampleModules)
-      expect(debugSpy).toHaveBeenCalledWith(
-        '[Bootstrap] Modules re-registered (this may occur during HMR)',
-      )
-    } finally {
-      debugSpy.mockRestore()
-    }
+    loggerDebug.mockClear()
+    const registry = loadRegistry()
+    registry.registerModules(sampleModules)
+    expect(loggerDebug).not.toHaveBeenCalled()
+    registry.registerModules(sampleModules)
+    expect(loggerDebug).toHaveBeenCalledWith(
+      'Modules re-registered (this may occur during HMR)',
+    )
   })
 
   it('does not emit the HMR debug log when NODE_ENV is not development', () => {
     process.env.NODE_ENV = 'production'
-    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {})
-    try {
-      const registry = loadRegistry()
-      registry.registerModules(sampleModules)
-      registry.registerModules(sampleModules)
-      expect(debugSpy).not.toHaveBeenCalled()
-    } finally {
-      debugSpy.mockRestore()
-    }
+    loggerDebug.mockClear()
+    const registry = loadRegistry()
+    registry.registerModules(sampleModules)
+    registry.registerModules(sampleModules)
+    expect(loggerDebug).not.toHaveBeenCalled()
+  })
+
+  it('does not let i18n-only registrations clobber runtime module contracts', () => {
+    const registry = loadRegistry()
+    const handler = jest.fn()
+    registry.registerModules([
+      {
+        id: 'checkout',
+        subscribers: [{ id: 'checkout-gateway-payment-failed', event: 'payment_gateways.payment.failed', handler }],
+        translations: { en: { old: 'Old' } },
+      } as Module,
+    ])
+
+    registry.registerModules([
+      {
+        id: 'checkout',
+        translations: { en: { fresh: 'Fresh' } },
+      } as Module,
+    ])
+
+    expect(registry.getModules()).toEqual([
+      expect.objectContaining({
+        id: 'checkout',
+        subscribers: [expect.objectContaining({ id: 'checkout-gateway-payment-failed' })],
+        translations: { en: { fresh: 'Fresh' } },
+      }),
+    ])
   })
 })

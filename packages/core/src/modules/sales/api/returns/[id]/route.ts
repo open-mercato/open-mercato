@@ -6,9 +6,12 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesReturn, SalesReturnLine } from '../../../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['sales.returns.view'] },
@@ -53,7 +56,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
       { tenantId: auth.tenantId, organizationId },
     )
     if (!header || !header.order) {
-      throw new CrudHttpError(404, { error: translate('sales.returns.notFound', 'Return not found.') })
+      throw notFound(translate('sales.returns.notFound', 'Return not found.'))
     }
 
     const lines = await findWithDecryption(
@@ -102,7 +105,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('sales.returns.get failed', err)
+    logger.error('sales.returns.get failed', { err })
     const { translate } = await resolveTranslations()
     return NextResponse.json({ error: translate('sales.returns.error', 'Failed to load return.') }, { status: 400 })
   }

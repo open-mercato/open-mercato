@@ -11,6 +11,7 @@ export type CrudEmitContext<TEntity = unknown> = {
   entity: TEntity
   identifiers: CrudEntityIdentifiers
   syncOrigin?: string | null
+  actorUserId?: string | null
 }
 
 export type CrudEventsConfig<TEntity = unknown> = {

@@ -40,11 +40,14 @@ import {
   buildCustomFieldResetMap,
   type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isMissingDealStageTransitionTable, warnMissingDealStageTransitionTable } from '../lib/dealStageTransitionTable'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -622,7 +625,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const deal = await findOneWithDecryption(em, CustomerDeal, { id: parsed.id, deletedAt: null })
     const record = deal ?? null
-    if (!record) throw new CrudHttpError(404, { error: 'Deal not found' })
+    if (!record) throw notFound('Deal not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
 
@@ -772,7 +775,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           )
         }
       } catch (err) {
-        console.warn('[customers.deals.update] deal closure event emit failed', closureEvent, err)
+        logger.warn('Deal closure event emit failed', { component: 'deals.update', closureEvent, err })
       }
     }
 
@@ -933,7 +936,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const deal = await findOneWithDecryption(em, CustomerDeal, { id, deletedAt: null })
       const record = deal ?? null
-      if (!record) throw new CrudHttpError(404, { error: 'Deal not found' })
+      if (!record) throw notFound('Deal not found')
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
       await deleteDealStageTransitions(em, record)

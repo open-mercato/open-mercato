@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -10,6 +11,8 @@ import { hasRequiredFeatures } from '../../../../../lib/auth'
 import { serializePendingActionForClient } from '../../../../../lib/pending-action-client'
 import { checkStatusAndExpiry } from '../../../../../lib/pending-action-recheck'
 import { executePendingActionCancel } from '../../../../../lib/pending-action-cancel'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * POST `/api/ai/actions/:id/cancel` — mutation approval gate cancel
@@ -227,7 +230,7 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
       pendingAction: serializePendingActionForClient(cancelResult.row),
     })
   } catch (error) {
-    console.error('[AI Pending Action CANCEL] Failure:', error)
+    logger.error('AI Pending Action CANCEL — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to cancel pending action.',

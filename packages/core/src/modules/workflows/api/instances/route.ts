@@ -24,6 +24,9 @@ import {
   paginationSchema,
 } from '../openapi'
 import * as workflowExecutor from '../../lib/workflow-executor'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -125,7 +128,7 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('Error listing workflow instances:', error)
+    logger.error('Error listing workflow instances', { err: error })
     return NextResponse.json(
       { error: 'Failed to list workflow instances' },
       { status: 500 }
@@ -193,10 +196,10 @@ export async function POST(request: NextRequest) {
 
     const input: StartWorkflowApiInput = validation.data
 
-    // Inject metadata.initiatedBy if not provided
+    // Server-authoritative actor; do not trust client-supplied metadata.initiatedBy.
     const metadata = {
       ...input.metadata,
-      initiatedBy: input.metadata?.initiatedBy || auth.sub,
+      initiatedBy: auth.sub,
     }
 
     // Start workflow
@@ -217,9 +220,11 @@ export async function POST(request: NextRequest) {
         // Create new container and EM for background execution
         const bgContainer = await createRequestContainer()
         const bgEm = bgContainer.resolve('em')
-        await workflowExecutor.executeWorkflow(bgEm, bgContainer, instance.id)
+        await workflowExecutor.executeWorkflow(bgEm, bgContainer, instance.id, {
+          userId: auth.sub,
+        })
       } catch (error) {
-        console.error('Background workflow execution error:', error)
+        logger.error('Background workflow execution error', { err: error })
       }
     })
 
@@ -238,7 +243,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     )
   } catch (error) {
-    console.error('Error starting workflow:', error)
+    logger.error('Error starting workflow', { err: error })
 
     // Handle specific errors
     if (error instanceof workflowExecutor.WorkflowExecutionError) {

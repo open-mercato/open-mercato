@@ -5,6 +5,7 @@
  * via the discover_schema MCP tool.
  */
 
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { SearchService } from '@open-mercato/search/service'
 import type { IndexableRecord } from '@open-mercato/search/types'
 import type { EntityGraph } from './entity-graph'
@@ -14,6 +15,8 @@ import {
   computeEntitiesChecksum,
   type IndexedEntity,
 } from './entity-index-config'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Checksum from last indexing operation
@@ -35,7 +38,7 @@ export async function indexEntitiesForSearch(
   force = false
 ): Promise<{ count: number }> {
   if (graph.nodes.length === 0) {
-    console.error('[Entity Index] No entities to index')
+    logger.error('Entity Index — No entities to index')
     return { count: 0 }
   }
 
@@ -71,7 +74,7 @@ export async function indexEntitiesForSearch(
 
   // Skip if checksum matches and not forced
   if (!force && lastIndexChecksum === checksum) {
-    console.error(`[Entity Index] Skipping indexing - ${indexedEntities.length} entities unchanged`)
+    logger.debug('Skipping entity indexing - entities unchanged', { count: indexedEntities.length })
     return { count: 0 }
   }
 
@@ -81,7 +84,7 @@ export async function indexEntitiesForSearch(
   )
 
   try {
-    console.error(`[Entity Index] Starting bulk index of ${records.length} entities...`)
+    logger.info('Starting bulk index of entities', { count: records.length })
 
     // Bulk index using all available strategies (fulltext + vector)
     // Use Promise.race with timeout to prevent hanging
@@ -93,10 +96,10 @@ export async function indexEntitiesForSearch(
 
     await Promise.race([indexPromise, timeoutPromise])
     lastIndexChecksum = checksum
-    console.error(`[Entity Index] Indexed ${records.length} entity schemas for hybrid search`)
+    logger.info('Indexed entity schemas for hybrid search', { count: records.length })
     return { count: records.length }
   } catch (error) {
-    console.error('[Entity Index] Failed to index entities:', error)
+    logger.error('Entity Index — Failed to index entities', { err: error })
     // Still update checksum - some strategies may have succeeded
     lastIndexChecksum = checksum
     return { count: records.length }

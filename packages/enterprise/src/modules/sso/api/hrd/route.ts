@@ -3,6 +3,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { HrdService } from '../../services/hrdService'
 import { hrdRequestSchema } from '../../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sso').child({ component: 'hrd' })
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -31,7 +34,7 @@ export async function POST(req: Request) {
       protocol: config.protocol,
     })
   } catch (err) {
-    console.error('[SSO HRD] Error:', err)
+    logger.error('SSO HRD error', { err })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

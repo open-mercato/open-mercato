@@ -12,6 +12,9 @@ import type {
   PerspectiveSaveInput,
   RolePerspectiveSaveInput,
 } from '../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('perspectives').child({ component: 'perspective-service' })
 
 export type PerspectiveScope = {
   userId: string
@@ -165,9 +168,7 @@ export function maybeMigrateLegacyFilterValues(settings: PerspectiveSettings): P
   const record = filters as Record<string, unknown>
   if ('v' in record && record.v === 2) return settings
   if ('root' in record) return settings
-  if (typeof console !== 'undefined') {
-    console.warn('[perspectives] Dropping legacy filterValues shape; please re-create the perspective with the new filter UI.')
-  }
+  logger.warn('Dropping legacy filterValues shape; please re-create the perspective with the new filter UI.')
   return { ...settings, filters: undefined }
 }
 

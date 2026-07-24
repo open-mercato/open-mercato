@@ -1,5 +1,10 @@
 import { randomUUID } from 'crypto'
 import { S3StorageDriver } from './s3-driver'
+import {
+  assertS3KeyAddressableByTenantScope,
+  assertS3KeyScopedToTenant,
+  assertS3ListPrefixScopedToTenant,
+} from './key-scope'
 
 type TenantScope = {
   tenantId: string | null | undefined
@@ -48,6 +53,9 @@ type S3Config = {
   accessKeyId?: string
   secretAccessKey?: string
   sessionToken?: string
+  pathPrefix?: string
+  organizationId?: string | null
+  tenantId?: string | null
 }
 
 function sanitizeSegment(value: string): string {
@@ -77,6 +85,7 @@ export interface StorageService {
 
 export function createStorageService(config: S3Config): StorageService {
   const driver = new S3StorageDriver(config as Record<string, unknown>)
+  const pathPrefix = config.pathPrefix
 
   return {
     async upload({ namespace, fileName, buffer, contentType, scope }): Promise<StorageResult> {
@@ -96,28 +105,37 @@ export function createStorageService(config: S3Config): StorageService {
       }
     },
 
-    async download({ key }): Promise<{ buffer: Buffer; contentType?: string }> {
+    async download({ key, scope }): Promise<{ buffer: Buffer; contentType?: string }> {
+      assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
       return driver.read('', key)
     },
 
-    async delete({ key }): Promise<void> {
+    async delete({ key, scope }): Promise<void> {
+      assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
       return driver.delete('', key)
     },
 
-    async getSignedUrl({ key, operation, expiresIn = 3600, contentType }): Promise<{ url: string; expiresAt: Date }> {
-      const url = await driver.getSignedUrl(key, operation, expiresIn, contentType)
+    async getSignedUrl({ key, operation, expiresIn = 3600, contentType, scope }): Promise<{ url: string; expiresAt: Date }> {
+      if (operation === 'upload') {
+        assertS3KeyScopedToTenant(key, scope, pathPrefix)
+      } else {
+        assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
+      }
+      const url = await driver.getSignedUrl(key, operation, expiresIn, contentType, scope)
       return { url, expiresAt: new Date(Date.now() + expiresIn * 1000) }
     },
 
-    async list({ prefix, maxKeys = 100, continuationToken }): Promise<{
+    async list({ prefix, maxKeys = 100, continuationToken, scope }): Promise<{
       files: Array<{ key: string; size: number; lastModified: Date }>
       truncated: boolean
       nextContinuationToken?: string
     }> {
-      return driver.listObjects(prefix, maxKeys, continuationToken)
+      assertS3ListPrefixScopedToTenant(prefix, scope, pathPrefix)
+      return driver.listObjects(prefix, maxKeys, continuationToken, scope)
     },
 
-    async toLocalPath({ key }) {
+    async toLocalPath({ key, scope }) {
+      assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
       return driver.toLocalPath('', key)
     },
   }

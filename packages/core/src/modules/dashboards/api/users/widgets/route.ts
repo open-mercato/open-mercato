@@ -7,7 +7,10 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { userWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
-import { resolveWidgetAssignmentReadScope } from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
+import {
+  resolveWidgetAssignmentReadScope,
+  resolveWidgetAssignmentTargetAccess,
+} from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -53,7 +56,15 @@ export async function GET(req: Request) {
   })
 
   const targetUserForRead = await em.findOne(User, { id: userId, deletedAt: null })
-  if (!targetUserForRead || (tenantId && (targetUserForRead.tenantId ?? null) !== tenantId)) {
+  const readAccess = resolveWidgetAssignmentTargetAccess({
+    isSuperAdmin: !!acl.isSuperAdmin,
+    scopeTenantId: tenantId,
+    target: targetUserForRead,
+  })
+  if (readAccess === 'forbidden') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  if (readAccess === 'not-found') {
     return NextResponse.json({ error: 'User not found' }, { status: 404 })
   }
 
@@ -121,7 +132,15 @@ export async function PUT(req: Request) {
   const organizationId = auth.orgId ?? null
 
   const targetUser = await em.findOne(User, { id: parsed.data.userId, deletedAt: null })
-  if (!targetUser || (tenantId && (targetUser.tenantId ?? null) !== tenantId)) {
+  const writeAccess = resolveWidgetAssignmentTargetAccess({
+    isSuperAdmin: !!acl.isSuperAdmin,
+    scopeTenantId: tenantId,
+    target: targetUser,
+  })
+  if (writeAccess === 'forbidden') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  if (writeAccess === 'not-found') {
     return NextResponse.json({ error: 'User not found' }, { status: 404 })
   }
 

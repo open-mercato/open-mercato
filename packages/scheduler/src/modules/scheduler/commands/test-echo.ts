@@ -1,5 +1,8 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('scheduler').child({ component: 'test-echo' })
 
 /**
  * A simple test command that prints its arguments and returns them.
@@ -16,8 +19,7 @@ const testEchoCommand: CommandHandler<Record<string, unknown>, { echoed: Record<
   async execute(input) {
     const timestamp = new Date().toISOString()
 
-    console.log(`[scheduler:test-echo] Received args at ${timestamp}:`)
-    console.log(JSON.stringify(input, null, 2))
+    logger.info('Echo command received', { timestamp, input })
 
     return { echoed: input, timestamp }
   },

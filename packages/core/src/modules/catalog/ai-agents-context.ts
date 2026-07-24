@@ -34,6 +34,9 @@ import type {
   CatalogAiToolDefinition,
   CatalogToolContext,
 } from './ai-tools/types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -110,17 +113,14 @@ async function invokeTool(
 ): Promise<unknown | null> {
   const tool = findTool(toolName)
   if (!tool) {
-    console.warn(`[${reasonPrefix}] resolvePageContext: tool "${toolName}" not registered`)
+    logger.warn('resolvePageContext tool not registered', { reasonPrefix, toolName })
     return null
   }
   try {
     const result = await tool.handler(args as never, toolContext)
     return result ?? null
   } catch (error) {
-    console.warn(
-      `[${reasonPrefix}] resolvePageContext: tool "${toolName}" failed (reason="hydration_error"); skipping`,
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('resolvePageContext tool failed; skipping', { reasonPrefix, toolName, reason: 'hydration_error', err: error })
     return null
   }
 }

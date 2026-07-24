@@ -19,7 +19,9 @@ import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/uti
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { ComboboxInput, TimePicker } from '@open-mercato/ui/backend/inputs'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import {
@@ -30,7 +32,6 @@ import {
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { deleteAvailabilityRuleSet } from '@open-mercato/core/modules/planner/lib/deleteAvailabilityRuleSet'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
@@ -40,6 +41,9 @@ import {
   requiresResetConfirmation,
   selectCustomRuleIdsToDelete,
 } from './availabilityRulesEditorState'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('planner').child({ component: 'AvailabilityRulesEditor' })
 
 type AvailabilityRepeat = 'once' | 'daily' | 'weekly'
 type AvailabilitySubjectType = 'member' | 'resource' | 'ruleset'
@@ -778,6 +782,12 @@ export function AvailabilityRulesEditor({
     void refreshBookedEvents()
   }, [refreshBookedEvents])
 
+  const refreshAfterRuleSetConflict = React.useCallback(() => {
+    void refreshRuleSets()
+    void refreshRuleSetRules()
+    void refreshAvailability()
+  }, [refreshAvailability, refreshRuleSetRules, refreshRuleSets])
+
   const weeklyDraft = React.useMemo(() => buildWeeklyDraft(activeRules), [activeRules])
   const [weeklyWindows, setWeeklyWindows] = React.useState<WeeklyWindows>(() => cloneWeeklyWindows(weeklyDraft))
   const weeklyWindowsRef = React.useRef<WeeklyWindows>(cloneWeeklyWindows(weeklyDraft))
@@ -893,14 +903,15 @@ export function AvailabilityRulesEditor({
       if (!shouldSkipRefresh) {
         await refreshAvailability()
         await refreshRuleSetRules()
+        if (usingRuleSet) {
+          await refreshRuleSets()
+        }
       }
       if (parentRuleSet) {
         await refreshRuleSets()
       }
     } catch (error) {
-      if (surfaceRecordConflict(error, t)) {
-        return
-      }
+      if (surfaceRecordConflict(error, t, { onRefresh: refreshAfterRuleSetConflict })) return
       const message = error instanceof Error ? error.message : listLabels.saveWeeklyError
       flash(message, 'error')
     } finally {
@@ -912,8 +923,9 @@ export function AvailabilityRulesEditor({
     refreshAvailability,
     refreshRuleSetRules,
     refreshRuleSets,
-    ruleSets,
+    refreshAfterRuleSetConflict,
     effectiveRulesetId,
+    ruleSets,
     subjectId,
     subjectType,
     t,
@@ -1180,8 +1192,8 @@ export function AvailabilityRulesEditor({
       refreshRuleSets,
       onSuccess: () => flash(listLabels.ruleSetDeleteSuccess, 'success'),
       onError: (error) => {
-        if (surfaceRecordConflict(error, t)) return
-        console.error('planner.availability-rule-sets.delete', error)
+        if (surfaceRecordConflict(error, t, { onRefresh: refreshAfterRuleSetConflict })) return
+        logger.error('Failed to delete availability rule set', { err: error })
         const normalized = normalizeCrudServerError(error)
         flash(normalized.message ?? listLabels.ruleSetDeleteError, 'error')
       },
@@ -1195,6 +1207,7 @@ export function AvailabilityRulesEditor({
     listLabels.ruleSetDeleteSuccess,
     onRulesetChange,
     refreshAvailability,
+    refreshAfterRuleSetConflict,
     refreshRuleSets,
     ruleSets,
     rulesetId,
@@ -1844,44 +1857,25 @@ export function AvailabilityRulesEditor({
                   <div className="rounded-lg border bg-muted/30 p-4">
                     <div className="space-y-4">
                       <div className="space-y-2">
-                        <div role="tablist" aria-label={listLabels.applyScopeLabel} className="inline-flex rounded-lg border bg-muted p-1 text-xs">
-                          <Button
-                            type="button"
-                            role="tab"
-                            aria-selected={editorScope === 'date'}
-                            variant="ghost"
-                            size="sm"
-                            className={`h-auto rounded-md px-3 py-1.5 font-medium ${
-                              editorScope === 'date'
-                                ? 'bg-background text-foreground shadow-sm'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                            onClick={() => setEditorScope('date')}
-                          >
-                            {listLabels.applyScopeDate}
-                          </Button>
-                          <Button
-                            type="button"
-                            role="tab"
-                            aria-selected={editorScope === 'weekday'}
-                            variant="ghost"
-                            size="sm"
-                            className={`h-auto rounded-md px-3 py-1.5 font-medium ${
-                              editorScope === 'weekday'
-                                ? 'bg-background text-foreground shadow-sm'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                            onClick={() => {
-                              setEditorScope('weekday')
+                        <Tabs
+                          value={editorScope}
+                          onValueChange={(value) => {
+                            const nextScope = value as 'date' | 'weekday'
+                            setEditorScope(nextScope)
+                            if (nextScope === 'weekday') {
                               setEditorUnavailable(false)
                               setEditorNote('')
                               setEditorReasonEntryId(null)
                               setEditorReasonValue('')
-                            }}
-                          >
-                            {listLabels.editAllLabel}
-                          </Button>
-                        </div>
+                            }
+                          }}
+                          variant="underline"
+                        >
+                          <TabsList aria-label={listLabels.applyScopeLabel}>
+                            <TabsTrigger value="date">{listLabels.applyScopeDate}</TabsTrigger>
+                            <TabsTrigger value="weekday">{listLabels.editAllLabel}</TabsTrigger>
+                          </TabsList>
+                        </Tabs>
                       </div>
 
                       {editorScope === 'date' ? (
