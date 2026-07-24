@@ -130,7 +130,7 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
     try {
       await runMutation({
         context: { entityType: 'customer_accounts:user' },
-        mutationPayload: { customerEntityId: personEntityId, roleIds: selectedRoleIds },
+        mutationPayload: { personEntityId, roleIds: selectedRoleIds },
         operation: async () => {
           // optimistic-lock-exempt: creates a new portal invitation, not a concurrent record edit
           const call = await apiCall<{ ok: boolean; error?: string }>(
@@ -142,7 +142,7 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
                 email: trimmedEmail,
                 roleIds: selectedRoleIds,
                 displayName: displayName.trim() || undefined,
-                customerEntityId: personEntityId,
+                personEntityId,
               }),
             },
           )

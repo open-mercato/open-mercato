@@ -21,6 +21,7 @@ export class CustomerInvitationService {
     scope: { tenantId: string; organizationId: string },
     options: {
       customerEntityId?: string | null
+      personEntityId?: string | null
       roleIds: string[]
       invitedByUserId?: string | null
       invitedByCustomerUserId?: string | null
@@ -56,6 +57,7 @@ export class CustomerInvitationService {
       existing.email = normalizedEmail
       existing.token = tokenHashed
       existing.customerEntityId = options.customerEntityId || null
+      existing.personEntityId = options.personEntityId || null
       existing.roleIdsJson = options.roleIds
       existing.invitedByUserId = options.invitedByUserId || null
       existing.invitedByCustomerUserId = options.invitedByCustomerUserId || null
@@ -72,6 +74,7 @@ export class CustomerInvitationService {
       emailHash,
       token: tokenHashed,
       customerEntityId: options.customerEntityId || null,
+      personEntityId: options.personEntityId || null,
       roleIdsJson: options.roleIds,
       invitedByUserId: options.invitedByUserId || null,
       invitedByCustomerUserId: options.invitedByCustomerUserId || null,
@@ -117,6 +120,7 @@ export class CustomerInvitationService {
       tenantId: invitation.tenantId,
       organizationId: invitation.organizationId,
       customerEntityId: invitation.customerEntityId || null,
+      personEntityId: invitation.personEntityId || null,
       isActive: true,
       emailVerifiedAt: new Date(), // Invitation implicitly verifies email
       failedLoginAttempts: 0,
