@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
-import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs'
+import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-config'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []

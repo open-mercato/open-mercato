@@ -1,4 +1,4 @@
-import { isOtelSdkBackend, isOtlpBackend, readTelemetryEnv, resetTelemetryEnvCache } from '../env'
+import { isOtlpBackend, readTelemetryEnv, resetTelemetryEnvCache } from '../env'
 
 const SAVED = { ...process.env }
 
@@ -47,28 +47,6 @@ describe('readTelemetryEnv', () => {
     expect(isOtlpBackend('noop')).toBe(false)
   })
 
-  it('isOtelSdkBackend reflects whether the OTEL SDK backend is active (bullmq-otel gate)', () => {
-    setEnv({ TELEMETRY_BACKEND: 'otlp' })
-    expect(isOtelSdkBackend()).toBe(true)
-    setEnv({ TELEMETRY_BACKEND: 'signoz' })
-    expect(isOtelSdkBackend()).toBe(true)
-    setEnv({ TELEMETRY_BACKEND: 'newrelic' })
-    expect(isOtelSdkBackend()).toBe(true)
-    setEnv({ TELEMETRY_BACKEND: 'console' })
-    expect(isOtelSdkBackend()).toBe(false)
-    setEnv({ TELEMETRY_BACKEND: undefined })
-    expect(isOtelSdkBackend()).toBe(false)
-  })
-
-  it('defaults log level to info and rejects invalid levels', () => {
-    setEnv({ TELEMETRY_LOG_LEVEL: undefined })
-    expect(readTelemetryEnv().logLevel).toBe('info')
-    setEnv({ TELEMETRY_LOG_LEVEL: 'verbose' })
-    expect(readTelemetryEnv().logLevel).toBe('info')
-    setEnv({ TELEMETRY_LOG_LEVEL: 'debug' })
-    expect(readTelemetryEnv().logLevel).toBe('debug')
-  })
-
   it('parses sampling ratio and falls back / clamps invalid values', () => {
     setEnv({ TELEMETRY_SAMPLING_RATIO: '0.25', NODE_ENV: 'development' })
     expect(readTelemetryEnv().samplingRatio).toBe(0.25)
@@ -91,16 +69,4 @@ describe('readTelemetryEnv', () => {
     expect(readTelemetryEnv().trustInboundTrace).toBe(false)
   })
 
-  it('pretty stdout defaults to dev-only, with explicit override winning', () => {
-    setEnv({ TELEMETRY_LOG_PRETTY: undefined, NODE_ENV: 'development' })
-    expect(readTelemetryEnv().logPretty).toBe(true)
-    setEnv({ TELEMETRY_LOG_PRETTY: undefined, NODE_ENV: 'production' })
-    expect(readTelemetryEnv().logPretty).toBe(false) // prod must emit JSON
-    setEnv({ TELEMETRY_LOG_PRETTY: undefined, NODE_ENV: 'test' })
-    expect(readTelemetryEnv().logPretty).toBe(false)
-    setEnv({ TELEMETRY_LOG_PRETTY: 'true', NODE_ENV: 'production' })
-    expect(readTelemetryEnv().logPretty).toBe(true) // explicit on overrides prod
-    setEnv({ TELEMETRY_LOG_PRETTY: 'false', NODE_ENV: 'development' })
-    expect(readTelemetryEnv().logPretty).toBe(false) // explicit off overrides dev
-  })
 })

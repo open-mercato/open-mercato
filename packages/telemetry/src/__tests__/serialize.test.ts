@@ -32,7 +32,10 @@ describe('serializeError (PII-safe)', () => {
 
   it('handles non-Error values', () => {
     expect(serializeError('plain string')).toMatchObject({ name: 'NonError', message: 'plain string' })
-    expect(serializeError({ x: 1 }).message).toContain('x')
+    expect(serializeError({ password: 'SECRET', body: { email: 'person@example.com' } })).toEqual({
+      name: 'NonError',
+      message: '[non-error object]',
+    })
   })
 
   it('redacts a leaked email from message and stack (Privacy backstop)', () => {

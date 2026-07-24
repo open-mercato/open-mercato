@@ -12,6 +12,10 @@ afterAll(() => {
 
 import { createQueue } from '../factory'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import {
+  registerTelemetryRuntime,
+  resetTelemetryRuntime,
+} from '@open-mercato/shared/lib/telemetry/runtime'
 
 const queueCtor = jest.fn()
 const workerCtor = jest.fn()
@@ -56,6 +60,18 @@ describe('Queue - async strategy telemetry wiring', () => {
     ;(getRedisUrlOrThrow as jest.MockedFunction<typeof getRedisUrlOrThrow>).mockReturnValue(
       'rediss://default:secret@example.com:6380/1',
     )
+    registerTelemetryRuntime({
+      canUseGlobalTracePropagation: () => true,
+      captureTraceContext: () => ({}),
+      continueTrace: (_carrier, _name, fn) => fn(),
+      recordHttpDuration: () => {},
+      reportError: () => {},
+      shutdown: async () => {},
+    })
+  })
+
+  afterEach(() => {
+    resetTelemetryRuntime()
   })
 
   it('wires bullmq-otel into BOTH the queue and worker when they resolve concurrently', async () => {
@@ -80,5 +96,27 @@ describe('Queue - async strategy telemetry wiring', () => {
 
     const jobData = queueAdd.mock.calls[0]?.[1] as Record<string, unknown>
     expect(jobData).not.toHaveProperty('metadata')
+  })
+
+  it('uses the dedicated carrier when global propagation is not explicitly trusted', async () => {
+    resetTelemetryRuntime()
+    registerTelemetryRuntime({
+      canUseGlobalTracePropagation: () => false,
+      captureTraceContext: () => ({ traceparent: 'secure-carrier' }),
+      continueTrace: (_carrier, _name, fn) => fn(),
+      recordHttpDuration: () => {},
+      reportError: () => {},
+      shutdown: async () => {},
+    })
+    const queue = createQueue<{ value: number }>('secure-trace-queue', 'async')
+
+    await queue.enqueue({ value: 7 })
+
+    const queueOpts = queueCtor.mock.calls[0]?.[1] as { telemetry?: unknown }
+    const jobData = queueAdd.mock.calls[0]?.[1] as {
+      metadata?: { _trace?: { traceparent?: string } }
+    }
+    expect(queueOpts.telemetry).toBeUndefined()
+    expect(jobData.metadata?._trace?.traceparent).toBe('secure-carrier')
   })
 })

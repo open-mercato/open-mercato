@@ -1,5 +1,10 @@
 import { withSpan, currentSpan, counter, reportError, captureTraceContext, continueTrace } from '../index'
-import { logger } from '../facade/logger'
+import {
+  createLogger,
+  resetLoggerExtension,
+  resetLoggerRegistry,
+} from '@open-mercato/shared/lib/logger'
+import { resetTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { initTelemetry, resetTelemetryInit } from '../init'
 import { registerProvider, resetActiveProvider } from '../provider/registry'
 import { resetTelemetryEnvCache } from '../env'
@@ -35,7 +40,7 @@ function recordingProvider() {
   const spanNames: string[] = []
   const remoteCarriers: TraceCarrier[] = []
   const provider: TelemetryProvider = {
-    name: 'noop', // matches the default backend so initTelemetry picks it up
+    name: 'console',
     supports: ['traces', 'metrics', 'logs', 'errors'],
     async start() {},
     async shutdown() {},
@@ -64,6 +69,9 @@ describe('telemetry facade', () => {
     resetActiveProvider()
     resetTelemetryInit()
     resetTelemetryEnvCache()
+    resetLoggerExtension()
+    resetLoggerRegistry()
+    resetTelemetryRuntime()
     delete process.env.TELEMETRY_BACKEND
   })
 
@@ -71,7 +79,7 @@ describe('telemetry facade', () => {
     expect(withSpan('work', () => 42)).toBe(42)
     expect(currentSpan()).toBeUndefined()
     expect(() => {
-      logger.info('hello')
+      createLogger('test').info('hello')
       counter('demo')
       reportError(new Error('boom'))
     }).not.toThrow()
@@ -92,6 +100,7 @@ describe('telemetry facade', () => {
 
   it('awaits async work before the span ends', async () => {
     const { provider, span } = recordingProvider()
+    process.env.TELEMETRY_BACKEND = 'console'
     registerProvider(provider)
     await initTelemetry()
 
@@ -110,6 +119,7 @@ describe('telemetry facade', () => {
 
   it('records a span, exception, error status, error log, and om.errors metric', async () => {
     const { provider, span, logs, metrics, spanNames } = recordingProvider()
+    process.env.TELEMETRY_BACKEND = 'console'
     registerProvider(provider)
     await initTelemetry()
 
@@ -126,6 +136,7 @@ describe('telemetry facade', () => {
 
   it('propagates trace context: captureTraceContext injects, continueTrace consumes it', async () => {
     const { provider, remoteCarriers, spanNames } = recordingProvider()
+    process.env.TELEMETRY_BACKEND = 'console'
     registerProvider(provider)
     await initTelemetry()
 
@@ -142,6 +153,7 @@ describe('telemetry facade', () => {
 
   it('redacts secret-keyed attributes in the reported error context before they ship', async () => {
     const { provider, logs } = recordingProvider()
+    process.env.TELEMETRY_BACKEND = 'console'
     registerProvider(provider)
     await initTelemetry()
 

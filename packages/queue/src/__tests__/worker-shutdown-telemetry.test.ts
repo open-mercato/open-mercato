@@ -10,16 +10,25 @@ import os from 'node:os'
  * restart/redeploy. The shutdown handler must flush BEFORE exiting.
  */
 
-const mockCallOrder: string[] = []
-
-jest.mock('@open-mercato/telemetry', () => ({
-  initTelemetry: jest.fn(async () => {}),
-  shutdownTelemetry: jest.fn(async () => {
-    mockCallOrder.push('flush')
-  }),
-}))
+import {
+  registerTelemetryRuntime,
+  resetTelemetryRuntime,
+  type TelemetryRuntime,
+} from '@open-mercato/shared/lib/telemetry/runtime'
 
 import { runWorker } from '../worker/runner'
+
+const mockCallOrder: string[] = []
+const runtime: TelemetryRuntime = {
+  canUseGlobalTracePropagation: () => false,
+  captureTraceContext: () => ({}),
+  continueTrace: (_carrier, _name, fn) => fn(),
+  recordHttpDuration: () => {},
+  reportError: () => {},
+  shutdown: jest.fn(async () => {
+    mockCallOrder.push('flush')
+  }),
+}
 
 describe('worker shutdown flushes telemetry', () => {
   let tmpDir: string
@@ -30,10 +39,13 @@ describe('worker shutdown flushes telemetry', () => {
     cwd = process.cwd()
     process.chdir(tmpDir)
     mockCallOrder.length = 0
+    delete process.env.TELEMETRY_BACKEND
+    registerTelemetryRuntime(runtime)
   })
 
   afterEach(() => {
     process.chdir(cwd)
+    resetTelemetryRuntime()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 

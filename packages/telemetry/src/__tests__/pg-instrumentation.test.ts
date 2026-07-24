@@ -61,7 +61,7 @@ function runChild(): ProbeSpan[] {
         ...process.env,
         TELEMETRY_BACKEND: 'otlp',
         OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:1',
-        TELEMETRY_LOG_LEVEL: 'error',
+        OM_LOG_LEVEL: 'error',
       },
       timeout: 30_000,
     })

@@ -42,8 +42,9 @@ const ENV_BLOCK = `
 # All three OTLP names use the same exporter — they differ only by the endpoint +
 # headers below. Any OTLP backend is a one-line swap; no code change.
 # TELEMETRY_BACKEND=otlp
-# TELEMETRY_LOG_LEVEL=info            # trace|debug|info|warn|error|fatal
-# TELEMETRY_LOG_PRETTY=true           # human-readable stdout (default on when NODE_ENV=development)
+# Logs use the shared logger facade and its OM_LOG_LEVEL / OM_LOG_PRETTY /
+# OM_LOG_DESTINATION controls. Telemetry adds remote export; it does not create
+# a second local output path.
 # TELEMETRY_SAMPLING_RATIO=1.0        # 0.0–1.0 (default 1.0 dev / 0.1 prod)
 # TELEMETRY_TRUST_INBOUND_TRACE=false # default false: root-per-request (ignore an
 #                                     # inbound traceparent from a proxy/LB). Set true
@@ -63,12 +64,17 @@ const ENV_BLOCK = `
 # OTEL_RESOURCE_ATTRIBUTES=deployment.environment=local
 `
 
-const INSTRUMENTATION_TS = `export async function register(): Promise<void> {
+const INSTRUMENTATION_TS = `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'
+
+export async function register(): Promise<void> {
   // Initialize telemetry (no-op unless TELEMETRY_BACKEND is set). OTEL's NodeSDK
   // is Node-only and incompatible with the edge runtime, so the telemetry
   // bootstrap — which can pull in the SDK — is imported only on the Node.js
   // runtime. The helper owns init + graceful degrade + shutdown flush.
-  if (process.env.NEXT_RUNTIME === 'nodejs') {
+  if (
+    process.env.NEXT_RUNTIME === 'nodejs'
+    && isTelemetryBackendEnabled()
+  ) {
     const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
     await registerTelemetryForNextjs()
   }
@@ -76,17 +82,16 @@ const INSTRUMENTATION_TS = `export async function register(): Promise<void> {
 `
 
 const DISPATCHER_SNIPPET = `  // add near the other imports:
-  import { reportError } from '@open-mercato/telemetry'
-  import { recordHttpDuration } from '@open-mercato/telemetry/nextjs'
+  import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
   // in the dispatcher's success path, just before returning the response:
-  recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)
+  getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)
 
   // in the dispatcher's catch (error) block, before re-throwing:
-  reportError(error, {
+  getTelemetryRuntime()?.reportError(error, {
     attributes: { 'http.request.method': method, 'http.route': match.route.path, 'http.response.status_code': 500 },
   })
-  recordHttpDuration(method, match.route.path, 500, startedAt)`
+  getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, 500, startedAt)`
 
 function parseArgs(args: string[]): TelemetryInitOptions {
   return {
@@ -168,7 +173,17 @@ function patchInstrumentation(appDir: string, options: TelemetryInitOptions): St
   }
   const content = readFileSync(path, 'utf8')
   if (content.includes('registerTelemetryForNextjs')) {
-    return { file, status: 'skipped', detail: 'telemetry already wired' }
+    if (content.includes('isTelemetryBackendEnabled')) {
+      return { file, status: 'skipped', detail: 'telemetry already wired' }
+    }
+    const migrated =
+      `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'\n` +
+      content.replace(
+        `if (process.env.NEXT_RUNTIME === 'nodejs') {`,
+        `if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {`,
+      )
+    if (!options.dryRun) writeFileSync(path, migrated)
+    return { file, status: 'patched', detail: 'added the explicit backend import guard' }
   }
   const anchor = content.match(/export\s+async\s+function\s+register\s*\([^)]*\)\s*:\s*Promise<void>\s*\{/)
   if (!anchor || anchor.index === undefined) {
@@ -182,11 +197,16 @@ function patchInstrumentation(appDir: string, options: TelemetryInitOptions): St
   const insertAt = anchor.index + anchor[0].length
   const block =
     `\n  // Initialize telemetry (no-op unless TELEMETRY_BACKEND is set); Node-only.` +
-    `\n  if (process.env.NEXT_RUNTIME === 'nodejs') {` +
+    `\n  if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {` +
     `\n    const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')` +
     `\n    await registerTelemetryForNextjs()` +
     `\n  }`
-  const next = content.slice(0, insertAt) + block + content.slice(insertAt)
+  const importLine = `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'\n`
+  const withImport = content.includes('isTelemetryBackendEnabled')
+    ? content
+    : importLine + content
+  const shiftedInsertAt = insertAt + (withImport.length - content.length)
+  const next = withImport.slice(0, shiftedInsertAt) + block + withImport.slice(shiftedInsertAt)
   if (!options.dryRun) writeFileSync(path, next)
   return { file, status: 'patched', detail: 'inserted registerTelemetryForNextjs() into register()' }
 }
@@ -204,9 +224,15 @@ async function patchNextConfig(appDir: string, options: TelemetryInitOptions): P
   const project = new Project({ skipAddingFilesFromTsConfig: true, skipFileDependencyResolution: true })
   const sf = project.addSourceFileAtPath(path)
 
-  const hasImport = sf
+  const telemetryConfigImport = sf
     .getImportDeclarations()
-    .some((decl) => decl.getModuleSpecifierValue() === '@open-mercato/telemetry/nextjs')
+    .find((decl) => [
+      '@open-mercato/telemetry/nextjs',
+      '@open-mercato/telemetry/nextjs-config',
+    ].includes(decl.getModuleSpecifierValue()))
+  const hasImport = Boolean(telemetryConfigImport)
+  const hasCanonicalImport =
+    telemetryConfigImport?.getModuleSpecifierValue() === '@open-mercato/telemetry/nextjs-config'
 
   const arrayProp = sf
     .getDescendantsOfKind(SyntaxKind.PropertyAssignment)
@@ -221,11 +247,15 @@ async function patchNextConfig(appDir: string, options: TelemetryInitOptions): P
     }
   }
   const hasSpread = arrayInit.getElements().some((el) => el.getText().includes('telemetryServerExternalPackages'))
-  if (hasImport && hasSpread) {
+  if (hasCanonicalImport && hasSpread) {
     return { file, status: 'skipped', detail: 'telemetryServerExternalPackages already wired' }
   }
 
   let text = readFileSync(path, 'utf8')
+  text = text.replace(
+    "from '@open-mercato/telemetry/nextjs'",
+    "from '@open-mercato/telemetry/nextjs-config'",
+  )
   // Splice the array first, using the AST node's byte offsets (formatting-agnostic:
   // handles both single-line and multi-line arrays). Do this before the import
   // insert, which shifts earlier offsets.
@@ -242,7 +272,7 @@ async function patchNextConfig(appDir: string, options: TelemetryInitOptions): P
     const insertAt = lastImport ? lastImport.index + lastImport[0].length : 0
     text =
       text.slice(0, insertAt) +
-      `\nimport { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs'` +
+      `\nimport { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-config'` +
       text.slice(insertAt)
   }
   if (!options.dryRun) writeFileSync(path, text)
@@ -265,7 +295,7 @@ function insertSpread(arrayText: string): string {
 
 function nextConfigSnippet(): string {
   return (
-    `import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs'\n` +
+    `import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-config'\n` +
     `// serverExternalPackages: [ ...existing, ...telemetryServerExternalPackages ]`
   )
 }
@@ -283,8 +313,25 @@ function patchDispatcher(appDir: string, options: TelemetryInitOptions): StepRes
     return { file, status: 'manual', detail: 'dispatcher not found', manualSnippet: DISPATCHER_SNIPPET }
   }
   let content = readFileSync(path, 'utf8')
-  if (content.includes("from '@open-mercato/telemetry")) {
+  if (
+    content.includes("from '@open-mercato/shared/lib/telemetry/runtime'")
+    && content.includes('getTelemetryRuntime()?.recordHttpDuration')
+  ) {
     return { file, status: 'skipped', detail: 'telemetry already wired' }
+  }
+  if (
+    content.includes("import { reportError } from '@open-mercato/telemetry'")
+    && content.includes("import { recordHttpDuration } from '@open-mercato/telemetry/nextjs'")
+  ) {
+    content = content
+      .replace(
+        "import { reportError } from '@open-mercato/telemetry'\nimport { recordHttpDuration } from '@open-mercato/telemetry/nextjs'",
+        "import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'",
+      )
+      .replace(/\brecordHttpDuration\(/g, 'getTelemetryRuntime()?.recordHttpDuration(')
+      .replace(/\breportError\(/g, 'getTelemetryRuntime()?.reportError(')
+    if (!options.dryRun) writeFileSync(path, content)
+    return { file, status: 'patched', detail: 'migrated dispatcher to the default-off runtime bridge' }
   }
 
   const importAnchor = "import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'"
@@ -305,7 +352,7 @@ function patchDispatcher(appDir: string, options: TelemetryInitOptions): StepRes
   // 1) imports
   content = content.replace(
     importAnchor,
-    `${importAnchor}\nimport { reportError } from '@open-mercato/telemetry'\nimport { recordHttpDuration } from '@open-mercato/telemetry/nextjs'`,
+    `${importAnchor}\nimport { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'`,
   )
 
   // 2) success-path metric (re-match after the import edit shifted offsets)
@@ -316,7 +363,7 @@ function patchDispatcher(appDir: string, options: TelemetryInitOptions): StepRes
   const retIndent = ret[1]
   content =
     content.slice(0, ret.index) +
-    `${retIndent}recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)\n` +
+    `${retIndent}getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)\n` +
     content.slice(ret.index)
 
   // 3) catch-block error funnel + 500 metric
@@ -327,10 +374,10 @@ function patchDispatcher(appDir: string, options: TelemetryInitOptions): StepRes
   const bodyIndent = `${catch2.indent}  `
   const insertAt = catch2.index + catch2.length
   const block =
-    `\n${bodyIndent}reportError(error, {` +
+    `\n${bodyIndent}getTelemetryRuntime()?.reportError(error, {` +
     `\n${bodyIndent}  attributes: { 'http.request.method': method, 'http.route': match.route.path, 'http.response.status_code': 500 },` +
     `\n${bodyIndent}})` +
-    `\n${bodyIndent}recordHttpDuration(method, match.route.path, 500, startedAt)`
+    `\n${bodyIndent}getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, 500, startedAt)`
   content = content.slice(0, insertAt) + block + content.slice(insertAt)
 
   if (!options.dryRun) writeFileSync(path, content)

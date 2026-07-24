@@ -1,6 +1,6 @@
 import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
-import { isOtelSdkBackend } from '@open-mercato/telemetry'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -154,7 +154,7 @@ export function createAsyncQueue<T = unknown>(
   async function getQueueTelemetry(): Promise<object | undefined> {
     if (!telemetryPromise) {
       telemetryPromise = (async () => {
-        if (!isOtelSdkBackend()) return undefined
+        if (!getTelemetryRuntime()?.canUseGlobalTracePropagation()) return undefined
         try {
           const mod = (await import('bullmq-otel')) as unknown as BullMQOtelModule
           return new mod.BullMQOtel('open-mercato')

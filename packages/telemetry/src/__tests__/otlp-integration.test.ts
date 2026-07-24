@@ -10,9 +10,15 @@ import { InMemoryLogRecordExporter, SimpleLogRecordProcessor } from '@openteleme
 import { InMemoryMetricExporter, PeriodicExportingMetricReader, AggregationTemporality } from '@opentelemetry/sdk-metrics'
 
 import { OtlpProvider } from '../provider/otlp-provider'
+import {
+  createLogger,
+  resetLoggerExtension,
+  resetLoggerRegistry,
+} from '@open-mercato/shared/lib/logger'
 import { setActiveProvider, resetActiveProvider } from '../provider/registry'
 import { resetTelemetryEnvCache } from '../env'
-import { withSpan, captureTraceContext, continueTrace, reportError, logger, counter } from '../index'
+import { registerTelemetryLogger } from '../facade/logger-bridge'
+import { withSpan, captureTraceContext, continueTrace, reportError, counter } from '../index'
 
 const spanExporter = new InMemorySpanExporter()
 const logExporter = new InMemoryLogRecordExporter()
@@ -20,6 +26,8 @@ const metricExporter = new InMemoryMetricExporter(AggregationTemporality.CUMULAT
 const metricReader = new PeriodicExportingMetricReader({ exporter: metricExporter })
 
 let provider: OtlpProvider
+let disposeLogger: (() => void) | undefined
+const logger = createLogger('telemetry-test')
 
 function parentSpanId(span: ReadableSpan): string | undefined {
   const s = span as { parentSpanContext?: { spanId?: string }; parentSpanId?: string }
@@ -37,6 +45,7 @@ beforeAll(async () => {
   })
   await provider.start()
   setActiveProvider(provider)
+  disposeLogger = registerTelemetryLogger(provider)
   // The first span after NodeSDK.start() can be dropped while the global tracer
   // provider finishes installing — warm it up, settle a tick, then reset.
   withSpan('warmup', () => undefined)
@@ -48,10 +57,15 @@ afterEach(() => {
   spanExporter.reset()
   logExporter.reset()
   metricExporter.reset()
+  delete process.env.TELEMETRY_TRUST_INBOUND_TRACE
+  resetTelemetryEnvCache()
 })
 
 afterAll(async () => {
   await provider.shutdown()
+  disposeLogger?.()
+  resetLoggerExtension()
+  resetLoggerRegistry()
   resetActiveProvider()
   delete process.env.TELEMETRY_BACKEND
   resetTelemetryEnvCache()
@@ -141,14 +155,27 @@ describe('OtlpProvider (in-memory exporters)', () => {
     expect(carrier['x-original-traceparent']).toBe(carrier.traceparent)
   })
 
-  it('global extract continues from the backup header even when traceparent is rewritten (LB)', () => {
+  it('global extract rejects a caller-supplied backup header by default', () => {
+    const carrier: Record<string, string> = {}
+    withSpan('producer', () => {
+      propagation.inject(context.active(), carrier)
+    })
+    // Simulate the load balancer rewriting `traceparent` to its own (unexported) span.
+    carrier.traceparent = `00-${'a'.repeat(32)}-${'b'.repeat(16)}-01`
+
+    const extracted = propagation.extract(ROOT_CONTEXT, carrier)
+    expect(trace.getSpanContext(extracted)).toBeUndefined()
+  })
+
+  it('global extract trusts the backup header only after explicit opt-in', () => {
     const carrier: Record<string, string> = {}
     withSpan('producer', () => {
       propagation.inject(context.active(), carrier)
     })
     const realTraceId = carrier['x-original-traceparent'].split('-')[1]
-    // Simulate the load balancer rewriting `traceparent` to its own (unexported) span.
     carrier.traceparent = `00-${'a'.repeat(32)}-${'b'.repeat(16)}-01`
+    process.env.TELEMETRY_TRUST_INBOUND_TRACE = 'true'
+    resetTelemetryEnvCache()
 
     const extracted = propagation.extract(ROOT_CONTEXT, carrier)
     expect(trace.getSpanContext(extracted)?.traceId).toBe(realTraceId)
@@ -172,6 +199,20 @@ describe('OtlpProvider (in-memory exporters)', () => {
     expect(message).not.toContain('jan.kowalski@example.com')
   })
 
+  it('redacts secret span attributes at the OTEL provider boundary', () => {
+    withSpan('secret-span', (span) => {
+      span.setAttributes({
+        token: 'secret-token',
+        note: 'contact jane@example.com',
+        token_count: 12,
+      })
+    })
+    const span = spanExporter.getFinishedSpans().find((item) => item.name === 'secret-span')
+    expect(span?.attributes.token).toBe('[redacted]')
+    expect(span?.attributes.note).toBe('contact [redacted-email]')
+    expect(span?.attributes.token_count).toBe(12)
+  })
+
   it('emits structured logs and error exceptions through reportError', () => {
     logger.info('hello', { k: 1 })
     reportError(new Error('explode'), { module: 'orders' })
@@ -180,6 +221,23 @@ describe('OtlpProvider (in-memory exporters)', () => {
     expect(info?.attributes?.k).toBe(1)
     const err = records.find((r) => r.severityText === 'error')
     expect(err?.attributes?.['exception.message']).toBe('explode')
+  })
+
+  it('redacts direct provider logs at the final export boundary', () => {
+    provider.emitLog({
+      level: 'warn',
+      message: 'upstream rejected Bearer raw-token',
+      attributes: {
+        token: 'raw-token',
+        note: 'owner@example.com',
+        token_count: 3,
+      },
+    })
+    const record = logExporter.getFinishedLogRecords().find((item) => item.severityText === 'warn')
+    expect(record?.body).toBe('upstream rejected Bearer [redacted]')
+    expect(record?.attributes?.token).toBe('[redacted]')
+    expect(record?.attributes?.note).toBe('[redacted-email]')
+    expect(record?.attributes?.token_count).toBe(3)
   })
 
   it('exposes the active trace context for log correlation (undefined when none active)', () => {

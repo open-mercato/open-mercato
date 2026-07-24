@@ -2,11 +2,11 @@
 
 ## TLDR
 
-Add a new optional package **`@open-mercato/telemetry`** that gives modules a vendor-neutral observability facade — structured logger, spans, counters, histograms, and an error funnel (`reportError`) — backed by a pluggable `TelemetryProvider` interface. The default provider speaks **OpenTelemetry (OTLP)**, shipped as an optional dependency; alternative providers (`console`, `noop`) plug in through the same seam. Any OTLP backend (New Relic, Datadog, Grafana/Tempo, Honeycomb, SigNoz, …) is a one-line env change — no adapter, no vendor SDK.
+Add a new optional package **`@open-mercato/telemetry`** that gives modules vendor-neutral spans, counters, histograms, an error funnel (`reportError`), and a remote sink/context extension for the canonical `@open-mercato/shared/lib/logger` facade. It is backed by a pluggable `TelemetryProvider` interface. The default provider speaks **OpenTelemetry (OTLP)**, shipped as an optional dependency; an explicit `console` provider plugs in through the same seam. Any OTLP backend (New Relic, Datadog, Grafana/Tempo, Honeycomb, SigNoz, …) is a one-line env change — no adapter, no vendor SDK.
 
-Telemetry is **disabled by default**. When off, the facade short-circuits after a single `enabled === false` check and the OTEL SDK is never required at runtime. When on (`TELEMETRY_BACKEND=…`), the package wires standard OTEL env vars, auto-instruments Next.js / Postgres / fetch, and propagates W3C trace context across queue jobs, the event bus, the SSE bridge, and outbound webhooks.
+Telemetry is **disabled and not runtime-loaded by default**. App, CLI, API, and queue integration points consult a tiny bridge in `@open-mercato/shared` before dynamically importing this package. Unset, `noop`, and unknown backend values are absolute off: custom providers are not resolved and no logger extension, runtime bridge, SDK hook, or export path is registered. When on (`TELEMETRY_BACKEND=…`), the package wires standard OTEL env vars, auto-instruments Next.js / Postgres / fetch, and propagates W3C trace context across queue jobs, the event bus, and outbound webhooks.
 
-The package is **opt-in**: deployments that don't need observability pay zero install/runtime cost. It is **decoupled from any single vendor**: OTLP is the transport because it already covers every major backend, but the architecture locks no one in.
+The package is **opt-in at runtime**. Package managers may install its optional dependencies, but disabled deployments do not evaluate the telemetry package or OTEL SDK and register no hooks. It is **decoupled from any single vendor**: OTLP is the transport because it already covers every major backend, but the architecture locks no one in.
 
 This design reflects a **working reference implementation** (Phase 1 + Phase 2 built and validated end-to-end against live OTLP backends). The notable corrections it produced — a **provider delegation model** for tracing (not a finished-span sink), a `globalThis` provider registry that survives bundled-vs-source worker module copies, queue trace carriers on the job `metadata` channel, and a first-class PII-hygiene posture — are folded into the sections below.
 
@@ -15,8 +15,8 @@ This spec also defines how **issue #60** ("global telemetry handler for exceptio
 **In scope:**
 
 - New `packages/telemetry` workspace.
-- Vendor-neutral facade: `logger`, `withSpan`, `counter`, `histogram`, `gauge`, `reportError`, `initTelemetry`, `TelemetryProvider`, `registerProvider`.
-- Pino-based default logger; `trace_id`/`span_id` auto-stamped when a span is active.
+- Vendor-neutral facade: `withSpan`, `counter`, `histogram`, `gauge`, `reportError`, `initTelemetry`, `TelemetryProvider`, `registerProvider`.
+- Integration with the shared structured logger: one local output path, one optional remote sink, and `trace_id`/`span_id` enrichment when a span is active.
 - OTLP provider (delegation model) as an optional dep; `console`/`noop` providers with no heavy deps.
 - Error reporting via OTLP exception records on the active span + a structured error log + an `om.errors` counter.
 - W3C trace-context propagation across HTTP, queue jobs, event bus dispatch, SSE bridge, outbound webhooks.
@@ -38,7 +38,7 @@ This spec also defines how **issue #60** ("global telemetry handler for exceptio
 
 ## Overview
 
-Open Mercato today has **no shared logger**. Modules use ad-hoc `console.log/warn/error` with `[module:feature]` prefixes (e.g. `console.warn('[customers.comments] failed to enrich…', ctx)`). There is no log level control, no structured fields, no trace correlation, and no way for a module author to participate in observability beyond writing to stdout.
+Open Mercato has a canonical structured logger at `@open-mercato/shared/lib/logger`, with namespaces, structured fields, child bindings, redaction, `OM_LOG_LEVEL`, pretty output, and protocol-safe stderr routing. What it lacks is an optional provider sink and active-trace correlation. Telemetry extends this existing facade after successful opt-in initialization; it does not replace or duplicate it.
 
 The only existing observability layer is **New Relic at the host process**: `newrelic@^14` in `package.json` (root and `apps/mercato`). The agent auto-instruments HTTP/SQL but module code can't emit custom spans, metrics, or structured logs into it without importing `newrelic` directly — which couples module code to a single vendor and an apm-license-gated SDK.
 
@@ -50,9 +50,9 @@ This spec proposes a thin, opt-in, vendor-neutral telemetry layer that fills bot
 
 ## Problem Statement
 
-### P1 — No structured logger; no trace correlation in logs
+### P1 — No telemetry sink or trace correlation in the shared logger
 
-Every `console.error('[messages:send-email] …', err)` produces an unstructured line that's hard to query, can't be downsampled, and has no `trace_id`/`span_id` to correlate with traces or external APM data. Operators can't ask "show me all logs for the request that failed at /api/orders" because nothing ties them together.
+The shared logger provides the local structured record, but without a telemetry extension it has no active `trace_id`/`span_id` enrichment or OTLP log sink. Operators cannot correlate a local application record with the trace that produced it.
 
 ### P2 — Trace context dies at every boundary
 
@@ -99,9 +99,10 @@ telemetry/
 ├── build.mjs / watch.mjs            # esbuild, mirrors packages/queue
 ├── src/
 │   ├── index.ts                     # public facade exports
-│   ├── nextjs.ts                    # Next.js wiring helpers (registerTelemetryForNextjs, telemetryServerExternalPackages, recordHttpDuration)
+│   ├── nextjs.ts                    # enabled Next.js runtime helpers
+│   ├── nextjs-config.ts             # config-only OTEL externals list; no runtime imports
 │   ├── facade/
-│   │   ├── logger.ts                # logger interface + pino-backed default
+│   │   ├── logger-bridge.ts         # shared-logger context + remote sink adapter
 │   │   ├── tracer.ts                # withSpan, currentSpan, setAttributes
 │   │   ├── meter.ts                 # counter, histogram, gauge (optional UCUM unit)
 │   │   ├── context.ts               # AsyncLocalStorage carrier for span context
@@ -113,7 +114,7 @@ telemetry/
 │   │   ├── provider.ts              # TelemetryProvider interface + capability flags
 │   │   ├── registry.ts              # registerProvider / resolve-from-env (globalThis-held)
 │   │   ├── noop-provider.ts
-│   │   ├── console-provider.ts      # pino pretty in dev
+│   │   ├── console-provider.ts      # explicit local span/metric diagnostics
 │   │   ├── otlp-provider.ts         # the ONLY file importing @opentelemetry/* (optional dep)
 │   │   └── run-span.ts              # shared sync+async span lifecycle helper
 │   ├── instrumentation/
@@ -134,22 +135,10 @@ Public API exports only the facade and `initTelemetry`/`registerProvider`. Modul
 
 **Why a package, not an app module.** Telemetry is a cross-cutting platform concern that `packages/{core,queue,events,webhooks,cli,ui}` must be able to import to do propagation and auto-instrumentation. Dependency direction only flows packages → app, so a module under `apps/mercato/src/modules/` could never be imported by those packages — which would make Phase 2 (boundary propagation) impossible. A package is also the only form that ships to third-party module authors as a stable `@open-mercato/telemetry` import, satisfying the Backward Compatibility Contract's "give module authors a seam" goal. (A reference implementation built this as an `@app` module only because that deployment could not add workspace packages; its facade was kept package-shaped precisely so it could lift to `packages/telemetry` here.)
 
-### S2 — Vendor-neutral facade + provider delegation model
+### S2 — Vendor-neutral facade + shared logger extension + provider delegation
 
 ```ts
 // @open-mercato/telemetry
-
-export interface Logger {
-  trace(obj: object | string, msg?: string): void
-  debug(obj: object | string, msg?: string): void
-  info(obj: object | string, msg?: string): void
-  warn(obj: object | string, msg?: string): void
-  error(obj: object | string, msg?: string): void
-  fatal(obj: object | string, msg?: string): void
-  child(bindings: Record<string, unknown>): Logger
-}
-
-export const logger: Logger
 
 export interface SpanOptions {
   attributes?: Record<string, string | number | boolean>
@@ -179,7 +168,7 @@ export function initTelemetry(): Promise<void>
 export function registerProvider(provider: TelemetryProvider): void
 ```
 
-`logger`, `withSpan`, `counter`, `histogram`, `gauge`, `reportError` are **always** available. When telemetry is disabled, calls short-circuit to a noop after a single `enabled === false` check. The facade itself has no heavy dependencies.
+`withSpan`, `counter`, `histogram`, `gauge`, and `reportError` are available to code that explicitly imports this server-only package. Platform integration points do not import it while off. Application logging always uses `createLogger(namespace)` from `@open-mercato/shared/lib/logger`; after telemetry starts, a process-wide extension adds active trace context to the local record and forwards exactly one normalized record to `provider.emitLog`. Extension failures never affect application behavior, and the shared `OM_LOG_LEVEL` gate controls both local and remote volume.
 
 #### The `TelemetryProvider` interface — tracing is delegation, not a span sink
 
@@ -214,7 +203,7 @@ export interface TelemetryProvider {
 
 > **Tracing must be delegation, not an `emitSpan(SpanData)` sink** — this is the single most important correction the reference implementation produced. An earlier sketch had the facade own the span lifecycle and hand a *finished* `SpanData` to the provider. That cannot work with real OTEL auto-instrumentation: the `pg`/HTTP/undici instrumentations create their own spans and read the parent from **OTEL's active-span context**. A finished-span sink is never the active parent, so auto-spans orphan into separate traces and the headline "follow a request into its DB queries" waterfall never forms. So the provider owns span creation and runs `fn` inside the span's active context (`runInSpan`), recording exceptions/duration on settle (a shared `run-span.ts` helper handles sync + async uniformly). `activeSpan()` bridges `reportError`/`currentSpan` to whatever span is active — including auto-instrumented ones. Logs/metrics are genuinely fire-and-forget, so they remain sinks. This mirrors OTEL's own `startActiveSpan` shape.
 
-The facade resolves **one active provider** from `TELEMETRY_BACKEND` and, for each emitted signal, calls the matching method only if `supports` includes it (else no-op).
+`initTelemetry()` resolves **one active provider** only after an enabled backend is explicitly selected. The off path does not consult the custom-provider registry or install any process-wide bridges.
 
 ### S3 — Pluggable provider, OTLP as default
 
@@ -222,11 +211,11 @@ Built-in providers:
 
 | Provider | Deps | Activation |
 |---|---|---|
-| `noop` | none | default when `TELEMETRY_BACKEND` is unset |
-| `console` | `pino` (pretty in dev) | `TELEMETRY_BACKEND=console` |
+| `noop` | none | internal fallback provider; no host runtime is registered while off |
+| `console` | shared logger only | `TELEMETRY_BACKEND=console` |
 | `otlp` | `@opentelemetry/*` (optional) | `TELEMETRY_BACKEND=otlp` (also accepts vendor aliases like `newrelic`, `signoz` → same OTLP provider, different endpoint) |
 
-OTEL packages live in **`optionalDependencies`**, declared `optional` via `peerDependenciesMeta` (the pattern `packages/queue` already uses for `bullmq`), so installs that don't enable telemetry never resolve them:
+OTEL packages live in **`optionalDependencies`**. Package managers normally install optional dependencies unless configured otherwise, so this is not a zero-install-size guarantee. The guarantee is that disabled host paths never import this package and `otlp-provider.ts` is dynamically imported only for an OTLP backend:
 
 ```jsonc
 {
@@ -251,13 +240,13 @@ Backends with no OTLP-native endpoint, or that need richer per-signal control, c
 
 ### S4 — Activation and configuration
 
-`initTelemetry()` is called once from:
+`initTelemetry()` is dynamically imported and called once from:
 
 - `apps/mercato/instrumentation.ts` (Next.js standard hook; to be added — none exists today),
 - the **CLI entry** in `packages/cli` (`bin.ts`) — for every bootstrap-requiring command (worker, scheduler, …), *before* the app module graph loads. Worker processes do not run `instrumentation.ts`.
 - any custom standalone entry (e.g. long-running CLI commands).
 
-All call paths are idempotent. No-op when `TELEMETRY_BACKEND` is unset.
+All call paths are idempotent. Each host first calls `isTelemetryBackendEnabled()` from shared code; unset, `noop`, and unknown values do not import this package. Calling `initTelemetry()` directly while off is also an absolute no-op.
 
 **Load-order requirement (worker/scheduler DB spans).** OpenTelemetry's `pg`/`undici` auto-instrumentation only records spans for a module required *after* the SDK has started. A worker process loads MikroORM's Postgres driver (`@mikro-orm/postgresql` → `pg`) during CLI bootstrap and per-job container creation. If `initTelemetry()` runs only inside `runWorker` (after bootstrap), the `pg` queries inside job handlers emit **no spans** — the trace shows only the bullmq-otel `add`/`process`/`complete` envelope, with an empty job body. The fix: `bin.ts` calls `initTelemetry()` **before** it dynamically imports the mercato entry (so nothing app-side loads `pg` first). Verified end-to-end against a live OTLP backend: unfixed worker → `process` span with zero `pg` children; fixed worker → the full `findPendingVerification` query tree nested under `process <queue>`. (The in-process `runWorker` init remains as an idempotent fallback.)
 
@@ -266,13 +255,14 @@ Env variables:
 | Var | Purpose |
 |---|---|
 | `TELEMETRY_BACKEND` | selector: `otlp \| console \| noop` (vendor aliases such as `newrelic`/`signoz` map to `otlp`); default unset = `noop`/off |
-| `TELEMETRY_LOG_LEVEL` | `trace \| debug \| info \| warn \| error \| fatal` (default `info`) — gates **both** stdout **and** the OTLP backend export, so below-level records never ship to the backend (remote volume/cost control, not just stdout) |
-| `TELEMETRY_LOG_PRETTY` | human-readable stdout logs (default on in dev) |
+| `OM_LOG_LEVEL` | shared logger threshold: `debug \| info \| warn \| error`; gates both local output and remote telemetry log export |
+| `OM_LOG_PRETTY` / `OM_LOG_DESTINATION` | shared logger formatting and stdout/stderr destination controls |
 | `TELEMETRY_SAMPLING_RATIO` | `0.0`–`1.0` (default `1.0` dev / `0.1` prod) |
 | `OTEL_SERVICE_NAME` | standard OTEL var (one stable service name across environments) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | standard OTEL var |
 | `OTEL_EXPORTER_OTLP_HEADERS` | standard OTEL var (e.g. ingestion key) |
 | `OTEL_RESOURCE_ATTRIBUTES` | standard OTEL var (carry `deployment.environment` here to separate envs under one service) |
+| `TELEMETRY_TRUST_INBOUND_TRACE` | default false; when false, both standard and backup inbound/global trace headers are ignored |
 
 All standard OTEL env vars from the OpenTelemetry environment-variable spec are honored when the OTLP provider is selected. Switching backend is changing `TELEMETRY_BACKEND` + its endpoint/headers; adding another OTLP backend later is **no new code**.
 
@@ -284,13 +274,13 @@ Boundaries that need explicit propagation get one-line helpers (`captureTraceCon
 
 - **Queue jobs (per-strategy split)** — Open Mercato's queue has two strategies, handled by the best mechanism for each:
   - **`local`** (file-based; dev default, no-Redis fallback) — W3C context rides on the job's **`metadata._trace` carrier**. `QueuedJob` already has an (unused) `metadata` field; the strategy threads it through, so the carrier uses this **first-class metadata channel** rather than polluting the user payload. **Zero per-callsite code**: `packages/queue` auto-injects at `enqueue` (`attachTraceMetadata`) and auto-continues at dispatch (`runJobInTrace(name, job.metadata, …)` → `continueTrace(carrier, \`queue.${queue}\`, …, { kind: 'consumer' })`). Jobs without a carrier start a fresh root span (additive, non-breaking).
-  - **`async`** (BullMQ; prod) — when an OTLP backend is active (`isOtelSdkBackend()`), the strategy delegates to **`bullmq-otel`** (passed as the `telemetry` option to the BullMQ `Queue` + `Worker`), which emits richer BullMQ-internal spans (`add`/`process`, queue-wait, attempts) and propagates context via the **global** propagator — which works precisely because the backup-header propagator (below) keeps the global `extract` functional. Our `metadata._trace` carrier is **skipped on this path** to avoid double-instrumentation. When telemetry is off / a non-OTEL backend is selected / `bullmq-otel` isn't installed, it gracefully falls back to the `metadata._trace` carrier. `bullmq-otel` is an optional dependency.
+  - **`async`** (BullMQ; prod) — the secure default uses the dedicated `metadata._trace` carrier. When an OTLP backend is active **and** `TELEMETRY_TRUST_INBOUND_TRACE=true`, the strategy may delegate to **`bullmq-otel`** (passed as the `telemetry` option to the BullMQ `Queue` + `Worker`) for richer BullMQ-internal spans. This explicit trust gate is required because `bullmq-otel` uses the process-global propagator; otherwise a caller-supplied backup header would be indistinguishable from a system carrier. If the gate is false or the optional package is absent, the dedicated carrier remains the propagation path.
   - **Because events and webhooks ride the queue, both mechanisms cover them too** (see below) — the consumer (events worker / webhook delivery worker) runs inside whichever trace context the active strategy restored.
 - **Event bus** — persistent (queue-backed) subscribers are covered automatically: the event bus enqueues `{ event, payload, options }`, so the queue carrier links the subscriber dispatch to the publisher's trace with no event-bus code. Ephemeral (in-process) subscribers run synchronously inside `emit()`, in the publisher's async-context span, so they are already in-trace. (A named `event.<id>` child span per dispatch is an optional refinement, not required for continuity.)
 - **Outbound webhooks** — delivery is queued (`enqueueWebhookDelivery` → worker), so it inherits the queue carrier: the delivery worker runs inside the continued trace, and the `undici` auto-instrumentation then injects `traceparent`/`tracestate` onto the outbound `fetch` automatically (alongside the existing Standard Webhooks signing). No webhooks-package change needed.
 - **SSE bridge (deferred)** — server-emitted events could include `traceparent` so the client (`useAppEvent`/`useOperationProgress`) can correlate. This is **out of scope** (browser RUM is out of scope), so it is not wired; the server emit point (`events` SSE route) is the place to add it later.
 
-> **Root-per-request behind a proxy/load balancer (backup-header propagator).** Some infra (e.g. GCP's load balancer) reads the inbound `traceparent`, creates its own span, and **rewrites** `traceparent` to point at that unexported span — so a plain W3C extract makes every request a child of an infra trace the backend never sees, and root-span / "trace groups" views come up empty. The OTLP provider's **global propagator** solves this with the industry backup-header pattern: on inject it also writes `x-original-traceparent` (which the LB leaves untouched); on extract it **continues from the backup when present** (our own services/jobs carry it — so service-to-service traces survive the LB rewrite) and **roots when only a bare `traceparent` is present** (the LB or an untrusted external caller). `TELEMETRY_TRUST_INBOUND_TRACE=true` flips the bare branch to continue. This keeps the global `extract` **functional** — so carrier-round-tripping instrumentation like **`bullmq-otel`** (which inject/extract via the global propagator) works through it — rather than the earlier blunt no-op-extract that crippled all global extraction. Our hand-rolled queue/event carrier is independent (it uses a dedicated `queuePropagator` directly), so it is unaffected either way.
+> **Inbound/global trace trust.** Both `traceparent` and `x-original-traceparent` are caller-controlled at an HTTP boundary; the backup header is not an authenticity signal. The global propagator therefore starts a fresh root and ignores both headers by default. `TELEMETRY_TRUST_INBOUND_TRACE=true` explicitly enables standard/backup extraction for deployments behind a trusted upstream. The hand-rolled queue/event carrier is independent (it uses a dedicated `queuePropagator` directly) and remains available without trusting inbound headers.
 
 ### S6 — Auto-instrumentation surfaces
 
@@ -358,7 +348,7 @@ Telemetry can leak personal data through logs, error payloads, AI prompts/comple
 - **No PII in span attributes or logs.** Spans/logs carry `tenant_id`/`organization_id`/`user_id` (opaque UUIDs) only — never names, emails, message content, or record values. Callers pass no PII.
 - **`pg` parameter-value capture disabled.** `@opentelemetry/instrumentation-pg` runs with `enhancedDatabaseReporting: false`, centralized in a single `PG_INSTRUMENTATION_OPTIONS` constant and locked by a regression test — bound SQL parameters can contain user data, so we capture statement *shape* without values. With DB tracing as a headline feature, this is the main server-side leak vector.
 - **AI prompt/completion content (follow-up).** This PR ships no AI instrumentation (S6). When `ai-assistant` later enables AI SDK telemetry at the model-factory chokepoint, it MUST force `recordInputs: false` / `recordOutputs: false` so prompts/completions never reach spans.
-- **Redaction backstop.** `redactPii()` scrubs the highest-signal leaked identifiers — **email addresses and auth tokens** (`Bearer`/`Basic` schemes, `Authorization`/`Cookie` header dumps) — from error-log message + stack (`serializeError`) and from span exceptions (covering both `reportError` and the auto record-on-throw path). Complementing it, `redactAttributes()` masks any log/error **attribute whose key looks secret** (`authorization`, `set-cookie`, `client_secret`, `x-api-key`, `access_token`, …) and runs `redactPii` over the remaining string values; it is applied at the single `writeRecord` log chokepoint, so it covers `reportError` context **and** every `logger.*` attribute bag. Intentionally conservative (emails + auth tokens; secret KEYS are specific — `access_token`, not a bare `token`, so `token_count` survives) to preserve UUID/debug fidelity; the single point to extend if a new leak vector appears.
+- **Redaction backstop.** `redactPii()` scrubs the highest-signal leaked identifiers — **email addresses and auth tokens** (`Bearer`/`Basic`/`ApiKey` schemes, `Authorization`/`Cookie` header dumps) — from error-log message + stack and span exceptions. `redactAttributes()` masks secret-looking keys, including the exact key `token`, while preserving `token_count`. Redaction is repeated at the OTLP provider boundary for direct log records, span attributes, metric labels, and status/error text. Arbitrary non-`Error` thrown objects are never JSON-stringified; their properties may contain request bodies, credentials, or PII.
 - **Data residency is a deployment choice.** Because the transport is plain OTLP, the backend (and its region) is an env change; this spec makes no hosting decision.
 
 ---
@@ -370,21 +360,20 @@ Telemetry can leak personal data through logs, error payloads, AI prompts/comple
 ```
 ┌─────────────────────────────────────────────────────┐
 │  module code (apps/, packages/*/src/modules/*)      │
-│  logger.warn(...) withSpan(...) reportError(err)    │
+│  createLogger(...).warn(...) withSpan(...)          │
+│  reportError(err) counter(...)                      │
 │  counter(...)                                        │
 └──────────────────────┬──────────────────────────────┘
-                       │  facade (always loaded, ~no deps)
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│           @open-mercato/telemetry/facade             │
-│  AsyncLocalStorage<SpanContext>  level routing       │
-│  capability gate                                     │
-└──────────────────────┬──────────────────────────────┘
+       ┌───────────────┴────────────────┐
+       │ shared logger: one local line  │
+       │ optional context + remote sink │
+       └───────────────┬────────────────┘
+                       │ telemetry runtime exists only after explicit opt-in
                        │  ONE active TelemetryProvider (globalThis-held)
                        ▼
 ┌──────────┬──────────┬─────────────────────────────────┐
-│  noop    │ console  │  otlp → any OTLP backend         │
-│ (default)│  (pino)  │  traces · metrics · logs · err   │
+│ off: no runtime     │ console │ otlp → any OTLP backend │
+│ bridge/extension    │         │ traces · metrics · logs │
 └──────────┴──────────┴─────────────────────────────────┘
 ```
 
@@ -470,9 +459,10 @@ The package is **strictly additive** to the platform. Disabling it returns the s
 
 Phases are **development milestones**; the contribution lands upstream as **one coordinated set** (the cross-package wiring in queue/events/webhooks/cli only makes sense together).
 
-### Phase 1 — Facade + structured logger + within-process tracing + error reporting
+### Phase 1 — Shared-logger integration + within-process tracing + error reporting
 
-- Create `packages/telemetry` with facade + pino-backed default logger.
+- Create `packages/telemetry` with spans/metrics/error facade and a sink/context
+  extension for the existing shared logger.
 - `noop`/`console` providers and the `otlp` provider (delegation model), OTEL deps optional + dynamic import.
 - Within-process auto-instrumentation: Next.js, `pg` (param-value capture off), undici. (AI SDK spans are a follow-up owned by `ai-assistant` — see S6.)
 - `reportError` wired into the shared API handler error seam; `om.errors` + `http.server.request.duration`.
@@ -503,10 +493,11 @@ All tests run in the existing jest suites (`yarn workspace … test`) — no net
 
 **`packages/telemetry` (54 tests):**
 - Units — env parsing/defaults; PII email redaction; error serialization (stack-only, cause-folded, no leaked props, redacted email); `runSpan` sync/async/throw lifecycle; provider registry incl. the **global-singleton dual-copy guard** (the worker-bundle invariant).
-- **Backend log-level gating** (`logger-level.test.ts`) — below-level records (`trace`/`debug`/`info` under `TELEMETRY_LOG_LEVEL=warn`, `debug` under the default) must **not** reach `provider.emitLog`, so the configured level controls remote export volume — not just stdout. Fails against the earlier ungated export.
+- **Unified logger gating** (`logger-level.test.ts`) — records below `OM_LOG_LEVEL` must reach neither local output nor `provider.emitLog`; an enabled record produces one local line and one remote record.
+- **Explicit-off boundary** (`env-load-order.test.ts`) — an unset/noop backend cannot start a registered provider or install the shared logger/runtime hooks; a later dotenv-loaded explicit backend can initialize.
 - **Next.js wiring helpers** (`nextjs.test.ts`) — `telemetryServerExternalPackages` covers the full `@opentelemetry/*` set (guards against the partial-copy "silently emits nothing" footgun); `recordHttpDuration` emits the semconv `http.server.request.duration` histogram (unit `s`, `error.type` only on ≥500); `registerTelemetryForNextjs` no-ops when telemetry is off and **skips initialization on the edge runtime** (NodeSDK is Node-only).
 - Facade — no-op-when-off; span/metric/log/error routing; `captureTraceContext`/`continueTrace`.
-- **Real-provider integration** (in-memory OTEL exporters) — span shape + undefined-attr dropping; parent/child **delegation nesting**; `inject()` W3C `traceparent`; **cross-boundary traceId continuity**; the **backup-header propagator** (inject writes `x-original-traceparent`; extract continues from the backup even when `traceparent` is rewritten by an LB, and roots on a bare `traceparent` with no backup); log↔trace correlation; metrics; and a **span-level PII redaction** assertion (leaked email scrubbed from the span exception).
+- **Real-provider integration** (in-memory OTEL exporters) — span shape + delegation nesting; queue trace continuity; global extraction rejects standard and backup headers by default and accepts them only with explicit trust; log↔trace correlation; metrics; and provider-boundary redaction for log bodies, errors, and span attributes.
 - **PII config regression** — locks `enhancedDatabaseReporting === false` so SQL parameter values can never be captured.
 - **pg auto-instrumentation (spawned-subprocess)** — proves an OTLP-backed provider actually instruments `pg` so a query emits a `pg.query` span. Runs in a real child process (jest's module system does not exercise require-in-the-middle faithfully); no DB (a dead-port connection still drives the query path). This is the capability the CLI worker/scheduler bootstrap ordering (below) depends on.
 
@@ -529,7 +520,7 @@ All tests run in the existing jest suites (`yarn workspace … test`) — no net
 
 | # | Risk | Severity | Affected area | Mitigation | Residual |
 |---|---|---|---|---|---|
-| R1 | OTEL SDK is heavy when enabled (~3-5 MB installed, init cost ~50-200 ms) | Medium | Bundle size + cold start when opt-in | `optionalDependencies` (peerDependenciesMeta.optional); off by default; dynamic `import()` in provider; externalized from build; no runtime cost when disabled | Low — only deployments that opt in pay |
+| R1 | OTEL SDK is heavy when enabled (~3-5 MB installed, init cost ~50-200 ms) | Medium | Install size + cold start when opt-in | Optional dependencies may still install; host code prevents disabled-path runtime imports, provider uses dynamic `import()`, and OTEL stays externalized | Low runtime cost while off; install size remains package-manager dependent |
 | R2 | Performance overhead of always-on tracing under high RPS | Medium | API latency | Default sampling 100% dev / 10% prod via `TELEMETRY_SAMPLING_RATIO`; counters/histograms O(1); AsyncLocalStorage carrier is cheap | Low |
 | R3 | Double instrumentation when NR agent + OTLP both enabled | Low | Span explosion in vendor UI | Document recommended config; provider selector is exclusive; NR reachable as OTLP backend | Low |
 | R4 | Tenant/org data leaking into low-cardinality metric labels (cost explosion) | High | Metrics ingest cost | MUST rule: tenant/org/user IDs only as **span attributes**, never metric labels; lint rule planned (out of scope) | Low if rule followed |
@@ -538,12 +529,14 @@ All tests run in the existing jest suites (`yarn workspace … test`) — no net
 | R7 | AsyncLocalStorage doesn't survive some edge cases (top-level `setTimeout` in worker pools) | Low | Lost trace context on rare boundaries | Document; provide `continueTrace(ctx, fn)` escape hatch | Low |
 | R8 | Pinning the OTEL SDK version too tightly causes peer-dep churn | Medium | Upgrade friction | Pin only the exporters & instrumentation-pg/undici; let `@opentelemetry/api` float on caret; document upgrade procedure | Low |
 | R9 | New Relic retirement timeline unclear; users may run both indefinitely | Low | Doc/operational complexity | NR reachable as OTLP backend; legacy-agent deprecation is a follow-up spec | Low |
-| R10 | Silent provider failures (OTLP endpoint unreachable) hide telemetry | Low | Observability gap | Provider writes its own start/shutdown errors via `console.error`; document a health surface | Low |
+| R10 | Silent provider failures (OTLP endpoint unreachable) hide telemetry | Low | Observability gap | Initialization/fallback uses the shared logger; document a health surface | Low |
 | R11 | **Provider designed as a finished-span sink would orphan auto-instrumentation** | High (avoided) | Trace correctness | Delegation model (`runInSpan`/`activeSpan`) is mandated by S2 — the provider owns span creation so OTEL auto-spans nest | None (designed out) |
 | R12 | **PII leak** via logs, error payloads, or captured SQL parameter values | High | Compliance | Privacy section: don't-emit posture, `pg` param capture off (regression-tested), `redactPii` backstop. (AI prompt/completion capture is N/A here — no AI instrumentation in this PR; the follow-up MUST force `recordInputs/Outputs` off) | Low |
 | R13 | **Serverless flush loss** — process suspends before OTLP export | Medium | Lost telemetry | `forceFlush()` on shutdown / via Next.js `after()` in handlers | Low |
 | R14 | **Worker-bundle duplicate module copies** set the provider on one copy, handlers read another | Medium (avoided) | Worker telemetry silently noop | `globalThis` provider registry (S3) so all copies share one instance; cache-bust guard for stale worker bundles | Low |
 | R15 | **Instrumentation load order** — SDK started after `pg`/`undici` already loaded → worker/scheduler job bodies emit no DB/HTTP spans (only the bullmq-otel envelope) | Medium (fixed) | Worker/scheduler trace completeness | `bin.ts` runs `initTelemetry()` before importing the app graph, for all bootstrap-requiring commands (S4); spawned-subprocess test locks pg-span production; verified end-to-end on a live OTLP backend | Low |
+| R16 | **Disabled telemetry package still evaluates** through static app/CLI/queue imports | Medium (fixed) | Default memory/startup and unexpected hooks | Shared runtime bridge + explicit-backend guard before every dynamic telemetry import; config split into runtime-free `nextjs-config` | Low |
+| R17 | **Forged backup trace header** lets an external caller choose parent trace context | High (fixed) | Trace integrity, sampling, and observability attribution | Ignore both standard and backup global headers unless `TELEMETRY_TRUST_INBOUND_TRACE=true`; dedicated queue carrier remains independent | Low when trust is enabled only behind authenticated infrastructure |
 
 ---
 
@@ -554,19 +547,19 @@ All tests run in the existing jest suites (`yarn workspace … test`) — no net
 - **Env-driven config**, no hardcoded vendor endpoints; backend is a pure OTLP env swap.
 - **No raw `fetch`** in module code: the package's outbound instrumentation wraps undici at the global level only.
 - **Backward Compatibility Contract**: all surfaces reviewed in API Contracts → Backward compatibility. No surface broken; queue/event payload extensions are additive.
-- **PII hygiene**: don't-emit posture, `pg` param capture disabled + regression-tested, `redactPii` backstop. (No AI instrumentation in this PR; the AI follow-up MUST force prompt/completion recording off.)
+- **PII hygiene**: don't-emit posture, `pg` param capture disabled + regression-tested, non-Error objects never serialized, exact-token-key masking, and provider-boundary redaction. (No AI instrumentation in this PR; the AI follow-up MUST force prompt/completion recording off.)
 - **AGENTS.md guidance**: Phase 1 ships `packages/telemetry/AGENTS.md` describing logger usage, span naming conventions, and the metric-label cardinality rule (R4).
 - **Module decoupling**: package never imports from `packages/core/src/modules/*`. Modules opt in by importing the facade.
 - **Generated files**: package adds nothing under `apps/mercato/.mercato/generated/`.
 
 Touched areas (cross-package wiring, for reviewer awareness):
-- `packages/telemetry` — new package (facade, providers, env, init). Backend log export is gated by `TELEMETRY_LOG_LEVEL` (below-level records never reach the OTLP `emitLog`). Version pinned to the monorepo lockstep (`0.6.5`) so create-app's `{{PACKAGE_VERSION}}` scaffolds resolve it.
-- `packages/queue` — `metadata._trace` auto-injection at `enqueue`, auto-continuation at strategy dispatch, `initTelemetry()` in `runWorker`, and (async strategy) optional delegation to `bullmq-otel` when an OTLP backend is active (additive; depends on `@open-mercato/telemetry`; optional peer `bullmq-otel`). The async-strategy `bullmq-otel` resolution is memoized as an in-flight **promise** (not a boolean) so concurrent first-time callers share one result and a `Queue`/`Worker` pair can't be built with inconsistent telemetry wiring. Covers persistent events + queued webhook delivery transitively.
+- `packages/telemetry` — new package (facade, providers, env, init) integrated with the canonical shared logger. Backend log export uses the shared `OM_LOG_LEVEL` gate. Version is pinned to the monorepo lockstep (`0.6.6`).
+- `packages/queue` — imports only the shared runtime bridge on the default path. `metadata._trace` auto-injection/continuation remains the secure default; `runWorker` dynamically imports telemetry only for an explicit backend. Optional `bullmq-otel` delegation additionally requires trusted global propagation.
 - `apps/mercato/src/instrumentation.ts` — calls `registerTelemetryForNextjs()` (from the `@open-mercato/telemetry/nextjs` subpath) in the web process; the package owns init + graceful degrade + shutdown flush, so there is no app-side `instrumentation.node.ts`.
-- `apps/mercato/src/app/api/[...slug]/route.ts` — `reportError` on 5xx + `recordHttpDuration()` (the `http.server.request.duration` metric, imported from `@open-mercato/telemetry/nextjs`) in the dispatcher chokepoint.
-- `apps/mercato/next.config.ts` — spreads `telemetryServerExternalPackages` (from `@open-mercato/telemetry/nextjs`) into `serverExternalPackages`; the `@opentelemetry/*` list lives in the package as a single source of truth.
+- `apps/mercato/src/app/api/[...slug]/route.ts` — calls the optional shared runtime bridge for 5xx reporting and HTTP duration, so the dispatcher does not load telemetry while off.
+- `apps/mercato/next.config.ts` — imports the OTEL externals list from the config-only `@open-mercato/telemetry/nextjs-config` entrypoint.
 - `packages/cli` — new bootstrap-free command **`mercato telemetry init`** (`src/lib/telemetry-init.ts`, dispatched from `mercato.ts`, listed in `bin.ts` `BOOTSTRAP_FREE_COMMANDS`) that wires telemetry into an app scaffolded before it existed: idempotent, `--dry-run`, patches `package.json` / `.env(.example)` / `instrumentation.ts` / `next.config.ts` (ts-morph detection + formatting-preserving splice) / the API dispatcher (anchored insertion, **auto-patch when the scaffold shape is recognized, else print the snippet + flag manual**).
-- `packages/create-app/template/**` — the scaffold template is kept at **parity with `apps/mercato`** (per `packages/create-app/AGENTS.md`, app-shell changes MUST be synced): the app-side wiring points (`package.json.template`, `instrumentation.ts`, the dispatcher `route.ts` kept **byte-identical** to `apps/mercato`, `next.config.ts`, `.env.example`) consume the same `@open-mercato/telemetry/nextjs` helpers, and the telemetry files are in the Template Sync Checklist in `packages/create-app/AGENTS.md`. The worker/scheduler load-order fix ships transitively via `@open-mercato/cli`'s telemetry dep.
+- `packages/create-app/template/**` — the scaffold template is kept at **parity with `apps/mercato`**: instrumentation checks the shared explicit-backend guard before dynamically importing the runtime helper, the byte-identical dispatcher calls the optional shared bridge, and Next config uses the runtime-free `nextjs-config` entrypoint. The worker/scheduler load-order fix ships transitively via `@open-mercato/cli`.
 
 ---
 
@@ -578,6 +571,7 @@ Touched areas (cross-package wiring, for reviewer awareness):
 
 ## Changelog
 
+- **2026-07-24 (unified logger, secure/default-unloaded carryover hardening)** — Rebased the implementation on the canonical shared logger introduced by #4003. Removed telemetry's duplicate Pino/logger facade and `TELEMETRY_LOG_*` controls; a process-wide shared-logger extension now adds trace context and one remote sink under the existing `OM_LOG_*` gate. Added a `globalThis` shared telemetry runtime bridge so API, queue, worker, and CLI code do not statically import telemetry; Next/app/CLI/worker hosts dynamically import only after an explicit supported `TELEMETRY_BACKEND`, and `nextjs-config` isolates build-time externals from runtime code. Explicit off is absolute and cannot be overridden by a custom `noop` provider. Security hardening: arbitrary thrown objects are no longer JSON-stringified, exact `token` keys are masked without clobbering `token_count`, provider-boundary redaction covers logs/spans/metrics, and both standard + backup inbound trace headers require `TELEMETRY_TRUST_INBOUND_TRACE=true`. The async BullMQ integration uses the dedicated carrier unless trusted global propagation is explicitly enabled. App/template/codemod/docs/tests were updated in lockstep; telemetry version aligned to `0.6.6`.
 - **2026-04-29** — Initial draft (spec-only). No code yet.
 - **2026-06-30** — Synced the spec with a validated reference implementation (Phase 1 + 2 built and run end-to-end against live OTLP backends), keeping the package + generic-OTLP design. Key changes: (1) **provider model corrected from an `emitSpan(SpanData)` sink to a delegation model** (`runInSpan`/`activeSpan`) — required so OTEL auto-instrumentation (pg/http/undici) nests in one trace (S2, R11). (2) **`Exporter` → `TelemetryProvider`** with `supports` capability flags, `inject`/`runInRemoteSpan`, and `activeTraceContext` (S2, API). (3) **Error reporting (`reportError`) moved into Phase 1** as the vendor-neutral conduit; #60 keeps the policy (S8, Phasing). (4) New **Privacy / PII-hygiene** section: `pg` param-value capture off, `redactPii` backstop, opaque-UUID-only attributes (S6, R12). (5) **AI SDK instrumentation deliberately excluded** from this PR — Open Mercato ships `ai@^6` but no call site enables `experimental_telemetry`, so enabling `ai.*` spans is per-call-site/chokepoint opt-in that concentrates prompt/completion PII review and is owned by `ai-assistant` (model-factory chokepoint). Moved to out-of-scope/follow-up (TLDR, S6, Privacy, API). The reference implementation's per-callsite `aiSdkTelemetry()` does not lift upstream. (6) **Queue carrier corrected from `meta.traceparent` to a payload `_trace`** (the async queue drops `metadata`), with auto-inject/auto-wrap as the zero-callsite goal (S5, Data Models). (7) **`globalThis` provider registry** for worker-bundle module copies (S3, R14); worker init via `packages/cli` bootstrap (S4). (8) **`http.server.request.duration` semconv metric** preferred over custom `om.http.*`; `om.errors` kept (S6). (9) NR reframed as a **plain OTLP backend** (modern NR ingests OTLP) — no proprietary adapter required (S7, D from reference). (10) Added risks R11–R14 (delegation necessity, PII, serverless flush, worker-bundle duplication) and the root-per-request inbound-propagator note (S5). Phases remain development milestones; contribution lands as one set.
 - **2026-06-30 (Phase 1 implemented)** — `packages/telemetry` created (facade, `noop`/`console`/`otlp` providers, `globalThis` registry, env, init; OTEL deps optional + dynamic-imported). App wiring: `apps/mercato/src/instrumentation.ts` (+ `instrumentation.node.ts`) init; `reportError` + `http.server.request.duration` in the catch-all dispatcher (`app/api/[...slug]/route.ts`, route label from the manifest `route.path`); `@opentelemetry/*` in `serverExternalPackages`; `.env.example` block. 42 package tests + app/queue typecheck green.

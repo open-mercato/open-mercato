@@ -32,7 +32,11 @@ maybe('registerTelemetryForNextjs shutdown semantics', () => {
     const scriptFile = path.join(pkgRoot, `.nextjs-shutdown-probe.${process.pid}.mjs`)
     fs.writeFileSync(scriptFile, CHILD_SCRIPT)
     try {
-      const child = spawn(process.execPath, [scriptFile], { cwd: pkgRoot, stdio: ['ignore', 'pipe', 'pipe'] })
+      const child = spawn(process.execPath, [scriptFile], {
+        cwd: pkgRoot,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, TELEMETRY_BACKEND: 'console' },
+      })
       await new Promise<void>((resolve, reject) => {
         const bailout = setTimeout(() => reject(new Error('child never printed READY')), 15_000)
         child.stdout.on('data', (chunk: Buffer) => {

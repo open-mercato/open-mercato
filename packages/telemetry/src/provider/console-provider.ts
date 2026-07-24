@@ -8,8 +8,11 @@ import type {
   TraceCarrier,
   TraceContext,
 } from '../types'
-import { writeRecord } from '../facade/logger'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { serializeError } from '../facade/serialize'
 import { runSpan } from './run-span'
+
+const logger = createLogger('telemetry')
 
 /**
  * Dev backend: prints span timings and metric points to stdout (via the shared
@@ -31,21 +34,16 @@ class ConsoleSpan implements Span {
   }
   recordException(error: unknown): void {
     this.status = 'error'
-    const message = error instanceof Error ? error.message : String(error)
-    this.attributes.exception = message
+    this.attributes.exception = serializeError(error).message
   }
   setStatus(status: 'ok' | 'error'): void {
     this.status = status
   }
   end(): void {
-    writeRecord({
-      level: this.status === 'error' ? 'error' : 'debug',
-      message: `span ${this.name}`,
-      attributes: {
-        span: this.name,
-        duration_ms: Date.now() - this.startedAt,
-        status: this.status,
-      },
+    logger[this.status === 'error' ? 'error' : 'debug'](`Span ${this.name}`, {
+      span: this.name,
+      durationMs: Date.now() - this.startedAt,
+      status: this.status,
     })
   }
 }
@@ -79,10 +77,11 @@ export class ConsoleProvider implements TelemetryProvider {
   emitLog(_record: LogRecord): void {}
 
   recordMetric(point: MetricPoint): void {
-    writeRecord({
-      level: 'debug',
-      message: `metric ${point.name}`,
-      attributes: { metric: point.name, kind: point.kind, value: point.value, ...point.labels },
+    logger.debug(`Metric ${point.name}`, {
+      metric: point.name,
+      kind: point.kind,
+      value: point.value,
+      ...point.labels,
     })
   }
 }

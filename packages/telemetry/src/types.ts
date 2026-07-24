@@ -13,7 +13,7 @@ export type TelemetrySignal = 'traces' | 'metrics' | 'logs' | 'errors'
 export type AttributeValue = string | number | boolean
 export type Attributes = Record<string, AttributeValue | undefined>
 
-export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 /** A structured log record routed through the active provider. */
 export type LogRecord = {
@@ -59,18 +59,6 @@ export interface Span {
 
 /** The active trace + span ids, for correlating structured logs with traces. */
 export type TraceContext = { traceId: string; spanId: string }
-
-/** Minimal structured logger surface. */
-export interface Logger {
-  trace(message: string, attributes?: Attributes): void
-  debug(message: string, attributes?: Attributes): void
-  info(message: string, attributes?: Attributes): void
-  warn(message: string, attributes?: Attributes): void
-  error(message: string, attributes?: Attributes): void
-  fatal(message: string, attributes?: Attributes): void
-  /** Returns a logger that merges `bindings` into every record (e.g. `{ module }`). */
-  child(bindings: Attributes): Logger
-}
 
 /**
  * A telemetry backend.

@@ -3,14 +3,14 @@ import os from 'node:os'
 import path from 'node:path'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
 import { createLocalQueue } from '../strategies/local'
-import { registerProvider, initTelemetry } from '@open-mercato/telemetry'
+import { registerProvider, initTelemetry, shutdownTelemetry } from '@open-mercato/telemetry'
 import type { LogRecord, MetricPoint, Span, SpanOptions, TelemetryProvider, TraceCarrier } from '@open-mercato/telemetry'
 
 /**
  * Verifies the enqueue → worker trace handoff: the active context is captured
  * onto job metadata at enqueue, and the worker continues that trace at dispatch.
- * Uses a recording provider (named 'noop' so `initTelemetry` adopts it as the
- * active backend) rather than the real OTLP SDK.
+ * Uses a recording provider under the explicitly enabled console seam rather
+ * than the real OTLP SDK.
  */
 const spanNames: string[] = []
 const remoteCarriers: TraceCarrier[] = []
@@ -20,7 +20,7 @@ function noopSpan(): Span {
 }
 
 const recordingProvider: TelemetryProvider = {
-  name: 'noop',
+  name: 'console',
   supports: ['traces'],
   async start() {},
   async shutdown() {},
@@ -43,8 +43,14 @@ const recordingProvider: TelemetryProvider = {
 }
 
 beforeAll(async () => {
+  process.env.TELEMETRY_BACKEND = 'console'
   registerProvider(recordingProvider)
   await initTelemetry()
+})
+
+afterAll(async () => {
+  await shutdownTelemetry()
+  delete process.env.TELEMETRY_BACKEND
 })
 
 describe('queue trace propagation', () => {

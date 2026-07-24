@@ -49,6 +49,7 @@ describe('redactAttributes', () => {
         client_secret: 'sk_live_123',
         'x-api-key': 'key_123',
         access_token: 'at_123',
+        token: 'generic-token',
       }),
     ).toEqual({
       authorization: '[redacted]',
@@ -56,6 +57,7 @@ describe('redactAttributes', () => {
       client_secret: '[redacted]',
       'x-api-key': '[redacted]',
       access_token: '[redacted]',
+      token: '[redacted]',
     })
   })
 

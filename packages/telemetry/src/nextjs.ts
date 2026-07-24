@@ -1,41 +1,16 @@
 /**
  * Next.js wiring helpers for `@open-mercato/telemetry`.
  *
- * These keep the app-side surface tiny: an app's `instrumentation.ts`,
- * `next.config.ts`, and API dispatcher consume these instead of copying
- * boilerplate that can drift. This module is import-safe from `next.config.ts`
- * (config-eval time) — it never statically imports `@opentelemetry/*` or the
- * pino-backed logger; the SDK is loaded dynamically by the provider only when a
- * backend is active, and `./init` (which constructs the logger) is dynamically
- * imported inside `registerTelemetryForNextjs`.
+ * Runtime helpers for an enabled Next.js telemetry integration. Build-time
+ * config belongs in `@open-mercato/telemetry/nextjs-config`, which has no
+ * runtime imports.
  */
-import { histogram } from './facade/meter'
+import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+export { telemetryServerExternalPackages } from './nextjs-config'
+export { recordHttpDuration } from './facade/http'
 
-/**
- * Every `@opentelemetry/*` package the OTLP provider loads at runtime. Spread
- * into `next.config.ts` `serverExternalPackages` so the bundler leaves them as
- * real Node modules — the pg/undici auto-instrumentations monkey-patch the
- * underlying drivers, and a *partial* list re-bundles a patched module (the #1
- * cause of "telemetry silently emits nothing"). Exporting the full list from the
- * package makes it a single source of truth the app can never drift from.
- */
-export const telemetryServerExternalPackages = [
-  '@opentelemetry/api',
-  '@opentelemetry/api-logs',
-  '@opentelemetry/core',
-  '@opentelemetry/sdk-node',
-  '@opentelemetry/sdk-trace-node',
-  '@opentelemetry/sdk-logs',
-  '@opentelemetry/sdk-metrics',
-  '@opentelemetry/resources',
-  '@opentelemetry/semantic-conventions',
-  '@opentelemetry/instrumentation',
-  '@opentelemetry/instrumentation-pg',
-  '@opentelemetry/instrumentation-undici',
-  '@opentelemetry/exporter-trace-otlp-http',
-  '@opentelemetry/exporter-logs-otlp-http',
-  '@opentelemetry/exporter-metrics-otlp-http',
-] as const
+const logger = createLogger('telemetry')
 
 /**
  * One-line telemetry bootstrap for a Next.js `instrumentation.ts`. Initializes
@@ -48,13 +23,12 @@ export const telemetryServerExternalPackages = [
  */
 export async function registerTelemetryForNextjs(): Promise<void> {
   if (process.env.NEXT_RUNTIME && process.env.NEXT_RUNTIME !== 'nodejs') return
+  if (!isTelemetryBackendEnabled()) return
   const { initTelemetry, shutdownTelemetry } = await import('./init')
   try {
     await initTelemetry()
   } catch (error) {
-    console.warn('[telemetry] init from instrumentation failed', {
-      error: error instanceof Error ? error.message : String(error),
-    })
+    logger.warn('Init from Next.js instrumentation failed', { err: error })
     return
   }
   // A signal listener suppresses Node's default termination, so after the
@@ -70,24 +44,4 @@ export async function registerTelemetryForNextjs(): Promise<void> {
   }
   process.once('SIGTERM', flush)
   process.once('SIGINT', flush)
-}
-
-/**
- * Emit the OpenTelemetry-standard HTTP server metric
- * `http.server.request.duration` (histogram, seconds) with semconv attributes.
- * `route` MUST be the low-cardinality route TEMPLATE (manifest path), never the
- * resolved pathname (which carries ids). No-op when telemetry is off.
- */
-export function recordHttpDuration(method: string, route: string, status: number, startedAt: number): void {
-  histogram(
-    'http.server.request.duration',
-    (Date.now() - startedAt) / 1000,
-    {
-      'http.request.method': method,
-      'http.route': route,
-      'http.response.status_code': status,
-      'error.type': status >= 500 ? String(status) : undefined,
-    },
-    's',
-  )
 }

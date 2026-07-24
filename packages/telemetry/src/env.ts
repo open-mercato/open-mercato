@@ -1,6 +1,5 @@
-import type { LogLevel, TelemetryBackendName } from './types'
+import type { TelemetryBackendName } from './types'
 
-const LOG_LEVELS: readonly LogLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
 const BACKENDS: readonly TelemetryBackendName[] = ['noop', 'console', 'signoz', 'newrelic', 'otlp']
 
 /** Backend names that resolve to the OTLP provider (vendor differs only by endpoint). */
@@ -9,30 +8,17 @@ export function isOtlpBackend(name: TelemetryBackendName): boolean {
   return (OTLP_BACKENDS as readonly string[]).includes(name)
 }
 
-/**
- * True when the selected backend uses the real OpenTelemetry SDK (OTLP transport)
- * — i.e. the global OTEL tracer + propagator are installed. This is the condition
- * under which delegating queue tracing to a BullMQ-native integration
- * (`bullmq-otel`) is meaningful; `console`/`noop` don't load the SDK.
- */
-export function isOtelSdkBackend(): boolean {
-  return isOtlpBackend(readTelemetryEnv().backend)
-}
-
 export type TelemetryEnv = {
   /** Active backend. Unset/unknown → 'noop' (off). */
   backend: TelemetryBackendName
   /** True unless backend is 'noop'. */
   enabled: boolean
-  logLevel: LogLevel
-  /** Human-readable stdout instead of single-line JSON (local dev). */
-  logPretty: boolean
   /** 0.0–1.0 trace sampling ratio. */
   samplingRatio: number
   /**
    * Continue the inbound HTTP trace (standard W3C extract) instead of rooting
-   * per request. Default false — see `rootPerRequestPropagator`. Set true only
-   * when embedded behind a trusted upstream whose trace should continue.
+   * per request. Default false. Set true only when embedded behind a trusted
+   * upstream whose trace should continue.
    */
   trustInboundTrace: boolean
   serviceName: string
@@ -43,11 +29,6 @@ export type TelemetryEnv = {
 function parseBackend(raw: string | undefined): TelemetryBackendName {
   const v = (raw ?? '').trim().toLowerCase()
   return (BACKENDS as readonly string[]).includes(v) ? (v as TelemetryBackendName) : 'noop'
-}
-
-function parseLogLevel(raw: string | undefined): LogLevel {
-  const v = (raw ?? '').trim().toLowerCase()
-  return (LOG_LEVELS as readonly string[]).includes(v) ? (v as LogLevel) : 'info'
 }
 
 function parseSampling(raw: string | undefined, isProd: boolean): number {
@@ -64,11 +45,6 @@ function parseBool(raw: string | undefined, fallback: boolean): boolean {
   return fallback
 }
 
-/** Pretty stdout: explicit TELEMETRY_LOG_PRETTY wins, else on in local dev. */
-function parsePretty(raw: string | undefined, isDev: boolean): boolean {
-  return parseBool(raw, isDev)
-}
-
 let cached: TelemetryEnv | undefined
 
 export function readTelemetryEnv(): TelemetryEnv {
@@ -78,8 +54,6 @@ export function readTelemetryEnv(): TelemetryEnv {
   cached = {
     backend,
     enabled: backend !== 'noop',
-    logLevel: parseLogLevel(process.env.TELEMETRY_LOG_LEVEL),
-    logPretty: parsePretty(process.env.TELEMETRY_LOG_PRETTY, process.env.NODE_ENV === 'development'),
     samplingRatio: parseSampling(process.env.TELEMETRY_SAMPLING_RATIO, isProd),
     trustInboundTrace: parseBool(process.env.TELEMETRY_TRUST_INBOUND_TRACE, false),
     serviceName: process.env.OTEL_SERVICE_NAME?.trim() || 'open-mercato',

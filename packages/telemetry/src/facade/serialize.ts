@@ -13,7 +13,7 @@ import { redactPii } from './redact'
 export function serializeError(error: unknown): NonNullable<LogRecord['error']> {
   if (error instanceof Error) {
     return {
-      name: error.name || 'Error',
+      name: redactPii(error.name || 'Error'),
       message: redactPii(foldCause(error)),
       stack: error.stack ? redactPii(error.stack) : undefined,
     }
@@ -33,9 +33,14 @@ function foldCause(error: Error, seen = new WeakSet<object>()): string {
 
 function safeString(value: unknown): string {
   if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value)
-  } catch {
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
     return String(value)
   }
+  if (typeof value === 'symbol') return value.description ? `Symbol(${value.description})` : 'Symbol'
+  if (typeof value === 'function') return '[function]'
+  if (value === null) return 'null'
+  if (value === undefined) return 'undefined'
+  // Never stringify arbitrary objects: request bodies, provider errors, and
+  // thrown payloads commonly contain credentials or personal data.
+  return '[non-error object]'
 }

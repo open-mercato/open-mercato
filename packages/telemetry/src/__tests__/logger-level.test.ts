@@ -1,75 +1,64 @@
-import { setActiveProvider, resetActiveProvider } from '../provider/registry'
-import type { Logger, LogRecord, MetricPoint, Span, SpanOptions, TelemetryProvider, TraceCarrier } from '../types'
+import {
+  createLogger,
+  resetLogLevelCache,
+  resetLoggerExtension,
+  resetLoggerRegistry,
+} from '@open-mercato/shared/lib/logger'
+import { resetTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { initTelemetry, resetTelemetryInit } from '../init'
+import { registerProvider, resetActiveProvider } from '../provider/registry'
+import { resetTelemetryEnvCache } from '../env'
+import { NOOP_SPAN } from '../provider/noop-provider'
+import type { LogRecord, TelemetryProvider } from '../types'
 
-/**
- * Guards that TELEMETRY_LOG_LEVEL gates the BACKEND export, not just stdout —
- * a below-level record (e.g. info when the level is warn) must not reach
- * `provider.emitLog`, or an OTLP backend silently ships filtered-out logs.
- *
- * The logger resolves its level lazily per write (see env-load-order.test.ts),
- * but each case still runs under `jest.isolateModules` so the memoized env
- * cache starts fresh regardless of what other tests in this file have read.
- */
 function recordingProvider(logs: LogRecord[]): TelemetryProvider {
   return {
-    name: 'noop',
+    name: 'console',
     supports: ['logs'],
     async start() {},
     async shutdown() {},
-    runInSpan<T>(_n: string, _o: SpanOptions, fn: (s: Span) => T): T {
-      return fn({ setAttribute() {}, setAttributes() {}, recordException() {}, setStatus() {}, end() {} })
-    },
+    runInSpan: (_name, _options, fn) => fn(NOOP_SPAN),
     activeSpan: () => undefined,
     activeTraceContext: () => undefined,
     inject: () => {},
-    runInRemoteSpan<T>(_c: TraceCarrier, _n: string, _o: SpanOptions, fn: (s: Span) => T): T {
-      return fn({ setAttribute() {}, setAttributes() {}, recordException() {}, setStatus() {}, end() {} })
-    },
-    emitLog: (record: LogRecord) => logs.push(record),
-    recordMetric: (_p: MetricPoint) => {},
+    runInRemoteSpan: (_carrier, _name, _options, fn) => fn(NOOP_SPAN),
+    emitLog: (record) => logs.push(record),
+    recordMetric: () => {},
   }
 }
 
-function loadLoggerAtLevel(level: string | undefined, logs: LogRecord[]): Logger {
-  if (level === undefined) delete process.env.TELEMETRY_LOG_LEVEL
-  else process.env.TELEMETRY_LOG_LEVEL = level
-  setActiveProvider(recordingProvider(logs))
-  let logger!: Logger
-  jest.isolateModules(() => {
-    logger = require('../facade/logger').logger
-  })
-  return logger
-}
-
-const SAVED = { ...process.env }
-
-afterEach(() => {
-  process.env = { ...SAVED }
-  resetActiveProvider()
-})
-
-describe('logger backend-export level gating', () => {
-  it('drops records below the configured level from the backend export', () => {
-    const logs: LogRecord[] = []
-    const logger = loadLoggerAtLevel('warn', logs)
-
-    logger.trace('t')
-    logger.debug('d')
-    logger.info('i')
-    logger.warn('w')
-    logger.error('e')
-
-    expect(logs.map((r) => r.level)).toEqual(['warn', 'error'])
+describe('unified logger telemetry export', () => {
+  beforeEach(() => {
+    process.env.TELEMETRY_BACKEND = 'console'
+    process.env.OM_LOG_LEVEL = 'warn'
+    resetLogLevelCache()
+    resetLoggerRegistry()
+    resetLoggerExtension()
+    resetTelemetryRuntime()
+    resetTelemetryInit()
+    resetActiveProvider()
+    resetTelemetryEnvCache()
   })
 
-  it('exports info and above under the default level', () => {
+  afterEach(() => {
+    delete process.env.TELEMETRY_BACKEND
+    delete process.env.OM_LOG_LEVEL
+  })
+
+  it('uses the shared level gate for local and remote output', async () => {
     const logs: LogRecord[] = []
-    const logger = loadLoggerAtLevel(undefined, logs)
+    registerProvider(recordingProvider(logs))
+    await initTelemetry()
+    const logger = createLogger('orders')
 
-    logger.debug('d')
-    logger.info('i')
-    logger.error('e')
+    logger.debug('quiet')
+    logger.info('quiet')
+    logger.warn('visible')
+    logger.error('failed', { err: new Error('boom') })
 
-    expect(logs.map((r) => r.level)).toEqual(['info', 'error'])
+    expect(logs.map((record) => record.level)).toEqual(['warn', 'error'])
+    expect(logs.map((record) => record.message)).toEqual(['visible', 'failed'])
+    expect(logs[1].error?.message).toBe('boom')
+    expect(logs[1].attributes?.['logger.name']).toBe('orders')
   })
 })

@@ -4,7 +4,10 @@
  * Called from within a Next.js app directory as: yarn mercato <command>
  * Uses dynamic app resolution to find generated files at .mercato/generated/
  */
-import { initTelemetry, shutdownTelemetry } from '@open-mercato/telemetry'
+import {
+  getTelemetryRuntime,
+  isTelemetryBackendEnabled,
+} from '@open-mercato/shared/lib/telemetry/runtime'
 // `run` is imported dynamically inside `main()` so telemetry can initialize
 // before the mercato entry (and its Postgres driver) loads — see main().
 
@@ -101,9 +104,12 @@ async function main(): Promise<void> {
     // OpenTelemetry pg/undici auto-instrumentation only records spans for a
     // driver required AFTER the SDK has started. Registering here — ahead of any
     // app module — is what lets long-running worker/scheduler processes emit DB
-    // spans (not just the bullmq-otel add/process envelope). No-op when telemetry
-    // is disabled, so zero cost by default.
-    await initTelemetry()
+    // spans (not just the bullmq-otel add/process envelope). The package itself
+    // is not imported unless an explicit supported backend is selected.
+    if (isTelemetryBackendEnabled()) {
+      const { initTelemetry } = await import('@open-mercato/telemetry')
+      await initTelemetry()
+    }
 
     const bootstrapSucceeded = await tryBootstrap()
     if (!bootstrapSucceeded) {
@@ -126,7 +132,7 @@ async function main(): Promise<void> {
   const code = await run(process.argv)
   // Flush spans/logs for commands that return (workers block forever and flush via
   // their own shutdown handler instead).
-  await shutdownTelemetry()
+  await getTelemetryRuntime()?.shutdown()
   process.exit(code ?? 0)
 }
 

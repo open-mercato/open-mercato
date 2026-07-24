@@ -7965,6 +7965,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/telemetry@workspace:packages/telemetry"
   dependencies:
+    "@open-mercato/shared": "workspace:*"
     "@opentelemetry/api": "npm:^1.9.1"
     "@opentelemetry/api-logs": "npm:^0.219.0"
     "@opentelemetry/core": "npm:^2.8.0"
@@ -7984,7 +7985,6 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^25.9.1"
     jest: "npm:^30.4.2"
-    pino: "npm:^10.3.1"
     ts-jest: "npm:^29.4.11"
   dependenciesMeta:
     "@opentelemetry/api":

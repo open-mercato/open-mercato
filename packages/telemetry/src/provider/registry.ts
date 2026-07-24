@@ -47,9 +47,14 @@ export function setActiveProvider(provider: TelemetryProvider): void {
   store().active = provider
 }
 
+/** Restore only the active provider while preserving custom registrations. */
+export function clearActiveProvider(): void {
+  store().active = new NoopProvider()
+}
+
 /** Test-only: restore the default no-op provider. */
 export function resetActiveProvider(): void {
   const reg = store()
-  reg.active = new NoopProvider()
+  clearActiveProvider()
   reg.registered.clear()
 }

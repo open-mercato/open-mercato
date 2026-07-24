@@ -4,7 +4,6 @@
  * Vendor-neutral by construction — nothing here imports `@opentelemetry/*`;
  * only `provider/otlp-provider.ts` does, and it is loaded dynamically.
  */
-export { logger } from './facade/logger'
 export { withSpan, currentSpan, setAttributes } from './facade/tracer'
 export { counter, histogram, gauge } from './facade/meter'
 export { reportError } from './facade/report-error'
@@ -12,10 +11,8 @@ export type { ReportErrorContext } from './facade/report-error'
 export { captureTraceContext, continueTrace } from './facade/propagation'
 export { initTelemetry, shutdownTelemetry } from './init'
 export { registerProvider } from './provider/registry'
-export { isOtelSdkBackend } from './env'
 
 export type {
-  Logger,
   Span,
   SpanKind,
   SpanOptions,

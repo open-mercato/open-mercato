@@ -1,4 +1,4 @@
-import { captureTraceContext, continueTrace } from '@open-mercato/telemetry'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 /**
  * Distributed-trace propagation across the enqueue → worker boundary.
@@ -23,7 +23,7 @@ const TRACE_META_KEY = '_trace'
 export function attachTraceMetadata(
   metadata: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
-  const carrier = captureTraceContext()
+  const carrier = getTelemetryRuntime()?.captureTraceContext() ?? {}
   if (Object.keys(carrier).length === 0) return metadata
   return { ...(metadata ?? {}), [TRACE_META_KEY]: carrier }
 }
@@ -39,7 +39,14 @@ export function runJobInTrace<T>(
   metadata: Record<string, unknown> | undefined,
   fn: () => T,
 ): T {
-  return continueTrace(readTraceCarrier(metadata), `queue.${queueName}`, fn, { kind: 'consumer' })
+  const runtime = getTelemetryRuntime()
+  if (!runtime) return fn()
+  return runtime.continueTrace(
+    readTraceCarrier(metadata),
+    `queue.${queueName}`,
+    fn,
+    { kind: 'consumer' },
+  )
 }
 
 function readTraceCarrier(

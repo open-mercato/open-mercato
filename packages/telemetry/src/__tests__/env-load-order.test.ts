@@ -1,90 +1,67 @@
-/**
- * Regression for the CLI `.env` load-order bug: the CLI binary statically
- * imports this package (evaluating the logger) BEFORE dotenv loads the app's
- * `.env`. The old module-scope `readTelemetryEnv()` in the logger stamped the
- * env cache at import time, so `TELEMETRY_BACKEND` set only in `.env` silently
- * resolved to `noop` for worker/scheduler processes.
- *
- * These tests reproduce the exact sequence — import the facade, THEN set env
- * (simulating the dotenv load), then init — and assert the late env wins.
- */
+import { getLoggerExtension, resetLoggerExtension } from '@open-mercato/shared/lib/logger'
+import {
+  getTelemetryRuntime,
+  resetTelemetryRuntime,
+} from '@open-mercato/shared/lib/telemetry/runtime'
+import { initTelemetry, resetTelemetryInit } from '../init'
+import {
+  getActiveProvider,
+  registerProvider,
+  resetActiveProvider,
+} from '../provider/registry'
+import { resetTelemetryEnvCache } from '../env'
+import type { TelemetryProvider } from '../types'
+import { NOOP_SPAN } from '../provider/noop-provider'
 
-describe('telemetry env load order (import before .env)', () => {
-  const ENV_KEYS = ['TELEMETRY_BACKEND', 'TELEMETRY_LOG_LEVEL', 'TELEMETRY_LOG_PRETTY'] as const
-  let saved: Record<string, string | undefined>
+function provider(name = 'noop'): TelemetryProvider {
+  return {
+    name,
+    supports: [],
+    start: jest.fn(async () => {}),
+    shutdown: jest.fn(async () => {}),
+    runInSpan: (_name, _options, fn) => fn(NOOP_SPAN),
+    activeSpan: () => undefined,
+    activeTraceContext: () => undefined,
+    inject: () => {},
+    runInRemoteSpan: (_carrier, _name, _options, fn) => fn(NOOP_SPAN),
+    emitLog: () => {},
+    recordMetric: () => {},
+  }
+}
 
+describe('telemetry explicit opt-in boundary', () => {
   beforeEach(() => {
-    saved = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]))
-    for (const key of ENV_KEYS) delete process.env[key]
-  })
-
-  afterEach(async () => {
-    for (const key of ENV_KEYS) {
-      if (saved[key] === undefined) delete process.env[key]
-      else process.env[key] = saved[key]
-    }
-    // The provider registry is globalThis-keyed, so a provider started inside
-    // an isolated module copy outlives it — reset so tests stay independent.
-    const { resetActiveProvider } = await import('../provider/registry')
+    delete process.env.TELEMETRY_BACKEND
+    resetTelemetryEnvCache()
+    resetTelemetryInit()
     resetActiveProvider()
+    resetLoggerExtension()
+    resetTelemetryRuntime()
   })
 
-  it('initTelemetry resolves a backend set AFTER the facade was imported', async () => {
-    await jest.isolateModulesAsync(async () => {
-      // 1. Static import of the facade (what bin.ts does at the top of the file).
-      //    This must NOT freeze the env snapshot.
-      const { logger } = await import('../facade/logger')
-      expect(logger).toBeDefined()
+  it('does not resolve a custom provider or register runtime hooks while off', async () => {
+    const customNoop = provider()
+    registerProvider(customNoop)
 
-      // 2. The app's .env is loaded (dotenv) — only now is the backend known.
-      process.env.TELEMETRY_BACKEND = 'console'
+    await initTelemetry()
 
-      // 3. bin.ts calls initTelemetry().
-      const { initTelemetry } = await import('../init')
-      await initTelemetry()
-
-      const { getActiveProvider } = await import('../provider/registry')
-      expect(getActiveProvider().name).toBe('console')
-    })
+    expect(customNoop.start).not.toHaveBeenCalled()
+    expect(getActiveProvider().name).toBe('noop')
+    expect(getLoggerExtension()).toBeUndefined()
+    expect(getTelemetryRuntime()).toBeUndefined()
   })
 
-  it('log-level gating honors TELEMETRY_LOG_LEVEL set after import', async () => {
-    await jest.isolateModulesAsync(async () => {
-      const { writeRecord } = await import('../facade/logger')
-      const { registerProvider } = await import('../provider/registry')
-      const { initTelemetry } = await import('../init')
-      const { runSpan } = await import('../provider/run-span')
-      type LogRecordType = import('../types').LogRecord
-      type ProviderType = import('../types').TelemetryProvider
+  it('can initialize after dotenv sets an enabled backend following an off call', async () => {
+    const customConsole = provider('console')
+    registerProvider(customConsole)
 
-      // .env arrives after import: warn-level export only.
-      process.env.TELEMETRY_BACKEND = 'noop'
-      process.env.TELEMETRY_LOG_LEVEL = 'warn'
-      process.env.TELEMETRY_LOG_PRETTY = 'true'
+    await initTelemetry()
+    process.env.TELEMETRY_BACKEND = 'console'
+    await initTelemetry()
 
-      const exported: LogRecordType[] = []
-      const provider: ProviderType = {
-        name: 'noop',
-        supports: ['logs'],
-        async start() {},
-        async shutdown() {},
-        runInSpan: (_n, _o, fn) => runSpan({ setAttribute() {}, recordException() {}, setStatus() {}, end() {} }, fn),
-        activeSpan: () => undefined,
-        activeTraceContext: () => undefined,
-        inject: () => {},
-        runInRemoteSpan: (_c, _n, _o, fn) => runSpan({ setAttribute() {}, recordException() {}, setStatus() {}, end() {} }, fn),
-        emitLog: (record) => exported.push(record),
-        recordMetric: () => {},
-      }
-      registerProvider(provider)
-      await initTelemetry()
-
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
-      writeRecord({ level: 'info', message: 'below level' })
-      writeRecord({ level: 'warn', message: 'at level' })
-      consoleSpy.mockRestore()
-
-      expect(exported.map((record) => record.message)).toEqual(['at level'])
-    })
+    expect(customConsole.start).toHaveBeenCalledTimes(1)
+    expect(getActiveProvider()).toBe(customConsole)
+    expect(getLoggerExtension()).toBeDefined()
+    expect(getTelemetryRuntime()).toBeDefined()
   })
 })

@@ -1,8 +1,11 @@
 import type { Attributes } from '../types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { currentSpan } from './tracer'
-import { writeRecord } from './logger'
 import { serializeError } from './serialize'
 import { counter } from './meter'
+import { redactAttributes } from './redact'
+
+const logger = createLogger('telemetry')
 
 export type ReportErrorContext = {
   /** Owning module, e.g. 'orders'. Used as the only metric label. */
@@ -28,7 +31,11 @@ export function reportError(error: unknown, ctx?: ReportErrorContext): void {
   const serialized = serializeError(error)
   const attributes: Attributes = { ...(ctx?.attributes ?? {}) }
   if (ctx?.module) attributes.module = ctx.module
+  const safeAttributes = redactAttributes(attributes)
 
-  writeRecord({ level: 'error', message: serialized.message, attributes, error: serialized })
+  const safeError = new Error(serialized.message)
+  safeError.name = serialized.name
+  safeError.stack = serialized.stack
+  logger.error('Application error reported', { ...safeAttributes, err: safeError })
   counter('om.errors', 1, ctx?.module ? { module: ctx.module } : undefined)
 }

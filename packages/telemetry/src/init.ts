@@ -1,12 +1,27 @@
 import type { TelemetryBackendName, TelemetryProvider } from './types'
 import { isOtlpBackend, readTelemetryEnv, resetTelemetryEnvCache } from './env'
-import { NoopProvider } from './provider/noop-provider'
 import { ConsoleProvider } from './provider/console-provider'
-import { getRegisteredProvider, setActiveProvider } from './provider/registry'
-import { logger } from './facade/logger'
+import {
+  getRegisteredProvider,
+  clearActiveProvider,
+  setActiveProvider,
+} from './provider/registry'
+import {
+  registerTelemetryRuntime,
+  type TelemetryRuntime,
+} from '@open-mercato/shared/lib/telemetry/runtime'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { registerTelemetryLogger } from './facade/logger-bridge'
+import { captureTraceContext, continueTrace } from './facade/propagation'
+import { recordHttpDuration } from './facade/http'
+import { reportError } from './facade/report-error'
 
 let initialized = false
 let activeProvider: TelemetryProvider | undefined
+let disposeLoggerExtension: (() => void) | undefined
+let disposeRuntime: (() => void) | undefined
+
+const logger = createLogger('telemetry')
 
 /**
  * One-shot bootstrap, invoked from `apps/mercato/instrumentation.ts` (web) and,
@@ -23,6 +38,10 @@ export async function initTelemetry(): Promise<void> {
   // from the actual, fully-loaded environment.
   resetTelemetryEnvCache()
   const env = readTelemetryEnv()
+  // Explicit off is absolute: do not resolve custom providers, register hooks,
+  // or install process-wide bridges when the backend is unset/noop/unknown.
+  if (!env.enabled) return
+
   const provider = await resolveProvider(env.backend)
 
   // Only flag initialized AFTER start() succeeds — a throw here must leave
@@ -30,14 +49,14 @@ export async function initTelemetry(): Promise<void> {
   await provider.start()
   setActiveProvider(provider)
   activeProvider = provider
+  disposeLoggerExtension = registerTelemetryLogger(provider)
+  disposeRuntime = registerTelemetryRuntime(createRuntime(provider))
   initialized = true
 
-  if (env.enabled) {
-    logger.info('telemetry initialized', {
-      backend: provider.name,
-      sampling_ratio: env.samplingRatio,
-    })
-  }
+  logger.info('Telemetry initialized', {
+    backend: provider.name,
+    samplingRatio: env.samplingRatio,
+  })
 }
 
 async function resolveProvider(backend: TelemetryBackendName): Promise<TelemetryProvider> {
@@ -47,7 +66,7 @@ async function resolveProvider(backend: TelemetryBackendName): Promise<Telemetry
   if (backend === 'console') return new ConsoleProvider()
   // signoz | newrelic | otlp — same OTLP provider, vendor differs only by endpoint.
   if (isOtlpBackend(backend)) return await loadOtlpProvider(backend)
-  return new NoopProvider()
+  throw new Error(`Unsupported enabled telemetry backend: ${backend}`)
 }
 
 /**
@@ -60,7 +79,7 @@ async function loadOtlpProvider(backend: TelemetryBackendName): Promise<Telemetr
     const mod = await import('./provider/otlp-provider')
     return new mod.OtlpProvider({}, backend)
   } catch (err) {
-    logger.warn('telemetry: OTLP provider unavailable; falling back to console', {
+    logger.warn('OTLP provider unavailable; falling back to console', {
       reason: err instanceof Error ? err.message : String(err),
     })
     return new ConsoleProvider()
@@ -69,11 +88,37 @@ async function loadOtlpProvider(backend: TelemetryBackendName): Promise<Telemetr
 
 /** Flush + tear down the active backend (shutdown hook / `after()`). */
 export async function shutdownTelemetry(): Promise<void> {
-  if (activeProvider) await activeProvider.shutdown()
+  const provider = activeProvider
+  activeProvider = undefined
+  initialized = false
+  disposeLoggerExtension?.()
+  disposeLoggerExtension = undefined
+  disposeRuntime?.()
+  disposeRuntime = undefined
+  clearActiveProvider()
+  if (provider) await provider.shutdown()
+}
+
+function createRuntime(provider: TelemetryProvider): TelemetryRuntime {
+  return {
+    canUseGlobalTracePropagation: () =>
+      isOtlpBackend(provider.name as TelemetryBackendName)
+      && readTelemetryEnv().trustInboundTrace,
+    captureTraceContext,
+    continueTrace: (carrier, name, fn, options) =>
+      continueTrace(carrier, name, () => fn(), options),
+    recordHttpDuration,
+    reportError,
+    shutdown: shutdownTelemetry,
+  }
 }
 
 /** Test-only: allow re-init in jest. */
 export function resetTelemetryInit(): void {
   initialized = false
   activeProvider = undefined
+  disposeLoggerExtension?.()
+  disposeLoggerExtension = undefined
+  disposeRuntime?.()
+  disposeRuntime = undefined
 }

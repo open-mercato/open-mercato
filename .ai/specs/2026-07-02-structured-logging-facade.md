@@ -243,6 +243,7 @@ Per `BACKWARD_COMPATIBILITY.md` (contract-surface categories: import paths, type
 
 ## Changelog
 
+- 2026-07-24 — Telemetry integration landed on the facade extension seam: `@open-mercato/telemetry` registers optional trace-context enrichment and one remote sink only after explicit opt-in. The shared facade remains the sole application logger/local output path, and `OM_LOG_LEVEL` gates both local and remote records. Extension failures are isolated after local output. Disabled telemetry registers no extension.
 - 2026-07-02 — Initial draft (skeleton → full spec) for issue #3743. Library choice (pino), env var name (`OM_LOG_LEVEL`), and advisory-lint timing captured as open decisions with recommendations.
 - 2026-07-02 — Decisions resolved: **pino** behind the facade, **`OM_LOG_LEVEL`** as the level knob, **advisory lint added now (non-blocking)**. Status → Ready for implementation.
 - 2026-07-08 — Review feedback incorporated: corrected the false "call shape mirrors pino" claim — the facade is message-first while pino is object-first, so the server transport MUST reorder args (`child[level](fields ?? {}, msg)`) or structured fields are silently lost; added a Phase 1 unit test for the reordering; pulled baseline pino `redact` (passwords/tokens/secrets/authorization) into Phase 1 instead of deferring redaction (R2 residual High→Low mitigation updated, residual now Low).

@@ -26,7 +26,7 @@ function otelSpecifiersInSource(): string[] {
       const full = path.join(dir, entry.name)
       if (entry.isDirectory()) {
         visit(full)
-      } else if (entry.name.endsWith('.ts') && full !== path.resolve(__dirname, '../nextjs.ts')) {
+      } else if (entry.name.endsWith('.ts') && full !== path.resolve(__dirname, '../nextjs-config.ts')) {
         for (const match of fs.readFileSync(full, 'utf8').matchAll(/['"](@opentelemetry\/[a-z0-9-]+)['"]/g)) {
           specifiers.add(match[1])
         }
@@ -42,7 +42,7 @@ function recordingProvider() {
   let starts = 0
   const span = new RecordingSpan()
   const provider: TelemetryProvider = {
-    name: 'noop', // matches the default backend so initTelemetry picks it up
+    name: 'console',
     supports: ['traces', 'metrics', 'logs', 'errors'],
     async start() {
       starts += 1
@@ -82,6 +82,7 @@ describe('telemetry/nextjs helpers', () => {
 
   it('recordHttpDuration emits the semconv histogram; error.type only on 5xx', async () => {
     const { provider, metrics } = recordingProvider()
+    process.env.TELEMETRY_BACKEND = 'console'
     registerProvider(provider)
     await registerTelemetryForNextjs()
 
@@ -108,6 +109,7 @@ describe('telemetry/nextjs helpers', () => {
   it('skips initialization on the edge runtime (NodeSDK is Node-only)', async () => {
     const { provider, startCount } = recordingProvider()
     registerProvider(provider)
+    process.env.TELEMETRY_BACKEND = 'console'
 
     process.env.NEXT_RUNTIME = 'edge'
     await registerTelemetryForNextjs()

@@ -29,10 +29,10 @@ export function redactPii(text: string): string {
 }
 
 // Attribute KEYS whose value is a secret regardless of content. Intentionally
-// specific (e.g. `access_token`, not a bare `token`) so it does not clobber
-// benign fields like `token_count`.
+// specific enough not to clobber benign fields like `token_count`, while
+// still masking the exact key `token`.
 const SECRET_KEY_RE =
-  /(authorization|cookie|password|passwd|\bpwd\b|secret|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|auth[-_]?token|\bbearer\b|private[-_]?key|credential)/i
+  /(authorization|cookie|password|passwd|\bpwd\b|secret|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|auth[-_]?token|^token$|\bbearer\b|private[-_]?key|credential)/i
 
 /**
  * Redact a telemetry attribute bag before it ships: a value under a secret-looking

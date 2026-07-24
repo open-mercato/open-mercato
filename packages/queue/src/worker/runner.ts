@@ -1,6 +1,9 @@
-import { initTelemetry, shutdownTelemetry } from '@open-mercato/telemetry'
 import { createQueue } from '../factory'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  getTelemetryRuntime,
+  isTelemetryBackendEnabled,
+} from '@open-mercato/shared/lib/telemetry/runtime'
 import type { Queue, JobHandler, AsyncQueueOptions, QueueStrategyType } from '../types'
 
 const logger = createLogger('queue').child({ component: 'worker' })
@@ -74,7 +77,7 @@ function registerShutdownHandlers(): void {
     // restart/redeploy. Idempotent and a no-op when telemetry is off; a flush
     // failure must not turn a clean shutdown into a failed one.
     try {
-      await shutdownTelemetry()
+      await getTelemetryRuntime()?.shutdown()
     } catch (error) {
       logger.error('Error flushing telemetry during shutdown', { err: error })
     }
@@ -149,9 +152,12 @@ export async function runWorker<T = unknown>(
 
   // Worker processes don't run Next's instrumentation hook, so initialize
   // telemetry here — this is the single bootstrap every standalone worker passes
-  // through. Idempotent (a no-op when already initialized, e.g. an in-process
-  // worker in the web server) and a no-op when telemetry is off.
-  await initTelemetry()
+  // through. Import the telemetry package only for an explicit enabled backend;
+  // with the default/unset backend the worker never evaluates the package.
+  if (!getTelemetryRuntime() && isTelemetryBackendEnabled()) {
+    const { initTelemetry } = await import('@open-mercato/telemetry')
+    await initTelemetry()
+  }
 
   // Determine queue strategy from option, env var, or default to 'local'
   const strategy: QueueStrategyType = strategyOption

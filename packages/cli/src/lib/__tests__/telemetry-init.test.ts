@@ -14,11 +14,10 @@ const TEMPLATE_INSTRUMENTATION = path.join(TEMPLATE_DIR, 'src/instrumentation.ts
 // template so this test fails loudly if the scaffold's wiring changes and the
 // command doesn't keep up.
 const TELEMETRY_DISPATCHER_LINES = [
-  "import { reportError } from '@open-mercato/telemetry'",
-  "import { recordHttpDuration } from '@open-mercato/telemetry/nextjs'",
-  'recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)',
-  'recordHttpDuration(method, match.route.path, 500, startedAt)',
-  'reportError(error, {',
+  "import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'",
+  'getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)',
+  'getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, 500, startedAt)',
+  'getTelemetryRuntime()?.reportError(error, {',
 ]
 
 /** Assert a string is syntactically valid TypeScript (parse errors, not types). */
@@ -32,15 +31,16 @@ function assertParses(code: string, label: string): void {
 /** Turn the live wired template dispatcher back into a pre-telemetry one. */
 function stripTelemetry(src: string): string {
   return src
+    .replace(/\n[ \t]*getTelemetryRuntime\(\)\?\.reportError\(error, \{[\s\S]*?\n[ \t]*\}\)/, '')
     .split('\n')
     .filter(
       (line) =>
         !line.includes("from '@open-mercato/telemetry'") &&
         !line.includes("from '@open-mercato/telemetry/nextjs'") &&
+        !line.includes("from '@open-mercato/shared/lib/telemetry/runtime'") &&
         !line.includes('recordHttpDuration('),
     )
     .join('\n')
-    .replace(/\n[ \t]*reportError\(error, \{[\s\S]*?\n[ \t]*\}\)/, '')
 }
 
 const NEXT_CONFIG = `import type { NextConfig } from 'next'
@@ -126,7 +126,7 @@ describe('mercato telemetry init', () => {
     expect(read('src/instrumentation.ts')).toContain('registerTelemetryForNextjs')
 
     const nextConfig = read('next.config.ts')
-    expect(nextConfig).toContain('@open-mercato/telemetry/nextjs')
+    expect(nextConfig).toContain('@open-mercato/telemetry/nextjs-config')
     expect(nextConfig).toContain('...telemetryServerExternalPackages')
 
     const route = read(dispatcherPath)
@@ -215,7 +215,7 @@ describe('mercato telemetry init', () => {
     const nextConfig = read('next.config.ts')
     assertParses(nextConfig, 'single-line-next-config')
     expect(nextConfig).toContain('...telemetryServerExternalPackages')
-    expect(nextConfig).toContain('@open-mercato/telemetry/nextjs')
+    expect(nextConfig).toContain('@open-mercato/telemetry/nextjs-config')
   })
 
   it('flags next.config as manual when serverExternalPackages is absent', async () => {
@@ -265,8 +265,8 @@ describe('mercato telemetry init', () => {
     expect(read(dispatcherPath)).toBe(after1.route)
 
     const route = read(dispatcherPath)
-    expect((read('next.config.ts').match(/@open-mercato\/telemetry\/nextjs/g) ?? []).length).toBe(1)
-    expect((route.match(/from '@open-mercato\/telemetry'/g) ?? []).length).toBe(1)
+    expect((read('next.config.ts').match(/@open-mercato\/telemetry\/nextjs-config/g) ?? []).length).toBe(1)
+    expect((route.match(/from '@open-mercato\/shared\/lib\/telemetry\/runtime'/g) ?? []).length).toBe(1)
   })
 
   it('dry run writes nothing', async () => {
