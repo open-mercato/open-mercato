@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from '../dictionaries'
 import { runWithCacheTenant } from '@open-mercato/cache'
+import { buildRecordTag } from '@open-mercato/shared/lib/crud/cache'
 
 jest.mock('@open-mercato/core/modules/dictionaries/data/entities', () => ({
   Dictionary: 'Dictionary',
@@ -47,7 +48,7 @@ function createEntityManager(rows: EntryRow[]) {
 function createCache() {
   const store = new Map<string, unknown>()
   const get = jest.fn(async (key: string) => (store.has(key) ? store.get(key) : null))
-  const set = jest.fn(async (key: string, value: unknown) => {
+  const set = jest.fn(async (key: string, value: unknown, _options?: unknown) => {
     store.set(key, value)
   })
   return { get, set }
@@ -120,6 +121,14 @@ describe('resolveCachedDictionaryEntryValue', () => {
     const cache = createCache()
     await resolveCachedDictionaryEntryValue(em, 'entry-a', { tenantId: TENANT_A }, cache as any)
     expect(runWithCacheTenant).toHaveBeenCalledWith(TENANT_A, expect.any(Function))
+  })
+
+  it('tags the cached value with the dictionaries.entry CRUD record tag so invalidateCrudCache drops it on edit', async () => {
+    const { em } = createEntityManager(rows)
+    const cache = createCache()
+    await resolveCachedDictionaryEntryValue(em, 'entry-a', { tenantId: TENANT_A }, cache as any)
+    const setOptions = cache.set.mock.calls[0][2] as { tags?: string[] }
+    expect(setOptions?.tags).toEqual([buildRecordTag('dictionaries.entry', TENANT_A, 'entry-a')])
   })
 
   it('does not cache a missing entry (re-reads on the next lookup)', async () => {

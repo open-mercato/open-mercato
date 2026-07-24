@@ -7,6 +7,7 @@ import {
 } from '@open-mercato/core/modules/dictionaries/lib/utils'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
+import { buildRecordTag } from '@open-mercato/shared/lib/crud/cache'
 
 export type SalesDictionaryKind =
   | 'order-status'
@@ -126,12 +127,16 @@ export async function resolveDictionaryEntryValue(
 // Read-through cache in front of `resolveDictionaryEntryValue`, for the hot order-write path: the same
 // few status / fulfillment / payment entry ids are re-resolved for EVERY order, so a bulk import
 // re-reads them per order — a measured N+1 that dominates once the aggregate write itself is cheap.
-// The value is non-PII config; the entry is tenant-scoped via `runWithCacheTenant` and short-TTL'd, so
-// a dictionary-value edit takes effect after at most one TTL window. Callers pass the (soft-resolved)
-// cache; `undefined` reads straight through.
+// The value is non-PII config, tenant-scoped via `runWithCacheTenant` and short-TTL'd. It is tagged with
+// the platform CRUD record tag for `dictionaries.entry`, so the command bus's own `invalidateCrudCache`
+// (fired on every entry create/update/delete) drops this entry on edit — the 60s TTL is only a backstop.
+// Callers pass the (soft-resolved) cache; `undefined` reads straight through.
 const DICTIONARY_ENTRY_VALUE_CACHE_TTL_MS = 60_000
+const DICTIONARY_ENTRY_RESOURCE_KIND = 'dictionaries.entry'
 const dictionaryEntryValueCacheKey = (entryId: string): string => `sales:dictionary-entry-value:${entryId}`
-const dictionaryEntryValueCacheTags = (entryId: string): string[] => [`dictionary-entry:${entryId}`]
+const dictionaryEntryValueCacheTags = (entryId: string, tenantId: string): string[] => [
+  buildRecordTag(DICTIONARY_ENTRY_RESOURCE_KIND, tenantId, entryId),
+]
 
 export async function resolveCachedDictionaryEntryValue(
   em: EntityManager,
@@ -149,7 +154,7 @@ export async function resolveCachedDictionaryEntryValue(
     if (value != null) {
       await cache.set(cacheKey, value, {
         ttl: DICTIONARY_ENTRY_VALUE_CACHE_TTL_MS,
-        tags: dictionaryEntryValueCacheTags(entryId),
+        tags: dictionaryEntryValueCacheTags(entryId, scope.tenantId),
       })
     }
     return value
