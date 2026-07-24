@@ -782,7 +782,20 @@ function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, wr
   }
   const schema = JSON.stringify(readJson(schemaPath))
   const tools = writable ? 'Read,Glob,Grep,Edit,Write' : 'Read,Glob,Grep'
-  const args = ['-p', '--safe-mode', '--permission-mode', writable ? 'acceptEdits' : 'plan', '--tools', tools, '--no-session-persistence', '--output-format', 'stream-json', '--verbose', '--json-schema', schema]
+  const args = [
+    '-p',
+    '--safe-mode',
+    '--disable-slash-commands',
+    '--setting-sources', '',
+    '--strict-mcp-config',
+    '--mcp-config', '{"mcpServers":{}}',
+    '--permission-mode', writable ? 'acceptEdits' : 'plan',
+    '--tools', tools,
+    '--no-session-persistence',
+    '--output-format', 'stream-json',
+    '--verbose',
+    '--json-schema', schema,
+  ]
   if (model && model !== 'default') args.push('--model', model)
   return { command: 'claude', args }
 }

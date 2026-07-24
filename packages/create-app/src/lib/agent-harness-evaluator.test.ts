@@ -261,7 +261,7 @@ test('live Claude adapter uses safe plan mode, a read-only tool list, structured
   fs.writeFileSync(fake, `#!/usr/bin/env node
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
-if (!args.includes('--safe-mode') || args[args.indexOf('--permission-mode') + 1] !== 'plan' || args[args.indexOf('--tools') + 1] !== 'Read,Glob,Grep' || !args.includes('--no-session-persistence') || args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--verbose') || !args.includes('--json-schema')) process.exit(9)
+if (!args.includes('--safe-mode') || !args.includes('--disable-slash-commands') || args[args.indexOf('--setting-sources') + 1] !== '' || !args.includes('--strict-mcp-config') || args[args.indexOf('--mcp-config') + 1] !== '{"mcpServers":{}}' || args[args.indexOf('--permission-mode') + 1] !== 'plan' || args[args.indexOf('--tools') + 1] !== 'Read,Glob,Grep' || !args.includes('--no-session-persistence') || args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--verbose') || !args.includes('--json-schema')) process.exit(9)
 console.log(JSON.stringify({ type: 'assistant', message: { content: [
   { type: 'tool_use', name: 'Glob', input: { pattern: '.ai/{guides,skills}/**/*.md' } },
   { type: 'tool_use', name: 'Read', input: { file_path: require('node:path').join(process.cwd(), 'AGENTS.md') } },
