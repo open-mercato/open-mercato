@@ -7,6 +7,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
 import { calculateNextRun } from '../lib/nextRunCalculator.js'
+import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js'
 import type {
   ScheduleCreateInput,
   ScheduleUpdateInput,
@@ -188,6 +189,10 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
 
+    if (input.isEnabled ?? true) {
+      await enforceTenantActiveScheduleLimit(em, input.tenantId)
+    }
+
     // Calculate next run time
     const nextRunAt = calculateNextRun(
       input.scheduleType,
@@ -297,6 +302,23 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     if (schedule.organizationId) ensureOrganizationScope(ctx, schedule.organizationId)
     ensureCanManageSystemScopedJob(ctx, schedule)
 
+    if (input.isEnabled === true && schedule.isEnabled !== true) {
+      await enforceTenantActiveScheduleLimit(em, schedule.tenantId)
+    }
+
+    const scheduleChanged = input.scheduleType !== undefined || input.scheduleValue !== undefined || input.timezone !== undefined
+    const nextRunAt = scheduleChanged
+      ? calculateNextRun(
+        input.scheduleType ?? schedule.scheduleType,
+        input.scheduleValue ?? schedule.scheduleValue,
+        input.timezone ?? schedule.timezone,
+      )
+      : null
+
+    if (scheduleChanged && !nextRunAt) {
+      throw new CrudHttpError(422, { error: 'Invalid schedule value.' })
+    }
+
     // Update fields
     if (input.name !== undefined) schedule.name = input.name
     if (input.description !== undefined) schedule.description = input.description ?? null
@@ -326,16 +348,8 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
       if (input.targetCommand !== undefined) schedule.targetCommand = input.targetCommand
     }
 
-    // Recalculate next run if schedule changed
-    if (input.scheduleType !== undefined || input.scheduleValue !== undefined || input.timezone !== undefined) {
-      const nextRunAt = calculateNextRun(
-        schedule.scheduleType,
-        schedule.scheduleValue,
-        schedule.timezone
-      )
-      if (nextRunAt) {
-        schedule.nextRunAt = nextRunAt
-      }
+    if (nextRunAt) {
+      schedule.nextRunAt = nextRunAt
     }
 
     schedule.updatedAt = new Date()

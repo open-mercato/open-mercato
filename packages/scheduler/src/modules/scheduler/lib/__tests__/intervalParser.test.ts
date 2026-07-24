@@ -10,9 +10,8 @@ describe('intervalParser', () => {
   describe('parseInterval', () => {
     describe('seconds', () => {
       it('should parse seconds correctly', () => {
-        expect(parseInterval('30s')).toBe(30 * 1000)
-        expect(parseInterval('1s')).toBe(1000)
         expect(parseInterval('60s')).toBe(60 * 1000)
+        expect(parseInterval('90s')).toBe(90 * 1000)
       })
     })
 
@@ -86,11 +85,13 @@ describe('intervalParser', () => {
     })
 
     describe('edge cases', () => {
-      it('should handle zero', () => {
-        expect(parseInterval('0s')).toBe(0)
-        expect(parseInterval('0m')).toBe(0)
-        expect(parseInterval('0h')).toBe(0)
-        expect(parseInterval('0d')).toBe(0)
+      it('should reject zero and intervals below one minute', () => {
+        expect(() => parseInterval('0s')).toThrow('Interval must be at least 60 seconds')
+        expect(() => parseInterval('1s')).toThrow('Interval must be at least 60 seconds')
+        expect(() => parseInterval('59s')).toThrow('Interval must be at least 60 seconds')
+        expect(() => parseInterval('0m')).toThrow('Interval must be at least 60 seconds')
+        expect(() => parseInterval('0h')).toThrow('Interval must be at least 60 seconds')
+        expect(() => parseInterval('0d')).toThrow('Interval must be at least 60 seconds')
       })
 
       it('should handle large numbers', () => {
@@ -122,9 +123,9 @@ describe('intervalParser', () => {
 
     it('should handle seconds intervals', () => {
       const baseDate = new Date('2025-01-27T12:00:00Z')
-      const nextRun = calculateNextRunFromInterval('30s', baseDate)
+      const nextRun = calculateNextRunFromInterval('60s', baseDate)
       
-      expect(nextRun).toEqual(new Date('2025-01-27T12:00:30Z'))
+      expect(nextRun).toEqual(new Date('2025-01-27T12:01:00Z'))
     })
 
     it('should handle minute intervals', () => {
@@ -179,15 +180,19 @@ describe('intervalParser', () => {
 
   describe('validateInterval', () => {
     it('should return true for valid intervals', () => {
-      expect(validateInterval('30s')).toBe(true)
+      expect(validateInterval('60s')).toBe(true)
+      expect(validateInterval('1m')).toBe(true)
       expect(validateInterval('15m')).toBe(true)
       expect(validateInterval('2h')).toBe(true)
       expect(validateInterval('1d')).toBe(true)
-      expect(validateInterval('0s')).toBe(true)
       expect(validateInterval('999d')).toBe(true)
     })
 
     it('should return false for invalid intervals', () => {
+      expect(validateInterval('0s')).toBe(false)
+      expect(validateInterval('1s')).toBe(false)
+      expect(validateInterval('59s')).toBe(false)
+      expect(validateInterval('0m')).toBe(false)
       expect(validateInterval('invalid')).toBe(false)
       expect(validateInterval('')).toBe(false)
       expect(validateInterval('15')).toBe(false)
@@ -202,9 +207,8 @@ describe('intervalParser', () => {
   describe('intervalToHuman', () => {
     describe('seconds', () => {
       it('should convert seconds to human readable', () => {
-        expect(intervalToHuman('1s')).toBe('1 second')
-        expect(intervalToHuman('30s')).toBe('30 seconds')
-        expect(intervalToHuman('59s')).toBe('59 seconds')
+        expect(intervalToHuman('60s')).toBe('60 seconds')
+        expect(intervalToHuman('90s')).toBe('90 seconds')
       })
     })
 
@@ -251,15 +255,13 @@ describe('intervalParser', () => {
 
     describe('singular vs plural', () => {
       it('should use singular for 1', () => {
-        expect(intervalToHuman('1s')).toBe('1 second')
         expect(intervalToHuman('1m')).toBe('1 minute')
         expect(intervalToHuman('1h')).toBe('1 hour')
         expect(intervalToHuman('1d')).toBe('1 day')
       })
 
       it('should use plural for other numbers', () => {
-        expect(intervalToHuman('0s')).toBe('0 seconds')
-        expect(intervalToHuman('2s')).toBe('2 seconds')
+        expect(intervalToHuman('60s')).toBe('60 seconds')
         expect(intervalToHuman('2m')).toBe('2 minutes')
         expect(intervalToHuman('2h')).toBe('2 hours')
         expect(intervalToHuman('2d')).toBe('2 days')
@@ -272,17 +274,13 @@ describe('intervalParser', () => {
         expect(intervalToHuman('')).toBe('')
         expect(intervalToHuman('15')).toBe('15')
         expect(intervalToHuman('15x')).toBe('15x')
+        expect(intervalToHuman('0s')).toBe('0s')
+        expect(intervalToHuman('1s')).toBe('1s')
+        expect(intervalToHuman('59s')).toBe('59s')
       })
     })
 
     describe('edge cases', () => {
-      it('should handle zero', () => {
-        expect(intervalToHuman('0s')).toBe('0 seconds')
-        expect(intervalToHuman('0m')).toBe('0 seconds')
-        expect(intervalToHuman('0h')).toBe('0 seconds')
-        expect(intervalToHuman('0d')).toBe('0 seconds')
-      })
-
       it('should prefer larger units', () => {
         expect(intervalToHuman('60s')).toBe('60 seconds') // Not converted to minutes
         expect(intervalToHuman('60m')).toBe('1 hour') // Exactly 1 hour
@@ -300,7 +298,7 @@ describe('intervalParser', () => {
 
   describe('integration', () => {
     it('should work end-to-end for various intervals', () => {
-      const intervals = ['30s', '15m', '2h', '1d']
+      const intervals = ['60s', '15m', '2h', '1d']
       
       intervals.forEach(interval => {
         expect(validateInterval(interval)).toBe(true)

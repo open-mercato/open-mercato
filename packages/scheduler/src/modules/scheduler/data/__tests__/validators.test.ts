@@ -126,7 +126,8 @@ describe('scheduleCreateSchema', () => {
 
     it('should accept various interval formats', () => {
       const validIntervals = [
-        '30s',  // 30 seconds
+        '60s',  // 60 seconds
+        '1m',   // 1 minute
         '15m',  // 15 minutes
         '2h',   // 2 hours
         '1d',   // 1 day
@@ -324,6 +325,23 @@ describe('scheduleCreateSchema', () => {
         })
       ).toThrow(/Invalid schedule value/)
     })
+
+    it('should reject interval values below one minute', () => {
+      const subMinuteIntervals = ['0s', '1s', '59s', '0m']
+
+      subMinuteIntervals.forEach(scheduleValue => {
+        expect(() =>
+          scheduleCreateSchema.parse({
+            name: 'Invalid',
+            scopeType: 'system',
+            scheduleType: 'interval',
+            scheduleValue,
+            targetType: 'queue',
+            targetQueue: 'test',
+          })
+        ).toThrow(/Invalid schedule value/)
+      })
+    })
   })
 
   describe('field constraints', () => {
@@ -432,6 +450,16 @@ describe('scheduleUpdateSchema', () => {
         id: scheduleId,
         scheduleType: 'interval',
         scheduleValue: '15x',
+      })
+    ).toThrow(/Invalid schedule value/)
+  })
+
+  it('should reject interval values below one minute when updating', () => {
+    expect(() =>
+      scheduleUpdateSchema.parse({
+        id: scheduleId,
+        scheduleType: 'interval',
+        scheduleValue: '1s',
       })
     ).toThrow(/Invalid schedule value/)
   })

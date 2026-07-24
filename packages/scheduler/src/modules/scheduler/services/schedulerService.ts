@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
 import { calculateNextRun } from '../lib/nextRunCalculator.js'
+import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js'
 import type { BullMQSchedulerService } from './bullmqSchedulerService.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -57,6 +58,12 @@ export class SchedulerService {
     
     // Check if schedule already exists
     let schedule = await em.findOne(ScheduledJob, { id: registration.id })
+    const nextTenantId = registration.tenantId || null
+    const nextIsEnabled = registration.isEnabled !== undefined ? registration.isEnabled : (schedule?.isEnabled ?? true)
+    const tenantChanged = schedule ? (schedule.tenantId || null) !== nextTenantId : false
+    if (nextIsEnabled && (schedule?.isEnabled !== true || tenantChanged)) {
+      await enforceTenantActiveScheduleLimit(em, nextTenantId)
+    }
     
     if (schedule) {
       // Update existing
@@ -165,6 +172,22 @@ export class SchedulerService {
     if (!schedule) {
       throw new Error(`Schedule not found: ${scheduleId}`)
     }
+
+    if (changes.isEnabled === true && schedule.isEnabled !== true) {
+      await enforceTenantActiveScheduleLimit(em, schedule.tenantId)
+    }
+
+    const scheduleChanged = changes.scheduleType !== undefined || changes.scheduleValue !== undefined || changes.timezone !== undefined
+    const nextRunAt = scheduleChanged
+      ? calculateNextRun(
+        changes.scheduleType ?? schedule.scheduleType,
+        changes.scheduleValue ?? schedule.scheduleValue,
+        changes.timezone ?? schedule.timezone,
+      )
+      : null
+    if (scheduleChanged && !nextRunAt) {
+      throw new Error(`Failed to calculate next run time for schedule: ${scheduleId}`)
+    }
     
     // Apply changes
     if (changes.name !== undefined) schedule.name = changes.name
@@ -197,16 +220,8 @@ export class SchedulerService {
       if (changes.targetCommand !== undefined) schedule.targetCommand = changes.targetCommand || null
     }
     
-    // Recalculate next run if schedule changed
-    if (changes.scheduleType !== undefined || changes.scheduleValue !== undefined || changes.timezone !== undefined) {
-      const nextRunAt = calculateNextRun(
-        schedule.scheduleType,
-        schedule.scheduleValue,
-        schedule.timezone
-      )
-      if (nextRunAt) {
-        schedule.nextRunAt = nextRunAt
-      }
+    if (nextRunAt) {
+      schedule.nextRunAt = nextRunAt
     }
     
     schedule.updatedAt = new Date()

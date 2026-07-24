@@ -9,16 +9,18 @@ type ValidationError = { error?: string; details?: Array<{ path?: Array<string |
  * TC-SCHED-007: POST /api/scheduler/jobs rejects invalid cron and interval
  * `scheduleValue`s with 400 and an error scoped to the `scheduleValue` path.
  *
- * Interval format is `<number><unit>` with unit in s|m|h|d, so the inputs below
- * are genuinely malformed (the issue's "99h"/"0m" drafts are actually valid).
- * All cases are rejected at validation, so no records are created and no
- * teardown is required.
+ * Interval format is `<number><unit>` with unit in s|m|h|d and a minimum floor
+ * of one minute. All cases are rejected at validation, so no records are
+ * created and no teardown is required.
  */
 const invalidCases = [
   { label: 'cron: not a cron expression', scheduleType: 'cron' as const, scheduleValue: 'not-a-cron' },
   { label: 'cron: too few fields', scheduleType: 'cron' as const, scheduleValue: '* * *' },
   { label: 'interval: unsupported unit', scheduleType: 'interval' as const, scheduleValue: '15x' },
   { label: 'interval: missing unit', scheduleType: 'interval' as const, scheduleValue: '99' },
+  { label: 'interval: zero seconds', scheduleType: 'interval' as const, scheduleValue: '0s' },
+  { label: 'interval: one second', scheduleType: 'interval' as const, scheduleValue: '1s' },
+  { label: 'interval: below one minute', scheduleType: 'interval' as const, scheduleValue: '59s' },
 ]
 
 test.describe('TC-SCHED-007: POST /api/scheduler/jobs validates schedule value format', () => {
