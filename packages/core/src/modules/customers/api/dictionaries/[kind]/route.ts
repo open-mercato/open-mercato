@@ -22,6 +22,7 @@ import {
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../../lib/dictionaries'
 
 const logger = createLogger('customers')
 
@@ -55,7 +56,10 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
     })
     const { kind, mappedKind } = mapDictionaryKind(ctx.params?.kind)
     if (!organizationId) {
-      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+      throw new CrudHttpError(400, {
+        error: translate('customers.errors.organization_required', 'Organization context is required'),
+        code: CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE,
+      })
     }
     const settings = await loadCustomerSettings(em, { tenantId, organizationId })
     const sortMode = resolveDictionaryEntrySortMode(settings?.dictionarySortModes?.[kind])

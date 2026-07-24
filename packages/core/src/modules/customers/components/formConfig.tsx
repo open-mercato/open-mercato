@@ -54,6 +54,7 @@ import {
 } from './detail/hooks/useCustomerDictionary'
 import {
   CUSTOMER_DICTIONARIES_MANAGE_HREF,
+  CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE,
   getCustomerDictionaryManageHref,
   type CustomerDictionaryKind,
 } from '../lib/dictionaries'
@@ -198,8 +199,11 @@ export function DictionarySelectField({
         icon: entry.icon ?? null,
       }))
     } catch (err) {
-      const status = (err as { status?: unknown } | null)?.status
-      if (status === 400) {
+      const responseError = err as { status?: unknown; code?: unknown } | null
+      if (
+        responseError?.status === 400 &&
+        responseError.code === CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE
+      ) {
         const serverMessage = err instanceof Error ? err.message.trim() : ''
         throw new DictionaryOptionsUnavailableError(
           serverMessage.length
