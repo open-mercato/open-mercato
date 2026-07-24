@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import {
   bridgeLegacyGuard,
@@ -21,6 +22,8 @@ import {
   mockupDocumentPutResponseSchema,
   mockupErrorSchema,
 } from '../openapi'
+
+const logger = createLogger('design_system').child({ component: 'api' })
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['design_system.view'] },
@@ -178,7 +181,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ slug: st
       })
     } catch (error) {
       // Committed writes still return successfully; callback failures are logged.
-      console.error('design_system mockup document afterSuccess callback failed', error)
+      logger.error('Mockup document afterSuccess callback failed', { err: error })
     }
   }
 
