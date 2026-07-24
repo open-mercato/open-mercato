@@ -133,40 +133,13 @@ function selectModuleFactSheets(targetDir: string, modulesSubdir: string): strin
 const MODULE_GUIDES_START = '<!-- om:module-guides:start -->'
 const MODULE_GUIDES_END = '<!-- om:module-guides:end -->'
 
-// Read each module's guide label from the bundled `module-facts.json` (emitted by
-// build.mjs from the generator's extraction of each module's own `metadata`). The
-// label falls back description → title → generic, so the CLI never re-declares
-// specific module names or descriptions. A missing/malformed sidecar degrades to an
-// empty map (generic labels), never a throw.
-function readModuleGuideLabels(guidesDir: string): Record<string, string> {
-  const factsPath = join(guidesDir, 'module-facts.json')
-  if (!existsSync(factsPath)) return {}
-  try {
-    const parsed = JSON.parse(readFileSync(factsPath, 'utf-8')) as Record<
-      string,
-      { description?: unknown; title?: unknown }
-    >
-    const labels: Record<string, string> = {}
-    for (const [moduleId, entry] of Object.entries(parsed)) {
-      const label =
-        (entry && typeof entry.description === 'string' && entry.description) ||
-        (entry && typeof entry.title === 'string' && entry.title) ||
-        ''
-      if (label) labels[moduleId] = label
-    }
-    return labels
-  } catch {
-    return {}
-  }
-}
-
-function renderModuleGuidesBlock(selected: string[], labels: Record<string, string>): string {
+function renderModuleGuidesBlock(selected: string[]): string {
   if (selected.length === 0) return '_No module fact-sheets are bundled for this app._'
-  const rows = selected.map((moduleId) => {
-    const label = labels[moduleId] ?? `Use the ${moduleId} module`
-    return `| ${label} | \`.ai/guides/modules/${moduleId}.md\` |`
-  })
-  return ['| Task | Load |', '|---|---|', ...rows].join('\n')
+  return [
+    `Enabled module facts: ${selected.map((moduleId) => `\`${moduleId}\``).join(', ')}.`,
+    '',
+    'Load `.ai/guides/modules/<id>.md` only when `<id>` is explicitly named or is the targeted installed module/host; never preload all module facts.',
+  ].join('\n')
 }
 
 // Regenerate the marker-delimited Module-Specific Guides block in the written
@@ -175,7 +148,6 @@ function renderModuleGuidesBlock(selected: string[], labels: Record<string, stri
 function injectModuleGuides(
   agentsMdPath: string,
   selected: string[],
-  labels: Record<string, string> = {},
 ): void {
   if (!existsSync(agentsMdPath)) return
   const content = readFileSync(agentsMdPath, 'utf-8')
@@ -189,7 +161,7 @@ function injectModuleGuides(
   }
   const before = content.slice(0, startIndex + MODULE_GUIDES_START.length)
   const after = content.slice(endIndex)
-  const next = `${before}\n${renderModuleGuidesBlock(selected, labels)}\n${after}`
+  const next = `${before}\n${renderModuleGuidesBlock(selected)}\n${after}`
   if (next !== content) writeFileSync(agentsMdPath, next)
 }
 
@@ -488,7 +460,6 @@ function generateShared(config: AgenticConfig): void {
 
   // Resolve which per-module fact-sheets this app gets (enabled ∩ bundled allowlist).
   const selectedModules = selectModuleFactSheets(targetDir, join(GUIDES_DIR, 'modules'))
-  const moduleGuideLabels = readModuleGuideLabels(GUIDES_DIR)
 
   // One recursive mapping mirrors create-app's shared emitter.
   writeTemplate(srcDir, 'AGENTS.md.template', join(targetDir, 'AGENTS.md'), config)
@@ -526,7 +497,7 @@ function generateShared(config: AgenticConfig): void {
     }
   }
 
-  injectModuleGuides(join(targetDir, 'AGENTS.md'), selectedModules, moduleGuideLabels)
+  injectModuleGuides(join(targetDir, 'AGENTS.md'), selectedModules)
 }
 
 function generateClaudeCode(config: AgenticConfig): void {

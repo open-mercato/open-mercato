@@ -169,6 +169,7 @@ Every generated call site uses Node directly: the package script, create-app wiz
 - A generated manifest records the owned file set and source hash so upgrades can distinguish unmodified generated assets from user modifications.
 - Tool-specific files add enforcement/hook behavior only. They do not restate the architecture. Entity hooks/globs target `src/modules/*/data/entities.ts`.
 - Module facts add `sourcePackage` and `sourceVersion` while retaining the existing `coreVersion` field as a compatibility bridge. A valid empty enabled-module intersection remains empty; only an actual `src/modules.ts` parse failure may fall back to all bundled facts.
+- The generated module marker is an identifier-only enabled-module index plus one `.ai/guides/modules/<id>.md` loading rule. It never embeds module descriptions or repeats one fact-sheet path per module; detailed facts remain progressively loaded from the named/targeted module sheet.
 
 The manifest is finalized atomically only after shared emission, module-row injection, tool patching, and persisted agent selection. Relative paths are normalized and rejected if they escape the app root. Rerun behavior is explicit:
 
@@ -563,3 +564,4 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 - **2026-07-24** — Restored standalone provider placement (local module by default, separately published dependency for explicit reuse) and scope-contract nuance for authorized tenant-wide/system jobs without weakening organization-owned data isolation.
 - **2026-07-24** — Reviewer hardening made duplicate module-fact providers fail closed unless `src/modules.ts` selects one exact package; framework context now recognizes dist-only roots, compares fact package and version stamps, validates materialization path segments, and emits deterministic globally capped search artifacts with explicit status.
 - **2026-07-24** — Replaced writable token scans with controller-owned AST and isolated behavior oracles, made every seeded fixture fail its precondition, added the fixed after-phase typecheck gate, and prevented writable targets from supplying executable validation code.
+- **2026-07-24** — Compacted the generated enabled-module marker from per-module description/path rows to an identifier-only index with one progressive fact-sheet path rule, preserving enabled/bundled selection and fallback semantics while keeping compound routing under the initial context budget.

@@ -264,12 +264,15 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
       expect(agentsSource).toContain('<!-- CODEX_ENFORCEMENT_RULES_START -->')
       expect(agentsSource).toContain('.ai/guides/core.md')
 
-      // The Module-Specific Guides marker block lists exactly the enabled modules'
-      // fact-sheets (enabled ∩ allowlist), not the full bundled set.
+      // The Module-Specific Guides marker block is a compact enabled-module ID
+      // index (enabled ∩ bundled) plus one progressively loaded path pattern.
       for (const moduleId of FIXTURE_ENABLED_MODULES) {
-        expect(agentsSource).toContain(`.ai/guides/modules/${moduleId}.md`)
+        expect(agentsSource).toContain(`\`${moduleId}\``)
       }
-      expect(agentsSource).not.toContain('.ai/guides/modules/auth.md')
+      expect(agentsSource).toContain('`.ai/guides/modules/<id>.md`')
+      expect(agentsSource.match(/\.ai\/guides\/modules\//g)).toHaveLength(1)
+      expect(agentsSource).not.toContain('`auth`')
+      expect(agentsSource).not.toContain('Core CRM capabilities')
 
       const specsReadmeSource = fs.readFileSync(path.join(appDir, '.ai', 'specs', 'README.md'), 'utf8')
       expect(specsReadmeSource).toContain('sample-store')
