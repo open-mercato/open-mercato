@@ -53,7 +53,8 @@
       "description": "PR/issue automation skills. Opt-in; agent-driven workflows.",
       "skills": [
         "om-auto-publish-pr",
-        "om-auto-qa-scenarios"
+        "om-auto-qa-scenarios",
+        "om-ux-walkthrough"
       ]
     },
     "security": {
