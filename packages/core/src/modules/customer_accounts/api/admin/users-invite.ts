@@ -7,7 +7,7 @@ import { RbacService } from '@open-mercato/core/modules/auth/services/rbacServic
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
-import { isOwnedCompanyEntity, isOwnedPersonEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
+import { isOwnedCompanyEntity, isOwnedPersonEntity, resolveOwnedCompanyForPerson } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
   checkAuthRateLimit,
@@ -70,6 +70,7 @@ export async function POST(req: Request) {
   // Same guard for the person FK: it is copied onto the customer user on accept
   // and makes `autoLinkCrm` short-circuit, so an unowned id would permanently
   // cross-link the portal user to another org's CRM person.
+  let resolvedCustomerEntityId = parsed.data.customerEntityId || null
   if (parsed.data.personEntityId) {
     const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
     const owned = await isOwnedPersonEntity(em, parsed.data.personEntityId, {
@@ -79,6 +80,17 @@ export async function POST(req: Request) {
     if (!owned) {
       return NextResponse.json({ ok: false, error: 'Person not found' }, { status: 400 })
     }
+
+    // An invitation raised from a person card carries only the person FK, and the
+    // accepted user then short-circuits `autoLinkCrm`. Resolve the person's company
+    // here so the user lands with a company scope key: the portal Users page, portal
+    // invitations, and the company detail "Portal users" group all filter on it.
+    if (!resolvedCustomerEntityId) {
+      resolvedCustomerEntityId = await resolveOwnedCompanyForPerson(em, parsed.data.personEntityId, {
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+      })
+    }
   }
 
   const customerInvitationService = container.resolve('customerInvitationService') as CustomerInvitationService
@@ -87,7 +99,7 @@ export async function POST(req: Request) {
     parsed.data.email,
     { tenantId: auth.tenantId!, organizationId: auth.orgId! },
     {
-      customerEntityId: parsed.data.customerEntityId || null,
+      customerEntityId: resolvedCustomerEntityId,
       personEntityId: parsed.data.personEntityId || null,
       roleIds: parsed.data.roleIds,
       invitedByUserId: auth.sub,
@@ -109,6 +121,10 @@ export async function POST(req: Request) {
     invitation: {
       id: invitation.id,
       email: invitation.email,
+      // Echo the stored CRM links so the caller can see which company the person
+      // invite resolved to. The token stays unexposed.
+      customerEntityId: invitation.customerEntityId || null,
+      personEntityId: invitation.personEntityId || null,
       expiresAt: invitation.expiresAt,
     },
   }, { status: 201 })
@@ -119,6 +135,8 @@ const successSchema = z.object({
   invitation: z.object({
     id: z.string().uuid(),
     email: z.string(),
+    customerEntityId: z.string().uuid().nullable(),
+    personEntityId: z.string().uuid().nullable(),
     expiresAt: z.string().datetime(),
   }),
 })

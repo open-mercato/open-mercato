@@ -12,6 +12,7 @@ const mockGetAuthFromRequest = jest.fn()
 const mockEmit = jest.fn(async () => undefined)
 const mockIsOwnedCompanyEntity = jest.fn()
 const mockIsOwnedPersonEntity = jest.fn()
+const mockResolveOwnedCompanyForPerson = jest.fn()
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/rateLimiter', () => ({
   checkAuthRateLimit: (...args: unknown[]) => mockCheckAuthRateLimit(...args),
@@ -43,6 +44,7 @@ jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership', () => ({
   isOwnedCompanyEntity: (...args: unknown[]) => mockIsOwnedCompanyEntity(...args),
   isOwnedPersonEntity: (...args: unknown[]) => mockIsOwnedPersonEntity(...args),
+  resolveOwnedCompanyForPerson: (...args: unknown[]) => mockResolveOwnedCompanyForPerson(...args),
 }))
 
 const tenantId = '22222222-2222-4222-8222-222222222222'
@@ -68,10 +70,17 @@ describe('admin users-invite — person link + company ownership (#4362)', () =>
     mockGetAuthFromRequest.mockResolvedValue({ sub: 'staff-1', tenantId, orgId: organizationId })
     mockIsOwnedCompanyEntity.mockResolvedValue(true)
     mockIsOwnedPersonEntity.mockResolvedValue(true)
-    mockCreateInvitation.mockResolvedValue({
-      invitation: { id: invitationId, email: 'buyer@example.com', customerEntityId: null, expiresAt: new Date().toISOString() },
+    mockResolveOwnedCompanyForPerson.mockResolvedValue(null)
+    mockCreateInvitation.mockImplementation(async (_email: string, _scope: unknown, options: Record<string, unknown>) => ({
+      invitation: {
+        id: invitationId,
+        email: 'buyer@example.com',
+        customerEntityId: options.customerEntityId ?? null,
+        personEntityId: options.personEntityId ?? null,
+        expiresAt: new Date().toISOString(),
+      },
       rawToken: 'raw-secret-token',
-    })
+    }))
   })
 
   it('passes personEntityId through to the invitation service and does not require a company', async () => {
@@ -137,6 +146,54 @@ describe('admin users-invite — person link + company ownership (#4362)', () =>
     expect(res.status).toBe(201)
     expect(mockIsOwnedCompanyEntity).toHaveBeenCalledWith(expect.anything(), companyEntityId, { tenantId, organizationId })
     expect(mockCreateInvitation).toHaveBeenCalledTimes(1)
+    const options = mockCreateInvitation.mock.calls[0][2] as Record<string, unknown>
+    expect(options.customerEntityId).toBe(companyEntityId)
+  })
+
+  it('derives the company from the person profile so the accepted user gets a portal scope key', async () => {
+    // Without this the person-invited user accepts with customerEntityId null and
+    // autoLinkCrm short-circuits on personEntityId, leaving the portal Users page,
+    // portal invitations, and the company detail listing permanently empty.
+    mockResolveOwnedCompanyForPerson.mockResolvedValue(companyEntityId)
+    const { POST } = await import('../admin/users-invite')
+    const res = await POST(makeInviteRequest({ email: 'buyer@example.com', roleIds: [roleId], personEntityId }))
+
+    expect(res.status).toBe(201)
+    expect(mockResolveOwnedCompanyForPerson).toHaveBeenCalledWith(expect.anything(), personEntityId, { tenantId, organizationId })
+    const options = mockCreateInvitation.mock.calls[0][2] as Record<string, unknown>
+    expect(options.customerEntityId).toBe(companyEntityId)
+    expect(options.personEntityId).toBe(personEntityId)
+    // The response echoes the resolved links so callers (and integration tests)
+    // can observe which company the person invite landed on.
+    const json = await res.json() as { invitation: Record<string, unknown> }
+    expect(json.invitation.customerEntityId).toBe(companyEntityId)
+    expect(json.invitation.personEntityId).toBe(personEntityId)
+  })
+
+  it('leaves customerEntityId null when the person has no in-scope company', async () => {
+    // The helper returns null both for a person without a company and for one whose
+    // company sits outside the caller org; neither may become a portal scope key.
+    mockResolveOwnedCompanyForPerson.mockResolvedValue(null)
+    const { POST } = await import('../admin/users-invite')
+    const res = await POST(makeInviteRequest({ email: 'buyer@example.com', roleIds: [roleId], personEntityId }))
+
+    expect(res.status).toBe(201)
+    const options = mockCreateInvitation.mock.calls[0][2] as Record<string, unknown>
+    expect(options.customerEntityId).toBeNull()
+  })
+
+  it('keeps an explicit customerEntityId instead of deriving one from the person', async () => {
+    mockResolveOwnedCompanyForPerson.mockResolvedValue(personEntityId)
+    const { POST } = await import('../admin/users-invite')
+    const res = await POST(makeInviteRequest({
+      email: 'buyer@example.com',
+      roleIds: [roleId],
+      personEntityId,
+      customerEntityId: companyEntityId,
+    }))
+
+    expect(res.status).toBe(201)
+    expect(mockResolveOwnedCompanyForPerson).not.toHaveBeenCalled()
     const options = mockCreateInvitation.mock.calls[0][2] as Record<string, unknown>
     expect(options.customerEntityId).toBe(companyEntityId)
   })
