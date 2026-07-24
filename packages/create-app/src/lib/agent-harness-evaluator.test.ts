@@ -1456,6 +1456,42 @@ process.exit(9)
   }
 })
 
+test('writable target preflight rejects target-owned dependencies before the model or oracle can execute them', { skip: process.platform === 'win32' }, () => {
+  const controller = stageApp()
+  const target = stageWritableTarget(controller)
+  const modelStarted = path.join(controller, 'model-started')
+  const targetDependencyExecuted = path.join(controller, 'target-dependency-executed')
+  try {
+    const prepared = spawnSync(process.execPath, [
+      path.join(controller, 'scripts', 'prepare-agent-harness-fixture.mjs'),
+      '--case', 'OMH-011', '--target', target, '--acknowledge-writes',
+    ], { cwd: controller, encoding: 'utf8' })
+    assert.equal(prepared.status, 0, `${prepared.stdout}\n${prepared.stderr}`)
+    fs.rmSync(path.join(target, 'node_modules'))
+    const targetTypeScript = path.join(target, 'node_modules', 'typescript')
+    fs.mkdirSync(targetTypeScript, { recursive: true })
+    fs.writeFileSync(path.join(targetTypeScript, 'package.json'), '{"name":"typescript","main":"index.js"}\n')
+    fs.writeFileSync(path.join(targetTypeScript, 'index.js'), `require('node:fs').writeFileSync(${JSON.stringify(targetDependencyExecuted)}, 'unsafe')\n`)
+    const bin = installFakeRunner(controller, 'codex', `
+const fs = require('node:fs')
+if (process.argv[2] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(${JSON.stringify(modelStarted)}, 'unsafe')
+process.exit(9)
+`)
+    const run = runEvaluator(controller, [
+      '--runner', 'codex', '--case', 'OMH-011', '--writable-root', target, '--acknowledge-writes',
+    ], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+    assert.equal(run.status, 2, `${run.stdout}\n${run.stderr}`)
+    assert.match(run.stderr, /node_modules must link to the controller protected dependency tree/)
+    assert.equal(fs.existsSync(modelStarted), false)
+    assert.equal(fs.existsSync(targetDependencyExecuted), false)
+    assert.deepEqual(storedResults(controller), [])
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
 test('writable snapshots reject a model-created symlink before trusted after-oracles read it', { skip: process.platform !== 'darwin' && process.platform !== 'linux' }, () => {
   if (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status !== 0) return
   const controller = stageApp()
@@ -1543,12 +1579,13 @@ console.log(JSON.stringify({ passed: process.argv.includes('after'), failures: p
 test('writable snapshots detect protected ignored-root and arbitrary root writes', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
   const target = stageWritableTarget(root)
+  const afterOracleMarker = path.join(root, 'after-oracle-ran')
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
 const path = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
-for (const relative of ['.git/tampered', 'node_modules/tampered.txt', 'UNEXPECTED.txt']) {
+for (const relative of ['.git/tampered', 'dist/tampered.js', 'UNEXPECTED.txt']) {
   fs.mkdirSync(path.dirname(relative), { recursive: true })
   fs.writeFileSync(relative, 'tampered')
 }
@@ -1559,6 +1596,12 @@ fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat src/modules/library/data/entities.ts' } }))
 `)
+  const fakeYarn = path.join(bin, 'yarn')
+  fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
+if (process.argv[2] === 'typecheck') require('node:fs').writeFileSync(${JSON.stringify(afterOracleMarker)}, 'unsafe')
+process.exit(0)
+`)
+  fs.chmodSync(fakeYarn, 0o755)
   try {
     const prepared = spawnSync(process.execPath, [
       path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'),
@@ -1573,11 +1616,13 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
     })
     assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
     const [stored] = storedResults(root)
-    assert.ok(stored.violations.some((entry) => entry.includes('writes to protected roots: .git, node_modules')))
+    assert.ok(stored.violations.some((entry) => entry.includes('writes to protected roots: .git, dist')))
     assert.ok(stored.violations.some((entry) => entry.includes('writes outside allowlist: UNEXPECTED.txt')))
+    assert.ok(stored.violations.some((entry) => entry.includes('trusted oracles skipped because protected roots changed: .git, dist')))
     assert.ok(stored.writable?.changedPaths.includes('.git'))
-    assert.ok(stored.writable?.changedPaths.includes('node_modules'))
+    assert.ok(stored.writable?.changedPaths.includes('dist'))
     assert.ok(stored.writable?.changedPaths.includes('UNEXPECTED.txt'))
+    assert.equal(fs.existsSync(afterOracleMarker), false)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })
