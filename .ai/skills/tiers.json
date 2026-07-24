@@ -1,18 +1,45 @@
 {
   "$schema": "./tiers.schema.json",
   "default": ["core"],
+  "external": {
+    "source": "open-mercato/skills",
+    "description": "Skills installed from the shared open-mercato/skills collection via `npx skills add` (see scripts/install-skills.sh). A folder under .ai/skills/ matching one of these names is a repo-local override read by the external skill, never symlinked into the harness directories.",
+    "skills": [
+      "om-approve-merge-pr",
+      "om-auto-continue-pr",
+      "om-auto-continue-pr-loop",
+      "om-auto-create-pr",
+      "om-auto-create-pr-loop",
+      "om-auto-fix-issue",
+      "om-auto-review-pr",
+      "om-auto-update-changelog",
+      "om-auto-qa-pr",
+      "om-check-and-commit",
+      "om-code-review",
+      "om-fix",
+      "om-followup-issue-from-pr",
+      "om-integration-tests",
+      "om-merge-buddy",
+      "om-open-pr",
+      "om-prepare-issue",
+      "om-prepare-test-env",
+      "om-review-prs",
+      "om-root-cause",
+      "om-setup-agent-pipeline",
+      "om-spec-writing",
+      "om-auto-fix-pr",
+      "om-close-fixed-issues",
+      "om-verify-in-repo"
+    ]
+  },
   "tiers": {
     "core": {
       "description": "Daily-driver skills installed by default.",
       "skills": [
-        "om-code-review",
         "om-ds-guardian",
         "om-backend-ui-design",
-        "om-check-and-commit",
-        "om-spec-writing",
         "om-implement-spec",
         "om-pre-implement-spec",
-        "om-integration-tests",
         "om-smart-test",
         "om-create-agents-md",
         "om-skill-creator",
@@ -25,27 +52,8 @@
     "automation": {
       "description": "PR/issue automation skills. Opt-in; agent-driven workflows.",
       "skills": [
-        "om-auto-create-pr",
-        "om-auto-continue-pr",
-        "om-auto-create-pr-loop",
-        "om-auto-continue-pr-loop",
-        "om-auto-review-pr",
-        "om-auto-fix-github",
-        "om-auto-verify-and-fix-github",
-        "om-prepare-issue",
-        "om-verify-in-repo",
-        "om-root-cause",
-        "om-fix",
-        "om-open-pr",
-        "om-review-prs",
-        "om-merge-buddy",
-        "om-approve-merge-pr",
-        "om-followup-issue-from-pr",
-        "om-sync-merged-pr-issues",
-        "om-auto-update-changelog",
         "om-auto-publish-pr",
-        "om-auto-qa-scenarios",
-        "om-auto-verify-pr-ui"
+        "om-auto-qa-scenarios"
       ]
     },
     "security": {

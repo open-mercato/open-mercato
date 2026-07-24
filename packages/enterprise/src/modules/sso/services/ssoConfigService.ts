@@ -8,6 +8,9 @@ import type { SsoConfigAdminCreateInput, SsoConfigAdminUpdateInput, SsoConfigLis
 import { emitSsoEvent } from '../events'
 import { validateDomain, normalizeDomain, uniqueDomains, checkDomainLimit } from '../lib/domains'
 import type { SsoProviderRegistry } from '../lib/registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sso').child({ component: 'config' })
 
 export interface SsoAdminScope {
   isSuperAdmin: boolean
@@ -138,7 +141,7 @@ export class SsoConfigService {
       id: config.id,
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch((e) => console.error('[SSO Event]', e))
+    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     return this.toPublic(config)
   }
@@ -178,7 +181,7 @@ export class SsoConfigService {
       id: config.id,
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch((e) => console.error('[SSO Event]', e))
+    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     return this.toPublic(config)
   }
@@ -197,42 +200,49 @@ export class SsoConfigService {
       id: config.id,
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch((e) => console.error('[SSO Event]', e))
+    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
   }
 
   async activate(scope: SsoAdminScope, id: string, active: boolean): Promise<SsoConfigPublic> {
-    const config = await this.resolveConfig(scope, id)
+    return this.em.transactional(async (txEm) => {
+      const tx = txEm as EntityManager
+      await this.lockActiveDomainMutation(tx, id)
+      const config = await this.resolveConfig(scope, id, tx)
 
-    if (active) {
-      if (config.allowedDomains.length === 0) {
-        throw new SsoConfigError('Cannot activate SSO configuration with no allowed domains', 400)
+      if (active) {
+        if (config.allowedDomains.length === 0) {
+          throw new SsoConfigError('Cannot activate SSO configuration with no allowed domains', 400)
+        }
+
+        await this.lockActiveDomains(tx, config.allowedDomains)
+        await this.assertActiveDomainAvailability(tx, config.allowedDomains, config.id)
+
+        const testResult = await this.testConnectionInternal(config)
+        if (!testResult.ok) {
+          throw new SsoConfigError(`Cannot activate — discovery failed: ${testResult.error}`, 400)
+        }
       }
 
-      const testResult = await this.testConnectionInternal(config)
-      if (!testResult.ok) {
-        throw new SsoConfigError(`Cannot activate — discovery failed: ${testResult.error}`, 400)
+      const wasActive = config.isActive
+      config.isActive = active
+      await tx.flush()
+
+      if (active && !wasActive) {
+        void emitSsoEvent('sso.config.activated', {
+          id: config.id,
+          tenantId: config.tenantId,
+          organizationId: config.organizationId,
+        }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
+      } else if (!active && wasActive) {
+        void emitSsoEvent('sso.config.deactivated', {
+          id: config.id,
+          tenantId: config.tenantId,
+          organizationId: config.organizationId,
+        }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
       }
-    }
 
-    const wasActive = config.isActive
-    config.isActive = active
-    await this.em.flush()
-
-    if (active && !wasActive) {
-      void emitSsoEvent('sso.config.activated', {
-        id: config.id,
-        tenantId: config.tenantId,
-        organizationId: config.organizationId,
-      }).catch((e) => console.error('[SSO Event]', e))
-    } else if (!active && wasActive) {
-      void emitSsoEvent('sso.config.deactivated', {
-        id: config.id,
-        tenantId: config.tenantId,
-        organizationId: config.organizationId,
-      }).catch((e) => console.error('[SSO Event]', e))
-    }
-
-    return this.toPublic(config)
+      return this.toPublic(config)
+    })
   }
 
   async testConnection(scope: SsoAdminScope, id: string): Promise<{ ok: boolean; error?: string }> {
@@ -245,26 +255,34 @@ export class SsoConfigService {
     const validation = validateDomain(normalized)
     if (!validation.valid) throw new SsoConfigError(validation.error!, 400)
 
-    const config = await this.resolveConfig(scope, id)
+    return this.em.transactional(async (txEm) => {
+      const tx = txEm as EntityManager
+      await this.lockActiveDomainMutation(tx, id, [normalized])
+      const config = await this.resolveConfig(scope, id, tx)
 
-    if (config.allowedDomains.includes(normalized)) {
+      if (config.allowedDomains.some((d) => normalizeDomain(d) === normalized)) {
+        return this.toPublic(config)
+      }
+
+      const limitCheck = checkDomainLimit(config.allowedDomains.length, 1)
+      if (!limitCheck.ok) throw new SsoConfigError(limitCheck.error!, 400)
+
+      if (config.isActive) {
+        await this.assertActiveDomainAvailability(tx, [...config.allowedDomains, normalized], config.id)
+      }
+
+      config.allowedDomains = [...config.allowedDomains, normalized]
+      await tx.flush()
+
+      void emitSsoEvent('sso.domain.added', {
+        id: config.id,
+        tenantId: config.tenantId,
+        organizationId: config.organizationId,
+        domain: normalized,
+      }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
+
       return this.toPublic(config)
-    }
-
-    const limitCheck = checkDomainLimit(config.allowedDomains.length, 1)
-    if (!limitCheck.ok) throw new SsoConfigError(limitCheck.error!, 400)
-
-    config.allowedDomains = [...config.allowedDomains, normalized]
-    await this.em.flush()
-
-    void emitSsoEvent('sso.domain.added', {
-      id: config.id,
-      tenantId: config.tenantId,
-      organizationId: config.organizationId,
-      domain: normalized,
-    }).catch((e) => console.error('[SSO Event]', e))
-
-    return this.toPublic(config)
+    })
   }
 
   async removeDomain(scope: SsoAdminScope, id: string, domain: string): Promise<SsoConfigPublic> {
@@ -279,7 +297,7 @@ export class SsoConfigService {
       tenantId: config.tenantId,
       organizationId: config.organizationId,
       domain: normalized,
-    }).catch((e) => console.error('[SSO Event]', e))
+    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     return this.toPublic(config)
   }
@@ -305,14 +323,14 @@ export class SsoConfigService {
     }
   }
 
-  private async resolveConfig(scope: SsoAdminScope, id: string): Promise<SsoConfig> {
+  private async resolveConfig(scope: SsoAdminScope, id: string, em: EntityManager = this.em): Promise<SsoConfig> {
     const where: FilterQuery<SsoConfig> = { id, deletedAt: null }
     if (!scope.isSuperAdmin) {
       if (!scope.organizationId) throw new SsoConfigError('Organization context is required', 403)
       where.organizationId = scope.organizationId
     }
 
-    const config = await this.em.findOne(SsoConfig, where)
+    const config = await em.findOne(SsoConfig, where)
     if (!config) throw new SsoConfigError('SSO configuration not found', 404)
 
     return config
@@ -323,6 +341,58 @@ export class SsoConfigService {
     if (!provider) return { ok: false, error: `No provider for protocol: ${config.protocol}` }
 
     return provider.validateConfig(config)
+  }
+
+  private async lockActiveDomainMutation(em: EntityManager, configId: string, domains: string[] = []): Promise<void> {
+    const lockKeys = [
+      `sso:sso_config:${configId}`,
+      ...uniqueDomains(domains)
+        .sort((a, b) => a.localeCompare(b))
+        .map((domain) => `sso:allowed_domain:${domain}`),
+    ]
+
+    await this.lockKeys(em, lockKeys)
+  }
+
+  private async lockActiveDomains(em: EntityManager, domains: string[]): Promise<void> {
+    const lockKeys = uniqueDomains(domains)
+      .sort((a, b) => a.localeCompare(b))
+      .map((domain) => `sso:allowed_domain:${domain}`)
+    await this.lockKeys(em, lockKeys)
+  }
+
+  private async lockKeys(em: EntityManager, lockKeys: string[]): Promise<void> {
+    for (const lockKey of lockKeys) {
+      await em.getConnection().execute('select pg_advisory_xact_lock(hashtext(?::text))', [lockKey])
+    }
+  }
+
+  private async assertActiveDomainAvailability(
+    em: EntityManager,
+    domains: string[],
+    currentConfigId: string,
+  ): Promise<void> {
+    const requestedDomains = new Set(uniqueDomains(domains))
+    if (requestedDomains.size === 0) return
+
+    const activeConfigs = await findWithDecryption(
+      em,
+      SsoConfig,
+      { isActive: true, deletedAt: null },
+      {},
+      { tenantId: null },
+    )
+    const conflictDomain = activeConfigs
+      .filter((config) => config.id !== currentConfigId)
+      .flatMap((config) => config.allowedDomains.map(normalizeDomain))
+      .find((domain) => requestedDomains.has(domain))
+
+    if (conflictDomain) {
+      throw new SsoConfigError(
+        `SSO domain "${conflictDomain}" is already claimed by another active SSO configuration`,
+        409,
+      )
+    }
   }
 }
 

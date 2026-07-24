@@ -27,7 +27,7 @@ import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import {
@@ -748,14 +748,13 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         return
       }
 
-      const result = call.result as {
-        error?: string
-        details?: { fieldErrors?: Record<string, string>; formErrors?: string[] }
-      } | null
-      throw createCrudFormError(
-        result?.error ?? t('integrations.detail.credentials.saveError', 'Failed to save credentials'),
-        result?.details?.fieldErrors,
-        { details: result?.details },
+      // Re-raise with status + response body (not a bare message) so the host CrudForm
+      // recognizes optimistic-lock 409s and surfaces them on the unified conflict bar
+      // with a localized message instead of toasting the raw `record_modified` code.
+      // apiCall reads the body via response.clone(), so call.response is still readable.
+      await raiseCrudError(
+        call.response,
+        t('integrations.detail.credentials.saveError', 'Failed to save credentials'),
       )
     } finally {
       setIsSavingCredentials(false)
@@ -1200,84 +1199,41 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           </section>
         ) : null}
 
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
-          <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
+        <Tabs value={activeTab} onValueChange={handleTabChange} variant="underline" className="space-y-5">
+          <TabsList className="w-full overflow-x-auto">
             {showCredentialsTab ? (
-              <TabsTrigger
-                value="credentials"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <Key className="h-4 w-4" />
-                  <span>{t('integrations.detail.tabs.credentials')}</span>
-                </span>
+              <TabsTrigger value="credentials" leading={<Key className="h-4 w-4" />}>
+                {t('integrations.detail.tabs.credentials')}
               </TabsTrigger>
             ) : null}
             {leadingInjectedTab ? (
-              <TabsTrigger
-                value={leadingInjectedTab.id}
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  <span>{leadingInjectedTab.label}</span>
-                </span>
+              <TabsTrigger value={leadingInjectedTab.id} leading={<Settings className="h-4 w-4" />}>
+                {leadingInjectedTab.label}
               </TabsTrigger>
             ) : null}
             {showVersionTab ? (
-              <TabsTrigger
-                value="version"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <RefreshCw className="h-4 w-4" />
-                  <span>{t('integrations.detail.tabs.version')}</span>
-                </span>
+              <TabsTrigger value="version" leading={<RefreshCw className="h-4 w-4" />}>
+                {t('integrations.detail.tabs.version')}
               </TabsTrigger>
             ) : null}
             {showDataSyncScheduleTab ? (
-              <TabsTrigger
-                value="data-sync-schedule"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  <span>{t('data_sync.integrationTab.title', 'Sync schedules')}</span>
-                </span>
+              <TabsTrigger value="data-sync-schedule" leading={<Calendar className="h-4 w-4" />}>
+                {t('data_sync.integrationTab.title', 'Sync schedules')}
               </TabsTrigger>
             ) : null}
             {showHealthTab ? (
-              <TabsTrigger
-                value="health"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <Activity className="h-4 w-4" />
-                  <span>{t('integrations.detail.tabs.health')}</span>
-                </span>
+              <TabsTrigger value="health" leading={<Activity className="h-4 w-4" />}>
+                {t('integrations.detail.tabs.health')}
               </TabsTrigger>
             ) : null}
             {showLogsTab ? (
-              <TabsTrigger
-                value="logs"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  <span>{t('integrations.detail.tabs.logs')}</span>
-                </span>
+              <TabsTrigger value="logs" leading={<FileText className="h-4 w-4" />}>
+                {t('integrations.detail.tabs.logs')}
               </TabsTrigger>
             ) : null}
             {trailingInjectedTabs.map((tab) => (
-              <TabsTrigger
-                key={tab.id}
-                value={tab.id}
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  <span>{tab.label}</span>
-                </span>
+              <TabsTrigger key={tab.id} value={tab.id} leading={<Settings className="h-4 w-4" />}>
+                {tab.label}
               </TabsTrigger>
             ))}
           </TabsList>

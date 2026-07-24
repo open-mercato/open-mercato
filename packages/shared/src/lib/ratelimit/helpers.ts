@@ -45,15 +45,19 @@ export async function checkRateLimit(
  * Extract client IP from a request, respecting reverse proxy trust depth.
  *
  * @param trustProxyDepth Number of trusted reverse proxies between the client and the app.
- *   - 0 (default): Do not trust X-Forwarded-For; fall back to X-Real-IP or null.
+ *   - 0 (default): Do not trust proxy-provided IP headers; return null.
  *   - 1: One trusted proxy (e.g. nginx) — the last entry in X-Forwarded-For is the client IP.
  *   - N: N trusted proxies — the Nth-from-last entry is the client IP.
  *
- * With depth=0, X-Forwarded-For is ignored entirely to prevent spoofing.
+ * With depth=0, X-Forwarded-For and X-Real-IP are ignored entirely to prevent spoofing.
  */
 export function getClientIp(req: Request, trustProxyDepth: number = 0): string | null {
   const forwarded = req.headers.get('x-forwarded-for')
-  if (forwarded && trustProxyDepth > 0) {
+  if (trustProxyDepth <= 0) {
+    return null
+  }
+
+  if (forwarded) {
     const ips = forwarded.split(',').map((ip) => ip.trim())
     const clientIndex = ips.length - trustProxyDepth
     return clientIndex >= 0 ? ips[clientIndex] : ips[0]

@@ -15,6 +15,9 @@ import { ChangelogFilters } from './ChangelogFilters'
 import { ChangelogKpiCards } from './ChangelogKpiCards'
 import { ChangelogEntryRow } from './ChangelogEntryRow'
 import { formatChangelogValue } from './changelogValues'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type AuditAction = {
   id: string
@@ -477,7 +480,7 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
       anchor.remove()
       URL.revokeObjectURL(blobUrl)
     } catch (exportError) {
-      console.error('customers.changelog.export failed', exportError)
+      logger.error('customers.changelog.export failed', { exportError })
       flash(t('customers.changelog.exportError', 'Failed to export change log'), 'error')
     } finally {
       setExporting(false)

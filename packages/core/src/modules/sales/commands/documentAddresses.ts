@@ -4,7 +4,7 @@ import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/c
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
   documentAddressCreateSchema,
   documentAddressDeleteSchema,
@@ -104,6 +104,12 @@ function applyDocumentAddressSnapshot(em: EntityManager, entity: SalesDocumentAd
   entity.quote = snapshot.documentKind === 'quote' ? em.getReference(SalesQuote, snapshot.documentId) : null
 }
 
+function assertDocumentAddressParent(entity: SalesDocumentAddress, input: { documentId: string; documentKind: 'order' | 'quote' }): void {
+  if (entity.documentId !== input.documentId || entity.documentKind !== input.documentKind) {
+    throw notFound('sales.document.address.not_found')
+  }
+}
+
 async function emitDocumentAddressIndexSideEffects(
   ctx: { container: { resolve: (name: string) => unknown } },
   action: 'created' | 'updated' | 'deleted',
@@ -139,7 +145,7 @@ async function requireDocument(
   const repo = kind === 'order' ? SalesOrder : SalesQuote
   const doc = await findOneWithDecryption(em, repo, { id, organizationId, tenantId }, {}, { tenantId, organizationId })
   if (!doc) {
-    throw new CrudHttpError(404, { error: 'sales.document.not_found' })
+    throw notFound('sales.document.not_found')
   }
   return doc
 }
@@ -256,6 +262,7 @@ const updateDocumentAddress: CommandHandler<DocumentAddressUpdateInput, { id: st
       'sales.document.address.not_found'
     )
     ensureSameScope(entity, input.organizationId, input.tenantId)
+    assertDocumentAddressParent(entity, input)
     const document = await requireDocument(em, input.documentKind, input.documentId, input.organizationId, input.tenantId)
     if (input.documentKind === 'order') {
       await assertAddressEditable(em, {
@@ -344,6 +351,7 @@ const deleteDocumentAddress: CommandHandler<
       'sales.document.address.not_found'
     )
     ensureSameScope(entity, input.organizationId, input.tenantId)
+    assertDocumentAddressParent(entity, input)
     const document = await requireDocument(em, input.documentKind, input.documentId, input.organizationId, input.tenantId)
     if (input.documentKind === 'order') {
       await assertAddressEditable(em, {

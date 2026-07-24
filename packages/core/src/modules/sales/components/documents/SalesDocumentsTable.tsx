@@ -24,6 +24,10 @@ import {
   normalizeDictionaryEntries,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { SALES_DOCUMENT_NUMBER_COLUMN_META } from './salesDocumentsColumns'
+import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type SalesDocumentKind = 'order' | 'quote'
 
@@ -143,6 +147,7 @@ function normalizeNumberInput(value: unknown): number | null {
 
 export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const t = useT()
+  const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -257,7 +262,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       const entries = normalizeDictionaryEntries(response.result?.items ?? [], { sort: false })
       setStatusMap(createDictionaryMap(entries))
     } catch (err) {
-      console.error('sales.documents.statuses.load', err)
+      logger.error('sales.documents.statuses.load', { err })
       setStatusMap({})
     }
   }, [])
@@ -290,20 +295,20 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   )
 
   React.useEffect(() => {
-    loadChannelOptions().catch(() => {})
+    if (channelsEnabled) loadChannelOptions().catch(() => {})
     loadTagOptions().catch(() => {})
     loadCustomerOptions().catch(() => {})
     loadStatusMap().catch(() => setStatusMap({}))
-  }, [loadChannelOptions, loadCustomerOptions, loadStatusMap, loadTagOptions, scopeVersion])
+  }, [channelsEnabled, loadChannelOptions, loadCustomerOptions, loadStatusMap, loadTagOptions, scopeVersion])
 
   const filters = React.useMemo<FilterDef[]>(() => [
-    {
+    ...(channelsEnabled ? [{
       id: 'channelId',
       label: t('sales.documents.list.filters.channel', 'Channel'),
       type: 'select',
       options: channelOptions,
       loadOptions: loadChannelOptions,
-    },
+    } satisfies FilterDef] : []),
     {
       id: 'date',
       label: t('sales.documents.list.filters.date', 'Date'),
@@ -360,7 +365,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       formatValue: (val: string) => tagOptions.find((o) => o.value === val)?.label ?? val,
       formatDescription: (val: string) => tagOptions.find((o) => o.value === val)?.description ?? null,
     },
-  ], [channelOptions, loadChannelOptions, customerOptions, loadCustomerOptions, loadTagOptions, tagOptions, t])
+  ], [channelsEnabled, channelOptions, loadChannelOptions, customerOptions, loadCustomerOptions, loadTagOptions, tagOptions, t])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -496,7 +501,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       setTotalPages(pages)
       setCacheStatus(call.cacheStatus ?? null)
     } catch (err) {
-      console.error('sales.documents.list', err)
+      logger.error('sales.documents.list', { err })
       flash(t('sales.documents.list.errors.load', 'Failed to load documents.'), 'error')
     } finally {
       setLoading(false)
@@ -561,7 +566,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           handleRefresh()
         }
       } catch (err) {
-        console.error('sales.documents.delete', err)
+        logger.error('sales.documents.delete', { err })
         flash(t('sales.documents.list.table.deleteError', 'Failed to delete document.'), 'error')
       }
     },
@@ -612,7 +617,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       ),
       enableSorting: false,
     },
-    {
+    ...(channelsEnabled ? [{
       accessorKey: 'channelId',
       header: t('sales.documents.list.table.channel', 'Channel'),
       cell: ({ row }) => {
@@ -624,7 +629,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         )
       },
       enableSorting: false,
-    },
+    } satisfies ColumnDef<SalesDocumentRow>] : []),
     {
       id: 'lineItemCount',
       accessorKey: 'lineItemCount',
@@ -658,7 +663,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           ? <span className="text-xs text-muted-foreground">{new Date(row.original.date).toLocaleString()}</span>
           : <span className="text-xs text-muted-foreground">—</span>,
     },
-  ], [channelOptions, kind, statusMap, t])
+  ], [channelsEnabled, channelOptions, kind, statusMap, t])
 
   const emptyLabel = kind === 'order'
     ? t('sales.documents.list.table.emptyOrders', 'No orders yet.')
@@ -668,6 +673,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     <Page>
       <PageBody>
         <DataTable<SalesDocumentRow>
+          stickyFirstColumn
           stickyActionsColumn
           title={(
             <div className="flex flex-col">

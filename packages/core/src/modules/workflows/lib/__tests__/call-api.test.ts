@@ -43,6 +43,10 @@ describe('executeCallApi', () => {
       persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
       remove: jest.fn(function remove(this: any) { return this }),
+      // The one-time API key is created on a forked, context-detached EM so it
+      // commits outside the workflow-execution transaction (issue #4202). The
+      // fork shares the same mock surface so persist/flush/find tracking works.
+      fork: jest.fn(function fork(this: any) { return this }),
       findOne: jest.fn((Entity: any, query: any) => {
         const entityName = Entity?.name ?? ''
         if (entityName === 'WorkflowDefinition') {
@@ -141,6 +145,33 @@ describe('executeCallApi', () => {
     // Verify API key was soft-deleted
     expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
     expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  it('creates the one-time API key on a context-detached EM so it commits outside the workflow transaction (issue #4202)', async () => {
+    // CALL_API runs inside workflowExecutor.executeWorkflow()'s em.transactional(...).
+    // If the key is written on the transaction-bound EM it stays invisible until
+    // the transaction commits, so the outbound self-authenticated fetch (separate
+    // DB connection) gets a 401. The key must be created on an EM forked with
+    // useContext:false, which auto-commits on its own pooled connection.
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Map([['content-type', 'application/json']]),
+      json: async () => ({ id: 'order-123', status: 'created' }),
+    } as any)
+
+    await executeCallApi(
+      mockEm,
+      { endpoint: '/api/sales/orders', method: 'POST' },
+      mockContext,
+      mockContainer,
+    )
+
+    const forkMock = mockEm.fork as unknown as jest.Mock
+    expect(forkMock).toHaveBeenCalled()
+    const forkOptions = forkMock.mock.calls[0]?.[0]
+    expect(forkOptions).toMatchObject({ useContext: false })
   })
 
   it('should interpolate workflow variables in request body', async () => {

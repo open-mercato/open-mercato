@@ -24,6 +24,9 @@ import {
 import { validateCheckoutCustomerData } from '../../../../lib/customerDataValidation'
 import { checkoutSubmitRateLimitConfig } from '../../../../lib/rateLimiter'
 import { checkoutTag } from '../../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout')
 
 type CachedSubmitResponse = {
   transactionId: string
@@ -473,6 +476,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         const sessionResult = await paymentGatewayService.createPaymentSession({
           providerKey: link.gatewayProviderKey,
           paymentId: transactionId,
+          idempotencyKey,
           amount: sessionAmount,
           currencyCode: sessionCurrencyCode,
           paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,
@@ -515,11 +519,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           },
           ctx,
         }).catch(() => undefined)
-        console.error('[checkout] Failed to create payment session', {
+        logger.error('Failed to create payment session', {
           linkId: link.id,
           transactionId: transaction.id,
           providerKey: link.gatewayProviderKey,
-          error: error instanceof Error ? error.message : String(error),
+          err: error,
         })
         throw new CrudHttpError(502, { error: 'Unable to start the payment session' })
       }

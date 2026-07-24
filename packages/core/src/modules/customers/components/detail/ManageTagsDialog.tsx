@@ -53,6 +53,9 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 // ---------------------------------------------------------------------------
 // Types
@@ -605,7 +608,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
     setCreateCategoryOpen(false)
     setNewCategoryName('')
     setNewCategorySelectionMode('multi')
-    loadData().catch((err) => console.warn('[ManageTagsDialog] loadData failed', err))
+    loadData().catch((err) => logger.warn('loadData failed', { component: 'ManageTagsDialog', err }))
   }, [loadData, open])
 
   // --- derived state ---

@@ -10,6 +10,9 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { DEFAULT_SETTINGS, hydrateSettings, type SalesByRegionSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencyCompact } from '../../../lib/formatters'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'sales-by-region' })
 
 async function fetchSalesByRegionData(settings: SalesByRegionSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
@@ -57,7 +60,7 @@ const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionS
       }))
       setData(chartData)
     } catch (err) {
-      console.error('Failed to load sales by region data', err)
+      logger.error('Failed to load sales by region data', { err })
       setError(t('dashboards.analytics.widgets.salesByRegion.error', 'Failed to load data'))
     } finally {
       setLoading(false)

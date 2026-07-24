@@ -4,7 +4,7 @@ import React, { useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Shield, Users, Briefcase, Info, Rocket, ArrowRight, BookOpen } from 'lucide-react'
-import { getApiDocsResources, resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
+import { getApiDocsResources } from '@open-mercato/core/modules/api_docs/lib/resources'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -80,20 +80,29 @@ function RoleTile({
 interface StartPageContentProps {
   showStartPage: boolean
   showOnboardingCta?: boolean
+  // Resolved server-side: the fallback env vars (APP_URL) are unavailable in the
+  // client bundle, so resolving here would hydrate a different URL than SSR.
+  apiBaseUrl: string
 }
 
-export function StartPageContent({ showStartPage: initialShowStartPage, showOnboardingCta = false }: StartPageContentProps) {
+export function StartPageContent({ showStartPage: initialShowStartPage, showOnboardingCta = false, apiBaseUrl }: StartPageContentProps) {
   const t = useT()
   const [showStartPage, setShowStartPage] = useState(initialShowStartPage)
 
   const superAdminDisabled = showOnboardingCta
   const apiDocs = getApiDocsResources()
-  const baseUrl = resolveApiDocsBaseUrl()
 
   const handleCheckboxChange = (checked: boolean) => {
     setShowStartPage(checked)
-    // Set cookie to remember preference
-    document.cookie = `show_start_page=${checked}; path=/; max-age=${365 * 24 * 60 * 60}; SameSite=Lax`
+    if (checked) {
+      // Re-enable: clear the dismissal so `/` routes back here.
+      document.cookie = 'start_page_dismissed=; path=/; max-age=0; SameSite=Lax'
+    } else {
+      // Dismiss and leave now — `/` routes to the backend (authenticated) or
+      // login from here on. The `/` router reads this cookie server-side.
+      document.cookie = `start_page_dismissed=1; path=/; max-age=${365 * 24 * 60 * 60}; SameSite=Lax`
+      window.location.assign('/')
+    }
   }
 
   return (
@@ -248,7 +257,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
         </div>
         <p className="text-xs text-muted-foreground">
           {t('startPage.apiResources.baseUrl', 'Current API base URL:')}{' '}
-          <code className="rounded bg-muted px-2 py-0.5 text-overline text-foreground">{baseUrl}</code>
+          <code className="rounded bg-muted px-2 py-0.5 text-overline text-foreground">{apiBaseUrl}</code>
         </p>
       </section>
 

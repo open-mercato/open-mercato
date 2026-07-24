@@ -4,6 +4,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { StaffTimeEntry } from '../../../data/entities'
 import { staffTimeEntryCreateSchema, staffTimeEntryUpdateSchema } from '../../../data/validators'
+import { buildTimeEntryListFilters, isParseableDateFilter } from '../../../lib/timesheets/timeEntryListFilters'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
 
 const F = {
@@ -37,13 +38,6 @@ export const metadata = routeMetadata
 
 const rawBodySchema = z.object({}).passthrough()
 
-const isParseableDateFilter = (value: string): boolean => {
-  const trimmed = value.trim()
-  if (trimmed.length === 0) return true
-  if (!/^\d{4}-\d{2}-\d{2}([T ].*)?$/.test(trimmed)) return false
-  return !Number.isNaN(new Date(trimmed).getTime())
-}
-
 const dateFilterSchema = z
   .string()
   .refine(isParseableDateFilter, { message: 'Invalid date' })
@@ -58,6 +52,7 @@ const listSchema = z
     to: dateFilterSchema,
     projectId: z.string().uuid().optional(),
     ids: z.string().optional(),
+    running: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -100,31 +95,7 @@ const crud = makeCrudRoute({
       updatedAt: F.updated_at,
       durationMinutes: F.duration_minutes,
     },
-    buildFilters: async (query) => {
-      const filters: Record<string, unknown> = {}
-      if (typeof query.ids === 'string' && query.ids.trim().length > 0) {
-        const ids = query.ids
-          .split(',')
-          .map((value) => value.trim())
-          .filter((value) => value.length > 0)
-        if (ids.length > 0) {
-          filters[F.id] = { $in: ids }
-        }
-      }
-      if (typeof query.staffMemberId === 'string' && query.staffMemberId.length > 0) {
-        filters[F.staff_member_id] = query.staffMemberId
-      }
-      if (typeof query.from === 'string' && query.from.length > 0 && isParseableDateFilter(query.from)) {
-        filters[F.date] = { ...((filters[F.date] as Record<string, unknown>) ?? {}), $gte: query.from }
-      }
-      if (typeof query.to === 'string' && query.to.length > 0 && isParseableDateFilter(query.to)) {
-        filters[F.date] = { ...((filters[F.date] as Record<string, unknown>) ?? {}), $lte: query.to }
-      }
-      if (typeof query.projectId === 'string' && query.projectId.length > 0) {
-        filters[F.time_project_id] = query.projectId
-      }
-      return filters
-    },
+    buildFilters: async (query) => buildTimeEntryListFilters(query),
   },
   actions: {
     create: {

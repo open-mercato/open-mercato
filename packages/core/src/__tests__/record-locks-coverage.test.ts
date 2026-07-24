@@ -105,6 +105,9 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   // --- directory ---
   'directory:Organization': { status: 'enabled', resourceKind: 'directory.organization', reason: 'enabled — Phase 5; presence + CRUD decorator (admin view).' },
   'directory:Tenant': { status: 'enabled', resourceKind: 'directory.tenant', reason: 'enabled — Phase 5; presence + CRUD decorator.' },
+
+  // --- messages ---
+  'messages:Message': { status: 'exempt', resourceKind: 'messages.message', reason: 'OSS-floor-only — draft edits + message actions are hand-written command routes (no makeCrudRoute decorator surface); they enforce the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and surface the conflict on the shared banner (#3260). The two call sites are allowlisted in optimistic-lock-command-coverage. Enterprise record_locks migration deferred.' },
 }
 
 /**

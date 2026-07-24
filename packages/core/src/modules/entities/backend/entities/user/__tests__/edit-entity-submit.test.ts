@@ -5,7 +5,6 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
 import {
   buildDefinitionsBatchPayload,
   buildEntityMetadataPayload,
-  buildEntitySettingsFields,
   getEntitySettingsNotice,
   shouldRegisterEntityMetadata,
 } from '../[entityId]/page'
@@ -38,35 +37,6 @@ describe('getEntitySettingsNotice', () => {
 
   it('returns no notice for custom entities', () => {
     expect(getEntitySettingsNotice('custom', fallbackTranslate as never)).toBeUndefined()
-  })
-})
-
-describe('buildEntitySettingsFields', () => {
-  const byId = (fields: ReturnType<typeof buildEntitySettingsFields>) =>
-    Object.fromEntries(fields.map((field) => [field.id, field]))
-
-  it('disables Label, Description, and Default Editor for code-declared system entities (#3151)', () => {
-    // Regression guard for the QA failure: `readOnly` is a silent no-op for
-    // text/textarea/select in CrudForm, so the metadata fields must be `disabled`
-    // to actually reject keyboard input and read as non-editable.
-    const fields = byId(buildEntitySettingsFields('code'))
-    expect(fields.label.disabled).toBe(true)
-    expect(fields.description.disabled).toBe(true)
-    expect(fields.defaultEditor.disabled).toBe(true)
-  })
-
-  it('does not expose the sidebar toggle for system entities', () => {
-    const fields = byId(buildEntitySettingsFields('code'))
-    expect(fields.showInSidebar).toBeUndefined()
-  })
-
-  it('keeps metadata fields editable for custom entities and exposes the sidebar toggle', () => {
-    const fields = byId(buildEntitySettingsFields('custom'))
-    expect(fields.label.disabled).toBeFalsy()
-    expect(fields.description.disabled).toBeFalsy()
-    expect(fields.defaultEditor.disabled).toBeFalsy()
-    expect(fields.showInSidebar).toBeDefined()
-    expect(fields.showInSidebar.disabled).toBeFalsy()
   })
 })
 

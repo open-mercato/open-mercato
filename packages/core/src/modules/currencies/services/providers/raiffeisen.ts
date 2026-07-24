@@ -1,6 +1,9 @@
 import { RateProvider, RateProviderResult } from './base'
 import { fromZonedTime } from 'date-fns-tz'
 import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('currencies').child({ component: 'raiffeisen' })
 
 const DEFAULT_RATE_FETCH_TIMEOUT_MS = 15_000
 
@@ -49,7 +52,7 @@ export class RaiffeisenPolandProvider implements RateProvider {
   ): Promise<RateProviderResult[]> {
     // Check if PLN is available (required as base currency for Raiffeisen)
     if (!availableCurrencies.has(this.providerBaseCurrency)) {
-      console.debug('[Raiffeisen] Skipping: PLN not found in available currencies')
+      logger.debug('Skipping: PLN not found in available currencies')
       return []
     }
 
@@ -61,7 +64,7 @@ export class RaiffeisenPolandProvider implements RateProvider {
 
       if (!response.ok) {
         if (response.status === 404) {
-          console.log(`[Raiffeisen] No data available for ${dateStr}`)
+          logger.debug('No data available', { date: dateStr })
           return []
         }
         throw new Error(
@@ -85,7 +88,7 @@ export class RaiffeisenPolandProvider implements RateProvider {
       // Extract time from first rate entry (all rates in same time slot have same time)
       const firstRate = rates[0]
       if (!firstRate) {
-        console.log(`[Raiffeisen] No rates available in time slot ${firstTime}`)
+        logger.debug('No rates available in time slot', { timeSlot: firstTime })
         return []
       }
 
@@ -124,12 +127,10 @@ export class RaiffeisenPolandProvider implements RateProvider {
         })
       }
 
-      console.log(
-        `[Raiffeisen] Fetched ${results.length} rates for ${dateStr} at ${firstRate.time} Warsaw time (${rateDate.toISOString()})`
-      )
+      logger.info('Fetched rates', { count: results.length, date: dateStr, time: firstRate.time, rateDate: rateDate.toISOString() })
       return results
     } catch (err: any) {
-      console.error(`[Raiffeisen] Fetch error for ${dateStr}:`, err)
+      logger.error('Fetch error', { date: dateStr, err })
       throw new Error(`Failed to fetch Raiffeisen rates: ${err.message}`)
     }
   }
