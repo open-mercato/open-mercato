@@ -48,7 +48,12 @@ import {
 import { E } from "#generated/entities.ids.generated";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
-import { formatMoney, normalizeNumber } from "./lineItemUtils";
+import {
+  buildServiceLookupSubtitle,
+  formatMoney,
+  normalizeCurrencyCode,
+  normalizeNumber,
+} from "./lineItemUtils";
 import type { SalesLineRecord } from "./lineItemTypes";
 import {
   normalizeCustomFieldSubmitValue,
@@ -69,6 +74,17 @@ type ProductOption = {
   defaultUnit?: string | null;
   defaultSalesUnit?: string | null;
   defaultSalesUnitQuantity?: number | null;
+};
+
+type ServiceOption = {
+  id: string;
+  title: string;
+  description: string | null;
+  scope: string | null;
+  defaultPriceAmount: number | null;
+  defaultPriceCurrencyCode: string | null;
+  defaultMediaUrl: string | null;
+  workRequirements: unknown[];
 };
 
 type VariantOption = {
@@ -154,9 +170,10 @@ type UnitOption = {
 };
 
 type LineFormState = {
-  lineMode: "catalog" | "custom";
+  lineMode: "product" | "service" | "custom";
   productId: string | null;
   variantId: string | null;
+  serviceId: string | null;
   quantity: string;
   quantityUnit: string | null;
   priceId: string | null;
@@ -247,11 +264,14 @@ type LineMetadataRecord = {
   variantTitle?: string;
   variantSku?: string;
   variantThumbnail?: string;
+  serviceTitle?: string;
+  serviceScope?: string | null;
 };
 
 type CatalogSnapshotRecord = Record<string, unknown> & {
   product?: Record<string, unknown> | null;
   variant?: Record<string, unknown> | null;
+  service?: Record<string, unknown> | null;
 };
 
 type SnapshotEntity = {
@@ -275,6 +295,7 @@ type SalesLineDialogProps = {
   documentId: string;
   currencyCode: string | null | undefined;
   documentUpdatedAt?: string | null;
+  existingLineCount?: number;
   organizationId: string | null;
   tenantId: string | null;
   initialLine?: SalesLineRecord | null;
@@ -284,9 +305,10 @@ type SalesLineDialogProps = {
 };
 
 const defaultForm = (currencyCode?: string | null): LineFormState => ({
-  lineMode: "catalog",
+  lineMode: "product",
   productId: null,
   variantId: null,
+  serviceId: null,
   quantity: "1",
   quantityUnit: null,
   priceId: null,
@@ -464,12 +486,46 @@ function mapProductOption(item: Record<string, unknown>): ProductOption | null {
   };
 }
 
+function mapServiceOption(item: Record<string, unknown>): ServiceOption | null {
+  const id = typeof item.id === "string" ? item.id : null;
+  if (!id) return null;
+  const title = typeof item.title === "string" && item.title.trim().length ? item.title : id;
+  const priceAmount = normalizeNumber(item.defaultPriceAmount ?? item.default_price_amount);
+  const currency =
+    typeof item.defaultPriceCurrencyCode === "string"
+      ? item.defaultPriceCurrencyCode
+      : typeof item.default_price_currency_code === "string"
+        ? item.default_price_currency_code
+        : null;
+  const mediaUrl =
+    typeof item.defaultMediaUrl === "string"
+      ? item.defaultMediaUrl
+      : typeof item.default_media_url === "string"
+        ? item.default_media_url
+        : null;
+  return {
+    id,
+    title,
+    description: typeof item.description === "string" ? item.description : null,
+    scope: typeof item.scope === "string" ? item.scope : null,
+    defaultPriceAmount: Number.isFinite(priceAmount) ? priceAmount : null,
+    defaultPriceCurrencyCode: currency,
+    defaultMediaUrl: mediaUrl,
+    workRequirements: Array.isArray(item.workRequirements)
+      ? item.workRequirements
+      : Array.isArray(item.work_requirements)
+        ? item.work_requirements
+        : [],
+  };
+}
+
 export function LineItemDialog({
   open,
   kind,
   documentId,
   currencyCode,
   documentUpdatedAt,
+  existingLineCount,
   organizationId,
   tenantId,
   initialLine,
@@ -484,11 +540,13 @@ export function LineItemDialog({
   const [initialValues, setInitialValues] = React.useState<LineFormState>(() =>
     defaultForm(currencyCode),
   );
-  const [lineMode, setLineMode] = React.useState<"catalog" | "custom">(
+  const [lineMode, setLineMode] = React.useState<"product" | "service" | "custom">(
     defaultForm(currencyCode).lineMode,
   );
   const [productOption, setProductOption] =
     React.useState<ProductOption | null>(null);
+  const [serviceOption, setServiceOption] =
+    React.useState<ServiceOption | null>(null);
   const [variantOption, setVariantOption] =
     React.useState<VariantOption | null>(null);
   const [priceOptions, setPriceOptions] = React.useState<PriceOption[]>([]);
@@ -502,6 +560,7 @@ export function LineItemDialog({
     React.useState(false);
   const [, setLineStatusLoading] = React.useState(false);
   const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map());
+  const serviceOptionsRef = React.useRef<Map<string, ServiceOption>>(new Map());
   const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map());
   const taxRatesRef = React.useRef<TaxRateOption[]>([]);
   const defaultTaxRateRef = React.useRef<TaxRateOption | null>(null);
@@ -592,6 +651,7 @@ export function LineItemDialog({
       setInitialValues(base);
       setLineMode(base.lineMode);
       setProductOption(null);
+      setServiceOption(null);
       setVariantOption(null);
       setPriceOptions([]);
       setUnitOptions([]);
@@ -719,7 +779,8 @@ export function LineItemDialog({
             icon: option.thumbnailUrl ? (
               <img
                 src={option.thumbnailUrl}
-                alt={option.title}
+                alt=""
+                aria-hidden="true"
                 className="h-8 w-8 rounded object-cover"
               />
             ) : (
@@ -736,6 +797,72 @@ export function LineItemDialog({
         productOptionsRef.current.set(entry.option.id, entry.option);
         return entry;
       });
+    },
+    [],
+  );
+
+  const loadServiceOptionById = React.useCallback(
+    async (serviceId: string): Promise<ServiceOption | null> => {
+      if (!serviceId) return null;
+      const response = await apiCall<{
+        items?: Array<Record<string, unknown>>;
+      }>(
+        `/api/catalog/services?ids=${encodeURIComponent(serviceId)}&pageSize=1`,
+        undefined,
+        { fallback: { items: [] } },
+      );
+      const items = Array.isArray(response.result?.items)
+        ? response.result.items
+        : [];
+      const matched =
+        items.find((entry) => entry.id === serviceId) ?? items[0] ?? null;
+      if (!matched) return null;
+      const option = mapServiceOption(matched);
+      if (option) serviceOptionsRef.current.set(option.id, option);
+      return option;
+    },
+    [],
+  );
+
+  const loadServiceOptions = React.useCallback(
+    async (query?: string): Promise<LookupSelectItem[]> => {
+      const params = new URLSearchParams({ pageSize: "8" });
+      if (query && query.trim().length) params.set("search", query.trim());
+      const response = await apiCall<{
+        items?: Array<Record<string, unknown>>;
+      }>(`/api/catalog/services?${params.toString()}`, undefined, {
+        fallback: { items: [] },
+      });
+      const items = Array.isArray(response.result?.items)
+        ? (response.result?.items ?? [])
+        : [];
+      return items
+        .map((item) => {
+          const option = mapServiceOption(item);
+          if (!option) return null;
+          serviceOptionsRef.current.set(option.id, option);
+          const subtitle = buildServiceLookupSubtitle(
+            option.title,
+            option.scope,
+            option.description,
+          );
+          return {
+            id: option.id,
+            title: option.title,
+            subtitle,
+            icon: option.defaultMediaUrl ? (
+              <img
+                src={option.defaultMediaUrl}
+                alt=""
+                aria-hidden="true"
+                className="h-8 w-8 rounded object-cover"
+              />
+            ) : (
+              buildPlaceholder(option.title)
+            ),
+          } as LookupSelectItem;
+        })
+        .filter((entry): entry is LookupSelectItem => Boolean(entry));
     },
     [],
   );
@@ -797,7 +924,8 @@ export function LineItemDialog({
             icon: thumbnail ? (
               <img
                 src={thumbnail}
-                alt={title}
+                alt=""
+                aria-hidden="true"
                 className="h-8 w-8 rounded object-cover"
               />
             ) : (
@@ -1214,6 +1342,55 @@ export function LineItemDialog({
     }
   }, []);
 
+  const isFirstDocumentLine = React.useCallback(async (): Promise<boolean> => {
+    if (typeof existingLineCount === "number" && Number.isFinite(existingLineCount)) {
+      return existingLineCount === 0;
+    }
+    const resolvedDocumentId =
+      typeof documentId === "string" && documentId.trim().length
+        ? documentId.trim()
+        : null;
+    if (!resolvedDocumentId) return false;
+    try {
+      const params = new URLSearchParams({
+        [documentKey]: resolvedDocumentId,
+        page: "1",
+        pageSize: "1",
+      });
+      const response = await apiCall<{ items?: unknown[]; total?: number }>(
+        `/api/${resourcePath}?${params.toString()}`,
+        undefined,
+        { fallback: { items: [], total: 0 } },
+      );
+      const total = normalizeNumber(response.result?.total, Number.NaN);
+      if (Number.isFinite(total)) return total === 0;
+      return Array.isArray(response.result?.items) && response.result.items.length === 0;
+    } catch (err) {
+      logger.error("sales.document.items.lineCount", { err });
+      return false;
+    }
+  }, [documentId, documentKey, existingLineCount, resourcePath]);
+
+  const syncDocumentCurrency = React.useCallback(
+    async (lineCurrency: string) => {
+      const normalizedLineCurrency = normalizeCurrencyCode(lineCurrency);
+      if (!normalizedLineCurrency) return;
+      const documentResourcePath =
+        kind === "order" ? "sales/orders" : "sales/quotes";
+      await updateCrud(
+        documentResourcePath,
+        { id: documentId, currencyCode: normalizedLineCurrency },
+        {
+          errorMessage: t(
+            "sales.documents.items.errorCurrencySync",
+            "Failed to align document currency with the first line.",
+          ),
+        },
+      );
+    },
+    [documentId, kind, t],
+  );
+
   const fetchLineStatusItems = React.useCallback(
     async (query?: string): Promise<LookupSelectItem[]> => {
       const options =
@@ -1281,10 +1458,17 @@ export function LineItemDialog({
           ),
         );
       }
-      const lineMode = values.lineMode === "custom" ? "custom" : "catalog";
+      const lineMode =
+        values.lineMode === "custom"
+          ? "custom"
+          : values.lineMode === "service"
+            ? "service"
+            : "product";
       const isCustomLine = lineMode === "custom";
+      const isServiceLine = lineMode === "service";
+      const isProductLine = lineMode === "product";
 
-      if (!isCustomLine && !values.productId) {
+      if (isProductLine && !values.productId) {
         throw createCrudFormError(
           t(
             "sales.documents.items.errorProductRequired",
@@ -1298,7 +1482,7 @@ export function LineItemDialog({
           },
         );
       }
-      if (!isCustomLine && !values.variantId) {
+      if (isProductLine && !values.variantId) {
         throw createCrudFormError(
           t(
             "sales.documents.items.errorVariantRequired",
@@ -1308,6 +1492,20 @@ export function LineItemDialog({
             variantId: t(
               "sales.documents.items.errorVariantRequired",
               "Select a variant to continue.",
+            ),
+          },
+        );
+      }
+      if (isServiceLine && !values.serviceId) {
+        throw createCrudFormError(
+          t(
+            "sales.documents.items.errorServiceRequired",
+            "Select a service to continue.",
+          ),
+          {
+            serviceId: t(
+              "sales.documents.items.errorServiceRequired",
+              "Select a service to continue.",
             ),
           },
         );
@@ -1338,7 +1536,7 @@ export function LineItemDialog({
       }
       const resolvedQuantityUnit = (() => {
         const entered = normalizeUnitCode(values.quantityUnit);
-        if (isCustomLine) return entered;
+        if (!isProductLine) return entered;
         return (
           entered ??
           normalizeUnitCode(productOption?.defaultSalesUnit) ??
@@ -1363,14 +1561,13 @@ export function LineItemDialog({
       }
 
       const selectedPrice =
-        !isCustomLine && values.priceId
+        isProductLine && values.priceId
           ? (priceOptions.find((price) => price.id === values.priceId) ?? null)
           : null;
       const resolvedCurrency =
-        (values.currencyCode as string | null | undefined) ??
-        selectedPrice?.currencyCode ??
-        currencyCode ??
-        null;
+        normalizeCurrencyCode(values.currencyCode) ??
+        normalizeCurrencyCode(selectedPrice?.currencyCode) ??
+        normalizeCurrencyCode(currencyCode);
       if (!resolvedCurrency) {
         throw createCrudFormError(
           t("sales.documents.items.errorCurrency", "Currency is required."),
@@ -1382,10 +1579,16 @@ export function LineItemDialog({
           },
         );
       }
+      const shouldSyncDocumentCurrency =
+        !editingId &&
+        normalizeCurrencyCode(currencyCode) !== resolvedCurrency &&
+        (await isFirstDocumentLine());
 
       const resolvedNameRaw = (values.name ?? "").toString().trim();
       const resolvedName = isCustomLine
         ? resolvedNameRaw
+        : isServiceLine
+          ? resolvedNameRaw || serviceOption?.title || undefined
         : resolvedNameRaw ||
           variantOption?.title ||
           productOption?.title ||
@@ -1440,17 +1643,17 @@ export function LineItemDialog({
 
       const metadata = {
         ...(catalogSnapshot ?? {}),
-        ...(!isCustomLine && values.priceId ? { priceId: values.priceId } : {}),
+        ...(isProductLine && values.priceId ? { priceId: values.priceId } : {}),
         priceMode: resolvedPriceMode,
         ...(selectedTaxRateId ? { taxRateId: selectedTaxRateId } : {}),
-        ...(!isCustomLine && productOption
+        ...(isProductLine && productOption
           ? {
               productTitle: productOption.title,
               productSku: productOption.sku ?? null,
               productThumbnail: productOption.thumbnailUrl ?? null,
             }
           : {}),
-        ...(!isCustomLine && variantOption
+        ...(isProductLine && variantOption
           ? {
               variantTitle: variantOption.title,
               variantSku: variantOption.sku ?? null,
@@ -1458,6 +1661,12 @@ export function LineItemDialog({
                 variantOption.thumbnailUrl ??
                 productOption?.thumbnailUrl ??
                 null,
+            }
+          : {}),
+        ...(isServiceLine && serviceOption
+          ? {
+              serviceTitle: serviceOption.title,
+              serviceScope: serviceOption.scope ?? null,
             }
           : {}),
         ...(isCustomLine ? { customLine: true } : {}),
@@ -1469,21 +1678,19 @@ export function LineItemDialog({
         [documentKey]: String(resolvedDocumentId),
         organizationId: String(resolvedOrg),
         tenantId: String(resolvedTenant),
-        productId: isCustomLine
-          ? undefined
-          : values.productId
+        kind: isServiceLine ? "service" : "product",
+        productId: isProductLine && values.productId
             ? String(values.productId)
             : undefined,
-        productVariantId: isCustomLine
-          ? undefined
-          : values.variantId
+        productVariantId: isProductLine && values.variantId
             ? String(values.variantId)
             : undefined,
+        serviceId: isServiceLine && values.serviceId ? String(values.serviceId) : undefined,
         quantity: qtyNumber,
         quantityUnit: resolvedQuantityUnit ?? undefined,
-        currencyCode: String(resolvedCurrency),
+        currencyCode: resolvedCurrency,
         priceId:
-          !isCustomLine && values.priceId ? String(values.priceId) : undefined,
+          isProductLine && values.priceId ? String(values.priceId) : undefined,
         priceMode: resolvedPriceMode,
         taxRate: Number.isFinite(resolvedTaxRate) ? resolvedTaxRate : undefined,
         unitPriceNet: safeUnitPriceNet,
@@ -1524,6 +1731,9 @@ export function LineItemDialog({
             ),
         );
         if (result.ok) {
+          if (shouldSyncDocumentCurrency) {
+            await syncDocumentCurrency(resolvedCurrency);
+          }
           if (onSaved) await onSaved();
           closeDialog();
         }
@@ -1552,6 +1762,8 @@ export function LineItemDialog({
       variantOption,
       onSaved,
       closeDialog,
+      syncDocumentCurrency,
+      isFirstDocumentLine,
       resolvedOrganizationId,
       resolvedTenantId,
     ],
@@ -1559,6 +1771,8 @@ export function LineItemDialog({
 
   const fields = React.useMemo<CrudField[]>(() => {
     const isCustomLine = lineMode === "custom";
+    const isProductLine = lineMode === "product";
+    const isServiceLine = lineMode === "service";
     return [
       {
         id: "lineMode",
@@ -1566,12 +1780,13 @@ export function LineItemDialog({
         type: "custom",
         layout: "full",
         component: ({ value, setValue, setFormValue }: FieldRenderProps) => {
-          const mode = value === "custom" ? "custom" : "catalog";
-          const switchMode = (next: "catalog" | "custom") => {
+          const mode =
+            value === "custom" ? "custom" : value === "service" ? "service" : "product";
+          const switchMode = (next: "product" | "service" | "custom") => {
             if (next === mode) return;
             setValue(next);
             setLineMode(next);
-            if (next === "custom") {
+            if (next !== "product") {
               setProductOption(null);
               setVariantOption(null);
               setPriceOptions([]);
@@ -1579,9 +1794,15 @@ export function LineItemDialog({
               setFormValue?.("productId", null);
               setFormValue?.("variantId", null);
               setFormValue?.("priceId", null);
-              setFormValue?.("catalogSnapshot", null);
               setFormValue?.("quantityUnit", null);
-            } else {
+            }
+            if (next !== "service") {
+              setServiceOption(null);
+              setFormValue?.("serviceId", null);
+            }
+            if (next === "custom") {
+              setFormValue?.("catalogSnapshot", null);
+            } else if (next === "product") {
               if (deletedCatalogReference) {
                 setDeletedCatalogReference(false);
                 setProductOption(null);
@@ -1596,6 +1817,10 @@ export function LineItemDialog({
               }
               setFormValue?.("unitPrice", "");
               setFormValue?.("priceMode", "gross");
+            } else {
+              setFormValue?.("unitPrice", "");
+              setFormValue?.("priceMode", "gross");
+              setFormValue?.("catalogSnapshot", null);
             }
           };
           return (
@@ -1604,10 +1829,18 @@ export function LineItemDialog({
                 <Button
                   type="button"
                   size="sm"
-                  variant={mode === "catalog" ? "default" : "ghost"}
-                  onClick={() => switchMode("catalog")}
+                  variant={mode === "product" ? "default" : "ghost"}
+                  onClick={() => switchMode("product")}
                 >
-                  {t("sales.documents.items.lineMode.catalog", "Catalog item")}
+                  {t("sales.documents.items.lineMode.product", "Product")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={mode === "service" ? "default" : "ghost"}
+                  onClick={() => switchMode("service")}
+                >
+                  {t("sales.documents.items.lineMode.service", "Service")}
                 </Button>
                 <Button
                   type="button"
@@ -1621,7 +1854,7 @@ export function LineItemDialog({
               <p className="text-xs text-muted-foreground">
                 {t(
                   "sales.documents.items.lineMode.helper",
-                  "Use catalog products or create a freeform line with your own price.",
+                  "Use catalog products, catalog services, or a freeform line with your own price.",
                 )}
               </p>
             </div>
@@ -1657,7 +1890,100 @@ export function LineItemDialog({
             } satisfies CrudField,
           ]
         : []),
-      ...(!isCustomLine
+      ...(isServiceLine
+        ? [
+            {
+              id: "serviceId",
+              label: t("sales.documents.items.service", "Service"),
+              type: "custom",
+              required: true,
+              layout: "full",
+              component: ({ value, setValue, setFormValue, values }: FieldRenderProps) => (
+                <LookupSelect
+                  value={typeof value === "string" ? value : null}
+                  onChange={(next) => {
+                    const selectedOption = next
+                      ? (serviceOptionsRef.current.get(next) ?? null)
+                      : null;
+                    setServiceOption(selectedOption);
+                    setValue(next ?? null);
+                    if (selectedOption) {
+                      setFormValue?.("name", selectedOption.title);
+                      setFormValue?.("productId", null);
+                      setFormValue?.("variantId", null);
+                      setFormValue?.("priceId", null);
+                      setFormValue?.("quantityUnit", null);
+                      if (selectedOption.defaultPriceAmount !== null) {
+                        setFormValue?.("unitPrice", normalizeUnitPriceInputValue(selectedOption.defaultPriceAmount));
+                      }
+                      if (selectedOption.defaultPriceCurrencyCode) {
+                        setFormValue?.("currencyCode", selectedOption.defaultPriceCurrencyCode);
+                      }
+                      setFormValue?.("catalogSnapshot", {
+                        service: {
+                          id: selectedOption.id,
+                          title: selectedOption.title,
+                          description: selectedOption.description,
+                          scope: selectedOption.scope,
+                          defaultPriceAmount: selectedOption.defaultPriceAmount,
+                          defaultPriceCurrencyCode: selectedOption.defaultPriceCurrencyCode,
+                          workRequirements: selectedOption.workRequirements,
+                        },
+                      });
+                    } else {
+                      setFormValue?.("catalogSnapshot", null);
+                    }
+                    const existingQuantity = typeof values?.quantity === "string" ? values.quantity : "";
+                    if (!existingQuantity.trim()) setFormValue?.("quantity", "1");
+                  }}
+                  fetchItems={loadServiceOptions}
+                  options={
+                    serviceOption
+                      ? [
+                          {
+                            id: serviceOption.id,
+                            title: serviceOption.title,
+                            subtitle: buildServiceLookupSubtitle(
+                              serviceOption.title,
+                              serviceOption.scope,
+                              serviceOption.description,
+                            ),
+                            icon: serviceOption.defaultMediaUrl ? (
+                              <img
+                                src={serviceOption.defaultMediaUrl}
+                                alt=""
+                                aria-hidden="true"
+                                className="h-8 w-8 rounded object-cover"
+                              />
+                            ) : (
+                              buildPlaceholder(serviceOption.title)
+                            ),
+                          },
+                        ]
+                      : undefined
+                  }
+                  minQuery={1}
+                  searchPlaceholder={t(
+                    "sales.documents.items.serviceSearch",
+                    "Search service",
+                  )}
+                  selectLabel={t("ui.lookupSelect.select", "Select")}
+                  selectedLabel={t("ui.lookupSelect.selected", "Selected")}
+                  clearLabel={t("ui.lookupSelect.clearSelection", "Clear selection")}
+                  emptyLabel={t("ui.lookupSelect.noResults", "No results")}
+                  loadingLabel={t("ui.lookupSelect.searching", "Searching...")}
+                  startTypingLabel={t("ui.lookupSelect.startTyping", "Start typing to search.")}
+                  selectedHintLabel={(id) =>
+                    t("sales.documents.items.selectedService", "Selected {{id}}", {
+                      id: serviceOption?.title ?? id,
+                    })
+                  }
+                />
+              ),
+            } satisfies CrudField,
+          ]
+        : []),
+      ...(isProductLine
         ? [
             {
               id: "productId",
@@ -1755,7 +2081,8 @@ export function LineItemDialog({
                             icon: productOption.thumbnailUrl ? (
                               <img
                                 src={productOption.thumbnailUrl}
-                                alt={productOption.title ?? productOption.id}
+                                alt=""
+                                aria-hidden="true"
                                 className="h-8 w-8 rounded object-cover"
                               />
                             ) : (
@@ -1931,7 +2258,8 @@ export function LineItemDialog({
                               icon: variantOption.thumbnailUrl ? (
                                 <img
                                   src={variantOption.thumbnailUrl}
-                                  alt={variantOption.title ?? variantOption.id}
+                                  alt=""
+                                  aria-hidden="true"
                                   className="h-8 w-8 rounded object-cover"
                                 />
                               ) : (
@@ -2111,7 +2439,7 @@ export function LineItemDialog({
             Number.isFinite(selectedBaseAmount * unitFactor)
               ? selectedBaseAmount * unitFactor
               : null;
-          const isCatalogLine = lineMode !== "custom";
+          const isCatalogLine = lineMode === "product";
           return (
             <div className="space-y-2">
               <div className="flex gap-2">
@@ -2432,6 +2760,7 @@ export function LineItemDialog({
         layout: "full",
         component: ({ values }: FieldRenderProps) => {
           if (isCustomLine) return null;
+          if (!isProductLine) return null;
           const quantity = normalizeNumber(values?.quantity, Number.NaN);
           const enteredUnit = normalizeUnitCode(values?.quantityUnit);
           if (!Number.isFinite(quantity) || quantity <= 0 || !enteredUnit) {
@@ -2526,12 +2855,14 @@ export function LineItemDialog({
     loadPrices,
     loadProductUnits,
     loadProductOptions,
+    loadServiceOptions,
     loadVariantOptions,
     fetchLineStatusItems,
     deletedCatalogReference,
     priceLoading,
     priceOptions,
     productOption,
+    serviceOption,
     unitOptions,
     lineMode,
     variantOption,
@@ -2585,16 +2916,24 @@ export function LineItemDialog({
       (snapshot as CatalogSnapshotRecord).variant
         ? ((snapshot as CatalogSnapshotRecord).variant as Record<string, unknown>)
         : null;
+    const snapshotService =
+      snapshot &&
+      typeof snapshot === "object" &&
+      typeof (snapshot as CatalogSnapshotRecord).service === "object" &&
+      (snapshot as CatalogSnapshotRecord).service
+        ? ((snapshot as CatalogSnapshotRecord).service as Record<string, unknown>)
+        : null;
     const metaRec = (typeof meta === "object" && meta ? meta : null) as LineMetadataRecord | null;
     const metaLineMode =
       typeof metaRec?.lineMode === "string" &&
-      (metaRec.lineMode === "custom" || metaRec.lineMode === "catalog")
-        ? (metaRec.lineMode as "custom" | "catalog")
+      (metaRec.lineMode === "custom" || metaRec.lineMode === "catalog" || metaRec.lineMode === "product" || metaRec.lineMode === "service")
+        ? (metaRec.lineMode === "catalog" ? "product" : metaRec.lineMode as "custom" | "product" | "service")
         : metaRec?.customLine
           ? "custom"
           : undefined;
     nextForm.productId = initialLine.productId;
     nextForm.variantId = initialLine.productVariantId;
+    nextForm.serviceId = initialLine.serviceId;
     nextForm.quantity = initialLine.quantity.toString();
     nextForm.quantityUnit = normalizeUnitCode(initialLine.quantityUnit) ?? null;
     const metaMode = metaRec?.priceMode;
@@ -2616,8 +2955,9 @@ export function LineItemDialog({
     nextForm.statusEntryId = initialLine.statusEntryId ?? null;
     nextForm.lineMode =
       metaLineMode ??
+      (initialLine.serviceId ? "service" : undefined) ??
       (initialLine.productId || initialLine.productVariantId
-        ? "catalog"
+        ? "product"
         : "custom");
     const metaTaxRateId =
       typeof metaRec?.taxRateId === "string"
@@ -2639,6 +2979,7 @@ export function LineItemDialog({
     }
     let resolvedProductOption: ProductOption | null = null;
     let resolvedVariantOption: VariantOption | null = null;
+    let resolvedServiceOption: ServiceOption | null = null;
     if (metaRec) {
       const metaRecord = metaRec;
       const mode = metaRecord.priceMode;
@@ -2704,6 +3045,26 @@ export function LineItemDialog({
         };
         variantOptionsRef.current.set(initialLine.productVariantId, option);
         resolvedVariantOption = option;
+      }
+      if (typeof metaRecord.serviceTitle === "string" && initialLine.serviceId) {
+        const option: ServiceOption = {
+          id: initialLine.serviceId,
+          title: metaRecord.serviceTitle,
+          description: snapshotService && typeof snapshotService.description === "string" ? snapshotService.description : null,
+          scope: typeof metaRecord.serviceScope === "string"
+            ? metaRecord.serviceScope
+            : snapshotService && typeof snapshotService.scope === "string"
+              ? snapshotService.scope
+              : null,
+          defaultPriceAmount: null,
+          defaultPriceCurrencyCode: null,
+          defaultMediaUrl: null,
+          workRequirements: snapshotService && Array.isArray(snapshotService.workRequirements)
+            ? snapshotService.workRequirements
+            : [],
+        };
+        serviceOptionsRef.current.set(initialLine.serviceId, option);
+        resolvedServiceOption = option;
       }
     }
     if (!resolvedProductOption && initialLine.productId && snapshotProduct) {
@@ -2785,6 +3146,11 @@ export function LineItemDialog({
     } else {
       setVariantOption(null);
     }
+    if (resolvedServiceOption) {
+      setServiceOption(resolvedServiceOption);
+    } else {
+      setServiceOption(null);
+    }
     const customValues = extractCustomFieldValues(
       initialLine as Record<string, unknown>,
     );
@@ -2794,6 +3160,7 @@ export function LineItemDialog({
       const nextMerged = { ...merged, lineMode: "custom" as const };
       setDeletedCatalogReference(true);
       setProductOption(null);
+      setServiceOption(null);
       setVariantOption(null);
       setPriceOptions([]);
       setUnitOptions([]);
@@ -2804,7 +3171,17 @@ export function LineItemDialog({
     setInitialValues(merged);
     setLineMode(merged.lineMode);
     setFormResetKey((prev) => prev + 1);
-    if (initialLine.productId) {
+    if (initialLine.serviceId) {
+      void loadServiceOptionById(initialLine.serviceId)
+        .then((currentService) => {
+          if (cancelled || !currentService) return;
+          if (merged.lineMode === "service") setServiceOption(currentService);
+        })
+        .catch((err) => {
+          logger.error("sales.document.items.verifyServiceReference", { err });
+        });
+    }
+    if (initialLine.productId && merged.lineMode === "product") {
       void (async () => {
         try {
           const currentProduct = await loadProductOptionById(
@@ -2873,6 +3250,7 @@ export function LineItemDialog({
     findTaxRateIdByValue,
     initialLine,
     loadProductOptionById,
+    loadServiceOptionById,
     loadPrices,
     loadProductUnits,
     loadVariantOptions,

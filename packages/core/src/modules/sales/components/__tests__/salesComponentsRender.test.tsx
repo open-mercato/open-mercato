@@ -15,6 +15,7 @@ import { StatusSettings } from '../StatusSettings'
 import { TaxRatesSettings } from '../TaxRatesSettings'
 import { SalesChannelOffersPanel } from '../channels/SalesChannelOffersPanel'
 import { ChannelOfferForm } from '../channels/ChannelOfferForm'
+import { buildServiceLookupSubtitle, normalizeCurrencyCode } from '../documents/lineItemUtils'
 
 jest.setTimeout(20000)
 
@@ -330,6 +331,24 @@ describe('sales components', () => {
     expect(formatPriceWithCurrency(null, 'USD')).toBe('—')
     render(<PriceWithCurrency amount={15} currency="EUR" />)
     expect(screen.getByText(/€|EUR/)).toBeInTheDocument()
+  })
+
+  it('normalizes line item currency codes and removes duplicate service titles from search subtitles', () => {
+    expect(normalizeCurrencyCode(' gbp ')).toBe('GBP')
+    expect(
+      buildServiceLookupSubtitle(
+        'CRM Implementation Discovery Workshop',
+        'CRM Implementation Discovery Workshop - onsite discovery and planning',
+        'Fallback description',
+      ),
+    ).toBe('onsite discovery and planning')
+    expect(
+      buildServiceLookupSubtitle(
+        'CRM Implementation Discovery Workshop',
+        'CRM Implementation Discovery Workshop',
+        'Discovery and planning',
+      ),
+    ).toBe('Discovery and planning')
   })
 
   it('renders DocumentCustomerCard and triggers selection', () => {

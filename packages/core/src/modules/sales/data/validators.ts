@@ -376,8 +376,9 @@ const uomSnapshotSchema = z.object({
 const lineSharedSchema = z.object({
   kind: lineKindSchema.optional(),
   statusEntryId: uuid().optional(),
-  productId: uuid().optional(),
-  productVariantId: uuid().optional(),
+  productId: uuid().nullable().optional(),
+  productVariantId: uuid().nullable().optional(),
+  serviceId: uuid().nullable().optional(),
   name: z.string().trim().max(255).optional(),
   description: z.string().trim().max(4000).optional(),
   comment: z.string().trim().max(2000).optional(),
@@ -873,6 +874,7 @@ export const invoiceCreateSchema = scoped.extend({
         orderLineId: uuid().optional(),
         lineNumber: z.coerce.number().int().min(0).optional(),
         kind: lineKindSchema.optional(),
+        serviceId: uuid().nullable().optional(),
         name: z.string().trim().max(500).optional(),
         sku: z.string().trim().max(191).optional(),
         description: z.string().trim().max(4000).optional(),
@@ -925,6 +927,8 @@ export const creditMemoCreateSchema = scoped.extend({
       z.object({
         orderLineId: uuid().optional(),
         lineNumber: z.coerce.number().int().min(0).optional(),
+        kind: lineKindSchema.optional(),
+        serviceId: uuid().nullable().optional(),
         name: z.string().trim().max(500).optional(),
         sku: z.string().trim().max(191).optional(),
         description: z.string().trim().max(4000).optional(),
