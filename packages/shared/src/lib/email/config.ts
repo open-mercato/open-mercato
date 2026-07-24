@@ -1,3 +1,4 @@
+import { parseBooleanWithDefault } from '../boolean'
 import { getRegisteredEmailTransport } from './transport'
 
 export function normalizeEnvString(value: string | null | undefined): string | undefined {
@@ -17,12 +18,9 @@ export function resolveDefaultEmailFromAddress(): string | undefined {
 export function isEmailDeliveryDisabled(): boolean {
   const explicitDisabled = normalizeEnvString(process.env.OM_DISABLE_EMAIL_DELIVERY)
   if (explicitDisabled !== undefined) {
-    return explicitDisabled === 'true' || explicitDisabled === '1'
+    return parseBooleanWithDefault(explicitDisabled, false)
   }
-  return (
-    process.env.OM_TEST_MODE === 'true' ||
-    process.env.OM_TEST_MODE === '1'
-  )
+  return parseBooleanWithDefault(process.env.OM_TEST_MODE, false)
 }
 
 export function isEmailDeliveryConfigured(): boolean {

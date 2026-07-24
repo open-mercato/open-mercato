@@ -134,7 +134,20 @@ describe('sendEmail', () => {
   })
 
   it('skips transport delivery when email delivery is disabled', async () => {
-    process.env.OM_DISABLE_EMAIL_DELIVERY = '1'
+    process.env.OM_DISABLE_EMAIL_DELIVERY = 'yes'
+    registerEmailTransport({ id: 'test', send: sendMock })
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+    })
+
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps the established boolean tokens for test-mode delivery suppression', async () => {
+    process.env.OM_TEST_MODE = 'on'
     registerEmailTransport({ id: 'test', send: sendMock })
 
     await sendEmail({

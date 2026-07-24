@@ -143,14 +143,15 @@ export async function POST(req: Request): Promise<Response> {
   const tenantId = auth.tenantId as string
   const organizationId = (auth as { orgId?: string | null }).orgId ?? null
   const userId = auth.sub as string
+  const captureScope = { tenantId, organizationId }
 
   if (body.action === 'clear-capture') {
-    await clearTestSeedCapturedMessages()
+    await clearTestSeedCapturedMessages(captureScope)
     return NextResponse.json({ ok: true })
   }
 
   if (body.action === 'list-capture') {
-    return NextResponse.json({ items: await listTestSeedCapturedMessages() })
+    return NextResponse.json({ items: await listTestSeedCapturedMessages(captureScope) })
   }
 
   const container = await createRequestContainer()

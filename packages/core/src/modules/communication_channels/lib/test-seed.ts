@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, appendFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   ChannelAdapter,
@@ -62,9 +62,13 @@ export type TestSeedCapturedMessage = {
   externalMessageId: string
   conversationId?: string
   content: SendMessageInput['content']
-  credentials: SendMessageInput['credentials']
   scope: SendMessageInput['scope']
   metadata?: SendMessageInput['metadata']
+}
+
+type TestSeedCaptureScope = {
+  tenantId: string
+  organizationId: string | null
 }
 
 function resolveCapturePath(): string {
@@ -75,11 +79,17 @@ function resolveCapturePath(): string {
   return path.resolve(process.cwd(), '.mercato', 'test-email-capture.jsonl')
 }
 
-export async function clearTestSeedCapturedMessages(): Promise<void> {
-  await rm(resolveCapturePath(), { force: true })
+function matchesCaptureScope(
+  message: TestSeedCapturedMessage,
+  scope: TestSeedCaptureScope,
+): boolean {
+  return (
+    message.scope.tenantId === scope.tenantId &&
+    (message.scope.organizationId ?? null) === scope.organizationId
+  )
 }
 
-export async function listTestSeedCapturedMessages(): Promise<TestSeedCapturedMessage[]> {
+async function readTestSeedCapturedMessages(): Promise<TestSeedCapturedMessage[]> {
   const capturePath = resolveCapturePath()
   const text = await readFile(capturePath, 'utf8').catch(() => '')
   return text
@@ -87,6 +97,29 @@ export async function listTestSeedCapturedMessages(): Promise<TestSeedCapturedMe
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as TestSeedCapturedMessage)
+}
+
+export async function clearTestSeedCapturedMessages(scope: TestSeedCaptureScope): Promise<void> {
+  const capturePath = resolveCapturePath()
+  const retained = (await readTestSeedCapturedMessages())
+    .filter((message) => !matchesCaptureScope(message, scope))
+  if (retained.length === 0) {
+    await rm(capturePath, { force: true })
+    return
+  }
+  await writeFile(
+    capturePath,
+    `${retained.map((message) => JSON.stringify(message)).join('\n')}\n`,
+    'utf8',
+  )
+}
+
+export async function listTestSeedCapturedMessages(
+  scope: TestSeedCaptureScope,
+): Promise<TestSeedCapturedMessage[]> {
+  return (await readTestSeedCapturedMessages()).filter((message) =>
+    matchesCaptureScope(message, scope),
+  )
 }
 
 async function captureTestSeedMessage(record: TestSeedCapturedMessage): Promise<void> {
@@ -125,7 +158,6 @@ class TestSeedChannelAdapter implements ChannelAdapter {
       externalMessageId,
       conversationId: input.conversationId,
       content: input.content,
-      credentials: input.credentials,
       scope: input.scope,
       metadata: input.metadata,
     })
