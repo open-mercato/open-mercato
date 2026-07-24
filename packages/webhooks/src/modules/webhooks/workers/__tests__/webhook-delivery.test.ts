@@ -27,7 +27,7 @@ describe('webhooks delivery worker', () => {
     const em = { fork: jest.fn().mockReturnThis() } as unknown as EntityManager
     mockProcessWebhookDeliveryJob.mockResolvedValue(null)
 
-    await handler({ data: jobData }, makeCtx(em))
+    await handler({ payload: jobData }, makeCtx(em))
 
     expect(mockProcessWebhookDeliveryJob).toHaveBeenCalledWith(em, jobData)
   })
@@ -37,6 +37,6 @@ describe('webhooks delivery worker', () => {
     const cause = new Error('DB connection lost')
     mockProcessWebhookDeliveryJob.mockRejectedValue(cause)
 
-    await expect(handler({ data: jobData }, makeCtx(em))).rejects.toThrow('DB connection lost')
+    await expect(handler({ payload: jobData }, makeCtx(em))).rejects.toThrow('DB connection lost')
   })
 })

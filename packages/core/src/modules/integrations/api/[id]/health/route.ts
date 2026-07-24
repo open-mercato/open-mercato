@@ -9,6 +9,7 @@ import {
   runIntegrationMutationGuardAfterSuccess,
   runIntegrationMutationGuards,
 } from '../../guards'
+import { resolveIntegrationsOrganizationId } from '../../../lib/organization-scope'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
 
@@ -23,7 +24,8 @@ export const openApi = {
 
 export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  const organizationId = resolveIntegrationsOrganizationId(auth)
+  if (!auth?.tenantId || !organizationId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -46,7 +48,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     container,
     {
       tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      organizationId,
       userId: auth.sub ?? '',
       resourceKind: 'integrations.integration',
       resourceId: integration.id,
@@ -65,12 +67,12 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
 
   const result = await healthService.runHealthCheck(
     integration.id,
-    { organizationId: auth.orgId as string, tenantId: auth.tenantId },
+    { organizationId: organizationId, tenantId: auth.tenantId },
   )
 
   await runIntegrationMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     userId: auth.sub ?? '',
     resourceKind: 'integrations.integration',
     resourceId: integration.id,

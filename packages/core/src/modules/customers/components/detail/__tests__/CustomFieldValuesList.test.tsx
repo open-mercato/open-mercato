@@ -87,3 +87,68 @@ describe('CustomFieldValuesList', () => {
     expect(screen.queryByText('Test Test')).not.toBeInTheDocument()
   })
 })
+
+/**
+ * Guards issue #4373: honor listVisible:false, format values by definition
+ * kind (no blind date-parsing of plain strings, no literal "false"), and
+ * render select option labels instead of raw slugs.
+ */
+describe('CustomFieldValuesList visibility and formatting (#4373)', () => {
+  const definitions = [
+    { key: 'internal_ref', kind: 'text', label: 'Internal ref', listVisible: false },
+    { key: 'campaign', kind: 'text', label: 'Campaign' },
+    { key: 'signed_at', kind: 'date', label: 'Signed at' },
+    { key: 'vip', kind: 'boolean', label: 'VIP' },
+    {
+      key: 'segment',
+      kind: 'select',
+      label: 'Segment',
+      options: [
+        { value: 'small_biz', label: 'Small business' },
+        { value: 'enterprise', label: 'Enterprise' },
+      ],
+    },
+  ]
+
+  const values = {
+    internal_ref: 'OP-129',
+    campaign: 'Report 2024',
+    signed_at: '2026-01-15T10:00:00.000Z',
+    vip: false,
+    segment: 'small_biz',
+  }
+
+  it('hides listVisible:false fields entirely (no leak into extras)', () => {
+    render(<CustomFieldValuesList values={values} definitions={definitions} />)
+    expect(screen.queryByText('Internal ref')).not.toBeInTheDocument()
+    expect(screen.queryByText('OP-129')).not.toBeInTheDocument()
+  })
+
+  it('leaves non-date strings untouched even when Date can parse them', () => {
+    render(<CustomFieldValuesList values={values} definitions={definitions} />)
+    expect(screen.getByText('Report 2024')).toBeInTheDocument()
+  })
+
+  it('date-formats values only for date-kind fields', () => {
+    render(<CustomFieldValuesList values={values} definitions={definitions} />)
+    const expected = new Date('2026-01-15T10:00:00.000Z').toLocaleString()
+    expect(screen.getByText(expected)).toBeInTheDocument()
+  })
+
+  it('treats boolean false as empty instead of rendering "false"', () => {
+    render(<CustomFieldValuesList values={values} definitions={definitions} />)
+    expect(screen.queryByText('false')).not.toBeInTheDocument()
+    expect(screen.queryByText('VIP')).not.toBeInTheDocument()
+  })
+
+  it('renders select option labels instead of raw slugs', () => {
+    render(<CustomFieldValuesList values={values} definitions={definitions} />)
+    expect(screen.getByText('Small business')).toBeInTheDocument()
+    expect(screen.queryByText('small_biz')).not.toBeInTheDocument()
+  })
+
+  it('still renders definition-less extras', () => {
+    render(<CustomFieldValuesList values={{ loose_note: 'hello there' }} definitions={definitions} />)
+    expect(screen.getByText('hello there')).toBeInTheDocument()
+  })
+})

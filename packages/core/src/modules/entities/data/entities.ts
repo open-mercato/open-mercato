@@ -128,13 +128,19 @@ export class CustomEntity {
   labelField?: string | null
 
   // Default editor preference for multiline custom fields
-  // Allowed: 'markdown' | 'simpleMarkdown' | 'htmlRichText'
+  // Allowed: 'markdown' | 'simpleMarkdown' | 'htmlRichText' | 'plain'
   @Property({ name: 'default_editor', type: 'text', nullable: true })
   defaultEditor?: string | null
 
   // Whether to show this entity in the sidebar navigation
   @Property({ name: 'show_in_sidebar', type: 'boolean', default: false })
   showInSidebar: boolean = false
+
+  // When true, records require an explicit per-entity ACL grant
+  // (entities.records.<entity_id>.view/.manage) beyond the coarse
+  // entities.records.* feature. Defaults to unrestricted for backward compat.
+  @Property({ name: 'access_restricted', type: 'boolean', default: false })
+  accessRestricted: boolean = false
 
   // Note: Per-field UI preferences (list visibility, filter visibility, form editability)
   // are stored in CustomFieldDef.configJson, not at entity level.
