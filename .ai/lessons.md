@@ -974,6 +974,7 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 - 2026-07-09 · customer_accounts: organization-scoped RBAC queries can still trust pre-hardening ACL caches → version the cache-key namespace when authorization semantics change
 - 2026-07-10 · payment_gateways: a stale-claim lease without owner heartbeats can steal slow live provider calls; renew token-scoped leases during provider I/O and let followers wait for the shared result.
 - 2026-07-09 · api_keys: Do not confuse a superadmin's immutable actor tenant with its intentional selected-tenant CRUD scope → fail-close organization arrays without overriding effective `auth.tenantId`.
+- 2026-07-09 · customer_accounts: organization-scoped RBAC queries can still trust pre-hardening ACL caches → version the cache-key namespace when authorization semantics change
 - 2026-07-09 · customer_accounts: denial tests covered status but missed secondary side effects and complete same-org parity → assert every write/event/cache path stays untouched and exercise all affected positive routes
 - 2026-07-10 · storage_s3: Temp-path tests hard-coded POSIX separators → build expected paths with `node:path` so Windows coverage stays valid.
 - 2026-07-10 · ai_assistant: A TOCTOU test that swaps only before descriptor validation does not prove same-handle reads → also swap after identity validation and assert the validated descriptor content is returned.
