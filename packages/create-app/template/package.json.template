@@ -16,7 +16,7 @@
     "dev:reset": "node ./scripts/dev-reset.mjs",
     "build": "yarn generate && cross-env NODE_OPTIONS=--max-old-space-size=8192 next build",
     "start": "mercato server start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.cjs",
     "test:integration": "npx playwright test --config .ai/qa/tests/playwright.config.ts",
