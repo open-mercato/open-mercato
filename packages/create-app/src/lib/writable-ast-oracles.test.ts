@@ -15,6 +15,9 @@ const targetTypeScript = path.dirname(require.resolve('typescript/package.json')
 const EXPECTED_WRITABLE_CASE_IDS = [
   'OMH-009', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-026', 'OMH-027', 'OMH-029', 'OMH-031',
   'OMH-042', 'OMH-045', 'OMH-049', 'OMH-054', 'OMH-057', 'OMH-060', 'OMH-061', 'OMH-070',
+  'OMH-093', 'OMH-105', 'OMH-107', 'OMH-115', 'OMH-122', 'OMH-128', 'OMH-130', 'OMH-133',
+  'OMH-137', 'OMH-140', 'OMH-144', 'OMH-146', 'OMH-149', 'OMH-150', 'OMH-151', 'OMH-153',
+  'OMH-156', 'OMH-165', 'OMH-171', 'OMH-172', 'OMH-181',
 ]
 
 type OracleResult = {
@@ -61,7 +64,7 @@ process.exit(Number(process.env.ORACLE_TYPECHECK_STATUS || 0))
   return bin
 }
 
-test('the trusted writable AST oracle owns exactly the fixed 16-case matrix', () => {
+test('the trusted writable AST oracle owns exactly the fixed writable-case matrix', () => {
   assert.deepEqual(WRITABLE_CASE_IDS, EXPECTED_WRITABLE_CASE_IDS)
 })
 

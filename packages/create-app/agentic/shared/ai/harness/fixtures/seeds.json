@@ -37,6 +37,69 @@
     "workflow-call-api": {
       "src/modules/automation/workflows/call-api.ts": "export type CallApiInput = { url: string; idempotencyKey: string }\nexport type CallApiEffects = {\n  reserveIdempotency(key: string): Promise<string>\n  transaction<T>(work: () => Promise<T>): Promise<T>\n  post(url: string, options: { idempotencyKey: string }): Promise<unknown>\n}\n\nexport async function callApiActivity(input: CallApiInput, effects: CallApiEffects) {\n  return effects.transaction(async () => {\n    const key = await effects.reserveIdempotency(input.idempotencyKey)\n    return effects.post(input.url, { idempotencyKey: key })\n  })\n}\n"
     },
+    "business-contact-merge": {
+      "src/modules/customer_merge/commands/merge-contacts.ts": "export async function mergeContacts(input: any, effects: any) {\n  const result = await effects.apply(input)\n  await effects.record({ result })\n  return result\n}\n"
+    },
+    "business-deal-stage-transition": {
+      "src/modules/deal_stages/commands/change-stage.ts": "export async function changeDealStage(input: any, effects: any) {\n  const result = await effects.apply(input)\n  await effects.record({ result })\n  return result\n}\n"
+    },
+    "business-quote-discount-approval": {
+      "src/modules/quote_approval/commands/request-discount.ts": "export async function requestQuoteDiscount(input: any, effects: any) {\n  const result = await effects.apply(input)\n  await effects.record({ result })\n  return result\n}\n"
+    },
+    "ui-deal-board-accessibility": {
+      "src/modules/deal_accessibility/backend/board/page.tsx": "export async function moveDealAccessibly(input: any, effects: any) {\n  return effects.execute(input)\n}\n\nexport async function handleDealBoardAction(input: any, effects: any) {\n  return moveDealAccessibly(input, effects)\n}\n"
+    },
+    "business-stock-reservation": {
+      "src/modules/stock_reservations/commands/reserve-stock.ts": "export async function reserveStock(input: any, effects: any) {\n  const result = await effects.apply(input)\n  await effects.record({ result })\n  return result\n}\n"
+    },
+    "async-bulk-price-update": {
+      "src/modules/bulk_pricing/commands/update-prices.ts": "export async function updatePrices(items: any[], effects: any) {\n  for (const item of items) await effects.applyChunk([item])\n}\n"
+    },
+    "ui-public-lead-capture": {
+      "src/modules/demo_requests/frontend/request-demo.tsx": "export async function submitDemoRequest(input: any, effects: any) {\n  return effects.execute(input)\n}\n\nexport async function handleDemoRequest(input: any, effects: any) {\n  return submitDemoRequest(input, effects)\n}\n"
+    },
+    "business-portal-quote-approval": {
+      "src/modules/portal_quote_approval/commands/approve-quote.ts": "export async function approvePortalQuote(input: any, effects: any) {\n  const result = await effects.apply(input)\n  await effects.record({ result })\n  return result\n}\n"
+    },
+    "ui-resumable-setup-wizard": {
+      "src/modules/setup_wizard/backend/setup/page.tsx": "export async function advanceSetupWizard(input: any, effects: any) {\n  return effects.execute(input)\n}\n\nexport async function handleSetupWizardAction(input: any, effects: any) {\n  return advanceSetupWizard(input, effects)\n}\n"
+    },
+    "workflow-invoice-dunning": {
+      "src/modules/invoice_dunning/workflows/run-dunning.ts": "export async function runInvoiceDunning(items: any[], effects: any) {\n  for (const item of items) await effects.applyChunk([item])\n}\n",
+      "src/modules/invoice_dunning/events.ts": "export const eventsConfig = { reminderSent: 'invoice-dunning.reminder-sent' }\n"
+    },
+    "ai-quote-mutation": {
+      "src/modules/quote_assistant/ai-agents.ts": "export const quoteAssistant = { id: 'quote-assistant', allowedTools: ['save-quote-draft'] }\n",
+      "src/modules/quote_assistant/ai-tools.ts": "export async function saveQuoteDraftWithApproval(input: any, effects: any) {\n  return effects.execute(input)\n}\n"
+    },
+    "ai-sales-orchestrator": {
+      "src/modules/sales_orchestrator/ai-agents.ts": "export async function coordinateSalesQuestion(input: any, effects: any) {\n  return effects.delegate(input)\n}\n"
+    },
+    "integration-smtp-email": {
+      "src/modules/smtp_email/index.ts": "export const metadata = { id: 'smtp_email', title: 'SMTP email' }\n",
+      "src/modules/smtp_email/lib/client.ts": "export async function sendTransactionalEmail(input: any, effects: any) {\n  return effects.request(input)\n}\n",
+      "src/modules/smtp_email/lib/health.ts": "export async function checkHealth(effects: any) { return effects.request({ health: true }) }\n"
+    },
+    "integration-payment-idempotency": {
+      "src/modules/card_payments/lib/adapter.ts": "export async function createCardPayment(input: any, effects: any) {\n  return effects.request(input)\n}\n"
+    },
+    "integration-carrier-booking": {
+      "src/modules/carrier_shipping/lib/adapter.ts": "export async function bookCarrierShipment(input: any, effects: any) {\n  return effects.request(input)\n}\n"
+    },
+    "integration-erp-sync": {
+      "src/modules/erp_sync/data-sync.ts": "export async function synchronizeErpPage(state: any, effects: any) {\n  const page = await effects.fetchPage(state.cursor)\n  await effects.commitCursor(page.nextCursor)\n  for (const row of page.items) await effects.apply(row)\n  return { errors: [] }\n}\n",
+      "src/modules/erp_sync/backend/status/page.tsx": "export default function ErpSyncStatus() { return null }\n",
+      "src/modules/erp_sync/workers/sync.ts": "export const metadata = { queue: 'erp-sync' }\n"
+    },
+    "data-product-import-export": {
+      "src/modules/product_transfer/lib/flow.ts": "export async function transferProductRows(state: any, effects: any) {\n  const page = await effects.fetchPage(state.cursor)\n  await effects.commitCursor(page.nextCursor)\n  for (const row of page.items) await effects.apply(row)\n  return { errors: [] }\n}\n"
+    },
+    "testing-portal-quote-approval": {
+      "tests/e2e/portal-quote-approval.spec.ts": "export async function runPortalQuoteApprovalScenario(harness: any) {\n  const fixture = await harness.createFixture()\n  await harness.open(fixture)\n  await harness.approve(fixture)\n}\n"
+    },
+    "ui-order-risk-bulk-review": {
+      "src/modules/order_risk/widgets/orders-table.tsx": "export async function reviewOrderRisk(input: any, effects: any) {\n  return effects.execute(input)\n}\n\nexport async function handleOrderRiskReview(input: any, effects: any) {\n  return reviewOrderRisk(input, effects)\n}\n"
+    },
     "regression-missing-scope": {
       "src/modules/harness_fixture/api/scope/route.ts": "export type RecordScope = { tenantId?: string; organizationId?: string }\nexport type RecordStore = { find(filter: { tenant_id: string | undefined; organization_id: string | undefined }): Promise<unknown> }\n\nexport async function listRecords(scope: RecordScope, store: RecordStore) {\n  return store.find({ tenant_id: scope.tenantId, organization_id: scope.organizationId })\n}\n"
     },

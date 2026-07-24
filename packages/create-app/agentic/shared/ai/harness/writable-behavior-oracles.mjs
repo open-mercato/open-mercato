@@ -24,6 +24,271 @@ const CASES = {
     allowedCompiledImport: '@open-mercato/ui/backend/CrudForm',
   },
   'OMH-070': { file: 'src/modules/harness_fixture/workers/sync.ts' },
+  'OMH-093': { file: 'src/modules/customer_merge/commands/merge-contacts.ts', family: 'business-command', exportName: 'mergeContacts', requiredFlags: ['scopeValid', 'survivorSelected'] },
+  'OMH-105': { file: 'src/modules/deal_stages/commands/change-stage.ts', family: 'business-command', exportName: 'changeDealStage', requiredFlags: ['transitionAllowed', 'requiredFieldsPresent'] },
+  'OMH-107': { file: 'src/modules/quote_approval/commands/request-discount.ts', family: 'business-command', exportName: 'requestQuoteDiscount', requiredFlags: ['approvalSatisfied', 'separationOfDuties'] },
+  'OMH-115': { file: 'src/modules/deal_accessibility/backend/board/page.tsx', family: 'ui-business-surface', exportName: 'moveDealAccessibly', requiredFlags: ['accessGranted', 'keyboardEquivalent'] },
+  'OMH-122': { file: 'src/modules/stock_reservations/commands/reserve-stock.ts', family: 'business-command', exportName: 'reserveStock', requiredFlags: ['stockAvailable', 'reservationKeyPresent'] },
+  'OMH-128': { file: 'src/modules/bulk_pricing/commands/update-prices.ts', family: 'async-operation', exportName: 'updatePrices' },
+  'OMH-130': { file: 'src/modules/demo_requests/frontend/request-demo.tsx', family: 'ui-business-surface', exportName: 'submitDemoRequest', requiredFlags: ['scopeDerived', 'consentAccepted'] },
+  'OMH-133': { file: 'src/modules/portal_quote_approval/commands/approve-quote.ts', family: 'business-command', exportName: 'approvePortalQuote', requiredFlags: ['portalScoped', 'latestVersion'] },
+  'OMH-137': { file: 'src/modules/setup_wizard/backend/setup/page.tsx', family: 'ui-business-surface', exportName: 'advanceSetupWizard', requiredFlags: ['draftPersisted', 'transitionAllowed'] },
+  'OMH-140': { file: 'src/modules/invoice_dunning/workflows/run-dunning.ts', family: 'async-operation', exportName: 'runInvoiceDunning' },
+  'OMH-144': { file: 'src/modules/quote_assistant/ai-tools.ts', family: 'ai-safe-agent', exportName: 'saveQuoteDraftWithApproval', mode: 'mutation' },
+  'OMH-146': { file: 'src/modules/sales_orchestrator/ai-agents.ts', family: 'ai-safe-agent', exportName: 'coordinateSalesQuestion', mode: 'delegate' },
+  'OMH-149': { file: 'src/modules/smtp_email/lib/client.ts', family: 'provider-adapter', exportName: 'sendTransactionalEmail' },
+  'OMH-150': { file: 'src/modules/card_payments/lib/adapter.ts', family: 'provider-adapter', exportName: 'createCardPayment' },
+  'OMH-151': { file: 'src/modules/carrier_shipping/lib/adapter.ts', family: 'provider-adapter', exportName: 'bookCarrierShipment' },
+  'OMH-153': { file: 'src/modules/erp_sync/data-sync.ts', family: 'data-flow', exportName: 'synchronizeErpPage' },
+  'OMH-156': { file: 'src/modules/product_transfer/lib/flow.ts', family: 'data-flow', exportName: 'transferProductRows' },
+  'OMH-165': { file: 'tests/e2e/portal-quote-approval.spec.ts', family: 'test-authoring-mutation', exportName: 'runPortalQuoteApprovalScenario' },
+  'OMH-171': { file: 'src/modules/harness_fixture/api/scope/route.ts', probeCase: 'OMH-057' },
+  'OMH-172': { file: 'src/modules/harness_fixture/backend/edit/page.tsx', probeCase: 'OMH-061', allowedCompiledImport: '@open-mercato/ui/backend/CrudForm' },
+  'OMH-181': { file: 'src/modules/order_risk/widgets/orders-table.tsx', family: 'ui-business-surface', exportName: 'reviewOrderRisk', requiredFlags: ['authorized', 'versionCurrent'] },
+}
+
+const FAMILY_PROBES = {
+  'business-command': `
+    const config = __oracleConfig
+    const action = module.exports[config.exportName]
+    if (typeof action !== 'function') throw new Error('required business command export is missing')
+    const checks = []
+    const validInput = { idempotencyKey: 'business-key', ...Object.fromEntries(config.requiredFlags.map((flag) => [flag, true])) }
+    const invalidInput = { ...validInput, [config.requiredFlags[0]]: false, idempotencyKey: 'invalid-key' }
+    const committed = []
+    const durable = new Map()
+    let active = null
+    const effects = {
+      async reserveIdempotency(key) { return durable.get(key) },
+      async transaction(work) {
+        const pending = []
+        active = pending
+        try {
+          const result = await work()
+          committed.push(...pending)
+          for (const entry of pending.filter((item) => item.kind === 'record')) durable.set(entry.value.idempotencyKey, entry.value.result)
+          return result
+        } finally { active = null }
+      },
+      async apply(input) {
+        if (input.failApply) throw new Error('injected mutation failure')
+        const result = { applied: input.idempotencyKey }
+        ;(active ?? committed).push({ kind: 'apply', value: input })
+        return result
+      },
+      async record(value) { (active ?? committed).push({ kind: 'record', value }) },
+    }
+
+    let invalidRejected = false
+    try { await action(invalidInput, effects) } catch { invalidRejected = true }
+    checks.push({ id: 'rejects-invalid-business-invariant', passed: invalidRejected && committed.length === 0 })
+
+    let failureRejected = false
+    try { await action({ ...validInput, failApply: true }, effects) } catch { failureRejected = true }
+    checks.push({ id: 'rolls-back-injected-mutation-failure', passed: failureRejected && committed.length === 0 && durable.size === 0 })
+
+    let result
+    let successError
+    try { result = await action(validInput, effects) } catch (error) { successError = error }
+    checks.push({ id: 'commits-mutation-and-lineage-together', passed: !successError && result?.applied === 'business-key' && committed.length === 2 && committed[0]?.kind === 'apply' && committed[1]?.kind === 'record' })
+    checks.push({ id: 'records-idempotency-lineage', passed: durable.get('business-key')?.applied === 'business-key' })
+
+    let duplicateError
+    try { await action(validInput, effects) } catch (error) { duplicateError = error }
+    checks.push({ id: 'deduplicates-retried-command', passed: !duplicateError && committed.length === 2 })
+    return { checks }
+  `,
+  'ui-business-surface': `
+    const config = __oracleConfig
+    const action = module.exports[config.exportName]
+    if (typeof action !== 'function') throw new Error('required UI business export is missing')
+    const checks = []
+    const validInput = { focusTarget: 'row-1', ...Object.fromEntries(config.requiredFlags.map((flag) => [flag, true])) }
+    const invalidInput = { ...validInput, [config.requiredFlags[0]]: false }
+    const events = []
+    const effects = {
+      async execute(input) { events.push('execute'); return { message: 'updated', input } },
+      async restoreFocus(target) { events.push('focus:' + target) },
+      async announce(message) { events.push('announce:' + message) },
+    }
+    let invalidRejected = false
+    try { await action(invalidInput, effects) } catch { invalidRejected = true }
+    checks.push({ id: 'rejects-invalid-ui-business-action', passed: invalidRejected && events.length === 0 })
+    let result
+    let successError
+    try { result = await action(validInput, effects) } catch (error) { successError = error }
+    checks.push({ id: 'executes-authorized-ui-action-once', passed: !successError && result?.message === 'updated' && events.filter((entry) => entry === 'execute').length === 1 })
+    checks.push({ id: 'restores-semantic-focus', passed: events.includes('focus:row-1') })
+    checks.push({ id: 'announces-observable-result', passed: events.includes('announce:updated') })
+    return { checks }
+  `,
+  'async-operation': `
+    const config = __oracleConfig
+    const action = module.exports[config.exportName]
+    if (typeof action !== 'function') throw new Error('required async operation export is missing')
+    const checks = []
+    const items = [{ id: 'one' }, { id: 'paid-or-skipped', skip: true }, { id: 'three' }]
+    const applied = []
+    const progress = []
+    const undo = []
+    const effects = {
+      async isCancelled() { return false },
+      async shouldSkip(item) { return item.skip === true },
+      async applyChunk(chunk) { applied.push(...chunk.map((item) => item.id)); return { ids: chunk.map((item) => item.id) } },
+      async reportProgress(value) { progress.push(value) },
+      async registerUndo(value) { undo.push(value) },
+    }
+    let successError
+    try { await action(items, effects) } catch (error) { successError = error }
+    checks.push({ id: 'skips-ineligible-or-paid-work', passed: !successError && applied.join(',') === 'one,three' })
+    checks.push({ id: 'reports-monotonic-progress', passed: progress.length === 2 && progress[0]?.completed < progress[1]?.completed && progress[1]?.total === 3 })
+    checks.push({ id: 'registers-compensating-undo', passed: undo.length === 2 && undo.every((entry) => Array.isArray(entry?.ids)) })
+
+    const cancelledApplied = []
+    let cancellationChecks = 0
+    await action(items, {
+      async isCancelled() { cancellationChecks += 1; return cancelledApplied.length >= 1 },
+      async shouldSkip(item) { return item.skip === true },
+      async applyChunk(chunk) { cancelledApplied.push(...chunk.map((item) => item.id)); return { ids: chunk.map((item) => item.id) } },
+      async reportProgress() {},
+      async registerUndo() {},
+    })
+    checks.push({ id: 'stops-at-cancellation-boundary', passed: cancellationChecks >= 2 && cancelledApplied.join(',') === 'one' })
+    return { checks }
+  `,
+  'ai-safe-agent': `
+    const config = __oracleConfig
+    const action = module.exports[config.exportName]
+    if (typeof action !== 'function') throw new Error('required AI action export is missing')
+    const checks = []
+    if (config.mode === 'mutation') {
+      const events = []
+      let denied = false
+      try { await action({ change: 'quote' }, { async authorize() { return false }, async prepareMutation() { events.push('prepare') }, async execute() { events.push('execute') } }) } catch { denied = true }
+      checks.push({ id: 'denies-unauthorized-ai-mutation', passed: denied && events.length === 0 })
+      const pending = await action({ change: 'quote' }, { async authorize() { return true }, async prepareMutation() { events.push('prepare'); return { approved: false } }, async execute() { events.push('execute') } })
+      checks.push({ id: 'does-not-execute-pending-mutation', passed: pending?.status === 'pending' && !events.includes('execute') })
+      let approvedError
+      try { await action({ change: 'quote' }, { async authorize() { events.push('authorize'); return true }, async prepareMutation(input) { events.push('prepare-approved'); return { approved: true, input } }, async execute() { events.push('execute'); return { saved: true } } }) } catch (error) { approvedError = error }
+      checks.push({ id: 'executes-only-after-approval', passed: !approvedError && events.slice(-3).join(',') === 'authorize,prepare-approved,execute' })
+    } else {
+      const delegated = []
+      let denied = false
+      try { await action({ question: 'stock' }, { async authorize() { return false }, async delegate(...args) { delegated.push(args) } }) } catch { denied = true }
+      checks.push({ id: 'denies-unauthorized-delegation', passed: denied && delegated.length === 0 })
+      await action({ question: 'stock', requestedMutation: true, allowedTools: ['catalog.read'] }, { async authorize() { return true }, async delegate(input, options) { delegated.push([input, options]); return { answer: 'ok' } } })
+      checks.push({ id: 'caps-delegated-authority', passed: delegated.length === 1 && delegated[0][1]?.authority === 'read-only' })
+      checks.push({ id: 'passes-explicit-tool-allowlist', passed: delegated[0][1]?.allowedTools?.join(',') === 'catalog.read' })
+    }
+    return { checks }
+  `,
+  'provider-adapter': `
+    const config = __oracleConfig
+    const action = module.exports[config.exportName]
+    if (typeof action !== 'function') throw new Error('required provider adapter export is missing')
+    const checks = []
+    let requests = 0
+    const duplicate = await action({ idempotencyKey: 'existing', maxAttempts: 2 }, {
+      async findExisting() { return { id: 'prior' } },
+      async request() { requests += 1 },
+      async reconcile(value) { return value },
+      redact(value) { return value },
+    })
+    checks.push({ id: 'returns-existing-idempotent-result', passed: duplicate?.id === 'prior' && requests === 0 })
+
+    let reconciled = 0
+    let retryError
+    let result
+    try {
+      result = await action({ idempotencyKey: 'new', maxAttempts: 2 }, {
+        async findExisting() { return undefined },
+        async request() { requests += 1; if (requests === 1) throw new Error('transient'); return { id: 'provider-id', secret: 'hidden' } },
+        async reconcile(value) { reconciled += 1; return value },
+        redact(value) { return { id: value.id } },
+      })
+    } catch (error) { retryError = error }
+    checks.push({ id: 'retries-transient-provider-failure', passed: !retryError && requests === 2 })
+    checks.push({ id: 'reconciles-and-redacts-result', passed: reconciled === 1 && result?.id === 'provider-id' && !Object.prototype.hasOwnProperty.call(result ?? {}, 'secret') })
+
+    let terminalMessage = ''
+    try {
+      await action({ idempotencyKey: 'terminal', maxAttempts: 2 }, {
+        async findExisting() { return undefined },
+        async request() { throw new Error('secret-token-value') },
+        async reconcile(value) { return value },
+        redact(value) { return value },
+      })
+    } catch (error) { terminalMessage = String(error?.message ?? error) }
+    checks.push({ id: 'redacts-terminal-provider-error', passed: terminalMessage.length > 0 && !terminalMessage.includes('secret-token-value') })
+    return { checks }
+  `,
+  'data-flow': `
+    const config = __oracleConfig
+    const action = module.exports[config.exportName]
+    if (typeof action !== 'function') throw new Error('required data-flow export is missing')
+    const checks = []
+    const events = []
+    const applied = []
+    let result
+    let flowError
+    try {
+      result = await action({ cursor: 'current' }, {
+        async fetchPage() { events.push('fetch'); return { items: [{ id: 'one', value: '=1+1' }, { id: 'bad', value: 'bad' }, { id: 'two', value: 'ok' }], nextCursor: 'next' } },
+        sanitize(row) { events.push('sanitize:' + row.id); return { ...row, value: String(row.value).startsWith('=') ? "'" + row.value : row.value } },
+        async apply(row) { events.push('apply:' + row.id); if (row.id === 'bad') throw new Error('row rejected'); applied.push(row) },
+        async commitCursor(cursor) { events.push('commit:' + cursor) },
+      })
+    } catch (error) { flowError = error }
+    checks.push({ id: 'isolates-bad-row', passed: !flowError && result?.errors?.length === 1 && applied.map((row) => row.id).join(',') === 'one,two' })
+    checks.push({ id: 'neutralizes-formula-content', passed: applied[0]?.value === "'=1+1" })
+    checks.push({ id: 'commits-cursor-after-rows', passed: events.at(-1) === 'commit:next' })
+
+    let failedCommit = false
+    let fetchRejected = false
+    try {
+      await action({ cursor: 'stable' }, {
+        async fetchPage() { throw new Error('page failed') },
+        sanitize(row) { return row },
+        async apply() {},
+        async commitCursor() { failedCommit = true },
+      })
+    } catch { fetchRejected = true }
+    checks.push({ id: 'preserves-cursor-on-page-failure', passed: fetchRejected && !failedCommit })
+    return { checks }
+  `,
+  'test-authoring-mutation': `
+    const config = __oracleConfig
+    const action = module.exports[config.exportName]
+    if (typeof action !== 'function') throw new Error('required browser scenario export is missing')
+    const checks = []
+    const events = []
+    const harness = {
+      async createFixture() { events.push('fixture'); return { id: 'quote-1' } },
+      async open() { events.push('open') },
+      async approve() { events.push('approve') },
+      async expectConflict() { events.push('conflict') },
+      async verifyBackend() { events.push('backend') },
+      async cleanup() { events.push('cleanup') },
+    }
+    let successError
+    try { await action(harness) } catch (error) { successError = error }
+    checks.push({ id: 'covers-semantic-browser-and-backend-path', passed: !successError && events.join(',') === 'fixture,open,approve,conflict,backend,cleanup' })
+
+    const failedEvents = []
+    let failureObserved = false
+    try {
+      await action({
+        async createFixture() { failedEvents.push('fixture'); return { id: 'quote-2' } },
+        async open() { failedEvents.push('open') },
+        async approve() { failedEvents.push('approve'); throw new Error('injected browser failure') },
+        async expectConflict() { failedEvents.push('conflict') },
+        async verifyBackend() { failedEvents.push('backend') },
+        async cleanup() { failedEvents.push('cleanup') },
+      })
+    } catch { failureObserved = true }
+    checks.push({ id: 'cleans-up-after-browser-failure', passed: failureObserved && failedEvents.at(-1) === 'cleanup' })
+    return { checks }
+  `,
 }
 
 const PROBES = {
@@ -359,7 +624,8 @@ function executeWorker(caseId, compiledSource) {
 }
 
 async function internalRun(caseId) {
-  const probe = PROBES[caseId]
+  const caseRecord = CASES[caseId]
+  const probe = PROBES[caseRecord?.probeCase ?? caseId] ?? FAMILY_PROBES[caseRecord?.family]
   if (!probe) throw new Error(`unsupported behavior-oracle case: ${caseId}`)
   const chunks = []
   let size = 0
@@ -418,8 +684,13 @@ async function internalRun(caseId) {
     globalThis.module = { exports: Object.create(null) }
     globalThis.exports = globalThis.module.exports
   `).runInContext(context, { timeout: 250 })
-  new vm.Script(`'use strict';\n${compiledSource}`, { filename: CASES[caseId].file }).runInContext(context, { timeout: 1_000 })
-  new vm.Script(`'use strict'; globalThis.__oracleResult = (async () => {${probe}})();`).runInContext(context, { timeout: 1_000 })
+  new vm.Script(`'use strict';\n${compiledSource}`, { filename: caseRecord.file }).runInContext(context, { timeout: 1_000 })
+  const oracleConfig = JSON.stringify({
+    exportName: caseRecord.exportName,
+    mode: caseRecord.mode,
+    requiredFlags: caseRecord.requiredFlags,
+  })
+  new vm.Script(`'use strict'; globalThis.__oracleResult = (async () => { const __oracleConfig = Object.freeze(${oracleConfig}); ${probe} })();`).runInContext(context, { timeout: 1_000 })
   const serialized = await new vm.Script(`(async () => JSON.stringify(await globalThis.__oracleResult))()`).runInContext(context, { timeout: 1_000 })
   process.stdout.write(`${serialized}\n`)
 }

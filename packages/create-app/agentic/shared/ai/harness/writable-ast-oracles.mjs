@@ -82,6 +82,137 @@ const WRITABLE_CASES = Object.freeze({
     sources: ['src/modules/harness_fixture/workers/sync.ts'],
     artifacts: ['src/modules/harness_fixture/workers/sync.ts'],
   },
+  'OMH-093': {
+    family: 'business-command',
+    seam: 'mergeContacts',
+    sources: ['src/modules/customer_merge/commands/merge-contacts.ts'],
+    artifacts: ['src/modules/customer_merge/commands/merge-contacts.ts'],
+  },
+  'OMH-105': {
+    family: 'business-command',
+    seam: 'changeDealStage',
+    sources: ['src/modules/deal_stages/commands/change-stage.ts'],
+    artifacts: ['src/modules/deal_stages/commands/change-stage.ts'],
+  },
+  'OMH-107': {
+    family: 'business-command',
+    seam: 'requestQuoteDiscount',
+    sources: ['src/modules/quote_approval/commands/request-discount.ts'],
+    artifacts: ['src/modules/quote_approval/commands/request-discount.ts'],
+  },
+  'OMH-115': {
+    family: 'ui-business-surface',
+    seam: 'moveDealAccessibly',
+    handler: 'handleDealBoardAction',
+    sources: ['src/modules/deal_accessibility/backend/board/page.tsx'],
+    artifacts: ['src/modules/deal_accessibility/backend/board/page.tsx'],
+  },
+  'OMH-122': {
+    family: 'business-command',
+    seam: 'reserveStock',
+    sources: ['src/modules/stock_reservations/commands/reserve-stock.ts'],
+    artifacts: ['src/modules/stock_reservations/commands/reserve-stock.ts'],
+  },
+  'OMH-128': {
+    family: 'async-operation',
+    seam: 'updatePrices',
+    sources: ['src/modules/bulk_pricing/commands/update-prices.ts'],
+    artifacts: ['src/modules/bulk_pricing/commands/update-prices.ts'],
+  },
+  'OMH-130': {
+    family: 'ui-business-surface',
+    seam: 'submitDemoRequest',
+    handler: 'handleDemoRequest',
+    sources: ['src/modules/demo_requests/frontend/request-demo.tsx'],
+    artifacts: ['src/modules/demo_requests/frontend/request-demo.tsx'],
+  },
+  'OMH-133': {
+    family: 'business-command',
+    seam: 'approvePortalQuote',
+    sources: ['src/modules/portal_quote_approval/commands/approve-quote.ts'],
+    artifacts: ['src/modules/portal_quote_approval/commands/approve-quote.ts'],
+  },
+  'OMH-137': {
+    family: 'ui-business-surface',
+    seam: 'advanceSetupWizard',
+    handler: 'handleSetupWizardAction',
+    sources: ['src/modules/setup_wizard/backend/setup/page.tsx'],
+    artifacts: ['src/modules/setup_wizard/backend/setup/page.tsx'],
+  },
+  'OMH-140': {
+    family: 'async-operation',
+    seam: 'runInvoiceDunning',
+    sources: ['src/modules/invoice_dunning'],
+    artifacts: ['src/modules/invoice_dunning/workflows/**', 'src/modules/invoice_dunning/events.ts'],
+  },
+  'OMH-144': {
+    family: 'ai-safe-agent',
+    seam: 'saveQuoteDraftWithApproval',
+    mode: 'mutation',
+    sources: ['src/modules/quote_assistant/ai-agents.ts', 'src/modules/quote_assistant/ai-tools.ts'],
+    artifacts: ['src/modules/quote_assistant/ai-agents.ts', 'src/modules/quote_assistant/ai-tools.ts'],
+  },
+  'OMH-146': {
+    family: 'ai-safe-agent',
+    seam: 'coordinateSalesQuestion',
+    mode: 'delegate',
+    sources: ['src/modules/sales_orchestrator/ai-agents.ts'],
+    artifacts: ['src/modules/sales_orchestrator/ai-agents.ts'],
+  },
+  'OMH-149': {
+    family: 'provider-adapter',
+    seam: 'sendTransactionalEmail',
+    sources: ['src/modules/smtp_email'],
+    artifacts: ['src/modules/smtp_email/index.ts', 'src/modules/smtp_email/lib/client.ts', 'src/modules/smtp_email/lib/health.ts'],
+  },
+  'OMH-150': {
+    family: 'provider-adapter',
+    seam: 'createCardPayment',
+    sources: ['src/modules/card_payments/lib/adapter.ts'],
+    artifacts: ['src/modules/card_payments/lib/adapter.ts'],
+  },
+  'OMH-151': {
+    family: 'provider-adapter',
+    seam: 'bookCarrierShipment',
+    sources: ['src/modules/carrier_shipping/lib/adapter.ts'],
+    artifacts: ['src/modules/carrier_shipping/lib/adapter.ts'],
+  },
+  'OMH-153': {
+    family: 'data-flow',
+    seam: 'synchronizeErpPage',
+    sources: ['src/modules/erp_sync'],
+    artifacts: ['src/modules/erp_sync/data-sync.ts', 'src/modules/erp_sync/backend/**', 'src/modules/erp_sync/workers/**'],
+  },
+  'OMH-156': {
+    family: 'data-flow',
+    seam: 'transferProductRows',
+    sources: ['src/modules/product_transfer/lib/flow.ts'],
+    artifacts: ['src/modules/product_transfer/lib/flow.ts'],
+  },
+  'OMH-165': {
+    family: 'test-authoring-mutation',
+    seam: 'runPortalQuoteApprovalScenario',
+    sources: ['tests/e2e/portal-quote-approval.spec.ts'],
+    artifacts: ['tests/e2e/portal-quote-approval.spec.ts'],
+  },
+  'OMH-171': {
+    family: 'regression',
+    seam: 'listRecords',
+    sources: ['src/modules/harness_fixture/api/scope/route.ts'],
+    artifacts: ['src/modules/harness_fixture/api/scope/route.ts'],
+  },
+  'OMH-172': {
+    family: 'regression',
+    sources: ['src/modules/harness_fixture/backend/edit/page.tsx'],
+    artifacts: ['src/modules/harness_fixture/backend/edit/page.tsx'],
+  },
+  'OMH-181': {
+    family: 'ui-business-surface',
+    seam: 'reviewOrderRisk',
+    handler: 'handleOrderRiskReview',
+    sources: ['src/modules/order_risk/widgets/orders-table.tsx'],
+    artifacts: ['src/modules/order_risk/widgets/orders-table.tsx'],
+  },
 })
 
 export const WRITABLE_CASE_IDS = Object.freeze(Object.keys(WRITABLE_CASES))
@@ -198,6 +329,7 @@ function newFacts() {
     classes: [],
     declarations: new Set(),
     decorators: new Set(),
+    exportedFunctions: new Map(),
     functions: new Set(),
     jsxAttributes: new Set(),
     jsxTags: new Set(),
@@ -212,6 +344,48 @@ function newFacts() {
     assignments: new Set(),
     awaitedCalls: new Set(),
   }
+}
+
+function isExportedFunction(ts, node) {
+  return Boolean(node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword))
+}
+
+function collectFunctionFact(ts, node) {
+  const fact = {
+    binaryOperators: new Set(),
+    calls: new Set(),
+    callOptions: new Map(),
+    conditionalExpressions: 0,
+    finallyBlocks: 0,
+    loops: 0,
+    nullNodes: 0,
+    throws: 0,
+  }
+  const visit = (current) => {
+    if (ts.isImportDeclaration(current) || ts.isImportEqualsDeclaration(current) || ts.isExportDeclaration(current)) return
+    if (ts.isCallExpression(current)) {
+      const names = [expressionName(ts, current.expression), fullExpressionName(ts, current.expression)].filter(Boolean)
+      const optionNames = current.arguments.flatMap((argument) => ts.isObjectLiteralExpression(argument)
+        ? argument.properties.map((property) => propertyName(ts, property.name)).filter(Boolean)
+        : [])
+      for (const name of names) {
+        fact.calls.add(name)
+        if (!fact.callOptions.has(name)) fact.callOptions.set(name, [])
+        fact.callOptions.get(name).push(new Set(optionNames))
+      }
+    }
+    if (ts.isThrowStatement(current)) fact.throws += 1
+    if (ts.isBinaryExpression(current)) fact.binaryOperators.add(current.operatorToken.kind)
+    if (ts.isConditionalExpression(current)) fact.conditionalExpressions += 1
+    if (current.kind === ts.SyntaxKind.NullKeyword) fact.nullNodes += 1
+    if (ts.isTryStatement(current) && current.finallyBlock) fact.finallyBlocks += 1
+    if (ts.isForStatement(current) || ts.isForInStatement(current) || ts.isForOfStatement(current) || ts.isWhileStatement(current) || ts.isDoStatement(current)) {
+      fact.loops += 1
+    }
+    ts.forEachChild(current, visit)
+  }
+  if (node.body) visit(node.body)
+  return fact
 }
 
 function addCall(facts, name, optionNames = []) {
@@ -245,6 +419,7 @@ function collectFacts(ts, sourceFiles) {
       if (ts.isFunctionDeclaration(node) && node.name) {
         facts.functions.add(node.name.text)
         facts.declarations.add(node.name.text)
+        if (isExportedFunction(ts, node)) facts.exportedFunctions.set(node.name.text, collectFunctionFact(ts, node))
       }
       if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isEnumDeclaration(node)) {
         facts.declarations.add(node.name.text)
@@ -319,11 +494,77 @@ function hasString(facts, value) {
   return [...facts.strings].some((entry) => entry === value || entry.startsWith(value))
 }
 
+function exportedFunctionCalls(facts, functionName, requiredCalls) {
+  const fact = facts.exportedFunctions.get(functionName)
+  return Boolean(fact && requiredCalls.every((name) => fact.calls.has(name)))
+}
+
+function exportedFunctionHasCallOptions(facts, functionName, callName, requiredOptions) {
+  const fact = facts.exportedFunctions.get(functionName)
+  return Boolean(fact && (fact.callOptions.get(callName) ?? []).some((options) => requiredOptions.every((name) => options.has(name))))
+}
+
 function check(id, passed, requirement) {
   return { id, passed: Boolean(passed), requirement }
 }
 
-function caseChecks(caseId, facts) {
+function caseChecks(ts, caseId, facts) {
+  const definition = WRITABLE_CASES[caseId]
+  if (definition.family === 'business-command') {
+    const fact = facts.exportedFunctions.get(definition.seam)
+    return [
+      check('business.command-seam', exportedFunctionCalls(facts, definition.seam, ['effects.reserveIdempotency', 'effects.transaction', 'effects.apply', 'effects.record']), `exported ${definition.seam} uses the idempotency, transaction, mutation, and lineage seams`),
+      check('business.command-guard', (fact?.throws ?? 0) > 0, `exported ${definition.seam} rejects an invalid business invariant`),
+    ]
+  }
+  if (definition.family === 'ui-business-surface') {
+    const fact = facts.exportedFunctions.get(definition.seam)
+    return [
+      check('business.ui-seam', exportedFunctionCalls(facts, definition.seam, ['effects.execute', 'effects.restoreFocus', 'effects.announce']), `exported ${definition.seam} executes, restores focus, and announces the result`),
+      check('business.ui-guard', (fact?.throws ?? 0) > 0, `exported ${definition.seam} rejects an invalid UI business action`),
+      check('business.ui-handler', exportedFunctionCalls(facts, definition.handler, [definition.seam]), `exported ${definition.handler} invokes the tested production seam`),
+    ]
+  }
+  if (definition.family === 'async-operation') {
+    const fact = facts.exportedFunctions.get(definition.seam)
+    return [
+      check('business.async-seam', exportedFunctionCalls(facts, definition.seam, ['effects.isCancelled', 'effects.shouldSkip', 'effects.applyChunk', 'effects.reportProgress', 'effects.registerUndo']), `exported ${definition.seam} uses cancellation, skip, mutation, progress, and undo seams`),
+      check('business.async-loop', (fact?.loops ?? 0) > 0, `exported ${definition.seam} processes work through a bounded loop`),
+    ]
+  }
+  if (definition.family === 'ai-safe-agent') {
+    const requiredCalls = definition.mode === 'mutation'
+      ? ['effects.authorize', 'effects.prepareMutation', 'effects.execute']
+      : ['effects.authorize', 'effects.delegate']
+    const checks = [
+      check('business.ai-seam', exportedFunctionCalls(facts, definition.seam, requiredCalls), `exported ${definition.seam} uses the required authorization and ${definition.mode} seams`),
+    ]
+    if (definition.mode === 'delegate') {
+      checks.push(check('business.ai-authority', exportedFunctionHasCallOptions(facts, definition.seam, 'effects.delegate', ['authority', 'allowedTools']), `exported ${definition.seam} delegates with an explicit authority ceiling and allowlist`))
+    }
+    return checks
+  }
+  if (definition.family === 'provider-adapter') {
+    const fact = facts.exportedFunctions.get(definition.seam)
+    return [
+      check('business.provider-seam', exportedFunctionCalls(facts, definition.seam, ['effects.findExisting', 'effects.request', 'effects.reconcile', 'effects.redact']), `exported ${definition.seam} uses idempotency, provider, reconciliation, and redaction seams`),
+      check('business.provider-retry', (fact?.loops ?? 0) > 0 && (fact?.throws ?? 0) > 0, `exported ${definition.seam} bounds retries and redacts terminal failure`),
+    ]
+  }
+  if (definition.family === 'data-flow') {
+    const fact = facts.exportedFunctions.get(definition.seam)
+    return [
+      check('business.data-seam', exportedFunctionCalls(facts, definition.seam, ['effects.fetchPage', 'effects.sanitize', 'effects.apply', 'effects.commitCursor']), `exported ${definition.seam} uses fetch, sanitization, row mutation, and cursor seams`),
+      check('business.data-loop', (fact?.loops ?? 0) > 0, `exported ${definition.seam} isolates rows in a loop`),
+    ]
+  }
+  if (definition.family === 'test-authoring-mutation') {
+    const fact = facts.exportedFunctions.get(definition.seam)
+    return [
+      check('business.test-seam', exportedFunctionCalls(facts, definition.seam, ['harness.createFixture', 'harness.open', 'harness.approve', 'harness.expectConflict', 'harness.verifyBackend', 'harness.cleanup']), `exported ${definition.seam} exercises fixture, UI, conflict, backend verification, and cleanup seams`),
+      check('business.test-finally', (fact?.finallyBlocks ?? 0) > 0, `exported ${definition.seam} cleans up in finally`),
+    ]
+  }
   switch (caseId) {
     case 'OMH-009': {
       const entity = facts.classes.some((entry) => entry.decorators.has('Entity') && ['tenant_id', 'organization_id', 'updated_at'].every((name) => entry.members.has(name)))
@@ -386,6 +627,7 @@ function caseChecks(caseId, facts) {
         check('workflow.idempotency', (hasCall(facts, 'fetch', 'fetchImpl') && facts.objectProperties.has('headers') && hasString(facts, 'Idempotency-Key')), 'a fetch call with headers and an Idempotency-Key literal'),
       ]
     case 'OMH-057':
+    case 'OMH-171':
       return [
         check('regression.fail-closed', facts.functions.has('listRecords') && facts.throwStatements > 0, 'listRecords with a fail-closed throw'),
         check('regression.scope', ['tenantId', 'organizationId'].every((name) => facts.propertyAccesses.has(name) || facts.objectProperties.has(name)), 'tenantId and organizationId concrete scope access'),
@@ -400,6 +642,15 @@ function caseChecks(caseId, facts) {
         check('regression.nullable', facts.nullNodes > 0, 'a concrete nullable type or null expression'),
         check('regression.form', facts.jsxTags.has('CrudForm') && facts.jsxAttributes.has('initialValues'), 'CrudForm JSX with initialValues'),
       ]
+    case 'OMH-172': {
+      const initialValues = facts.exportedFunctions.get('toInitialValues')
+      const updatePayload = facts.exportedFunctions.get('toUpdatePayload')
+      return [
+        check('regression.null-load-seam', Boolean(initialValues) && !initialValues.binaryOperators.has(ts.SyntaxKind.QuestionQuestionToken), 'exported toInitialValues preserves explicit null instead of replacing it'),
+        check('regression.null-clear-seam', Boolean(updatePayload) && updatePayload.nullNodes > 0 && updatePayload.conditionalExpressions > 0 && updatePayload.binaryOperators.has(ts.SyntaxKind.EqualsEqualsEqualsToken), 'exported toUpdatePayload maps an explicit clear to null'),
+        check('regression.form', facts.jsxTags.has('CrudForm') && facts.jsxAttributes.has('initialValues'), 'CrudForm JSX with initialValues'),
+      ]
+    }
     case 'OMH-070':
       return [
         check('regression.cursor-fetch', facts.functions.has('syncPage') && facts.awaitedCalls.has('fetchPage') && facts.assignments.has('cursor'), 'syncPage with awaited fetchPage and cursor assignment'),
@@ -439,7 +690,7 @@ export function evaluateWritableAstOracle({ root: requestedRoot, caseId, phase }
   const checks = definition.artifacts.map((artifact) => check(`artifact:${artifact}`, artifactExists(root, artifact), `artifact ${artifact} exists`))
   const sourceFiles = collectSourceFiles(root, definition.sources)
   checks.push(check('source.present', sourceFiles.length > 0, 'at least one case-owned TypeScript source file'))
-  if (sourceFiles.length) checks.push(...caseChecks(caseId, collectFacts(ts, sourceFiles)))
+  if (sourceFiles.length) checks.push(...caseChecks(ts, caseId, collectFacts(ts, sourceFiles)))
   if (phase === 'after') checks.push(runTargetTypecheck(root))
   const failures = checks.filter((entry) => !entry.passed).map((entry) => `${entry.id}: ${entry.requirement}`)
   return { passed: failures.length === 0, failures, checks }
