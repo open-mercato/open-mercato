@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
+import { sandboxedInvocation } from './execution-sandbox.mjs'
 
 const EXIT_PASS = 0
 const EXIT_FAILURE = 1
@@ -73,9 +74,6 @@ const RUNNER_ENV_KEYS = {
     'CLOUD_ML_REGION', 'AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT',
   ],
 }
-const SAFE_OBSERVED_PREFIXES = [
-  '.ai/guides/', '.ai/skills/', '.ai/specs/', '.agents/skills/', 'node_modules/@open-mercato/',
-]
 const HARD_FORBIDDEN_READ_PATTERNS = ['.env*', '.git', '.git/**', '.ai/harness', '.ai/harness/**']
 
 function usage() {
@@ -627,6 +625,9 @@ function analyzeCommand(command, root) {
   if (/\$(?:\{)?(?:[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD)|HOME|CODEX_HOME|CLAUDE_CONFIG_DIR)(?:\})?/i.test(commandText)) {
     violations.push('forbidden sensitive environment variable reference')
   }
+  if (/\bfind\b[^;&|]*(?:-exec(?:dir)?|-ok(?:dir)?|-delete|-printf|-fprintf|-fprint|-fls)\b/i.test(commandText)) {
+    violations.push('forbidden executable or mutating file discovery')
+  }
   const visit = (text, depth = 0) => {
     if (depth > 2) return
     const commandPart = String(text).trim()
@@ -635,9 +636,26 @@ function analyzeCommand(command, root) {
       for (const segment of segments) visit(segment, depth + 1)
       return
     }
-    const unwrapped = commandPart.replace(/^['"`]+|['"`]+$/g, '').trim()
-    if (/^(?:find|ls|stat|wc)(?:\s|$)/.test(unwrapped) || /^(?:rg|grep)\b[^;&|]*\s--files(?:\s|$)/.test(unwrapped)) return
     const tokens = commandPart.match(/"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|`(?:\\.|[^`])*`|[^\s|;&<>]+/g) ?? []
+    const executable = stripShellToken(tokens[0], root).replace(/^.*\//, '')
+    const discovery = ['find', 'ls', 'stat', 'wc'].includes(executable)
+      || (executable === 'rg' && tokens.some((token) => stripShellToken(token, root) === '--files'))
+    if (discovery) {
+      const operands = []
+      let skipNext = false
+      for (let index = 1; index < tokens.length; index += 1) {
+        const stripped = stripShellToken(tokens[index], root)
+        if (skipNext) { skipNext = false; continue }
+        if (!stripped || ['/dev/null', '/dev/stdin', '/dev/stdout', '/dev/stderr'].includes(stripped)) continue
+        if (executable === 'find' && stripped.startsWith('-')) break
+        if (executable === 'rg' && ['-g', '--glob', '--iglob', '--type', '-t'].includes(stripped)) { skipNext = true; continue }
+        if (stripped.startsWith('-') || /^[0-9]+$/.test(stripped)) continue
+        if (looksLikePathToken(stripped) || stripped === '.') operands.push(stripped)
+      }
+      if (operands.length === 0) violations.push('unsafe broad metadata discovery')
+      else for (const operand of operands) candidates.push({ raw: operand, expand: false, metadataOnly: true })
+      return
+    }
     tokens.forEach((token, index) => {
       const stripped = stripShellToken(token, root)
       if (index === 0 && /\/(?:ba|z|fi)?sh$|\/env$/.test(stripped)) return
@@ -733,9 +751,24 @@ function normalizeObservedCandidate(raw, root) {
 }
 
 function isAllowedObservedPath(relative, caseRecord, writable) {
-  return relative === 'AGENTS.md'
-    || SAFE_OBSERVED_PREFIXES.some((prefix) => relative === prefix.slice(0, -1) || relative.startsWith(prefix))
+  return permittedContextPath(relative, caseRecord)
     || (writable && matchesAny(relative, caseRecord.allowedWrites ?? []))
+}
+
+function supportingSkillPaths(caseRecord) {
+  return (caseRecord.requiredSkills ?? []).flatMap((skill) => [
+    `.ai/skills/${skill}/SKILL.md`,
+    `.agents/skills/${skill}/SKILL.md`,
+  ])
+}
+
+function permittedContextPath(relative, caseRecord) {
+  if ((caseRecord.context?.required ?? []).some((pattern) => globToRegExp(pattern).test(relative))) return true
+  const skillPaths = supportingSkillPaths(caseRecord)
+  const skillRoots = [...(caseRecord.context?.required ?? []), ...skillPaths]
+    .filter((entry) => entry.endsWith('/SKILL.md'))
+    .map((entry) => entry.slice(0, -'SKILL.md'.length))
+  return skillPaths.includes(relative) || skillRoots.some((root) => relative.startsWith(`${root}references/`))
 }
 
 function expandObservedPath(root, relative, expand) {
@@ -744,7 +777,8 @@ function expandObservedPath(root, relative, expand) {
   }
   const absolute = path.resolve(root, relative)
   try {
-    const stat = fs.statSync(absolute)
+    const stat = fs.lstatSync(absolute)
+    if (stat.isSymbolicLink() || !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute))) return []
     if (stat.isFile()) return [relative]
     if (!stat.isDirectory() || !expand) return []
     const result = []
@@ -788,11 +822,37 @@ function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads
       continue
     }
     const relative = normalized.relative
+    if (candidate.metadataOnly) {
+      if (relative.includes('*') || relative.includes('?') || !permittedContextPath(relative, caseRecord)) {
+        violations.add(`unsafe metadata discovery ${relative}`)
+        continue
+      }
+      let entry
+      const absolute = path.resolve(root, relative)
+      try { entry = fs.lstatSync(absolute) } catch { continue }
+      if (entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())
+        || !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute))) violations.add(`unsafe metadata discovery entry ${relative}`)
+      continue
+    }
     if (matchesAny(relative, HARD_FORBIDDEN_READ_PATTERNS) || matchesAny(relative, caseRecord.context.forbidden)) {
       violations.add(`forbidden context read ${relative}`)
       continue
     }
     if (!relative.includes('*') && !relative.includes('?') && !fs.existsSync(path.resolve(root, relative))) continue
+    if (!relative.includes('*') && !relative.includes('?')) {
+      const absolute = path.resolve(root, relative)
+      try {
+        const entry = fs.lstatSync(absolute)
+        if (entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())
+          || !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute))) {
+          violations.add(`unsafe observed context entry ${relative}`)
+          continue
+        }
+      } catch {
+        violations.add(`unreadable observed context entry ${relative}`)
+        continue
+      }
+    }
     if (!isAllowedObservedPath(relative, caseRecord, writable)) {
       violations.add(`unsafe arbitrary app-root read ${relative}`)
       continue
@@ -818,7 +878,8 @@ function contextStats(root, paths) {
     const absolute = path.resolve(root, relative)
     if (!isPathInside(root, absolute)) continue
     try {
-      const stat = fs.statSync(absolute)
+      const stat = fs.lstatSync(absolute)
+      if (stat.isSymbolicLink() || !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute))) continue
       if (stat.isFile()) {
         files += 1
         bytes += stat.size
@@ -850,6 +911,7 @@ function evaluateRouting(caseRecord, response, stats) {
   for (const selected of selectedRoutes) if (!permitted.has(selected)) failures.push(`unexpected route ${selected}`)
   const selectedSkills = new Set(response.selectedSkills)
   for (const required of caseRecord.requiredSkills) if (!selectedSkills.has(required)) failures.push(`missing skill ${required}`)
+  for (const selected of selectedSkills) if (!caseRecord.requiredSkills.includes(selected)) failures.push(`unexpected skill ${selected}`)
   const selectedContext = new Set(response.selectedContext)
   for (const required of caseRecord.context.required) {
     if (![...selectedContext].some((selected) => globToRegExp(required).test(selected))) failures.push(`missing context ${required}`)
@@ -858,8 +920,14 @@ function evaluateRouting(caseRecord, response, stats) {
   for (const forbidden of caseRecord.context.forbidden) {
     if ([...selectedContext].some((selected) => globToRegExp(forbidden).test(selected))) failures.push(`forbidden context ${forbidden}`)
   }
+  for (const selected of selectedContext) {
+    if (!isSafeRelative(selected)) failures.push(`unsafe selected context ${selected}`)
+    else if (!permittedContextPath(selected, caseRecord)) failures.push(`unexpected context ${selected}`)
+    else if (!stats.paths.some((observed) => globToRegExp(selected).test(observed))) failures.push(`selected context not observed ${selected}`)
+  }
   const selectedDecisions = new Set(response.decisions)
   for (const required of caseRecord.requiredDecisions) if (!selectedDecisions.has(required)) failures.push(`missing decision ${required}`)
+  for (const selected of selectedDecisions) if (!caseRecord.requiredDecisions.includes(selected)) failures.push(`unexpected decision ${selected}`)
   if (response.violations.length) failures.push(...response.violations.map((entry) => `runner violation: ${entry}`))
   const serialized = JSON.stringify(response)
   for (const expression of caseRecord.forbiddenPatterns) if (new RegExp(expression, 'i').test(serialized)) failures.push(`forbidden pattern matched: ${expression}`)
@@ -947,16 +1015,39 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
       fs.chmodSync(isolatedAuth, 0o600)
     }
     runnerEnv.CODEX_HOME = isolatedCodexHome
+  } else if (runner === 'claude') {
+    const isolatedHome = path.join(tempDir, 'claude-home')
+    const isolatedConfig = path.join(isolatedHome, '.claude')
+    fs.mkdirSync(isolatedConfig, { recursive: true, mode: 0o700 })
+    const configuredConfig = runnerEnv.CLAUDE_CONFIG_DIR || path.join(runnerEnv.HOME || os.homedir(), '.claude')
+    const credentialSource = path.join(configuredConfig, '.credentials.json')
+    if (fs.existsSync(credentialSource)) {
+      const credentialTarget = path.join(isolatedConfig, '.credentials.json')
+      fs.copyFileSync(credentialSource, credentialTarget)
+      fs.chmodSync(credentialTarget, 0o600)
+    }
+    runnerEnv.HOME = isolatedHome
+    runnerEnv.CLAUDE_CONFIG_DIR = isolatedConfig
   }
   const started = Date.now()
   try {
-    const processResult = spawnSync(invocation.command, invocation.args, {
-      cwd: root,
+    const contained = writable
+      ? sandboxedInvocation({
+          ...invocation,
+          cwd: root,
+          writableRoots: [root, tempDir],
+          readOnlyRoots: fs.existsSync(path.join(root, 'node_modules')) ? [fs.realpathSync(path.join(root, 'node_modules'))] : [],
+          networkAllowed: true,
+          env: runnerEnv,
+        })
+      : { ...invocation, cwd: root, env: runnerEnv }
+    const processResult = spawnSync(contained.command, contained.args, {
+      cwd: contained.cwd,
       input: prompt,
       encoding: 'utf8',
       timeout,
       maxBuffer: 8 * 1024 * 1024,
-      env: runnerEnv,
+      env: contained.env,
     })
     const durationMs = Date.now() - started
     if (processResult.error?.code === 'ETIMEDOUT' || processResult.signal) {
@@ -979,11 +1070,23 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
 
 function snapshot(root) {
   const result = new Map()
-  for (const relative of walkFiles(root)) {
-    if (relative.startsWith('.ai/harness/results/')) continue
-    const absolute = path.join(root, relative)
-    try { result.set(relative, sha256(fs.readFileSync(absolute))) } catch { /* skip unreadable files */ }
+  const protectedRoots = new Set(['.git', 'node_modules', '.next', 'dist', '.ai/harness/results'])
+  const visit = (directory, relativeDirectory = '') => {
+    for (const name of fs.readdirSync(directory).sort()) {
+      const relative = relativeDirectory ? `${relativeDirectory}/${name}` : name
+      if ([...protectedRoots].some((entry) => relative === entry || relative.startsWith(`${entry}/`))) continue
+      const absolute = path.join(directory, name)
+      let entry
+      try { entry = fs.lstatSync(absolute) } catch { result.set(relative, '<unreadable>'); continue }
+      if (entry.isSymbolicLink()) {
+        try { result.set(relative, `<symlink:${fs.readlinkSync(absolute)}>`) } catch { result.set(relative, '<symlink:unreadable>') }
+      } else if (entry.isDirectory()) visit(absolute, relative)
+      else if (entry.isFile()) {
+        try { result.set(relative, sha256(fs.readFileSync(absolute))) } catch { result.set(relative, '<unreadable>') }
+      } else result.set(relative, `<special:${entry.mode & 0o170000}>`)
+    }
   }
+  visit(root)
   for (const relative of ['.git', 'node_modules', '.next', 'dist', '.ai/harness/results']) {
     result.set(relative, protectedTreeFingerprint(path.join(root, relative)))
   }
@@ -1010,6 +1113,19 @@ function protectedTreeFingerprint(target) {
 
 function changedPaths(before, after) {
   return [...new Set([...before.keys(), ...after.keys()])].filter((key) => before.get(key) !== after.get(key)).sort()
+}
+
+function unsafeChangedEntries(after, changed) {
+  const protectedRoots = new Set(['.git', 'node_modules', '.next', 'dist', '.ai/harness/results'])
+  return changed.flatMap((relative) => {
+    if (protectedRoots.has(relative)) return []
+    const fingerprint = after.get(relative)
+    if (typeof fingerprint !== 'string') return []
+    if (fingerprint.startsWith('<symlink:')) return [`${relative} (symbolic link)`]
+    if (fingerprint.startsWith('<special:')) return [`${relative} (special file)`]
+    if (fingerprint === '<unreadable>') return [`${relative} (unreadable)`]
+    return []
+  })
 }
 
 function snapshotFingerprint(value) {
@@ -1124,12 +1240,46 @@ function runOracle(caseRecord, targetRoot, oracleRoot, registry, phase) {
   return { failures, invalid }
 }
 
+function safePatternAnchor(pattern) {
+  const segments = pattern.replaceAll('\\', '/').split('/')
+  const wildcard = segments.findIndex((segment) => segment.includes('*') || segment.includes('?'))
+  return (wildcard === -1 ? segments : segments.slice(0, wildcard)).join('/')
+}
+
+function validateSafeWritableEntry(root, relative, errors) {
+  if (!relative || !isSafeRelative(relative)) { errors.push(`unsafe writable fixture path: ${relative}`); return }
+  const absolute = path.resolve(root, relative)
+  if (!isPathInside(root, absolute) || !fs.existsSync(absolute)) return
+  const visit = (entryPath) => {
+    const entryRelative = path.relative(root, entryPath).replaceAll(path.sep, '/')
+    let entry
+    try { entry = fs.lstatSync(entryPath) } catch { errors.push(`writable fixture path is unreadable: ${entryRelative}`); return }
+    if (entry.isSymbolicLink()) { errors.push(`writable fixture path contains a symbolic link: ${entryRelative}`); return }
+    if (entry.isDirectory()) {
+      let children
+      try { children = fs.readdirSync(entryPath).sort() } catch { errors.push(`writable fixture directory is unreadable: ${entryRelative}`); return }
+      for (const child of children) visit(path.join(entryPath, child))
+    } else if (!entry.isFile()) errors.push(`writable fixture path contains a special file: ${entryRelative}`)
+  }
+  visit(absolute)
+}
+
 function verifyWritableTarget(root, caseRecord, fixtures) {
   const errors = []
+  try {
+    const rootStat = fs.lstatSync(root)
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || fs.realpathSync(root) !== path.resolve(root)) {
+      errors.push('writable root must be a real regular directory without a symlinked path')
+    }
+  } catch { errors.push('writable root is unavailable') }
   const markerPath = path.join(root, '.ai', 'harness', 'DISPOSABLE')
   if (!fs.existsSync(markerPath)) errors.push('writable root must contain .ai/harness/DISPOSABLE')
   else {
     try {
+      const markerStat = fs.lstatSync(markerPath)
+      if (!markerStat.isFile() || markerStat.isSymbolicLink() || !isPathInside(fs.realpathSync(root), fs.realpathSync(markerPath))) {
+        throw new Error('unsafe marker')
+      }
       const marker = readJson(markerPath)
       const fixtureId = caseRecord.fixture.setup[0].slice('fixture:'.length)
       if (marker.caseId !== caseRecord.id || marker.fixtureId !== fixtureId) errors.push('disposable marker does not match the selected case fixture')
@@ -1142,6 +1292,12 @@ function verifyWritableTarget(root, caseRecord, fixtures) {
     const fixture = fixtures.fixtures[declaration.slice('fixture:'.length)]
     for (const artifact of fixture.seededArtifacts) if (!pathReferenceExists(root, artifact)) errors.push(`fixture is not seeded: ${artifact}`)
   }
+  const writableAnchors = [
+    ...(caseRecord.allowedWrites ?? []).map(safePatternAnchor),
+    ...(caseRecord.oracle?.expectedArtifacts ?? []).map(safePatternAnchor),
+    ...(caseRecord.fixture.setup ?? []).flatMap((declaration) => fixtures.fixtures[declaration.slice('fixture:'.length)]?.seededArtifacts ?? []),
+  ]
+  for (const relative of [...new Set(writableAnchors)].sort()) validateSafeWritableEntry(root, relative, errors)
   return errors
 }
 
@@ -1517,13 +1673,21 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         if (protectedChanges.length) violations.push(`writes to protected roots: ${protectedChanges.join(', ')}`)
         const outside = changed.filter((file) => !protectedRoots.has(file) && !matchesAny(file, caseRecord.allowedWrites))
         if (outside.length) violations.push(`writes outside allowlist: ${outside.join(', ')}`)
-        const afterOracle = runOracle(caseRecord, runRoot, root, registry, 'after')
+        const unsafeEntries = unsafeChangedEntries(afterAgent, changed)
+        if (unsafeEntries.length) violations.push(`unsafe changed filesystem entries: ${unsafeEntries.join(', ')}`)
+        const afterOracle = unsafeEntries.length
+          ? { failures: ['trusted oracles skipped because changed paths contain symbolic links, special files, or unreadable entries'], invalid: [] }
+          : runOracle(caseRecord, runRoot, root, registry, 'after')
         if (afterOracle.invalid.length) throw new Error(`${caseRecord.id}: invalid writable oracle setup: ${afterOracle.invalid.join('; ')}`)
         violations.push(...afterOracle.failures)
         const finalSnapshot = snapshot(runRoot)
         const oracleChanges = changedPaths(afterAgent, finalSnapshot)
         if (oracleChanges.length) violations.push(`oracle execution modified target: ${oracleChanges.join(', ')}`)
         changed = changedPaths(before, finalSnapshot)
+        const finalUnsafeEntries = unsafeChangedEntries(finalSnapshot, changed)
+        for (const entry of finalUnsafeEntries) {
+          if (!unsafeEntries.includes(entry)) violations.push(`unsafe changed filesystem entry after oracle: ${entry}`)
+        }
         writableResult = {
           changedPaths: changed,
           beforeOraclePassed: beforeOracle.failures.length === 0,

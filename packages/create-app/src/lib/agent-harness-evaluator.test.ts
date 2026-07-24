@@ -11,6 +11,7 @@ const sharedRoot = fileURLToPath(new URL('../../agentic/shared/', import.meta.ur
 const guidesRoot = fileURLToPath(new URL('../../agentic/guides/', import.meta.url))
 const sourceHarness = path.join(sharedRoot, 'ai', 'harness')
 const sourceEvaluator = path.join(sharedRoot, 'scripts', 'evaluate-agent-harness.mjs')
+const sourceExecutionSandbox = path.join(sharedRoot, 'scripts', 'execution-sandbox.mjs')
 const sourceFixturePreparer = path.join(sharedRoot, 'scripts', 'prepare-agent-harness-fixture.mjs')
 const typescriptPackageRoot = path.dirname(fileURLToPath(import.meta.resolve('typescript/package.json')))
 
@@ -64,6 +65,7 @@ function stageApp(): string {
   fs.copyFileSync(path.join(sharedRoot, 'AGENTS.md.template'), path.join(root, 'AGENTS.md'))
   fs.mkdirSync(path.join(root, 'scripts'), { recursive: true })
   fs.copyFileSync(sourceEvaluator, path.join(root, 'scripts', 'evaluate-agent-harness.mjs'))
+  fs.copyFileSync(sourceExecutionSandbox, path.join(root, 'scripts', 'execution-sandbox.mjs'))
   fs.copyFileSync(sourceFixturePreparer, path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'))
   return root
 }
@@ -145,7 +147,12 @@ function installFakeCodeReviewSkill(root: string): void {
   }, null, 2)}\n`)
 }
 
-function preparePassingWritableCrudResult(controller: string, target: string, oracleSideEffect = false): string {
+function preparePassingWritableCrudResult(
+  controller: string,
+  target: string,
+  oracleSideEffect = false,
+  sandboxProbe?: { readPath: string; writePath: string },
+): string {
   fs.copyFileSync(path.join(controller, 'AGENTS.md'), path.join(target, 'AGENTS.md'))
   fs.cpSync(path.join(controller, '.ai', 'guides'), path.join(target, '.ai', 'guides'), { recursive: true })
   fs.cpSync(path.join(controller, '.ai', 'skills'), path.join(target, '.ai', 'skills'), { recursive: true })
@@ -163,6 +170,10 @@ const fs = require('node:fs')
 const path = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+${sandboxProbe ? `
+try { fs.readFileSync(${JSON.stringify(sandboxProbe.readPath)}, 'utf8'); process.exit(31) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT'].includes(error.code)) throw error }
+try { fs.writeFileSync(${JSON.stringify(sandboxProbe.writePath)}, 'escaped'); process.exit(32) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT', 'EROFS'].includes(error.code)) throw error }
+` : ''}
 const route = path.join(process.cwd(), 'src/modules/library/api/books/route.ts')
 fs.mkdirSync(path.dirname(route), { recursive: true })
 fs.writeFileSync(route, "function makeCrudRoute(options: unknown) { return options }\\nexport const GET = makeCrudRoute({ metadata: {}, openApi: {}, indexer: {} })\\n")
@@ -366,7 +377,7 @@ if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes(
 const output = args[args.indexOf('-o') + 1]
 fs.writeFileSync(output, JSON.stringify({
   selectedRouter: ['architecture'], selectedSkills: [],
-  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/testing-debugging.md'],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
   decisions: ['standalone-boundary', 'facts-first'], violations: []
 }))
 for (const command of [
@@ -399,7 +410,7 @@ for (const command of [
     assert.equal(parsed.attempts, 1)
     assert.equal(parsed.corrections, 0)
     assert.deepEqual(parsed.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
-    assert.deepEqual(parsed.declaredContext.paths, ['.ai/guides/architecture.md', '.ai/guides/testing-debugging.md', 'AGENTS.md'])
+    assert.deepEqual(parsed.declaredContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -587,7 +598,7 @@ for (const command of ["cat AGENTS.md .ai/guides/architecture.md", 'cat .env', '
   }
 })
 
-test('observed reads enforce context budgets without merging declared context', { skip: process.platform === 'win32' }, () => {
+test('observed reads reject undeclared context without merging it into declared context', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
   const oversized = '.ai/guides/oversized-observed-context.md'
   fs.writeFileSync(path.join(root, oversized), 'x'.repeat(64 * 1024))
@@ -611,10 +622,10 @@ console.log(JSON.stringify({ type: 'item.completed', item: {
     })
     assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
     const [stored] = storedResults(root)
-    assert.ok(stored.violations.some((entry) => entry.startsWith('initial context byte budget exceeded:')))
-    assert.ok(stored.actualContext.paths.includes(oversized))
+    assert.ok(stored.violations.includes(`unsafe arbitrary app-root read ${oversized}`))
+    assert.ok(!stored.actualContext.paths.includes(oversized))
     assert.ok(!stored.declaredContext.paths.includes(oversized))
-    assert.ok(stored.actualContext.bytes > stored.declaredContext.bytes)
+    assert.equal(stored.actualContext.bytes, stored.declaredContext.bytes)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -704,7 +715,7 @@ for (const command of ['cat AGENTS.md .ai/guides/architecture.md', 'cat /etc/pas
   }
 })
 
-test('file-discovery shell commands do not count as content reads', { skip: process.platform === 'win32' }, () => {
+test('bounded metadata commands do not count as content reads', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
@@ -717,25 +728,81 @@ fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
 }))
 for (const command of [
   'cat AGENTS.md .ai/guides/architecture.md',
-  \"rg --files .ai/skills .agents/skills -g '!.ai/harness/**' 2>/dev/null | rg 'SKILL.md'\",
-  'find .ai/skills -type f',
-  'ls .ai/guides',
   'stat .ai/guides/architecture.md',
   'wc -c .ai/guides/architecture.md'
 ]) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command } }))
-console.log(JSON.stringify({ type: 'assistant', message: { content: [
-  { type: 'tool_use', name: 'Read', input: { file_path: '.ai/specs' } }
-] } }))
 `)
   try {
     const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
-    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}`)
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
     const [stored] = storedResults(root)
     assert.deepEqual(stored.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
-    assert.ok(!stored.actualContext.paths.includes('.ai/specs'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('dangerous and out-of-scope discovery commands fail closed', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+for (const command of [
+  'cat AGENTS.md .ai/guides/architecture.md',
+  'find /tmp -exec cat {} ;',
+  'find .ai/skills -type f',
+  'ls .ai/guides'
+]) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command } }))
+`)
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+    const [stored] = storedResults(root)
+    assert.ok(stored.violations.includes('forbidden executable or mutating file discovery'))
+    assert.ok(stored.violations.some((entry) => entry.startsWith('unsafe out-of-root context read: /tmp')))
+    assert.ok(stored.violations.includes('unsafe metadata discovery .ai/skills'))
+    assert.ok(stored.violations.includes('unsafe metadata discovery .ai/guides'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('routing rejects invented skills, decisions, and extra selected context', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: ['om-invented'],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/testing-debugging.md'],
+  decisions: ['standalone-boundary', 'facts-first', 'invented-decision'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md .ai/guides/architecture.md .ai/guides/testing-debugging.md' } }))
+`)
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+    const [stored] = storedResults(root)
+    assert.ok(stored.violations.includes('unexpected skill om-invented'))
+    assert.ok(stored.violations.includes('unexpected context .ai/guides/testing-debugging.md'))
+    assert.ok(stored.violations.includes('unexpected decision invented-decision'))
+    assert.ok(stored.violations.includes('unsafe arbitrary app-root read .ai/guides/testing-debugging.md'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -1154,6 +1221,106 @@ test('writable evidence fails when an oracle subprocess mutates the target after
   } finally {
     fs.rmSync(controller, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
+test('writable model sandbox denies out-of-root reads and writes while allowing target edits', { skip: process.platform !== 'darwin' && process.platform !== 'linux' }, () => {
+  if (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status !== 0) return
+  const controller = stageApp()
+  const target = stageWritableTarget()
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-model-secret-')))
+  const secret = path.join(outside, 'secret.txt')
+  const escapedWrite = path.join(outside, 'escaped.txt')
+  fs.writeFileSync(secret, 'do-not-read')
+  try {
+    preparePassingWritableCrudResult(controller, target, false, { readPath: secret, writePath: escapedWrite })
+    const [stored] = storedResults(controller)
+    assert.equal(stored.status, 'pass')
+    assert.equal(fs.readFileSync(secret, 'utf8'), 'do-not-read')
+    assert.equal(fs.existsSync(escapedWrite), false)
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+  }
+})
+
+test('writable target preflight rejects an allowlisted symlink before starting the model or oracle', { skip: process.platform === 'win32' }, () => {
+  const controller = stageApp()
+  const target = stageWritableTarget()
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-symlink-secret-')))
+  const outsideFile = path.join(outside, 'route.ts')
+  fs.writeFileSync(outsideFile, 'outside-original')
+  try {
+    const prepared = spawnSync(process.execPath, [
+      path.join(controller, 'scripts', 'prepare-agent-harness-fixture.mjs'),
+      '--case', 'OMH-011', '--target', target, '--acknowledge-writes',
+    ], { cwd: controller, encoding: 'utf8' })
+    assert.equal(prepared.status, 0, `${prepared.stdout}\n${prepared.stderr}`)
+    const route = path.join(target, 'src/modules/library/api/books/route.ts')
+    fs.mkdirSync(path.dirname(route), { recursive: true })
+    fs.symlinkSync(outsideFile, route)
+    const counter = path.join(controller, 'runner-started')
+    const bin = installFakeRunner(controller, 'codex', `
+const fs = require('node:fs')
+if (process.argv[2] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(${JSON.stringify(counter)}, 'started')
+process.exit(9)
+`)
+    const run = runEvaluator(controller, [
+      '--runner', 'codex', '--case', 'OMH-011', '--writable-root', target, '--acknowledge-writes',
+    ], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+    assert.equal(run.status, 2, `${run.stdout}\n${run.stderr}`)
+    assert.match(run.stderr, /writable fixture path contains a symbolic link/)
+    assert.equal(fs.existsSync(counter), false)
+    assert.equal(fs.readFileSync(outsideFile, 'utf8'), 'outside-original')
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+  }
+})
+
+test('writable snapshots reject a model-created symlink before trusted after-oracles read it', { skip: process.platform !== 'darwin' && process.platform !== 'linux' }, () => {
+  if (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status !== 0) return
+  const controller = stageApp()
+  const target = stageWritableTarget()
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-created-link-')))
+  const outsideFile = path.join(outside, 'route.ts')
+  fs.writeFileSync(outsideFile, 'outside-original')
+  try {
+    const prepared = spawnSync(process.execPath, [
+      path.join(controller, 'scripts', 'prepare-agent-harness-fixture.mjs'),
+      '--case', 'OMH-011', '--target', target, '--acknowledge-writes',
+    ], { cwd: controller, encoding: 'utf8' })
+    assert.equal(prepared.status, 0, `${prepared.stdout}\n${prepared.stderr}`)
+    const bin = installFakeRunner(controller, 'codex', `
+const fs = require('node:fs')
+const path = require('node:path')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const route = path.join(process.cwd(), 'src/modules/library/api/books/route.ts')
+fs.mkdirSync(path.dirname(route), { recursive: true })
+fs.symlinkSync(${JSON.stringify(outsideFile)}, route)
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['module-data'], selectedSkills: ['om-module-scaffold'],
+  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-module-scaffold/SKILL.md'],
+  decisions: ['crud-factory', 'scoped-response', 'openapi-indexer'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md .ai/guides/contracts.md .ai/skills/om-module-scaffold/SKILL.md' } }))
+`)
+    const run = runEvaluator(controller, [
+      '--runner', 'codex', '--case', 'OMH-011', '--writable-root', target, '--acknowledge-writes',
+    ], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+    assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+    const [stored] = storedResults(controller)
+    assert.ok(stored.violations.some((entry) => entry.includes('unsafe changed filesystem entries: src/modules/library/api/books/route.ts (symbolic link)')))
+    assert.ok(stored.violations.includes('trusted oracles skipped because changed paths contain symbolic links, special files, or unreadable entries'))
+    assert.equal(fs.readFileSync(outsideFile, 'utf8'), 'outside-original')
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
   }
 })
 

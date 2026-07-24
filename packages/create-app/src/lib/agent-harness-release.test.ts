@@ -15,8 +15,11 @@ const release = await import(pathToFileURL(releaseScript).href) as {
   sanitizeReportText: (value: string, roots?: string[]) => string
   prepareWritableTargets: (input: { root: string; prepareRoot: string; caseIds: string[] }) => { schemaVersion: number; targets: Record<string, string> }
   resolvePreparationRoot: (requested: string, controllerRoot: string) => string
+  dependencyContentFingerprint: (appRoot: string) => string
   runTargetValidationSteps: (input: { steps: any[]; target: string; timeout: number; roots: string[]; yarnCommand: string }) => any[]
 }
+const targetSandboxAvailable = process.platform === 'darwin'
+  || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
 
 function releaseInputs() {
   const targetA = path.join(os.tmpdir(), 'om-release-OMH-002')
@@ -126,7 +129,7 @@ test('automatic target preparation clones only fresh source inputs and safely sh
   }
 })
 
-test('every target validation command runs and failures retain actionable sanitized diagnostics', { skip: process.platform === 'win32' }, () => {
+test('every target validation command runs and failures retain actionable sanitized diagnostics', { skip: !targetSandboxAvailable }, () => {
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-')))
   const fakeYarn = path.join(target, 'fake-yarn')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
@@ -146,6 +149,78 @@ if (process.argv[2] === 'lint') { console.error('lint rule failed in ' + process
     assert.match(results[2].sanitizedError, /lint rule failed in <redacted-path>/)
   } finally {
     fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
+test('target validation hides host secrets and denies out-of-root reads and writes', { skip: !targetSandboxAvailable }, () => {
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-contained-')))
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-secret-')))
+  const secret = path.join(outside, 'secret.txt')
+  const escapedWrite = path.join(outside, 'escaped.txt')
+  fs.writeFileSync(secret, 'do-not-read')
+  const fakeYarn = path.join(target, 'fake-yarn')
+  fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
+const fs = require('node:fs')
+if (process.env.FAKE_PROVIDER_SECRET) process.exit(21)
+try { fs.readFileSync(${JSON.stringify(secret)}, 'utf8'); process.exit(22) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT'].includes(error.code)) throw error }
+try { fs.writeFileSync(${JSON.stringify(escapedWrite)}, 'escaped'); process.exit(23) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT', 'EROFS'].includes(error.code)) throw error }
+fs.writeFileSync('contained.txt', 'ok')
+`)
+  fs.chmodSync(fakeYarn, 0o755)
+  const step = { id: 'target-validation:OMH-002:build', kind: 'target-validation', caseId: 'OMH-002', command: 'yarn build' }
+  const previous = process.env.FAKE_PROVIDER_SECRET
+  process.env.FAKE_PROVIDER_SECRET = 'must-not-cross-boundary'
+  try {
+    const [result] = release.runTargetValidationSteps({ steps: [step], target, timeout: 10_000, roots: [target, outside], yarnCommand: fakeYarn })
+    assert.equal(result.status, 'pass', result.sanitizedError)
+    assert.equal(fs.readFileSync(path.join(target, 'contained.txt'), 'utf8'), 'ok')
+    assert.equal(fs.readFileSync(secret, 'utf8'), 'do-not-read')
+    assert.equal(fs.existsSync(escapedWrite), false)
+  } finally {
+    if (previous === undefined) delete process.env.FAKE_PROVIDER_SECRET
+    else process.env.FAKE_PROVIDER_SECRET = previous
+    fs.rmSync(target, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+  }
+})
+
+test('target validation cannot mutate nested files in shared dependencies', { skip: !targetSandboxAvailable }, () => {
+  const controllerDependencies = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-shared-deps-')))
+  const nested = path.join(controllerDependencies, 'example', 'nested.js')
+  fs.mkdirSync(path.dirname(nested), { recursive: true })
+  fs.writeFileSync(nested, 'original')
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-deps-')))
+  fs.symlinkSync(controllerDependencies, path.join(target, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+  const fakeYarn = path.join(target, 'fake-yarn')
+  fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
+const fs = require('node:fs')
+fs.writeFileSync('node_modules/example/nested.js', 'tampered')
+`)
+  fs.chmodSync(fakeYarn, 0o755)
+  const step = { id: 'target-validation:OMH-002:build', kind: 'target-validation', caseId: 'OMH-002', command: 'yarn build' }
+  try {
+    const [result] = release.runTargetValidationSteps({ steps: [step], target, timeout: 10_000, roots: [target, controllerDependencies], yarnCommand: fakeYarn })
+    assert.equal(result.status, 'fail')
+    assert.equal(fs.readFileSync(nested, 'utf8'), 'original')
+  } finally {
+    fs.rmSync(target, { recursive: true, force: true })
+    fs.rmSync(controllerDependencies, { recursive: true, force: true })
+  }
+})
+
+test('the suite-level dependency fingerprint detects nested package file mutations', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-dependency-fingerprint-')))
+  const nested = path.join(root, 'node_modules', 'example', 'lib', 'nested.js')
+  fs.mkdirSync(path.dirname(nested), { recursive: true })
+  fs.writeFileSync(path.join(root, 'package.json'), '{}\n')
+  fs.writeFileSync(nested, 'original\n')
+  try {
+    const before = release.dependencyContentFingerprint(root)
+    fs.writeFileSync(nested, 'mutated\n')
+    const after = release.dependencyContentFingerprint(root)
+    assert.notEqual(after, before)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -199,6 +274,7 @@ test('release command fails closed before execution and stores a sanitized exact
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-controller-')))
   const harness = path.join(root, '.ai', 'harness')
   fs.mkdirSync(path.join(harness, 'fixtures'), { recursive: true })
+  fs.mkdirSync(path.join(root, 'node_modules'), { recursive: true })
   const input = releaseInputs()
   input.targetsManifest = { schemaVersion: 1, targets: {} }
   fs.writeFileSync(path.join(harness, 'cases.json'), JSON.stringify(input.cases))

@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
+import { sandboxedInvocation } from './execution-sandbox.mjs'
 
 const WRITABLE_KINDS = new Set(['implementation', 'regression'])
 const RUNNERS = new Set(['codex', 'claude'])
@@ -18,7 +19,6 @@ const COPY_EXCLUDED_PREFIXES = [
   '.git', '.next', '.turbo', '.cache', 'build', 'coverage', 'dist', 'node_modules', 'out',
   '.ai/framework-context', '.ai/harness/results', '.ai/reports',
 ]
-const SNAPSHOT_IGNORES = new Set(['.git', '.next', 'dist', 'node_modules'])
 
 function usage() {
   return `Run the complete standalone agent-harness release gate.
@@ -38,7 +38,8 @@ Options:
 
 Exactly one target option is required. Automatic targets exclude dependencies, build
 outputs, harness results, and generated framework context, then safely reference the
-controller's protected dependency tree. The command preflights complete matrix,
+controller's protected dependency tree. Writable execution requires sandbox-exec on
+macOS or Bubblewrap on Linux; unsupported hosts fail closed. The command preflights complete matrix,
 fixture, review, and target coverage before
 running deterministic validation, configured live routing, writable trusted-oracle
 gates, explicit om-code-review, and the release-matrix validation commands. It stores
@@ -347,8 +348,23 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
         const stat = fs.lstatSync(target)
         normalized = fs.realpathSync(target)
         const required = ['package.json', 'src/modules.ts', '.ai/harness/cases.json']
+        const requiredAreSafe = required.every((relative) => {
+          const absolute = path.join(normalized, relative)
+          try {
+            const entry = fs.lstatSync(absolute)
+            return entry.isFile() && !entry.isSymbolicLink() && isPathInside(normalized, fs.realpathSync(absolute))
+          } catch { return false }
+        })
+        const dependencyPath = path.join(normalized, 'node_modules')
+        let dependenciesAreSafe = false
+        try {
+          const dependencyEntry = fs.lstatSync(dependencyPath)
+          dependenciesAreSafe = dependencyEntry.isDirectory()
+            && (!dependencyEntry.isSymbolicLink()
+              || (root && fs.realpathSync(dependencyPath) === fs.realpathSync(path.join(root, 'node_modules'))))
+        } catch { /* invalid target below */ }
         if (!stat.isDirectory() || stat.isSymbolicLink() || normalized === root
-          || required.some((relative) => !fs.existsSync(path.join(normalized, relative)))
+          || !requiredAreSafe || !dependenciesAreSafe
           || fs.existsSync(path.join(normalized, '.ai', 'harness', 'DISPOSABLE'))) invalidTargetCaseIds.push(id)
       } catch { invalidTargetCaseIds.push(id) }
     }
@@ -566,25 +582,10 @@ function readNewResults(root, before) {
   return results
 }
 
-function execute(command, args, cwd, timeout) {
+function execute(command, args, cwd, timeout, env = process.env) {
   const started = Date.now()
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024, env: process.env })
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024, env })
   return { ...result, durationMs: Date.now() - started }
-}
-
-function walkSnapshotFiles(root) {
-  const files = []
-  const visit = (directory) => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-      if (SNAPSHOT_IGNORES.has(entry.name)) continue
-      const absolute = path.join(directory, entry.name)
-      if (entry.isSymbolicLink()) continue
-      if (entry.isDirectory()) visit(absolute)
-      else if (entry.isFile()) files.push(normalizedRelative(root, absolute))
-    }
-  }
-  visit(root)
-  return files
 }
 
 function protectedTreeFingerprint(target) {
@@ -605,12 +606,12 @@ function protectedTreeFingerprint(target) {
   return hash.digest('hex')
 }
 
-function dependencyOwnershipFingerprint(appRoot) {
+export function dependencyContentFingerprint(appRoot) {
   const dependencyRoot = path.join(appRoot, 'node_modules')
   const stat = fs.lstatSync(dependencyRoot)
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('controller node_modules must remain a regular directory')
   const hash = createHash('sha256')
-  const ownershipFiles = ['package.json', 'yarn.lock', 'node_modules/.yarn-state.yml']
+  const ownershipFiles = ['package.json', 'yarn.lock']
   for (const relative of ownershipFiles) {
     const absolute = path.join(appRoot, relative)
     if (!fs.existsSync(absolute)) continue
@@ -620,41 +621,60 @@ function dependencyOwnershipFingerprint(appRoot) {
     hash.update(fs.readFileSync(absolute))
   }
   let entries = 0
-  const packages = []
-  for (const name of fs.readdirSync(dependencyRoot).sort()) {
-    const absolute = path.join(dependencyRoot, name)
-    const entry = fs.lstatSync(absolute)
-    entries += 1
-    if (name.startsWith('@') && entry.isDirectory() && !entry.isSymbolicLink()) {
-      for (const child of fs.readdirSync(absolute).sort()) packages.push(`${name}/${child}`)
-    } else packages.push(name)
-  }
-  if (packages.length > 20_000 || entries > 20_000) throw new Error('dependency ownership fingerprint exceeds its 20000-entry safety bound')
-  for (const relative of packages) {
-    const absolute = path.join(dependencyRoot, relative)
-    const entry = fs.lstatSync(absolute)
-    hash.update(`${relative}:${entry.mode}:${entry.size}:${entry.mtimeMs}:${entry.ctimeMs}\n`)
-    if (entry.isSymbolicLink()) hash.update(`link:${fs.readlinkSync(absolute)}\n`)
-    const manifest = path.join(absolute, 'package.json')
-    if (entry.isDirectory() && fs.existsSync(manifest)) {
-      const manifestStat = fs.lstatSync(manifest)
-      if (!manifestStat.isFile() || manifestStat.isSymbolicLink() || manifestStat.size > 1_048_576) throw new Error(`dependency manifest is unsafe: ${relative}`)
-      hash.update(fs.readFileSync(manifest))
+  const visit = (directory, relativeDirectory = '') => {
+    for (const name of fs.readdirSync(directory).sort()) {
+      entries += 1
+      if (entries > 500_000) throw new Error('dependency content fingerprint exceeds its 500000-entry safety bound')
+      const absolute = path.join(directory, name)
+      const relative = relativeDirectory ? `${relativeDirectory}/${name}` : name
+      const entry = fs.lstatSync(absolute)
+      hash.update(`${relative}:${entry.mode}:${entry.size}\n`)
+      if (entry.isSymbolicLink()) hash.update(`link:${fs.readlinkSync(absolute)}\n`)
+      else if (entry.isDirectory()) visit(absolute, relative)
+      else if (entry.isFile()) hash.update(fs.readFileSync(absolute))
+      else throw new Error(`dependency tree contains an unsupported entry: ${relative}`)
     }
   }
+  visit(dependencyRoot)
   return hash.digest('hex')
 }
 
 function targetSnapshot(root) {
   const result = new Map()
-  for (const relative of walkSnapshotFiles(root)) {
-    if (relative.startsWith('.ai/harness/results/')) continue
-    try { result.set(relative, sha256(fs.readFileSync(path.join(root, relative)))) } catch { /* bounded report will expose later mismatch */ }
+  const protectedRoots = new Set(['.git', 'node_modules', '.next', 'dist', '.ai/harness/results'])
+  const visit = (directory, relativeDirectory = '') => {
+    for (const name of fs.readdirSync(directory).sort()) {
+      const relative = relativeDirectory ? `${relativeDirectory}/${name}` : name
+      if ([...protectedRoots].some((entry) => relative === entry || relative.startsWith(`${entry}/`))) continue
+      const absolute = path.join(directory, name)
+      let entry
+      try { entry = fs.lstatSync(absolute) } catch { result.set(relative, '<unreadable>'); continue }
+      if (entry.isSymbolicLink()) {
+        try { result.set(relative, `<symlink:${fs.readlinkSync(absolute)}>`) } catch { result.set(relative, '<symlink:unreadable>') }
+      } else if (entry.isDirectory()) visit(absolute, relative)
+      else if (entry.isFile()) {
+        try { result.set(relative, sha256(fs.readFileSync(absolute))) } catch { result.set(relative, '<unreadable>') }
+      } else result.set(relative, `<special:${entry.mode & 0o170000}>`)
+    }
   }
+  visit(root)
   for (const relative of ['.git', 'node_modules', '.next', 'dist', '.ai/harness/results']) {
     result.set(relative, protectedTreeFingerprint(path.join(root, relative)))
   }
   return result
+}
+
+function unsafeChangedTargetEntries(after, changed) {
+  const protectedRoots = new Set(['.git', 'node_modules', '.next', 'dist', '.ai/harness/results'])
+  return changed.flatMap((relative) => {
+    if (protectedRoots.has(relative)) return []
+    const fingerprint = after.get(relative)
+    if (typeof fingerprint !== 'string') return []
+    if (fingerprint.startsWith('<symlink:')) return [`${relative} (symbolic link)`]
+    if (fingerprint.startsWith('<special:')) return [`${relative} (special file)`]
+    if (fingerprint === '<unreadable>') return [`${relative} (unreadable)`]
+    return []
+  })
 }
 
 function targetSnapshotFingerprint(snapshot) {
@@ -705,13 +725,77 @@ function skippedStep(step, reason) {
   }
 }
 
+function targetValidationEnvironment(tempRoot) {
+  const home = path.join(tempRoot, 'home')
+  const temporary = path.join(tempRoot, 'tmp')
+  const cache = path.join(tempRoot, 'cache')
+  for (const directory of [home, temporary, cache]) fs.mkdirSync(directory, { recursive: true, mode: 0o700 })
+  const env = {
+    PATH: process.env.PATH ?? '',
+    HOME: home,
+    TMPDIR: temporary,
+    TEMP: temporary,
+    TMP: temporary,
+    XDG_CONFIG_HOME: path.join(home, '.config'),
+    XDG_CACHE_HOME: cache,
+    XDG_DATA_HOME: path.join(home, '.local', 'share'),
+    CI: '1',
+    NO_COLOR: '1',
+    NEXT_TELEMETRY_DISABLED: '1',
+    YARN_ENABLE_TELEMETRY: '0',
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
+    TZ: 'UTC',
+  }
+  const configuredCorepackHome = process.env.COREPACK_HOME || path.join(os.homedir(), '.cache', 'node', 'corepack')
+  const corepackHome = fs.existsSync(configuredCorepackHome) && fs.statSync(configuredCorepackHome).isDirectory()
+    ? fs.realpathSync(configuredCorepackHome)
+    : undefined
+  if (corepackHome) env.COREPACK_HOME = corepackHome
+  for (const key of ['SystemRoot', 'WINDIR', 'PATHEXT', 'ComSpec']) {
+    if (typeof process.env[key] === 'string') env[key] = process.env[key]
+  }
+  return { env, toolReadRoots: corepackHome ? [corepackHome] : [] }
+}
+
 export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCommand = process.platform === 'win32' ? 'yarn.cmd' : 'yarn' }) {
   const results = []
-  for (const step of steps) {
-    const execution = execute(yarnCommand, [step.command.slice('yarn '.length)], target, timeout)
-    results.push(stepResult(step, execution, [], roots))
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-validation-'))
+  const { env, toolReadRoots } = targetValidationEnvironment(tempRoot)
+  const dependencyPath = path.join(target, 'node_modules')
+  const readOnlyRoots = [...(fs.existsSync(dependencyPath) ? [fs.realpathSync(dependencyPath)] : []), ...toolReadRoots]
+  let before = targetSnapshot(target)
+  try {
+    for (const step of steps) {
+      let execution
+      try {
+        const invocation = sandboxedInvocation({
+          command: yarnCommand,
+          args: [step.command.slice('yarn '.length)],
+          cwd: target,
+          writableRoots: [target, tempRoot],
+          readOnlyRoots,
+          networkAllowed: false,
+          env,
+        })
+        execution = execute(invocation.command, invocation.args, invocation.cwd, timeout, invocation.env)
+      } catch (error) {
+        execution = { status: null, error, stdout: '', stderr: '', durationMs: 0 }
+      }
+      const after = targetSnapshot(target)
+      const changed = [...new Set([...before.keys(), ...after.keys()])].filter((key) => before.get(key) !== after.get(key)).sort()
+      const unsafeEntries = unsafeChangedTargetEntries(after, changed)
+      const result = stepResult(step, execution, [], roots)
+      if (unsafeEntries.length) {
+        result.status = 'fail'
+        result.sanitizedError = sanitizeReportText(`validation created unsafe filesystem entries: ${unsafeEntries.join(', ')}`, roots)
+      }
+      results.push(result)
+      before = after
+    }
+    return results
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true })
   }
-  return results
 }
 
 function executedCoverage(plan, steps, results) {
@@ -833,7 +917,11 @@ export function main(argv = process.argv.slice(2)) {
     return 2
   }
   let targetsManifest
-  let preparedDependencyFingerprint
+  let controllerDependencyFingerprint
+  try { controllerDependencyFingerprint = dependencyContentFingerprint(root) } catch (error) {
+    console.error(`controller dependency verification failed: ${error.message}`)
+    return 2
+  }
   if (options.writableTargets) {
     try {
       const stat = fs.lstatSync(options.writableTargets)
@@ -859,7 +947,6 @@ export function main(argv = process.argv.slice(2)) {
       return 1
     }
     try {
-      preparedDependencyFingerprint = dependencyOwnershipFingerprint(root)
       targetsManifest = prepareWritableTargets({ root, prepareRoot, caseIds: writableIds })
     } catch (error) {
       preliminary.violations = [`automatic writable target preparation failed: ${error.message}`]
@@ -886,7 +973,7 @@ export function main(argv = process.argv.slice(2)) {
 
   const evaluator = path.join(root, 'scripts', 'evaluate-agent-harness.mjs')
   const preparer = path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs')
-  const sharedDependencyBefore = preparedDependencyFingerprint
+  const sharedDependencyBefore = controllerDependencyFingerprint
   const steps = []
   const resultArtifacts = []
   const deterministicStep = plan.steps.find((step) => step.kind === 'deterministic')
@@ -1000,7 +1087,7 @@ export function main(argv = process.argv.slice(2)) {
   if (sharedDependencyBefore) {
     let sharedDependencyAfter
     let dependencyError
-    try { sharedDependencyAfter = dependencyOwnershipFingerprint(root) } catch (error) { dependencyError = error }
+    try { sharedDependencyAfter = dependencyContentFingerprint(root) } catch (error) { dependencyError = error }
     steps.push({
       id: 'shared-dependencies:unchanged',
       kind: 'dependency-guard',

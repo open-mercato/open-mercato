@@ -11,6 +11,8 @@ import { WRITABLE_CASE_IDS } from '../../agentic/shared/ai/harness/writable-ast-
 const require = createRequire(import.meta.url)
 const oracle = fileURLToPath(new URL('../../agentic/shared/ai/harness/writable-ast-oracles.mjs', import.meta.url))
 const targetTypeScript = path.dirname(require.resolve('typescript/package.json'))
+const targetSandboxAvailable = process.platform === 'darwin'
+  || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
 
 const EXPECTED_WRITABLE_CASE_IDS = [
   'OMH-009', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-026', 'OMH-027', 'OMH-029', 'OMH-031',
@@ -56,8 +58,10 @@ function installFakeYarn(root: string): string {
   } else {
     fs.writeFileSync(executable, `#!/usr/bin/env node
 const fs = require('node:fs')
+const path = require('node:path')
 fs.writeFileSync(require('node:path').join(process.cwd(), 'typecheck-invocation.txt'), process.argv.slice(2).join(' '))
-process.exit(Number(process.env.ORACLE_TYPECHECK_STATUS || 0))
+const statusFile = path.join(process.cwd(), '.oracle-typecheck-status')
+process.exit(fs.existsSync(statusFile) ? Number(fs.readFileSync(statusFile, 'utf8')) : 0)
 `)
     fs.chmodSync(executable, 0o755)
   }
@@ -100,7 +104,7 @@ export const route = makeCrudRoute({ metadata: {}, openApi: {}, indexer: {} })
   }
 })
 
-test('after phase invokes only the fixed target yarn typecheck gate and reports its status', () => {
+test('after phase invokes only the fixed contained target yarn typecheck gate and reports its status', { skip: !targetSandboxAvailable }, () => {
   const root = stageTarget('src/modules/library/api/books/route.ts', `
 declare function makeCrudRoute(options: { metadata: unknown; openApi: unknown; indexer: unknown }): unknown
 export const route = makeCrudRoute({ metadata: {}, openApi: {}, indexer: {} })
@@ -108,12 +112,14 @@ export const route = makeCrudRoute({ metadata: {}, openApi: {}, indexer: {} })
   const bin = installFakeYarn(root)
   const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` }
   try {
-    const passing = runOracle(root, 'after', { ...env, ORACLE_TYPECHECK_STATUS: '0' })
+    fs.writeFileSync(path.join(root, '.oracle-typecheck-status'), '0')
+    const passing = runOracle(root, 'after', env)
     assert.equal(passing.status, 0, `${passing.stdout}\n${passing.stderr}`)
     assert.equal(passing.parsed.checks.find((entry) => entry.id === 'target.typecheck')?.passed, true)
     assert.equal(fs.readFileSync(path.join(root, 'typecheck-invocation.txt'), 'utf8'), 'typecheck')
 
-    const failing = runOracle(root, 'after', { ...env, ORACLE_TYPECHECK_STATUS: '1' })
+    fs.writeFileSync(path.join(root, '.oracle-typecheck-status'), '1')
+    const failing = runOracle(root, 'after', env)
     assert.equal(failing.status, 1, `${failing.stdout}\n${failing.stderr}`)
     assert.equal(failing.parsed.checks.find((entry) => entry.id === 'target.typecheck')?.passed, false)
     assert.match(failing.parsed.failures.join('\n'), /target\.typecheck/)

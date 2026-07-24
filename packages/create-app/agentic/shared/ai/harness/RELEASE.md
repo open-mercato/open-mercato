@@ -6,7 +6,19 @@ Run the complete per-release gate from a generated standalone app with one comma
 yarn harness:release --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-`--prepare-targets` accepts only an absolute, new or empty regular directory outside the controller app. It copies the current fresh scaffold once per catalog case whose `evaluationKind` is `implementation` or `regression`, while excluding `.git`, `node_modules`, build/cache/coverage output, `.ai/harness/results`, `.ai/reports`, and `.ai/framework-context`. Each target receives a guarded link to the controller's installed dependency tree; model writes remain outside the case allowlist. The release gate takes a bounded dependency-ownership fingerprint once before execution and once after the complete suite and fails if it changed. A generated `release-targets.json` records the local mapping.
+`--prepare-targets` accepts only an absolute, new or empty regular directory outside the controller app. It copies the current fresh scaffold once per catalog case whose `evaluationKind` is `implementation` or `regression`, while excluding `.git`, `node_modules`, build/cache/coverage output, `.ai/harness/results`, `.ai/reports`, and `.ai/framework-context`. Each target receives a guarded link to the controller's installed dependency tree. The OS sandbox resolves that link as read-only during both the writable model run and the target command gate. The release gate also hashes every dependency entry and regular-file body once before execution and once after the complete suite, and fails if any nested content or metadata changed. A generated `release-targets.json` records the local mapping.
+
+## Containment prerequisites and policy
+
+The writable release lane fails closed unless host-level containment is available:
+
+- macOS requires the system `/usr/bin/sandbox-exec` implementation;
+- Linux requires `bwrap` (Bubblewrap) on `PATH` with user namespaces available;
+- native Windows is not supported for writable release evaluation. Run the command in a Linux container/VM with Bubblewrap rather than weakening containment.
+
+The writable model process may use network access only for its configured model provider. It can write only the disposable target and its isolated result/config directory; controller dependencies are read-only. Host file contents are hidden except for the target, resolved dependency tree, isolated runner authentication copy, executable/runtime directories, and a fixed OS runtime allowlist. Trace validation independently rejects out-of-scope reads and selections.
+
+Model-authored `yarn generate`, `yarn typecheck`, `yarn lint`, and `yarn build` commands run with network access denied. Their environment is rebuilt from a small allowlist: `PATH`, isolated `HOME`/temporary/XDG directories, an existing read-only `COREPACK_HOME` tool cache when present, the Windows launcher variables on supported hosts, and deterministic CI/telemetry/time-zone flags. Provider credentials, package-registry tokens, database URLs, and arbitrary parent environment values are never inherited. The commands can write the disposable target and isolated temporary directory, but the resolved dependency tree stays read-only. A missing sandbox, denied namespace setup, missing offline package-manager runtime, unsafe target link, or dependency fingerprint mismatch fails the gate.
 
 For externally prepared apps, `--writable-targets /absolute/release-targets.json` remains supported. The manifest must assign every writable case to its own fresh generated app:
 

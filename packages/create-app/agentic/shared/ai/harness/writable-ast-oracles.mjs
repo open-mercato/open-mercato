@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
+import { sandboxedInvocation } from '../../scripts/execution-sandbox.mjs'
 
 const TYPECHECK_TIMEOUT_MS = 120_000
 
@@ -341,13 +343,30 @@ function isTypeScriptSource(file) {
   return /\.(?:cts|mts|ts|tsx)$/.test(file) && !/\.d\.(?:cts|mts|ts)$/.test(file)
 }
 
+function safeTargetEntry(root, absolute) {
+  const relative = path.relative(root, absolute)
+  if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
+    throw new Error(`oracle path escapes the target: ${relative || '.'}`)
+  }
+  let current = root
+  for (const segment of relative.split(path.sep)) {
+    current = path.join(current, segment)
+    if (!fs.existsSync(current)) return undefined
+    const stat = fs.lstatSync(current)
+    if (stat.isSymbolicLink()) throw new Error(`oracle path contains a symbolic link: ${path.relative(root, current).replaceAll(path.sep, '/')}`)
+    if (!stat.isDirectory() && !stat.isFile()) throw new Error(`oracle path contains a special file: ${path.relative(root, current).replaceAll(path.sep, '/')}`)
+  }
+  if (!path.relative(root, fs.realpathSync(current)).startsWith('..')) return fs.lstatSync(current)
+  throw new Error(`oracle path resolves outside the target: ${relative.replaceAll(path.sep, '/')}`)
+}
+
 function collectSourceFiles(root, relativeEntries) {
   const found = new Set()
   const visit = (absolute) => {
-    if (!fs.existsSync(absolute)) return
-    const stat = fs.statSync(absolute)
+    const stat = safeTargetEntry(root, absolute)
+    if (!stat) return
     if (stat.isFile()) {
-      if (isTypeScriptSource(absolute)) found.add(fs.realpathSync(absolute))
+      if (isTypeScriptSource(absolute)) found.add(absolute)
       return
     }
     if (!stat.isDirectory()) return
@@ -361,15 +380,18 @@ function collectSourceFiles(root, relativeEntries) {
 }
 
 function artifactExists(root, pattern) {
-  if (!pattern.endsWith('/**')) return fs.existsSync(path.join(root, pattern))
+  if (!pattern.endsWith('/**')) return Boolean(safeTargetEntry(root, path.join(root, pattern)))
   const directory = path.join(root, pattern.slice(0, -3))
-  if (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) return false
+  const directoryStat = safeTargetEntry(root, directory)
+  if (!directoryStat?.isDirectory()) return false
   const pending = [directory]
   while (pending.length) {
     const current = pending.pop()
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      if (entry.isFile()) return true
-      if (entry.isDirectory()) pending.push(path.join(current, entry.name))
+      const absolute = path.join(current, entry.name)
+      const stat = safeTargetEntry(root, absolute)
+      if (stat?.isFile()) return true
+      if (stat?.isDirectory()) pending.push(absolute)
     }
   }
   return false
@@ -915,13 +937,44 @@ function caseChecks(ts, caseId, facts) {
 }
 
 function runTargetTypecheck(root) {
-  const result = spawnSync('yarn', ['typecheck'], {
-    cwd: root,
-    encoding: 'utf8',
-    shell: false,
-    timeout: TYPECHECK_TIMEOUT_MS,
-    windowsHide: true,
-  })
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-oracle-'))
+  const home = path.join(tempRoot, 'home')
+  fs.mkdirSync(home, { recursive: true, mode: 0o700 })
+  const env = {
+    PATH: process.env.PATH ?? '', HOME: home, TMPDIR: tempRoot, TEMP: tempRoot, TMP: tempRoot,
+    XDG_CONFIG_HOME: path.join(home, '.config'), XDG_CACHE_HOME: path.join(home, '.cache'),
+    CI: '1', NO_COLOR: '1', NEXT_TELEMETRY_DISABLED: '1', YARN_ENABLE_TELEMETRY: '0', TZ: 'UTC',
+  }
+  const configuredCorepackHome = process.env.COREPACK_HOME || path.join(os.homedir(), '.cache', 'node', 'corepack')
+  const corepackHome = fs.existsSync(configuredCorepackHome) && fs.statSync(configuredCorepackHome).isDirectory()
+    ? fs.realpathSync(configuredCorepackHome)
+    : undefined
+  if (corepackHome) env.COREPACK_HOME = corepackHome
+  let result
+  try {
+    const dependencyPath = path.join(root, 'node_modules')
+    const invocation = sandboxedInvocation({
+      command: process.platform === 'win32' ? 'yarn.cmd' : 'yarn',
+      args: ['typecheck'],
+      cwd: root,
+      writableRoots: [root, tempRoot],
+      readOnlyRoots: [...(fs.existsSync(dependencyPath) ? [fs.realpathSync(dependencyPath)] : []), ...(corepackHome ? [corepackHome] : [])],
+      networkAllowed: false,
+      env,
+    })
+    result = spawnSync(invocation.command, invocation.args, {
+      cwd: invocation.cwd,
+      env: invocation.env,
+      encoding: 'utf8',
+      shell: false,
+      timeout: TYPECHECK_TIMEOUT_MS,
+      windowsHide: true,
+    })
+  } catch (error) {
+    result = { status: null, signal: null, stdout: '', stderr: '', error }
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  }
   if (result.error?.code === 'ETIMEDOUT' || result.signal) {
     return check('target.typecheck', false, `yarn typecheck must complete within ${TYPECHECK_TIMEOUT_MS}ms`)
   }
