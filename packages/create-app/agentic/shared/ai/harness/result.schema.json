@@ -54,11 +54,12 @@
     "writable": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["changedPaths", "beforeOraclePassed", "afterOraclePassed"],
+      "required": ["changedPaths", "beforeOraclePassed", "afterOraclePassed", "targetFingerprint"],
       "properties": {
         "changedPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
         "beforeOraclePassed": { "type": "boolean" },
-        "afterOraclePassed": { "type": "boolean" }
+        "afterOraclePassed": { "type": "boolean" },
+        "targetFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
       }
     }
   }

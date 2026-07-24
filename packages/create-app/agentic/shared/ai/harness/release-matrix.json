@@ -38,5 +38,21 @@
     { "caseId": "OMH-060", "runner": "claude", "modelSelector": "sonnet" },
     { "caseId": "OMH-061", "runner": "codex", "modelSelector": "default" },
     { "caseId": "OMH-070", "runner": "claude", "modelSelector": "sonnet" }
-  ]
+  ],
+  "generatedCodeReview": {
+    "required": false,
+    "skill": "om-code-review",
+    "caseIds": [
+      "OMH-009", "OMH-011", "OMH-012", "OMH-014", "OMH-026", "OMH-027",
+      "OMH-029", "OMH-031", "OMH-042", "OMH-045", "OMH-049", "OMH-054"
+    ],
+    "runners": {
+      "codex": { "modelSelector": "default" },
+      "claude": { "modelSelector": "sonnet" }
+    },
+    "maxChangedFiles": 16,
+    "maxChangedBytes": 262144,
+    "maxContextFiles": 32,
+    "maxContextBytes": 524288
+  }
 }

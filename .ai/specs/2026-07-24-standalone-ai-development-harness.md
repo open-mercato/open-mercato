@@ -382,6 +382,8 @@ All 92 cases have a deterministic catalog/owner/reference/budget check and a rea
 
 Implementation cases use a fresh disposable scaffold, explicit allowed-write paths, deterministic fixture setup, expected artifacts, and executable validator IDs. A fixed controller-owned TypeScript AST oracle covers all 16 cases and rejects comment/import token stuffing; isolated mocked behavior probes additionally exercise provider/workflow effects and the four seeded regressions. The target cannot replace executable oracle code. The after phase also runs the target's fixed `yarn typecheck` gate. Regression cases must fail their oracle before the agent change and pass it afterward. Provider cases use mocked effects or contract servers unless explicit test credentials are supplied. Broad cases may use parameterized variants, but each variant has a distinct result and oracle.
 
+The 12 one-shot implementation cases additionally support an optional, explicit generated-code review lane after the writable result passes. It never launches a nested reviewer automatically. The evaluator binds the review to the prior result's final whole-target fingerprint, then copies changed regular text files as line-numbered inert snapshots, plus the controller-installed pinned `om-code-review` skill, a static review policy, and controller oracle evidence, into a bounded temporary read-only bundle. Target scripts, dependencies, Git/tracker state, original executable source files, and the target's absolute path are not copied or supplied. Trace-verified out-of-bundle, environment, or process inspection and any bundle/target mutation fail closed. A separate sanitized review artifact records the source-result, target, skill, and policy hashes plus the strict report/findings/verdict; this supplemental gate does not claim the skill's full repository validation gate or CI passed.
+
 The checked-in `releaseMatrix` pins runner, model selector, and case IDs. Acceptance for this PR is:
 
 1. deterministic validation: 92/92 pass, including 100% forbidden/safety assertions;
@@ -463,6 +465,7 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 | Codex live runner | Read-only structured routing/decision result for all 92 cases, one fresh session per case. |
 | Claude live runner | Plan/read-only structured routing/decision result for the fixed 16-case release matrix. |
 | Writable live runner | Disposable scaffolds and executable oracles for the 16-case implementation/regression matrix. |
+| Optional generated-code review | Explicit post-oracle review of one-shot implementation output in a bounded source-only bundle using the pinned installed `om-code-review` skill. |
 | Generated standalone install/generate/typecheck/test/build | Real npm/Verdaccio package boundary and published-path validation. |
 | Semantic smoke | `/login`, one CRUD plan/flow, one UMES flow, one worker/CLI flow, and package source-context lookup. |
 
@@ -565,3 +568,4 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 - **2026-07-24** — Reviewer hardening made duplicate module-fact providers fail closed unless `src/modules.ts` selects one exact package; framework context now recognizes dist-only roots, compares fact package and version stamps, validates materialization path segments, and emits deterministic globally capped search artifacts with explicit status.
 - **2026-07-24** — Replaced writable token scans with controller-owned AST and isolated behavior oracles, made every seeded fixture fail its precondition, added the fixed after-phase typecheck gate, and prevented writable targets from supplying executable validation code.
 - **2026-07-24** — Compacted the generated enabled-module marker from per-module description/path rows to an identifier-only index with one progressive fact-sheet path rule, preserving enabled/bundled selection and fallback semantics while keeping compound routing under the initial context budget.
+- **2026-07-24** — Added an optional independent generated-code review lane for the 12 one-shot writable cases, binding the pinned installed `om-code-review` skill to prior oracle evidence and a final target fingerprint inside a bounded source-only bundle with sanitized strict verdict artifacts.

@@ -5545,7 +5545,7 @@
     "requiredDecisions": ["extension-entity", "id-link", "umes-roundtrip", "typed-events", "notification-contract", "subscriber-idempotency", "optional-host"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 10,
+    "maxContextFiles": 13,
     "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 229376,
     "relatedCases": ["OMH-020", "OMH-034", "OMH-073"]
