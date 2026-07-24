@@ -87,7 +87,7 @@ test('standalone provider guidance defaults app integrations to local modules, n
   assert.match(root, /src\/modules\/<id>/)
   for (const content of [guide, activation]) assert.match(content, /src\/modules\/<provider>/)
   for (const content of [root, guide, activation]) assert.match(content, /packages\/\*/)
-  assert.match(root, /separately published dependency/)
+  assert.match(root, /Reusable providers are published dependencies/)
   assert.match(guide, /scaffold has no workspace topology/)
   assert.match(activation, /App-specific \(default\)/)
   assert.match(activation, /Reusable \(explicit user requirement\)/)
@@ -96,7 +96,7 @@ test('standalone provider guidance defaults app integrations to local modules, n
 test('scope guidance preserves explicit tenant-wide host contracts without widening organization data', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{ id: string; prompt: string; requiredDecisions: string[] }>
   const worker = cases.find((entry) => entry.id === 'OMH-019')
-  assert.match(read('shared/AGENTS.md.template'), /Tenant-wide\/system scope is allowed only when the installed contract explicitly declares it/)
+  assert.match(read('shared/AGENTS.md.template'), /Tenant-wide\/system scope is valid only when the installed contract declares it/)
   assert.match(read('guides/contracts.md'), /explicitly authorizes nullable organization scope/)
   assert.match(read('guides/ai-workflows.md'), /organizationId: null/)
   assert.match(worker?.prompt ?? '', /tenant-wide scheduler worker/)
