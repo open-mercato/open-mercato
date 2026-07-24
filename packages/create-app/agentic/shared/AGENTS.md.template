@@ -18,7 +18,7 @@ Extend this installed Open Mercato app. Route first; load every match.
 ## Ask First
 
 - Ask before reducing scope; changing architecture/contracts; adding production dependencies; ejecting modules; or replacing canonical primitives.
-- Ask before migrations, resets, database-target changes, live credentials, or real test providers.
+- Ask before applying migrations, resets, database-target changes, live credentials, or real test providers.
 - Ask before weakening auth/scope, encryption, mutation approval, locking, retries, idempotency, or audit/undo.
 
 ## Never

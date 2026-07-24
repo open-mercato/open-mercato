@@ -1,6 +1,6 @@
 # Pre-Implementation Analysis: Standalone AI Development Harness
 
-> Target spec: `.ai/specs/2026-07-24-standalone-ai-development-harness.md`  
+> Target spec: `.ai/specs/2026-07-24-standalone-ai-development-harness.md`
 > Analysis date: 2026-07-24 · Read-only implementation audit (the target spec was remediated afterward)
 
 ## Executive Summary
