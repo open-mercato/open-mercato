@@ -803,6 +803,7 @@
   "ui.forms.richtext.underline": "Unterstrichen",
   "ui.forms.select.emptyOption": "—",
   "ui.forms.status.saving": "Speichern…",
+  "ui.inputs.roleSelect.placeholder": "Rolle auswählen oder eingeben",
   "ui.inputs.tagsInput.placeholder": "Tag hinzufügen und Enter drücken",
   "ui.lookupSelect.clearSelection": "Auswahl aufheben",
   "ui.lookupSelect.minQueryHint": "Geben Sie mindestens {minQuery} Zeichen ein, um zu suchen.",

@@ -973,6 +973,7 @@
   "ui.inputs.phoneNumberField.checking": "Checking for duplicates…",
   "ui.inputs.phoneNumberField.duplicateLink": "Open record",
   "ui.inputs.phoneNumberField.invalid": "Enter a valid phone number with country code (e.g. +1 212 555 1234)",
+  "ui.inputs.roleSelect.placeholder": "Select or type a role name",
   "ui.inputs.searchInput.clear": "Clear search",
   "ui.inputs.searchInput.placeholder": "Search…",
   "ui.inputs.tagsInput.placeholder": "Add tag and press Enter",

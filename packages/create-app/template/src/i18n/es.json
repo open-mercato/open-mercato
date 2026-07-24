@@ -803,6 +803,7 @@
   "ui.forms.richtext.underline": "Subrayado",
   "ui.forms.select.emptyOption": "—",
   "ui.forms.status.saving": "Guardando…",
+  "ui.inputs.roleSelect.placeholder": "Selecciona o escribe un nombre de rol",
   "ui.inputs.tagsInput.placeholder": "Agregar etiqueta y presionar Enter",
   "ui.lookupSelect.clearSelection": "Borrar selección",
   "ui.lookupSelect.minQueryHint": "Escribe al menos {minQuery} caracteres para buscar.",

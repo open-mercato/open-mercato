@@ -973,6 +973,7 @@
   "ui.inputs.phoneNumberField.checking": "Buscando duplicados…",
   "ui.inputs.phoneNumberField.duplicateLink": "Abrir registro",
   "ui.inputs.phoneNumberField.invalid": "Ingrese un número de teléfono válido con código de país (p. ej. +34 600 123 456)",
+  "ui.inputs.roleSelect.placeholder": "Selecciona o escribe un nombre de rol",
   "ui.inputs.searchInput.clear": "Limpiar búsqueda",
   "ui.inputs.searchInput.placeholder": "Buscar…",
   "ui.inputs.tagsInput.placeholder": "Agregar etiqueta y presionar Enter",

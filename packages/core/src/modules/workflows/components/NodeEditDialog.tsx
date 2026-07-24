@@ -20,6 +20,7 @@ import {ChevronDown, Plus, Trash2} from 'lucide-react'
 import {sanitizeId} from '../lib/graph-utils'
 import {WorkflowDefinition, WorkflowSelector} from './WorkflowSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
+import {RoleSelect} from '@open-mercato/ui/backend/inputs/RoleSelect'
 import {StartPreConditionsEditor, type StartPreCondition} from './fields/StartPreConditionsEditor'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
 import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
@@ -59,7 +60,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   const [stepName, setStepName] = useState('')
   const [description, setDescription] = useState('')
   const [assignedTo, setAssignedTo] = useState('')
-  const [assignedToRoles, setAssignedToRoles] = useState('')
+  const [assignedToRoles, setAssignedToRoles] = useState<string[]>([])
   const [formKey, setFormKey] = useState('')
   const [activityType, setActivityType] = useState('')
   const [activityId, setActivityId] = useState('')
@@ -163,7 +164,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       setStepName(nodeData?.stepName || nodeData?.label || '')
       setDescription(nodeData?.description || '')
       setAssignedTo(nodeData?.assignedTo || '')
-      setAssignedToRoles(nodeData?.assignedToRoles?.join(', ') || '')
+      setAssignedToRoles(Array.isArray(nodeData?.assignedToRoles) ? nodeData.assignedToRoles : [])
       setFormKey(nodeData?.formKey || '')
       setActivityType(nodeData?.activityType || '')
       setActivityId(nodeData?.activityId || '')
@@ -375,8 +376,6 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     if (node.type === 'userTask') {
       updates.assignedTo = assignedTo || undefined
       updates.assignedToRoles = assignedToRoles
-        ? assignedToRoles.split(',').map((r) => r.trim()).filter(Boolean)
-        : []
       updates.formKey = formKey || undefined
 
       // Build userTaskConfig with all fields (Issue 4.3 - preserve advanced fields)
@@ -387,7 +386,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
           },
         }),
         ...(assignedTo && { assignedTo }),
-        ...(assignedToRoles && { assignedToRoles: assignedToRoles.split(',').map((r) => r.trim()).filter(Boolean) }),
+        ...(assignedToRoles.length > 0 && { assignedToRoles }),
         // Preserve advanced fields loaded from node data
         ...(assignmentRule && { assignmentRule }),
         ...(slaDuration && { slaDuration }),
@@ -642,10 +641,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <label className="block text-sm font-medium text-foreground mb-1">
                       {t('workflows.form.assignedToRoles')}
                     </label>
-                    <Input
-                      type="text"
+                    <RoleSelect
                       value={assignedToRoles}
-                      onChange={(e) => setAssignedToRoles(e.target.value)}
+                      onChange={setAssignedToRoles}
                       placeholder={t('workflows.form.placeholders.roles')}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
