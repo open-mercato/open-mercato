@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { describe, test, expect, beforeEach, jest } from '@jest/globals'
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { createAuthMock, createMockCache, createMockContainer, createMockEntityManager } from './test-helpers'
 import * as ruleEngine from '../../lib/rule-engine'
 
@@ -28,6 +29,7 @@ const mockGetAuthFromRequest = createAuthMock()
 const mockEm = createMockEntityManager()
 const mockCache = createMockCache()
 const mockContainer = createMockContainer(mockEm, mockCache)
+const mockUserHasAllFeatures = jest.fn(async () => true)
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
@@ -65,6 +67,24 @@ let PUT: RouteModule['PUT']
 let DELETE: RouteModule['DELETE']
 let metadata: RouteModule['metadata']
 
+const routeHandler = async () => new Response('{}')
+
+function registerBusinessRuleRouteOptions() {
+  registerModules([
+    {
+      id: 'business_rules',
+      info: { title: 'Business Rules' },
+      apis: [
+        {
+          path: '/api/business_rules/rules',
+          handlers: { GET: routeHandler },
+          docs: { methods: { GET: { summary: 'List business rules' } } },
+        },
+      ],
+    },
+  ] as any)
+}
+
 beforeAll(async () => {
   const routeModule = await import('../rules/route')
   GET = routeModule.GET
@@ -81,6 +101,14 @@ describe('Business Rules API - /api/business_rules/rules', () => {
   beforeEach(() => {
     mockCache.clearAll()
     jest.clearAllMocks()
+    registerBusinessRuleRouteOptions()
+    mockUserHasAllFeatures.mockResolvedValue(true)
+    mockContainer.resolve.mockImplementation((token: string) => {
+      if (token === 'em') return mockEm
+      if (token === 'cache') return mockCache
+      if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
+      return undefined
+    })
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
       email: 'user@example.com',
@@ -950,6 +978,175 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       const body = await response.json()
       expect(body.error).toContain('url')
     })
+
+    test('should accept CALL_OPEN_MERCATO with endpoint, method, and API key profile', async () => {
+      const openMercatoAction = {
+        type: 'CALL_OPEN_MERCATO',
+        config: {
+          endpoint: '/api/business_rules/rules',
+          method: 'GET',
+          apiKeyId: '123e4567-e89b-12d3-a456-426614174010',
+          body: { source: 'test' },
+        },
+      }
+
+      const newRule = {
+        ruleId: 'RULE-CALL-OM',
+        ruleName: 'Call OpenMercato',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+        successActions: [openMercatoAction],
+      }
+
+      mockEm.findOne.mockImplementation(async (Entity: any) => {
+        if (Entity?.name === 'ApiKey') {
+          return {
+            id: '123e4567-e89b-12d3-a456-426614174010',
+            tenantId: validTenantId,
+            organizationId: validOrgId,
+            rolesJson: ['role-1'],
+            expiresAt: null,
+            deletedAt: null,
+          }
+        }
+        return null
+      })
+      mockEm.create.mockReturnValue({ id: '223e4567-e89b-12d3-a456-426614174004', ...newRule, tenantId: validTenantId, organizationId: validOrgId })
+      mockEm.flush.mockResolvedValue(undefined)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(201)
+      expect(mockUserHasAllFeatures).toHaveBeenCalledWith(
+        'user-1',
+        ['api_keys.view'],
+        { tenantId: validTenantId, organizationId: validOrgId },
+      )
+    })
+
+    test('should reject CALL_OPEN_MERCATO with missing required config fields without treating it as CALL_WEBHOOK', async () => {
+      const newRule = {
+        ruleId: 'RULE-CALL-OM-MISSING',
+        ruleName: 'Call OpenMercato Missing',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+        successActions: [{ type: 'CALL_OPEN_MERCATO', config: {} }],
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('endpoint')
+      expect(body.error).toContain('method')
+      expect(body.error).toContain('apiKeyId')
+      expect(body.error).not.toContain('url')
+    })
+
+    test('should reject CALL_OPEN_MERCATO when the selected API key profile is unavailable', async () => {
+      const newRule = {
+        ruleId: 'RULE-CALL-OM-UNKNOWN-KEY',
+        ruleName: 'Call OpenMercato Unknown Key',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+        successActions: [
+          {
+            type: 'CALL_OPEN_MERCATO',
+            config: {
+              endpoint: '/api/business_rules/rules',
+              method: 'GET',
+              apiKeyId: '123e4567-e89b-12d3-a456-426614174099',
+            },
+          },
+        ],
+      }
+
+      mockEm.findOne.mockResolvedValue(null)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('selected API key profile is not available')
+    })
+
+    test('should reject CALL_OPEN_MERCATO when the API key profile id is malformed', async () => {
+      const newRule = {
+        ruleId: 'RULE-CALL-OM-MALFORMED-KEY',
+        ruleName: 'Call OpenMercato Malformed Key',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+        successActions: [
+          {
+            type: 'CALL_OPEN_MERCATO',
+            config: {
+              endpoint: '/api/business_rules/rules',
+              method: 'GET',
+              apiKeyId: 'not-a-uuid',
+            },
+          },
+        ],
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('selected API key profile is not available')
+      expect(mockEm.findOne).not.toHaveBeenCalled()
+    })
+
+    test('should require api_keys.view when configuring CALL_OPEN_MERCATO', async () => {
+      mockUserHasAllFeatures.mockResolvedValue(false)
+
+      const newRule = {
+        ruleId: 'RULE-CALL-OM-FORBIDDEN',
+        ruleName: 'Call OpenMercato Forbidden',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+        successActions: [
+          {
+            type: 'CALL_OPEN_MERCATO',
+            config: {
+              endpoint: '/api/business_rules/rules',
+              method: 'GET',
+              apiKeyId: '123e4567-e89b-12d3-a456-426614174010',
+            },
+          },
+        ],
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(403)
+      const body = await response.json()
+      expect(body.requiredFeatures).toEqual(['api_keys.view'])
+    })
   })
 
   describe('Validation - PUT/Update', () => {
@@ -995,6 +1192,34 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(response.status).toBe(400)
       const body = await response.json()
       expect(body.error).toContain('eventName')
+    })
+
+    test('should reject unavailable CALL_OPEN_MERCATO API key profile on update', async () => {
+      mockEm.findOne.mockResolvedValue(null)
+
+      const updateData = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        successActions: [
+          {
+            type: 'CALL_OPEN_MERCATO',
+            config: {
+              endpoint: '/api/business_rules/rules',
+              method: 'GET',
+              apiKeyId: '123e4567-e89b-12d3-a456-426614174099',
+            },
+          },
+        ],
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify(updateData),
+      })
+      const response = await PUT(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('selected API key profile is not available')
     })
   })
 })
