@@ -24,8 +24,10 @@ import {Badge} from '@open-mercato/ui/primitives/badge'
 import {Checkbox} from '@open-mercato/ui/primitives/checkbox'
 import {Separator} from '@open-mercato/ui/primitives/separator'
 import {ChevronDown, Plus, Trash2} from 'lucide-react'
+import {Alert, AlertDescription} from '@open-mercato/ui/primitives/alert'
 import {type BusinessRule, BusinessRulesSelector} from './BusinessRulesSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
+import {validateActivityConfig} from '../data/validators'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
 import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
@@ -67,6 +69,8 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
   const [advancedConfig, setAdvancedConfig] = useState<Record<string, any>>({})
   const [activities, setActivities] = useState<any[]>([])
   const [expandedActivities, setExpandedActivities] = useState<Set<number>>(new Set())
+  // Inline validation errors for activities, keyed by `activity-<index>`.
+  const [activityErrors, setActivityErrors] = useState<Record<string, string>>({})
   const [expandedPreConditions, setExpandedPreConditions] = useState<Set<number>>(new Set())
   const [expandedPostConditions, setExpandedPostConditions] = useState<Set<number>>(new Set())
   const [showRuleSelector, setShowRuleSelector] = useState(false)
@@ -134,8 +138,19 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
       setExpandedActivities(new Set())
       setExpandedPreConditions(new Set())
       setExpandedPostConditions(new Set())
+      setActivityErrors({})
     }
   }, [edge, isOpen])
+
+  const clearActivityError = (index: number) => {
+    const key = `activity-${index}`
+    setActivityErrors((prev) => {
+      if (!prev[key]) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
 
   const toggleActivity = (index: number) => {
     const newExpanded = new Set(expandedActivities)
@@ -186,6 +201,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
     const updated = [...activities]
     updated[index] = { ...updated[index], [field]: value }
     setActivities(updated)
+    clearActivityError(index)
   }
 
   const updateActivityRetryPolicy = (index: number, field: string, value: any) => {
@@ -278,6 +294,24 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
   const handleSave = () => {
     if (!edge) return
+
+    // Validate transition activities before saving so a missing required config
+    // field (e.g. a CALL_API without "endpoint") surfaces inline instead of
+    // silently persisting a broken activity that only throws at run time.
+    const nextErrors: Record<string, string> = {}
+    const toExpand = new Set(expandedActivities)
+    activities.forEach((activity, index) => {
+      const issues = validateActivityConfig(activity?.activityType, activity?.config)
+      if (issues.length > 0) {
+        nextErrors[`activity-${index}`] = issues[0].message
+        toExpand.add(index)
+      }
+    })
+    if (Object.keys(nextErrors).length > 0) {
+      setActivityErrors(nextErrors)
+      setExpandedActivities(toExpand)
+      return
+    }
 
     const updates: Partial<Edge['data']> = {
       transitionName,
@@ -753,6 +787,12 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
                       {isExpanded && (
                         <div className="px-4 pb-4 space-y-3 border-t border-border bg-background">
+                          {/* Inline validation error (missing required config) */}
+                          {activityErrors[`activity-${index}`] && (
+                            <Alert variant="destructive" className="mt-3">
+                              <AlertDescription>{activityErrors[`activity-${index}`]}</AlertDescription>
+                            </Alert>
+                          )}
                           {/* Activity ID */}
                           <div className="pt-3">
                             <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.activityId')} *</label>
@@ -902,6 +942,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 const updated = [...activities]
                                 updated[index] = { ...updated[index], config }
                                 setActivities(updated)
+                                clearActivityError(index)
                               }}
                             />
                             <p className="text-xs text-muted-foreground mt-0.5">{t('workflows.edgeEditor.configurationHint')}</p>

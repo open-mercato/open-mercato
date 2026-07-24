@@ -24,7 +24,7 @@ import {StartPreConditionsEditor, type StartPreCondition} from './fields/StartPr
 import {useT} from '@open-mercato/shared/lib/i18n/context'
 import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
-import {isFutureIsoDateString, isValidDurationString} from '../data/validators'
+import {isFutureIsoDateString, isValidDurationString, validateActivityConfig} from '../data/validators'
 
 export interface NodeEditDialogProps {
   node: Node | null
@@ -331,6 +331,17 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     setShowWorkflowSelector(false)
   }
 
+  // Clear a step-activity's inline validation error once the user edits the
+  // fields that affect it (type / config), so a fixed activity stops showing red.
+  const clearActivityError = (index: number) => {
+    const key = `activity-${index}`
+    if (fieldErrors[key]) {
+      const next = { ...fieldErrors }
+      delete next[key]
+      setFieldErrors(next)
+    }
+  }
+
   const handleSave = () => {
     if (!node) return
 
@@ -350,6 +361,23 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
     if (node.type === 'waitForSignal' && signalTimeout && !isValidDurationString(signalTimeout)) {
       errors.signalTimeout = t('workflows.validation.invalidDuration')
+    }
+
+    // Validate automated step activities before saving so a missing required
+    // config field (e.g. a CALL_API without "endpoint") surfaces inline instead
+    // of silently persisting a broken activity that only throws at run time.
+    if (node.type === 'automated' && stepActivities.length > 0) {
+      const toExpand = new Set(expandedStepActivities)
+      stepActivities.forEach((activity, index) => {
+        const issues = validateActivityConfig(activity?.activityType, activity?.config)
+        if (issues.length > 0) {
+          errors[`activity-${index}`] = issues[0].message
+          toExpand.add(index)
+        }
+      })
+      if (toExpand.size !== expandedStepActivities.size) {
+        setExpandedStepActivities(toExpand)
+      }
     }
 
     if (Object.keys(errors).length > 0) {
@@ -951,6 +979,12 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                             {/* Activity Body (Expanded) */}
                             {isExpanded && (
                               <div className="px-4 pb-4 space-y-3 border-t border-border bg-background">
+                                {/* Inline validation error (missing required config) */}
+                                {fieldErrors[`activity-${index}`] && (
+                                  <Alert variant="destructive" className="mt-3">
+                                    <AlertDescription>{fieldErrors[`activity-${index}`]}</AlertDescription>
+                                  </Alert>
+                                )}
                                 {/* Activity ID */}
                                 <div className="pt-3">
                                   <label className="block text-xs font-medium text-foreground mb-1">
@@ -998,6 +1032,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       const updated = [...stepActivities]
                                       updated[index].activityType = value
                                       setStepActivities(updated)
+                                      clearActivityError(index)
                                     }}
                                   >
                                     <SelectTrigger size="sm">
@@ -1132,6 +1167,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                           const updated = [...stepActivities]
                                           updated[index].config = { ...updated[index].config, duration: e.target.value, until: undefined }
                                           setStepActivities(updated)
+                                          clearActivityError(index)
                                         }}
                                         placeholder={t('workflows.activities.waitDurationPlaceholder')}
                                       />
@@ -1150,6 +1186,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                           const updated = [...stepActivities]
                                           updated[index].config = { ...updated[index].config, until: e.target.value ? new Date(e.target.value).toISOString() : undefined, duration: undefined }
                                           setStepActivities(updated)
+                                          clearActivityError(index)
                                         }}
                                       />
                                       <p className="text-xs text-muted-foreground mt-1">{t('workflows.activities.waitUntilDescription')}</p>
@@ -1169,6 +1206,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       const updated = [...stepActivities]
                                       updated[index].config = config
                                       setStepActivities(updated)
+                                      clearActivityError(index)
                                     }}
                                   />
                                   <p className="text-xs text-muted-foreground mt-1">
