@@ -70,8 +70,53 @@ const ACTIVITY_TYPES = [
   { value: 'WAIT', label: 'Wait' },
 ]
 
+type ConfigDraft = { text: string; error: string | null }
+
 export function TransitionsEditor({ value = [], onChange, steps = [], error }: TransitionsEditorProps) {
   const t = useT()
+  const [configDrafts, setConfigDrafts] = React.useState<Record<string, ConfigDraft>>({})
+
+  const configDraftKey = (transition: Transition, activity: Activity) =>
+    `${transition.transitionId}:${activity.activityId}`
+
+  const handleConfigTextChange = (
+    transitionIndex: number,
+    activityIndex: number,
+    text: string,
+  ) => {
+    const transition = value[transitionIndex]
+    const activity = transition.activities?.[activityIndex]
+    if (!activity) return
+
+    let parsed: Record<string, unknown> | null = null
+    let parseError: string | null = null
+    try {
+      const candidate = JSON.parse(text) as unknown
+      if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        parsed = candidate as Record<string, unknown>
+      } else {
+        parseError = t('workflows.activities.configMustBeObject', 'Config must be a JSON object')
+      }
+    } catch (err) {
+      parseError = err instanceof Error
+        ? err.message
+        : t('workflows.activities.configInvalidJson', 'Invalid JSON')
+    }
+
+    const key = configDraftKey(transition, activity)
+    setConfigDrafts((drafts) => ({ ...drafts, [key]: { text, error: parseError } }))
+    if (parsed) updateActivity(transitionIndex, activityIndex, 'config', parsed)
+  }
+
+  const handleConfigBlur = (transition: Transition, activity: Activity) => {
+    const key = configDraftKey(transition, activity)
+    setConfigDrafts((drafts) => {
+      if (!drafts[key] || drafts[key].error) return drafts
+      const next = { ...drafts }
+      delete next[key]
+      return next
+    })
+  }
 
   const addTransition = () => {
     const newTransition: Transition = {
@@ -374,9 +419,12 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                 )}
 
                 <div className="space-y-2">
-                  {(transition.activities || []).map((activity, activityIndex) => (
-                    <div key={activityIndex} className="p-3 border rounded-md bg-muted shadow-sm border-l-4 border-l-green-500">
-                      <div className="space-y-2">
+                  {(transition.activities || []).map((activity, activityIndex) => {
+                    const draftKey = configDraftKey(transition, activity)
+                    const configDraft = configDrafts[draftKey]
+                    return (
+                      <div key={draftKey} className="p-3 border rounded-md bg-muted shadow-sm border-l-4 border-l-green-500">
+                        <div className="space-y-2">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div>
@@ -533,23 +581,29 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                           </Label>
                           <Textarea
                             id={`activity-${index}-${activityIndex}-config`}
-                            value={JSON.stringify(activity.config || {}, null, 2)}
-                            onChange={(e) => {
-                              try {
-                                const parsed = JSON.parse(e.target.value)
-                                updateActivity(index, activityIndex, 'config', parsed)
-                              } catch {
-                                // Invalid JSON, don't update
-                              }
-                            }}
+                            value={configDraft?.text ?? JSON.stringify(activity.config || {}, null, 2)}
+                            onChange={(e) => handleConfigTextChange(index, activityIndex, e.target.value)}
+                            onBlur={() => handleConfigBlur(transition, activity)}
+                            aria-invalid={configDraft?.error ? true : undefined}
+                            aria-describedby={configDraft?.error ? `activity-${index}-${activityIndex}-config-error` : undefined}
                             placeholder='{"key": "value"}'
                             rows={2}
                             className="mt-1 font-mono text-xs"
                           />
+                          {configDraft?.error ? (
+                            <p
+                              id={`activity-${index}-${activityIndex}-config-error`}
+                              className="mt-1 text-xs text-status-error-text"
+                              role="alert"
+                            >
+                              {configDraft.error}
+                            </p>
+                          ) : null}
+                        </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             </div>
