@@ -1,4 +1,4 @@
-import { buildReservationSearchOrFilters } from '../listSearch'
+import { buildInventoryListSearchOrFilters, buildReservationSearchOrFilters } from '../listSearch'
 
 function createCtx(queryImpl: jest.Mock) {
   return {
@@ -45,5 +45,34 @@ describe('buildReservationSearchOrFilters', () => {
     )
 
     expect(orFilters).toEqual([{ serial_number: { $ilike: '%SN-9%' } }])
+  })
+})
+
+describe('buildInventoryListSearchOrFilters', () => {
+  it('includes extra field filters for movement ledger search', async () => {
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ items: [{ id: 'wh-1' }] })
+      .mockResolvedValueOnce({ items: [{ id: 'var-1' }] })
+
+    const orFilters = await buildInventoryListSearchOrFilters(
+      createCtx(query),
+      'Glacier',
+      (value) => value,
+      {
+        extraFieldFilters: (like) => [
+          { reason: { $ilike: like } },
+          { reason_code: { $ilike: like } },
+        ],
+      },
+    )
+
+    expect(orFilters).toEqual([
+      { serial_number: { $ilike: '%Glacier%' } },
+      { reason: { $ilike: '%Glacier%' } },
+      { reason_code: { $ilike: '%Glacier%' } },
+      { warehouse_id: { $in: ['wh-1'] } },
+      { catalog_variant_id: { $in: ['var-1'] } },
+    ])
   })
 })

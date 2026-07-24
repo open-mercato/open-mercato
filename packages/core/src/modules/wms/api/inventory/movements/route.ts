@@ -11,6 +11,7 @@ import {
   attachVariantLabelsToListItems,
   attachWarehouseLabelsToListItems,
 } from '../../listEnrichers'
+import { buildInventoryListSearchOrFilters } from '../../listSearch'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['wms.view'] },
@@ -62,7 +63,7 @@ const crud = makeCrudRoute({
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       if (query.warehouseId) filters.warehouse_id = { $eq: query.warehouseId }
       if (query.catalogVariantId) filters.catalog_variant_id = { $eq: query.catalogVariantId }
@@ -81,13 +82,13 @@ const crud = makeCrudRoute({
       }
       const term = query.search?.trim()
       if (term) {
-        const like = `%${escapeLikePattern(term)}%`
         andFilters.push({
-          $or: [
-            { serial_number: { $ilike: like } },
-            { reason: { $ilike: like } },
-            { reason_code: { $ilike: like } },
-          ],
+          $or: await buildInventoryListSearchOrFilters(ctx, term, escapeLikePattern, {
+            extraFieldFilters: (like) => [
+              { reason: { $ilike: like } },
+              { reason_code: { $ilike: like } },
+            ],
+          }),
         })
       }
       if (andFilters.length === 1) {
@@ -138,6 +139,7 @@ const movementListItemSchema = z.object({
   performed_at: z.string().nullable().optional(),
   received_at: z.string().nullable().optional(),
   reason: z.string().nullable().optional(),
+  reason_code: z.string().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
 })

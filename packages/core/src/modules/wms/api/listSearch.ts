@@ -75,16 +75,23 @@ export async function resolveVariantIdsMatchingSearch(
 }
 
 /**
- * Build a reservation-list `$or` clause that matches serial number, warehouse
- * label, or variant name/SKU for the given search term.
+ * Build a list `$or` clause that matches serial number, warehouse label, or
+ * variant name/SKU for the given search term. Optional `extraFieldFilters`
+ * appends additional ILIKE clauses (e.g. movement reason fields).
  */
-export async function buildReservationSearchOrFilters(
+export async function buildInventoryListSearchOrFilters(
   ctx: CrudCtx,
   term: string,
   escapeLike: (value: string) => string,
+  options?: {
+    extraFieldFilters?: (like: string) => Array<Record<string, unknown>>
+  },
 ): Promise<Array<Record<string, unknown>>> {
   const like = `%${escapeLike(term)}%`
   const orFilters: Array<Record<string, unknown>> = [{ serial_number: { $ilike: like } }]
+  if (options?.extraFieldFilters) {
+    orFilters.push(...options.extraFieldFilters(like))
+  }
   const [warehouseIds, variantIds] = await Promise.all([
     resolveWarehouseIdsMatchingSearch(ctx, like),
     resolveVariantIdsMatchingSearch(ctx, like),
@@ -96,4 +103,16 @@ export async function buildReservationSearchOrFilters(
     orFilters.push({ catalog_variant_id: { $in: variantIds } })
   }
   return orFilters
+}
+
+/**
+ * Build a reservation-list `$or` clause that matches serial number, warehouse
+ * label, or variant name/SKU for the given search term.
+ */
+export async function buildReservationSearchOrFilters(
+  ctx: CrudCtx,
+  term: string,
+  escapeLike: (value: string) => string,
+): Promise<Array<Record<string, unknown>>> {
+  return buildInventoryListSearchOrFilters(ctx, term, escapeLike)
 }

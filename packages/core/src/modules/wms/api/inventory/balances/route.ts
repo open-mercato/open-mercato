@@ -16,6 +16,7 @@ import {
   attachVariantLabelsToListItems,
   attachWarehouseLabelsToListItems,
 } from '../../listEnrichers'
+import { buildInventoryListSearchOrFilters } from '../../listSearch'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['wms.view'] },
@@ -115,8 +116,7 @@ const crud = makeCrudRoute({
 
       const term = query.search?.trim()
       if (term) {
-        const like = `%${escapeLikePattern(term)}%`
-        filters.$or = [{ serial_number: { $ilike: like } }]
+        filters.$or = await buildInventoryListSearchOrFilters(ctx, term, escapeLikePattern)
       }
       return filters
     },
