@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogProductTag } from '../../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -54,18 +55,13 @@ export async function GET(req: Request) {
     )
   }
 
-  const allowed = scope?.filterIds ?? scope?.allowedIds ?? (auth.orgId ? [auth.orgId] : null)
-  const preferredOrg = scope?.selectedId ?? auth.orgId ?? null
-  const organizationId = preferredOrg ?? (Array.isArray(allowed) && allowed.length ? allowed[0]! : null)
-  if (!organizationId || (Array.isArray(allowed) && allowed.length && !allowed.includes(organizationId))) {
-    return NextResponse.json(
-      { items: [], error: translate('catalog.errors.organization_required', 'Organization context is required.') },
-      { status: 400 }
-    )
-  }
+  // Scope by the caller's visible organizations. Under "All organizations"
+  // (super-admin) `where` is empty, so the list scopes by tenant only instead
+  // of 400-ing; restricted callers get their `filterIds` `$in` guard.
+  const orgFilter = resolveOrganizationScopeFilter(scope, auth)
 
   const where: Record<string, unknown> = {
-    organizationId,
+    ...orgFilter.where,
     tenantId,
   }
   const search = query.search?.trim()
