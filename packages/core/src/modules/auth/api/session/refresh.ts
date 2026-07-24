@@ -25,6 +25,23 @@ function parseCookie(req: Request, name: string): string | null {
   return m ? decodeURIComponent(m[1]) : null
 }
 
+type RefreshedSession = NonNullable<Awaited<ReturnType<AuthService['refreshFromSessionToken']>>>
+
+// Scope claims must stay absent rather than stringified when the user has no tenant/org:
+// `String(null)` yields the literal "null", which is not a UUID, so session-integrity
+// resolution rejects the token it just minted and the caller is stuck in a refresh loop.
+// Mirrors how `api/login.ts` builds the same claims.
+function buildStaffJwtClaims({ user, roles, session }: RefreshedSession) {
+  return {
+    sub: String(user.id),
+    sid: session ? String(session.id) : undefined,
+    tenantId: user.tenantId ? String(user.tenantId) : null,
+    orgId: user.organizationId ? String(user.organizationId) : null,
+    email: user.email,
+    roles,
+  }
+}
+
 function clearStaffAuthCookies(response: NextResponse) {
   response.cookies.set('auth_token', '', {
     httpOnly: true,
@@ -61,8 +78,7 @@ export async function GET(req: Request) {
       buildSafeRedirectResponse(req, '/login?redirect=' + encodeURIComponent(redirectTo))
     )
   }
-  const { user, roles, session } = ctx
-  const jwt = signJwt({ sub: String(user.id), sid: session ? String(session.id) : undefined, tenantId: String(user.tenantId), orgId: String(user.organizationId), email: user.email, roles })
+  const jwt = signJwt(buildStaffJwtClaims(ctx))
   const res = buildSafeRedirectResponse(req, redirectTo)
   res.cookies.set('auth_token', jwt, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   return res
@@ -112,15 +128,7 @@ export async function POST(req: Request) {
     )
   }
 
-  const { user, roles, session } = ctx
-  const jwt = signJwt({
-    sub: String(user.id),
-    sid: session ? String(session.id) : undefined,
-    tenantId: String(user.tenantId),
-    orgId: String(user.organizationId),
-    email: user.email,
-    roles,
-  })
+  const jwt = signJwt(buildStaffJwtClaims(ctx))
 
   const res = NextResponse.json({
     ok: true,
