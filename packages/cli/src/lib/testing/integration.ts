@@ -1945,6 +1945,14 @@ function buildReusableEnvironment(
     APP_URL: baseUrl,
     NEXT_PUBLIC_APP_URL: baseUrl,
     NODE_ENV: 'production',
+    // Share the app server's cache backend with the test process and the
+    // queue-drain runners it spawns (drainIntegrationQueue children inherit
+    // this env). Without it those processes default to the in-memory cache
+    // strategy, their invalidateCrudCache calls never reach the app's sqlite
+    // cache, and any test whose drain-runner wins the job race then polls a
+    // stale CRUD response until the TTL (TC-CRM-028/079, TC-SX-001).
+    CACHE_STRATEGY: 'sqlite',
+    CACHE_SQLITE_PATH: EPHEMERAL_CACHE_DB_PATH,
     JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
     // Integration probe + tests expect `admin@acme.com / secret` and
@@ -3278,7 +3286,14 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     const databaseHost = databaseContainer.getHost()
     const databasePort = databaseContainer.getMappedPort(5432)
     const databaseUrl = `postgres://${databaseUser}:${databasePassword}@${databaseHost}:${databasePort}/${databaseName}`
+    // Remove the WAL/SHM sidecars together with the main DB file: a fresh
+    // sqlite database paired with a stale -shm/-wal from a previous run fails
+    // to initialize, and the cache service silently falls back to per-process
+    // memory — the app then serves stale CRUD reads that queue workers can no
+    // longer invalidate cross-process (TC-CRM-028/079, TC-SX-001 staleness).
     await rm(EPHEMERAL_CACHE_DB_PATH, { force: true }).catch(() => undefined)
+    await rm(`${EPHEMERAL_CACHE_DB_PATH}-wal`, { force: true }).catch(() => undefined)
+    await rm(`${EPHEMERAL_CACHE_DB_PATH}-shm`, { force: true }).catch(() => undefined)
     await rm(EPHEMERAL_QUEUE_BASE_DIR, { recursive: true, force: true }).catch(() => undefined)
     const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
     const commandEnvironment = buildEnvironment({
@@ -3330,6 +3345,12 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       ENABLE_CRUD_API_CACHE: 'true',
       MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
       MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
+      // The mock inbound adapter refuses the dev-secret fallback under
+      // NODE_ENV=production; without this the app 400s every mock_inbound
+      // verification and the TC-WEBHOOK suite fails locally (CI exports the
+      // var at the workflow level, masking the gap). Keep in sync with the
+      // Playwright-process env block above.
+      MOCK_INBOUND_WEBHOOK_SECRET: 'open-mercato-mock-dev-inbound-webhook-secret',
       NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',

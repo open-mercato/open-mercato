@@ -9,11 +9,23 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   getModules: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: jest.fn(),
+}))
+
+jest.mock('@open-mercato/core/modules/entities/lib/restrictedEntityFeatures', () => ({
+  synthesizeRestrictedEntityFeatures: jest.fn(),
+}))
+
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { synthesizeRestrictedEntityFeatures } from '@open-mercato/core/modules/entities/lib/restrictedEntityFeatures'
 
 const mockGetAuth = getAuthFromRequest as jest.Mock
 const mockGetModules = getModules as jest.Mock
+const mockCreateContainer = createRequestContainer as jest.Mock
+const mockSynthesize = synthesizeRestrictedEntityFeatures as jest.Mock
 
 function makeReq() {
   return new Request('http://localhost/api/auth/features')
@@ -23,6 +35,8 @@ describe('GET /api/auth/features', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockGetAuth.mockResolvedValue({ sub: 'u1', tenantId: 't1', orgId: 'o1' })
+    mockCreateContainer.mockResolvedValue({ resolve: () => ({}) })
+    mockSynthesize.mockResolvedValue([])
   })
 
   it('returns 401 when not authenticated', async () => {
@@ -117,5 +131,43 @@ describe('GET /api/auth/features', () => {
     const res = await GET(makeReq())
     const body = await res.json()
     expect(body.items).toEqual([{ id: 'shared.thing', title: 'First', module: 'a' }])
+  })
+
+  it('appends synthesized per-entity features for restricted custom entities', async () => {
+    mockGetModules.mockReturnValue([
+      {
+        id: 'entities',
+        info: { title: 'Entities' },
+        features: [{ id: 'entities.records.view', title: 'View records', module: 'entities' }],
+      },
+    ])
+    mockSynthesize.mockResolvedValue([
+      {
+        id: 'entities.records.hr:salaries.view',
+        title: 'View records: Salaries',
+        module: 'entities',
+        dependsOn: ['entities.records.view'],
+      },
+    ])
+    const res = await GET(makeReq())
+    const body = await res.json()
+    expect(mockSynthesize).toHaveBeenCalledWith(expect.anything(), 't1')
+    expect(body.items).toContainEqual({
+      id: 'entities.records.hr:salaries.view',
+      title: 'View records: Salaries',
+      module: 'entities',
+      dependsOn: ['entities.records.view'],
+    })
+  })
+
+  it('still returns the static catalog when synthesis throws', async () => {
+    mockGetModules.mockReturnValue([
+      { id: 'auth', info: { title: 'Auth' }, features: [{ id: 'auth.users.list', title: 'List users', module: 'auth' }] },
+    ])
+    mockSynthesize.mockRejectedValue(new Error('db down'))
+    const res = await GET(makeReq())
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.items).toEqual([{ id: 'auth.users.list', title: 'List users', module: 'auth' }])
   })
 })

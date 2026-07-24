@@ -1,24 +1,33 @@
 /**
- * In-Memory Code Workflow Registry
+ * Code Workflow Registry (validating bridge)
  *
- * Stores code-based workflow definitions populated at bootstrap from
- * the generated workflows.generated.ts. Definitions live purely in memory —
- * no DB row is created until a user customizes the definition.
+ * The registry store itself lives in `@open-mercato/shared` so all bootstrap
+ * contexts (Next.js app, CLI, `mercato workers`) share one process-wide map —
+ * see `@open-mercato/shared/modules/workflows/code-registry`. This module
+ * keeps the workflows engine's import path stable and adds Zod validation on
+ * top of the raw registration used by the shared bootstrap factory.
  */
 
 import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'
+import { registerCodeWorkflowEntries } from '@open-mercato/shared/modules/workflows/code-registry'
 import { workflowDefinitionDataSchema } from '../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
 
-const codeWorkflowRegistry = new Map<string, CodeWorkflowDefinition>()
+export {
+  getCodeWorkflow,
+  getAllCodeWorkflows,
+  isCodeWorkflow,
+  clearCodeWorkflowRegistry,
+} from '@open-mercato/shared/modules/workflows/code-registry'
 
 /**
  * Register code-based workflow definitions at bootstrap time.
  * Validates each definition against the Zod schema and warns on failures.
  */
 export function registerCodeWorkflows(workflows: CodeWorkflowDefinition[]): void {
+  const valid: CodeWorkflowDefinition[] = []
   for (const wf of workflows) {
     const validation = workflowDefinitionDataSchema.safeParse(wf.definition)
     if (!validation.success) {
@@ -28,39 +37,7 @@ export function registerCodeWorkflows(workflows: CodeWorkflowDefinition[]): void
       })
       continue
     }
-
-    if (codeWorkflowRegistry.has(wf.workflowId)) {
-      logger.warn('Duplicate code workflow ID — overwriting', { workflowId: wf.workflowId, moduleId: wf.moduleId })
-    }
-
-    codeWorkflowRegistry.set(wf.workflowId, wf)
+    valid.push(wf)
   }
-}
-
-/**
- * Get a single code workflow definition by workflowId.
- */
-export function getCodeWorkflow(workflowId: string): CodeWorkflowDefinition | undefined {
-  return codeWorkflowRegistry.get(workflowId)
-}
-
-/**
- * Get all registered code workflow definitions.
- */
-export function getAllCodeWorkflows(): CodeWorkflowDefinition[] {
-  return Array.from(codeWorkflowRegistry.values())
-}
-
-/**
- * Check if a workflowId is a code-based definition.
- */
-export function isCodeWorkflow(workflowId: string): boolean {
-  return codeWorkflowRegistry.has(workflowId)
-}
-
-/**
- * Clear the registry (for testing).
- */
-export function clearCodeWorkflowRegistry(): void {
-  codeWorkflowRegistry.clear()
+  registerCodeWorkflowEntries(valid)
 }

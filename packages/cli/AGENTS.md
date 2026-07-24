@@ -65,12 +65,14 @@ Generated output goes to `apps/mercato/.mercato/generated/`.
 yarn generate              # Run all generators
 ```
 
-`yarn generate` now performs a best-effort post-step structural cache purge by invoking `yarn mercato configs cache structural --all-tenants` when the generated app exposes the `configs` cache CLI. This post-step must never break generation; unavailable cache tooling must be treated as a skip.
+`yarn generate` performs a best-effort post-step structural invalidation when the app enables `configs`. The automatic path MUST remain bootstrap-free: it scans the configured stock cache backend's tenant metadata directly and refreshes generated artifacts without loading the generated CLI registry, ORM, request containers, or the application DI graph. This post-step must never break generation; unavailable cache tooling must be treated as a skip.
 
-The structural cache purge does two things:
+The structural invalidation does two things:
 
-1. Deletes Redis cache keys matching `nav:*` so navigation/sidebar caches are rebuilt next render.
+1. Deletes cache keys matching `nav:*` plus the admin/portal navigation CRUD cache shapes across all stored tenant scopes, so navigation/sidebar caches are rebuilt next render.
 2. Touches every `*.generated.ts` and `*.generated.checksum` file in the current app's `.mercato/generated/` directory by rewriting them with identical bytes. This advances mtime without changing content, which forces Turbopack's filesystem watcher to invalidate the import graph and recompile leaf files that imported a barrel. Without this, Turbopack can keep serving a cached compile error against a since-fixed module file until the dev server is restarted.
+
+The explicit `yarn mercato configs cache structural --all-tenants` command remains the DI-aware operator path. Use it when an app overrides the stock cache service through DI; the lightweight automatic path intentionally reads only the backend selected by the standard cache environment variables.
 
 The dev escape hatch is `yarn dev:reset`, which clears the configured Next dev cache (`.mercato/next/dev`) plus legacy `.next` cache directories for the rare case where Turbopack's internal cache stays stuck after a structural purge.
 
@@ -143,4 +145,5 @@ Rules:
 After modifying generator logic, run the generator and verify the output files in `apps/mercato/.mercato/generated/`. Check that all expected modules, entities, and registrations appear correctly.
 
 When `packages/create-app/agentic/` or standalone guide discovery changes, keep `packages/cli/src/lib/agentic-setup.ts` and `packages/cli/build.mjs` in sync so `yarn mercato agentic:init` matches newly scaffolded standalone apps.
+Skills install into the canonical cross-agent directory `.agents/skills/`; only agents that cannot read it (Claude Code) get their own `.claude/skills/` symlinks, so `generateCodex`/`generateCursor` MUST NOT seed a skills directory. `packages/create-app/src/setup/tools/{claude-code,codex,cursor}.ts` and the `agentic-setup.ts` mirror are guarded by `packages/create-app/src/lib/agentic-skills-standalone-overlays.test.ts`.
 The standalone QA config contract is `.ai/qa/tests/playwright.config.ts`; keep that path aligned across `packages/create-app/agentic/shared/`, `packages/create-app/template/package.json.template`, and `packages/cli/src/lib/testing/integration.ts`.

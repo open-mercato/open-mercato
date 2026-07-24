@@ -7,6 +7,7 @@ export { normalizeCustomFieldValues } from '../custom-fields/normalize'
 import type { CrudEventsConfig, CrudIndexerConfig, CrudEmitContext } from '@open-mercato/shared/lib/crud/types'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { CommandLogMetadata } from '@open-mercato/shared/lib/commands'
+import type { BulkImportSuppression } from '@open-mercato/shared/lib/commands'
 
 export type ParsedPayload<TSchema extends z.ZodTypeAny> = {
   parsed: z.infer<TSchema>
@@ -51,15 +52,17 @@ export async function emitCrudSideEffects<TEntity>(opts: {
   entity: TEntity
   identifiers: CrudEmitContext<TEntity>['identifiers']
   syncOrigin?: string | null
+  actorUserId?: string | null
   events?: CrudEventsConfig<any>
   indexer?: CrudIndexerConfig<any>
 }) {
-  const { dataEngine, action, entity, identifiers, syncOrigin, events, indexer } = opts
+  const { dataEngine, action, entity, identifiers, syncOrigin, actorUserId, events, indexer } = opts
   dataEngine.markOrmEntityChange({
     action,
     entity,
     identifiers,
     syncOrigin,
+    actorUserId,
     events,
     indexer,
   })
@@ -71,23 +74,28 @@ export async function emitCrudUndoSideEffects<TEntity>(opts: {
   entity: TEntity | null | undefined
   identifiers: CrudEmitContext<TEntity>['identifiers']
   syncOrigin?: string | null
+  actorUserId?: string | null
   events?: CrudEventsConfig<any>
   indexer?: CrudIndexerConfig<any>
 }) {
-  const { dataEngine, action, entity, identifiers, syncOrigin, events, indexer } = opts
+  const { dataEngine, action, entity, identifiers, syncOrigin, actorUserId, events, indexer } = opts
   if (!entity) return
   dataEngine.markOrmEntityChange({
     action,
     entity,
     identifiers,
     syncOrigin,
+    actorUserId,
     events,
     indexer,
   })
 }
 
-export async function flushCrudSideEffects(dataEngine: DataEngine): Promise<void> {
-  await dataEngine.flushOrmEntityChanges()
+export async function flushCrudSideEffects(dataEngine: DataEngine, suppress?: BulkImportSuppression): Promise<void> {
+  // Direct-write bulk paths (those that flush here instead of going through the command bus) can
+  // pass the same `bulkImport` suppression so a bulk run defers per-record events/reindex on this
+  // path too. Omitted for normal writes → unchanged behavior. Mirrors the command bus's own flush.
+  await dataEngine.flushOrmEntityChanges(suppress)
 }
 
 export function buildChanges(

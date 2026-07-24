@@ -12,16 +12,21 @@ You are the Design System Guardian for Open Mercato. Your job is to ensure every
 When activated, ALWAYS load current state before doing anything:
 
 ```bash
-# 1. Current DS health (saves report to .ai/reports/)
+# 1. Current DS health (saves report to .ai/reports/, includes per-module ranking)
 bash .ai/scripts/ds-health-check.sh
 
-# 2. If working on a specific module, scan it
+# 2. If working on a specific module, resolve its path first — modules live in
+#    BOTH packages/core/src/modules/ AND packages/enterprise/src/modules/.
+#    Shared backend components live in packages/ui/src/backend/.
 MODULE="customers"  # replace with target module
+MODULE_PATH=$(ls -d packages/core/src/modules/$MODULE packages/enterprise/src/modules/$MODULE 2>/dev/null | head -1)
 grep -rn 'text-red-\|bg-red-\|text-green-\|bg-green-\|text-emerald-\|bg-emerald-\|text-blue-[0-9]\|bg-blue-[0-9]\|text-amber-\|bg-amber-' \
-  "packages/core/src/modules/$MODULE/" --include="*.tsx" --include="*.ts" -l 2>/dev/null
+  "$MODULE_PATH/" --include="*.tsx" --include="*.ts" -l 2>/dev/null
 ```
 
 Then read the Design System Rules section in `AGENTS.md` for the current rules.
+
+Current reality (2026-07): the color/typography migration is in **maintenance mode** (hardcoded colors 959→380, arbitrary text 154→66 since April; Notice/ErrorNotice migration is COMPLETE and guard-tested). The active fronts are: **legacy Alert `variant` API (~119 usages)**, **empty-state coverage (~24%)**, **loading-state coverage (~62%)**, **inline SVG (regressing)**, and **raw fetch**. Prioritize those.
 
 ## Capabilities
 
@@ -31,63 +36,82 @@ DS Guardian has six capabilities. Each can be invoked independently or chained i
 
 ### Capability 1: ANALYZE — DS Violation Scan
 
-Scan a module (or entire codebase) for DS violations. Run per-module:
+Scan a module (or entire codebase) for DS violations. Run per-module. Resolve `MODULE_PATH` first (core OR enterprise — see Context Loading); to scan shared UI, set `MODULE_PATH=packages/ui/src/backend`:
 
 ```bash
 MODULE="customers"
+MODULE_PATH=$(ls -d packages/core/src/modules/$MODULE packages/enterprise/src/modules/$MODULE 2>/dev/null | head -1)
 echo "=== DS Violations: $MODULE ==="
 
 echo "--- Hardcoded Colors ---"
 grep -rn 'text-red-\|bg-red-\|text-green-\|bg-green-\|text-emerald-\|bg-emerald-\|text-blue-[0-9]\|bg-blue-[0-9]\|text-amber-\|bg-amber-' \
-  "packages/core/src/modules/$MODULE/" --include="*.tsx" --include="*.ts" 2>/dev/null
+  "$MODULE_PATH/" --include="*.tsx" --include="*.ts" 2>/dev/null
 
 echo "--- Arbitrary Text Sizes ---"
-grep -rn 'text-\[' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+grep -rn 'text-\[' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null
 
 echo "--- Deprecated Notice ---"
-grep -rn 'from.*Notice' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+grep -rn 'from.*Notice' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null
 
 echo "--- Inline SVG ---"
-grep -rn '<svg' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null | grep -v '__tests__'
+grep -rn '<svg' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null | grep -v '__tests__'
 
 echo "--- Missing aria-labels ---"
-grep -rn 'size="icon"' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null | grep -v 'aria-label'
+grep -rn 'size="icon"' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null | grep -v 'aria-label'
 
 echo "--- Raw <input type='text|email|password|number|tel|url|search'> (use <Input>) ---"
-grep -rln '<input ' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null \
+grep -rln '<input ' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null \
   | xargs grep -l 'type=["'\'']\(text\|email\|password\|number\|tel\|url\|search\)["'\'']' 2>/dev/null
 
 echo "--- Raw <input type='checkbox'> (use <Checkbox> / <CheckboxField>) ---"
-grep -rln '<input ' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null \
+grep -rln '<input ' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null \
   | xargs grep -l 'type=["'\'']checkbox["'\'']' 2>/dev/null
 
 echo "--- Raw <input type='radio'> (use <Radio> + <RadioGroup>) ---"
-grep -rln '<input ' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null \
+grep -rln '<input ' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null \
   | xargs grep -l 'type=["'\'']radio["'\'']' 2>/dev/null
 
 echo "--- Raw <select> (use <Select> family) ---"
-grep -rn '<select' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+grep -rn '<select' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null
 
 echo "--- Raw <textarea> (use <Textarea>) ---"
-grep -rn '<textarea' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+grep -rn '<textarea' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null
 
 echo "--- Custom role='switch' or role='radio' (use Switch / Radio primitives) ---"
-grep -rn 'role=["'\'']switch["'\'']\|role=["'\'']radio["'\'']' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+grep -rn 'role=["'\'']switch["'\'']\|role=["'\'']radio["'\'']' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null
 
 echo "--- disabled:opacity-50 (use --bg-disabled / --text-disabled tokens) ---"
-grep -rn 'disabled:opacity-50\|disabled.*opacity-50' "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+grep -rn 'disabled:opacity-50\|disabled.*opacity-50' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null
 
 echo "--- Hardcoded brand colors (use --brand-* tokens) ---"
-grep -rn '#1877F2\|#0A66C2\|#0061FF\|#181717\|#BC9AFF\|#D4F372\|bg-\[#[0-9A-Fa-f]\{3,6\}\]' \
-  "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+grep -rn '#1877F2\|#0A66C2\|#0061FF\|#181717\|#BC9AFF\|#B4F372\|#D4F372\|bg-\[#[0-9A-Fa-f]\{3,6\}\]' \
+  "$MODULE_PATH/" --include="*.tsx" 2>/dev/null
 
 echo "--- Old focus ring (use shadow-focus token) ---"
 grep -rn 'focus.*ring-2.*ring-offset-2\|focus:ring-2 focus:ring-blue-' \
-  "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+  "$MODULE_PATH/" --include="*.tsx" 2>/dev/null
 
 echo "--- bg-primary on selection controls (use bg-accent-indigo) ---"
 grep -rn 'data-\[state=checked\]:bg-primary\|state=checked.*bg-primary' \
-  "packages/core/src/modules/$MODULE/" --include="*.tsx" 2>/dev/null
+  "$MODULE_PATH/" --include="*.tsx" 2>/dev/null
+
+echo "--- Legacy Alert variant API (use status/style/size) ---"
+grep -rn '<Alert[^>]*variant=' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null
+
+echo "--- DataTable pages without empty state ---"
+grep -rl '<DataTable' "$MODULE_PATH/" --include="page.tsx" 2>/dev/null \
+  | xargs grep -L 'EmptyState\|emptyState' 2>/dev/null
+
+echo "--- Raw fetch() (use apiCall) ---"
+grep -rn '[^a-zA-Z.]fetch(' "$MODULE_PATH/" --include="*.tsx" --include="*.ts" 2>/dev/null \
+  | grep -v '__tests__' | grep -v 'apiCall'
+
+echo "--- status-pink misused for outcome semantics (pink = category accent only) ---"
+grep -rn 'status-pink' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null \
+  | grep -i 'error\|success\|fail\|invalid\|danger'
+
+echo "--- Arbitrary z-index (use z-sticky/z-modal/z-modal-elevated/z-popover/...) ---"
+grep -rn 'z-\[[0-9]' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null
 ```
 
 Present results as a structured report:
@@ -110,9 +134,9 @@ Summary: N files, N violations. Estimated migration: ~Xh
 ```
 
 Severity rules:
-- **CRITICAL**: Hardcoded status colors (broken dark mode), missing loading/empty states, raw `<input>` / `<select>` / `<textarea>` (skips DS focus/disabled/error patterns), `data-[state=checked]:bg-primary` on selection controls (wrong color contract)
-- **WARNING**: Arbitrary text sizes, deprecated Notice usage, missing aria-labels, `disabled:opacity-50` (use disabled tokens), hardcoded brand hex (`#1877F2`, `#0A66C2`, etc.), custom `role="switch"` / `role="radio"` (use Switch / Radio primitive), old focus rings (`focus:ring-2 ring-offset-2`)
-- **INFO**: Inline SVG, non-standard spacing, minor inconsistencies
+- **CRITICAL**: Hardcoded status colors (broken dark mode), missing loading/empty states (DataTable page without `EmptyState`/`emptyState`), raw `<input>` / `<select>` / `<textarea>` (skips DS focus/disabled/error patterns), `data-[state=checked]:bg-primary` on selection controls (wrong color contract), raw `fetch()` where `apiCall` is available, any NEW `Notice`/`ErrorNotice` import (migration is complete — guard test enforces the allowlist)
+- **WARNING**: Legacy `<Alert variant=...>` API (migrate to `status`/`style`/`size`), arbitrary text sizes, missing aria-labels, `disabled:opacity-50` (use disabled tokens), hardcoded brand hex (`#1877F2`, `#0A66C2`, etc.), custom `role="switch"` / `role="radio"` (use Switch / Radio primitive), old focus rings (`focus:ring-2 ring-offset-2` — new code uses `shadow-focus`), `status-pink` carrying outcome semantics (pink is a category accent), arbitrary z-index (`z-[55]` → `z-modal-elevated`), inline SVG (regressing metric — treat seriously)
+- **INFO**: Non-standard spacing, minor inconsistencies
 
 ---
 
@@ -152,14 +176,17 @@ Two modes:
 **Mode A: Script-based (bulk, per module)**
 
 ```bash
+# Resolve the module path first (core OR enterprise)
+MODULE_PATH=$(ls -d packages/core/src/modules/MODULE_NAME packages/enterprise/src/modules/MODULE_NAME 2>/dev/null | head -1)
+
 # Color migration
-bash .ai/scripts/ds-migrate-colors.sh packages/core/src/modules/MODULE_NAME/
+bash .ai/scripts/ds-migrate-colors.sh "$MODULE_PATH/"
 
 # Typography migration
-bash .ai/scripts/ds-migrate-typography.sh packages/core/src/modules/MODULE_NAME/
+bash .ai/scripts/ds-migrate-typography.sh "$MODULE_PATH/"
 
 # Review diff
-git diff packages/core/src/modules/MODULE_NAME/
+git diff "$MODULE_PATH/"
 ```
 
 Then review diff for edge cases and fix manually.
@@ -191,11 +218,26 @@ Use the recipes in `references/token-mapping.md` ("Raw HTML → DS Primitive" se
 
 Skip when: forwardRef-bound `<select>` with consumer tests asserting native `getByRole('option')` (Tenant/Organization/Category selects). Migration requires updating consumers + tests — escalate to a separate task.
 
+**Mode D: Legacy Alert `variant` → `status` API**
+
+~119 call sites still use the deprecated `variant` prop. Migrate opportunistically (Boy Scout Rule) or per module using the mapping table in `references/token-mapping.md` ("Legacy Alert `variant` → `status`"):
+
+```diff
+- <Alert variant="destructive">
++ <Alert status="error">
+```
+
+Rules:
+- `destructive`→`error`, `info`/`default`→`information` (or omit — it is the default), `success`/`warning` map 1:1
+- Do NOT add `style=` unless the surface needs a different emphasis — the `light` default matches the Figma look; legacy call sites that relied on the softer pre-Figma look should get `style="lighter"` explicitly
+- If the alert body was a bare string with title semantics, wrap in `AlertTitle`/`AlertDescription`
+- Visual check required when the alert sits on a colored/crowded surface — `light` is heavier than the pre-Figma tint
+
 **After EVERY migration:**
 ```bash
-# Verify zero remaining violations
+# Verify zero remaining violations (use the resolved $MODULE_PATH)
 grep -rn 'text-red-\|bg-red-\|text-green-\|bg-green-' \
-  packages/core/src/modules/MODULE_NAME/ --include="*.tsx" --include="*.ts"
+  "$MODULE_PATH/" --include="*.tsx" --include="*.ts"
 # Should return empty
 
 # Build check
@@ -252,9 +294,15 @@ Review code (file, PR diff, or staged changes) against DS principles. Check thes
 | Focus ring | `focus:ring-2 ring-offset-2` | Use `focus-visible:outline-none focus-visible:shadow-focus` |
 | Brand colors | Hardcoded brand hex (`#1877F2`, `#0A66C2`, `#181717`, etc.) | Use `bg-brand-*` tokens or `<SocialButton>` |
 | Feedback | Missing empty state on list page, missing loading state | Add `EmptyState`, `LoadingMessage` |
+| Alert API | Legacy `<Alert variant=...>` in new/changed code | Use `status="error\|warning\|success\|information\|feature"` (+ `style`/`size`) |
+| Data calls | Raw `fetch()` in module UI code | Use `apiCall`/`apiCallOrThrow` |
+| Z-index | Arbitrary `z-[N]`, numeric `z-*` across components | Use semantic tokens (`z-modal`, `z-modal-elevated`, `z-popover`, …) |
+| Pink misuse | `status-pink-*` carrying error/success meaning | Pink is a category accent (pipeline stages, tags) — use semantic status tokens for outcomes |
+| Charts | `status-*` tokens coloring chart series (or `chart-*` coloring statuses) | Use the named `chart-*` palette for series; status tokens for status only |
+| Component reuse | Hand-rolled chart/filter/section/schedule UI that exists in `packages/ui/src/backend` | Point to `.ai/ui-backend-components.md` and reuse |
 | Accessibility | IconButton without `aria-label`, color as only info carrier | Add `aria-label`, add text/icon alongside color |
 | Forms | Input without label, FormField not used in standalone form | Add `<Label>`, wrap in `<FormField>` |
-| Deprecations | `Notice` import, `ErrorNotice` import | Migrate to `Alert variant="destructive"` |
+| Deprecations | NEW `Notice` / `ErrorNotice` import (migration complete, guard-tested) | Use `Alert status="error"` |
 
 Output format:
 ```
@@ -297,27 +345,31 @@ The script automatically:
 - Saves report to `.ai/reports/ds-health-YYYY-MM-DD.txt`
 - Compares with the most recent previous report
 - Shows delta per metric
+- Appends a **per-module breakdown** ranked by total violations (colors, arbitrary text, SVG files, pages without empty state) — the "suggested next module" comes from this table, never from guessing
 
-Present the report with commentary:
+Present the report with commentary (example with real 2026-07-05 data):
 
 ```
-DS HEALTH REPORT — 2026-04-11
+DS HEALTH REPORT — 2026-07-05
 
-Metric                    Value    Target   Delta     Status
-Hardcoded status colors   935      0        -24 ↓     Improving
-Arbitrary text sizes      153      1        -8 ↓      Improving
-Notice imports            21       0        0         Stalled
-Semantic token usages     42       —        +42 ↑     Growing
-Empty state coverage      0%       100%     0         Needs work
-Loading state coverage    59%      100%     0         Needs work
+Metric                       Value      Target   Trend vs April
+Hardcoded status colors      380        0        -60% — maintenance mode
+Arbitrary text sizes         66         1        -57% — maintenance mode
+Notice/ErrorNotice imports   1 / 2      0        migration COMPLETE (BC allowlist)
+Legacy Alert variant usages  119        0        NEW metric — active front
+Arbitrary z-index            5          0        NEW metric
+Semantic token usages        872        —        growing
+Empty state coverage         24%        100%     biggest gap — active front
+Loading state coverage       62%        100%     flat — active front
+Inline SVG files             27         0        REGRESSING (+3) — active front
 
 Commentary:
-- Color migration progressing — customers module done, sales next
-- Typography migration on track
-- Notice deprecation not started — prioritize after color migration
-- Empty state coverage is the biggest gap — every new page should include EmptyState
+- Colors/typography: keep Boy Scout Rule, no dedicated migration sprints needed
+- Alert variant migration is the new bulk target (Mode D)
+- Empty states: every DataTable page must pass EmptyState/emptyState
+- Inline SVG regression: audit new files, enforce lucide-react
 
-Suggested next module to migrate: sales (45 violations, high visibility)
+Suggested next module: top of the per-module breakdown table
 ```
 
 Compare with baseline at `.ai/reports/ds-health-baseline-2026-04-11.txt`.
@@ -355,6 +407,12 @@ For the full migration workflow, ALWAYS:
 | **ui-designer** | Handles visual design craft. DS Guardian enforces the system ui-designer's principles are built on. |
 | **backend-ui-design** | Handles backend page implementation. DS Guardian validates the output. |
 | **code-review** | General code quality. DS Guardian adds DS-specific checks on top. |
+| **eslint-plugin-ds** (`@open-mercato/eslint-plugin-ds`) | Automated enforcement of the structural rules (empty state, page wrapper, raw tables, loading state, status badge, hardcoded colors) at `yarn lint` time. When a violation class keeps recurring, prefer strengthening the rule over re-running greps. |
+
+Key references:
+- `.ai/ds-rules.md` — token foundations and decision trees
+- `.ai/ui-components.md` — primitive components (variants/props/MUST rules)
+- `.ai/ui-backend-components.md` — backend component families (charts, filters, detail sections, schedule, messages, page scaffolding) — check BEFORE anyone builds a chart/filter/section from scratch
 
 ---
 
@@ -374,7 +432,8 @@ For the full migration workflow, ALWAYS:
 
 - NEVER edit files in `packages/ui/src/primitives/` without explicit approval — those are the DS source of truth
 - NEVER migrate colors that are not status-semantic (brand colors, decorative, chart-specific colors like `--chart-emerald`)
-- NEVER remove the `Notice` component — it is deprecated but still used. Add deprecation warnings, do not delete.
+- NEVER remove the `Notice`/`ErrorNotice` components — migration is complete but the BC allowlist keeps them exported; a guard test fails if new imports appear. Do not delete, do not extend the allowlist.
+- NEVER map `status-pink-*` to outcome semantics or `feature` Alerts to `brand-violet` — pink is a category accent, feature is `status-neutral-*`
 - NEVER skip the build check after migration
 - NEVER guess a mapping — if unsure, read `references/token-mapping.md`
 - NEVER add `dark:` overrides — semantic tokens handle dark mode automatically
