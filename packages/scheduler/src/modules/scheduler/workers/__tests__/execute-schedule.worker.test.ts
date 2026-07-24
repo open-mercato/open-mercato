@@ -1,5 +1,6 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
+import { createQueue } from '@open-mercato/queue'
 import { ScheduledJob } from '../../data/entities'
 import executeScheduleWorker from '../execute-schedule.worker'
 
@@ -14,6 +15,10 @@ jest.mock('@open-mercato/shared/lib/commands', () => ({
 jest.mock('@open-mercato/queue', () => ({
   createQueue: jest.fn(),
 }), { virtual: true })
+
+jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
+  getRedisUrlOrThrow: jest.fn(() => 'redis://localhost:6379'),
+}))
 
 jest.mock('../../events', () => ({
   emitSchedulerEvent: jest.fn(async () => undefined),
@@ -98,5 +103,78 @@ describe('executeScheduleWorker command scope', () => {
     ).rejects.toBeInstanceOf(CrudHttpError)
 
     expect(em.flush).not.toHaveBeenCalled()
+  })
+})
+
+describe('executeScheduleWorker queue target payload contract', () => {
+  const enqueue = jest.fn(async () => 'target-job-1')
+  const close = jest.fn(async () => undefined)
+
+  function buildQueueSchedule(overrides: Partial<ScheduledJob> = {}): ScheduledJob {
+    return buildCommandSchedule({
+      targetType: 'queue',
+      targetQueue: 'example',
+      targetCommand: null,
+      targetPayload: { connectionId: 'connection-id', scope: 'organization' },
+      ...overrides,
+    })
+  }
+
+  function runWorker(schedule: ScheduledJob, jobId = 'worker-job-1', attemptNumber = 1) {
+    const { context } = buildWorkerContext(schedule)
+    return executeScheduleWorker(
+      {
+        id: 'queued-job-1',
+        queue: 'scheduler-execution',
+        payload: {
+          scheduleId,
+          tenantId: schedule.tenantId,
+          organizationId: schedule.organizationId,
+          scopeType: schedule.scopeType,
+        },
+        attempts: 0,
+        createdAt: Date.now(),
+      },
+      { ...context, jobId, attemptNumber },
+    )
+  }
+
+  beforeEach(() => {
+    enqueue.mockClear()
+    close.mockClear()
+    ;(createQueue as jest.Mock).mockReturnValue({ enqueue, close })
+  })
+
+  it('delivers the flat targetPayload contract with scheduler-owned fields applied last', async () => {
+    const schedule = buildQueueSchedule({
+      targetPayload: {
+        connectionId: 'connection-id',
+        scope: 'organization',
+        tenantId: 'spoofed-tenant',
+        payload: { nested: true },
+      },
+    })
+
+    await runWorker(schedule)
+
+    expect(enqueue).toHaveBeenCalledWith({
+      connectionId: 'connection-id',
+      scope: 'organization',
+      payload: { nested: true },
+      tenantId: 'tenant-a',
+      organizationId: 'org-a',
+      _idempotencyKey: `scheduler-${scheduleId}-worker-job-1`,
+    })
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps one idempotency key across retries of the same logical firing', async () => {
+    await runWorker(buildQueueSchedule(), 'worker-job-1', 1)
+    await runWorker(buildQueueSchedule(), 'worker-job-1', 2)
+
+    const firstKey = (enqueue.mock.calls[0][0] as Record<string, unknown>)._idempotencyKey
+    const secondKey = (enqueue.mock.calls[1][0] as Record<string, unknown>)._idempotencyKey
+    expect(firstKey).toBe(`scheduler-${scheduleId}-worker-job-1`)
+    expect(secondKey).toBe(firstKey)
   })
 })

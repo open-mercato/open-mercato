@@ -7,6 +7,7 @@ import { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { emitSchedulerEvent } from '../events.js'
 import { buildScheduledCommandContext } from '../lib/commandContext.js'
+import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('scheduler').child({ component: 'worker' })
@@ -168,20 +169,17 @@ export default async function executeScheduleWorker(
     
     let targetJobId: string | undefined
     try {
-      // Generate a deterministic idempotency key so that if BullMQ retries
-      // this worker after a crash between enqueue and DB flush, downstream
-      // workers can deduplicate using this key.
-      const executionTimestamp = Date.now()
-      const idempotencyKey = `scheduler-${schedule.id}-${executionTimestamp}`
+      // The execute-schedule job id is stable across BullMQ retries, so if
+      // this worker crashes between enqueue and DB flush the retried attempt
+      // reuses the same idempotency key and downstream workers can dedupe.
+      const idempotencyKey = buildSchedulerIdempotencyKey(schedule.id, ctx.jobId ?? Date.now())
 
-      const queuePayload = {
-        ...((schedule.targetPayload as Record<string, unknown>) || {}),
+      targetJobId = await targetQueue.enqueue(buildQueueTargetPayload({
+        targetPayload: schedule.targetPayload,
         tenantId: schedule.tenantId,
         organizationId: schedule.organizationId,
-        _idempotencyKey: idempotencyKey,
-      }
-
-      targetJobId = await targetQueue.enqueue(queuePayload)
+        idempotencyKey,
+      }))
     } finally {
       // Always close the queue instance to free Redis connections
       await targetQueue.close()

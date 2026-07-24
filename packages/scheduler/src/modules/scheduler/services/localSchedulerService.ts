@@ -8,6 +8,7 @@ import { recalculateNextRun } from '../lib/nextRunCalculator'
 import { emitSchedulerEvent } from '../events.js'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { buildScheduledCommandContext } from '../lib/commandContext.js'
+import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('scheduler').child({ component: 'local' })
@@ -251,16 +252,17 @@ export class LocalSchedulerService {
     }
 
     const queue = this.queueFactory(schedule.targetQueue)
-    
-    await queue.enqueue({
-      scheduleId: schedule.id,
-      scheduleName: schedule.name,
-      scopeType: schedule.scopeType,
+
+    // Deliver the same flat contract as the asynchronous execute-schedule
+    // worker: targetPayload fields on the root, scheduler-owned scope and
+    // idempotency fields applied last. Local mode runs each firing exactly
+    // once, so the firing timestamp is a valid logical execution key.
+    await queue.enqueue(buildQueueTargetPayload({
+      targetPayload: schedule.targetPayload,
       tenantId: schedule.tenantId,
       organizationId: schedule.organizationId,
-      payload: schedule.targetPayload || {},
-      triggeredAt: new Date(),
-    })
+      idempotencyKey: buildSchedulerIdempotencyKey(schedule.id, Date.now()),
+    }))
 
     logger.info('Enqueued job to target queue', { scheduleId: schedule.id, targetQueue: schedule.targetQueue })
   }
