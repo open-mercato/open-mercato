@@ -112,6 +112,7 @@ If the selected skill is absent, run `yarn install-skills` once and retry; do no
 
 - Start here; load matched guides once and only branch-specific skill references.
 - Facts supply identifiers/surfaces, not teaching.
+- For spec lookup, list names and open only a task-specific spec; never read README/template unless doing spec work.
 - Inspect app call sites first; use `framework-context` last for one bounded exact target.
 - Load `BACKWARD_COMPATIBILITY.md` before altering a public ID/contract, not for an additive change that preserves it.
 - Never recursively content-search or preload guide, skill, fact, reference, or source trees; open only routed paths.
@@ -126,7 +127,7 @@ This generator-owned block supplies identifiers/surfaces. Load a fact only for a
 
 ## Working Sequence
 
-1. Inspect `.ai/specs/` for relevant decisions; use spec-first work for architectural or three-plus-step requests.
+1. Inspect `.ai/specs/` for task-specific decisions (ignore README/template); use spec-first work for architectural or three-plus-step requests.
 2. Route the request and load only the matched guides/skills and relevant module facts.
 3. Inspect current app call sites; invoke `om-framework-context` only for missing exact-version details.
 4. Implement the smallest complete vertical slice through real call sites.

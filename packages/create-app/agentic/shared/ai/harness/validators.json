@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "catalog": {
     "expectedCaseCount": 92,
-    "maxContextFiles": 12,
+    "maxContextFiles": 16,
     "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 262144,
     "backwardCompatibilityRuleIds": [

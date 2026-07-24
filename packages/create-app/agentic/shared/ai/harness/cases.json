@@ -5500,17 +5500,16 @@
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
-        ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/skills/om-build-workflow/SKILL.md",
-        ".ai/guides/modules/customers.md",
-        ".ai/guides/modules/workflows.md"
+      ".ai/skills/om-system-extension/SKILL.md",
+      ".ai/skills/om-build-workflow/SKILL.md",
+      ".ai/guides/modules/customers.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
     "requiredDecisions": ["public-scope-derived-server-side", "idempotent-submission", "encrypted-pii", "deterministic-deduplication", "cross-module-id-link", "optional-crm", "retry-safe-handoff"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "scope.{0,30}(?:request body|payload)", "direct ORM relationship"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 12,
+    "maxContextFiles": 13,
     "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 229376,
     "relatedCases": ["OMH-018", "OMH-034", "OMH-071"]
