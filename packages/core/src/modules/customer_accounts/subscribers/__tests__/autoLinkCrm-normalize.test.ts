@@ -84,6 +84,47 @@ describe('autoLinkCrm — poisoned customerEntityId normalization (#4362)', () =
     expect(em.nativeUpdate).toHaveBeenCalledWith(CustomerUser, { id: userId }, { customerEntityId: null })
   })
 
+  it('clears a customerEntityId that does not resolve inside the user own org', async () => {
+    // customerEntityId is the portal company scope key, so a cross-org value must
+    // be cleared, not left in place "because it is a company somewhere".
+    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId, customerEntityId: companyEntityId }
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === CustomerUser) return user
+      if (entity === CustomerEntity) return null
+      return null
+    })
+    const em: EmMock = {
+      findOne: jest.fn(async () => null),
+      nativeUpdate: jest.fn(async () => 1),
+    }
+    const { default: handle } = await import('../autoLinkCrm')
+    await handle({ id: userId, tenantId, organizationId }, makeCtx(em))
+
+    expect(em.nativeUpdate).toHaveBeenCalledWith(CustomerUser, { id: userId }, { customerEntityId: null })
+  })
+
+  it('does not adopt a recovered company that belongs to another org', async () => {
+    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId, customerEntityId: linkedPersonId }
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: any) => {
+      if (entity === CustomerUser) return user
+      if (entity === CustomerEntity) {
+        // The ownership probe filters on kind:'company' — miss it to simulate a
+        // profile company sitting outside the user's organization.
+        if (where?.kind === 'company') return null
+        return { id: linkedPersonId, kind: 'person' }
+      }
+      return null
+    })
+    const em: EmMock = {
+      findOne: jest.fn(async () => ({ companyEntityId })),
+      nativeUpdate: jest.fn(async () => 1),
+    }
+    const { default: handle } = await import('../autoLinkCrm')
+    await handle({ id: userId, tenantId, organizationId }, makeCtx(em))
+
+    expect(em.nativeUpdate).toHaveBeenCalledWith(CustomerUser, { id: userId }, { customerEntityId: null })
+  })
+
   it('leaves a correct company customerEntityId untouched', async () => {
     const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId, customerEntityId: companyEntityId }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
