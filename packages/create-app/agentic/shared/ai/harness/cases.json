@@ -3470,7 +3470,8 @@
     },
     "expectedRouter": {
       "required": [
-        "integration"
+        "integration",
+        "testing"
       ],
       "allowedExtra": [
         "architecture",
@@ -3485,6 +3486,7 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/integrations.md",
+        ".ai/guides/testing-debugging.md",
         ".ai/skills/om-integration-builder/SKILL.md"
       ],
       "forbidden": [
