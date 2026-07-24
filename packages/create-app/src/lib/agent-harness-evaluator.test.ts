@@ -214,7 +214,7 @@ test('live Codex adapter starts one ephemeral read-only process and stores only 
 const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
-if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || args[args.indexOf('--sandbox') + 1] !== 'read-only' || !args.includes('shell_environment_policy.inherit=none')) process.exit(9)
+if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || args[args.indexOf('--disable') + 1] !== 'skill_search' || args[args.indexOf('--sandbox') + 1] !== 'read-only' || !args.includes('shell_environment_policy.inherit=none') || !process.env.CODEX_HOME?.includes('om-harness-result-')) process.exit(9)
 const output = args[args.indexOf('-o') + 1]
 fs.writeFileSync(output, JSON.stringify({
   selectedRouter: ['architecture'], selectedSkills: [],

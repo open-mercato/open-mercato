@@ -6005,7 +6005,7 @@
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:hex|rgb|arbitrary).{0,30}(?:color|tailwind)", "raw fetch", "private module (?:file|import)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 6,
-    "maxInitialContextBytes": 40960,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 147456,
     "relatedCases": ["OMH-015", "OMH-023", "OMH-085", "OMH-092"]
   },
