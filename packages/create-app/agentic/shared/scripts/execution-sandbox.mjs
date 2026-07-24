@@ -102,6 +102,7 @@ function macInvocation({ command, args, cwd, writableRoots, readOnlyRoots, netwo
       '(allow network-inbound (local ip "localhost:*"))',
       '(allow network-outbound (remote ip "localhost:*"))',
     ] : []),
+    ...readOnly.map((root) => `(deny file-write* (subpath "${sandboxLiteral(root)}"))`),
   ].join(' ')
   return { command: sandbox, args: ['-p', profile, resolveExecutable(command, env), ...args], cwd: regularDirectory(cwd, 'sandbox cwd'), env }
 }
@@ -125,8 +126,10 @@ function linuxInvocation({ command, args, cwd, writableRoots, readOnlyRoots, net
     '--dev', '/dev',
     '--tmpfs', '/tmp',
   ]
-  for (const root of readable) sandboxArgs.push('--ro-bind', root, root)
   for (const root of writable) sandboxArgs.push('--bind', root, root)
+  // Apply read-only mounts last so a nested dependency root cannot be shadowed
+  // by a later writable parent bind.
+  for (const root of readable) sandboxArgs.push('--ro-bind', root, root)
   const realCwd = regularDirectory(cwd, 'sandbox cwd')
   sandboxArgs.push('--chdir', realCwd, '--', resolveExecutable(command, env), ...args)
   return { command: bubblewrap, args: sandboxArgs, cwd: realCwd, env }

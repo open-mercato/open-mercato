@@ -23,6 +23,7 @@ const release = await import(pathToFileURL(releaseScript).href) as {
 }
 const executionSandbox = await import(pathToFileURL(executionSandboxScript).href) as {
   linuxNamespaceArgs: (network: string) => string[]
+  sandboxedInvocation: (input: Record<string, unknown>) => { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }
 }
 const targetSandboxAvailable = process.platform === 'darwin'
   || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
@@ -166,6 +167,31 @@ test('externally prepared targets must be realpath-disjoint from the controller 
   } finally { fs.rmSync(parent, { recursive: true, force: true }) }
 })
 
+test('externally prepared targets reject regular nested dependency trees before execution', () => {
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-nested-deps-')))
+  const controller = path.join(parent, 'controller')
+  const targets = ['OMH-002', 'OMH-003'].map((caseId) => path.join(parent, caseId))
+  fs.mkdirSync(path.join(controller, 'node_modules'), { recursive: true })
+  for (const target of targets) {
+    fs.mkdirSync(path.join(target, 'src'), { recursive: true })
+    fs.mkdirSync(path.join(target, '.ai', 'harness'), { recursive: true })
+    fs.mkdirSync(path.join(target, 'node_modules', 'example'), { recursive: true })
+    fs.writeFileSync(path.join(target, 'package.json'), '{}\n')
+    fs.writeFileSync(path.join(target, 'src', 'modules.ts'), 'export default []\n')
+    fs.writeFileSync(path.join(target, '.ai', 'harness', 'cases.json'), '[]\n')
+    fs.writeFileSync(path.join(target, 'node_modules', 'example', 'sentinel.js'), 'original\n')
+  }
+  try {
+    const input = releaseInputs()
+    input.targetsManifest.targets = { 'OMH-002': targets[0], 'OMH-003': targets[1] }
+    const plan = release.buildReleasePlan({ ...input, root: controller })
+    assert.deepEqual(plan.coverage.writable.invalidTargetCaseIds, ['OMH-002', 'OMH-003'])
+    for (const target of targets) {
+      assert.equal(fs.readFileSync(path.join(target, 'node_modules', 'example', 'sentinel.js'), 'utf8'), 'original\n')
+    }
+  } finally { fs.rmSync(parent, { recursive: true, force: true }) }
+})
+
 test('every target validation command runs and failures retain actionable sanitized diagnostics', { skip: !targetSandboxAvailable }, () => {
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-')))
   const fakeYarn = path.join(target, 'fake-yarn')
@@ -243,6 +269,57 @@ fs.writeFileSync('node_modules/example/nested.js', 'tampered')
     fs.rmSync(target, { recursive: true, force: true })
     fs.rmSync(controllerDependencies, { recursive: true, force: true })
   }
+})
+
+test('target validation fails closed when a regular dependency tree overlaps the writable target', { skip: !targetSandboxAvailable }, () => {
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-nested-deps-')))
+  const nested = path.join(target, 'node_modules', 'example', 'nested.js')
+  fs.mkdirSync(path.dirname(nested), { recursive: true })
+  fs.writeFileSync(nested, 'original')
+  const fakeYarn = path.join(target, 'fake-yarn')
+  fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
+const fs = require('node:fs')
+fs.writeFileSync('node_modules/example/nested.js', 'tampered')
+fs.writeFileSync('MODEL_RAN', 'unsafe')
+`)
+  fs.chmodSync(fakeYarn, 0o755)
+  const step = { id: 'target-validation:OMH-002:build', kind: 'target-validation', caseId: 'OMH-002', command: 'yarn build' }
+  try {
+    const [result] = release.runTargetValidationSteps({ steps: [step], target, timeout: 10_000, roots: [target], yarnCommand: fakeYarn })
+    assert.equal(result.status, 'fail')
+    assert.match(result.sanitizedError, /writable target node_modules must resolve outside the writable target/)
+    assert.equal(fs.readFileSync(nested, 'utf8'), 'original')
+    assert.equal(fs.existsSync(path.join(target, 'MODEL_RAN')), false)
+  } finally { fs.rmSync(target, { recursive: true, force: true }) }
+})
+
+test('sandbox read-only descendants override a writable parent root', { skip: !targetSandboxAvailable }, () => {
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-sandbox-nested-readonly-')))
+  const dependencyRoot = path.join(target, 'node_modules')
+  const nested = path.join(dependencyRoot, 'example', 'nested.js')
+  fs.mkdirSync(path.dirname(nested), { recursive: true })
+  fs.writeFileSync(nested, 'original')
+  const probe = path.join(target, 'sandbox-probe')
+  fs.writeFileSync(probe, `#!/usr/bin/env node
+const fs = require('node:fs')
+fs.writeFileSync('allowed.txt', 'allowed')
+fs.writeFileSync('node_modules/example/nested.js', 'tampered')
+`)
+  fs.chmodSync(probe, 0o755)
+  try {
+    const invocation = executionSandbox.sandboxedInvocation({
+      command: probe,
+      cwd: target,
+      writableRoots: [target],
+      readOnlyRoots: [dependencyRoot],
+      networkMode: 'none',
+      env: process.env,
+    })
+    const result = spawnSync(invocation.command, invocation.args, { cwd: invocation.cwd, env: invocation.env, encoding: 'utf8' })
+    assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.equal(fs.readFileSync(path.join(target, 'allowed.txt'), 'utf8'), 'allowed')
+    assert.equal(fs.readFileSync(nested, 'utf8'), 'original')
+  } finally { fs.rmSync(target, { recursive: true, force: true }) }
 })
 
 test('Linux sandbox namespaces are private by default and host networking is shared only when explicitly requested', () => {

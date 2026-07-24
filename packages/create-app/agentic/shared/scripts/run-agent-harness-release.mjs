@@ -40,7 +40,9 @@ Options:
 
 Exactly one target option is required. Automatic targets exclude dependencies, build
 outputs, harness results, and generated framework context, then safely reference the
-controller's protected dependency tree. Writable execution requires sandbox-exec on
+controller's protected dependency tree. Externally supplied targets must use the same
+node_modules link to that protected tree; nested dependency copies are rejected.
+Writable execution requires sandbox-exec on
 macOS or Bubblewrap on Linux; unsupported hosts fail closed. The command preflights complete matrix,
 fixture, review, and target coverage before
 running deterministic validation, configured live routing, writable trusted-oracle
@@ -427,9 +429,10 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
         let dependenciesAreSafe = false
         try {
           const dependencyEntry = fs.lstatSync(dependencyPath)
-          dependenciesAreSafe = dependencyEntry.isDirectory()
-            && (!dependencyEntry.isSymbolicLink()
-              || (root && fs.realpathSync(dependencyPath) === fs.realpathSync(path.join(root, 'node_modules'))))
+          dependenciesAreSafe = dependencyEntry.isSymbolicLink()
+            && fs.statSync(dependencyPath).isDirectory()
+            && root
+            && fs.realpathSync(dependencyPath) === fs.realpathSync(path.join(root, 'node_modules'))
         } catch { /* invalid target below */ }
         if (!stat.isDirectory() || stat.isSymbolicLink() || normalized === root
           || !requiredAreSafe || !dependenciesAreSafe
@@ -887,12 +890,19 @@ export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCo
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-validation-'))
   const { env, toolReadRoots } = targetValidationEnvironment(tempRoot, pathValue)
   const dependencyPath = path.join(target, 'node_modules')
-  const readOnlyRoots = [...(fs.existsSync(dependencyPath) ? [fs.realpathSync(dependencyPath)] : []), ...toolReadRoots]
   let before = targetSnapshot(target)
   try {
     for (const step of steps) {
       let execution
       try {
+        const readOnlyRoots = [...toolReadRoots]
+        if (fs.existsSync(dependencyPath)) {
+          const dependencyRoot = fs.realpathSync(dependencyPath)
+          if (isPathInside(fs.realpathSync(target), dependencyRoot)) {
+            throw new Error('writable target node_modules must resolve outside the writable target')
+          }
+          readOnlyRoots.unshift(dependencyRoot)
+        }
         const invocation = sandboxedInvocation({
           command: yarnCommand,
           args: [step.command.slice('yarn '.length)],
