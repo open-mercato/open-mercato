@@ -768,6 +768,42 @@ function analyzeCommand(command, root) {
       violations.push(`forbidden executable reader option: ${executable}`)
       return
     }
+    if (executable === 'rg' || executable === 'grep') {
+      const optionsWithValues = executable === 'rg'
+        ? new Set([
+            '-A', '--after-context', '-B', '--before-context', '-C', '--context', '-E', '--encoding',
+            '-e', '--regexp', '-g', '--glob', '--iglob', '-j', '--threads', '-m', '--max-count',
+            '--max-columns', '--max-filesize', '--path-separator', '-r', '--replace', '--sort', '--sortr',
+            '-t', '--type', '-T', '--type-not', '--type-add', '--type-clear', '--color', '--colors',
+            '--context-separator', '--field-context-separator', '--field-match-separator', '--engine',
+          ])
+        : new Set([
+            '-A', '--after-context', '-B', '--before-context', '-C', '--context', '-e', '--regexp',
+            '-m', '--max-count', '--binary-files', '-D', '--devices', '-d', '--directories',
+            '--color', '--exclude', '--exclude-dir', '--include', '--label',
+          ])
+      const positionals = []
+      let explicitPattern = false
+      let endOfOptions = false
+      for (let index = 1; index < tokens.length; index += 1) {
+        const raw = stripShellToken(tokens[index], root)
+        if (!endOfOptions && raw === '--') { endOfOptions = true; continue }
+        if (!endOfOptions && raw.startsWith('-')) {
+          const optionName = raw.split('=', 1)[0]
+          if (['-e', '--regexp'].includes(optionName)) explicitPattern = true
+          if (optionsWithValues.has(optionName) && !raw.includes('=')) index += 1
+          continue
+        }
+        positionals.push(raw)
+      }
+      const pathOperands = explicitPattern ? positionals : positionals.slice(1)
+      if (pathOperands.length === 0) {
+        violations.push(`unsafe broad content read: ${executable}`)
+        return
+      }
+      for (const operand of pathOperands) candidates.push({ raw: operand, expand: true })
+      return
+    }
     tokens.forEach((token, index) => {
       const stripped = stripShellToken(token, root)
       if (index === 0) return
@@ -817,6 +853,7 @@ function recursivelyFindTraceCandidates(value, state, inheritedContentTool = fal
   const marker = `${value.type ?? ''} ${value.name ?? ''} ${value.tool_name ?? ''}`.toLowerCase()
   const ownTool = /tool_use|command_execution|mcp_tool_call|file_search|\bread\b|\bglob\b|\bgrep\b/.test(marker)
   if (ownTool) state.available = true
+  if (/file_search|\bglob\b/.test(marker)) state.violations.add('forbidden metadata discovery tool')
   if (state.reviewExpectedReads && /mcp_tool_call|file_search|\bglob\b|\bgrep\b|\bbash\b|\bshell\b/.test(marker)) {
     state.violations.add('forbidden review discovery or execution tool')
   }
@@ -1125,7 +1162,10 @@ function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, wr
 function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writable, validateResponse = validateRoutingResponse }) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-result-'))
   const outputPath = path.join(tempDir, 'structured.json')
-  const invocation = buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, writable })
+  const isolatedSchemaPath = path.join(tempDir, 'output.schema.json')
+  fs.copyFileSync(schemaPath, isolatedSchemaPath, fs.constants.COPYFILE_EXCL)
+  fs.chmodSync(isolatedSchemaPath, 0o600)
+  const invocation = buildRunnerInvocation({ runner, root, schemaPath: isolatedSchemaPath, outputPath, model, writable })
   const runnerEnv = narrowRunnerEnv(runner)
   if (runner === 'codex') {
     const isolatedCodexHome = path.join(tempDir, 'codex-home')
@@ -1393,7 +1433,7 @@ function validateSafeWritableEntry(root, relative, errors) {
   visit(absolute)
 }
 
-function verifyWritableTarget(root, caseRecord, fixtures) {
+function verifyWritableTarget(root, controllerRoot, caseRecord, fixtures) {
   const errors = []
   try {
     const rootStat = fs.lstatSync(root)
@@ -1401,6 +1441,19 @@ function verifyWritableTarget(root, caseRecord, fixtures) {
       errors.push('writable root must be a real regular directory without a symlinked path')
     }
   } catch { errors.push('writable root is unavailable') }
+  try {
+    const controllerDependencies = path.join(controllerRoot, 'node_modules')
+    const targetDependencies = path.join(root, 'node_modules')
+    const controllerEntry = fs.lstatSync(controllerDependencies)
+    const targetEntry = fs.lstatSync(targetDependencies)
+    if (!controllerEntry.isDirectory() || controllerEntry.isSymbolicLink()
+      || !targetEntry.isSymbolicLink() || !fs.statSync(targetDependencies).isDirectory()
+      || fs.realpathSync(targetDependencies) !== fs.realpathSync(controllerDependencies)) {
+      throw new Error('unprotected dependencies')
+    }
+  } catch {
+    errors.push('writable root node_modules must link to the controller protected dependency tree')
+  }
   const markerPath = path.join(root, '.ai', 'harness', 'DISPOSABLE')
   if (!fs.existsSync(markerPath)) errors.push('writable root must contain .ai/harness/DISPOSABLE')
   else {
@@ -1644,7 +1697,7 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
   let targetRoot
   try { targetRoot = fs.realpathSync(options.writableRoot) } catch { throw new Error('writable root is unavailable') }
   assertFilesystemDisjoint(root, targetRoot, 'review writable root')
-  const targetErrors = verifyWritableTarget(targetRoot, caseRecord, fixtures)
+  const targetErrors = verifyWritableTarget(targetRoot, root, caseRecord, fixtures)
   if (targetErrors.length) throw new Error(`${caseRecord.id}: ${targetErrors.join('; ')}`)
   const reviewedPaths = source.writable.changedPaths
   if (!reviewedPaths.length || reviewedPaths.length > reviewPolicy.maxChangedFiles) throw new Error(`reviewed path count must be from 1 to ${reviewPolicy.maxChangedFiles}`)
@@ -1786,7 +1839,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
       if (writable && !registry.catalog.writableCaseIds.includes(caseRecord.id)) throw new Error(`${caseRecord.id} is not in the catalog writable matrix`)
       const runRoot = writable ? writableRoot : root
       if (writable) {
-        const targetErrors = verifyWritableTarget(runRoot, caseRecord, fixtures)
+        const targetErrors = verifyWritableTarget(runRoot, root, caseRecord, fixtures)
         if (targetErrors.length) throw new Error(`${caseRecord.id}: ${targetErrors.join('; ')}`)
       }
       const before = writable ? snapshot(runRoot) : undefined
@@ -1826,8 +1879,13 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         if (outside.length) violations.push(`writes outside allowlist: ${outside.join(', ')}`)
         const unsafeEntries = unsafeChangedEntries(afterAgent, changed)
         if (unsafeEntries.length) violations.push(`unsafe changed filesystem entries: ${unsafeEntries.join(', ')}`)
-        const afterOracle = unsafeEntries.length
-          ? { failures: ['trusted oracles skipped because changed paths contain symbolic links, special files, or unreadable entries'], invalid: [] }
+        const afterOracle = protectedChanges.length || unsafeEntries.length
+          ? {
+              failures: [protectedChanges.length
+                ? `trusted oracles skipped because protected roots changed: ${protectedChanges.join(', ')}`
+                : 'trusted oracles skipped because changed paths contain symbolic links, special files, or unreadable entries'],
+              invalid: [],
+            }
           : runOracle(caseRecord, runRoot, root, registry, 'after')
         if (afterOracle.invalid.length) throw new Error(`${caseRecord.id}: invalid writable oracle setup: ${afterOracle.invalid.join('; ')}`)
         violations.push(...afterOracle.failures)

@@ -67,17 +67,18 @@ function stageApp(): string {
   fs.copyFileSync(sourceEvaluator, path.join(root, 'scripts', 'evaluate-agent-harness.mjs'))
   fs.copyFileSync(sourceExecutionSandbox, path.join(root, 'scripts', 'execution-sandbox.mjs'))
   fs.copyFileSync(sourceFixturePreparer, path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'))
+  fs.mkdirSync(path.join(root, 'node_modules'))
+  fs.symlinkSync(typescriptPackageRoot, path.join(root, 'node_modules', 'typescript'), process.platform === 'win32' ? 'junction' : 'dir')
   return root
 }
 
-function stageWritableTarget(): string {
+function stageWritableTarget(controller: string): string {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-writable-')))
   fs.mkdirSync(path.join(root, 'src'), { recursive: true })
   fs.cpSync(sourceHarness, path.join(root, '.ai', 'harness'), { recursive: true })
   fs.writeFileSync(path.join(root, 'package.json'), '{"name":"harness-fixture"}\n')
   fs.writeFileSync(path.join(root, 'src', 'modules.ts'), 'export default []\n')
-  fs.mkdirSync(path.join(root, 'node_modules'), { recursive: true })
-  fs.symlinkSync(typescriptPackageRoot, path.join(root, 'node_modules', 'typescript'), process.platform === 'win32' ? 'junction' : 'dir')
+  fs.symlinkSync(path.join(controller, 'node_modules'), path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
   return root
 }
 
@@ -170,6 +171,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+JSON.parse(fs.readFileSync(args[args.indexOf('--output-schema') + 1], 'utf8'))
 ${sandboxProbe ? `
 try { fs.readFileSync(${JSON.stringify(sandboxProbe.readPath)}, 'utf8'); process.exit(31) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT'].includes(error.code)) throw error }
 try { fs.writeFileSync(${JSON.stringify(sandboxProbe.writePath)}, 'escaped'); process.exit(32) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT', 'EROFS'].includes(error.code)) throw error }
@@ -305,7 +307,7 @@ test('deterministic evaluation rejects dangling relations, excessive budgets, an
 
 test('fixture preparer safely seeds one writable case and refuses reuse', () => {
   const controller = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(controller)
   const script = path.join(controller, 'scripts', 'prepare-agent-harness-fixture.mjs')
   try {
     const withoutAcknowledgement = spawnSync(process.execPath, [script, '--case', 'OMH-009', '--target', target], {
@@ -352,7 +354,7 @@ test('provider fixtures preserve the scaffold module registry for activation edi
   const script = path.join(controller, 'scripts', 'prepare-agent-harness-fixture.mjs')
   try {
     for (const caseId of ['OMH-149', 'OMH-150', 'OMH-151']) {
-      const target = stageWritableTarget()
+      const target = stageWritableTarget(controller)
       const existingRegistry = fs.readFileSync(path.join(target, 'src', 'modules.ts'), 'utf8')
       try {
         const prepared = spawnSync(process.execPath, [script, '--case', caseId, '--target', target, '--acknowledge-writes'], {
@@ -434,7 +436,6 @@ const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
 if (!args.includes('--safe-mode') || !args.includes('--disable-slash-commands') || args[args.indexOf('--setting-sources') + 1] !== '' || !args.includes('--strict-mcp-config') || args[args.indexOf('--mcp-config') + 1] !== '{"mcpServers":{}}' || args[args.indexOf('--permission-mode') + 1] !== 'plan' || args[args.indexOf('--tools') + 1] !== 'Read,Glob,Grep' || !args.includes('--no-session-persistence') || args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--verbose') || !args.includes('--json-schema')) process.exit(9)
 console.log(JSON.stringify({ type: 'assistant', message: { content: [
-  { type: 'tool_use', name: 'Glob', input: { pattern: '.ai/{guides,skills}/**/*.md' } },
   { type: 'tool_use', name: 'Read', input: { file_path: require('node:path').join(process.cwd(), 'AGENTS.md') } },
   { type: 'tool_use', name: 'Read', input: { file_path: require('node:path').join(process.cwd(), '.ai/guides/contracts.md') } },
   { type: 'tool_use', name: 'Read', input: { file_path: require('node:path').join(process.cwd(), '.ai/skills/om-data-model-design/SKILL.md') } }
@@ -453,6 +454,37 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
     })
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
     assert.match(result.stdout, /PASS OMH-009/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('native Glob metadata discovery is a routing failure even when required files are later read', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'claude', `
+const path = require('node:path')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', name: 'Glob', input: { pattern: '.ai/{guides,skills}/**/*.md' } },
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), 'AGENTS.md') } },
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/guides/contracts.md') } },
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/skills/om-data-model-design/SKILL.md') } }
+] } }))
+console.log(JSON.stringify({ type: 'result', structured_output: {
+  selectedRouter: ['module-data'], selectedSkills: ['om-data-model-design'],
+  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+  decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
+} }))
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-009'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.ok(stored.violations.includes('forbidden metadata discovery tool'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -883,6 +915,7 @@ console.log(JSON.stringify({ type: 'result', structured_output: ${response} }))
 test('trace readers reject command-supplied files recursive reads sed side effects and unknown commands', { skip: process.platform === 'win32' }, () => {
   const commands = [
     "rg --files --ignore-file .ai/guides/architecture.md .ai/guides",
+    "rg --hidden --no-ignore SECRET",
     "grep -f .ai/guides/architecture.md AGENTS.md",
     "sed -e '1e id' AGENTS.md",
     "rg architecture .ai/guides",
@@ -900,7 +933,7 @@ for (const command of ['cat AGENTS.md .ai/guides/architecture.md', ${JSON.string
       const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
       assert.equal(run.status, 1, `${unsafe}\n${run.stdout}\n${run.stderr}`)
       const [stored] = storedResults(root)
-      assert.ok(stored.violations.some((entry) => /forbidden executable reader option|unsafe recursive content read|untraceable command execution/.test(entry)), `${unsafe}: ${stored.violations.join('\n')}`)
+      assert.ok(stored.violations.some((entry) => /forbidden executable reader option|unsafe broad content read|unsafe recursive content read|untraceable command execution/.test(entry)), `${unsafe}: ${stored.violations.join('\n')}`)
     } finally { fs.rmSync(root, { recursive: true, force: true }) }
   }
 })
@@ -1059,7 +1092,7 @@ test('writable mode remains explicit and refuses a target without acknowledgemen
 
 test('generated-code review uses a source-only bundle, pinned external skill evidence, and an explicit prior writable result', { skip: process.platform === 'win32' }, () => {
   const controller = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(controller)
   try {
     const sourceResult = preparePassingWritableCrudResult(controller, target)
     const casesPath = path.join(controller, '.ai', 'harness', 'cases.json')
@@ -1147,7 +1180,7 @@ test('generated-code review does not add UI design context to non-UI cases', asy
 
 test('generated-code review binds all four release commands to the writable result and final target fingerprint', { skip: process.platform === 'win32' }, () => {
   const controller = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(controller)
   try {
     const sourceResult = preparePassingWritableCrudResult(controller, target)
     const source = JSON.parse(fs.readFileSync(sourceResult, 'utf8'))
@@ -1209,7 +1242,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
 
 test('generated-code review fails closed on out-of-bundle reads and reviewer writes without exposing the target path', { skip: process.platform === 'win32' }, () => {
   const controller = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(controller)
   try {
     const sourceResult = preparePassingWritableCrudResult(controller, target)
     installFakeCodeReviewSkill(controller)
@@ -1254,7 +1287,7 @@ for (const command of [
 
 test('generated-code review turns a major skill finding into a failing request-changes gate', { skip: process.platform === 'win32' }, () => {
   const controller = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(controller)
   try {
     const sourceResult = preparePassingWritableCrudResult(controller, target)
     installFakeCodeReviewSkill(controller)
@@ -1294,7 +1327,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
 
 test('generated-code review refuses stale target evidence before starting a reviewer', { skip: process.platform === 'win32' }, () => {
   const controller = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(controller)
   try {
     const sourceResult = preparePassingWritableCrudResult(controller, target)
     installFakeCodeReviewSkill(controller)
@@ -1323,7 +1356,7 @@ process.exit(9)
 
 test('generated-code review refuses an installed review skill that no longer matches its pinned hash', { skip: process.platform === 'win32' }, () => {
   const controller = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(controller)
   try {
     const sourceResult = preparePassingWritableCrudResult(controller, target)
     installFakeCodeReviewSkill(controller)
@@ -1352,7 +1385,7 @@ process.exit(9)
 
 test('writable evidence fails when an oracle subprocess mutates the target after the agent run', { skip: process.platform === 'win32' }, () => {
   const controller = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(controller)
   try {
     preparePassingWritableCrudResult(controller, target, true)
     const [stored] = storedResults(controller)
@@ -1369,7 +1402,7 @@ test('writable evidence fails when an oracle subprocess mutates the target after
 test('writable model sandbox denies out-of-root reads and writes while allowing target edits', { skip: process.platform !== 'darwin' && process.platform !== 'linux' }, () => {
   if (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status !== 0) return
   const controller = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(controller)
   const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-model-secret-')))
   const secret = path.join(outside, 'secret.txt')
   const escapedWrite = path.join(outside, 'escaped.txt')
@@ -1389,7 +1422,7 @@ test('writable model sandbox denies out-of-root reads and writes while allowing 
 
 test('writable target preflight rejects an allowlisted symlink before starting the model or oracle', { skip: process.platform === 'win32' }, () => {
   const controller = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(controller)
   const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-symlink-secret-')))
   const outsideFile = path.join(outside, 'route.ts')
   fs.writeFileSync(outsideFile, 'outside-original')
@@ -1426,7 +1459,7 @@ process.exit(9)
 test('writable snapshots reject a model-created symlink before trusted after-oracles read it', { skip: process.platform !== 'darwin' && process.platform !== 'linux' }, () => {
   if (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status !== 0) return
   const controller = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(controller)
   const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-created-link-')))
   const outsideFile = path.join(outside, 'route.ts')
   fs.writeFileSync(outsideFile, 'outside-original')
@@ -1468,7 +1501,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
 
 test('writable mode executes trusted oracles only from the controller harness', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(root)
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
 const args = process.argv.slice(2)
@@ -1509,7 +1542,7 @@ console.log(JSON.stringify({ passed: process.argv.includes('after'), failures: p
 
 test('writable snapshots detect protected ignored-root and arbitrary root writes', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(root)
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
 const path = require('node:path')
@@ -1553,7 +1586,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
 
 test('writable mode rejects a disposable marker prepared for another case', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
-  const target = stageWritableTarget()
+  const target = stageWritableTarget(root)
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin)
   const fake = path.join(bin, 'codex')
