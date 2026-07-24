@@ -4359,12 +4359,12 @@
     },
     "expectedRouter": {
       "required": [
-        "debugging",
-        "backend-ui"
+        "debugging"
       ],
       "allowedExtra": [
         "architecture",
-        "module-data"
+        "module-data",
+        "backend-ui"
       ]
     },
     "requiredSkills": [
@@ -4374,7 +4374,6 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/testing-debugging.md",
-        ".ai/guides/backend-ui.md",
         ".ai/skills/om-troubleshooter/SKILL.md"
       ],
       "forbidden": [
@@ -4404,7 +4403,7 @@
       "safety.mandatory"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxInitialContextBytes": 32768,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-059"
@@ -4475,8 +4474,8 @@
       "patterns.forbidden",
       "safety.mandatory"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 24576,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-060"
@@ -5873,5 +5872,192 @@
     "maxInitialContextBytes": 24576,
     "maxTotalContextBytes": 114688,
     "relatedCases": ["OMH-007", "OMH-083", "OMH-084", "OMH-085"]
+  },
+  {
+    "id": "OMH-087",
+    "title": "Map a complex module brief onto the complete discovery surface catalog",
+    "family": "module",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "For a standalone service-management module that needs entities, commands, APIs, backend and public pages, page middleware, ACL/setup/DI/encryption, search, analytics, typed events, subscribers, workers, workflows, progress, notifications, reactive handlers, messages, widgets, command/API interceptors, enrichers, guards, AI tools, CLI, translations, and tests, map each named capability to the current canonical discovery surface. Reject retired flat pages, HTTP-method API directories, data/fields.ts, and any unnecessary placeholder file; include generation and focused verification.",
+    "tags": ["module", "discovery", "surface-catalog", "architecture"],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
+      "ruleIds": ["BC-01", "BC-04", "BC-05", "BC-06", "BC-07", "BC-09", "BC-10", "BC-11", "BC-12", "BC-13"]
+    },
+    "expectedRouter": { "required": ["architecture", "module-data"], "allowedExtra": ["backend-ui", "ai-workflow", "testing"] },
+    "requiredSkills": ["om-module-scaffold"],
+    "context": {
+      "required": [
+        "AGENTS.md", ".ai/guides/architecture.md", ".ai/guides/contracts.md", ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**"]
+    },
+    "requiredDecisions": ["surface-owner-map", "page-route-convention", "api-route-convention", "discovered-convention-files", "no-placeholder-surfaces", "generate-and-inspect"],
+    "forbiddenPatterns": ["frontend/.+\\.(?:ts|tsx).{0,30}(?:canonical|create)", "api/(?:get|post|put|patch|delete)/", "data/fields\\.ts", "node_modules.{0,40}(?:write|edit|patch)"],
+    "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
+    "maxContextFiles": 7,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 180224,
+    "relatedCases": ["OMH-001", "OMH-004", "OMH-008"]
+  },
+  {
+    "id": "OMH-088",
+    "title": "Select every supported additive UMES extension mechanism correctly",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "Audit how a standalone app can add behavior to installed modules without replacing them. Cover response enrichers, API interceptors, mutation guards, CrudForm fields, DataTable columns/actions/bulk actions/filters/toolbar/search triggers, menu items, rendered widgets, entity extensions, typed event subscribers, notification handlers, and component props/wrappers. For each, name the smallest mechanism, exact host-token evidence, authorization boundary, optional-host behavior, read/write/UI round trip where applicable, and verification; do not use unified replacement when additive composition works.",
+    "tags": ["umes", "extension-points", "additive", "audit"],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/mechanism-selector.md",
+      "ruleIds": ["BC-02", "BC-05", "BC-06", "BC-07", "BC-10", "BC-11"]
+    },
+    "expectedRouter": { "required": ["umes"], "allowedExtra": ["architecture", "module-data", "backend-ui", "framework-context"] },
+    "requiredSkills": ["om-system-extension"],
+    "context": {
+      "required": [
+        "AGENTS.md", ".ai/guides/extensions.md", ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/mechanism-selector.md", ".ai/skills/om-system-extension/references/extension-branches.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**"]
+    },
+    "requiredDecisions": ["additive-before-replacement", "exact-host-token", "enricher-interceptor-guard", "headless-and-rendered-widgets", "entity-extension", "event-and-notification-reaction", "component-wrapper", "optional-host", "roundtrip-verification"],
+    "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "(?:guess|invent).{0,30}(?:spot|handle|route|entity)"],
+    "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
+    "maxTotalContextBytes": 147456,
+    "relatedCases": ["OMH-025", "OMH-026", "OMH-038", "OMH-089"]
+  },
+  {
+    "id": "OMH-089",
+    "title": "Audit all wired unified module override domains and stable keys",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "Audit the canonical src/modules.ts entry.overrides surface for a standalone app. Account for all wired domains: AI agents/tools; API and backend/frontend page routes; subscribers; workers; injection, component, and dashboard widgets; notification types/handlers; API and command interceptors; enrichers; page guards; CLI; setup; ACL; DI; and encryption maps. State each stable key, null-disable versus typed replacement behavior, bootstrap/generation implications, stale-key diagnostics, security preservation, and rollback verification.",
+    "tags": ["umes", "unified-overrides", "all-domains", "audit"],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/unified-overrides.md",
+      "ruleIds": ["BC-02", "BC-03", "BC-04", "BC-05", "BC-06", "BC-07", "BC-09", "BC-10", "BC-11", "BC-12", "BC-13"]
+    },
+    "expectedRouter": { "required": ["umes"], "allowedExtra": ["architecture", "framework-context"] },
+    "requiredSkills": ["om-system-extension"],
+    "context": {
+      "required": [
+        "AGENTS.md", ".ai/guides/extensions.md", ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/unified-overrides.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**"]
+    },
+    "requiredDecisions": ["all-eighteen-domains", "stable-override-key", "null-disable", "typed-replacement", "security-preservation", "stale-key-diagnostic", "bootstrap-before-registry", "rollback-verification"],
+    "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "load order.{0,30}(?:hope|accident)", "(?:weaken|remove).{0,30}(?:auth|scope|guard|lock)"],
+    "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
+    "maxContextFiles": 5,
+    "maxInitialContextBytes": 32768,
+    "maxTotalContextBytes": 131072,
+    "relatedCases": ["OMH-029", "OMH-030", "OMH-056", "OMH-088"]
+  },
+  {
+    "id": "OMH-090",
+    "title": "Build a responsive public frontend over installed catalog capabilities",
+    "family": "module",
+    "mode": "one-shot",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "Build an app-owned public product-discovery frontend over the installed catalog without editing framework packages. Use canonical frontend page and page metadata discovery, explicit public/auth posture, server-first data and a narrow deterministic client boundary, localized search/filter/detail/empty/error states, semantic design-system components and tokens, mobile-first responsive layout, accessible keyboard/focus behavior, and self-contained browser integration coverage. Reuse installed APIs or an app-owned scoped facade rather than importing private module files.",
+    "tags": ["frontend", "public-page", "catalog", "design-system", "ux"],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "ruleIds": ["BC-01", "BC-05", "BC-06", "BC-07", "BC-10"]
+    },
+    "expectedRouter": { "required": ["backend-ui"], "allowedExtra": ["architecture", "module-data", "umes", "testing"] },
+    "requiredSkills": ["om-backend-ui-design"],
+    "context": {
+      "required": [
+        "AGENTS.md", ".ai/guides/backend-ui.md", ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md", ".ai/guides/modules/catalog.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**"]
+    },
+    "requiredDecisions": ["frontend-page-route", "explicit-auth-posture", "server-first-client-boundary", "shared-design-system", "mobile-first-responsive", "localized-state-matrix", "accessible-interaction", "browser-integration-coverage"],
+    "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:hex|rgb|arbitrary).{0,30}(?:color|tailwind)", "raw fetch", "private module (?:file|import)"],
+    "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
+    "maxTotalContextBytes": 147456,
+    "relatedCases": ["OMH-015", "OMH-023", "OMH-085", "OMH-092"]
+  },
+  {
+    "id": "OMH-091",
+    "title": "Extend the customer portal with scoped navigation and complete UX states",
+    "family": "umes",
+    "mode": "one-shot",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "Add an app-owned customer support cases page to the installed portal. Use frontend/[orgSlug]/portal/**/page.tsx with sibling metadata, customer auth/features, principal-derived scope, optional nav only for the list destination, portal menu injection only for links without a backing page, DataTable for the list, shared responsive and accessible components, loading/empty/not-found/denial/error/conflict/success states, wildcard-aware authorization, direct-route protection, and portal integration tests.",
+    "tags": ["frontend", "portal", "navigation", "umes", "ux"],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "ruleIds": ["BC-01", "BC-02", "BC-05", "BC-06", "BC-07", "BC-10", "BC-11"]
+    },
+    "expectedRouter": { "required": ["backend-ui", "umes"], "allowedExtra": ["architecture", "module-data", "testing", "framework-context"] },
+    "requiredSkills": ["om-backend-ui-design", "om-system-extension"],
+    "context": {
+      "required": [
+        "AGENTS.md", ".ai/guides/backend-ui.md", ".ai/guides/extensions.md", ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md", ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/modules/customer_accounts.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**"]
+    },
+    "requiredDecisions": ["portal-route-convention", "portal-page-metadata", "principal-derived-scope", "nav-only-list-destination", "menu-injection-external-links", "datatable-portal-list", "direct-route-authorization", "portal-state-matrix"],
+    "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:customer|organization).{0,30}(?:request body|route id only)", "hand-roll.{0,20}table", "UI visibility.{0,30}(?:is|as) authorization"],
+    "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 180224,
+    "relatedCases": ["OMH-016", "OMH-037", "OMH-081", "OMH-090"]
+  },
+  {
+    "id": "OMH-092",
+    "title": "Redesign an operations page with complete design-system and UX compliance",
+    "family": "module",
+    "mode": "review",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "Review and redesign a dense standalone operations page that currently uses raw forms, hand-built cards, hard-coded status colors, arbitrary Tailwind sizes, inline SVG, fixed desktop widths, vague errors, and inaccessible icon actions. Preserve behavior while selecting shared page/table/form/detail/chart/banner components, semantic tokens, status versus category semantics, clear information hierarchy and primary action, mobile and long-translation layouts, loading/empty/not-found/denial/validation/network/conflict/success states, keyboard/dialog/focus/screen-reader behavior, reduced motion, and real API/UI verification.",
+    "tags": ["frontend", "design-system", "ui", "ux", "accessibility"],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "ruleIds": ["BC-01", "BC-06", "BC-07", "BC-10"]
+    },
+    "expectedRouter": { "required": ["backend-ui"], "allowedExtra": ["debugging", "testing"] },
+    "requiredSkills": ["om-backend-ui-design"],
+    "context": {
+      "required": [
+        "AGENTS.md", ".ai/guides/backend-ui.md", ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md", ".ai/skills/om-backend-ui-design/references/quality-states.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**"]
+    },
+    "requiredDecisions": ["shared-component-families", "semantic-tokens", "status-category-semantics", "information-hierarchy", "responsive-translated-layout", "complete-ux-state-matrix", "keyboard-focus-accessibility", "reduced-motion", "api-ui-verification"],
+    "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:hex|rgb|hard-coded status|arbitrary tailwind)", "raw (?:form|fetch)", "inline SVG", "fixed desktop"],
+    "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
+    "maxTotalContextBytes": 147456,
+    "relatedCases": ["OMH-014", "OMH-023", "OMH-085", "OMH-090"]
   }
 ]

@@ -11,7 +11,7 @@ Select one smallest host contract, then implement the complete read/write/securi
 
 1. Read `.ai/guides/extensions.md` and `references/mechanism-selector.md`; choose UMES, supported override, package, or eject.
 2. Resolve host entity/route/spot/component/event IDs from generated facts. Invoke `om-framework-context` only when facts omit the needed contract.
-3. Follow the selected branch in `references/extension-branches.md` for enricher, interceptor, guard, widget/menu, extension entity, subscriber, component replacement, or module override.
+3. Follow the selected branch in `references/extension-branches.md` for enricher, interceptor, guard, widget/menu, extension entity, subscriber, or component replacement. For `entry.overrides`, load `references/unified-overrides.md` and select the exact domain/key.
 4. For editable additions, follow `references/read-write-roundtrip.md`; implement input, authenticated write, stored data, list/detail read, UI hydration, clear-to-null, and conflict behavior.
 5. Run `yarn generate`; verify host-present/absent, authorized/denied/wildcard, cache/search, and failure fallback using `references/verification.md`.
 

@@ -9,7 +9,7 @@ Implement complete page behavior through real APIs and stable extension hosts; d
 
 ## Workflow
 
-1. Read `.ai/guides/backend-ui.md`; choose backend, settings, profile, frontend, or portal path with `references/page-and-navigation.md`.
+1. Read `.ai/guides/backend-ui.md`; choose backend, settings, profile, frontend, or portal path with `references/page-and-navigation.md`. For public/portal or visually substantial app work, also load `references/frontend-and-design-system.md`.
 2. For list/detail/create/edit, follow `references/crud-surfaces.md`: stable `DataTable`/`CrudForm` IDs, scoped helpers, version data, server errors, conflict UI, and save/reload/clear.
 3. For injected UI, also invoke `om-system-extension`; never change an installed page directly.
 4. Follow `references/quality-states.md` for loading/empty/error/success, dialogs/keyboard, accessibility, responsive layout, i18n, hydration, and design tokens.

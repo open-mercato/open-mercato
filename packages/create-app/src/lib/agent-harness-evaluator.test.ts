@@ -38,7 +38,7 @@ function runEvaluator(root: string, args: string[] = [], env: NodeJS.ProcessEnv 
   })
 }
 
-test('the catalog contains exactly the specified 86 cases, fixed writable matrix, mandatory set, and all BC rules', () => {
+test('the catalog contains exactly the specified 92 cases, fixed writable matrix, mandatory set, and all BC rules', () => {
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
   const validators = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'validators.json'), 'utf8')) as {
     catalog: { backwardCompatibilityRuleIds: string[]; mandatoryCaseIds: string[]; writableCaseIds: string[] }
@@ -47,8 +47,8 @@ test('the catalog contains exactly the specified 86 cases, fixed writable matrix
     routing: { codex: { caseIds: string }; claude: { caseIds: string[] } }
     writable: Array<{ caseId: string; runner: string }>
   }
-  assert.equal(cases.length, 86)
-  assert.deepEqual(cases.map((entry) => entry.id), Array.from({ length: 86 }, (_, index) => `OMH-${String(index + 1).padStart(3, '0')}`))
+  assert.equal(cases.length, 92)
+  assert.deepEqual(cases.map((entry) => entry.id), Array.from({ length: 92 }, (_, index) => `OMH-${String(index + 1).padStart(3, '0')}`))
   assert.deepEqual(cases.filter((entry) => entry.fixture).map((entry) => entry.id), validators.catalog.writableCaseIds)
   assert.deepEqual(matrix.routing.claude.caseIds, validators.catalog.writableCaseIds)
   assert.equal(matrix.routing.codex.caseIds, 'all')
@@ -68,8 +68,8 @@ test('deterministic evaluation passes every concrete catalog case in an emitted-
   try {
     const result = runEvaluator(root, ['--all'])
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
-    assert.match(result.stdout, /Deterministic: 86\/86 selected cases passed/)
-    assert.equal((result.stdout.match(/^PASS OMH-/gm) ?? []).length, 86)
+    assert.match(result.stdout, /Deterministic: 92\/92 selected cases passed/)
+    assert.equal((result.stdout.match(/^PASS OMH-/gm) ?? []).length, 92)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

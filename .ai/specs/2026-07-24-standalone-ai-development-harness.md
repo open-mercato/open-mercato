@@ -29,7 +29,7 @@ Build a four-layer harness:
 1. A boundary-first root `AGENTS.md` that only routes tasks and carries universal safety rules.
 2. Focused guides and thin standalone skills loaded only for the selected task.
 3. Generated module facts plus an exact installed-source/original-AGENTS escape hatch.
-4. A versioned 86-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
+4. A versioned 92-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
 
 ## 📝 Architecture
 
@@ -361,9 +361,18 @@ Every case is evaluated against a fresh standalone scaffold. Cases 57–70 are m
 85. Build and run self-contained browser integration coverage for a portal flow without demo data or sleeps.
 86. Run generation and the smallest affected unit/integration tests first, then the configured broad validation tail.
 
+### Full surface, frontend, design-system, and UX audits
+
+87. Map a complex module brief to every current canonical discovery surface and reject retired conventions/placeholders.
+88. Select every additive UMES mechanism, exact host-token source, security boundary, and end-to-end round trip.
+89. Audit all 18 wired `entry.overrides` domains, their stable keys, disable/replace semantics, and rollback.
+90. Build a responsive localized public frontend over installed catalog capabilities with server-first boundaries.
+91. Extend the customer portal with principal-derived scope, page metadata/navigation, shared UI, and full UX states.
+92. Redesign a dense operations page for complete design-system, responsive UX, accessibility, and state coverage.
+
 ### Evaluation levels and release matrix
 
-All 86 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. A representative writable matrix supplies implementation evidence:
+All 92 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. A representative writable matrix supplies implementation evidence:
 
 - module vertical slice: 9, 11, 12, 14;
 - extension/UI: 26, 27, 29, 31;
@@ -374,8 +383,8 @@ Implementation cases use a fresh disposable scaffold, explicit allowed-write pat
 
 The checked-in `releaseMatrix` pins runner, model selector, and case IDs. Acceptance for this PR is:
 
-1. deterministic validation: 86/86 pass, including 100% forbidden/safety assertions;
-2. Codex routing: 86/86 pass with one retry allowed only for invalid structured output;
+1. deterministic validation: 92/92 pass, including 100% forbidden/safety assertions;
+2. Codex routing: 92/92 pass with one retry allowed only for invalid structured output;
 3. Claude routing: the fixed 16-case representative set above passes with the same retry rule;
 4. writable implementation/regression: all 16 representative oracles pass, with at least one runner per case and both runners represented in every family;
 5. results are produced from the final commit, record CLI/model versions and prompt hashes, and are summarized without committing raw private transcripts.
@@ -421,7 +430,7 @@ The case assertions cover every frozen/stable surface even though the harness do
 
 | Risk | Severity | Mitigation | Residual risk |
 |---|---|---|---|
-| Rewriting generated guidance changes agent behavior broadly. | High | 86 semantic cases, mandatory safety subset, live dual-runner evidence, draft PR and review gate. | Model behavior remains probabilistic. |
+| Rewriting generated guidance changes agent behavior broadly. | High | 92 semantic cases, mandatory safety subset, live dual-runner evidence, draft PR and review gate. | Model behavior remains probabilistic. |
 | Root instructions are silently truncated by a default agent budget. | High | 12 KiB byte cap on both root sources plus representative generated initial-chain checks against 32,768 bytes (issue #4484). | Other tools may impose smaller undocumented budgets. |
 | Context files still drift from framework contracts. | High | Generated facts, installed source/AGENTS escape hatch, semantic contradiction scan, release version stamps. | Hand-written conceptual guides still require maintenance. |
 | Installer removes user content or breaks Windows. | High | Node path-safe implementation, ownership checks, junction tests, preserve stable flags/wrapper, generated-app tests. | Windows junction semantics vary by corporate policy. |
@@ -448,9 +457,9 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 | Windows simulated filesystem/command resolution | Junction/link behavior and `.cmd` spawning. |
 | `yarn framework:context --module customers` | Installed core version, root/package/module AGENTS chain, `src/modules/customers`, bounded no-ignore search. |
 | Missing source/duplicate module/version skew fixtures | Explicit degraded/ambiguous/skew output; no guessed edit path. |
-| Deterministic harness validation | 86 schema-valid cases, existing references, no contradictory stale patterns, context budgets, dependency closure. |
+| Deterministic harness validation | 92 schema-valid cases, existing references, no contradictory stale patterns, context budgets, dependency closure. |
 | Instruction-budget regression | Both root sources ≤12 KiB; named representative generated initial chains ≤32,768 bytes, measured as bytes. |
-| Codex live runner | Read-only structured routing/decision result for all 86 cases, one fresh session per case. |
+| Codex live runner | Read-only structured routing/decision result for all 92 cases, one fresh session per case. |
 | Claude live runner | Plan/read-only structured routing/decision result for the fixed 16-case release matrix. |
 | Writable live runner | Disposable scaffolds and executable oracles for the 16-case implementation/regression matrix. |
 | Generated standalone install/generate/typecheck/test/build | Real npm/Verdaccio package boundary and published-path validation. |
@@ -503,7 +512,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Finalize this spec from current scaffold/package/PR evidence and run the 13-surface compatibility audit.
 2. Add case/result schemas, validator registry, release matrix, and tests that fail on missing paths/owners/rule IDs, duplicate IDs, dangling relations, excessive byte/token budgets, stale route/entity/signature patterns, unsafe commands, and unresolved references.
-3. Add baseline cases for all 86 tasks and mark cases 57–70 mandatory.
+3. Add baseline cases for all 92 tasks and mark cases 57–70 mandatory.
 
 ### Phase 2: Root context and local skills
 
@@ -523,7 +532,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Implement deterministic, read-only Codex/Claude routing, and writable disposable-scaffold evaluation modes plus sanitized result artifacts.
 2. Generate a fresh standalone app, install local/external skills, resolve upstream context, and run deterministic validation.
-3. Run all 86 Codex routing cases, the fixed 16-case Claude routing matrix, and the 16 writable implementation/regression oracles; fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
+3. Run all 92 Codex routing cases, the fixed 16-case Claude routing matrix, and the 16 writable implementation/regression oracles; fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
 4. Run create-app targeted tests, Verdaccio standalone parity where package boundaries changed, and the configured full repository gate.
 5. Complete automated code review/autofix, final compliance report, PR evidence, and rollback notes.
 
@@ -545,6 +554,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 ## Changelog
 
 - **2026-07-24** — Skeleton created under the autonomous Open Questions policy; standalone boundary, source-context, evaluation, and migration assumptions resolved from the user brief.
-- **2026-07-24** — Added prior-spec/PR-history findings, 86-case catalog, thin-skill/router architecture, cross-platform installer, exact installed-source escape hatch, harness-evolution workflow, compatibility, failure scenarios, integration coverage, and phased implementation plan.
+- **2026-07-24** — Added prior-spec/PR-history findings, 92-case catalog, thin-skill/router architecture, cross-platform installer, exact installed-source escape hatch, harness-evolution workflow, compatibility, failure scenarios, integration coverage, and phased implementation plan.
 - **2026-07-24** — Added a three-axis context assembler, 12 business one-shot cases, four test authoring/execution cases, and byte-accurate issue #4484 instruction-budget regressions.
+- **2026-07-24** — Added exact discovery-surface and 18-domain override catalogs plus public frontend, portal, design-system, UX, accessibility, and state-matrix coverage.
 - **2026-07-24** — Fresh-context and pre-implementation reviews split routing evidence from writable implementation/regression oracles, pinned the external collection, defined concern-specific instruction precedence, added ownership state transitions, expanded all 14 BC assertions, and made create-app/CLI snapshot and installer call-site parity explicit.

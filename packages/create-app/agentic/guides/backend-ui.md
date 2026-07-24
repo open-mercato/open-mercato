@@ -48,6 +48,7 @@ List destinations need stable `pageGroup`, `pageGroupKey`, and order. Prefer a r
 
 ## Design-System Contract
 
+- For public/portal or visually substantial app work, use `om-backend-ui-design` → `references/frontend-and-design-system.md` for route-shell, product hierarchy, responsive, accessibility, and UX-state coverage.
 - Reuse existing page, section, form, detail, schedule, messages, notification, chart, KPI, and banner component families before building a local variant.
 - Use semantic design tokens and `StatusBadge` for status. Do not hard-code Tailwind status colors or arbitrary text sizes.
 - Use `FormField`, `SectionHeader`, `CollapsibleSection`, standard buttons/dialogs, and Lucide icons.

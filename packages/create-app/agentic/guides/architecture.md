@@ -69,6 +69,7 @@ src/modules/<id>/
 ```
 
 Create only files required by the capability. Keep the module id plural `snake_case`; keep entity/event/feature/spot/agent/tool identifiers stable once used.
+For the complete current convention-file catalog, load `om-module-scaffold` → `references/discovery-surface-catalog.md`; do not expand this always-routed guide into the full catalog.
 
 ## Auto-Discovery
 

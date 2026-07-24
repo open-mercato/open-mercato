@@ -17,7 +17,7 @@ Create the smallest working vertical slice under `src/modules/<id>/`, using inst
 1. **Plan ownership.** Read `.ai/guides/architecture.md` and `references/planning.md`; confirm app module versus extension/provider/eject. For a business-level one-shot brief, load `references/business-one-shot-blueprints.md` to select the closest complete slice; skip it for an already-specific engineering task.
 2. **Model data.** Invoke `om-data-model-design` for persisted entities or sensitive fields; follow `references/data-and-migrations.md`.
 3. **Build domain writes and APIs.** Read `.ai/guides/contracts.md` and `references/api-and-domain.md`; mirror the installed `customers` module through `om-framework-context` when necessary.
-4. **Wire module surfaces.** Follow `references/module-surfaces.md` for registration, DI, ACL/setup, events, subscribers, workers, search, cache, notifications, CLI, and translations. Add only requested surfaces.
+4. **Wire module surfaces.** Follow `references/module-surfaces.md`; use `references/discovery-surface-catalog.md` when the brief spans multiple surfaces or discovery is uncertain. Add only requested surfaces.
 5. **Build UI.** Invoke `om-backend-ui-design` for page/form/table/portal work. Use `om-system-extension` for cross-module UI/data.
 6. **Generate migrations/registries.** Run `yarn db:generate` as a reviewed probe when schema changed; run `yarn generate` for discovery. Never apply migrations without approval.
 7. **Verify.** Follow `references/verification.md`, including API/UI integration paths and absent-optional-module behavior.

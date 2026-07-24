@@ -64,6 +64,7 @@ Common host families include `crud-form:<entityId>:fields`, `data-table:<tableId
 - In `src/modules.ts`, `null` disables a supported contract and a value replaces it. Keep override IDs aligned with the replaced value.
 - Add a route/page replacement only once; verify generated registries select it and that disabling leaves no stale nav/cache entry.
 - Use AI extensions for small prompt/tool/suggestion changes; use full AI overrides only for replacement/disable.
+- The complete wired override catalog spans AI, API/page routes, subscribers, workers, injection/component/dashboard widgets, notification types/handlers, API/command interceptors, enrichers, page guards, CLI, setup, ACL, DI, and encryption. Use `om-system-extension` → `references/unified-overrides.md`; never guess a domain/key.
 
 ## Feature Toggles
 
