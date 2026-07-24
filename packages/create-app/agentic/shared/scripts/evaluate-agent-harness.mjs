@@ -561,7 +561,17 @@ function runOracle(caseRecord, root, registry) {
 
 function verifyWritableTarget(root, caseRecord, fixtures) {
   const errors = []
-  if (!fs.existsSync(path.join(root, '.ai', 'harness', 'DISPOSABLE'))) errors.push('writable root must contain .ai/harness/DISPOSABLE')
+  const markerPath = path.join(root, '.ai', 'harness', 'DISPOSABLE')
+  if (!fs.existsSync(markerPath)) errors.push('writable root must contain .ai/harness/DISPOSABLE')
+  else {
+    try {
+      const marker = readJson(markerPath)
+      const fixtureId = caseRecord.fixture.setup[0].slice('fixture:'.length)
+      if (marker.caseId !== caseRecord.id || marker.fixtureId !== fixtureId) errors.push('disposable marker does not match the selected case fixture')
+    } catch {
+      errors.push('disposable marker is invalid')
+    }
+  }
   if (path.resolve(root) === path.parse(path.resolve(root)).root || path.resolve(root) === path.resolve(process.cwd())) errors.push('writable root must be a separate disposable scaffold')
   for (const declaration of caseRecord.fixture.setup) {
     const fixture = fixtures.fixtures[declaration.slice('fixture:'.length)]

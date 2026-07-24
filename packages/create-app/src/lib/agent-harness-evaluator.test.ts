@@ -147,6 +147,18 @@ test('fixture preparer safely seeds one writable case and refuses reuse', () => 
     })
     assert.equal(reused.status, 2)
     assert.match(reused.stderr, /already prepared/)
+
+    const nestedTarget = path.join(controller, 'nested-target')
+    fs.mkdirSync(path.join(nestedTarget, 'src'), { recursive: true })
+    fs.cpSync(sourceHarness, path.join(nestedTarget, '.ai', 'harness'), { recursive: true })
+    fs.writeFileSync(path.join(nestedTarget, 'package.json'), '{"name":"nested"}\n')
+    fs.writeFileSync(path.join(nestedTarget, 'src', 'modules.ts'), 'export default []\n')
+    const nested = spawnSync(process.execPath, [script, '--case', 'OMH-009', '--target', nestedTarget, '--acknowledge-writes'], {
+      cwd: controller,
+      encoding: 'utf8',
+    })
+    assert.equal(nested.status, 2)
+    assert.match(nested.stderr, /outside the controller app/)
   } finally {
     fs.rmSync(controller, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })
@@ -225,5 +237,36 @@ test('writable mode remains explicit and refuses a target without acknowledgemen
     assert.match(result.stderr, /requires --acknowledge-writes/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('writable mode rejects a disposable marker prepared for another case', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const target = stageWritableTarget()
+  const bin = path.join(root, 'fake-bin')
+  fs.mkdirSync(bin)
+  const fake = path.join(bin, 'codex')
+  fs.writeFileSync(fake, `#!/usr/bin/env node
+if (process.argv[2] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+process.exit(9)
+`)
+  fs.chmodSync(fake, 0o755)
+  try {
+    const prepared = spawnSync(process.execPath, [
+      path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'),
+      '--case', 'OMH-009', '--target', target, '--acknowledge-writes',
+    ], { cwd: root, encoding: 'utf8' })
+    assert.equal(prepared.status, 0, `${prepared.stdout}\n${prepared.stderr}`)
+    const result = runEvaluator(root, [
+      '--runner', 'codex', '--case', 'OMH-014', '--writable-root', target, '--acknowledge-writes',
+    ], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 2)
+    assert.match(result.stderr, /disposable marker does not match the selected case fixture/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
   }
 })

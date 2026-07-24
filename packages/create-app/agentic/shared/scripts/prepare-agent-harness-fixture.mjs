@@ -7,6 +7,11 @@ import { fileURLToPath } from 'node:url'
 
 const controllerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
+function isWithin(parent, child) {
+  const relative = path.relative(parent, child)
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+}
+
 function usage() {
   return `Prepare one declared writable agent-harness fixture in a separate disposable app.
 
@@ -46,8 +51,7 @@ function isSafeRelative(value) {
 }
 
 function assertFreshStandaloneTarget(target) {
-  if (!path.isAbsolute(target)) throw new Error('--target must be absolute')
-  if (target === controllerRoot || target === path.parse(target).root) throw new Error('--target must be a separate disposable app')
+  if (isWithin(controllerRoot, target) || target === path.parse(target).root) throw new Error('--target must be outside the controller app')
   for (const required of ['package.json', 'src/modules.ts', '.ai/harness/cases.json']) {
     if (!fs.existsSync(path.join(target, required))) throw new Error(`target is not a generated standalone app: missing ${required}`)
   }
@@ -64,7 +68,8 @@ function main() {
     throw new Error('--case, --target, and --acknowledge-writes are required')
   }
 
-  const target = path.resolve(options.target)
+  if (!path.isAbsolute(options.target)) throw new Error('--target must be absolute')
+  const target = fs.realpathSync(options.target)
   assertFreshStandaloneTarget(target)
   const cases = readJson('.ai/harness/cases.json')
   const fixtures = readJson('.ai/harness/fixtures/index.json')
@@ -85,13 +90,16 @@ function main() {
   if (JSON.stringify([...paths].sort()) !== JSON.stringify([...fixture.seededArtifacts].sort())) {
     throw new Error(`fixture seed paths do not match the declared artifacts: ${fixtureId}`)
   }
+  if (paths.some((entry) => !caseRecord.allowedWrites.some((allowed) => allowed === entry || (allowed.endsWith('/**') && entry.startsWith(allowed.slice(0, -2)))))) {
+    throw new Error(`fixture seed escapes the case write allowlist: ${fixtureId}`)
+  }
   const existing = paths.filter((entry) => fs.existsSync(path.join(target, entry)))
   if (existing.length) throw new Error(`fixture would overwrite existing files: ${existing.join(', ')}`)
 
   for (const [relative, content] of Object.entries(files)) {
     const destination = path.join(target, relative)
     fs.mkdirSync(path.dirname(destination), { recursive: true })
-    fs.writeFileSync(destination, content.endsWith('\n') ? content : `${content}\n`, { mode: 0o600 })
+    fs.writeFileSync(destination, content.endsWith('\n') ? content : `${content}\n`, { mode: 0o644 })
   }
   const marker = path.join(target, '.ai', 'harness', 'DISPOSABLE')
   fs.writeFileSync(marker, `${JSON.stringify({ schemaVersion: 1, caseId: options.caseId, fixtureId }, null, 2)}\n`, { mode: 0o600 })
