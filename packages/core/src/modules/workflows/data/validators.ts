@@ -224,7 +224,18 @@ export const activityDefinitionSchema = z.object({
   config: z.record(z.string(), z.any()),
   async: z.boolean().default(false).optional(), // For Phase 8.3
   retryPolicy: activityRetryPolicySchema.optional(),
-  timeout: z.string().optional(), // ISO 8601 duration
+  /**
+   * Per-activity timeout in milliseconds. This is what the editor writes and
+   * what `executeActivity` reads; it was missing from the schema, so
+   * `z.object()` stripped it on save and UI-configured timeouts silently did
+   * nothing (#4424).
+   */
+  timeoutMs: z.number().int().positive().optional(),
+  /**
+   * @deprecated Use `timeoutMs`. Accepted for definitions already stored with
+   * an ISO 8601 duration string; the executor normalizes it to milliseconds.
+   */
+  timeout: z.string().optional(),
   compensation: z.object({
     activityId: z.string().min(1), // ID of compensation activity
     automatic: z.boolean().default(true).optional() // Auto-trigger on failure
