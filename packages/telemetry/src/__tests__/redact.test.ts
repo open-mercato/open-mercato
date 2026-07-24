@@ -13,6 +13,12 @@ describe('redactPii', () => {
     )
   })
 
+  it('handles hostile runs of email punctuation without pathological matching', () => {
+    const hostile = `${'%'.repeat(100_000)} not-an-email`
+
+    expect(redactPii(hostile)).toBe(hostile)
+  })
+
   it('masks an Authorization header dump (scheme + token) in one pass', () => {
     expect(redactPii('request failed: Authorization: Bearer eyJhbGci.abc-123_x')).toBe(
       'request failed: Authorization: [redacted]',

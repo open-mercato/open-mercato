@@ -13,7 +13,10 @@ import type { Attributes } from '../types'
  * Deliberately conservative (emails + auth tokens) to preserve debuggability;
  * extend the pattern set here if a new leak vector is found.
  */
-const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
+// Bound every component both to match the practical limits from RFC 5321 and
+// to keep scanning time linear for hostile strings with long runs of email
+// punctuation (CodeQL js/polynomial-redos).
+const EMAIL_RE = /[A-Z0-9._%+-]{1,64}@[A-Z0-9.-]{1,253}\.[A-Z]{2,63}/gi
 // `authorization: <value>` / `cookie: <value>` header dumps embedded in free text.
 // The value runs to the next separator (`;`/`,`/`}`) or newline, so it swallows a
 // `Bearer <token>` value in one pass (before the standalone-scheme rule below).
