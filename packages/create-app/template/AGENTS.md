@@ -61,7 +61,7 @@ Choose every changed area first.
 | `module-data` | New business/domain capability owned by this app | `src/modules/<id>/`; `.ai/guides/architecture.md` and `.ai/guides/contracts.md` |
 | `umes` | Additive or supported replacement of installed behavior | App extension and/or `src/modules.ts`; `.ai/guides/extensions.md`; target facts |
 | `backend-ui` | Admin, public, portal, form, table, detail, menu, translation, or component | Owning app module; `.ai/guides/backend-ui.md`; host facts when injecting |
-| `integration` | Email, shipping, payment, sync, webhook, storage, import/export, or an external-provider boundary (not a workflow `CALL_API` activity) | Owning app module by default; separately published package/repo only for explicitly reusable delivery; `.ai/guides/integrations.md` |
+| `integration` | Email, shipping, payment, sync, webhook, storage, data-interchange import/export, or an external-provider boundary (not workflow `CALL_API` or ordinary page/table download) | Owning app module by default; separately published package/repo only for explicitly reusable delivery; `.ai/guides/integrations.md` |
 | `ai-workflow` | AI agent/tool/orchestrator or durable workflow | Owning app module; `.ai/guides/ai-workflows.md`; target facts when extending |
 | `debugging` | Bug, security issue, generated drift, or runtime inconsistency | Existing owning call site; `.ai/guides/testing-debugging.md`; affected areas |
 
