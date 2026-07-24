@@ -1333,10 +1333,11 @@ export async function run(argv = process.argv) {
       const commandArgs = remaining.filter(Boolean)
 
       if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
-        console.log('Usage: yarn mercato module <add|enable|eject> ...')
+        console.log('Usage: yarn mercato module <add|enable|eject|scaffold> ...')
         console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module eject <moduleId>')
+        console.log('  yarn mercato module scaffold <moduleId> --entity <entity> --fields "<fields>" [--with-ui] [--target app|packages/core] [--features-prefix <prefix>] [--dry-run]')
         return 0
       }
 
@@ -1378,6 +1379,11 @@ export async function run(argv = process.argv) {
 
       if (subcommand === 'eject') {
         return handleDirectEjectCommand(commandArgs)
+      }
+
+      if (subcommand === 'scaffold') {
+        const { runModuleScaffold } = await import('./lib/scaffold')
+        return await runModuleScaffold(commandArgs)
       }
 
       console.error(`Unknown module subcommand "${subcommand}".`)

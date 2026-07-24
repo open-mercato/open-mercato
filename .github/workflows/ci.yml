@@ -144,7 +144,7 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: node-modules-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Cache Turbo build outputs
         uses: actions/cache@v6
@@ -310,7 +310,7 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: node-modules-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
         if: steps.audit-cache.outputs.cache-hit != 'true' && steps.nm-cache.outputs.cache-hit != 'true'
@@ -356,7 +356,7 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: node-modules-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
@@ -416,7 +416,7 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: node-modules-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Cache pip packages
         uses: actions/cache@v6
@@ -506,6 +506,32 @@ jobs:
         # unfiltered `yarn test`) turns develop red (see #3779). Run the create-app unit
         # suite unconditionally here so template drift fails the PR, not develop.
         run: yarn workspace create-mercato-app test
+
+      - name: Scaffold-and-lint DS module UI (always, unfiltered)
+        # Spec .ai/specs/2026-07-05-ds-module-ui-scaffold.md §Testing layer 3:
+        # scaffold a throwaway module with the real CLI, regenerate, DS-lint the
+        # generated pages with the repo eslint.ds config at --max-warnings 0,
+        # typecheck, then remove the module and require a clean tree. This
+        # exercises the real repo wiring (path aliases, tsconfig, lint:ds
+        # surface) that the temp-dir golden/contract tests cannot. The probe
+        # uses --target packages/core because eslint.ds.config.mjs scopes its
+        # `files` globs to packages/**; apps/mercato is not part of the DS lint
+        # surface, so an apps-target probe would lint nothing.
+        run: |
+          trap 'rm -rf packages/core/src/modules/scaffold_ci' EXIT
+          yarn mercato module scaffold scaffold_ci --entity ci_probe --fields "name:text:required,status:select(open|closed),notes:textarea" --with-ui --target packages/core
+          yarn generate
+          node --require ./scripts/typescript-js-require-hook.cjs node_modules/eslint/bin/eslint.js --config eslint.ds.config.mjs packages/core/src/modules/scaffold_ci --max-warnings 0
+          yarn typecheck
+          rm -rf packages/core/src/modules/scaffold_ci
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Scaffold CI probe left the tree dirty:"
+            git status --porcelain
+            exit 1
+          fi
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.
@@ -599,7 +625,7 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: node-modules-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
