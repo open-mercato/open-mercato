@@ -1,14 +1,19 @@
 import { z } from 'zod'
 import { validateCron } from '../lib/cronParser'
 import { validateInterval } from '../lib/intervalParser'
-import { commandRegistry } from '@open-mercato/shared/lib/commands'
+import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { isSchedulerSafeCommandId } from '../lib/scheduler-safe-commands'
 
 /**
  * Validate that a command exists in the command registry
  */
 function validateCommandExists(commandId: string): boolean {
   return commandRegistry.has(commandId)
+}
+
+function validateCommandIsSchedulable(commandId: string): boolean {
+  return isSchedulerSafeCommandId(commandId)
 }
 
 /**
@@ -103,6 +108,18 @@ export const scheduleCreateSchema = scheduleBaseSchema
       path: ['targetCommand'],
     }
   )
+  .refine(
+    (data) => {
+      if (data.targetType === 'command' && data.targetCommand) {
+        return validateCommandIsSchedulable(data.targetCommand)
+      }
+      return true
+    },
+    {
+      message: 'Command is not schedulable. Only scheduler-safe commands can be used as schedule targets.',
+      path: ['targetCommand'],
+    }
+  )
 
 /**
  * Update schedule schema (all fields optional except id)
@@ -182,6 +199,18 @@ export const scheduleUpdateSchema = z.object({
     },
     {
       message: 'Command does not exist. Please ensure the command is registered before updating.',
+      path: ['targetCommand'],
+    }
+  )
+  .refine(
+    (data) => {
+      if (data.targetCommand) {
+        return validateCommandIsSchedulable(data.targetCommand)
+      }
+      return true
+    },
+    {
+      message: 'Command is not schedulable. Only scheduler-safe commands can be used as schedule targets.',
       path: ['targetCommand'],
     }
   )

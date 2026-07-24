@@ -2,6 +2,10 @@ import { LocalSchedulerService } from '../localSchedulerService'
 import type { EntityManager } from '@mikro-orm/core'
 import type { Queue } from '@open-mercato/queue'
 import { ScheduledJob } from '../../data/entities.js'
+import {
+  clearSchedulerSafeCommandsForTests,
+  registerSchedulerSafeCommands,
+} from '../../lib/scheduler-safe-commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
@@ -54,12 +58,19 @@ describe('LocalSchedulerService', () => {
   let mockForkedEm: jest.Mocked<EntityManager>
   let mockQueue: jest.Mocked<Queue>
   let mockQueueFactory: jest.Mock
-  let mockRbacService: { tenantHasFeature: jest.Mock }
+  let mockRbacService: { tenantHasFeature: jest.Mock; userHasAllFeatures: jest.Mock }
   let mockLockStrategy: { runWithLock: jest.Mock }
 
   beforeEach(() => {
     jest.clearAllMocks()
     jest.useFakeTimers()
+    clearSchedulerSafeCommandsForTests()
+    registerSchedulerSafeCommands([
+      {
+        commandId: 'test:command',
+        requiredFeatures: ['scheduler.jobs.manage'],
+      },
+    ])
 
     // Create mock queue
     mockQueue = {
@@ -84,6 +95,7 @@ describe('LocalSchedulerService', () => {
     // Create mock RBAC service
     mockRbacService = {
       tenantHasFeature: jest.fn(),
+      userHasAllFeatures: jest.fn().mockResolvedValue(true),
     }
 
     // Create service
@@ -283,6 +295,7 @@ describe('LocalSchedulerService', () => {
         targetType: 'command',
         targetCommand: 'test:command',
         targetQueue: null,
+        createdByUserId: 'user-1',
       })
 
       mockForkedEm.find.mockResolvedValue([schedule])
@@ -302,8 +315,85 @@ describe('LocalSchedulerService', () => {
             tenantId: null,
             organizationId: null,
           }),
+          ctx: expect.objectContaining({
+            auth: expect.objectContaining({
+              sub: 'user-1',
+              userId: 'user-1',
+              tenantId: null,
+              orgId: null,
+            }),
+          }),
         })
       )
+      expect(mockRbacService.userHasAllFeatures).toHaveBeenCalledWith(
+        'user-1',
+        ['scheduler.jobs.manage'],
+        { tenantId: null, organizationId: null }
+      )
+    })
+
+    it('should reject command target that is not scheduler safe', async () => {
+      const schedule = createSchedule({
+        targetType: 'command',
+        targetCommand: 'unsafe.command',
+        targetQueue: null,
+        createdByUserId: 'user-1',
+      })
+
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue({ ...schedule })
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        await fn()
+        return { acquired: true }
+      })
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      await service.start()
+
+      expect(mockCommandBusInstance.execute).not.toHaveBeenCalled()
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
+        'scheduler.job.failed',
+        expect.objectContaining({
+          id: 'test-1',
+          error: 'Scheduled command is not allowed',
+        })
+      )
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('should reject command target when the schedule creator lacks required features', async () => {
+      const schedule = createSchedule({
+        targetType: 'command',
+        targetCommand: 'test:command',
+        targetQueue: null,
+        createdByUserId: 'user-1',
+      })
+
+      mockRbacService.userHasAllFeatures.mockResolvedValueOnce(false)
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue({ ...schedule })
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        await fn()
+        return { acquired: true }
+      })
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      await service.start()
+
+      expect(mockCommandBusInstance.execute).not.toHaveBeenCalled()
+      expect(mockRbacService.userHasAllFeatures).toHaveBeenCalledWith(
+        'user-1',
+        ['scheduler.jobs.manage'],
+        { tenantId: null, organizationId: null }
+      )
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
+        'scheduler.job.failed',
+        expect.objectContaining({
+          id: 'test-1',
+          error: 'Scheduled command creator is not authorized',
+        })
+      )
+      consoleErrorSpy.mockRestore()
     })
 
     it('should emit started event', async () => {
@@ -579,6 +669,7 @@ describe('LocalSchedulerService', () => {
         scopeType: 'organization',
         tenantId: 'tenant-1',
         organizationId: 'org-1',
+        createdByUserId: 'user-1',
       })
 
       mockForkedEm.find.mockResolvedValue([schedule])
@@ -600,6 +691,11 @@ describe('LocalSchedulerService', () => {
             organizationId: 'org-1',
           }),
           ctx: expect.objectContaining({
+            auth: expect.objectContaining({
+              sub: 'user-1',
+              tenantId: 'tenant-1',
+              orgId: 'org-1',
+            }),
             selectedOrganizationId: 'org-1',
             organizationIds: ['org-1'],
           }),

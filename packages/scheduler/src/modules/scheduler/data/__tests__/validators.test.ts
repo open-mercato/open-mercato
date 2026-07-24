@@ -7,19 +7,38 @@ import {
   scheduleTriggerSchema,
   scheduleRunsQuerySchema,
 } from '../validators'
-import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { registerCommand } from '@open-mercato/shared/lib/commands/registry'
+import type { CommandHandler } from '@open-mercato/shared/lib/commands/types'
+import {
+  clearSchedulerSafeCommandsForTests,
+  registerSchedulerSafeCommands,
+} from '../../lib/scheduler-safe-commands'
 
-// Register a test command for validation tests
-const testCommand: CommandHandler<any, any> = {
+// Register test commands for validation tests
+const testCommand: CommandHandler<unknown, { ok: boolean }> = {
   id: 'test.command.for.validators',
   async execute() {
     return { ok: true }
   },
 }
 
+const schedulableTestCommand: CommandHandler<unknown, { ok: boolean }> = {
+  id: 'test.command.schedulable',
+  async execute() {
+    return { ok: true }
+  },
+}
+
 beforeAll(() => {
+  clearSchedulerSafeCommandsForTests()
   registerCommand(testCommand)
+  registerCommand(schedulableTestCommand)
+  registerSchedulerSafeCommands([
+    {
+      commandId: 'test.command.schedulable',
+      requiredFeatures: ['scheduler.jobs.manage'],
+    },
+  ])
 })
 
 const tenantId = '123e4567-e89b-12d3-a456-426614174000'
@@ -56,7 +75,7 @@ describe('scheduleCreateSchema', () => {
         scheduleValue: '1h',
         timezone: 'America/New_York',
         targetType: 'command',
-        targetCommand: 'test.command.for.validators',
+        targetCommand: 'test.command.schedulable',
         targetPayload: { foo: 'bar' },
         isEnabled: true,
       })
@@ -68,7 +87,7 @@ describe('scheduleCreateSchema', () => {
       expect(result.scheduleType).toBe('interval')
       expect(result.scheduleValue).toBe('1h')
       expect(result.targetType).toBe('command')
-      expect(result.targetCommand).toBe('test.command.for.validators')
+      expect(result.targetCommand).toBe('test.command.schedulable')
     })
 
     it('should accept valid tenant-scoped schedule', () => {
@@ -270,6 +289,19 @@ describe('scheduleCreateSchema', () => {
         })
       ).toThrow(/Command does not exist/)
     })
+
+    it('should reject a registered command that did not opt into scheduler execution', () => {
+      expect(() =>
+        scheduleCreateSchema.parse({
+          name: 'Unsafe command',
+          scopeType: 'system',
+          scheduleType: 'cron',
+          scheduleValue: '0 0 * * *',
+          targetType: 'command',
+          targetCommand: 'test.command.for.validators',
+        })
+      ).toThrow(/Command is not schedulable/)
+    })
   })
 
   describe('schedule validation', () => {
@@ -458,11 +490,11 @@ describe('scheduleUpdateSchema', () => {
     const result = scheduleUpdateSchema.parse({
       id: scheduleId,
       targetType: 'command',
-      targetCommand: 'test.command.for.validators',
+      targetCommand: 'test.command.schedulable',
     })
 
     expect(result.targetType).toBe('command')
-    expect(result.targetCommand).toBe('test.command.for.validators')
+    expect(result.targetCommand).toBe('test.command.schedulable')
   })
 
   it('should reject non-existent command on update', () => {
