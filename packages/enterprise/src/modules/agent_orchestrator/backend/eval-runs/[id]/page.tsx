@@ -525,7 +525,18 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
     <Page>
       <PageBody>
         <div className="mb-4">
-          <Button type="button" variant="outline" size="sm" onClick={() => router.push('/backend/eval-runs')}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              router.push(
+                run
+                  ? `/backend/agents/${encodeURIComponent(run.agentDefinitionId)}?tab=evaluation&section=runs`
+                  : '/backend/agents',
+              )
+            }
+          >
             {t('agent_orchestrator.evalRuns.detail.back')}
           </Button>
         </div>
