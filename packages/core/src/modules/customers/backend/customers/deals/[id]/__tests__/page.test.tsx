@@ -139,19 +139,22 @@ jest.mock('../../../../../components/detail/DealDetailHeader', () => ({
 }))
 
 jest.mock('../../../../../components/detail/DealDetailTabs', () => ({
-  resolveLegacyTab: (tab?: string | null) => {
+  resolveLegacyTab: (tab?: string | null, knownTabIds?: Iterable<string>) => {
     if (tab === 'activities' || tab === 'people' || tab === 'companies' || tab === 'notes' || tab === 'files' || tab === 'changelog') {
       return tab
     }
+    if (tab && knownTabIds && new Set(knownTabIds).has(tab)) return tab
     return 'activities'
   },
   DealDetailTabs: ({
     children,
     activeTab,
+    injectedTabs = [],
     onTabChange,
   }: {
     children: React.ReactNode
     activeTab: string
+    injectedTabs?: Array<{ id: string; label: string }>
     onTabChange: (tab: string) => void
   }) => (
     <div>
@@ -160,6 +163,9 @@ jest.mock('../../../../../components/detail/DealDetailTabs', () => ({
       <button type="button" onClick={() => onTabChange('companies')}>tab-companies</button>
       <button type="button" onClick={() => onTabChange('files')}>tab-files</button>
       <button type="button" onClick={() => onTabChange('changelog')}>tab-changelog</button>
+      {injectedTabs.map((tab) => (
+        <button key={tab.id} type="button" onClick={() => onTabChange(tab.id)}>{`tab-${tab.id}`}</button>
+      ))}
       {children}
     </div>
   ),
@@ -361,6 +367,10 @@ describe('DealDetailPage', () => {
     updateCrudMock.mockReset()
     deleteCrudMock.mockReset()
     replaceMock.mockReset()
+    replaceMock.mockImplementation((url: string) => {
+      const query = url.split('?')[1] ?? ''
+      activeTabParam = new URLSearchParams(query).get('tab')
+    })
     pushMock.mockReset()
     inlineActivityComposerMock.mockClear()
     plannedActivitiesSectionMock.mockClear()
@@ -436,6 +446,47 @@ describe('DealDetailPage', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('active-tab')).toHaveTextContent('companies')
+    })
+  })
+
+  it('keeps an injected tab active when it is selected from another built-in tab (#4379)', async () => {
+    activeTabParam = 'people'
+    injectedTabWidgets = [{
+      widgetId: 'crm.custom-tab',
+      placement: { kind: 'tab', groupId: 'crm.custom-tab' },
+      module: { metadata: { title: 'Custom' }, Widget: () => <div>custom</div> },
+    }]
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await screen.findByText('Expansion renewal')
+    fireEvent.click(screen.getByRole('button', { name: 'tab-crm.custom-tab' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-tab')).toHaveTextContent('crm.custom-tab')
+    })
+    expect(replaceMock).toHaveBeenCalledWith(
+      '/backend/customers/deals/deal-123?tab=crm.custom-tab',
+      { scroll: false },
+    )
+  })
+
+  it('resolves a deep link to an injected tab once the widgets load (#4379)', async () => {
+    activeTabParam = 'crm.custom-tab'
+    const view = renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await screen.findByText('Expansion renewal')
+    expect(screen.getByTestId('active-tab')).toHaveTextContent('activities')
+
+    injectedTabWidgets = [{
+      widgetId: 'crm.custom-tab',
+      placement: { kind: 'tab', groupId: 'crm.custom-tab' },
+      module: { metadata: { title: 'Custom' }, Widget: () => <div>custom</div> },
+    }]
+    view.rerender(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-tab')).toHaveTextContent('crm.custom-tab')
     })
   })
 

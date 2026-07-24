@@ -181,6 +181,7 @@ type PersonSnapshot = {
     id: string
     dealId: string
     participantRole: string | null
+    isPrimary?: boolean
     createdAt: Date
   }>
   activities: PersonActivitySnapshot[]
@@ -345,6 +346,7 @@ function serializePersonSnapshot(
         id: link.id,
         dealId: link.deal.id,
         participantRole: link.participantRole ?? null,
+        isPrimary: link.isPrimary === true,
         createdAt: link.createdAt,
       })),
     activities: activities.map((activity) => ({
@@ -1522,6 +1524,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           deal,
           person: entity,
           participantRole: link.participantRole,
+          isPrimary: link.isPrimary === true,
           createdAt: link.createdAt,
         })
         em.persist(restoredLink)
