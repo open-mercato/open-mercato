@@ -5,6 +5,11 @@
     "rawTranscriptsCommitted": false,
     "mandatoryFailuresWaivable": false
   },
+  "releaseSuite": {
+    "routingRunners": ["codex", "claude"],
+    "requireGeneratedCodeReview": true,
+    "validationCommands": ["yarn generate", "yarn typecheck", "yarn lint", "yarn build"]
+  },
   "deterministic": {
     "caseIds": "all"
   },

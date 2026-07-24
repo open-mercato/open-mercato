@@ -28,6 +28,7 @@
     "framework:context": "node ./scripts/framework-context.mjs",
     "harness:validate": "node ./scripts/evaluate-agent-harness.mjs",
     "harness:fixture": "node ./scripts/prepare-agent-harness-fixture.mjs",
+    "harness:release": "node ./scripts/run-agent-harness-release.mjs",
     "db:generate": "mercato db generate",
     "db:migrate": "mercato db migrate",
     "db:greenfield": "mercato db greenfield",

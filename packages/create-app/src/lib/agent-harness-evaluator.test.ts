@@ -31,6 +31,8 @@ type StoredResult = {
   selectedContext: string[]
   decisions: string[]
   violations: string[]
+  attempts: number
+  corrections: number
   sanitizedError?: string
   actualContext: { paths: string[]; bytes: number; initialBytes: number }
   declaredContext: { paths: string[]; bytes: number; initialBytes: number }
@@ -43,6 +45,8 @@ type StoredReviewResult = {
   report: string
   findings: Array<{ severity: string; path: string }>
   violations: string[]
+  attempts: number
+  corrections: number
   reviewedPaths: string[]
   reviewedBytes: number
   skill: { name: string; source: string; ref: string; declaredHash: string; installedHash: string; ownershipLedgerHash: string; bundleHash: string }
@@ -188,18 +192,19 @@ process.exit(9)
   return path.join(controller, '.ai', 'harness', 'results', resultFile)
 }
 
-test('the catalog contains exactly the specified 92 cases, fixed writable matrix, mandatory set, and all BC rules', () => {
+test('the catalog count and release coverage are derived from the validator registry and case records', () => {
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
   const validators = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'validators.json'), 'utf8')) as {
-    catalog: { backwardCompatibilityRuleIds: string[]; mandatoryCaseIds: string[]; writableCaseIds: string[] }
+    catalog: { expectedCaseCount: number; backwardCompatibilityRuleIds: string[]; mandatoryCaseIds: string[]; writableCaseIds: string[] }
   }
   const matrix = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'release-matrix.json'), 'utf8')) as {
     routing: { codex: { caseIds: string }; claude: { caseIds: string[] } }
     writable: Array<{ caseId: string; runner: string }>
     generatedCodeReview: { required: boolean; skill: string; caseIds: string[] }
+    releaseSuite: { routingRunners: string[]; requireGeneratedCodeReview: boolean; validationCommands: string[] }
   }
-  assert.equal(cases.length, 92)
-  assert.deepEqual(cases.map((entry) => entry.id), Array.from({ length: 92 }, (_, index) => `OMH-${String(index + 1).padStart(3, '0')}`))
+  assert.equal(cases.length, validators.catalog.expectedCaseCount)
+  assert.deepEqual(cases.map((entry) => entry.id), Array.from({ length: cases.length }, (_, index) => `OMH-${String(index + 1).padStart(3, '0')}`))
   assert.deepEqual(cases.filter((entry) => entry.fixture).map((entry) => entry.id), validators.catalog.writableCaseIds)
   assert.deepEqual(matrix.routing.claude.caseIds, validators.catalog.writableCaseIds)
   assert.equal(matrix.routing.codex.caseIds, 'all')
@@ -207,6 +212,9 @@ test('the catalog contains exactly the specified 92 cases, fixed writable matrix
   assert.equal(matrix.generatedCodeReview.required, false)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
   assert.deepEqual(matrix.generatedCodeReview.caseIds, cases.filter((entry) => entry.evaluationKind === 'implementation' && entry.mode === 'one-shot').map((entry) => entry.id))
+  assert.deepEqual(matrix.releaseSuite.routingRunners, ['codex', 'claude'])
+  assert.equal(matrix.releaseSuite.requireGeneratedCodeReview, true)
+  assert.deepEqual(matrix.releaseSuite.validationCommands, ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'])
   assert.deepEqual(
     [...new Set(cases.flatMap((entry) => entry.owner.ruleIds))].sort(),
     validators.catalog.backwardCompatibilityRuleIds,
@@ -222,8 +230,9 @@ test('deterministic evaluation passes every concrete catalog case in an emitted-
   try {
     const result = runEvaluator(root, ['--all'])
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
-    assert.match(result.stdout, /Deterministic: 92\/92 selected cases passed/)
-    assert.equal((result.stdout.match(/^PASS OMH-/gm) ?? []).length, 92)
+    const expected = JSON.parse(fs.readFileSync(path.join(root, '.ai', 'harness', 'cases.json'), 'utf8')).length
+    assert.match(result.stdout, new RegExp(`Deterministic: ${expected}/${expected} selected cases passed`))
+    assert.equal((result.stdout.match(/^PASS OMH-/gm) ?? []).length, expected)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -325,6 +334,8 @@ test('live Codex adapter starts one ephemeral read-only process and stores only 
 const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const prompt = fs.readFileSync(0, 'utf8')
+if (!prompt.includes('Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories') || !prompt.includes('an all-guides/all-skills/all-facts read is an automatic failure')) process.exit(10)
 if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || args[args.indexOf('--disable') + 1] !== 'skill_search' || args[args.indexOf('--sandbox') + 1] !== 'read-only' || !args.includes('shell_environment_policy.inherit=none') || !process.env.CODEX_HOME?.includes('om-harness-result-')) process.exit(9)
 const output = args[args.indexOf('-o') + 1]
 fs.writeFileSync(output, JSON.stringify({
@@ -354,9 +365,13 @@ for (const command of [
     assert.doesNotMatch(stored, new RegExp(os.homedir().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
     assert.match(stored, /"promptHash": "[a-f0-9]{64}"/)
     const parsed = JSON.parse(stored) as {
+      attempts: number
+      corrections: number
       actualContext: { paths: string[] }
       declaredContext: { paths: string[] }
     }
+    assert.equal(parsed.attempts, 1)
+    assert.equal(parsed.corrections, 0)
     assert.deepEqual(parsed.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
     assert.deepEqual(parsed.declaredContext.paths, ['.ai/guides/architecture.md', '.ai/guides/testing-debugging.md', 'AGENTS.md'])
   } finally {
@@ -434,6 +449,9 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
     assert.equal(fs.readFileSync(attemptsPath, 'utf8'), '2')
     assert.match(result.stdout, /PASS OMH-009/)
+    const [stored] = storedResults(root)
+    assert.equal(stored.attempts, 2)
+    assert.equal(stored.corrections, 1)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -855,6 +873,8 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
     assert.match(review.stdout, /PASS review OMH-011/)
     const [stored] = storedReviewResults(controller)
     assert.equal(stored.status, 'pass')
+    assert.equal(stored.attempts, 1)
+    assert.equal(stored.corrections, 0)
     assert.equal(stored.verdict, 'approve')
     assert.deepEqual(stored.reviewedPaths, ['src/modules/library/api/books/route.ts'])
     assert.ok(stored.reviewedBytes > 0)
