@@ -51,20 +51,22 @@ The queue is not short of QA work performed; it is short of QA work that manual 
 
 ## Progress
 
+PR: #4448
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Land the plan and open the draft PR
 
-- [ ] 1.1 Commit the execution plan and push the branch
-- [ ] 1.2 Open the draft PR against `develop`
+- [x] 1.1 Commit the execution plan and push the branch — 543df237f
+- [x] 1.2 Open the draft PR against `develop` — 543df237f
 
 ### Phase 2: Amend AGENTS.md
 
-- [ ] 2.1 Qualify the `needs-qa` bullet
-- [ ] 2.2 Extend the `skip-qa` bullet
-- [ ] 2.3 Add the automated-verification exemption bullet
+- [x] 2.1 Qualify the `needs-qa` bullet — 239785290
+- [x] 2.2 Extend the `skip-qa` bullet — 239785290
+- [x] 2.3 Add the automated-verification exemption bullet — 239785290
 
 ### Phase 3: Validate and summarize
 
-- [ ] 3.1 Re-read the diff for contradictions with the QA-approval merge gate
+- [x] 3.1 Re-read the diff for contradictions with the QA-approval merge gate — 239785290
 - [ ] 3.2 Post the summary comment and flip the PR to ready
