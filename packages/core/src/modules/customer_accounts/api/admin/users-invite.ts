@@ -7,7 +7,7 @@ import { RbacService } from '@open-mercato/core/modules/auth/services/rbacServic
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
-import { isOwnedCompanyEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
+import { isOwnedCompanyEntity, isOwnedPersonEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
   checkAuthRateLimit,
@@ -64,6 +64,20 @@ export async function POST(req: Request) {
     })
     if (!owned) {
       return NextResponse.json({ ok: false, error: 'Company not found' }, { status: 400 })
+    }
+  }
+
+  // Same guard for the person FK: it is copied onto the customer user on accept
+  // and makes `autoLinkCrm` short-circuit, so an unowned id would permanently
+  // cross-link the portal user to another org's CRM person.
+  if (parsed.data.personEntityId) {
+    const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+    const owned = await isOwnedPersonEntity(em, parsed.data.personEntityId, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+    })
+    if (!owned) {
+      return NextResponse.json({ ok: false, error: 'Person not found' }, { status: 400 })
     }
   }
 

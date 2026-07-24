@@ -21,6 +21,33 @@ export async function isOwnedCompanyEntity(
   customerEntityId: string,
   scope: CustomerEntityScope,
 ): Promise<boolean> {
+  return isOwnedEntityOfKind(em, customerEntityId, 'company', scope)
+}
+
+/**
+ * Confirms that a caller-supplied `personEntityId` (the CRM person FK linked
+ * onto a customer user) exists, is a person, is not soft-deleted, and belongs
+ * to the caller's tenant and organization.
+ *
+ * This is the symmetric guard to {@link isOwnedCompanyEntity}: the person FK is
+ * copied onto the customer user on accept and short-circuits CRM auto-linking,
+ * so an unvalidated id would permanently cross-link a portal user to another
+ * org's person (the #4362/#2693 class of bug, on the person side).
+ */
+export async function isOwnedPersonEntity(
+  em: EntityManager,
+  personEntityId: string,
+  scope: CustomerEntityScope,
+): Promise<boolean> {
+  return isOwnedEntityOfKind(em, personEntityId, 'person', scope)
+}
+
+async function isOwnedEntityOfKind(
+  em: EntityManager,
+  customerEntityId: string,
+  kind: 'company' | 'person',
+  scope: CustomerEntityScope,
+): Promise<boolean> {
   const { CustomerEntity } = await import('@open-mercato/core/modules/customers/data/entities')
   const entity = await findOneWithDecryption(
     em,
@@ -29,7 +56,7 @@ export async function isOwnedCompanyEntity(
       id: customerEntityId,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      kind: 'company',
+      kind,
       deletedAt: null,
     } as any,
     undefined,

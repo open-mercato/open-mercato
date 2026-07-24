@@ -11,6 +11,7 @@ const mockUserHasAllFeatures = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockEmit = jest.fn(async () => undefined)
 const mockIsOwnedCompanyEntity = jest.fn()
+const mockIsOwnedPersonEntity = jest.fn()
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/rateLimiter', () => ({
   checkAuthRateLimit: (...args: unknown[]) => mockCheckAuthRateLimit(...args),
@@ -41,6 +42,7 @@ jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership', () => ({
   isOwnedCompanyEntity: (...args: unknown[]) => mockIsOwnedCompanyEntity(...args),
+  isOwnedPersonEntity: (...args: unknown[]) => mockIsOwnedPersonEntity(...args),
 }))
 
 const tenantId = '22222222-2222-4222-8222-222222222222'
@@ -65,6 +67,7 @@ describe('admin users-invite — person link + company ownership (#4362)', () =>
     mockUserHasAllFeatures.mockResolvedValue(true)
     mockGetAuthFromRequest.mockResolvedValue({ sub: 'staff-1', tenantId, orgId: organizationId })
     mockIsOwnedCompanyEntity.mockResolvedValue(true)
+    mockIsOwnedPersonEntity.mockResolvedValue(true)
     mockCreateInvitation.mockResolvedValue({
       invitation: { id: invitationId, email: 'buyer@example.com', customerEntityId: null, expiresAt: new Date().toISOString() },
       rawToken: 'raw-secret-token',
@@ -77,10 +80,33 @@ describe('admin users-invite — person link + company ownership (#4362)', () =>
 
     expect(res.status).toBe(201)
     expect(mockIsOwnedCompanyEntity).not.toHaveBeenCalled()
+    expect(mockIsOwnedPersonEntity).toHaveBeenCalledWith(expect.anything(), personEntityId, { tenantId, organizationId })
     expect(mockCreateInvitation).toHaveBeenCalledTimes(1)
     const options = mockCreateInvitation.mock.calls[0][2] as Record<string, unknown>
     expect(options.personEntityId).toBe(personEntityId)
     expect(options.customerEntityId).toBeNull()
+  })
+
+  it('rejects a personEntityId that is not an owned person with 400 "Person not found"', async () => {
+    // Symmetric to the company guard: an id from another org (or a company id)
+    // would otherwise be copied onto the customer user and short-circuit
+    // autoLinkCrm, permanently cross-linking the portal user.
+    mockIsOwnedPersonEntity.mockResolvedValue(false)
+    const { POST } = await import('../admin/users-invite')
+    const res = await POST(makeInviteRequest({ email: 'buyer@example.com', roleIds: [roleId], personEntityId: companyEntityId }))
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json).toEqual({ ok: false, error: 'Person not found' })
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
+  })
+
+  it('does not check person ownership when no personEntityId is supplied', async () => {
+    const { POST } = await import('../admin/users-invite')
+    const res = await POST(makeInviteRequest({ email: 'buyer@example.com', roleIds: [roleId], customerEntityId: companyEntityId }))
+
+    expect(res.status).toBe(201)
+    expect(mockIsOwnedPersonEntity).not.toHaveBeenCalled()
   })
 
   it('succeeds without any entity link', async () => {
