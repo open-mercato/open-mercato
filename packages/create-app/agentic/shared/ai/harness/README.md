@@ -1,13 +1,13 @@
 # Agent harness evaluations
 
-`cases.json` is the 92-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
+`cases.json` is the 184-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
 
 ```text
 yarn harness:validate --runner codex --all
 yarn harness:validate --runner claude --case OMH-009
 ```
 
-Writable evaluation is intentionally opt-in and only accepts the fixed 16 cases in `release-matrix.json`. Copy or create a fresh standalone app for one case, then seed only that case and mark the target disposable:
+Writable evaluation is intentionally opt-in. The expanded catalog has a 37-case writable release target, but only cases registered in `release-matrix.json` and backed by controller-owned fixtures and oracles are executable. Copy or create a fresh standalone app for one registered case, then seed only that case and mark the target disposable:
 
 ```text
 yarn harness:fixture --case OMH-009 --target /absolute/disposable/app --acknowledge-writes

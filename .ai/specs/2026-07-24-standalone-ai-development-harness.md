@@ -29,7 +29,7 @@ Build a four-layer harness:
 1. A boundary-first root `AGENTS.md` that only routes tasks and carries universal safety rules.
 2. Focused guides and thin standalone skills loaded only for the selected task.
 3. Generated module facts plus an exact installed-source/original-AGENTS escape hatch.
-4. A versioned 92-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
+4. A versioned 184-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
 
 ## 📝 Architecture
 
@@ -371,25 +371,143 @@ Every case is evaluated against a fresh standalone scaffold. Cases 57–70 are m
 91. Extend the customer portal with public/guarded metadata, principal-derived scope, frozen extension identifiers, navigation, shared UI, and full UX states.
 92. Redesign a dense operations page for exact Alert/confirm/form contracts, status/tag and brand rules, responsive UX, accessibility, and state coverage.
 
+### Customer and CRM operations
+
+93. Merge duplicate contacts without losing customer history.
+94. Organize companies into parent groups without circular hierarchies.
+95. Record customer consent acceptance and withdrawal by purpose.
+96. Assign customer territories with a recorded manual override.
+97. Start a customer onboarding checklist after a deal is won.
+98. Explain customer health using orders, cases, and tasks.
+99. Send renewal reminders once in each notification window.
+100. Show one authorized timeline of customer activity.
+101. Save reusable customer segments with predictable membership.
+102. Attribute campaigns without trusting hidden form values.
+103. Transfer many customers to a new owner safely.
+104. Preview customer spreadsheet imports and return row errors.
+105. Customize deal stages while blocking invalid stage jumps.
+106. Assign leads fairly with an explainable round robin.
+
+### Sales and revenue operations
+
+107. Require approval when a quote discount is too large.
+108. Keep quote revisions immutable and accept only the current one.
+109. Turn an accepted recurring quote into renewal orders once.
+110. Split an order into shipments without changing totals.
+111. Allocate backorders predictably without overselling stock.
+112. Exchange a returned item through linked replacement states.
+113. Calculate commission after payment using the historic rate.
+114. Forecast in a reporting currency without rewriting history.
+115. Make the deal board usable by keyboard touch and screen reader.
+116. Send one alert when a deal has been inactive for ten days.
+
+### Catalog, inventory, and purchasing
+
+117. Build product bundles whose components control availability.
+118. Create size and color variants without duplicate SKUs.
+119. Apply customer price lists with a clear fallback.
+120. Apply promotion stacking exclusions and priority predictably.
+121. Track stock per warehouse through an immutable movement history.
+122. Reserve the last item atomically during concurrent checkout.
+123. Manage supplier purchase orders dates and approvals.
+124. Receive purchase orders partially and record discrepancies.
+125. Create nightly reorder suggestions without duplicates.
+126. Trace lots expiry dates and recalls through stock movements.
+127. Search products by words SKU and scoped filters.
+128. Update thousands of prices with progress cancel and undo.
+129. Build fast shareable product filters for phone and desktop.
+
+### Portal and operator UX
+
+130. Turn a public demo request into one safe CRM lead.
+131. Let portal users edit only their own contact details.
+132. Protect portal invoice downloads exactly like their order.
+133. Approve only the latest quote from the customer portal.
+134. Hide an admin screen and menu without editing installed code.
+135. Support long Polish and German copy dates money and errors.
+136. Redesign a dense warehouse dashboard for phone and desktop.
+137. Create an accessible setup wizard that can resume later.
+138. Make order editing understandable on an unreliable connection.
+
+### Plain-language workflows and embedded AI
+
+139. Require manager approval before staff can sell to a high-risk customer.
+140. Send overdue invoice reminders and stop immediately after payment.
+141. Coordinate picking packing dispatch and manual fulfilment exceptions.
+142. Run annual renewals at each customer's local time without duplicates.
+143. Add a read-only assistant that scores leads and explains the evidence.
+144. Draft quotes with an assistant while requiring approval for every saved change.
+145. Create draft product descriptions from authorized supplier files.
+146. Coordinate sales questions through specialized product and stock assistants.
+147. Replace the sales assistant for one account and let administrators disable it.
+148. Show live assistant-job progress with safe cancellation and resume.
+
+### Integration and provider operations
+
+149. Send transactional email through an SMTP service with a safe connection test.
+150. Take card payments without charging twice when a request is retried.
+151. Compare carrier rates buy labels and reconcile tracking updates.
+152. Calculate tax through an external service with an explicit outage policy.
+153. Synchronize customers products and orders with an ERP and show progress.
+154. Accept signed partner updates without replaying or duplicating changes.
+155. Notify a partner after shipment with retries and visible delivery status.
+156. Import and export products without one bad row stopping the file.
+157. Store customer attachments with short-lived authorized download links.
+158. Refresh OAuth credentials safely when several jobs run together.
+159. Resume a rate-limited GraphQL import after temporary page failures.
+160. Preserve global and store-specific marketplace pricing modes.
+161. Package a connector so several standalone applications can install it.
+162. Remove a custom connector phase now supplied by the installed application.
+
+### Testing, planning, and delivery workflows
+
+163. Test quote approval rules and failure paths with focused unit tests.
+164. Test the customer API through success denial conflict and cleanup.
+165. Test portal order viewing and quote approval in a real browser.
+166. Test a payment connector without contacting the real payment company.
+167. Turn a library-management idea into independently deliverable stages.
+168. Implement selected purchasing-plan stages while keeping the application working.
+169. Build test commit and open a ready pull request for demo requests.
+170. Review a stock-reservation pull request for actionable problems only.
+
+### Regressions, review, UMES, and harness evolution
+
+171. Fix customer search results leaking between companies and prove isolation.
+172. Fix a cleared optional customer field returning after refresh.
+173. Fix retried delivery callbacks creating duplicate shipments.
+174. Fix an ERP synchronization job skipping records after a page failure.
+175. Fix dates changing after hydration when browser and server languages differ.
+176. Review an inaccessible order dialog with hidden errors and raw colors.
+177. Choose the smallest safe design for customer loyalty tiers.
+178. Locate exact installed order-confirmation surfaces before changing behavior.
+179. Show loyalty points in customer responses without copying customer records.
+180. Add preferred contact time to the existing customer form with full round trip.
+181. Add an order-risk filter and safe bulk review action to the orders table.
+182. Block order cancellation after dispatch across every entry point.
+183. Award loyalty points after payment while tolerating an absent sales feature.
+184. Add a repeatable harness case for misplaced supplier scorecard work.
+
 ### Evaluation levels and release matrix
 
-All 92 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. A representative writable matrix supplies implementation evidence:
+All 184 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. The writable release target is 37 representative cases. A case counts toward that target only after its release-matrix entry, disposable fixture, controller-owned oracle, and narrow write allowlist land together; catalog classification alone does not make a case executable.
+
+Executable coverage is distributed across these slices; every expansion toward the 37-case target must keep the release matrix and trusted oracles aligned:
 
 - module vertical slice: 9, 11, 12, 14;
 - extension/UI: 26, 27, 29, 31;
 - integration/AI/workflow: 42, 45, 49, 54;
 - seeded regression fixtures: 57, 60, 61, 70.
 
-Implementation cases use a fresh disposable scaffold, explicit allowed-write paths, deterministic fixture setup, expected artifacts, and executable validator IDs. A fixed controller-owned TypeScript AST oracle covers all 16 cases and rejects comment/import token stuffing; isolated mocked behavior probes additionally exercise provider/workflow effects and the four seeded regressions. The target cannot replace executable oracle code. The after phase also runs the target's fixed `yarn typecheck` gate. Regression cases must fail their oracle before the agent change and pass it afterward. Provider cases use mocked effects or contract servers unless explicit test credentials are supplied. Broad cases may use parameterized variants, but each variant has a distinct result and oracle.
+Implementation cases use a fresh disposable scaffold, explicit allowed-write paths, deterministic fixture setup, expected artifacts, and executable validator IDs. A fixed controller-owned TypeScript AST oracle covers every registered writable case and rejects comment/import token stuffing; isolated mocked behavior probes additionally exercise provider/workflow effects and seeded regressions. The target cannot replace executable oracle code. The after phase also runs the target's fixed `yarn typecheck` gate. Regression cases must fail their oracle before the agent change and pass it afterward. Provider cases use mocked effects or contract servers unless explicit test credentials are supplied. Broad cases may use parameterized variants, but each variant has a distinct result and oracle.
 
 The 12 one-shot implementation cases additionally support an optional, explicit generated-code review lane after the writable result passes. It never launches a nested reviewer automatically. The evaluator binds the review to the prior result's final whole-target fingerprint, then copies changed regular text files as line-numbered inert snapshots, plus the controller-installed pinned `om-code-review` skill, a static review policy, and controller oracle evidence, into a bounded temporary read-only bundle. Target scripts, dependencies, Git/tracker state, original executable source files, and the target's absolute path are not copied or supplied. Trace-verified out-of-bundle, environment, or process inspection and any bundle/target mutation fail closed. A separate sanitized review artifact records the source-result, target, skill, and policy hashes plus the strict report/findings/verdict; this supplemental gate does not claim the skill's full repository validation gate or CI passed.
 
 The checked-in `releaseMatrix` pins runner, model selector, and case IDs. Acceptance for this PR is:
 
-1. deterministic validation: 92/92 pass, including 100% forbidden/safety assertions;
-2. Codex routing: 92/92 pass with one retry allowed only for invalid structured output;
-3. Claude routing: the fixed 16-case representative set above passes with the same retry rule;
-4. writable implementation/regression: all 16 representative oracles pass, with at least one runner per case and both runners represented in every family;
+1. deterministic validation: 184/184 pass, including 100% forbidden/safety assertions;
+2. Codex routing: 184/184 pass with one retry allowed only for invalid structured output;
+3. Claude routing: the 37-case representative release target passes with the same retry rule once its matrix expansion is complete;
+4. writable implementation/regression: all 37 target oracles pass, with at least one runner per case and both runners represented in every family;
 5. results are produced from the final commit, record CLI/model versions and prompt hashes, and are summarized without committing raw private transcripts.
 
 Runner unavailability blocks claiming live release evidence; it does not invalidate deterministic CI. A maintainer may explicitly waive one unavailable runner in the PR with the failed command/version and reason, but may not waive a failed safety, forbidden-pattern, or executable oracle. No score averaging hides a failed mandatory case.
@@ -433,7 +551,7 @@ The case assertions cover every frozen/stable surface even though the harness do
 
 | Risk | Severity | Mitigation | Residual risk |
 |---|---|---|---|
-| Rewriting generated guidance changes agent behavior broadly. | High | 92 semantic cases, mandatory safety subset, live dual-runner evidence, draft PR and review gate. | Model behavior remains probabilistic. |
+| Rewriting generated guidance changes agent behavior broadly. | High | 184 semantic cases, mandatory safety subset, live dual-runner evidence, draft PR and review gate. | Model behavior remains probabilistic. |
 | Root instructions are silently truncated by a default agent budget. | High | 12 KiB byte cap on both root sources plus representative generated initial-chain checks against 32,768 bytes (issue #4484). | Other tools may impose smaller undocumented budgets. |
 | Context files still drift from framework contracts. | High | Generated facts, installed source/AGENTS escape hatch, semantic contradiction scan, release version stamps. | Hand-written conceptual guides still require maintenance. |
 | Installer removes user content or breaks Windows. | High | Node path-safe implementation, ownership checks, junction tests, preserve stable flags/wrapper, generated-app tests. | Windows junction semantics vary by corporate policy. |
@@ -460,11 +578,11 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 | Windows simulated filesystem/command resolution | Junction/link behavior and `.cmd` spawning. |
 | `yarn framework:context --module customers` | Installed core version, root/package/module AGENTS chain, `src/modules/customers`, bounded no-ignore search. |
 | Missing source/duplicate module/version skew fixtures | Explicit degraded/ambiguous/skew output; no guessed edit path. |
-| Deterministic harness validation | 92 schema-valid cases, existing references, no contradictory stale patterns, context budgets, dependency closure. |
+| Deterministic harness validation | 184 schema-valid cases, existing references, no contradictory stale patterns, context budgets, dependency closure. |
 | Instruction-budget regression | Both root sources ≤12 KiB; named representative generated initial chains ≤32,768 bytes, measured as bytes. |
-| Codex live runner | Read-only structured routing/decision result for all 92 cases, one fresh session per case. |
-| Claude live runner | Plan/read-only structured routing/decision result for the fixed 16-case release matrix. |
-| Writable live runner | Disposable scaffolds and executable oracles for the 16-case implementation/regression matrix. |
+| Codex live runner | Read-only structured routing/decision result for all 184 cases, one fresh session per case. |
+| Claude live runner | Plan/read-only structured routing/decision result for the 37-case release target. |
+| Writable live runner | Disposable scaffolds and executable oracles for the 37-case implementation/regression target. |
 | Optional generated-code review | Explicit post-oracle review of one-shot implementation output in a bounded source-only bundle using the pinned installed `om-code-review` skill. |
 | Generated standalone install/generate/typecheck/test/build | Real npm/Verdaccio package boundary and published-path validation. |
 | Semantic smoke | `/login`, one CRUD plan/flow, one UMES flow, one worker/CLI flow, and package source-context lookup. |
@@ -516,7 +634,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Finalize this spec from current scaffold/package/PR evidence and run the 13-surface compatibility audit.
 2. Add case/result schemas, validator registry, release matrix, and tests that fail on missing paths/owners/rule IDs, duplicate IDs, dangling relations, excessive byte/token budgets, stale route/entity/signature patterns, unsafe commands, and unresolved references.
-3. Add baseline cases for all 92 tasks and mark cases 57–70 mandatory.
+3. Add baseline cases for all 184 tasks and mark cases 57–70 mandatory.
 
 ### Phase 2: Root context and local skills
 
@@ -536,7 +654,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Implement deterministic, read-only Codex/Claude routing, and writable disposable-scaffold evaluation modes plus sanitized result artifacts.
 2. Generate a fresh standalone app, install local/external skills, resolve upstream context, and run deterministic validation.
-3. Run all 92 Codex routing cases, the fixed 16-case Claude routing matrix, and the 16 writable implementation/regression oracles; fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
+3. Run all 184 Codex routing cases, the 37-case Claude routing target, and the 37 writable implementation/regression target oracles; fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
 4. Run create-app targeted tests, Verdaccio standalone parity where package boundaries changed, and the configured full repository gate.
 5. Complete automated code review/autofix, final compliance report, PR evidence, and rollback notes.
 
@@ -558,14 +676,15 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 ## Changelog
 
 - **2026-07-24** — Skeleton created under the autonomous Open Questions policy; standalone boundary, source-context, evaluation, and migration assumptions resolved from the user brief.
-- **2026-07-24** — Added prior-spec/PR-history findings, 92-case catalog, thin-skill/router architecture, cross-platform installer, exact installed-source escape hatch, harness-evolution workflow, compatibility, failure scenarios, integration coverage, and phased implementation plan.
+- **2026-07-24** — Added prior-spec/PR-history findings, the initial case catalog, thin-skill/router architecture, cross-platform installer, exact installed-source escape hatch, harness-evolution workflow, compatibility, failure scenarios, integration coverage, and phased implementation plan.
 - **2026-07-24** — Added a three-axis context assembler, 12 business one-shot cases, four test authoring/execution cases, and byte-accurate issue #4484 instruction-budget regressions.
 - **2026-07-24** — Added exact discovery-surface and 18-domain override catalogs plus public frontend, portal, design-system, UX, accessibility, and state-matrix coverage.
 - **2026-07-24** — Source-audited those catalogs against current generators/types/docs; added vector and locale discovery, query/sync/reactive/DOM/integration mechanisms, additive AI overrides, exact registry keys, portal frozen IDs, and corrected design-system exceptions.
 - **2026-07-24** — Fresh-context and pre-implementation reviews split routing evidence from writable implementation/regression oracles, pinned the external collection, defined concern-specific instruction precedence, added ownership state transitions, expanded all 14 BC assertions, and made create-app/CLI snapshot and installer call-site parity explicit.
-- **2026-07-24** — Added a fail-closed writable-fixture materializer with exact case-bound markers, seed-to-write-scope validation, controller-target isolation, and executable regression seeds for the 16-case implementation matrix.
+- **2026-07-24** — Added a fail-closed writable-fixture materializer with exact case-bound markers, seed-to-write-scope validation, controller-target isolation, and executable regression seeds for the initial implementation matrix.
 - **2026-07-24** — Restored standalone provider placement (local module by default, separately published dependency for explicit reuse) and scope-contract nuance for authorized tenant-wide/system jobs without weakening organization-owned data isolation.
 - **2026-07-24** — Reviewer hardening made duplicate module-fact providers fail closed unless `src/modules.ts` selects one exact package; framework context now recognizes dist-only roots, compares fact package and version stamps, validates materialization path segments, and emits deterministic globally capped search artifacts with explicit status.
 - **2026-07-24** — Replaced writable token scans with controller-owned AST and isolated behavior oracles, made every seeded fixture fail its precondition, added the fixed after-phase typecheck gate, and prevented writable targets from supplying executable validation code.
 - **2026-07-24** — Compacted the generated enabled-module marker from per-module description/path rows to an identifier-only index with one progressive fact-sheet path rule, preserving enabled/bundled selection and fallback semantics while keeping compound routing under the initial context budget.
 - **2026-07-24** — Added an optional independent generated-code review lane for the 12 one-shot writable cases, binding the pinned installed `om-code-review` skill to prior oracle evidence and a final target fingerprint inside a bounded source-only bundle with sanitized strict verdict artifacts.
+- **2026-07-24** — Doubled the catalog to 184 cases, grouped cases 93–184 by developer outcome, and set the writable release target to 37 cases with aligned fixture, oracle, evaluator, and release-matrix gates.
