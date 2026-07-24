@@ -4803,14 +4803,16 @@
       ]
     },
     "requiredSkills": [
-      "om-troubleshooter"
+      "om-troubleshooter",
+      "om-module-scaffold"
     ],
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/guides/testing-debugging.md",
-        ".ai/guides/contracts.md",
-        ".ai/skills/om-troubleshooter/SKILL.md"
+      ".ai/guides/testing-debugging.md",
+      ".ai/guides/contracts.md",
+      ".ai/skills/om-troubleshooter/SKILL.md",
+      ".ai/skills/om-module-scaffold/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -4837,8 +4839,8 @@
       "patterns.forbidden",
       "safety.mandatory"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-064"
