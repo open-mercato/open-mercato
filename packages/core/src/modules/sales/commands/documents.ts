@@ -4116,6 +4116,20 @@ async function restoreOrderGraph(
       organizationId: snapshot.order.organizationId,
     },
   );
+  let existingLines: SalesOrderLine[] = [];
+  if (order) {
+    existingLines = await em.find(
+      SalesOrderLine,
+      { order },
+      { orderBy: { lineNumber: "asc" } },
+    );
+    await assertShippedOrderGraphRestorable(
+      em,
+      order,
+      existingLines,
+      snapshot,
+    );
+  }
   if (!order) {
     order = em.create(SalesOrder, {
       id: snapshot.order.id,
@@ -4200,11 +4214,6 @@ async function restoreOrderGraph(
   }
   applyOrderSnapshot(order, snapshot.order);
   await em.flush();
-  const existingLines = await em.find(
-    SalesOrderLine,
-    { order: order.id },
-    { fields: ["id"] },
-  );
   const existingAdjustments = await em.find(
     SalesOrderAdjustment,
     { order: order.id },
@@ -6524,11 +6533,39 @@ const quoteAdjustmentDeleteSchema = z.object({
 
 const SHIPPED_QUANTITY_TOLERANCE = 1e-6;
 
+const SHIPPED_LINE_NUMERIC_PRICING_FIELDS = [
+  "unitPriceNet",
+  "unitPriceGross",
+  "discountAmount",
+  "discountPercent",
+  "taxRate",
+  "totalNetAmount",
+  "totalGrossAmount",
+] as const;
+
+type ShippedLineComparable = Pick<
+  SalesLineSnapshot,
+  | "quantity"
+  | "quantityUnit"
+  | (typeof SHIPPED_LINE_NUMERIC_PRICING_FIELDS)[number]
+>;
+
 const hasNumericChange = (
   next: number | null | undefined,
   previous: number | null | undefined,
 ): boolean => {
   if (next === undefined || next === null) return false;
+  if (previous === undefined || previous === null) return true;
+  return Math.abs(next - previous) > SHIPPED_QUANTITY_TOLERANCE;
+};
+
+const hasExactNumericChange = (
+  next: number | null | undefined,
+  previous: number | null | undefined,
+): boolean => {
+  if (next === undefined || next === null) {
+    return previous !== undefined && previous !== null;
+  }
   if (previous === undefined || previous === null) return true;
   return Math.abs(next - previous) > SHIPPED_QUANTITY_TOLERANCE;
 };
@@ -6543,6 +6580,68 @@ const hasUnitChange = (
   return next.trim().toLowerCase() !== normalizedPrevious;
 };
 
+const hasExactUnitChange = (
+  next: string | null | undefined,
+  previous: string | null | undefined,
+): boolean =>
+  (next ?? "").trim().toLowerCase() !==
+  (previous ?? "").trim().toLowerCase();
+
+function hasShippedLinePricingChange(
+  next: Partial<ShippedLineComparable>,
+  previous: ShippedLineComparable,
+  exact: boolean,
+): boolean {
+  const numericChange = exact ? hasExactNumericChange : hasNumericChange;
+  return (
+    SHIPPED_LINE_NUMERIC_PRICING_FIELDS.some((field) =>
+      numericChange(next[field], previous[field]),
+    ) ||
+    (exact
+      ? hasExactUnitChange(next.quantityUnit, previous.quantityUnit)
+      : hasUnitChange(next.quantityUnit, previous.quantityUnit))
+  );
+}
+
+async function assertShippedOrderLineChangeAllowed(
+  existingSnapshot: SalesLineSnapshot,
+  nextSnapshot: Partial<ShippedLineComparable> | null,
+  shippedQuantity: number,
+  exact: boolean,
+): Promise<void> {
+  if (shippedQuantity <= 0) return;
+
+  const nextQuantity = nextSnapshot
+    ? exact
+      ? nextSnapshot.quantity
+      : (nextSnapshot.quantity ?? existingSnapshot.quantity)
+    : 0;
+  const quantityInvalid =
+    nextQuantity === undefined ||
+    nextQuantity < shippedQuantity - SHIPPED_QUANTITY_TOLERANCE;
+  const pricingChanged =
+    nextSnapshot !== null &&
+    hasShippedLinePricingChange(nextSnapshot, existingSnapshot, exact);
+  if (!quantityInvalid && !pricingChanged) return;
+
+  const { translate } = await resolveTranslations();
+  if (quantityInvalid) {
+    throw new CrudHttpError(409, {
+      error: translate(
+        "sales.documents.items.errorQuantityBelowShipped",
+        "You cannot lower the quantity below the {{shipped}} already shipped.",
+        { shipped: shippedQuantity },
+      ),
+    });
+  }
+  throw new CrudHttpError(409, {
+    error: translate(
+      "sales.documents.items.errorPriceShipped",
+      "You cannot change the price or unit of a line that has shipped items.",
+    ),
+  });
+}
+
 async function assertShippedOrderLineEditable(
   em: EntityManager,
   order: SalesOrder,
@@ -6556,32 +6655,38 @@ async function assertShippedOrderLineEditable(
     organizationId: order.organizationId,
   });
   const shippedQuantity = shippedByLine.get(lineId) ?? 0;
-  if (shippedQuantity <= 0) return;
+  await assertShippedOrderLineChangeAllowed(
+    existingSnapshot,
+    parsed,
+    shippedQuantity,
+    false,
+  );
+}
 
-  const { translate } = await resolveTranslations();
-  const nextQuantity = parsed.quantity ?? existingSnapshot.quantity;
-  if (nextQuantity < shippedQuantity - SHIPPED_QUANTITY_TOLERANCE) {
-    throw new CrudHttpError(409, {
-      error: translate(
-        "sales.documents.items.errorQuantityBelowShipped",
-        "You cannot lower the quantity below the {{shipped}} already shipped.",
-        { shipped: shippedQuantity },
-      ),
-    });
-  }
+async function assertShippedOrderGraphRestorable(
+  em: EntityManager,
+  order: SalesOrder,
+  existingLines: SalesOrderLine[],
+  snapshot: OrderGraphSnapshot,
+): Promise<void> {
+  const shippedByLine = await loadShippedQuantityByLine(em, order.id, {
+    tenantId: order.tenantId,
+    organizationId: order.organizationId,
+  });
+  if (shippedByLine.size === 0) return;
 
-  const pricingChanged =
-    hasNumericChange(parsed.unitPriceNet, existingSnapshot.unitPriceNet) ||
-    hasNumericChange(parsed.unitPriceGross, existingSnapshot.unitPriceGross) ||
-    hasNumericChange(parsed.taxRate, existingSnapshot.taxRate) ||
-    hasUnitChange(parsed.quantityUnit, existingSnapshot.quantityUnit);
-  if (pricingChanged) {
-    throw new CrudHttpError(409, {
-      error: translate(
-        "sales.documents.items.errorPriceShipped",
-        "You cannot change the price or unit of a line that has shipped items.",
-      ),
-    });
+  const snapshotLinesById = new Map(
+    snapshot.lines.flatMap((line) => (line.id ? [[line.id, line] as const] : [])),
+  );
+  for (const line of existingLines) {
+    const shippedQuantity = shippedByLine.get(line.id) ?? 0;
+    if (shippedQuantity <= 0) continue;
+    await assertShippedOrderLineChangeAllowed(
+      mapOrderLineEntityToSnapshot(line),
+      snapshotLinesById.get(line.id) ?? null,
+      shippedQuantity,
+      true,
+    );
   }
 }
 
