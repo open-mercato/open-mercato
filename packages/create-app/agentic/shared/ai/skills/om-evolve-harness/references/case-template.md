@@ -45,4 +45,11 @@ yarn harness:validate --family <family>
 yarn harness:validate --all
 ```
 
+For a writable case, prepare one fresh disposable app per run before invoking the live oracle:
+
+```text
+yarn harness:fixture --case OMH-NNN --target /absolute/disposable/app --acknowledge-writes
+yarn harness:validate --runner codex --case OMH-NNN --writable-root /absolute/disposable/app --acknowledge-writes
+```
+
 If live capacity is unavailable, record the tool/version/model and sanitized provider error. Do not convert availability failure into a passing routing result.

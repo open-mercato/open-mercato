@@ -27,6 +27,7 @@
     "install-skills": "node ./scripts/install-skills.mjs",
     "framework:context": "node ./scripts/framework-context.mjs",
     "harness:validate": "node ./scripts/evaluate-agent-harness.mjs",
+    "harness:fixture": "node ./scripts/prepare-agent-harness-fixture.mjs",
     "db:generate": "mercato db generate",
     "db:migrate": "mercato db migrate",
     "db:greenfield": "mercato db greenfield",

@@ -10,6 +10,7 @@ const sharedRoot = fileURLToPath(new URL('../../agentic/shared/', import.meta.ur
 const guidesRoot = fileURLToPath(new URL('../../agentic/guides/', import.meta.url))
 const sourceHarness = path.join(sharedRoot, 'ai', 'harness')
 const sourceEvaluator = path.join(sharedRoot, 'scripts', 'evaluate-agent-harness.mjs')
+const sourceFixturePreparer = path.join(sharedRoot, 'scripts', 'prepare-agent-harness-fixture.mjs')
 
 type HarnessCase = {
   id: string
@@ -26,6 +27,16 @@ function stageApp(): string {
   fs.copyFileSync(path.join(sharedRoot, 'AGENTS.md.template'), path.join(root, 'AGENTS.md'))
   fs.mkdirSync(path.join(root, 'scripts'), { recursive: true })
   fs.copyFileSync(sourceEvaluator, path.join(root, 'scripts', 'evaluate-agent-harness.mjs'))
+  fs.copyFileSync(sourceFixturePreparer, path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'))
+  return root
+}
+
+function stageWritableTarget(): string {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-writable-')))
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true })
+  fs.cpSync(sourceHarness, path.join(root, '.ai', 'harness'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"harness-fixture"}\n')
+  fs.writeFileSync(path.join(root, 'src', 'modules.ts'), 'export default []\n')
   return root
 }
 
@@ -94,14 +105,51 @@ test('deterministic evaluation rejects dangling relations, excessive budgets, an
     }
     routingSchema.properties.selectedRouter.items.enum = routingSchema.properties.selectedRouter.items.enum.filter((route) => route !== 'testing')
     fs.writeFileSync(routingSchemaPath, `${JSON.stringify(routingSchema, null, 2)}\n`)
+    const seedsPath = path.join(root, '.ai', 'harness', 'fixtures', 'seeds.json')
+    const seeds = JSON.parse(fs.readFileSync(seedsPath, 'utf8')) as { fixtures: Record<string, unknown> }
+    delete seeds.fixtures['module-editable-entity']
+    fs.writeFileSync(seedsPath, `${JSON.stringify(seeds, null, 2)}\n`)
     const result = runEvaluator(root, ['--all'])
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
     assert.match(result.stderr, /dangling related case OMH-999/)
     assert.match(result.stderr, /maxTotalContextBytes is invalid/)
     assert.match(result.stderr, /unsafe fixture setup/)
     assert.match(result.stderr, /routing response schema must expose every router ID in canonical order/)
+    assert.match(result.stderr, /fixture seeds must cover every declared fixture exactly once/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('fixture preparer safely seeds one writable case and refuses reuse', () => {
+  const controller = stageApp()
+  const target = stageWritableTarget()
+  const script = path.join(controller, 'scripts', 'prepare-agent-harness-fixture.mjs')
+  try {
+    const withoutAcknowledgement = spawnSync(process.execPath, [script, '--case', 'OMH-009', '--target', target], {
+      cwd: controller,
+      encoding: 'utf8',
+    })
+    assert.equal(withoutAcknowledgement.status, 2)
+    assert.match(withoutAcknowledgement.stderr, /acknowledge-writes/)
+
+    const prepared = spawnSync(process.execPath, [script, '--case', 'OMH-009', '--target', target, '--acknowledge-writes'], {
+      cwd: controller,
+      encoding: 'utf8',
+    })
+    assert.equal(prepared.status, 0, `${prepared.stdout}\n${prepared.stderr}`)
+    assert.equal(fs.existsSync(path.join(target, '.ai', 'harness', 'DISPOSABLE')), true)
+    assert.equal(fs.existsSync(path.join(target, 'src', 'modules', 'library', 'index.ts')), true)
+
+    const reused = spawnSync(process.execPath, [script, '--case', 'OMH-009', '--target', target, '--acknowledge-writes'], {
+      cwd: controller,
+      encoding: 'utf8',
+    })
+    assert.equal(reused.status, 2)
+    assert.match(reused.stderr, /already prepared/)
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
   }
 })
 

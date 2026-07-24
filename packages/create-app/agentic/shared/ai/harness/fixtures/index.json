@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "notice": "Fixture declarations are interfaces for disposable scaffolds. They are not evidence that an agent run passed.",
+  "notice": "Fixture declarations are interfaces for disposable scaffolds. Prepare one with yarn harness:fixture; preparation is not evidence that an agent run passed.",
   "fixtures": {
     "module-editable-entity": { "purpose": "Fresh library module with an intentionally absent editable entity vertical slice.", "seededArtifacts": ["src/modules/library/index.ts"] },
     "module-crud-routes": { "purpose": "Library entity without CRUD route coverage.", "seededArtifacts": ["src/modules/library/data/entities.ts"] },

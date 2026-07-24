@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "fixtures": {
+    "module-editable-entity": {
+      "src/modules/library/index.ts": "export const metadata = { id: 'library', title: 'Library' }\n"
+    },
+    "module-crud-routes": {
+      "src/modules/library/data/entities.ts": "export class LibraryBook {\n  id!: string\n  title!: string\n}\n"
+    },
+    "module-command-action": {
+      "src/modules/library/api/books/checkout/route.ts": "export const metadata = { POST: { requireAuth: true } }\n\nexport async function POST() {\n  return Response.json({ error: 'checkout command is not implemented' }, { status: 501 })\n}\n"
+    },
+    "module-backend-ui": {
+      "src/modules/library/index.ts": "export const metadata = { id: 'library', title: 'Library' }\n"
+    },
+    "umes-form-field": {
+      "src/modules/app_customizations/index.ts": "export const metadata = { id: 'app_customizations', title: 'App customizations' }\n"
+    },
+    "umes-data-table": {
+      "src/modules/app_customizations/index.ts": "export const metadata = { id: 'app_customizations', title: 'App customizations' }\n"
+    },
+    "umes-page-override": {
+      "src/modules/app_customizations/index.ts": "export const metadata = { id: 'app_customizations', title: 'App customizations' }\n"
+    },
+    "umes-api-interceptor": {
+      "src/modules/app_customizations/api/interceptors.ts": "export const interceptors = [{\n  id: 'unsafe-placeholder',\n  match: { path: '/api/customers' },\n  async before() { return { query: {} } },\n}]\n"
+    },
+    "integration-data-sync": {
+      "packages/provider-magento/package.json": "{\n  \"name\": \"@app/provider-magento\",\n  \"private\": true,\n  \"version\": \"0.0.0\"\n}\n"
+    },
+    "integration-rest-client": {
+      "src/modules/external_sync/lib/client.ts": "export async function fetchPage(endpoint: string, cursor?: string) {\n  const response = await fetch(`${endpoint}?cursor=${cursor ?? ''}`)\n  return response.json()\n}\n"
+    },
+    "ai-agent": {
+      "src/modules/library/index.ts": "export const metadata = { id: 'library', title: 'Library' }\n"
+    },
+    "workflow-call-api": {
+      "src/modules/automation/workflows/call-api.ts": "export async function callApiActivity(input: { url: string }) {\n  return fetch(input.url, { method: 'POST' })\n}\n"
+    },
+    "regression-missing-scope": {
+      "src/modules/harness_fixture/api/scope/route.ts": "export async function listRecords(scope: { organizationId?: string }) {\n  return database.find({ organization_id: scope.organizationId })\n}\n\nconst database = { async find(filter: unknown) { return filter } }\n"
+    },
+    "regression-partial-write": {
+      "src/modules/harness_fixture/commands/update-record.ts": "export async function updateRecord(store: any, failAfterFirst: boolean) {\n  await store.persist({ phase: 1 })\n  if (failAfterFirst) throw new Error('injected failure')\n  await store.persist({ phase: 2 })\n  await store.flush()\n}\n"
+    },
+    "regression-null-roundtrip": {
+      "src/modules/harness_fixture/backend/edit/page.tsx": "import { CrudForm } from '@open-mercato/ui/backend/CrudForm'\n\nexport function EditFixture({ record }: { record: { note?: string } }) {\n  const initialValues = { note: record.note ?? '' }\n  return <CrudForm initialValues={initialValues} fields={[]} onSubmit={async () => undefined} />\n}\n"
+    },
+    "regression-cursor-advance": {
+      "src/modules/harness_fixture/workers/sync.ts": "export async function syncPage(state: { cursor?: string }, provider: any) {\n  state.cursor = provider.nextCursor\n  return provider.fetchPage(state.cursor)\n}\n"
+    }
+  }
+}

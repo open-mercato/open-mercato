@@ -179,7 +179,7 @@ function pathReferenceExists(root, reference) {
   return fs.existsSync(path.resolve(root, reference))
 }
 
-function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, routingResponseSchema }) {
+function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds, routingResponseSchema }) {
   const errorsByCase = new Map(cases.map((item) => [item?.id ?? '<missing-id>', []]))
   const globalErrors = []
   const add = (id, message) => {
@@ -195,6 +195,15 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, routi
   if (JSON.stringify(registry?.catalog?.writableCaseIds) !== JSON.stringify(WRITABLE_CASE_IDS)) globalErrors.push('validator registry writable set must be the fixed 16 cases')
   const schemaRoutes = routingResponseSchema?.properties?.selectedRouter?.items?.enum
   if (JSON.stringify(schemaRoutes) !== JSON.stringify([...ROUTERS])) globalErrors.push('routing response schema must expose every router ID in canonical order')
+  const fixtureIds = Object.keys(fixtures?.fixtures ?? {}).sort()
+  const seedIds = Object.keys(seeds?.fixtures ?? {}).sort()
+  if (JSON.stringify(seedIds) !== JSON.stringify(fixtureIds)) globalErrors.push('fixture seeds must cover every declared fixture exactly once')
+  for (const fixtureId of fixtureIds) {
+    const declared = [...(fixtures.fixtures[fixtureId]?.seededArtifacts ?? [])].sort()
+    const seeded = Object.keys(seeds?.fixtures?.[fixtureId] ?? {}).sort()
+    if (JSON.stringify(seeded) !== JSON.stringify(declared)) globalErrors.push(`fixture seed paths differ from declaration: ${fixtureId}`)
+    if (Object.values(seeds?.fixtures?.[fixtureId] ?? {}).some((content) => typeof content !== 'string')) globalErrors.push(`fixture seed content must be text: ${fixtureId}`)
+  }
   const ids = cases.map((item) => item?.id)
   if (new Set(ids).size !== ids.length) globalErrors.push('case IDs must be unique')
   const idSet = new Set(ids)
@@ -672,10 +681,11 @@ function main() {
     const registry = readJson(path.join(harnessDir, 'validators.json'))
     const releaseMatrix = readJson(path.join(harnessDir, 'release-matrix.json'))
     const fixtures = readJson(path.join(harnessDir, 'fixtures', 'index.json'))
+    const seeds = readJson(path.join(harnessDir, 'fixtures', 'seeds.json'))
     readJson(path.join(harnessDir, 'cases.schema.json'))
     readJson(path.join(harnessDir, 'result.schema.json'))
     const routingResponseSchema = readJson(path.join(harnessDir, 'routing-response.schema.json'))
-    const validation = validateCatalog({ root, cases, registry, releaseMatrix, fixtures, routingResponseSchema })
+    const validation = validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds, routingResponseSchema })
     const selected = selectCases(cases, options, releaseMatrix)
     if (!options.runner) return deterministicRun(selected, validation)
     const catalogFailures = [...validation.globalErrors, ...selected.flatMap((item) => validation.errorsByCase.get(item.id) ?? [])]
