@@ -6,7 +6,7 @@ Build this standalone extension of installed Open Mercato packages. Route before
 
 - **MUST route before coding** — match all rows in the three-axis router; when a routed file is missing, run `yarn mercato agentic:init` and retry.
 - **MUST keep framework packages read-only** — app code belongs in `src/modules/<id>/`; use `om-framework-context` to inspect exact installed source and instructions.
-- **MUST preserve scope** — every tenant-owned read, write, cache key, job, event, and external mapping carries both `tenantId` and `organizationId` and fails closed when either is unavailable.
+- **MUST preserve the host scope contract** — organization-owned business data requires trusted `tenantId` + `organizationId` and fails closed when either is unavailable. Tenant-wide/system scope is allowed only when the installed contract explicitly declares it (for example `organizationId: null`) and must never widen access to organization-scoped data.
 - **MUST use canonical primitives** — commands for domain writes, `makeCrudRoute` for CRUD APIs, `CrudForm`/`DataTable` for admin CRUD, DI for services, events for cross-module side effects, and UMES for installed-module customization.
 - **MUST use the canonical paths** — entities live in `src/modules/<id>/data/entities.ts`; API handlers live under `api/**/route.ts` and export per-method `metadata` plus `openApi`.
 - **MUST preserve editable records** — new user-editable entities expose `updated_at`/`updatedAt`; custom update/delete clients send the record version and surface 409 conflicts.
@@ -63,11 +63,11 @@ Choose every changed area first; this determines ownership and concept contracts
 | `module-data` | New business/domain capability owned by this app | `src/modules/<id>/`; `.ai/guides/architecture.md` and `.ai/guides/contracts.md` |
 | `umes` | Additive or supported replacement of installed behavior | App extension and/or `src/modules.ts`; `.ai/guides/extensions.md`; target facts |
 | `backend-ui` | Admin, public, portal, form, table, detail, menu, translation, or component | Owning app module; `.ai/guides/backend-ui.md`; host facts when injecting |
-| `integration` | Email, shipping, payment, sync, webhook, storage, import/export, or external API | Provider package when reusable, else owning app module; `.ai/guides/integrations.md` |
+| `integration` | Email, shipping, payment, sync, webhook, storage, import/export, or external API | Owning app module by default; separately published package/repo only for explicitly reusable delivery; `.ai/guides/integrations.md` |
 | `ai-workflow` | AI agent/tool/orchestrator or durable workflow | Owning app module; `.ai/guides/ai-workflows.md`; target facts when extending |
 | `debugging` | Bug, security issue, generated drift, or runtime inconsistency | Existing owning call site; `.ai/guides/testing-debugging.md`; affected areas |
 
-Defaults: app domains live in `src/modules/<id>/`; installed customization uses UMES/overrides; reusable providers are packages; inspect and ask before ejecting. `node_modules` stays read-only.
+Defaults: app domains and app-specific providers live in `src/modules/<id>/`; installed customization uses UMES/overrides. A reusable provider is a separately published dependency, not an undeclared `packages/*` workspace; ask before changing repository topology. Inspect and ask before ejecting. `node_modules` stays read-only.
 
 ### Axis 2 — Work Units and Primitives
 

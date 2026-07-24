@@ -5,7 +5,7 @@ Use this guide for entities, APIs, commands, scoping, compatibility, migrations,
 ## Entity and Scope Contract
 
 - Define entity classes together in `src/modules/<id>/data/entities.ts`; import decorators from `@mikro-orm/decorators/legacy` and ORM types from the installed MikroORM package.
-- Give tenant-owned rows `tenant_id` and `organization_id` columns plus a composite index suitable for their common filters. Derive scope from authenticated context, never request payloads.
+- Give organization-owned business rows `tenant_id` and `organization_id` columns plus a composite index suitable for their common filters. Derive scope from authenticated context, never request payloads. Preserve an installed tenant-wide/system contract only when it explicitly authorizes nullable organization scope; such code must not widen into organization-owned data.
 - Give new user-editable rows `updated_at` with create/update behavior. Return it as `updatedAt` from list/detail APIs.
 - Use UUID primary keys, explicit scalar FK IDs, and module-prefixed plural table names. Do not create cross-module ORM relations.
 - Store sensitive/PII fields through `encryption.ts` `defaultEncryptionMaps`; use the framework decryption find helpers with both scope IDs. Add a deterministic hash sibling only when equality lookup requires it.
@@ -76,7 +76,7 @@ Reject malformed ID lists and filters explicitly. Preserve existing response key
 - Declare notification types/renderers/handlers through their registries; keep notification IDs stable and ACL-aware.
 - Give every worker metadata, an idempotent handler, bounded concurrency/retry behavior, scoped payloads, and commands for domain writes. Use `ProgressJob` for user-visible bulk/long work.
 - Configure `search.ts`; use deterministic convergence polling or reindex assertions rather than arbitrary sleeps.
-- Resolve cache through DI, use tenant/org/entity tags, and invalidate every successful write/undo/sub-resource path after commit.
+- Resolve cache through DI and mirror the host scope in keys/tags: tenant+organization for organization-owned data, or an explicitly authorized tenant-wide key for tenant-wide state. Invalidate every successful write/undo/sub-resource path after commit.
 - Add module CLI commands through the discovery contract and test the compiled package path, not only TypeScript source.
 
 ## Frozen Surfaces

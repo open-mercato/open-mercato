@@ -44,7 +44,7 @@ Use typed module contracts for product AI and the workflow engine for durable bu
 - Resolve workflow services through DI and start instances through `workflowExecutor`. Do not insert instances or skip the execution loop.
 - Preserve workflow and step state machines. Record every transition in the immutable workflow event log.
 - Make activity handlers idempotent: they can be retried. Use the command bus for entity updates and events/signals for cross-module coupling.
-- Scope definitions, instances, tasks, activity state, and queries by tenant/organization.
+- Preserve each installed workflow/job scope contract. Organization-owned instances, tasks, activity state, and queries require tenant+organization and fail closed. Explicit tenant-wide/system definitions or scheduler jobs may carry `organizationId: null`, but each access to organization-owned data must derive and enforce that item's organization.
 - Use event triggers with filters, context mapping, debounce, and max concurrency. Exclude self/internal storms.
 - Keep compensation reverse-ordered and idempotent; test failure during both forward and compensation paths.
 

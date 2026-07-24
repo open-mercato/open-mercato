@@ -8,12 +8,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const installerPath = fileURLToPath(new URL('../../agentic/shared/scripts/install-skills.mjs', import.meta.url))
 const installer = await import(pathToFileURL(installerPath).href) as {
+  assertExternalDestinationsReplaceable: (root: string, external: Record<string, unknown>) => void
   externalCliInvocation: (
     external: { cli: { package: string; version: string }; skills: string[] },
     sourceDir: string,
     platform?: string,
   ) => { executable: string; args: string[] }
   runInstaller: (options: Record<string, unknown>) => Promise<number>
+  hashSkillDirectory: (root: string) => string
 }
 
 const HASH = `sha256:${'0'.repeat(64)}`
@@ -185,6 +187,70 @@ test('manifest dependency closure fails before any links are written', () => {
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /requires missing 'om-setup-agent-pipeline'/)
     assert.equal(fs.existsSync(path.join(root, '.agents')), false)
+  } finally {
+    removeFixture(root)
+  }
+})
+
+test('external installation refuses and preserves an unknown real skill directory', () => {
+  const root = fixture()
+  const skillDir = path.join(root, '.agents', 'skills', 'om-code-review')
+  try {
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# user owned\n')
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, '.ai', 'skills', 'tiers.json'), 'utf8')) as {
+      external: Record<string, unknown>
+    }
+
+    assert.throws(
+      () => installer.assertExternalDestinationsReplaceable(root, manifest.external),
+      /refusing to replace unowned external skill directory/,
+    )
+    assert.equal(fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8'), '# user owned\n')
+  } finally {
+    removeFixture(root)
+  }
+})
+
+test('an offline pin change removes stale managed skills from canonical discovery without deleting them', () => {
+  const root = fixture()
+  const skillDir = path.join(root, '.agents', 'skills', 'om-code-review')
+  try {
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# previously installed\n')
+    const actual = installer.hashSkillDirectory(skillDir)
+    fs.writeFileSync(path.join(root, '.agents', 'skills', '.om-external-ownership.json'), `${JSON.stringify({
+      version: 1,
+      source: 'open-mercato/skills',
+      ref: 'a'.repeat(40),
+      skills: { 'om-code-review': actual },
+    }, null, 2)}\n`)
+
+    const result = run(root, '--no-external')
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(fs.existsSync(skillDir), false)
+    assert.equal(fs.readFileSync(path.join(root, '.agents', 'skills-quarantine', 'om-code-review', 'SKILL.md'), 'utf8'), '# previously installed\n')
+    assert.match(result.stderr, /quarantined stale or modified managed skill/)
+  } finally {
+    removeFixture(root)
+  }
+})
+
+test('a pre-ledger mismatched external directory is quarantined on the first offline run', () => {
+  const root = fixture()
+  const skillDir = path.join(root, '.agents', 'skills', 'om-code-review')
+  try {
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# old unverified install\n')
+
+    const result = run(root, '--no-external')
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(fs.existsSync(skillDir), false)
+    assert.equal(
+      fs.readFileSync(path.join(root, '.agents', 'skills-quarantine', 'unowned-om-code-review', 'SKILL.md'), 'utf8'),
+      '# old unverified install\n',
+    )
+    assert.match(result.stderr, /quarantined unverified pre-ledger skill/)
   } finally {
     removeFixture(root)
   }

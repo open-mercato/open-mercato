@@ -274,7 +274,7 @@ Every case is evaluated against a fresh standalone scaffold. Cases 57–70 are m
 16. Add a customer-portal page with `[orgSlug]`, customer auth/features, and portal navigation.
 17. Configure full-text/token/vector search and verify reindex behavior.
 18. Add typed events plus synchronous and asynchronous idempotent subscribers.
-19. Add an idempotent worker with retry/concurrency and optional progress reporting.
+19. Add an idempotent explicitly tenant-wide scheduler worker with retry/concurrency/progress while preserving the installed nullable-organization contract and isolating organization-owned data.
 20. Add notification types, renderers, and reactive client handlers.
 21. Add tenant-tagged cache reads and write-path invalidation.
 22. Add a module CLI command that works from published compiled packages.
@@ -300,7 +300,7 @@ Every case is evaluated against a fresh standalone scaffold. Cases 57–70 are m
 
 ### Integrations and providers
 
-39. Build an email integration with encrypted credentials, connection test, health, retry, and logs.
+39. Build an app-local email integration with encrypted credentials, connection test, health, retry, and logs; do not invent a workspace, and branch to a separately published package only when reuse is explicit.
 40. Build a shipping/carrier method using the provider package pattern.
 41. Build a payment gateway with idempotent/concurrency-safe sessions, redacted errors, and versioned adapters.
 42. Build a Magento-like `DataSyncAdapter` package with DI, settings UI, mappings, health, presets, and rerun idempotency.
@@ -560,3 +560,5 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 - **2026-07-24** — Source-audited those catalogs against current generators/types/docs; added vector and locale discovery, query/sync/reactive/DOM/integration mechanisms, additive AI overrides, exact registry keys, portal frozen IDs, and corrected design-system exceptions.
 - **2026-07-24** — Fresh-context and pre-implementation reviews split routing evidence from writable implementation/regression oracles, pinned the external collection, defined concern-specific instruction precedence, added ownership state transitions, expanded all 14 BC assertions, and made create-app/CLI snapshot and installer call-site parity explicit.
 - **2026-07-24** — Added a fail-closed writable-fixture materializer with exact case-bound markers, seed-to-write-scope validation, controller-target isolation, and executable regression seeds for the 16-case implementation matrix.
+- **2026-07-24** — Restored standalone provider placement (local module by default, separately published dependency for explicit reuse) and scope-contract nuance for authorized tenant-wide/system jobs without weakening organization-owned data isolation.
+- **2026-07-24** — Reviewer hardening made duplicate module-fact providers fail closed unless `src/modules.ts` selects one exact package; framework context now recognizes dist-only roots, compares fact package and version stamps, validates materialization path segments, and emits deterministic globally capped search artifacts with explicit status.

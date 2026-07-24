@@ -1369,16 +1369,17 @@
   },
   {
     "id": "OMH-019",
-    "title": "Add an idempotent background worker with retry, concurrency, and progress",
+    "title": "Add an explicitly tenant-wide scheduler worker without widening organization data",
     "family": "module",
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add an idempotent background worker with retry, concurrency, and progress. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add an idempotent tenant-wide scheduler worker whose installed contract explicitly uses organizationId: null. Preserve that host scope, use bounded retry/concurrency and progress, and prove it cannot access organization-owned records without deriving each item's trusted organization. Keep framework packages read-only and identify the smallest relevant validation.",
     "tags": [
       "module",
       "module-data",
-      "worker-idempotency"
+      "worker-idempotency",
+      "tenant-wide-authorized-scope"
     ],
     "owner": {
       "kind": "skill",
@@ -1415,7 +1416,9 @@
     "requiredDecisions": [
       "worker-idempotency",
       "bounded-concurrency",
-      "progress"
+      "progress",
+      "host-scope-contract",
+      "organization-data-isolation"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -2895,15 +2898,16 @@
   },
   {
     "id": "OMH-039",
-    "title": "Build an email integration with encrypted credentials, health, retry, and logs",
+    "title": "Build an app-local email integration with encrypted credentials, health, retry, and logs",
     "family": "integration",
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, build an email integration with encrypted credentials, health, retry, and logs. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, build an app-specific Gmail/email integration with encrypted credentials, health, retry, and logs. Put it in the standalone app's local module path instead of inventing a packages workspace; separately published packaging requires an explicit reuse decision. Use installed-package contracts, keep framework packages read-only, preserve the declared credential/data scope, and identify the smallest relevant validation.",
     "tags": [
       "integration",
-      "encrypted-credentials"
+      "encrypted-credentials",
+      "standalone-local-provider"
     ],
     "owner": {
       "kind": "skill",
@@ -2940,7 +2944,8 @@
     },
     "requiredDecisions": [
       "encrypted-credentials",
-      "health-retry-redaction"
+      "health-retry-redaction",
+      "standalone-provider-location"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",

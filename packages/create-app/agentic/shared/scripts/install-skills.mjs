@@ -34,6 +34,7 @@ const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/
 const COMMIT_PATTERN = /^[a-f0-9]{40}$/
 const ARCHIVE_LIMIT_BYTES = 32 * 1024 * 1024
 const EXTRACTED_LIMIT_BYTES = 256 * 1024 * 1024
+const EXTERNAL_OWNERSHIP_FILE = '.om-external-ownership.json'
 
 const USAGE = `Usage: install-skills.mjs [options]
 
@@ -352,6 +353,100 @@ export function hashSkillDirectory(root) {
   return `sha256:${hash.digest('hex')}`
 }
 
+function externalOwnershipPath(rootDir) {
+  return join(rootDir, '.agents', 'skills', EXTERNAL_OWNERSHIP_FILE)
+}
+
+function readExternalOwnership(rootDir) {
+  const ledgerPath = externalOwnershipPath(rootDir)
+  if (!existsSync(ledgerPath)) return null
+  let ledger
+  try {
+    ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'))
+  } catch (error) {
+    fail(`cannot parse external skill ownership ledger: ${error.message}`)
+  }
+  if (ledger?.version !== 1 || typeof ledger.source !== 'string' || !COMMIT_PATTERN.test(ledger.ref ?? '') || !ledger.skills || typeof ledger.skills !== 'object') {
+    fail('external skill ownership ledger is invalid')
+  }
+  for (const [skill, hash] of Object.entries(ledger.skills)) {
+    if (!/^[a-z0-9][a-z0-9._-]*$/.test(skill) || !SHA256_PATTERN.test(hash)) fail('external skill ownership ledger is invalid')
+  }
+  return ledger
+}
+
+function writeExternalOwnership(rootDir, external, skills = undefined) {
+  const ledgerPath = externalOwnershipPath(rootDir)
+  mkdirSync(dirname(ledgerPath), { recursive: true })
+  const temporary = `${ledgerPath}.tmp-${process.pid}-${Date.now()}`
+  const ledger = {
+    version: 1,
+    source: external.source,
+    ref: external.ref,
+    skills: skills ?? Object.fromEntries(external.skills.map((skill) => [skill, external.contentHashes[skill]])),
+  }
+  try {
+    writeFileSync(temporary, `${JSON.stringify(ledger, null, 2)}\n`, { mode: 0o600 })
+    renameSync(temporary, ledgerPath)
+  } finally {
+    rmSync(temporary, { force: true })
+  }
+}
+
+function uniqueQuarantinePath(rootDir, skill) {
+  const quarantineRoot = join(rootDir, '.agents', 'skills-quarantine')
+  mkdirSync(quarantineRoot, { recursive: true })
+  for (let suffix = 1; ; suffix += 1) {
+    const candidate = join(quarantineRoot, suffix === 1 ? skill : `${skill}.${suffix}`)
+    if (!lstatSync(candidate, { throwIfNoEntry: false })) return candidate
+  }
+}
+
+export function reconcileExternalSkillVisibility(rootDir, external) {
+  const ledger = readExternalOwnership(rootDir)
+  const canonicalDir = join(rootDir, '.agents', 'skills')
+  const quarantined = []
+  const active = {}
+  const names = unique([...Object.keys(ledger?.skills ?? {}), ...external.skills])
+  for (const skill of names) {
+    const skillDir = join(canonicalDir, skill)
+    const entry = lstatSync(skillDir, { throwIfNoEntry: false })
+    if (!entry) continue
+    const actual = entry.isDirectory() ? hashSkillDirectory(skillDir) : 'non-directory'
+    const expected = external.skills.includes(skill) ? external.contentHashes[skill] : undefined
+    if (actual === expected) {
+      active[skill] = expected
+      continue
+    }
+    const previouslyOwned = Object.hasOwn(ledger?.skills ?? {}, skill)
+    const quarantinePath = uniqueQuarantinePath(rootDir, previouslyOwned ? skill : `unowned-${skill}`)
+    renameSync(skillDir, quarantinePath)
+    quarantined.push({ skill, path: quarantinePath, actual, expected: expected ?? 'removed from manifest', previouslyOwned })
+  }
+  if (ledger || Object.keys(active).length > 0) writeExternalOwnership(rootDir, external, active)
+  return quarantined
+}
+
+export function assertExternalDestinationsReplaceable(rootDir, external) {
+  const ledger = readExternalOwnership(rootDir)
+  const aiSkillsDir = join(rootDir, '.ai', 'skills')
+  const canonicalDir = join(rootDir, '.agents', 'skills')
+  for (const skill of external.skills) {
+    const destination = join(canonicalDir, skill)
+    const existing = lstatSync(destination, { throwIfNoEntry: false })
+    if (!existing) continue
+    if (existing.isSymbolicLink()) {
+      if (!isHarnessOwnedLink(destination, aiSkillsDir, canonicalDir)) fail(`refusing to replace user-owned link ${destination}`)
+      continue
+    }
+    if (!existing.isDirectory()) fail(`refusing to replace user-owned path ${destination}`)
+    const actual = hashSkillDirectory(destination)
+    const previouslyOwned = ledger?.skills?.[skill] === actual
+    const alreadyPinned = external.contentHashes[skill] === actual
+    if (!previouslyOwned && !alreadyPinned) fail(`refusing to replace unowned external skill directory ${destination}`)
+  }
+}
+
 async function installExternal(rootDir, external, platform, spawn, fetchImpl) {
   let downloaded
   try {
@@ -375,16 +470,7 @@ async function installExternal(rootDir, external, platform, spawn, fetchImpl) {
     const aiSkillsDir = join(rootDir, '.ai', 'skills')
     const canonicalDir = join(rootDir, '.agents', 'skills')
     prepareLinkDirectory(canonicalDir, aiSkillsDir, canonicalDir)
-    for (const skill of external.skills) {
-      const destination = join(canonicalDir, skill)
-      const existing = lstatSync(destination, { throwIfNoEntry: false })
-      if (existing?.isSymbolicLink() && !isHarnessOwnedLink(destination, aiSkillsDir, canonicalDir)) {
-        fail(`refusing to replace user-owned link ${destination}`)
-      }
-      if (existing && !existing.isDirectory() && !existing.isSymbolicLink()) {
-        fail(`refusing to replace user-owned path ${destination}`)
-      }
-    }
+    assertExternalDestinationsReplaceable(rootDir, external)
     const nonce = `${process.pid}-${Date.now()}`
     for (const skill of external.skills) {
       const destination = join(canonicalDir, skill)
@@ -405,6 +491,7 @@ async function installExternal(rootDir, external, platform, spawn, fetchImpl) {
         rmSync(stagedDestination, { recursive: true, force: true })
       }
     }
+    writeExternalOwnership(rootDir, external)
     return `installed ${external.source}@${external.ref}`
   } finally {
     if (downloaded?.tempRoot) rmSync(downloaded.tempRoot, { recursive: true, force: true })
@@ -498,6 +585,11 @@ export async function runInstaller({
   for (const agent of ignoredAgents) if (!KNOWN_AGENTS.includes(agent)) fail(`unknown agent '${agent}'; valid agents: ${KNOWN_AGENTS.join(', ')}`)
   const tiers = selectedTiers(manifest, options)
   const localSkills = selectedLocalSkills(manifest, tiers)
+  const quarantined = reconcileExternalSkillVisibility(rootDir, manifest.external)
+  for (const item of quarantined) {
+    const ownership = item.previouslyOwned ? 'stale or modified managed' : 'unverified pre-ledger'
+    console.warn(`install-skills: quarantined ${ownership} skill '${item.skill}' outside agent discovery: ${item.path}`)
+  }
   let externalStatus = 'skipped (--no-external)'
   if (!options.noExternal) {
     try {

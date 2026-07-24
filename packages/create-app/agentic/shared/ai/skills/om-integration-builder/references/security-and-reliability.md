@@ -2,7 +2,7 @@
 
 Load this reference for every external provider.
 
-- Encrypt credentials through host services. Thread per-user scope on every per-user read/write; tenant-wide scope never sees those rows.
+- Encrypt credentials through host services. Thread per-user scope on every per-user read/write. Tenant-wide scope is valid only when the installed provider/job contract declares it; it never sees per-user or organization-owned rows without deriving their narrower trusted scope.
 - Validate configurable URLs for SSRF, redirects, private networks, protocols, and DNS. Bound request/response size and timeout.
 - Redact headers/tokens/credentials/signed URLs/sensitive bodies from logs, events, errors, and fixtures.
 - Verify inbound signatures on raw body with timestamp/replay limits; make duplicates idempotent.

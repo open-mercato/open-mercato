@@ -1,6 +1,6 @@
 # Integration and Provider Engineering
 
-Build reusable providers as dedicated packages/modules around generic integration, data-sync, webhook, queue, and progress contracts. Never place provider-specific behavior inside a generic host module.
+Build provider-owned modules around generic integration, data-sync, webhook, queue, and progress contracts. Never place provider-specific behavior inside a generic host module.
 
 ## Provider Family Selector
 
@@ -16,16 +16,18 @@ Build reusable providers as dedicated packages/modules around generic integratio
 
 ## Package and Activation
 
-- Use a dedicated workspace/npm package for an external provider. Declare compatible peer/runtime dependencies, public exports, build/prepack output, and module discovery files.
+- In this standalone repository, put an app-specific provider under `src/modules/<provider>/` and activate it through `src/modules.ts`. Do not invent a `packages/*` workspace: the scaffold has no workspace topology.
+- When the user explicitly needs reuse across applications, build a separately published provider package/repository with compatible peer/runtime dependencies, public exports, build/prepack output, and module discovery files; install its packed artifact as an app dependency.
+- Ask before changing repository topology or adding the production dependency. Keep packed-consumer validation on the reusable-package branch only.
 - Register provider services through DI and use an `integration.ts` definition for credentials, health, versions, bundle membership, and detail-page extension spot.
-- Enable the package in the consumer dependency set and `src/modules.ts`; test the published/packed artifact, not only workspace source.
+- Enable the local module or installed package in `src/modules.ts`. For the reusable branch, test the published/packed artifact, not only package source.
 - Keep provider env names prefixed and stable. Apply optional deployment presets from provider-owned `setup.ts` through normal services, with an idempotent rerun CLI when practical.
 - Do not preconfigure a provider from core/app bootstrap unless the provider package owns that code.
 
 ## Credentials and Security
 
 - Store credentials through the integrations credential service/encryption maps; never log raw values or return secrets to list/detail APIs.
-- Thread `userId` on every read and write for per-user integrations; omit it consistently for tenant-wide credentials.
+- Declare the host credential/mapping scope. Thread `userId` on every per-user read/write. Tenant-wide credentials or scheduled jobs may use the installed contract's explicit tenant scope (including `organizationId: null`), but must never read or mutate organization-owned rows without deriving and checking an organization for that item.
 - Validate external base URLs against SSRF rules, including redirects and DNS/private ranges. Permit private endpoints only through an explicit development setting.
 - Redact authorization headers, tokens, signed URLs, provider payload secrets, and sensitive response bodies from errors and logs.
 - Verify inbound signatures against the raw body, enforce timestamp/replay bounds, and make duplicate delivery idempotent.
