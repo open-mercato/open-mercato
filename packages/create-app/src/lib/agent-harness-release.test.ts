@@ -8,10 +8,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const releaseScript = fileURLToPath(new URL('../../agentic/shared/scripts/run-agent-harness-release.mjs', import.meta.url))
 const releaseSchema = fileURLToPath(new URL('../../agentic/shared/ai/harness/release-result.schema.json', import.meta.url))
+const targetValidationSchema = fileURLToPath(new URL('../../agentic/shared/ai/harness/target-validation-result.schema.json', import.meta.url))
 const release = await import(pathToFileURL(releaseScript).href) as {
   buildReleasePlan: (input: Record<string, unknown>) => any
   aggregateQualityMetrics: (results: any[]) => any
   sanitizeReportText: (value: string, roots?: string[]) => string
+  prepareWritableTargets: (input: { root: string; prepareRoot: string; caseIds: string[] }) => { schemaVersion: number; targets: Record<string, string> }
+  resolvePreparationRoot: (requested: string, controllerRoot: string) => string
+  runTargetValidationSteps: (input: { steps: any[]; target: string; timeout: number; roots: string[]; yarnCommand: string }) => any[]
 }
 
 function releaseInputs() {
@@ -75,9 +79,74 @@ test('release plan derives every count and command from catalog and matrix data'
     'deterministic:all',
     'validation:generate', 'validation:typecheck', 'validation:lint', 'validation:build',
     'routing:codex', 'routing:claude',
-    'fixture:OMH-002', 'writable:OMH-002', 'review:OMH-002',
+    'fixture:OMH-002', 'writable:OMH-002',
+    'target-validation:OMH-002:generate', 'target-validation:OMH-002:typecheck', 'target-validation:OMH-002:lint', 'target-validation:OMH-002:build',
+    'review:OMH-002',
     'fixture:OMH-003', 'writable:OMH-003',
+    'target-validation:OMH-003:generate', 'target-validation:OMH-003:typecheck', 'target-validation:OMH-003:lint', 'target-validation:OMH-003:build',
   ])
+})
+
+test('automatic target preparation clones only fresh source inputs and safely shares installed dependencies', { skip: process.platform === 'win32' }, () => {
+  const controller = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-source-')))
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-target-parent-')))
+  const prepareRoot = path.join(parent, 'targets')
+  fs.mkdirSync(path.join(controller, 'src'), { recursive: true })
+  fs.mkdirSync(path.join(controller, 'node_modules', 'example'), { recursive: true })
+  fs.mkdirSync(path.join(controller, '.ai', 'harness', 'results'), { recursive: true })
+  fs.mkdirSync(path.join(controller, '.ai', 'framework-context'), { recursive: true })
+  fs.mkdirSync(path.join(controller, 'build'), { recursive: true })
+  fs.writeFileSync(path.join(controller, 'package.json'), '{}\n')
+  fs.writeFileSync(path.join(controller, 'src', 'modules.ts'), 'export default []\n')
+  fs.writeFileSync(path.join(controller, '.ai', 'harness', 'cases.json'), '[]\n')
+  fs.writeFileSync(path.join(controller, '.ai', 'harness', 'results', 'old.json'), '{}\n')
+  fs.writeFileSync(path.join(controller, '.ai', 'framework-context', 'old.txt'), 'context\n')
+  fs.writeFileSync(path.join(controller, 'build', 'old.js'), 'build\n')
+  fs.writeFileSync(path.join(controller, 'README.md'), 'fresh\n')
+  try {
+    const manifest = release.prepareWritableTargets({ root: controller, prepareRoot, caseIds: ['OMH-002', 'OMH-003'] })
+    assert.deepEqual(Object.keys(manifest.targets), ['OMH-002', 'OMH-003'])
+    const target = manifest.targets['OMH-002']
+    assert.equal(fs.readFileSync(path.join(target, 'README.md'), 'utf8'), 'fresh\n')
+    assert.equal(fs.existsSync(path.join(target, 'build')), false)
+    assert.equal(fs.existsSync(path.join(target, '.ai', 'harness', 'results')), false)
+    assert.equal(fs.existsSync(path.join(target, '.ai', 'framework-context')), false)
+    assert.equal(fs.lstatSync(path.join(target, 'node_modules')).isSymbolicLink(), true)
+    assert.equal(fs.realpathSync(path.join(target, 'node_modules')), fs.realpathSync(path.join(controller, 'node_modules')))
+    fs.writeFileSync(path.join(target, 'README.md'), 'changed\n')
+    assert.equal(fs.readFileSync(path.join(controller, 'README.md'), 'utf8'), 'fresh\n')
+    assert.throws(() => release.resolvePreparationRoot(prepareRoot, controller), /must be empty/)
+    assert.throws(() => release.resolvePreparationRoot(path.join(controller, 'unsafe-targets'), controller), /separate from the controller/)
+    const linkedRoot = path.join(parent, 'linked-targets')
+    fs.symlinkSync(controller, linkedRoot, 'dir')
+    assert.throws(() => release.resolvePreparationRoot(linkedRoot, controller), /regular directory/)
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true })
+    fs.rmSync(controller, { recursive: true, force: true })
+  }
+})
+
+test('every target validation command runs and failures retain actionable sanitized diagnostics', { skip: process.platform === 'win32' }, () => {
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-')))
+  const fakeYarn = path.join(target, 'fake-yarn')
+  fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
+const fs = require('node:fs')
+fs.appendFileSync('calls.txt', process.argv[2] + '\\n')
+if (process.argv[2] === 'lint') { console.error('lint rule failed in ' + process.cwd()); process.exit(7) }
+`)
+  fs.chmodSync(fakeYarn, 0o755)
+  const commands = ['generate', 'typecheck', 'lint', 'build'].map((name) => ({
+    id: `target-validation:OMH-002:${name}`, kind: 'target-validation', caseId: 'OMH-002', command: `yarn ${name}`,
+  }))
+  try {
+    const results = release.runTargetValidationSteps({ steps: commands, target, timeout: 10_000, roots: [target], yarnCommand: fakeYarn })
+    assert.deepEqual(fs.readFileSync(path.join(target, 'calls.txt'), 'utf8').trim().split('\n'), ['generate', 'typecheck', 'lint', 'build'])
+    assert.deepEqual(results.map((entry) => entry.status), ['pass', 'pass', 'fail', 'pass'])
+    assert.equal(results[2].command, 'yarn lint')
+    assert.match(results[2].sanitizedError, /lint rule failed in <redacted-path>/)
+  } finally {
+    fs.rmSync(target, { recursive: true, force: true })
+  }
 })
 
 test('standalone template exposes the documented one-command release entrypoint', () => {
@@ -136,6 +205,7 @@ test('release command fails closed before execution and stores a sanitized exact
   fs.writeFileSync(path.join(harness, 'validators.json'), JSON.stringify(input.registry))
   fs.writeFileSync(path.join(harness, 'release-matrix.json'), JSON.stringify(input.releaseMatrix))
   fs.copyFileSync(releaseSchema, path.join(harness, 'release-result.schema.json'))
+  fs.copyFileSync(targetValidationSchema, path.join(harness, 'target-validation-result.schema.json'))
   fs.writeFileSync(path.join(harness, 'fixtures', 'index.json'), JSON.stringify(input.fixtures))
   fs.writeFileSync(path.join(harness, 'fixtures', 'seeds.json'), JSON.stringify(input.seeds))
   const targetsPath = path.join(root, 'targets-secret.json')

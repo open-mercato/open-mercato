@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -13,22 +14,32 @@ const ALLOWED_VALIDATION_COMMANDS = new Set(['yarn generate', 'yarn typecheck', 
 const RESULT_LIMIT = 262_144
 const ERROR_LIMIT = 2_000
 const VIOLATION_LIMIT = 300
+const COPY_EXCLUDED_PREFIXES = [
+  '.git', '.next', '.turbo', '.cache', 'build', 'coverage', 'dist', 'node_modules', 'out',
+  '.ai/framework-context', '.ai/harness/results', '.ai/reports',
+]
+const SNAPSHOT_IGNORES = new Set(['.git', '.next', 'dist', 'node_modules'])
 
 function usage() {
   return `Run the complete standalone agent-harness release gate.
 
 Usage:
+  yarn harness:release --prepare-targets /absolute/empty-directory --acknowledge-writes
   yarn harness:release --writable-targets /absolute/release-targets.json --acknowledge-writes
 
 Options:
   --root <absolute-app>          Controller/generated app root (default: current directory)
+  --prepare-targets <absolute>   Clone this fresh scaffold once per writable case under an empty/new directory
   --writable-targets <absolute> JSON map of every writable case to a fresh disposable app
   --case-timeout <ms>           Per-model invocation timeout (default: 120000)
   --validation-timeout <ms>     Timeout for each yarn validation (default: 1800000)
   --acknowledge-writes          Required: fixture preparation and validation commands write files
   --help                        Show this help
 
-The command preflights complete matrix, fixture, review, and target coverage before
+Exactly one target option is required. Automatic targets exclude dependencies, build
+outputs, harness results, and generated framework context, then safely reference the
+controller's protected dependency tree. The command preflights complete matrix,
+fixture, review, and target coverage before
 running deterministic validation, configured live routing, writable trusted-oracle
 gates, explicit om-code-review, and the release-matrix validation commands. It stores
 only a sanitized aggregate report under .ai/harness/results/.`
@@ -37,6 +48,7 @@ only a sanitized aggregate report under .ai/harness/results/.`
 function parseArgs(argv) {
   const options = {
     root: process.cwd(),
+    prepareTargets: undefined,
     writableTargets: undefined,
     caseTimeout: 120_000,
     validationTimeout: 1_800_000,
@@ -52,6 +64,7 @@ function parseArgs(argv) {
     }
     if (arg === '--help' || arg === '-h') options.help = true
     else if (arg === '--root') options.root = value()
+    else if (arg === '--prepare-targets') options.prepareTargets = value()
     else if (arg === '--writable-targets') options.writableTargets = value()
     else if (arg === '--case-timeout') options.caseTimeout = Number(value())
     else if (arg === '--validation-timeout') options.validationTimeout = Number(value())
@@ -60,7 +73,9 @@ function parseArgs(argv) {
   }
   if (options.help) return options
   if (!path.isAbsolute(options.root)) throw new Error('--root must be an absolute path')
-  if (!options.writableTargets || !path.isAbsolute(options.writableTargets)) throw new Error('--writable-targets must be an absolute path')
+  if (Boolean(options.prepareTargets) === Boolean(options.writableTargets)) throw new Error('pass exactly one of --prepare-targets or --writable-targets')
+  if (options.prepareTargets && !path.isAbsolute(options.prepareTargets)) throw new Error('--prepare-targets must be an absolute path')
+  if (options.writableTargets && !path.isAbsolute(options.writableTargets)) throw new Error('--writable-targets must be an absolute path')
   if (!options.acknowledgeWrites) throw new Error('the full release gate requires --acknowledge-writes')
   if (!Number.isInteger(options.caseTimeout) || options.caseTimeout < 1_000 || options.caseTimeout > 3_600_000) throw new Error('--case-timeout must be from 1000 to 3600000 milliseconds')
   if (!Number.isInteger(options.validationTimeout) || options.validationTimeout < 1_000 || options.validationTimeout > 7_200_000) throw new Error('--validation-timeout must be from 1000 to 7200000 milliseconds')
@@ -69,6 +84,126 @@ function parseArgs(argv) {
 
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'))
+}
+
+function sha256(value) {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+function isPathInside(parent, child) {
+  const relative = path.relative(parent, child)
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+}
+
+function normalizedRelative(root, absolute) {
+  return path.relative(root, absolute).replaceAll(path.sep, '/')
+}
+
+function copyPathExcluded(relative) {
+  return COPY_EXCLUDED_PREFIXES.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
+}
+
+function validateScaffoldCopySource(root) {
+  const realRoot = fs.realpathSync(root)
+  const visit = (directory) => {
+    for (const name of fs.readdirSync(directory).sort()) {
+      const source = path.join(directory, name)
+      const relative = normalizedRelative(realRoot, source)
+      if (copyPathExcluded(relative)) continue
+      const stat = fs.lstatSync(source)
+      if (stat.isSymbolicLink()) {
+        const resolved = fs.realpathSync(source)
+        const resolvedRelative = normalizedRelative(realRoot, resolved)
+        if (!isPathInside(realRoot, resolved) || copyPathExcluded(resolvedRelative)) {
+          throw new Error(`fresh scaffold contains an unsafe copied symlink: ${relative}`)
+        }
+      } else if (stat.isDirectory()) visit(source)
+      else if (!stat.isFile()) throw new Error(`fresh scaffold contains an unsupported entry: ${relative}`)
+    }
+  }
+  visit(realRoot)
+}
+
+function copyFreshScaffold(sourceRoot, targetRoot) {
+  const realSourceRoot = fs.realpathSync(sourceRoot)
+  const visit = (sourceDirectory, targetDirectory) => {
+    fs.mkdirSync(targetDirectory, { recursive: true, mode: 0o755 })
+    for (const name of fs.readdirSync(sourceDirectory).sort()) {
+      const source = path.join(sourceDirectory, name)
+      const relative = normalizedRelative(realSourceRoot, source)
+      if (copyPathExcluded(relative)) continue
+      const destination = path.join(targetDirectory, name)
+      const stat = fs.lstatSync(source)
+      if (stat.isDirectory()) visit(source, destination)
+      else if (stat.isFile()) {
+        fs.copyFileSync(source, destination, fs.constants.COPYFILE_FICLONE)
+        fs.chmodSync(destination, stat.mode & 0o777)
+      } else if (stat.isSymbolicLink()) {
+        const resolved = fs.realpathSync(source)
+        const resolvedRelative = normalizedRelative(realSourceRoot, resolved)
+        const target = path.join(targetRoot, resolvedRelative)
+        const type = fs.statSync(resolved).isDirectory() ? (process.platform === 'win32' ? 'junction' : 'dir') : 'file'
+        fs.symlinkSync(path.relative(path.dirname(destination), target), destination, type)
+      }
+    }
+  }
+  visit(realSourceRoot, targetRoot)
+}
+
+export function resolvePreparationRoot(requested, controllerRoot) {
+  if (!path.isAbsolute(requested)) throw new Error('--prepare-targets must be an absolute path')
+  const resolved = path.resolve(requested)
+  if (resolved === path.parse(resolved).root) throw new Error('--prepare-targets cannot be a filesystem root')
+  let actual
+  if (fs.existsSync(resolved)) {
+    const stat = fs.lstatSync(resolved)
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('--prepare-targets must be a regular directory')
+    if (fs.readdirSync(resolved).length) throw new Error('--prepare-targets must be empty')
+    actual = fs.realpathSync(resolved)
+  } else {
+    const parent = path.dirname(resolved)
+    if (!fs.existsSync(parent)) throw new Error('--prepare-targets parent directory must already exist')
+    const stat = fs.lstatSync(parent)
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('--prepare-targets parent must be a regular directory')
+    actual = path.join(fs.realpathSync(parent), path.basename(resolved))
+  }
+  const controller = fs.realpathSync(controllerRoot)
+  if (isPathInside(controller, actual) || isPathInside(actual, controller)) {
+    throw new Error('--prepare-targets must be separate from the controller app')
+  }
+  return actual
+}
+
+export function prepareWritableTargets({ root, prepareRoot, caseIds }) {
+  const controller = fs.realpathSync(root)
+  if (fs.existsSync(path.join(controller, '.ai', 'harness', 'DISPOSABLE'))) {
+    throw new Error('automatic target preparation requires an unmodified fresh controller scaffold')
+  }
+  const targetRoot = resolvePreparationRoot(prepareRoot, controller)
+  if (!Array.isArray(caseIds) || new Set(caseIds).size !== caseIds.length || caseIds.some((id) => !/^OMH-[0-9]{3}$/.test(id))) {
+    throw new Error('automatic writable target case IDs are invalid or duplicated')
+  }
+  const dependencyRoot = path.join(controller, 'node_modules')
+  let dependencyStat
+  try { dependencyStat = fs.lstatSync(dependencyRoot) } catch { throw new Error('controller node_modules is unavailable; run yarn install') }
+  if (!dependencyStat.isDirectory() || dependencyStat.isSymbolicLink()) throw new Error('controller node_modules must be a regular installed dependency directory')
+  validateScaffoldCopySource(controller)
+  if (!fs.existsSync(targetRoot)) fs.mkdirSync(targetRoot, { mode: 0o700 })
+  const targetRootStat = fs.lstatSync(targetRoot)
+  if (!targetRootStat.isDirectory() || targetRootStat.isSymbolicLink() || fs.readdirSync(targetRoot).length) {
+    throw new Error('automatic writable target root stopped being an empty regular directory')
+  }
+  const targets = {}
+  for (const caseId of caseIds) {
+    const target = path.join(targetRoot, caseId)
+    fs.mkdirSync(target, { mode: 0o700 })
+    copyFreshScaffold(controller, target)
+    fs.symlinkSync(dependencyRoot, path.join(target, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+    targets[caseId] = fs.realpathSync(target)
+  }
+  const manifest = { schemaVersion: 1, targets }
+  fs.writeFileSync(path.join(targetRoot, 'release-targets.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 })
+  return manifest
 }
 
 function sortedUnique(values) {
@@ -103,7 +238,7 @@ function validTargetsManifest(targetsManifest) {
   return targetsManifest?.schemaVersion === 1 && targetsManifest?.targets && typeof targetsManifest.targets === 'object' && !Array.isArray(targetsManifest.targets)
 }
 
-export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest, root }) {
+export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest, root, targetsMayNotExist = false }) {
   const allCaseIds = cases.map((item) => item.id)
   const writableCases = cases.filter((item) => WRITABLE_KINDS.has(item.evaluationKind))
   const writableCaseIds = writableCases.map((item) => item.id)
@@ -207,7 +342,7 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
     const target = targetEntries[id]
     if (typeof target !== 'string' || !path.isAbsolute(target)) continue
     let normalized = path.resolve(target)
-    if (root) {
+    if (root && !targetsMayNotExist) {
       try {
         const stat = fs.lstatSync(target)
         normalized = fs.realpathSync(target)
@@ -243,6 +378,9 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
     if (!assignment) continue
     steps.push({ id: `fixture:${caseId}`, kind: 'fixture', caseId })
     steps.push({ id: `writable:${caseId}`, kind: 'writable', caseId, runner: assignment.runner, modelSelector: assignment.modelSelector })
+    for (const command of validationCommands) {
+      steps.push({ id: `target-validation:${caseId}:${command.slice('yarn '.length)}`, kind: 'target-validation', caseId, command })
+    }
     if (configuredReviewIds.includes(caseId)) {
       const modelSelector = releaseMatrix.generatedCodeReview?.runners?.[assignment.runner]?.modelSelector
       if (typeof modelSelector !== 'string') violations.push(`generated-code review lacks ${assignment.runner} model selector for ${caseId}`)
@@ -275,6 +413,7 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
       review: { expectedCaseIds: reviewEligibleCaseIds, configuredCaseIds: configuredReviewIds, missingMatrixCaseIds: missingReviewMatrixCaseIds, unexpectedMatrixCaseIds: unexpectedReviewMatrixCaseIds, skillReady: reviewSkillReady },
       registry: { caseCountMatches: registryCaseCountMatches, missingWritableCaseIds: registryMissingWritableCaseIds, unexpectedWritableCaseIds: registryUnexpectedWritableCaseIds },
       validation: { expectedCommands: [...ALLOWED_VALIDATION_COMMANDS], configuredCommands: validationCommands, missingCommands: missingValidationCommands },
+      targetValidation: { expectedCaseIds: writableCaseIds, commands: validationCommands },
     },
     targets: targetEntries,
     steps,
@@ -433,17 +572,116 @@ function execute(command, args, cwd, timeout) {
   return { ...result, durationMs: Date.now() - started }
 }
 
+function walkSnapshotFiles(root) {
+  const files = []
+  const visit = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      if (SNAPSHOT_IGNORES.has(entry.name)) continue
+      const absolute = path.join(directory, entry.name)
+      if (entry.isSymbolicLink()) continue
+      if (entry.isDirectory()) visit(absolute)
+      else if (entry.isFile()) files.push(normalizedRelative(root, absolute))
+    }
+  }
+  visit(root)
+  return files
+}
+
+function protectedTreeFingerprint(target) {
+  if (!fs.existsSync(target)) return '<missing>'
+  const hash = createHash('sha256')
+  const visit = (absolute, relative = '.') => {
+    let stat
+    try { stat = fs.lstatSync(absolute) } catch { hash.update(`${relative}:<unreadable>\n`); return }
+    hash.update(`${relative}:${stat.mode}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}\n`)
+    if (stat.isSymbolicLink()) {
+      try { hash.update(`link:${fs.readlinkSync(absolute)}\n`) } catch { /* metadata still detects the entry */ }
+      return
+    }
+    if (!stat.isDirectory()) return
+    for (const entry of fs.readdirSync(absolute).sort()) visit(path.join(absolute, entry), relative === '.' ? entry : `${relative}/${entry}`)
+  }
+  visit(target)
+  return hash.digest('hex')
+}
+
+function dependencyOwnershipFingerprint(appRoot) {
+  const dependencyRoot = path.join(appRoot, 'node_modules')
+  const stat = fs.lstatSync(dependencyRoot)
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('controller node_modules must remain a regular directory')
+  const hash = createHash('sha256')
+  const ownershipFiles = ['package.json', 'yarn.lock', 'node_modules/.yarn-state.yml']
+  for (const relative of ownershipFiles) {
+    const absolute = path.join(appRoot, relative)
+    if (!fs.existsSync(absolute)) continue
+    const fileStat = fs.lstatSync(absolute)
+    if (!fileStat.isFile() || fileStat.isSymbolicLink() || fileStat.size > 8 * 1024 * 1024) throw new Error(`dependency ownership file is unsafe: ${relative}`)
+    hash.update(relative)
+    hash.update(fs.readFileSync(absolute))
+  }
+  let entries = 0
+  const packages = []
+  for (const name of fs.readdirSync(dependencyRoot).sort()) {
+    const absolute = path.join(dependencyRoot, name)
+    const entry = fs.lstatSync(absolute)
+    entries += 1
+    if (name.startsWith('@') && entry.isDirectory() && !entry.isSymbolicLink()) {
+      for (const child of fs.readdirSync(absolute).sort()) packages.push(`${name}/${child}`)
+    } else packages.push(name)
+  }
+  if (packages.length > 20_000 || entries > 20_000) throw new Error('dependency ownership fingerprint exceeds its 20000-entry safety bound')
+  for (const relative of packages) {
+    const absolute = path.join(dependencyRoot, relative)
+    const entry = fs.lstatSync(absolute)
+    hash.update(`${relative}:${entry.mode}:${entry.size}:${entry.mtimeMs}:${entry.ctimeMs}\n`)
+    if (entry.isSymbolicLink()) hash.update(`link:${fs.readlinkSync(absolute)}\n`)
+    const manifest = path.join(absolute, 'package.json')
+    if (entry.isDirectory() && fs.existsSync(manifest)) {
+      const manifestStat = fs.lstatSync(manifest)
+      if (!manifestStat.isFile() || manifestStat.isSymbolicLink() || manifestStat.size > 1_048_576) throw new Error(`dependency manifest is unsafe: ${relative}`)
+      hash.update(fs.readFileSync(manifest))
+    }
+  }
+  return hash.digest('hex')
+}
+
+function targetSnapshot(root) {
+  const result = new Map()
+  for (const relative of walkSnapshotFiles(root)) {
+    if (relative.startsWith('.ai/harness/results/')) continue
+    try { result.set(relative, sha256(fs.readFileSync(path.join(root, relative)))) } catch { /* bounded report will expose later mismatch */ }
+  }
+  for (const relative of ['.git', 'node_modules', '.next', 'dist', '.ai/harness/results']) {
+    result.set(relative, protectedTreeFingerprint(path.join(root, relative)))
+  }
+  return result
+}
+
+function targetSnapshotFingerprint(snapshot) {
+  const hash = createHash('sha256')
+  for (const [relative, fingerprint] of [...snapshot.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    hash.update(relative)
+    hash.update('\0')
+    hash.update(fingerprint)
+    hash.update('\0')
+  }
+  return hash.digest('hex')
+}
+
 function stepResult(step, execution, artifacts, roots, expectedArtifacts) {
   const artifactMismatch = Number.isInteger(expectedArtifacts) && artifacts.length !== expectedArtifacts
   const status = execution.status === 0 && !execution.error && !artifactMismatch ? 'pass' : 'fail'
   const diagnostic = artifactMismatch
     ? `expected ${expectedArtifacts} result artifacts, found ${artifacts.length}`
-    : execution.error?.message || execution.stderr || (status === 'fail' ? execution.stdout : '')
+    : execution.error?.message || (status === 'fail'
+        ? [execution.stderr, execution.stdout].filter(Boolean).join('\n')
+        : execution.stderr)
   return {
     id: step.id,
     kind: step.kind,
     ...(step.caseId ? { caseId: step.caseId } : {}),
     ...(step.runner ? { runner: step.runner } : {}),
+    ...(step.command ? { command: step.command } : {}),
     status,
     exitStatus: execution.status,
     durationMs: execution.durationMs,
@@ -458,12 +696,22 @@ function skippedStep(step, reason) {
     kind: step.kind,
     ...(step.caseId ? { caseId: step.caseId } : {}),
     ...(step.runner ? { runner: step.runner } : {}),
+    ...(step.command ? { command: step.command } : {}),
     status: 'skipped',
     exitStatus: null,
     durationMs: 0,
     resultPaths: [],
     sanitizedError: reason,
   }
+}
+
+export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCommand = process.platform === 'win32' ? 'yarn.cmd' : 'yarn' }) {
+  const results = []
+  for (const step of steps) {
+    const execution = execute(yarnCommand, [step.command.slice('yarn '.length)], target, timeout)
+    results.push(stepResult(step, execution, [], roots))
+  }
+  return results
 }
 
 function executedCoverage(plan, steps, results) {
@@ -475,6 +723,16 @@ function executedCoverage(plan, steps, results) {
   const writableExecuted = sortedUnique(results.filter((result) => WRITABLE_KINDS.has(result.evaluationKind) && !result.sourceResult).map((result) => result.caseId))
   const reviewExecuted = sortedUnique(results.filter((result) => result.sourceResult).map((result) => result.caseId))
   const validationExecuted = steps.filter((step) => step.kind === 'validation' && step.status !== 'skipped').map((step) => `yarn ${step.id.slice('validation:'.length)}`)
+  const targetValidationExecuted = []
+  const targetValidationPassed = []
+  const targetValidationFailed = []
+  for (const caseId of plan.coverage.targetValidation.expectedCaseIds) {
+    const caseSteps = steps.filter((step) => step.kind === 'target-validation' && step.caseId === caseId)
+    if (caseSteps.length !== plan.coverage.targetValidation.commands.length || caseSteps.some((step) => step.status === 'skipped')) continue
+    targetValidationExecuted.push(caseId)
+    if (caseSteps.every((step) => step.status === 'pass')) targetValidationPassed.push(caseId)
+    else targetValidationFailed.push(caseId)
+  }
   return {
     deterministic: { ...plan.coverage.deterministic, executedCaseIds: deterministic, missingCaseIds: difference(plan.coverage.deterministic.expectedCaseIds, deterministic) },
     routing,
@@ -482,6 +740,13 @@ function executedCoverage(plan, steps, results) {
     review: { ...plan.coverage.review, executedCaseIds: reviewExecuted, missingCaseIds: difference(plan.coverage.review.expectedCaseIds, reviewExecuted) },
     registry: plan.coverage.registry,
     validation: { ...plan.coverage.validation, executedCommands: validationExecuted, missingExecutedCommands: difference(plan.coverage.validation.expectedCommands, validationExecuted) },
+    targetValidation: {
+      ...plan.coverage.targetValidation,
+      executedCaseIds: targetValidationExecuted,
+      passedCaseIds: targetValidationPassed,
+      failedCaseIds: targetValidationFailed,
+      missingCaseIds: difference(plan.coverage.targetValidation.expectedCaseIds, targetValidationExecuted),
+    },
   }
 }
 
@@ -495,6 +760,32 @@ function writeReport(root, report, roots, schema) {
   if (schemaErrors.length) throw new Error(`release report schema validation failed: ${schemaErrors.slice(0, 8).join('; ')}`)
   fs.writeFileSync(file, `${JSON.stringify(sanitized, null, 2)}\n`, { mode: 0o600 })
   return path.relative(root, file).replaceAll(path.sep, '/')
+}
+
+function writeTargetValidationResult(root, target, caseId, sourceArtifact, commandSteps, schema) {
+  const sourcePath = path.join(root, sourceArtifact.path)
+  const record = {
+    schemaVersion: 1,
+    caseId,
+    sourceResult: { path: sourceArtifact.path, sha256: sha256(fs.readFileSync(sourcePath)) },
+    beforeValidationFingerprint: sourceArtifact.value.writable.targetFingerprint,
+    targetFingerprint: targetSnapshotFingerprint(targetSnapshot(target)),
+    commands: commandSteps.map((step) => ({
+      command: step.command,
+      status: step.status,
+      exitStatus: step.exitStatus,
+      durationMs: step.durationMs,
+    })),
+    status: commandSteps.every((step) => step.status === 'pass') ? 'pass' : 'fail',
+  }
+  const schemaErrors = validateJsonSchema(record, schema)
+  if (schemaErrors.length) throw new Error(`target validation result schema failed: ${schemaErrors.slice(0, 8).join('; ')}`)
+  const directory = path.join(root, '.ai', 'harness', 'results')
+  fs.mkdirSync(directory, { recursive: true })
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const absolute = path.join(directory, `${stamp}-target-validation-${caseId}.json`)
+  fs.writeFileSync(absolute, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 })
+  return { absolute, relative: path.relative(root, absolute).replaceAll(path.sep, '/'), value: record }
 }
 
 function initialReport(plan, startedAt) {
@@ -522,21 +813,13 @@ export function main(argv = process.argv.slice(2)) {
   try { root = fs.realpathSync(options.root) } catch { console.error('release root is unavailable'); return 2 }
   const harnessDir = path.join(root, '.ai', 'harness')
   if (!fs.existsSync(harnessDir)) { console.error(`harness directory not found under release root`); return 2 }
-  let targetsManifest
-  try {
-    const stat = fs.lstatSync(options.writableTargets)
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > RESULT_LIMIT) throw new Error('manifest must be a bounded regular file')
-    targetsManifest = readJson(options.writableTargets)
-  } catch (error) {
-    console.error(`cannot read writable target manifest: ${error.message}`)
-    return 2
-  }
   let cases
   let registry
   let releaseMatrix
   let fixtures
   let seeds
   let releaseResultSchema
+  let targetValidationResultSchema
   try {
     cases = readJson(path.join(harnessDir, 'cases.json'))
     registry = readJson(path.join(harnessDir, 'validators.json'))
@@ -544,9 +827,49 @@ export function main(argv = process.argv.slice(2)) {
     fixtures = readJson(path.join(harnessDir, 'fixtures', 'index.json'))
     seeds = readJson(path.join(harnessDir, 'fixtures', 'seeds.json'))
     releaseResultSchema = readJson(path.join(harnessDir, 'release-result.schema.json'))
+    targetValidationResultSchema = readJson(path.join(harnessDir, 'target-validation-result.schema.json'))
   } catch {
     console.error('release harness inputs are missing or invalid')
     return 2
+  }
+  let targetsManifest
+  let preparedDependencyFingerprint
+  if (options.writableTargets) {
+    try {
+      const stat = fs.lstatSync(options.writableTargets)
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > RESULT_LIMIT) throw new Error('manifest must be a bounded regular file')
+      targetsManifest = readJson(options.writableTargets)
+    } catch (error) {
+      console.error(`cannot read writable target manifest: ${error.message}`)
+      return 2
+    }
+  } else {
+    let prepareRoot
+    try { prepareRoot = resolvePreparationRoot(options.prepareTargets, root) } catch (error) { console.error(error.message); return 2 }
+    const writableIds = cases.filter((item) => WRITABLE_KINDS.has(item.evaluationKind)).map((item) => item.id)
+    const proposedManifest = { schemaVersion: 1, targets: Object.fromEntries(writableIds.map((id) => [id, path.join(prepareRoot, id)])) }
+    const preliminary = buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest: proposedManifest, root, targetsMayNotExist: true })
+    const proposedRoots = Object.values(proposedManifest.targets)
+    if (preliminary.violations.length) {
+      const report = initialReport(preliminary, startedAt)
+      report.durationMs = Date.now() - wallStarted
+      report.finishedAt = new Date().toISOString()
+      const reportPath = writeReport(root, report, [root, ...proposedRoots], releaseResultSchema)
+      console.error(`Release preflight failed before target preparation; report: ${reportPath}`)
+      return 1
+    }
+    try {
+      preparedDependencyFingerprint = dependencyOwnershipFingerprint(root)
+      targetsManifest = prepareWritableTargets({ root, prepareRoot, caseIds: writableIds })
+    } catch (error) {
+      preliminary.violations = [`automatic writable target preparation failed: ${error.message}`]
+      const report = initialReport(preliminary, startedAt)
+      report.durationMs = Date.now() - wallStarted
+      report.finishedAt = new Date().toISOString()
+      const reportPath = writeReport(root, report, [root, ...proposedRoots], releaseResultSchema)
+      console.error(`Automatic target preparation failed; report: ${reportPath}`)
+      return 1
+    }
   }
   const plan = buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest, root })
   const targetRoots = Object.values(plan.targets).filter((entry) => typeof entry === 'string' && path.isAbsolute(entry)).map((entry) => path.resolve(entry))
@@ -563,6 +886,7 @@ export function main(argv = process.argv.slice(2)) {
 
   const evaluator = path.join(root, 'scripts', 'evaluate-agent-harness.mjs')
   const preparer = path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs')
+  const sharedDependencyBefore = preparedDependencyFingerprint
   const steps = []
   const resultArtifacts = []
   const deterministicStep = plan.steps.find((step) => step.kind === 'deterministic')
@@ -590,7 +914,7 @@ export function main(argv = process.argv.slice(2)) {
 
   const foundationsPassed = deterministicResult.status === 'pass'
     && steps.filter((step) => step.kind === 'validation').every((step) => step.status === 'pass')
-  const modelSteps = plan.steps.filter((step) => ['routing', 'fixture', 'writable', 'review'].includes(step.kind))
+  const modelSteps = plan.steps.filter((step) => ['routing', 'fixture', 'writable', 'target-validation', 'review'].includes(step.kind))
   if (!foundationsPassed) {
     for (const step of modelSteps) steps.push(skippedStep(step, 'deterministic or validation foundation failed'))
   } else {
@@ -608,6 +932,7 @@ export function main(argv = process.argv.slice(2)) {
     for (const caseId of plan.coverage.writable.expectedCaseIds) {
       const fixtureStep = plan.steps.find((step) => step.id === `fixture:${caseId}`)
       const writableStep = plan.steps.find((step) => step.id === `writable:${caseId}`)
+      const targetValidationSteps = plan.steps.filter((step) => step.kind === 'target-validation' && step.caseId === caseId)
       const reviewStep = plan.steps.find((step) => step.id === `review:${caseId}`)
       const target = plan.targets[caseId]
       const fixtureExecution = execute(process.execPath, [preparer, '--case', caseId, '--target', target, '--acknowledge-writes'], root, 120_000)
@@ -615,6 +940,7 @@ export function main(argv = process.argv.slice(2)) {
       steps.push(fixtureResult)
       if (fixtureResult.status !== 'pass') {
         steps.push(skippedStep(writableStep, 'fixture preparation failed'))
+        for (const step of targetValidationSteps) steps.push(skippedStep(step, 'writable gate did not pass'))
         if (reviewStep) steps.push(skippedStep(reviewStep, 'writable gate did not pass'))
         continue
       }
@@ -629,9 +955,33 @@ export function main(argv = process.argv.slice(2)) {
       const writableResult = stepResult(writableStep, writableExecution, writableArtifacts, roots, 1)
       steps.push(writableResult)
       const sourceArtifact = writableArtifacts.find((entry) => entry.value.caseId === caseId && WRITABLE_KINDS.has(entry.value.evaluationKind))
+      const targetValidationResults = runTargetValidationSteps({
+        steps: targetValidationSteps,
+        target,
+        timeout: options.validationTimeout,
+        roots,
+      })
+      steps.push(...targetValidationResults)
+      const failedTargetCommands = targetValidationResults.filter((step) => step.status !== 'pass')
       if (!reviewStep) continue
       if (writableResult.status !== 'pass' || !sourceArtifact || sourceArtifact.value.status !== 'pass') {
         steps.push(skippedStep(reviewStep, 'writable gate did not pass'))
+        continue
+      }
+      if (failedTargetCommands.length) {
+        steps.push(skippedStep(reviewStep, `target validation failed: ${failedTargetCommands.map((step) => step.command).join(', ')}`))
+        continue
+      }
+      let targetValidationArtifact
+      try {
+        targetValidationArtifact = writeTargetValidationResult(
+          root, target, caseId, sourceArtifact, targetValidationResults, targetValidationResultSchema,
+        )
+      } catch (error) {
+        const finalValidation = targetValidationResults.at(-1)
+        finalValidation.status = 'fail'
+        finalValidation.sanitizedError = sanitizeReportText(`validation attestation failed: ${error.message}`, roots)
+        steps.push(skippedStep(reviewStep, 'target validation attestation failed'))
         continue
       }
       const beforeReview = resultFiles(root)
@@ -639,6 +989,7 @@ export function main(argv = process.argv.slice(2)) {
         evaluator, '--root', root, '--runner', reviewStep.runner,
         '--model', reviewStep.modelSelector, '--timeout', String(options.caseTimeout),
         '--review-writable-result', path.join(root, sourceArtifact.path), '--writable-root', target,
+        '--review-validation-result', targetValidationArtifact.absolute,
       ], root, options.caseTimeout + 60_000)
       const reviewArtifacts = readNewResults(root, beforeReview)
       resultArtifacts.push(...reviewArtifacts)
@@ -646,14 +997,38 @@ export function main(argv = process.argv.slice(2)) {
     }
   }
 
+  if (sharedDependencyBefore) {
+    let sharedDependencyAfter
+    let dependencyError
+    try { sharedDependencyAfter = dependencyOwnershipFingerprint(root) } catch (error) { dependencyError = error }
+    steps.push({
+      id: 'shared-dependencies:unchanged',
+      kind: 'dependency-guard',
+      status: !dependencyError && sharedDependencyAfter === sharedDependencyBefore ? 'pass' : 'fail',
+      exitStatus: null,
+      durationMs: 0,
+      resultPaths: [],
+      ...(!dependencyError && sharedDependencyAfter === sharedDependencyBefore ? {} : {
+        sanitizedError: dependencyError
+          ? sanitizeReportText(`shared dependency verification failed: ${dependencyError.message}`, roots)
+          : 'shared dependency tree changed during release execution; restore dependencies and rerun with fresh targets',
+      }),
+    })
+  }
+
   const values = resultArtifacts.map((entry) => entry.value)
   const coverage = executedCoverage(plan, steps, values)
-  const executionViolations = steps.filter((step) => step.status !== 'pass').map((step) => `${step.id} ${step.status}`).slice(0, 256)
+  const executionViolations = steps
+    .filter((step) => step.status !== 'pass')
+    .map((step) => `${step.id} ${step.status}${step.sanitizedError ? `: ${step.sanitizedError}` : ''}`)
+    .slice(0, 256)
   const coverageIncomplete = coverage.deterministic.missingCaseIds.length
     || coverage.routing.some((entry) => entry.missingCaseIds.length)
     || coverage.writable.missingCaseIds.length
     || coverage.review.missingCaseIds.length
     || coverage.validation.missingExecutedCommands.length
+    || coverage.targetValidation.missingCaseIds.length
+    || coverage.targetValidation.failedCaseIds.length
   const status = executionViolations.length === 0 && !coverageIncomplete ? 'pass' : 'fail'
   const report = {
     schemaVersion: 1,

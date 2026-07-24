@@ -81,6 +81,7 @@ test('recursive shared emission produces a complete hash-owned standalone harnes
     '.ai/harness/cases.json',
     '.ai/harness/fixtures/seeds.json',
     '.ai/harness/release-result.schema.json',
+    '.ai/harness/target-validation-result.schema.json',
     '.ai/skills/om-evolve-harness/SKILL.md',
     'scripts/evaluate-agent-harness.mjs',
     'scripts/framework-context.mjs',

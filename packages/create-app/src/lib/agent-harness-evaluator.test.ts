@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const sharedRoot = fileURLToPath(new URL('../../agentic/shared/', import.meta.url))
 const guidesRoot = fileURLToPath(new URL('../../agentic/guides/', import.meta.url))
@@ -49,6 +49,9 @@ type StoredReviewResult = {
   corrections: number
   reviewedPaths: string[]
   reviewedBytes: number
+  reviewReferences?: string[]
+  validationResult?: { path: string; sha256: string }
+  validationEvidence: Array<{ id: string; status: string }>
   skill: { name: string; source: string; ref: string; declaredHash: string; installedHash: string; ownershipLedgerHash: string; bundleHash: string }
   actualContext: { paths: string[] }
   sourceResult: { path: string; sha256: string }
@@ -828,6 +831,10 @@ test('generated-code review uses a source-only bundle, pinned external skill evi
   const target = stageWritableTarget()
   try {
     const sourceResult = preparePassingWritableCrudResult(controller, target)
+    const casesPath = path.join(controller, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8'))
+    cases.find((entry: { id: string }) => entry.id === 'OMH-011').expectedRouter.required.push('backend-ui')
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
     installFakeCodeReviewSkill(controller)
     const bin = installFakeRunner(controller, 'codex', `
 const fs = require('node:fs')
@@ -835,6 +842,7 @@ const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-review-fake 1.0'); process.exit(0) }
 if (fs.existsSync('package.json') || fs.existsSync('node_modules') || fs.existsSync('.git')) process.exit(8)
 if (fs.existsSync('src/modules/library/api/books/route.ts') || !fs.readFileSync('REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt', 'utf8').startsWith('<<<LINE 000001>>>')) process.exit(8)
+for (const file of ['.ai/guides/backend-ui.md', '.ai/skills/om-backend-ui-design/SKILL.md', '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md']) if (!fs.existsSync(file)) process.exit(8)
 if (args[args.indexOf('--sandbox') + 1] !== 'read-only' || !args.includes('--ignore-user-config')) process.exit(9)
 const evidence = [
   { id: 'oracle:allowed-writes', status: 'pass' },
@@ -861,7 +869,7 @@ const report = [
   'The trusted AST and target typecheck evidence cover the generated route shape; this supplemental review ran no target scripts.'
 ].join('\\n')
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ schemaVersion: 1, verdict: 'approve', report, validationEvidence: evidence, findings: [] }))
-console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md REVIEW_POLICY.md REVIEW_EVIDENCE.json .agents/skills/om-code-review/SKILL.md .agents/skills/om-code-review/references/agentic-setup.md .agents/skills/om-code-review/references/output-format.md .agents/skills/om-code-review/references/review-checklist.md .agents/skills/om-code-review/references/rules.md REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt' } }))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md REVIEW_POLICY.md REVIEW_EVIDENCE.json .agents/skills/om-code-review/SKILL.md .agents/skills/om-code-review/references/agentic-setup.md .agents/skills/om-code-review/references/output-format.md .agents/skills/om-code-review/references/review-checklist.md .agents/skills/om-code-review/references/rules.md .ai/guides/backend-ui.md .ai/skills/om-backend-ui-design/SKILL.md .ai/skills/om-backend-ui-design/references/crud-surfaces.md .ai/skills/om-backend-ui-design/references/frontend-and-design-system.md .ai/skills/om-backend-ui-design/references/page-and-navigation.md .ai/skills/om-backend-ui-design/references/quality-states.md REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt' } }))
 `)
     const review = runEvaluator(controller, [
       '--runner', 'codex', '--review-writable-result', sourceResult, '--writable-root', target,
@@ -886,7 +894,81 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
     assert.match(stored.skill.bundleHash, /^[a-f0-9]{64}$/)
     assert.match(stored.sourceResult.path, /^\.ai\/harness\/results\//)
     assert.ok(stored.actualContext.paths.includes('.agents/skills/om-code-review/references/review-checklist.md'))
+    assert.deepEqual(stored.reviewReferences, [
+      '.ai/guides/backend-ui.md',
+      '.ai/skills/om-backend-ui-design/SKILL.md',
+      '.ai/skills/om-backend-ui-design/references/crud-surfaces.md',
+      '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md',
+      '.ai/skills/om-backend-ui-design/references/page-and-navigation.md',
+      '.ai/skills/om-backend-ui-design/references/quality-states.md',
+    ])
     assert.ok(stored.actualContext.paths.includes('REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt'))
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
+test('generated-code review does not add UI design context to non-UI cases', async () => {
+  const evaluator = await import(pathToFileURL(sourceEvaluator).href) as { routedReviewReferences: (record: unknown) => string[] }
+  assert.deepEqual(evaluator.routedReviewReferences({ expectedRouter: { required: ['module-data'] } }), [])
+})
+
+test('generated-code review binds all four release commands to the writable result and final target fingerprint', { skip: process.platform === 'win32' }, () => {
+  const controller = stageApp()
+  const target = stageWritableTarget()
+  try {
+    const sourceResult = preparePassingWritableCrudResult(controller, target)
+    const source = JSON.parse(fs.readFileSync(sourceResult, 'utf8'))
+    const sourceRelative = path.relative(controller, sourceResult).replaceAll(path.sep, '/')
+    const sourceHash = createHash('sha256').update(fs.readFileSync(sourceResult)).digest('hex')
+    const validationPath = path.join(controller, '.ai', 'harness', 'results', 'target-validation-OMH-011.json')
+    fs.writeFileSync(validationPath, `${JSON.stringify({
+      schemaVersion: 1,
+      caseId: 'OMH-011',
+      sourceResult: { path: sourceRelative, sha256: sourceHash },
+      beforeValidationFingerprint: source.writable.targetFingerprint,
+      targetFingerprint: source.writable.targetFingerprint,
+      commands: ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'].map((command) => ({ command, status: 'pass', exitStatus: 0, durationMs: 1 })),
+      status: 'pass',
+    }, null, 2)}\n`)
+    installFakeCodeReviewSkill(controller)
+    const bin = installFakeRunner(controller, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-review-fake 1.0'); process.exit(0) }
+const evidence = [
+  { id: 'oracle:allowed-writes', status: 'pass' },
+  { id: 'oracle:writable-ast-oracles.mjs', status: 'pass' },
+  { id: 'validation:generate', status: 'pass' },
+  { id: 'validation:typecheck', status: 'pass' },
+  { id: 'validation:lint', status: 'pass' },
+  { id: 'validation:build', status: 'pass' },
+  { id: 'oracle:target-fingerprint', status: 'pass' }
+]
+const report = [
+  '# 🔍 Code Review: Validated CRUD route', '## 🎯 Summary', 'All controller evidence passed.',
+  '## Verdict', '✅ approve — No blocking finding.', '## 🧪 Validation Gate',
+  ...evidence.map((entry) => '| ' + entry.id + ' | ✅ PASS |'),
+  '## Findings', 'No findings.', '## 💥 Breaking Changes', '- [x] No break.',
+  '## 🧪 Test Coverage', 'The complete target validation matrix passed.'
+].join('\\n')
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ schemaVersion: 1, verdict: 'approve', report, validationEvidence: evidence, findings: [] }))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md REVIEW_POLICY.md REVIEW_EVIDENCE.json .agents/skills/om-code-review/SKILL.md .agents/skills/om-code-review/references/agentic-setup.md .agents/skills/om-code-review/references/output-format.md .agents/skills/om-code-review/references/review-checklist.md .agents/skills/om-code-review/references/rules.md REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt' } }))
+`)
+    const review = runEvaluator(controller, [
+      '--runner', 'codex', '--review-writable-result', sourceResult, '--writable-root', target,
+      '--review-validation-result', validationPath,
+    ], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+    assert.equal(review.status, 0, `${review.stdout}\n${review.stderr}`)
+    const [stored] = storedReviewResults(controller)
+    assert.match(stored.validationResult?.path ?? '', /target-validation-OMH-011\.json$/)
+    assert.match(stored.validationResult?.sha256 ?? '', /^[a-f0-9]{64}$/)
+    assert.deepEqual(stored.validationEvidence.map((entry) => entry.id), [
+      'oracle:allowed-writes', 'oracle:writable-ast-oracles.mjs',
+      'validation:generate', 'validation:typecheck', 'validation:lint', 'validation:build',
+      'oracle:target-fingerprint',
+    ])
   } finally {
     fs.rmSync(controller, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })

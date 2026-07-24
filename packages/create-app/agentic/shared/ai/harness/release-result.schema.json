@@ -35,7 +35,7 @@
     "coverage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["deterministic", "routing", "writable", "review", "registry", "validation"],
+      "required": ["deterministic", "routing", "writable", "review", "registry", "validation", "targetValidation"],
       "properties": {
         "deterministic": {
           "type": "object",
@@ -120,6 +120,19 @@
             "executedCommands": { "$ref": "#/$defs/commands" },
             "missingExecutedCommands": { "$ref": "#/$defs/commands" }
           }
+        },
+        "targetValidation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expectedCaseIds", "commands", "executedCaseIds", "passedCaseIds", "failedCaseIds", "missingCaseIds"],
+          "properties": {
+            "expectedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "commands": { "$ref": "#/$defs/commands" },
+            "executedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "passedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "failedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingCaseIds": { "$ref": "#/$defs/caseIds" }
+          }
         }
       }
     },
@@ -132,9 +145,10 @@
         "required": ["id", "kind", "status", "exitStatus", "durationMs", "resultPaths"],
         "properties": {
           "id": { "type": "string", "maxLength": 160 },
-          "kind": { "enum": ["deterministic", "validation", "routing", "fixture", "writable", "review"] },
+          "kind": { "enum": ["deterministic", "validation", "routing", "fixture", "writable", "target-validation", "review", "dependency-guard"] },
           "caseId": { "type": "string", "pattern": "^OMH-[0-9]{3}$" },
           "runner": { "enum": ["codex", "claude"] },
+          "command": { "type": "string", "maxLength": 100 },
           "status": { "enum": ["pass", "fail", "skipped"] },
           "exitStatus": { "type": ["integer", "null"] },
           "durationMs": { "type": "integer", "minimum": 0 },

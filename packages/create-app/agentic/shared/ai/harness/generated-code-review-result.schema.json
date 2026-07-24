@@ -37,6 +37,16 @@
     "policyHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "reviewedPaths": { "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "maxLength": 300 } },
     "reviewedBytes": { "type": "integer", "minimum": 1 },
+    "reviewReferences": { "type": "array", "maxItems": 6, "uniqueItems": true, "items": { "type": "string", "maxLength": 300 } },
+    "validationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
     "validationEvidence": {
       "type": "array",
       "minItems": 1,
