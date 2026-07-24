@@ -136,6 +136,18 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
 
   const removeActivity = (index: number) => {
     onChange(value.filter((_, i) => i !== index))
+    // Keep the index-keyed drafts aligned with the re-indexed activities:
+    // drop the removed row's draft and shift every later draft down by one,
+    // otherwise a pending (invalid) draft would render over a different row.
+    setConfigDrafts((drafts) => {
+      const next: Record<number, ConfigDraft> = {}
+      for (const key of Object.keys(drafts)) {
+        const i = Number(key)
+        if (i === index) continue
+        next[i > index ? i - 1 : i] = drafts[i]
+      }
+      return next
+    })
   }
 
   const moveActivity = (index: number, direction: 'up' | 'down') => {
@@ -147,6 +159,18 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
     updated[index] = updated[newIndex]
     updated[newIndex] = temp
     onChange(updated)
+    // Swap the two rows' drafts too, so an in-progress edit follows its activity.
+    setConfigDrafts((drafts) => {
+      if (!(index in drafts) && !(newIndex in drafts)) return drafts
+      const next = { ...drafts }
+      const atIndex = drafts[index]
+      const atNew = drafts[newIndex]
+      if (atNew !== undefined) next[index] = atNew
+      else delete next[index]
+      if (atIndex !== undefined) next[newIndex] = atIndex
+      else delete next[newIndex]
+      return next
+    })
   }
 
   return (

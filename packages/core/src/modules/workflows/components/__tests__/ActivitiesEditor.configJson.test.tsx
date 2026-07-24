@@ -112,4 +112,47 @@ describe('ActivitiesEditor config JSON field (#4234)', () => {
     expect(textarea.value).toBe('{"endpoint": ')
     expect(screen.getByRole('alert')).toBeInTheDocument()
   })
+
+  // The config drafts are keyed by row index, so removing/moving a row must
+  // re-index the drafts map — otherwise a pending (invalid) draft renders over
+  // a different activity and can be saved onto the wrong config.
+  const secondActivity: Activity = {
+    activityId: 'call_api_2',
+    activityName: 'Call API 2',
+    activityType: 'CALL_API',
+    config: { endpoint: '/api/sales/quotes' },
+  }
+  const allConfigTextareas = () =>
+    screen.getAllByLabelText(/Configuration|workflows\.activities\.config/i) as HTMLTextAreaElement[]
+
+  it('keeps an in-progress invalid config draft with its activity when a row above is removed', () => {
+    render(<Harness initial={[baseActivity, secondActivity]} />)
+
+    // Start an edit on the second row that leaves the JSON invalid (draft at index 1).
+    fireEvent.change(allConfigTextareas()[1], { target: { value: '{"endpoint": ' } })
+    expect(allConfigTextareas()[1].value).toBe('{"endpoint": ')
+
+    // Remove the first row — the second activity becomes index 0.
+    fireEvent.click(screen.getAllByTitle('common.delete')[0])
+
+    const remaining = allConfigTextareas()
+    expect(remaining).toHaveLength(1)
+    // The draft follows its activity to the new index instead of vanishing or
+    // landing on another row.
+    expect(remaining[0].value).toBe('{"endpoint": ')
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+  })
+
+  it('moves an in-progress config draft with its activity when the row is reordered', () => {
+    render(<Harness initial={[baseActivity, secondActivity]} />)
+
+    fireEvent.change(allConfigTextareas()[1], { target: { value: '{"endpoint": ' } })
+    // Move the second row up — it becomes index 0, its draft must move with it.
+    fireEvent.click(screen.getAllByTitle('common.moveUp')[1])
+
+    const after = allConfigTextareas()
+    expect(after[0].value).toBe('{"endpoint": ')
+    // The former first row (now index 1) shows its canonical config, no stale draft.
+    expect(after[1].value).toBe(JSON.stringify({ endpoint: '/api/sales/orders' }, null, 2))
+  })
 })
