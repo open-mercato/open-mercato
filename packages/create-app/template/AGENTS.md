@@ -47,7 +47,7 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 ## Three-Axis Context Assembler
 
-Match every axis, then de-duplicate. Examples: notifications = `module-data` + `backend-ui` + `umes`; custom-field UI round trips add `testing`; lifecycle reactions = `module-data` + `umes`; bootstrap/generated-registry drift = `architecture` + `module-data` + `debugging` (+ `framework-context` for the exact installed contract). Never collapse to one route.
+Match every axis; de-duplicate. Examples: notifications = `module-data` + `backend-ui` + `umes`; custom-field round trips add `testing`; lifecycle reactions = `module-data` + `umes`; write/search convergence bugs = `module-data` + `debugging`; bootstrap/registry drift = `architecture` + `module-data` + `debugging` (+ `framework-context` for exact installed contracts). Never collapse to one route.
 
 Route IDs: `architecture`, `module-data`, `backend-ui`, `umes`, `integration`, `ai-workflow`, `testing`, `debugging`, `framework-context`, `spec-pr`.
 
@@ -71,7 +71,7 @@ Defaults: app domains/providers live in `src/modules/<id>/`; installed customiza
 
 ### Axis 2 — Work Units and Primitives
 
-Split the outcome into verifiable units; match all rows.
+Split the outcome; match all rows.
 
 | Evaluator route ID | Work unit | Procedure and concept context |
 |---|---|---|
