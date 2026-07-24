@@ -11,7 +11,7 @@ Replace the AI development harness emitted by `create-mercato-app` with a standa
 - Keep the selected `open-mercato/skills` automation workflow available through a reliable cross-platform installer.
 - Add on-demand access to the exact installed framework's source and package/module `AGENTS.md` hierarchy, plus the upstream root compatibility context.
 - Add a repeatable skill and fixture workflow for extending the harness with newly discovered use cases.
-- Add at least 40 representative standalone-app use cases and executable static/live-agent validation.
+- Add 184 representative standalone-app use cases, including 92 novice/business prompts, plus 37 executable generated-code gates.
 - Keep the create-app wizard and `mercato agentic:init` output equivalent, and verify a real generated app.
 
 ## Non-goals
@@ -87,7 +87,9 @@ Replace the AI development harness emitted by `create-mercato-app` with a standa
 
 - [x] 4.1 Add structured use-case catalog and deterministic validator — 94ad42370
 - [x] 4.2 Add safe Codex/Claude live evaluation runner — 94ad42370
-- [ ] 4.3 Add tests, run all cases, and remediate failures
+- [x] 4.3 Add tests, run the original 92-case calibration, and remediate failures — 9e82bcc91
+- [x] 4.4 Double the catalog and add 37 trusted writable/review gates — eddcf31cd
+- [ ] 4.5 Run the final 184-case release suite and publish sanitized evidence
 
 ### Phase 5: Validation, review, and PR handoff
 
