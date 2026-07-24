@@ -1,9 +1,10 @@
 'use client'
 import * as React from 'react'
-import { Check, ListTodo, Phone, Mail, Users, StickyNote, User } from 'lucide-react'
+import { Check, ListTodo, Phone, Mail, Users, StickyNote, Trash2, User } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { AiActionChips } from './AiActionChips'
 import type { InteractionSummary } from './types'
 import { isOpenInteractionStatus } from '../../lib/interactionStatus'
@@ -20,9 +21,10 @@ interface ActivityTimelineProps {
   activities: InteractionSummary[]
   onEdit?: (activity: InteractionSummary) => void
   onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
+  onDelete?: (activity: InteractionSummary) => void | Promise<void>
 }
 
-export function ActivityTimeline({ activities, onEdit, onMarkDone }: ActivityTimelineProps) {
+export function ActivityTimeline({ activities, onEdit, onMarkDone, onDelete }: ActivityTimelineProps) {
   const t = useT()
 
   if (activities.length === 0) {
@@ -59,6 +61,7 @@ export function ActivityTimeline({ activities, onEdit, onMarkDone }: ActivityTim
               withBorder={index < activities.length - 1}
               onEdit={onEdit}
               onMarkDone={onMarkDone}
+              onDelete={onDelete}
             />
           </React.Fragment>
         )
@@ -73,12 +76,14 @@ function TimelineEntry({
   withBorder,
   onEdit,
   onMarkDone,
+  onDelete,
 }: {
   activity: InteractionSummary
   t: TranslateFn
   withBorder: boolean
   onEdit?: (activity: InteractionSummary) => void
   onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
+  onDelete?: (activity: InteractionSummary) => void | Promise<void>
 }) {
   const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
   const TypeIcon = TYPE_ICONS[activity.interactionType]
@@ -86,6 +91,7 @@ function TimelineEntry({
   const duration = activity.duration ? ` (${activity.duration} min)` : ''
   const isOpen = isOpenInteractionStatus(activity.status)
   const [markingDone, setMarkingDone] = React.useState(false)
+  const [deleting, setDeleting] = React.useState(false)
 
   const handleMarkDone = React.useCallback(async (event: React.MouseEvent | React.KeyboardEvent) => {
     event.stopPropagation()
@@ -97,6 +103,17 @@ function TimelineEntry({
       setMarkingDone(false)
     }
   }, [activity.id, markingDone, onMarkDone])
+
+  const handleDelete = React.useCallback(async (event: React.MouseEvent | React.KeyboardEvent) => {
+    event.stopPropagation()
+    if (!onDelete || deleting) return
+    setDeleting(true)
+    try {
+      await onDelete(activity)
+    } finally {
+      setDeleting(false)
+    }
+  }, [activity, deleting, onDelete])
 
   return (
     <div
@@ -128,19 +145,33 @@ function TimelineEntry({
             <span className="block text-[12px] font-semibold leading-tight text-foreground">
               {title}{duration}
             </span>
-            {isOpen && onMarkDone ? (
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                disabled={markingDone}
-                onClick={handleMarkDone}
-                className="shrink-0"
-              >
-                <Check className="size-3.5" />
-                {t('customers.activities.actions.markDone', 'Mark done')}
-              </Button>
-            ) : null}
+            <div className="flex shrink-0 items-center gap-1">
+              {isOpen && onMarkDone ? (
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  disabled={markingDone}
+                  onClick={handleMarkDone}
+                >
+                  <Check className="size-3.5" />
+                  {t('customers.activities.actions.markDone', 'Mark done')}
+                </Button>
+              ) : null}
+              {onDelete ? (
+                <IconButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={deleting}
+                  onClick={handleDelete}
+                  aria-label={t('customers.activities.actions.delete', 'Delete activity')}
+                  className="text-muted-foreground hover:text-status-error-foreground"
+                >
+                  <Trash2 className="size-3.5" />
+                </IconButton>
+              ) : null}
+            </div>
           </div>
 
           {activity.body && activity.title && (
