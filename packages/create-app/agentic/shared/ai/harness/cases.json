@@ -6193,7 +6193,7 @@
     "risk": "high",
     "prompt": "Several customer contacts were imported twice. Add a safe merge action that lets an administrator choose the surviving contact, previews every note, deal, and consent record that will move, refuses unauthorized or cross-company merges, records the old identity, and remains safe when retried or when either contact changed during the merge.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "contact-merge",
       "writable"
@@ -6305,7 +6305,7 @@
     "risk": "high",
     "prompt": "Let staff group customer companies under parent companies and view the resulting hierarchy. Prevent a company from becoming its own ancestor, allow a parent to be removed, keep every relationship inside the authorized business scope, and show a clear error when two editors create a cycle at the same time.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "company-hierarchy"
     ],
@@ -6393,7 +6393,7 @@
     "risk": "high",
     "prompt": "Track when a customer accepts or withdraws consent for each communication channel and purpose. Keep the full history instead of overwriting it, protect personal details, show the current answer with its evidence, prevent one purpose from silently changing another, and handle simultaneous updates without losing either event.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "consent",
       "privacy"
@@ -6482,7 +6482,7 @@
     "risk": "high",
     "prompt": "Assign customers to sales territories using clear, ordered rules while allowing authorized staff to make a manual exception. Explain which rule won, record who changed the assignment and why, keep overrides stable when rules run again, and prevent assignments from crossing the current business scope.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "territories",
       "audit"
@@ -6571,9 +6571,9 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "When a deal is marked won, create one onboarding checklist for that customer, assign its steps, send reminders for unfinished work, and show progress on the customer record. Replaying the event must not create another checklist, reminders must survive restarts, and changing the deal later must have an explicit cancellation policy. Define the related onboarding module lifecycle with idempotent setup.ts onTenantCreated, seedDefaults, and seedExamples hooks, preserve --no-examples behavior, and send translated welcome or invitation mail through the shared email utility.",
+    "prompt": "When a deal is marked won, create one onboarding checklist for that customer, assign its steps, send translated welcome or invitation emails, remind people about unfinished work, and show progress on the customer record. It must work for every newly created business account, use sensible defaults while keeping sample data optional, survive restarts, avoid duplicate checklists when work is retried, and have a clear policy if the deal is later changed or cancelled.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "onboarding",
       "reminders"
@@ -6673,7 +6673,7 @@
     "risk": "medium",
     "prompt": "Give account teams a customer health score based on recent orders, support cases, and overdue tasks. Show the inputs and their weights, calculate only from records the viewer may access, avoid one query per customer, handle a missing source gracefully, and let staff drill into why a score changed.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "health-score",
       "analytics"
@@ -6762,7 +6762,7 @@
     "risk": "high",
     "prompt": "Track customer renewal dates and owners, show upcoming renewals, and alert the responsible people at the right local time. Each reminder window must produce only one alert even after retries, completed or rescheduled renewals must stop stale reminders, and concurrent edits must not lose the latest renewal state.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "renewals",
       "notifications"
@@ -6859,7 +6859,7 @@
     "risk": "high",
     "prompt": "Show calls, notes, deals, orders, support events, and tasks in one customer timeline. Keep a stable order when events share a timestamp, support reliable pagination, identify the source of each item, exclude activity the viewer cannot access, and allow an optional source to disappear without breaking the page.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "activity-timeline",
       "events"
@@ -6948,7 +6948,7 @@
     "risk": "medium",
     "prompt": "Let staff save customer segments such as active buyers in Poland or contacts with an overdue task. Keep saved filters inside the current business scope, evaluate the same rules consistently in lists and exports, bound expensive recalculation, explain invalid fields after upgrades, and prevent one team from seeing another team's segment definitions.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "segments",
       "saved-filters"
@@ -7038,7 +7038,7 @@
     "risk": "high",
     "prompt": "Capture campaign attribution for new leads without accepting the business, campaign owner, or first-touch source from hidden form values. Derive trusted context on the server, sanitize campaign values, preserve the original first touch, record later touches separately, and reject attempts to attach a lead to another organization.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "campaign-attribution",
       "security"
@@ -7129,7 +7129,7 @@
     "risk": "high",
     "prompt": "Let an authorized manager transfer selected customers to another owner in one operation. Preview the affected records, check access and version conflicts per customer, avoid partial ownership changes when the operation must be atomic, report records that changed meanwhile, and make retrying the request safe.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "bulk-operation",
       "ownership"
@@ -7220,7 +7220,7 @@
     "risk": "high",
     "prompt": "Import a large customer spreadsheet through a preview step that maps columns, validates every row, and shows a downloadable error report before anything is saved. Neutralize spreadsheet formulas, stream rather than load the whole file, isolate bad rows according to an explicit policy, deduplicate safely, and keep all created customers in the authorized scope.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "spreadsheet-import",
       "validation"
@@ -7315,7 +7315,7 @@
     "risk": "high",
     "prompt": "Let administrators define deal stages and the fields required at each stage, then enforce those rules when staff move a deal. Keep stage identities stable when labels change, block skipped stages unless policy allows them, validate on the server as well as in the board, and surface a clear conflict when another user moved the deal first.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "deals",
       "stage-policy",
@@ -7426,9 +7426,9 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Assign incoming leads fairly among eligible salespeople using a predictable round robin. Resolve candidates through the installed staff contract (the canonical GET /api/staff/team-members/assignable route) and availability through the public availabilityAccessResolver boundary; never import staff entities, and degrade explicitly when the optional staff module is absent. Explain why a person was selected, skip unavailable or unauthorized assignees, protect the shared cursor from concurrent updates, record each assignment, and ensure retrying a failed handoff does not assign the same lead twice.",
+    "prompt": "Assign incoming leads fairly among eligible salespeople using a predictable round robin. Use the application's staff directory and availability information when present, explain why a person was selected, skip unavailable or unauthorized people, continue with a clear fallback when staff management is unavailable, record every assignment, and ensure concurrent or retried handoffs neither duplicate nor lose leads.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "lead-assignment",
       "fairness"
@@ -7524,7 +7524,7 @@
     "risk": "high",
     "prompt": "When a quote discount exceeds the configured limit, prevent acceptance until a different authorized person approves it. Calculate the threshold on the server, keep requester and approver separate, create a durable approval task, record the decision, reject stale approvals after the quote changes, and make repeated requests safe.",
     "tags": [
-      "business",
+      "business-language",
       "sales",
       "quotes",
       "approval",
@@ -7644,7 +7644,7 @@
     "risk": "high",
     "prompt": "Allow staff to revise a quote without changing what the customer previously saw. Keep each revision as an immutable snapshot, mark exactly one revision current, make old links clearly read-only, reject acceptance of an outdated revision, and show a conflict if a newer revision appeared during acceptance.",
     "tags": [
-      "business",
+      "business-language",
       "sales",
       "quotes",
       "revisions"
@@ -7735,7 +7735,7 @@
     "risk": "high",
     "prompt": "For an accepted recurring quote, create renewal orders on the agreed schedule using the prices, terms, and currency captured at acceptance. Retries or restarts must not create duplicate orders, cancellation must stop future renewals at a defined boundary, and schedule changes must never rewrite orders already created.",
     "tags": [
-      "business",
+      "business-language",
       "sales",
       "recurring-orders",
       "renewals"
@@ -7827,9 +7827,9 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Let fulfillment staff split an order across several shipments while preserving ordered, shipped, returned, and remaining quantities. Keep shipment links independent of installed records, prevent shipping more than ordered, protect the whole order from concurrent edits, and prove that the order's money totals do not change because of the split.",
+    "prompt": "Let fulfillment staff split an order across several shipments while preserving ordered, shipped, returned, and remaining quantities. Keep each shipment traceable to its order even when shipments are managed separately, prevent shipping more than ordered, protect the whole order from concurrent edits, and prove that splitting it never changes the order total.",
     "tags": [
-      "business",
+      "business-language",
       "sales",
       "shipments",
       "quantities"
@@ -7920,7 +7920,7 @@
     "risk": "high",
     "prompt": "When stock is insufficient, create backorders and allocate later arrivals in a documented, predictable order. Protect reservations from concurrent checkouts, never oversell, make retries safe, release abandoned reservations once, and show customers which quantities are available now versus waiting.",
     "tags": [
-      "business",
+      "business-language",
       "sales",
       "backorders",
       "stock"
@@ -8014,7 +8014,7 @@
     "risk": "high",
     "prompt": "Support exchanging an order item by linking the return, received item, replacement shipment, and any price difference. Keep quantities balanced, make each state change explicit, prevent two replacements for the same return, handle payment or refund retries once, and show staff the full chain without merging the records together.",
     "tags": [
-      "business",
+      "business-language",
       "sales",
       "returns",
       "exchanges"
@@ -8111,7 +8111,7 @@
     "risk": "high",
     "prompt": "Calculate a salesperson's commission only after payment, using the rate and ownership that applied when the sale closed. Store exact monetary values, keep the historic rate unchanged when policies change, post an explicit adjustment for refunds or chargebacks, and prevent the same payment event from paying commission twice.",
     "tags": [
-      "business",
+      "business-language",
       "sales",
       "commission",
       "payments"
@@ -8202,7 +8202,7 @@
     "risk": "high",
     "prompt": "Show pipeline forecasts in a chosen reporting currency while preserving the exchange rate used for each historic snapshot. Use exact decimal calculations, keep source and reporting amounts, scope every aggregate to records the viewer may access, explain missing rates, and avoid changing past forecasts when today's exchange rate moves.",
     "tags": [
-      "business",
+      "business-language",
       "sales",
       "forecast",
       "currencies"
@@ -8293,7 +8293,7 @@
     "risk": "medium",
     "prompt": "Make the deal board usable by keyboard, touch input, and screen reader without relying on drag and drop. Implement an equivalent action, announce the result, restore focus after success or failure, preserve authorization and conflict handling, and verify the experience at narrow and wide screen sizes.",
     "tags": [
-      "business",
+      "business-language",
       "sales",
       "deal-board",
       "accessibility",
@@ -8404,7 +8404,7 @@
     "risk": "medium",
     "prompt": "Alert the deal owner once when a deal has had no qualifying activity for ten days. Define which activity resets the timer, avoid duplicate alerts during repeated checks, stop alerts after the deal closes, include a useful link and localized message, and keep the check within the authorized business scope.",
     "tags": [
-      "business",
+      "business-language",
       "sales",
       "deals",
       "inactivity-alert"
@@ -8491,9 +8491,9 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Let merchandisers define bundles made from existing products and quantities. Compute bundle availability from its components, capture the component breakdown when an order is placed, avoid direct record relationships across capabilities, handle a disabled product gracefully, and prevent circular or impossible bundle definitions.",
+    "prompt": "Let merchandisers define bundles from existing products and quantities. Calculate availability from component stock, preserve the exact component breakdown promised on each order, handle disabled or missing products clearly, and prevent circular, duplicate, or impossible bundle definitions.",
     "tags": [
-      "business",
+      "business-language",
       "catalog",
       "product-bundles",
       "stock"
@@ -8583,7 +8583,7 @@
     "risk": "high",
     "prompt": "Let staff create product variants such as size and color combinations. Normalize option values, enforce unique stock codes inside the authorized scope, prevent duplicate combinations during concurrent saves, show a clear conflict instead of overwriting, and keep variant edits linked to the correct parent product.",
     "tags": [
-      "business",
+      "business-language",
       "catalog",
       "variants",
       "sku"
@@ -8671,9 +8671,9 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Assign dated price lists to customers and products, then calculate the price using a documented order of precedence and a safe fallback. Store exact decimal money in the correct currency, explain which rule won, avoid direct relationships between customer and product records, and continue safely when an optional source is unavailable.",
+    "prompt": "Assign dated price lists to customers and products, then choose a price using a documented priority and safe fallback. Use exact amounts in the right currency, explain which rule won, preserve customer and product records as their own sources of truth, and continue safely when a pricing source is unavailable.",
     "tags": [
-      "business",
+      "business-language",
       "catalog",
       "price-lists",
       "customers"
@@ -8765,7 +8765,7 @@
     "risk": "high",
     "prompt": "Let administrators define promotions that may stack, exclude one another, or take priority. Produce the same result regardless of evaluation order, never reduce an order below zero, explain every applied and rejected promotion, protect edits from stale saves, and verify the calculation around boundary dates and quantities.",
     "tags": [
-      "business",
+      "business-language",
       "catalog",
       "promotions",
       "pricing"
@@ -8855,7 +8855,7 @@
     "risk": "high",
     "prompt": "Track receipts, reservations, releases, transfers, shipments, and adjustments for each warehouse as movement entries rather than editable balances. Derive the current quantity, prevent movements from crossing business or warehouse scope, preserve the history, and make a failed multi-step transfer leave neither warehouse partially changed.",
     "tags": [
-      "business",
+      "business-language",
       "catalog",
       "warehouses",
       "stock-ledger"
@@ -8941,7 +8941,7 @@
     "risk": "high",
     "prompt": "When two shoppers try to buy the last item, allow only one reservation to succeed. Make reservation and available quantity change atomically, give retries the same result, release an expired reservation once, prevent negative stock, and keep the winning and losing responses understandable.",
     "tags": [
-      "business",
+      "business-language",
       "catalog",
       "reservation",
       "concurrency",
@@ -9047,9 +9047,9 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Add supplier records and purchase orders with expected dates, line items, approval limits, and clear draft, submitted, approved, and cancelled states. Keep supplier links independent, require a different authorized approver above the limit, record every transition, and deliver a complete list, detail, edit, and approval experience.",
+    "prompt": "Add suppliers and purchase orders with expected dates, line items, approval limits, and clear draft, submitted, approved, and cancelled states. Keep each order traceable to its supplier even if supplier details later change, require a different authorized approver above the limit, record every transition, and provide complete list, detail, edit, and approval screens.",
     "tags": [
-      "business",
+      "business-language",
       "purchasing",
       "suppliers",
       "purchase-orders"
@@ -9143,7 +9143,7 @@
     "risk": "high",
     "prompt": "Let warehouse staff receive part of a purchase order, mark quantities damaged or missing, and complete later receipts. Never receive more than ordered, require a reason for discrepancies, post accepted stock atomically with the receipt, preserve cumulative quantities, and make retrying a scan or submission safe.",
     "tags": [
-      "business",
+      "business-language",
       "purchasing",
       "receiving",
       "discrepancies"
@@ -9229,7 +9229,7 @@
     "risk": "high",
     "prompt": "Each night, suggest products to reorder using current stock, reservations, incoming purchases, lead time, and reorder policy. Run across the declared business scope without leaking data, bound parallel work, produce one suggestion for the same product and planning window even after retries, and explain the numbers behind each suggestion.",
     "tags": [
-      "business",
+      "business-language",
       "purchasing",
       "reorder",
       "scheduled-job"
@@ -9315,7 +9315,7 @@
     "risk": "high",
     "prompt": "Track lot numbers and expiry dates from receipt through allocation, shipment, and recall. Prefer the earliest safe expiry, prevent expired stock from allocation, preserve links to immutable movements, identify every affected customer and order during a recall without exposing unrelated records, and keep manual adjustments audited.",
     "tags": [
-      "business",
+      "business-language",
       "catalog",
       "lots",
       "recall"
@@ -9400,7 +9400,7 @@
     "risk": "medium",
     "prompt": "Make products searchable by words and stock code with category, availability, and price filters. Prove that results come from the maintained index, keep every filter inside the authorized scope, update results after a product changes, provide a deliberate reindex check, and avoid silently falling back to an unbounded database scan.",
     "tags": [
-      "business",
+      "business-language",
       "catalog",
       "search",
       "facets"
@@ -9484,7 +9484,7 @@
     "risk": "high",
     "prompt": "Let an administrator update thousands of prices while showing reliable progress. Process bounded chunks, validate exact currency amounts, stop at a clear cancellation boundary, avoid reapplying completed chunks after retry, record per-item failures, and provide an authorized compensating undo instead of pretending a long operation is one instant request.",
     "tags": [
-      "business",
+      "business-language",
       "catalog",
       "bulk-pricing",
       "progress",
@@ -9599,7 +9599,7 @@
     "risk": "medium",
     "prompt": "Create a public product catalog that loads useful content on the server, keeps filter and sort choices in the shareable address, uses only a small predictable interactive layer, states clearly which pages are public, and remains fast, readable, and keyboard accessible on phones and large screens.",
     "tags": [
-      "business",
+      "business-language",
       "catalog",
       "public-page",
       "responsive"
@@ -9681,7 +9681,7 @@
     "risk": "high",
     "prompt": "Publish a demo request form that validates consent and spam signals, derives the business scope on the server, and creates or updates one matching lead. Repeated submissions must not create duplicates, personal data must be protected, attribution must be sanitized, and the form must still fail clearly when the customer system is unavailable.",
     "tags": [
-      "business",
+      "business-language",
       "customers",
       "public-form",
       "lead-capture",
@@ -9800,7 +9800,7 @@
     "risk": "high",
     "prompt": "Let a signed-in portal user update their own permitted contact fields and no one else's. Derive identity and business scope from the signed-in person, protect the direct address as well as the visible navigation, reject stale edits with a useful conflict, validate personal data, and show complete success and error states.",
     "tags": [
-      "business",
+      "business-language",
       "portal",
       "contacts",
       "authorization"
@@ -9891,7 +9891,7 @@
     "risk": "high",
     "prompt": "Allow a portal customer to download an invoice only when they may view the related order. Apply the same access rule to every download and preview address, derive the customer identity from the session, prevent guessed identifiers or alternate paths from bypassing checks, and return a safe not-found or denial response.",
     "tags": [
-      "business",
+      "business-language",
       "portal",
       "invoices",
       "authorization"
@@ -9981,7 +9981,7 @@
     "risk": "high",
     "prompt": "Let a portal customer approve the latest quote revision they are authorized to see. Derive customer scope from the session, reject an older or changed revision, protect approval with the quote's current version, show a useful conflict and reload path, and make a repeated approval return the same outcome without duplicating effects.",
     "tags": [
-      "business",
+      "business-language",
       "portal",
       "quotes",
       "conflict",
@@ -10091,9 +10091,9 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "Remove an installed administration screen and its navigation entry for this application while leaving installed code untouched. Choose supported replacement and menu mechanisms, keep direct-address authorization behavior explicit, avoid leaving a dead link, make the change reversible, and verify that unrelated screens remain available.",
+    "prompt": "For this application, hide one administration screen and remove its navigation entry without changing the installed product. Direct links must remain safely handled, no dead links or unrelated screen changes may remain, the customization must survive upgrades, and it must be easy to undo.",
     "tags": [
-      "business",
+      "business-language",
       "customization",
       "admin-page",
       "navigation"
@@ -10182,7 +10182,7 @@
     "risk": "medium",
     "prompt": "Make a business page work with long Polish and German labels, dates, currency values, validation messages, and server errors. Use translated messages instead of embedded copy, format values for the chosen locale, prevent narrow layouts from clipping actions or data, preserve meaning for assistive technology, and test both languages.",
     "tags": [
-      "business",
+      "business-language",
       "localization",
       "responsive",
       "validation"
@@ -10263,7 +10263,7 @@
     "risk": "medium",
     "prompt": "Review a dense warehouse dashboard and reorganize it so urgent stock issues, key totals, filters, tables, and actions are understandable on phones and desktops. Reuse shared visual patterns, use semantic status colors, preserve all behavior, provide loading and empty states, support keyboard and screen readers, and avoid fixed-width desktop assumptions.",
     "tags": [
-      "business",
+      "business-language",
       "warehouse",
       "dashboard",
       "responsive"
@@ -10343,7 +10343,7 @@
     "risk": "medium",
     "prompt": "Create a multi-step business setup wizard that saves a durable draft and resumes at the last valid step. Guard transitions on the server, prevent skipped required steps, protect concurrent edits, make back and retry actions safe, preserve keyboard focus, announce errors, and cover loading, offline, conflict, completion, and abandonment states.",
     "tags": [
-      "business",
+      "business-language",
       "setup-wizard",
       "accessibility",
       "draft",
@@ -10457,7 +10457,7 @@
     "risk": "high",
     "prompt": "Review order editing on a slow or unreliable connection. Show pending, retrying, saved, failed, and conflicted states distinctly, prevent double submission, keep user input when a request fails, distinguish network errors from validation and stale-data conflicts, and provide safe retry or reload actions without claiming an uncertain save succeeded.",
     "tags": [
-      "business",
+      "business-language",
       "sales",
       "order-editing",
       "network-errors"
@@ -10946,7 +10946,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Build and activate an app-owned transactional SMTP IntegrationDefinition with secret credentials, a DI-registered sender and exact health service, a safe connection test, bounded retry, reconciliation, and redacted structured logs. Keep a pure injectable client seam for executable tests, but do not treat that seam alone as the provider or misroute transactional delivery through the mailbox-only ChannelAdapter contract.",
+    "prompt": "Connect the application to our SMTP service for transactional email. Administrators must be able to store credentials securely and test the connection; temporary failures should retry within clear limits, uncertain deliveries should be reconciled without duplicate sends, and logs and errors must never expose secrets. Include reliable automated tests without contacting the real service.",
     "tags": [
       "business-language",
       "email-provider",
@@ -11051,7 +11051,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Build and activate an app-owned card-payment provider vertical slice without charging twice when a user or background job retries the same request. Include IntegrationDefinition secret credentials and health metadata, DI health registration, ACL/setup, the canonical GatewayAdapter implementation registered through registerGatewayAdapter, its verifyWebhook path registered through registerWebhookHandler, the UI descriptor registered through registerPaymentGatewayDescriptor, and a pure injectable client seam that exercises idempotency and reconciliation.",
+    "prompt": "Connect the application to our card-payment provider. Administrators need secure credential setup, a connection check, and a visible payment option; repeated requests must never charge twice, payment status notifications must be verified, and uncertain results after retries or outages must reconcile safely. Include automated tests without contacting the real provider.",
     "tags": [
       "business-language",
       "payments",
@@ -11164,7 +11164,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Build and activate an app-owned carrier provider vertical slice that compares rates, buys labels, and reconciles tracking after callbacks, retries, or outages. Include IntegrationDefinition secret credentials and health metadata, DI health registration, ACL/setup, the canonical ShippingAdapter registered through registerShippingAdapter, and a pure injectable client seam with retry-safe external IDs and reconciliation.",
+    "prompt": "Connect the application to our shipping carrier so staff can compare rates, buy labels, and keep tracking current. Administrators need secure credential setup and a connection check; retries, callbacks, and outages must not buy duplicate labels, and uncertain tracking state must reconcile safely. Include automated tests without contacting the real carrier.",
     "tags": [
       "business-language",
       "shipping",
@@ -11548,7 +11548,7 @@
   },
   {
     "id":"OMH-157","title":"Store customer attachments with short-lived authorized download links","family":"integration","mode":"one-shot","evaluationKind":"routing","risk":"high",
-    "prompt":"Store customer attachments in our object-storage service and issue short-lived download links only after checking the current user's access. Enforce the installed attachment scope contract: tenantId and organizationId are supplied together or both omitted, and every download must pass checkAttachmentAccess before issuing a signed URL.",
+    "prompt":"Store customer attachments in our object-storage service and issue short-lived download links only after verifying that the signed-in user may access both the customer and the file. A file must either belong to a known company context or be explicitly unscoped; never guess from incomplete ownership information, cross company boundaries, or expose storage credentials.",
     "tags":["business-language","object-storage","attachments"],
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-02","BC-04","BC-05","BC-07"]},
     "expectedRouter":{"required":["integration","module-data"],"allowedExtra":["ai-workflow"]},
@@ -12095,7 +12095,7 @@
   },
   {
     "id":"OMH-178","title":"Locate exact installed order-confirmation surfaces before changing behavior","family":"architecture","mode":"analysis","evaluationKind":"routing","risk":"medium",
-    "prompt":"Before changing order confirmation, find the exact events, permissions, service entry points, and supported ways to add behavior in this installed version.",
+    "prompt":"Before changing order confirmation, explain how this installed version currently confirms an order, who is allowed to do it, what other behavior depends on it, and the safest supported place to customize it.",
     "tags":["business-language","installed-context","sales"],
     "owner":{"kind":"skill","path":".ai/skills/om-framework-context/SKILL.md","ruleIds":["BC-01","BC-03","BC-04","BC-14"]},
     "expectedRouter":{"required":["architecture","framework-context"],"allowedExtra":["umes"]},
@@ -12108,7 +12108,7 @@
   },
   {
     "id":"OMH-179","title":"Show loyalty points in customer responses without copying customer records","family":"umes","mode":"one-shot","evaluationKind":"routing","risk":"medium",
-    "prompt":"Show the current loyalty-points balance in customer API responses without copying, changing, or taking ownership of the customer record.",
+    "prompt":"Show each customer's current loyalty-points balance in customer API results while keeping the existing customer data as the source of truth and avoiding a duplicate balance that could go stale.",
     "tags":["business-language","response-enrichment","loyalty"],
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-04"]},
     "expectedRouter":{"required":["umes"],"allowedExtra":["module-data","framework-context"]},

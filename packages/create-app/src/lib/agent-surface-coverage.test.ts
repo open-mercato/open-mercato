@@ -173,6 +173,25 @@ test('the 184-case catalog routes audited installed-module and AI/provider branc
   assert.ok(byId.get('OMH-087')?.expectedRouter.required.includes('ai-workflow'))
 })
 
+test('the second-round cohort is exactly 92 business-language prompts without leaked framework contracts', () => {
+  const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
+    id: string
+    prompt: string
+    tags: string[]
+  }>
+  const expectedIds = Array.from({ length: 92 }, (_, index) => `OMH-${String(index + 93).padStart(3, '0')}`)
+  const cohort = cases.filter((entry) => entry.tags.includes('business-language'))
+
+  assert.equal(new Set(cases.map((entry) => entry.id)).size, cases.length, 'catalog case IDs must be unique')
+  assert.equal(cohort.length, 92)
+  assert.deepEqual(cohort.map((entry) => entry.id), expectedIds)
+
+  const prohibitedImplementationVocabulary = /(?:\b(?:IntegrationDefinition|ChannelAdapter|GatewayAdapter|ShippingAdapter|availabilityAccessResolver|checkAttachmentAccess|onTenantCreated|seedDefaults|seedExamples|registerGatewayAdapter|registerWebhookHandler|registerPaymentGatewayDescriptor|registerShippingAdapter|tenantId|organizationId)\b|\/api\/staff\/team-members\/assignable\b|--no-examples\b|\bsetup\.ts\b)/
+  for (const entry of cohort) {
+    assert.doesNotMatch(entry.prompt, prohibitedImplementationVocabulary, `${entry.id} leaks an implementation contract into its business prompt`)
+  }
+})
+
 test('scope guidance preserves explicit tenant-wide host contracts without widening organization data', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{ id: string; prompt: string; requiredDecisions: string[] }>
   const worker = cases.find((entry) => entry.id === 'OMH-019')
