@@ -43,8 +43,15 @@ function readExistingIds(filter: unknown): string[] | null {
 }
 
 export function parseIdsParam(raw: unknown, maxIds: number = MAX_IDS_PER_REQUEST): string[] {
-  if (typeof raw !== 'string' || raw.trim().length === 0) return []
   const safeMax = Number.isFinite(maxIds) && maxIds > 0 ? Math.floor(maxIds) : MAX_IDS_PER_REQUEST
+  // Routes that declare `ids` in their zod list schema hand the factory an
+  // already-parsed string array (the interceptor-merged query shadows the raw
+  // URL param), so both wire shapes must narrow identically.
+  if (Array.isArray(raw)) {
+    const parsed = normalizeIdList(raw.filter((value): value is string => typeof value === 'string'))
+    return parsed.slice(0, safeMax)
+  }
+  if (typeof raw !== 'string' || raw.trim().length === 0) return []
   const parsed = normalizeIdList(raw.split(','))
   return parsed.slice(0, safeMax)
 }

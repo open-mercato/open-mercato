@@ -82,6 +82,7 @@ export function ComboboxInput({
   const t = useT()
   const resolvedPlaceholder = placeholder ?? t('ui.inputs.comboboxInput.placeholder', 'Type to search...')
   const loadingLabel = t('ui.inputs.comboboxInput.loading', 'Loading suggestions…')
+  const noMatchesLabel = t('ui.inputs.comboboxInput.noMatches', 'No matches found')
   const resolvedClearLabel = clearLabel ?? t('ui.inputs.comboboxInput.clear', 'Clear value')
   const blurCloseDelayMs = 250
   const blurCloseMaxDelayMs = 1000
@@ -442,10 +443,12 @@ export function ComboboxInput({
         </IconButton>
       ) : null}
 
-      {showSuggestions && !disabled && (loading || filteredSuggestions.length > 0) && (
+      {showSuggestions && !disabled && (loading || filteredSuggestions.length > 0 || (touched && input.trim().length > 0)) && (
         <div className="absolute z-popover w-full mt-1 rounded-md border border-input bg-popover p-2 shadow-md max-h-48 sm:max-h-60 overflow-auto">
           {loading && touched ? (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">{loadingLabel}</div>
+          ) : touched && !filteredSuggestions.length ? (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">{noMatchesLabel}</div>
           ) : (
             <div className="flex flex-col gap-1">
               {filteredSuggestions.map((option, index) => (

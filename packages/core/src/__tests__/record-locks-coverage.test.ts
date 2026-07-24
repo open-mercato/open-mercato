@@ -108,6 +108,14 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
 
   // --- messages ---
   'messages:Message': { status: 'exempt', resourceKind: 'messages.message', reason: 'OSS-floor-only — draft edits + message actions are hand-written command routes (no makeCrudRoute decorator surface); they enforce the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and surface the conflict on the shared banner (#3260). The two call sites are allowlisted in optimistic-lock-command-coverage. Enterprise record_locks migration deferred.' },
+
+  // --- warranty_claims ---
+  'warranty_claims:WarrantyClaim': { status: 'enabled', resourceKind: 'warranty_claims.claim', reason: 'enabled — CRUD decorator (floor + record_locks); triage-workspace guarded mutations use resourceKind warranty_claims.claim; action endpoints enforce the command-level lock on the parent claim.' },
+  'warranty_claims:WarrantyClaimLine': { status: 'enabled', resourceKind: 'warranty_claims.claim_line', reason: 'enabled — lines edit via their own CRUD decorator route (per-line updatedAt lock header); parent-claim status guard blocks writes on terminal claims.' },
+  'warranty_claims:WarrantyClaimSettings': { status: 'enabled', resourceKind: 'warranty_claims.settings', reason: 'enabled — the settings page is a hand-written form whose save wraps buildOptimisticLockHeader(generalSettings.updatedAt) and enforces the command-level updated_at floor; the header is omitted only on first save, when no row exists yet.' },
+  'warranty_claims:WarrantyClaimRegistration': { status: 'enabled', resourceKind: 'warranty_claims.registration', reason: 'enabled — CrudForm edit page spreads the full record into initialValues, so the lock header is auto-derived from updatedAt on update and delete; the CRUD route projects and returns updatedAt.' },
+  'warranty_claims:WarrantyVendorPolicy': { status: 'enabled', resourceKind: 'warranty_claims.vendor_policy', reason: 'enabled — CrudForm edit page auto-derives the lock header from initialValues.updatedAt; the CRUD route projects and returns updatedAt.' },
+  'warranty_claims:WarrantyTroubleshootingGuide': { status: 'enabled', resourceKind: 'warranty_claims.troubleshooting_guide', reason: 'enabled — CrudForm edit page auto-derives the lock header from initialValues.updatedAt; the CRUD route projects and returns updatedAt.' },
 }
 
 /**

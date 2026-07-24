@@ -962,6 +962,7 @@
   "ui.inputs.cardInput.placeholder": "0000 0000 0000 0000",
   "ui.inputs.comboboxInput.clear": "Wert löschen",
   "ui.inputs.comboboxInput.loading": "Vorschläge werden geladen…",
+  "ui.inputs.comboboxInput.noMatches": "Keine Treffer gefunden",
   "ui.inputs.comboboxInput.placeholder": "Zum Suchen tippen...",
   "ui.inputs.emailInput.placeholder": "name@beispiel.de",
   "ui.inputs.eventPatternInput.placeholder": "sales.orders.created",

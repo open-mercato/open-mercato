@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -37,6 +38,7 @@ const logger = createLogger('auth').child({ component: 'users' })
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
+  ids: z.string().optional(),
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
   search: z.string().optional(),
@@ -45,6 +47,15 @@ const querySchema = z.object({
   scopeToActiveOrganization: z.boolean().optional(),
   roleIds: z.array(z.string().uuid()).optional(),
 }).passthrough()
+
+export const MAX_REQUESTED_IDS = 100
+
+// A present-but-unparseable `ids` param must still narrow to nothing. Returning
+// no filter would turn an explicit narrowing request into an unfiltered page.
+export function buildRequestedIdsFilter(ids: unknown): { id: { $in: string[] } } | null {
+  if (typeof ids !== 'string' || !ids.trim().length) return null
+  return { id: { $in: parseIdsParam(ids, MAX_REQUESTED_IDS) } }
+}
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -177,6 +188,7 @@ export async function GET(req: Request) {
   const rawRoleIds = url.searchParams.getAll('roleId').filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
   const parsed = querySchema.safeParse({
     id: url.searchParams.get('id') || undefined,
+    ids: url.searchParams.get('ids') || undefined,
     page: url.searchParams.get('page') || undefined,
     pageSize: url.searchParams.get('pageSize') || undefined,
     search: url.searchParams.get('search') || undefined,
@@ -198,7 +210,7 @@ export async function GET(req: Request) {
   } catch (err) {
     logger.error('Failed to resolve rbac', { err })
   }
-  const { id, page, pageSize, search, name, organizationId, scopeToActiveOrganization, roleIds } = parsed.data
+  const { id, ids, page, pageSize, search, name, organizationId, scopeToActiveOrganization, roleIds } = parsed.data
   const filters: any[] = [{ deletedAt: null }]
   const actorTenantId = auth.tenantId ? String(auth.tenantId) : null
   let effectiveTenantId: string | null = null
@@ -357,6 +369,8 @@ export async function GET(req: Request) {
   } else if (id) {
     filters.push({ id })
   }
+  const requestedIdsFilter = buildRequestedIdsFilter(ids)
+  if (requestedIdsFilter) filters.push(requestedIdsFilter as any)
   const where = filters.length > 1 ? { $and: filters } : filters[0]
   const [rows, count] = await em.findAndCount(User, where, { limit: pageSize, offset: (page - 1) * pageSize })
   const userIds = rows.map((u: any) => u.id)
@@ -629,7 +643,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List users',
       description:
-        'Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters. Pass scopeToActiveOrganization=1 to restrict results to the caller\'s active organization (used by recipient/assignee pickers so suggestions stay within the org that owns the resulting record).',
+        `Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters. Pass scopeToActiveOrganization=1 to restrict results to the caller's active organization (used by recipient/assignee pickers so suggestions stay within the org that owns the resulting record). Pass ids= as a comma-separated list of UUIDs to narrow the response to specific users; at most ${MAX_REQUESTED_IDS} ids are honored and any beyond that are dropped silently, so batch larger lookups across multiple requests.`,
       query: querySchema,
       responses: [
         { status: 200, description: 'User collection', schema: userListResponseSchema },
