@@ -47,7 +47,7 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 ## Three-Axis Context Assembler
 
-Match every axis, then de-duplicate. Compound work routes by unit: notification contract + renderer + reactive handler = `module-data` + `backend-ui` + `umes`; custom-field UI round-trip coverage also adds `testing`. Never collapse to only the most specialized route.
+Match every axis, then de-duplicate. Examples: notifications = `module-data` + `backend-ui` + `umes`; custom-field UI round trips add `testing`; cross-module lifecycle reactions = `module-data` + `umes`. Never collapse to one specialized route.
 
 Route IDs: `architecture`, `module-data`, `backend-ui`, `umes`, `integration`, `ai-workflow`, `testing`, `debugging`, `framework-context`, `spec-pr`.
 
