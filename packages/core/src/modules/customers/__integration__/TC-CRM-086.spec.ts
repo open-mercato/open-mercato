@@ -23,19 +23,21 @@ test.describe('TC-CRM-086: DataTable column resize + persistence', () => {
     const companyIds: string[] = [];
     const prefix = `QA TC-CRM-086 ${Date.now()}`;
 
-    // Width of the resize handle's own column header (the `<th>` it lives in).
-    const handleColumnWidth = (handle: import('@playwright/test').Locator) =>
-      handle.evaluate((el) => Math.round((el.closest('th') as HTMLElement).getBoundingClientRect().width));
-
     const waitForTableReady = async () => {
       await page.getByText('Loading table', { exact: false })
         .waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
       await page.locator('tbody tr').first().waitFor({ state: 'visible', timeout: 10_000 });
     };
 
-    // The resize handles are rendered on every data column header; target the
-    // second one so we never land on a (potentially sticky) first column.
-    const handleAt = () => page.locator('thead [role="separator"][aria-orientation="vertical"]').nth(1);
+    // Anchor the interaction to one semantic header instead of a separator's
+    // DOM index. Resizing rerenders the header row, so an nth() separator
+    // locator can resolve to a different column between measurements.
+    const targetHeader = () => page.getByRole('columnheader').filter({
+      has: page.getByRole('button', { name: 'Name', exact: true }),
+    }).first();
+    const resizeHandle = () => targetHeader().getByRole('separator');
+    const targetColumnWidth = () =>
+      targetHeader().evaluate((el) => Math.round((el as HTMLElement).getBoundingClientRect().width));
 
     try {
       token = await getAuthToken(request);
@@ -55,9 +57,9 @@ test.describe('TC-CRM-086: DataTable column resize + persistence', () => {
       await page.goto('/backend/customers/companies', { waitUntil: 'domcontentloaded' });
       await waitForTableReady();
 
-      const handle = handleAt();
+      const handle = resizeHandle();
       await expect(handle).toBeAttached();
-      const before = await handleColumnWidth(handle);
+      const before = await targetColumnWidth();
 
       // -- Drag the handle right by ~130px → the column widens --------------------
       const box = await handle.boundingBox();
@@ -69,19 +71,19 @@ test.describe('TC-CRM-086: DataTable column resize + persistence', () => {
       await page.mouse.move(cx + 130, cy, { steps: 10 });
       await page.mouse.up();
 
-      const after = await handleColumnWidth(handle);
+      const after = await targetColumnWidth();
       expect(after, 'dragging the handle should widen the column').toBeGreaterThan(before + 80);
 
       // -- The width survives a full reload (persisted, not saved as a view) -----
       await page.reload({ waitUntil: 'domcontentloaded' });
       await waitForTableReady();
-      const afterReload = await handleColumnWidth(handleAt());
+      const afterReload = await targetColumnWidth();
       expect(afterReload, 'the resized width should survive a page reload').toBeGreaterThan(before + 80);
 
       // -- Double-click resets the column back to its auto width ------------------
-      await handleAt().dblclick();
+      await resizeHandle().dblclick();
       await expect
-        .poll(async () => handleColumnWidth(handleAt()), { timeout: 5_000 })
+        .poll(targetColumnWidth, { timeout: 5_000 })
         .toBeLessThan(afterReload - 60);
     } finally {
       for (const id of companyIds) {
