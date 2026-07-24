@@ -69,6 +69,17 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     return resolveLegacyTab(searchParams?.get('tab'))
   }, [searchParams])
   const [activeTab, setActiveTab] = React.useState<CompanyTabId>(initialTab)
+
+  const handleTabChange = React.useCallback(
+    (tab: CompanyTabId) => {
+      setActiveTab(tab)
+      if (!pathname) return
+      const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
+      nextParams.set('tab', tab)
+      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams],
+  )
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const { canViewDeals, isReady: isDealsAccessReady } = useDealsAccess()
 
@@ -519,7 +530,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             zone2={
               <CompanyDetailTabs
                 activeTab={activeTab}
-                onTabChange={setActiveTab}
+                onTabChange={handleTabChange}
                 injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
                 peopleCount={data.counts?.people ?? 0}
                 dealsCount={dealCount}

@@ -107,6 +107,16 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     setData,
   })
 
+  const restoredInjectedTabRef = React.useRef(false)
+  React.useEffect(() => {
+    if (restoredInjectedTabRef.current) return
+    const requestedTab = searchParams?.get('tab')
+    if (!requestedTab || requestedTab === activeTab) return
+    if (!injectedTabs.some((tab) => tab.id === requestedTab)) return
+    restoredInjectedTabRef.current = true
+    setActiveTab(requestedTab)
+  }, [activeTab, injectedTabs, searchParams])
+
   const { searchPeoplePage, fetchPeopleByIds, searchCompaniesPage, fetchCompaniesByIds } = useDealAssociationLookups({
     excludeLinkedDealId: data?.deal.id ?? null,
   })
@@ -630,7 +640,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             isSaving={isSaving}
           />
 
-          <InjectionSpot spotId="detail:customers.deal:status-badges" context={injectionContext} data={data} />
+          <InjectionSpot spotId="detail:customers.deal:status-badges" context={injectionContext} data={data} onDataChange={setData} />
 
           <PipelineStepper
             stages={data.pipelineStages}

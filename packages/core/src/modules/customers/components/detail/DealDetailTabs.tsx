@@ -25,6 +25,7 @@ type DealDetailTabsProps = {
   activeTab: DealTabId
   onTabChange: (tab: DealTabId) => void
   injectedTabs?: Array<{ id: string; label: string }>
+  hiddenTabIds?: string[]
   peopleCount?: number
   companiesCount?: number
   children: React.ReactNode
@@ -32,9 +33,11 @@ type DealDetailTabsProps = {
 
 const SUPPORTED_TAB_IDS = new Set<DealTabId>(['activities', 'people', 'companies', 'notes', 'files', 'changelog'])
 
-export function resolveLegacyTab(tab: string | null | undefined): DealTabId {
+export function resolveLegacyTab(tab: string | null | undefined, knownTabIds?: Iterable<string>): DealTabId {
   if (!tab) return 'activities'
-  return SUPPORTED_TAB_IDS.has(tab as DealTabId) ? (tab as DealTabId) : 'activities'
+  if (SUPPORTED_TAB_IDS.has(tab as DealTabId)) return tab as DealTabId
+  if (knownTabIds && new Set(knownTabIds).has(tab)) return tab
+  return 'activities'
 }
 
 function formatTabCount(count: number): string | number | undefined {
@@ -46,6 +49,7 @@ export function DealDetailTabs({
   activeTab,
   onTabChange,
   injectedTabs = [],
+  hiddenTabIds = [],
   peopleCount = 0,
   companiesCount = 0,
   children,
@@ -91,16 +95,16 @@ export function DealDetailTabs({
     [companiesCount, peopleCount, t],
   )
 
-  const allTabs = React.useMemo<TabDef[]>(
-    () => [
+  const allTabs = React.useMemo<TabDef[]>(() => {
+    const hidden = new Set(hiddenTabIds)
+    return [
       ...builtInTabs,
       ...injectedTabs.map((tab) => ({
         id: tab.id as DealTabId,
         label: tab.label,
       })),
-    ],
-    [builtInTabs, injectedTabs],
-  )
+    ].filter((tab) => !hidden.has(tab.id))
+  }, [builtInTabs, hiddenTabIds, injectedTabs])
 
   return (
     <div>
