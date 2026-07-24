@@ -38,7 +38,7 @@ List the tests or commands you ran to validate the change.
 - [ ] I created or updated the spec in `.ai/specs/` with a changelog entry (if applicable).
 - [ ] Priority set: this PR carries exactly one `priority-*` label.
 - [ ] Risk set: this PR carries exactly one `risk-*` label describing its blast radius (`risk-low`/`risk-medium`/`risk-high`).
-- [ ] QA routing set: `skip-qa` for low-risk non-customer-facing changes, otherwise `needs-qa`. A `needs-qa` PR cannot merge until QA adds `qa-approved` (or an engineer self-QAs: run locally, click through, attach a screenshot/written confirmation, then add `qa-approved` + `qa-self-verified`). See `.github/QA-DEPLOYMENT.md`.
+- [ ] QA routing set: `skip-qa` for low-risk non-customer-facing changes — and for changes with no manually exercisable UI surface that ship automated tests for the behavior they change — otherwise `needs-qa`. A `needs-qa` PR cannot merge until QA adds `qa-approved` (or an engineer self-QAs: run locally, click through, attach a screenshot/written confirmation, then add `qa-approved` + `qa-self-verified`). See `.github/QA-DEPLOYMENT.md` and `AGENTS.md` → PR Workflow for the authoritative rules.
 
 ### Design System Compliance
 - [ ] No hardcoded status colors (`text-red-*`, `bg-green-*`, `text-emerald-*`, `bg-amber-*`, `bg-blue-*`) — use semantic tokens
