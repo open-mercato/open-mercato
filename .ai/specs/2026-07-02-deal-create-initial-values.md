@@ -48,10 +48,12 @@ Purely additive. When `initialValues` is omitted the initializer resolves to `EM
 
 ## Testing
 
+- Unit coverage in `CreateDealForm.test.tsx` verifies that omitting `initialValues` preserves the empty form, supplied values prefill the form and reach the create payload, and explicitly `undefined` entries cannot erase required defaults.
 - `yarn typecheck` — the additive prop + functional initializer type-check.
-- Manual: render `CreateDealForm` with and without `initialValues`; confirm omitted → empty form (unchanged), provided → fields pre-filled and editable.
+- Integration coverage is not applicable yet: this PR changes no API path and the core create page deliberately has no `initialValues` consumer. The proposed pluggable page-defaults follow-up must add Playwright coverage for the `/backend/customers/deals/create` route when it introduces that user-reachable integration.
 
 ## Changelog
 
 - 2026-07-02 — Initial spec + additive `initialValues` prop on `CreateDealForm`. Follow-ups (auto-default-pipeline, pluggable page defaults) proposed for maintainer decision.
 - 2026-07-04 — Harden the merge: explicitly-`undefined` entries in `initialValues` are filtered out before spreading over `EMPTY_VALUES`, so a sparse `Partial<BaseValues>` cannot unset a required default (review finding).
+- 2026-07-24 — Add regression coverage for omitted, supplied, and explicitly-`undefined` initial values; document why route-level integration coverage belongs to the follow-up that introduces a core page consumer.
