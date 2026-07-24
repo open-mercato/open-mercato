@@ -37,6 +37,32 @@ const SAFE_TEXT_EXTENSIONS = new Set([
   '.mjs', '.prisma', '.sql', '.ts', '.tsx', '.txt', '.xml', '.yaml', '.yml',
 ])
 const WALK_IGNORES = new Set(['.git', '.next', 'dist', 'node_modules'])
+const RESULT_VIOLATION_LIMIT = 300
+const BASE_RUNNER_ENV_KEYS = [
+  'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'TEMP', 'TMP',
+  'SystemRoot', 'WINDIR', 'PATHEXT', 'ComSpec', 'LOCALAPPDATA', 'APPDATA',
+  'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'NODE_EXTRA_CA_CERTS',
+  'SSL_CERT_FILE', 'SSL_CERT_DIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY',
+]
+const RUNNER_ENV_KEYS = {
+  codex: [
+    'CODEX_HOME', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_ORG_ID',
+    'OPENAI_PROJECT_ID', 'AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT',
+    'AZURE_OPENAI_API_VERSION',
+  ],
+  claude: [
+    'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN',
+    'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX',
+    'CLAUDE_CODE_USE_FOUNDRY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY',
+    'AWS_SESSION_TOKEN', 'AWS_REGION', 'AWS_DEFAULT_REGION',
+    'GOOGLE_APPLICATION_CREDENTIALS', 'ANTHROPIC_VERTEX_PROJECT_ID',
+    'CLOUD_ML_REGION', 'AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT',
+  ],
+}
+const SAFE_OBSERVED_PREFIXES = [
+  '.ai/guides/', '.ai/skills/', '.agents/skills/', 'node_modules/@open-mercato/',
+]
+const HARD_FORBIDDEN_READ_PATTERNS = ['.env*', '.git', '.git/**', '.ai/harness', '.ai/harness/**']
 
 function usage() {
   return `Open Mercato standalone agent harness evaluator
@@ -328,14 +354,29 @@ function sha256(value) {
   return createHash('sha256').update(value).digest('hex')
 }
 
-function sanitize(value, root) {
+function sanitize(value, root, maxLength = 4096) {
   let text = String(value ?? '')
   const replacements = [os.homedir(), process.env.HOME, root].filter(Boolean).sort((a, b) => b.length - a.length)
   for (const sensitivePath of replacements) text = text.split(sensitivePath).join('<redacted-path>')
   text = text
     .replace(/\b(?:sk|ghp|github_pat|xox[baprs])[-_A-Za-z0-9]{8,}\b/g, '<redacted-token>')
     .replace(/\b(?:api[_-]?key|authorization|password|secret|token)\s*[:=]\s*[^\s,;]+/gi, '$1=<redacted>')
-  return text.slice(0, 4096)
+  return text.slice(0, maxLength)
+}
+
+function recursivelySanitize(value, root) {
+  if (typeof value === 'string') return sanitize(value, root)
+  if (Array.isArray(value)) return value.map((item) => recursivelySanitize(item, root))
+  if (!isPlainObject(value)) return value
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, recursivelySanitize(child, root)]))
+}
+
+function narrowRunnerEnv(runner) {
+  const result = { NO_COLOR: '1' }
+  for (const key of [...BASE_RUNNER_ENV_KEYS, ...(RUNNER_ENV_KEYS[runner] ?? [])]) {
+    if (typeof process.env[key] === 'string') result[key] = process.env[key]
+  }
+  return result
 }
 
 function extractJsonCandidate(stdout, outputFile, runner) {
@@ -345,10 +386,6 @@ function extractJsonCandidate(stdout, outputFile, runner) {
   }
   const trimmed = stdout.trim()
   if (!trimmed) throw new Error('runner returned no structured output')
-  if (runner === 'claude') {
-    const parsed = JSON.parse(trimmed)
-    return parsed.structured_output ?? parsed.structuredOutput ?? parsed.result ?? parsed
-  }
   const lines = trimmed.split(/\r?\n/).filter(Boolean)
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     try {
@@ -356,6 +393,11 @@ function extractJsonCandidate(stdout, outputFile, runner) {
       const candidate = parsed.structured_output ?? parsed.structuredOutput ?? parsed.output ?? parsed.result
       if (isPlainObject(candidate)) return candidate
     } catch { /* event stream may include non-JSON diagnostics */ }
+  }
+  if (runner === 'claude') {
+    const parsed = JSON.parse(trimmed)
+    const candidate = parsed.structured_output ?? parsed.structuredOutput ?? parsed.result ?? parsed
+    if (isPlainObject(candidate)) return candidate
   }
   throw new Error('runner output did not contain a structured response')
 }
@@ -369,29 +411,200 @@ function validateRoutingResponse(response) {
   return errors
 }
 
-function recursivelyFindObservedPaths(value, output = new Set(), toolContext = false) {
-  if (Array.isArray(value)) {
-    for (const item of value) recursivelyFindObservedPaths(item, output, toolContext)
-    return output
-  }
-  if (!isPlainObject(value)) return output
-  const marker = `${value.type ?? ''} ${value.name ?? ''} ${value.tool_name ?? ''}`.toLowerCase()
-  const isTool = toolContext || /tool|read|glob|grep|command/.test(marker)
-  for (const [key, child] of Object.entries(value)) {
-    if (isTool && typeof child === 'string' && /path|file|command|cmd|query|pattern/i.test(key)) {
-      for (const match of child.matchAll(/((?:AGENTS\.md|(?:\.ai|src|packages|node_modules)\/[^\s'"`,;)]+))/g)) output.add(match[1].replace(/[),;]+$/, ''))
-    }
-    recursivelyFindObservedPaths(child, output, isTool)
-  }
-  return output
+function matchesSchemaType(value, expected) {
+  if (expected === 'null') return value === null
+  if (expected === 'array') return Array.isArray(value)
+  if (expected === 'object') return isPlainObject(value)
+  if (expected === 'integer') return Number.isInteger(value)
+  if (expected === 'number') return typeof value === 'number' && Number.isFinite(value)
+  return typeof value === expected
 }
 
-function observedPaths(stdout, root) {
-  const result = new Set()
-  for (const line of stdout.split(/\r?\n/).filter(Boolean)) {
-    try { recursivelyFindObservedPaths(JSON.parse(line), result) } catch { /* ignore non-event lines */ }
+function validateJsonSchema(value, schema, location = '$') {
+  const errors = []
+  const expectedTypes = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : []
+  if (expectedTypes.length && !expectedTypes.some((type) => matchesSchemaType(value, type))) {
+    return [`${location} must be ${expectedTypes.join(' or ')}`]
   }
-  return [...result].map((entry) => entry.replaceAll('\\', '/')).filter((entry) => isSafeRelative(entry) && fs.existsSync(path.resolve(root, entry))).sort()
+  if (Object.hasOwn(schema, 'const') && value !== schema.const) errors.push(`${location} must equal its schema constant`)
+  if (schema.enum && !schema.enum.some((item) => JSON.stringify(item) === JSON.stringify(value))) errors.push(`${location} is not in its schema enum`)
+  if (typeof value === 'string') {
+    if (Number.isInteger(schema.maxLength) && value.length > schema.maxLength) errors.push(`${location} exceeds maxLength ${schema.maxLength}`)
+    if (schema.pattern && !new RegExp(schema.pattern).test(value)) errors.push(`${location} does not match its schema pattern`)
+  }
+  if (typeof value === 'number' && Number.isFinite(schema.minimum) && value < schema.minimum) errors.push(`${location} is below minimum ${schema.minimum}`)
+  if (Array.isArray(value)) {
+    if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) errors.push(`${location} must contain unique items`)
+    if (schema.items) value.forEach((item, index) => errors.push(...validateJsonSchema(item, schema.items, `${location}[${index}]`)))
+  }
+  if (isPlainObject(value)) {
+    for (const required of schema.required ?? []) if (!Object.hasOwn(value, required)) errors.push(`${location}.${required} is required`)
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(value)) if (!Object.hasOwn(schema.properties ?? {}, key)) errors.push(`${location}.${key} is not allowed`)
+    }
+    for (const [key, childSchema] of Object.entries(schema.properties ?? {})) {
+      if (Object.hasOwn(value, key)) errors.push(...validateJsonSchema(value[key], childSchema, `${location}.${key}`))
+    }
+  }
+  return errors
+}
+
+function stripShellToken(token, root) {
+  let result = String(token ?? '').trim().replace(/^['"`]+|['"`]+$/g, '')
+  result = result.replaceAll('${PWD}', root).replaceAll('$PWD', root)
+  return result.replace(/[),;]+$/g, '').replace(/:(\d+)(?::\d+)?$/g, '')
+}
+
+function looksLikePathToken(token) {
+  if (!token || token.startsWith('-') || /^[0-9,]+[a-z]?$/i.test(token)) return false
+  if (['.', '..', '/', '~'].includes(token)) return true
+  if (/^(?:file:\/\/|\/|~\/|\.\.?\/)/.test(token)) return true
+  if (/^(?:AGENTS\.md|\.env(?:\.[^/]*)?|\.git(?:\/|$))/.test(token)) return true
+  if (token.includes('/') && !/^[a-z][a-z0-9+.-]*:\/\//i.test(token)) return true
+  return SAFE_TEXT_EXTENSIONS.has(path.extname(token))
+}
+
+function analyzeCommand(command, root) {
+  const candidates = []
+  const violations = []
+  const commandText = String(command)
+  if (/(?:^|[;&|]\s*)(?:\/usr\/bin\/|\/bin\/)?(?:env|printenv|export|set)(?:\s|$)/i.test(commandText)) {
+    violations.push('forbidden environment inspection command')
+  }
+  if (/\$(?:\{)?(?:[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD)|HOME|CODEX_HOME|CLAUDE_CONFIG_DIR)(?:\})?/i.test(commandText)) {
+    violations.push('forbidden sensitive environment variable reference')
+  }
+  const visit = (text, depth = 0) => {
+    if (depth > 2) return
+    const tokens = String(text).match(/"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|`(?:\\.|[^`])*`|[^\s|;&<>]+/g) ?? []
+    tokens.forEach((token, index) => {
+      const stripped = stripShellToken(token, root)
+      if (index === 0 && /\/(?:ba|z|fi)?sh$|\/env$/.test(stripped)) return
+      if (/\s/.test(stripped) && /\b(?:cat|sed|head|tail|less|more|grep|rg|find|ls|stat|wc|awk)\b/.test(stripped)) visit(stripped, depth + 1)
+      else if (looksLikePathToken(stripped)) candidates.push({ raw: stripped, expand: /\b(?:grep|rg)\b/.test(String(command)) })
+    })
+  }
+  visit(command)
+  return { candidates, violations }
+}
+
+function addTraceCandidate(state, raw, expand = false) {
+  if (Array.isArray(raw)) {
+    for (const item of raw) addTraceCandidate(state, item, expand)
+  } else if (typeof raw === 'string' && raw.trim()) state.candidates.push({ raw, expand })
+}
+
+function recursivelyFindTraceCandidates(value, state, inheritedTool = false, inheritedName = '') {
+  if (Array.isArray(value)) {
+    for (const item of value) recursivelyFindTraceCandidates(item, state, inheritedTool, inheritedName)
+    return
+  }
+  if (!isPlainObject(value)) return
+  const marker = `${value.type ?? ''} ${value.name ?? ''} ${value.tool_name ?? ''}`.toLowerCase()
+  const ownTool = /tool_use|command_execution|mcp_tool_call|file_search|\bread\b|\bglob\b|\bgrep\b/.test(marker)
+  if (ownTool) state.available = true
+  const isTool = inheritedTool || ownTool
+  const toolName = String(value.name ?? value.tool_name ?? value.type ?? inheritedName).toLowerCase()
+  for (const [key, child] of Object.entries(value)) {
+    if (isTool && /^(?:file_path|filepath|path|paths|filename|file)$/i.test(key)) {
+      addTraceCandidate(state, child, /glob|grep|search/.test(toolName))
+    } else if (isTool && /^(?:command|cmd)$/i.test(key)) {
+      const commands = Array.isArray(child) ? child : [child]
+      for (const command of commands) {
+        if (typeof command !== 'string') continue
+        const analysis = analyzeCommand(command, state.root)
+        state.candidates.push(...analysis.candidates)
+        for (const violation of analysis.violations) state.violations.add(violation)
+      }
+    } else if (isTool && /^pattern$/i.test(key) && /glob/.test(toolName)) {
+      addTraceCandidate(state, child, true)
+    }
+    recursivelyFindTraceCandidates(child, state, isTool, toolName)
+  }
+}
+
+function isPathInside(root, absolute) {
+  const relative = path.relative(root, absolute)
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+}
+
+function normalizeObservedCandidate(raw, root) {
+  let candidate = stripShellToken(raw, root)
+  if (candidate.startsWith('file://')) candidate = new URL(candidate).pathname
+  if (candidate === '~' || candidate.startsWith('~/')) return { unsafe: `unsafe out-of-root context read: ${candidate}` }
+  const absolute = path.isAbsolute(candidate) ? path.resolve(candidate) : path.resolve(root, candidate)
+  if (!isPathInside(root, absolute)) return { unsafe: `unsafe out-of-root context read: ${candidate}` }
+  const relative = path.relative(root, absolute).replaceAll(path.sep, '/')
+  if (!relative || ['.', '*', '**'].includes(candidate)) return { unsafe: 'unsafe broad app-root context read' }
+  if (!isSafeRelative(relative)) return { unsafe: `unsafe context read path: ${candidate}` }
+  return { relative }
+}
+
+function isAllowedObservedPath(relative, caseRecord, writable) {
+  return relative === 'AGENTS.md'
+    || SAFE_OBSERVED_PREFIXES.some((prefix) => relative === prefix.slice(0, -1) || relative.startsWith(prefix))
+    || (writable && matchesAny(relative, caseRecord.allowedWrites ?? []))
+}
+
+function expandObservedPath(root, relative, expand) {
+  if (relative.includes('*') || relative.includes('?')) {
+    return walkFiles(root, { ignored: new Set(['.git', '.next', 'dist']) }).filter((file) => globToRegExp(relative).test(file))
+  }
+  const absolute = path.resolve(root, relative)
+  try {
+    const stat = fs.statSync(absolute)
+    if (stat.isFile()) return [relative]
+    if (!stat.isDirectory() || !expand) return []
+    const result = []
+    const visit = (directory) => {
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        if (entry.name === '.git' || entry.isSymbolicLink()) continue
+        const child = path.join(directory, entry.name)
+        if (entry.isDirectory()) visit(child)
+        else if (entry.isFile()) result.push(path.relative(root, child).replaceAll(path.sep, '/'))
+      }
+    }
+    visit(absolute)
+    return result.sort()
+  } catch {
+    return []
+  }
+}
+
+function observedContext(stdout, root, caseRecord, writable) {
+  const state = { root, available: false, candidates: [], violations: new Set() }
+  for (const line of stdout.split(/\r?\n/).filter(Boolean)) {
+    try {
+      const parsed = JSON.parse(line)
+      recursivelyFindTraceCandidates(parsed, state)
+    } catch { /* ignore non-event lines */ }
+  }
+  const paths = new Set()
+  const violations = new Set(state.violations)
+  if (!state.available) violations.add('runner trace unavailable; observed context cannot be verified')
+  for (const candidate of state.candidates) {
+    const normalized = normalizeObservedCandidate(candidate.raw, root)
+    if (normalized.unsafe) {
+      violations.add(normalized.unsafe)
+      continue
+    }
+    const relative = normalized.relative
+    if (matchesAny(relative, HARD_FORBIDDEN_READ_PATTERNS) || matchesAny(relative, caseRecord.context.forbidden)) {
+      violations.add(`forbidden context read ${relative}`)
+      continue
+    }
+    if (!isAllowedObservedPath(relative, caseRecord, writable)) {
+      violations.add(`unsafe arbitrary app-root read ${relative}`)
+      continue
+    }
+    for (const file of expandObservedPath(root, relative, candidate.expand)) {
+      if (matchesAny(file, HARD_FORBIDDEN_READ_PATTERNS) || matchesAny(file, caseRecord.context.forbidden)) violations.add(`forbidden context read ${file}`)
+      else if (isAllowedObservedPath(file, caseRecord, writable)) paths.add(file)
+      else violations.add(`unsafe arbitrary app-root read ${file}`)
+    }
+  }
+  if (state.available && paths.size === 0) violations.add('runner trace contained no observed context reads')
+  return { available: state.available, paths: [...paths].sort(), violations: [...violations] }
 }
 
 function contextStats(root, paths) {
@@ -401,7 +614,9 @@ function contextStats(root, paths) {
   let initialFiles = 0
   const initialPaths = []
   for (const relative of paths) {
+    if (!isSafeRelative(relative)) continue
     const absolute = path.resolve(root, relative)
+    if (!isPathInside(root, absolute)) continue
     try {
       const stat = fs.statSync(absolute)
       if (stat.isFile()) {
@@ -438,6 +653,7 @@ function evaluateRouting(caseRecord, response, stats) {
   const selectedContext = new Set(response.selectedContext)
   for (const required of caseRecord.context.required) {
     if (![...selectedContext].some((selected) => globToRegExp(required).test(selected))) failures.push(`missing context ${required}`)
+    if (!stats.paths.some((observed) => globToRegExp(required).test(observed))) failures.push(`required context not observed ${required}`)
   }
   for (const forbidden of caseRecord.context.forbidden) {
     if ([...selectedContext].some((selected) => globToRegExp(forbidden).test(selected))) failures.push(`forbidden context ${forbidden}`)
@@ -453,10 +669,15 @@ function evaluateRouting(caseRecord, response, stats) {
   return failures
 }
 
-function runnerVersion(runner) {
-  const result = spawnSync(runner, ['--version'], { encoding: 'utf8', timeout: 10_000, maxBuffer: 128 * 1024 })
+function runnerVersion(runner, root) {
+  const result = spawnSync(runner, ['--version'], {
+    encoding: 'utf8',
+    timeout: 10_000,
+    maxBuffer: 128 * 1024,
+    env: narrowRunnerEnv(runner),
+  })
   if (result.error?.code === 'ENOENT') throw new Error(`${runner} executable was not found on PATH`)
-  if (result.status !== 0) throw new Error(`${runner} --version failed: ${sanitize(result.stderr, process.cwd())}`)
+  if (result.status !== 0) throw new Error(`${runner} --version failed: ${sanitize(result.stderr, root)}`)
   return String(result.stdout || result.stderr).trim().slice(0, 200)
 }
 
@@ -479,14 +700,19 @@ ${caseRecord.prompt}
 
 function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, writable }) {
   if (runner === 'codex') {
-    const args = ['exec', '--json', '--ephemeral', '--skip-git-repo-check', '--sandbox', writable ? 'workspace-write' : 'read-only', '-C', root, '--output-schema', schemaPath, '-o', outputPath]
+    const args = [
+      'exec', '--json', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check',
+      '--sandbox', writable ? 'workspace-write' : 'read-only',
+      '-c', 'shell_environment_policy.inherit=none',
+      '-C', root, '--output-schema', schemaPath, '-o', outputPath,
+    ]
     if (model && model !== 'default') args.push('--model', model)
     args.push('-')
     return { command: 'codex', args }
   }
   const schema = JSON.stringify(readJson(schemaPath))
   const tools = writable ? 'Read,Glob,Grep,Edit,Write' : 'Read,Glob,Grep'
-  const args = ['-p', '--permission-mode', writable ? 'acceptEdits' : 'plan', '--tools', tools, '--no-session-persistence', '--output-format', 'json', '--json-schema', schema]
+  const args = ['-p', '--permission-mode', writable ? 'acceptEdits' : 'plan', '--tools', tools, '--no-session-persistence', '--output-format', 'stream-json', '--verbose', '--json-schema', schema]
   if (model && model !== 'default') args.push('--model', model)
   return { command: 'claude', args }
 }
@@ -503,7 +729,7 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
       encoding: 'utf8',
       timeout,
       maxBuffer: 8 * 1024 * 1024,
-      env: { ...process.env, NO_COLOR: '1' },
+      env: narrowRunnerEnv(runner),
     })
     const durationMs = Date.now() - started
     if (processResult.error?.code === 'ETIMEDOUT' || processResult.signal) {
@@ -512,7 +738,7 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
     if (processResult.error) return { kind: 'environment-failure', durationMs, exitStatus: processResult.status, error: processResult.error.message, stdout: processResult.stdout ?? '' }
     if (processResult.status !== 0) return { kind: 'process-failure', durationMs, exitStatus: processResult.status, error: processResult.stderr || processResult.stdout || `runner exited ${processResult.status}`, stdout: processResult.stdout ?? '' }
     try {
-      const response = extractJsonCandidate(processResult.stdout ?? '', outputPath, runner)
+      const response = recursivelySanitize(extractJsonCandidate(processResult.stdout ?? '', outputPath, runner), root)
       const schemaErrors = validateRoutingResponse(response)
       if (schemaErrors.length) return { kind: 'invalid-structured-output', durationMs, exitStatus: processResult.status, error: schemaErrors.join('; '), stdout: processResult.stdout ?? '' }
       return { kind: 'success', durationMs, exitStatus: processResult.status, response, stdout: processResult.stdout ?? '' }
@@ -531,7 +757,28 @@ function snapshot(root) {
     const absolute = path.join(root, relative)
     try { result.set(relative, sha256(fs.readFileSync(absolute))) } catch { /* skip unreadable files */ }
   }
+  for (const relative of ['.git', 'node_modules', '.next', 'dist', '.ai/harness/results']) {
+    result.set(relative, protectedTreeFingerprint(path.join(root, relative)))
+  }
   return result
+}
+
+function protectedTreeFingerprint(target) {
+  if (!fs.existsSync(target)) return '<missing>'
+  const hash = createHash('sha256')
+  const visit = (absolute, relative = '.') => {
+    let stat
+    try { stat = fs.lstatSync(absolute) } catch { hash.update(`${relative}:<unreadable>\n`); return }
+    hash.update(`${relative}:${stat.mode}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}\n`)
+    if (stat.isSymbolicLink()) {
+      try { hash.update(`link:${fs.readlinkSync(absolute)}\n`) } catch { /* metadata above still detects the entry */ }
+      return
+    }
+    if (!stat.isDirectory()) return
+    for (const entry of fs.readdirSync(absolute).sort()) visit(path.join(absolute, entry), relative === '.' ? entry : `${relative}/${entry}`)
+  }
+  visit(target)
+  return hash.digest('hex')
 }
 
 function changedPaths(before, after) {
@@ -580,12 +827,19 @@ function verifyWritableTarget(root, caseRecord, fixtures) {
   return errors
 }
 
-function writeResult(root, result) {
+function writeResult(root, result, resultSchema) {
+  const normalized = recursivelySanitize(result, root)
+  normalized.runnerVersion = normalized.runnerVersion.slice(0, 200)
+  normalized.model = normalized.model.slice(0, 200)
+  normalized.violations = normalized.violations.map((entry) => entry.slice(0, RESULT_VIOLATION_LIMIT))
+  if (normalized.sanitizedError) normalized.sanitizedError = normalized.sanitizedError.slice(0, 4096)
+  const schemaErrors = validateJsonSchema(normalized, resultSchema)
+  if (schemaErrors.length) throw new Error(`result schema validation failed: ${schemaErrors.slice(0, 8).join('; ')}`)
   const directory = path.join(root, '.ai', 'harness', 'results')
   fs.mkdirSync(directory, { recursive: true })
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const file = path.join(directory, `${stamp}-${result.runner}-${result.caseId}.json`)
-  fs.writeFileSync(file, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 })
+  const file = path.join(directory, `${stamp}-${normalized.runner}-${normalized.caseId}.json`)
+  fs.writeFileSync(file, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 })
   return path.relative(root, file).replaceAll(path.sep, '/')
 }
 
@@ -603,9 +857,9 @@ function deterministicRun(selected, validation) {
   return failed ? EXIT_FAILURE : EXIT_PASS
 }
 
-function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, harnessDir }) {
+function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, harnessDir, resultSchema }) {
   const schemaPath = path.join(harnessDir, 'routing-response.schema.json')
-  const version = runnerVersion(options.runner)
+  const version = runnerVersion(options.runner, root)
   const model = options.model ?? releaseMatrix.routing[options.runner].modelSelector
   const writableRoot = options.writableRoot ? path.resolve(options.writableRoot) : undefined
   let failures = 0
@@ -624,26 +878,32 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
       const beforeOracleErrors = writable ? runOracle(caseRecord, runRoot, registry) : []
       if (writable && caseRecord.evaluationKind === 'regression' && beforeOracleErrors.length === 0) throw new Error(`${caseRecord.id}: regression oracle already passes before the edit`)
       const prompt = buildPrompt(caseRecord, runRoot, writable) + (writable ? `\n\nImplement the task only under these allowed app-relative paths: ${caseRecord.allowedWrites.join(', ')}. Do not change anything else.` : '')
-      let execution = runAgentOnce({ runner: options.runner, root: runRoot, schemaPath, prompt, timeout: options.timeout, model, writable })
+      const executions = [runAgentOnce({ runner: options.runner, root: runRoot, schemaPath, prompt, timeout: options.timeout, model, writable })]
+      let execution = executions[0]
       if (execution.kind === 'invalid-structured-output') {
         execution = runAgentOnce({ runner: options.runner, root: runRoot, schemaPath, prompt: `${prompt}\n\nYour previous response was not valid structured output. Return only the schema object.`, timeout: options.timeout, model, writable })
+        executions.push(execution)
       }
-      const observed = observedPaths(execution.stdout ?? '', runRoot)
-      let stats = contextStats(runRoot, observed)
-      const violations = []
+      const trace = observedContext(executions.map((attempt) => attempt.stdout ?? '').join('\n'), runRoot, caseRecord, writable)
+      const stats = contextStats(runRoot, trace.paths)
+      let declaredStats = contextStats(runRoot, [])
+      const violations = [...trace.violations]
       let response = { selectedRouter: [], selectedSkills: [], selectedContext: [], decisions: [], violations: [] }
       if (execution.kind === 'success') {
         response = execution.response
         const declared = response.selectedContext
-          .filter((entry) => isSafeRelative(entry) && fs.existsSync(path.resolve(runRoot, entry)))
-        stats = contextStats(runRoot, [...new Set([...observed, ...declared])].sort())
+          .filter((entry) => isSafeRelative(entry) && isPathInside(runRoot, path.resolve(runRoot, entry)) && fs.existsSync(path.resolve(runRoot, entry)))
+        declaredStats = contextStats(runRoot, [...new Set(declared)].sort())
         violations.push(...evaluateRouting(caseRecord, response, stats))
       } else violations.push(`${execution.kind}: ${sanitize(execution.error, runRoot)}`)
       let writableResult
       if (writable) {
         const after = snapshot(runRoot)
         const changed = changedPaths(before, after)
-        const outside = changed.filter((file) => !matchesAny(file, caseRecord.allowedWrites))
+        const protectedRoots = new Set(['.git', 'node_modules', '.next', 'dist', '.ai/harness/results'])
+        const protectedChanges = changed.filter((file) => protectedRoots.has(file))
+        if (protectedChanges.length) violations.push(`writes to protected roots: ${protectedChanges.join(', ')}`)
+        const outside = changed.filter((file) => !protectedRoots.has(file) && !matchesAny(file, caseRecord.allowedWrites))
         if (outside.length) violations.push(`writes outside allowlist: ${outside.join(', ')}`)
         const afterOracleErrors = runOracle(caseRecord, runRoot, registry)
         violations.push(...afterOracleErrors)
@@ -663,15 +923,16 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         selectedSkills: response.selectedSkills,
         selectedContext: response.selectedContext,
         decisions: response.decisions,
-        violations: violations.map((entry) => sanitize(entry, runRoot)),
-        durationMs: execution.durationMs,
+        violations: violations.map((entry) => sanitize(entry, runRoot, RESULT_VIOLATION_LIMIT)),
+        durationMs: executions.reduce((total, attempt) => total + attempt.durationMs, 0),
         exitStatus: execution.exitStatus,
         status,
         ...(execution.kind === 'success' ? {} : { sanitizedError: sanitize(execution.error, runRoot) }),
         actualContext: stats,
+        declaredContext: declaredStats,
         ...(writableResult ? { writable: writableResult } : {}),
       }
-      const resultPath = writeResult(root, result)
+      const resultPath = writeResult(root, result, resultSchema)
       console.log(`${status === 'pass' ? 'PASS' : 'FAIL'} ${caseRecord.id} — ${resultPath}`)
     }
   }
@@ -693,7 +954,7 @@ function main() {
     const fixtures = readJson(path.join(harnessDir, 'fixtures', 'index.json'))
     const seeds = readJson(path.join(harnessDir, 'fixtures', 'seeds.json'))
     readJson(path.join(harnessDir, 'cases.schema.json'))
-    readJson(path.join(harnessDir, 'result.schema.json'))
+    const resultSchema = readJson(path.join(harnessDir, 'result.schema.json'))
     const routingResponseSchema = readJson(path.join(harnessDir, 'routing-response.schema.json'))
     const validation = validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds, routingResponseSchema })
     const selected = selectCases(cases, options, releaseMatrix)
@@ -703,7 +964,7 @@ function main() {
       console.error(`catalog validation failed before live evaluation: ${catalogFailures.join('; ')}`)
       return EXIT_FAILURE
     }
-    return liveRun({ options, selected, registry, releaseMatrix, fixtures, root, harnessDir })
+    return liveRun({ options, selected, registry, releaseMatrix, fixtures, root, harnessDir, resultSchema })
   } catch (error) {
     console.error(sanitize(error.message, root))
     return EXIT_INVALID

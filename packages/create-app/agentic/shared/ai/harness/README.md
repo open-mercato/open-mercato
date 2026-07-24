@@ -15,3 +15,9 @@ yarn harness:validate --runner codex --case OMH-009 --writable-root /absolute/di
 ```
 
 The preparer refuses the controller app, non-standalone targets, reused targets, and existing fixture files. The evaluator rejects writes outside each case's `allowedWrites`. Regression oracles must fail before the change and pass afterward. Fixture preparation is not run evidence. Generated results live under ignored `.ai/harness/results/`; they contain hashes and sanitized summaries, never raw transcripts or environment values.
+
+## Live-run security boundary
+
+The runner receives an explicit allowlist of runtime/authentication variables rather than the evaluator's complete environment. Codex tool shells inherit no environment; Claude routing exposes only `Read`, `Glob`, and `Grep`. Every response-derived string is recursively redacted before validation or persistence.
+
+The CLI read-only/plan modes prevent harness writes, but neither runner provides a portable filesystem read denylist. Run live routing only in a generated or otherwise non-sensitive app. Tool-event traces are therefore mandatory release evidence: missing traces, environment-inspection commands, out-of-root reads, `.env*`, `.git/**`, `.ai/harness/**`, and case-forbidden or arbitrary app-root reads fail closed. `actualContext` contains only traced reads; `declaredContext` separately measures the model-reported selection. Writable runs additionally fingerprint normally ignored/protected roots before and after execution so writes under `.git`, `node_modules`, build output, or harness results cannot evade the allowlist check.
