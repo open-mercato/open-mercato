@@ -76,8 +76,38 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
   const t = useT()
   const [configDrafts, setConfigDrafts] = React.useState<Record<string, ConfigDraft>>({})
 
+  // Drafts are keyed by identity (not by position) so an in-progress edit
+  // follows its activity across reordering. Both ids are user-editable, so the
+  // key has to be re-mapped whenever one of them is renamed.
   const configDraftKey = (transition: Transition, activity: Activity) =>
     `${transition.transitionId}:${activity.activityId}`
+
+  const renameConfigDraft = (previousKey: string, nextKey: string) => {
+    if (previousKey === nextKey) return
+    setConfigDrafts((drafts) => {
+      const draft = drafts[previousKey]
+      if (!draft) return drafts
+      const next = { ...drafts }
+      delete next[previousKey]
+      next[nextKey] = draft
+      return next
+    })
+  }
+
+  const renameTransitionConfigDrafts = (previousTransitionId: string, nextTransitionId: string) => {
+    if (previousTransitionId === nextTransitionId) return
+    setConfigDrafts((drafts) => {
+      const previousPrefix = `${previousTransitionId}:`
+      const affected = Object.keys(drafts).filter((key) => key.startsWith(previousPrefix))
+      if (!affected.length) return drafts
+      const next = { ...drafts }
+      for (const key of affected) {
+        next[`${nextTransitionId}:${key.slice(previousPrefix.length)}`] = drafts[key]
+        delete next[key]
+      }
+      return next
+    })
+  }
 
   const handleConfigTextChange = (
     transitionIndex: number,
@@ -135,8 +165,12 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
 
   const updateTransition = (index: number, field: keyof Transition, fieldValue: any) => {
     const updated = [...value]
-    updated[index] = { ...updated[index], [field]: fieldValue }
+    const previous = updated[index]
+    updated[index] = { ...previous, [field]: fieldValue }
     onChange(updated)
+    if (field === 'transitionId') {
+      renameTransitionConfigDrafts(previous.transitionId, String(fieldValue))
+    }
   }
 
   const removeTransition = (index: number) => {
@@ -178,9 +212,14 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
   const updateActivity = (transitionIndex: number, activityIndex: number, field: keyof Activity, fieldValue: any) => {
     const updated = [...value]
     const activities = [...(updated[transitionIndex].activities || [])]
-    activities[activityIndex] = { ...activities[activityIndex], [field]: fieldValue }
+    const previousActivity = activities[activityIndex]
+    activities[activityIndex] = { ...previousActivity, [field]: fieldValue }
     updated[transitionIndex] = { ...updated[transitionIndex], activities }
     onChange(updated)
+    if (field === 'activityId') {
+      const transitionId = updated[transitionIndex].transitionId
+      renameConfigDraft(`${transitionId}:${previousActivity.activityId}`, `${transitionId}:${String(fieldValue)}`)
+    }
   }
 
   const updateRetryPolicy = (transitionIndex: number, activityIndex: number, field: string, fieldValue: any) => {
@@ -423,7 +462,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                     const draftKey = configDraftKey(transition, activity)
                     const configDraft = configDrafts[draftKey]
                     return (
-                      <div key={draftKey} className="p-3 border rounded-md bg-muted shadow-sm border-l-4 border-l-green-500">
+                      <div key={activityIndex} className="p-3 border rounded-md bg-muted shadow-sm border-l-4 border-l-green-500">
                         <div className="space-y-2">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
