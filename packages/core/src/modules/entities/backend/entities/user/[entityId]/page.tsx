@@ -53,7 +53,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [label, setLabel] = useState('')
   const [entitySource, setEntitySource] = useState<EntitySource>('custom')
   const [entityFormLoading, setEntityFormLoading] = useState(true)
-  const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean; updatedAt?: string }>({})
+  const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean; accessRestricted?: boolean; updatedAt?: string }>({})
   const [defs, setDefs] = useState<Def[]>([])
   const [defsVersion, setDefsVersion] = useState<string | null>(null)
   const [orderDirty, setOrderDirty] = useState(false)
@@ -180,6 +180,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           const defaultEditorValue =
             typeof record?.defaultEditor === 'string' ? record.defaultEditor : ''
           const showInSidebarValue = record?.showInSidebar === true
+          const accessRestrictedValue = record?.accessRestricted === true
           const updatedAtValue =
             typeof record?.updatedAt === 'string' && record.updatedAt.length > 0 ? record.updatedAt : undefined
           setLabel(labelValue)
@@ -190,6 +191,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             labelField: labelFieldValue,
             defaultEditor: defaultEditorValue,
             showInSidebar: showInSidebarValue,
+            accessRestricted: accessRestrictedValue,
             updatedAt: updatedAtValue,
           })
           setEntityFormLoading(false)
@@ -419,6 +421,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       defaultEditor: z.union([z.enum(['markdown','simpleMarkdown','htmlRichText']).optional(), z.literal('')]).optional(),
       // Include showInSidebar so CrudForm doesn't strip it on submit
       showInSidebar: z.boolean().optional(),
+      accessRestricted: z.boolean().optional(),
     }) as z.ZodType<Record<string, unknown>>
 
   const metadataFieldsReadOnly = entitySource === 'code'
@@ -438,6 +441,12 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       ],
     } as any,
     ...(entitySource === 'custom' ? [{ id: 'showInSidebar', label: t('entities.userEntities.form.showInSidebar.label', 'Show in sidebar'), type: 'checkbox' }] : []),
+    ...(entitySource === 'custom' ? [{
+      id: 'accessRestricted',
+      label: t('entities.userEntities.form.accessRestricted.label', 'Restrict record access'),
+      type: 'checkbox',
+      description: t('entities.userEntities.form.accessRestricted.help', 'Require an explicit per-entity permission to view or manage this entity’s records. Leave off to allow anyone with the general records permission.'),
+    }] : []),
   ]
   const renderFieldDefinitions = React.useCallback(() => (
       <FieldDefinitionsEditor
@@ -496,7 +505,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const definitionsGroup: CrudFormGroup = { id: 'definitions', title: t('entities.userEntities.edit.groups.definitions', 'Field Definitions'), column: 1, component: renderFieldDefinitions }
 
   const groups: CrudFormGroup[] = [
-    { id: 'settings', title: t('entities.userEntities.edit.groups.settings', 'Entity Settings'), column: 1, fields: entitySource === 'custom' ? ['label','description','defaultEditor','showInSidebar'] : ['label','description','defaultEditor'] },
+    { id: 'settings', title: t('entities.userEntities.edit.groups.settings', 'Entity Settings'), column: 1, fields: entitySource === 'custom' ? ['label','description','defaultEditor','showInSidebar','accessRestricted'] : ['label','description','defaultEditor'] },
     definitionsGroup,
   ]
 
@@ -673,7 +682,7 @@ export function buildEntityMetadataPayload(
   const partial = entitySource === 'custom'
     ? upsertCustomEntitySchema
         .pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any })
-        .extend({ showInSidebar: z.boolean().optional() }) as unknown as z.ZodTypeAny
+        .extend({ showInSidebar: z.boolean().optional(), accessRestricted: z.boolean().optional() }) as unknown as z.ZodTypeAny
     : upsertCustomEntitySchema
         .pick({ label: true, description: true, defaultEditor: true as any }) as unknown as z.ZodTypeAny
   const normalized = {

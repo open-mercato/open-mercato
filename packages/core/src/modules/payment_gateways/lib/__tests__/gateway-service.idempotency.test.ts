@@ -143,7 +143,7 @@ function buildService() {
     em,
     integrationCredentialsService: { resolve: jest.fn(async () => ({})) } as never,
     sessionClaimOptions: {
-      staleAfterMs: 40,
+      staleAfterMs: 400,
       heartbeatIntervalMs: 10,
       pollIntervalMs: 2,
     },

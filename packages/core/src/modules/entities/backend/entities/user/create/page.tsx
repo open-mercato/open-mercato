@@ -9,6 +9,7 @@ import { upsertCustomEntitySchema } from '@open-mercato/core/modules/entities/da
 import { useRouter } from 'next/navigation'
 import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 
 const schema = upsertCustomEntitySchema
 
@@ -17,6 +18,21 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 export default function CreateEntityPage() {
   const t = useT()
   const router = useRouter()
+  // Pre-fill the restriction toggle from the tenant default-restricted policy so
+  // the form reflects the workspace posture; null while loading.
+  const [defaultRestricted, setDefaultRestricted] = React.useState<boolean | null>(null)
+  React.useEffect(() => {
+    let active = true
+    ;(async () => {
+      const data = await readApiResultOrThrow<{ newEntitiesRestrictedByDefault?: boolean }>(
+        '/api/entities/entity-settings',
+        undefined,
+        { errorMessage: '[internal] Failed to load entity settings', fallback: { newEntitiesRestrictedByDefault: false } },
+      ).catch(() => ({ newEntitiesRestrictedByDefault: false }))
+      if (active) setDefaultRestricted(data?.newEntitiesRestrictedByDefault === true)
+    })()
+    return () => { active = false }
+  }, [])
   const fields = React.useMemo<CrudField[]>(() => ([
     {
       id: 'entityId',
@@ -39,7 +55,23 @@ export default function CreateEntityPage() {
       ],
     } as unknown as CrudField,
     { id: 'showInSidebar', label: t('entities.userEntities.form.showInSidebar.label', 'Show in sidebar'), type: 'checkbox' } as CrudField,
+    {
+      id: 'accessRestricted',
+      label: t('entities.userEntities.form.accessRestricted.label', 'Restrict record access'),
+      type: 'checkbox',
+      description: t('entities.userEntities.form.accessRestricted.help', 'Require an explicit per-entity permission to view or manage this entity’s records. Leave off to allow anyone with the general records permission.'),
+    } as CrudField,
   ]), [t])
+
+  if (defaultRestricted === null) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage label={t('entities.userEntities.form.loading', 'Loading…')} />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>
@@ -49,7 +81,7 @@ export default function CreateEntityPage() {
           backHref="/backend/entities/user"
           schema={schema}
           fields={fields}
-          initialValues={{ entityId: 'user:your_entity', label: '', showInSidebar: false }}
+          initialValues={{ entityId: 'user:your_entity', label: '', showInSidebar: false, accessRestricted: defaultRestricted }}
           submitLabel={t('entities.userEntities.form.submit', 'Create')}
           cancelHref="/backend/entities/user"
           onSubmit={async (vals) => {

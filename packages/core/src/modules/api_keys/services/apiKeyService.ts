@@ -139,7 +139,10 @@ export async function findApiKeyBySecret(em: EntityManager, secret: string): Pro
   if (!secret) return null
   // Extract prefix from the secret for fast candidate lookup
   const prefix = secret.slice(0, 12)
-  // Find candidates by prefix (fast index lookup)
+  // Find candidates by prefix (fast index lookup). Invariant: the unique keyPrefix
+  // constraint plus the deletedAt: null filter keep this to at most one live row, so
+  // the bcrypt loop below stays bounded. Do not widen the prefix space or relax either
+  // filter without re-evaluating that cost (see #3812).
   const candidates = await em.find(ApiKey, { keyPrefix: prefix, deletedAt: null })
   // Verify each candidate with bcrypt until we find a match
   for (const candidate of candidates) {
