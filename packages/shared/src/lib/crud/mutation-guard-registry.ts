@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import { hasAllFeatures } from '../../security/features'
+import { resolveCrudMutationGuardService } from './mutation-guard-service'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,45 +126,8 @@ export async function runMutationGuards(
 // Legacy guard bridge
 // ---------------------------------------------------------------------------
 
-type LegacyCrudMutationGuardService = {
-  validateMutation: (input: {
-    tenantId: string
-    organizationId?: string | null
-    userId: string
-    resourceKind: string
-    resourceId: string
-    operation: 'create' | 'update' | 'delete' | 'custom'
-    requestMethod: string
-    requestHeaders: Headers
-    mutationPayload?: Record<string, unknown> | null
-  }) => Promise<{ ok: boolean; status?: number; body?: Record<string, unknown>; shouldRunAfterSuccess?: boolean; metadata?: Record<string, unknown> | null } | null>
-  afterMutationSuccess: (input: {
-    tenantId: string
-    organizationId?: string | null
-    userId: string
-    resourceKind: string
-    resourceId: string
-    operation: 'create' | 'update' | 'delete' | 'custom'
-    requestMethod: string
-    requestHeaders: Headers
-    metadata?: Record<string, unknown> | null
-  }) => Promise<void>
-}
-
-function resolveLegacyGuardService(container: AwilixContainer): LegacyCrudMutationGuardService | null {
-  try {
-    const service = container.resolve<LegacyCrudMutationGuardService>('crudMutationGuardService')
-    if (!service) return null
-    if (typeof service.validateMutation !== 'function') return null
-    if (typeof service.afterMutationSuccess !== 'function') return null
-    return service
-  } catch {
-    return null
-  }
-}
-
 export function bridgeLegacyGuard(container: AwilixContainer): MutationGuard | null {
-  const legacyService = resolveLegacyGuardService(container)
+  const legacyService = resolveCrudMutationGuardService(container)
   if (!legacyService) return null
 
   return {

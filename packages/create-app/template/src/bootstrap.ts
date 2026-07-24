@@ -11,6 +11,7 @@
 
 // Register app dictionary loader before bootstrap (required for i18n in standalone packages)
 import './lib/i18n/register-dictionary-loader'
+import { register as registerAppDi } from '@/di'
 
 // modules.ts inline overrides (replace/disable any contract a module
 // presents through the unified modules.ts override surface).
@@ -63,24 +64,27 @@ runBootstrapRegistrations()
 import { createBootstrap, isBootstrapped } from '@open-mercato/shared/lib/bootstrap'
 
 // Create bootstrap function with app's generated data
-export const bootstrap = createBootstrap({
-  modules,
-  entities,
-  diRegistrars,
-  entityIds: E,
-  entityFieldsRegistry,
-  dashboardWidgetEntries,
-  injectionWidgetEntries,
-  injectionTables,
-  searchModuleConfigs,
-  analyticsModuleConfigs,
-  enricherEntries,
-  interceptorEntries,
-  componentOverrideEntries,
-  guardEntries,
-  commandInterceptorEntries,
-  commandLoaderEntries,
-  notificationHandlerEntries,
-})
+export const bootstrap = createBootstrap(
+  {
+    modules,
+    entities,
+    diRegistrars,
+    entityIds: E,
+    entityFieldsRegistry,
+    dashboardWidgetEntries,
+    injectionWidgetEntries,
+    injectionTables,
+    searchModuleConfigs,
+    analyticsModuleConfigs,
+    enricherEntries,
+    interceptorEntries,
+    componentOverrideEntries,
+    guardEntries,
+    commandInterceptorEntries,
+    commandLoaderEntries,
+    notificationHandlerEntries,
+  },
+  { appDiRegistrar: registerAppDi },
+)
 
 export { isBootstrapped }
