@@ -1,10 +1,11 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -12,6 +13,8 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ActivitiesSection, NotesSection, RecordNotFoundState, type SectionAction, type TagOption } from '@open-mercato/ui/backend/detail'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -62,6 +65,14 @@ type ResourceResponse = {
   items: ResourceRecord[]
 }
 
+type ResourceDetailMutationContext = {
+  formId: string
+  resourceKind: string
+  resourceId?: string
+  data: Record<string, unknown> | null
+  retryLastMutation: () => Promise<boolean>
+}
+
 function normalizeResourceRecord(record: ResourceRecord): ResourceRecord {
   return {
     ...record,
@@ -82,6 +93,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const t = useT()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
@@ -108,8 +120,42 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const flashShownRef = React.useRef(false)
 
   const availabilityMode = 'availability'
-  const notesAdapter = React.useMemo(() => createResourceNotesAdapter(detailTranslator), [detailTranslator])
-  const activitiesAdapter = React.useMemo(() => createResourceActivitiesAdapter(detailTranslator), [detailTranslator])
+  const mutationContextId = React.useMemo(
+    () => (resourceId ? `resources.resource:${resourceId}` : 'resources.resource:pending'),
+    [resourceId],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<ResourceDetailMutationContext>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo<ResourceDetailMutationContext>(
+    () => ({
+      formId: mutationContextId,
+      resourceKind: 'resources.resource',
+      resourceId,
+      data: initialValues,
+      retryLastMutation,
+    }),
+    [initialValues, mutationContextId, resourceId, retryLastMutation],
+  )
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => (
+      runMutation({
+        operation,
+        mutationPayload,
+        context: mutationContext,
+      })
+    ),
+    [mutationContext, runMutation],
+  )
+  const notesAdapter = React.useMemo(
+    () => createResourceNotesAdapter(detailTranslator, { runMutation: runMutationWithContext }),
+    [detailTranslator, runMutationWithContext],
+  )
+  const activitiesAdapter = React.useMemo(
+    () => createResourceActivitiesAdapter(detailTranslator, { runMutation: runMutationWithContext }),
+    [detailTranslator, runMutationWithContext],
+  )
 
   const activityTypeLabels = React.useMemo<DictionarySelectLabels>(() => ({
     placeholder: t('resources.resources.detail.activities.dictionary.placeholder', 'Select an activity type'),
@@ -342,14 +388,18 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
       if (!trimmed.length) {
         throw new Error(t('resources.resources.tags.labelRequired', 'Tag name is required.'))
       }
-      const response = await apiCallOrThrow<Record<string, unknown>>(
-        '/api/resources/tags',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ label: trimmed }),
-        },
-        { errorMessage: t('resources.resources.tags.createError', 'Failed to create tag.') },
+      const requestBody = { label: trimmed }
+      const response = await runMutationWithContext(
+        () => apiCallOrThrow<Record<string, unknown>>(
+          '/api/resources/tags',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(requestBody),
+          },
+          { errorMessage: t('resources.resources.tags.createError', 'Failed to create tag.') },
+        ),
+        { operation: 'createTag', label: trimmed },
       )
       const payload = response.result ?? {}
       const id =
@@ -364,44 +414,50 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
         : null
       return { id, label: trimmed, color }
     },
-    [t],
+    [runMutationWithContext, t],
   )
 
   const assignTag = React.useCallback(async (tagId: string) => {
     if (!resourceId) return
-    await apiCallOrThrow(
-      '/api/resources/resources/tags/assign',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tagId, resourceId }),
-      },
-      { errorMessage: t('resources.resources.tags.updateError', 'Failed to update tags.') },
+    const requestBody = { tagId, resourceId }
+    await runMutationWithContext(
+      () => apiCallOrThrow(
+        '/api/resources/resources/tags/assign',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        },
+        { errorMessage: t('resources.resources.tags.updateError', 'Failed to update tags.') },
+      ),
+      { operation: 'assignTag', resourceId, tagId },
     )
-  }, [resourceId, t])
+  }, [resourceId, runMutationWithContext, t])
 
   const unassignTag = React.useCallback(async (tagId: string) => {
     if (!resourceId) return
-    await apiCallOrThrow(
-      '/api/resources/resources/tags/unassign',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tagId, resourceId }),
-      },
-      { errorMessage: t('resources.resources.tags.updateError', 'Failed to update tags.') },
+    const requestBody = { tagId, resourceId }
+    await runMutationWithContext(
+      () => apiCallOrThrow(
+        '/api/resources/resources/tags/unassign',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        },
+        { errorMessage: t('resources.resources.tags.updateError', 'Failed to update tags.') },
+      ),
+      { operation: 'unassignTag', resourceId, tagId },
     )
-  }, [resourceId, t])
+  }, [resourceId, runMutationWithContext, t])
 
   const handleTagsSave = React.useCallback(
     async ({ next, added, removed }: { next: TagOption[]; added: TagOption[]; removed: TagOption[] }) => {
       if (!resourceId) return
-      for (const tag of added) {
-        await assignTag(tag.id)
-      }
-      for (const tag of removed) {
-        await unassignTag(tag.id)
-      }
+      await Promise.all([
+        ...added.map((tag) => assignTag(tag.id)),
+        ...removed.map((tag) => unassignTag(tag.id)),
+      ])
       setTags(next)
       flash(t('resources.resources.tags.success', 'Tags updated.'), 'success')
     },
@@ -508,12 +564,21 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
 
   const handleDelete = React.useCallback(async () => {
     if (!resourceId) return
-    await deleteCrud('resources/resources', resourceId, {
+    const resourceOptimisticLockHeader = buildOptimisticLockHeader(
+      typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null,
+    )
+    const deleteResource = () => deleteCrud('resources/resources', resourceId, {
       errorMessage: t('resources.resources.form.errors.delete', 'Failed to delete resource.'),
     })
+    await runMutationWithContext(
+      () => Object.keys(resourceOptimisticLockHeader).length > 0
+        ? withScopedApiRequestHeaders(resourceOptimisticLockHeader, deleteResource)
+        : deleteResource(),
+      { operation: 'deleteResource', id: resourceId, updatedAt: initialValues?.updatedAt ?? null },
+    )
     flash(t('resources.resources.form.flash.deleted', 'Resource deleted.'), 'success')
     router.push('/backend/resources/resources')
-  }, [resourceId, router, t])
+  }, [initialValues?.updatedAt, resourceId, router, runMutationWithContext, t])
 
   const handleRulesetChange = React.useCallback(async (nextId: string | null) => {
     if (!resourceId) return
@@ -523,19 +588,34 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
     const resourceOptimisticLockHeader = buildOptimisticLockHeader(
       typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null,
     )
-    if (Object.keys(resourceOptimisticLockHeader).length > 0) {
-      await withScopedApiRequestHeaders(resourceOptimisticLockHeader, updateSchedule)
-    } else {
-      await updateSchedule()
-    }
+    await runMutationWithContext(
+      () => Object.keys(resourceOptimisticLockHeader).length > 0
+        ? withScopedApiRequestHeaders(resourceOptimisticLockHeader, updateSchedule)
+        : updateSchedule(),
+      { operation: 'updateAvailabilityRuleSet', id: resourceId, availabilityRuleSetId: nextId },
+    )
     setAvailabilityRuleSetId(nextId)
     flash(t('resources.resources.availability.ruleset.updateSuccess', 'Schedule updated.'), 'success')
-  }, [initialValues?.updatedAt, resourceId, t])
+  }, [initialValues?.updatedAt, resourceId, runMutationWithContext, t])
 
   const resourceTitle =
     typeof initialValues?.name === 'string' && initialValues.name.trim().length > 0
       ? initialValues.name.trim()
       : t('resources.resources.detail.untitled', 'Unnamed resource')
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `resources.resource` + id
+  // explicitly. The resourceKind mirrors the VersionHistoryAction config / ResourceCrudForm
+  // `versionHistory` so the held lock matches the save-time conflict surface for the resource.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'resources.resource',
+      resourceId: resourceId || null,
+      updatedAt: typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null,
+      data: initialValues,
+      path: pathname,
+    }),
+  )
 
   if (isNotFound) {
     return (
@@ -584,51 +664,40 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
             subtitle={t('resources.resources.detail.subtitle', 'Resource profile and activity')}
           />
 
-          <div className="border-b">
-            <nav className="flex flex-wrap items-center gap-5 text-sm" aria-label={t('resources.resources.tabs.label', 'Resource sections')}>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as 'details' | 'availability')}
+            variant="underline"
+          >
+            <TabsList
+              className="w-full flex-wrap"
+              aria-label={t('resources.resources.tabs.label', 'Resource sections')}
+            >
               {tabs.map((tab) => (
-                <Button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab.id}
-                  variant="ghost"
-                  size="sm"
-                  className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-2 font-medium ${
-                    activeTab === tab.id
-                      ? 'border-accent-indigo text-foreground'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                  onClick={() => setActiveTab(tab.id as 'details' | 'availability')}
-                >
+                <TabsTrigger key={tab.id} value={tab.id}>
                   {tab.label}
-                </Button>
+                </TabsTrigger>
               ))}
-            </nav>
-          </div>
+            </TabsList>
+          </Tabs>
 
           {activeTab === 'details' ? (
             <>
               <div className="rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex gap-2">
-                    {detailTabs.map((tab) => (
-                      <Button
-                        key={tab.id}
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-1 font-medium ${
-                          activeDetailTab === tab.id
-                            ? 'border-accent-indigo text-foreground'
-                            : 'border-transparent text-muted-foreground hover:text-foreground'
-                        }`}
-                        onClick={() => setActiveDetailTab(tab.id)}
-                      >
-                        {tab.label}
-                      </Button>
-                    ))}
-                  </div>
+                  <Tabs
+                    value={activeDetailTab}
+                    onValueChange={(value) => setActiveDetailTab(value as 'notes' | 'activities')}
+                    variant="underline"
+                  >
+                    <TabsList className="h-auto flex-wrap border-b-0">
+                      {detailTabs.map((tab) => (
+                        <TabsTrigger key={tab.id} value={tab.id}>
+                          {tab.label}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
                   {sectionAction ? (
                     <Button
                       type="button"

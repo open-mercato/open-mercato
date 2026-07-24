@@ -355,6 +355,52 @@ describe('SearchService', () => {
       expect(availableStrategy.index).toHaveBeenCalled()
       expect(unavailableStrategy.index).not.toHaveBeenCalled()
     })
+
+    // issue #3103: a strategy index failure must surface to the caller so the
+    // queue worker re-throws and the job is retried instead of silently completing.
+    it('should reject when a strategy index fails (so the queue can retry)', async () => {
+      const strategy = createMockStrategy({
+        id: 'vector',
+        index: jest.fn().mockRejectedValue(new Error('sorry, too many clients already')),
+      })
+      const service = new SearchService({ strategies: [strategy] })
+
+      await expect(service.index(createMockRecord())).rejects.toThrow(
+        'Search index failed for 1 strategy(ies): vector (sorry, too many clients already)'
+      )
+    })
+
+    it('should still reject when only one of several strategies fails', async () => {
+      const ok = createMockStrategy({ id: 'tokens', index: jest.fn().mockResolvedValue(undefined) })
+      const failing = createMockStrategy({
+        id: 'vector',
+        index: jest.fn().mockRejectedValue(new Error('embedding provider blip')),
+      })
+      const service = new SearchService({ strategies: [ok, failing] })
+
+      await expect(service.index(createMockRecord())).rejects.toThrow(
+        'Search index failed for 1 strategy(ies): vector (embedding provider blip)'
+      )
+      // Successful strategies still commit their work.
+      expect(ok.index).toHaveBeenCalled()
+    })
+
+    it('should preserve the original strategy errors on the thrown AggregateError', async () => {
+      const cause = new Error('sorry, too many clients already')
+      const strategy = createMockStrategy({ id: 'vector', index: jest.fn().mockRejectedValue(cause) })
+      const service = new SearchService({ strategies: [strategy] })
+
+      await expect(service.index(createMockRecord())).rejects.toMatchObject({
+        errors: [cause],
+      })
+    })
+
+    it('should resolve when all strategies succeed', async () => {
+      const strategy = createMockStrategy({ id: 'tokens', index: jest.fn().mockResolvedValue(undefined) })
+      const service = new SearchService({ strategies: [strategy] })
+
+      await expect(service.index(createMockRecord())).resolves.toBeUndefined()
+    })
   })
 
   describe('bulkIndex', () => {
@@ -439,6 +485,19 @@ describe('SearchService', () => {
       expect(strategy1.delete).toHaveBeenCalledWith('test:entity', 'rec-123', 'tenant-123')
       expect(strategy2.delete).toHaveBeenCalledWith('test:entity', 'rec-123', 'tenant-123')
     })
+
+    // issue #3103: deletes must also surface failures so removals are retried.
+    it('should reject when a strategy delete fails (so the queue can retry)', async () => {
+      const strategy = createMockStrategy({
+        id: 'fulltext',
+        delete: jest.fn().mockRejectedValue(new Error('connection reset')),
+      })
+      const service = new SearchService({ strategies: [strategy] })
+
+      await expect(service.delete('test:entity', 'rec-123', 'tenant-123')).rejects.toThrow(
+        'Search delete failed for 1 strategy(ies): fulltext (connection reset)'
+      )
+    })
   })
 
   describe('purge', () => {
@@ -459,6 +518,19 @@ describe('SearchService', () => {
 
       // organizationId is forwarded as undefined for a tenant-wide purge (issue #2935)
       expect(strategyWithPurge.purge).toHaveBeenCalledWith('test:entity', 'tenant-123', undefined)
+    })
+
+    // issue #3103: purge failures must surface so the reindex job is retried.
+    it('should reject when a strategy purge fails (so the queue can retry)', async () => {
+      const strategy = createMockStrategy({
+        id: 'tokens',
+        purge: jest.fn().mockRejectedValue(new Error('sorry, too many clients already')),
+      })
+      const service = new SearchService({ strategies: [strategy] })
+
+      await expect(service.purge('test:entity', 'tenant-123')).rejects.toThrow(
+        'Search purge failed for 1 strategy(ies): tokens (sorry, too many clients already)'
+      )
     })
   })
 

@@ -10,6 +10,9 @@ import { CarrierShipment } from '../../../data/entities'
 import { getShippingAdapter } from '../../../lib/adapter-registry'
 import { getShippingCarrierQueue } from '../../../lib/queue'
 import { shippingCarriersTag } from '../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('shipping_carriers').child({ component: 'webhook' })
 
 export const metadata = {
   path: '/shipping-carriers/webhook/[provider]',
@@ -114,7 +117,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
 
     return NextResponse.json({ received: true, queued: true }, { status: 202 })
   } catch (error: unknown) {
-    console.warn(`[shipping_carriers] Webhook verification failed for provider "${providerKey}"`, error)
+    logger.warn('Webhook verification failed', { providerKey, err: error })
     return NextResponse.json({ error: WEBHOOK_VERIFICATION_FAILED }, { status: 401 })
   }
 }

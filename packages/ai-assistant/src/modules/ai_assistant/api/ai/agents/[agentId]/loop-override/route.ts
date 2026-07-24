@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -12,6 +13,8 @@ import {
   AiAgentRuntimeOverrideValidationError,
 } from '../../../../../data/repositories/AiAgentRuntimeOverrideRepository'
 import type { AiAgentRuntimeOverride } from '../../../../../data/entities'
+
+const logger = createLogger('ai_assistant')
 
 const agentIdPattern = /^[a-z0-9_]+\.[a-z0-9_]+$/
 
@@ -233,7 +236,7 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
       override: hasLoopData ? serializeLoopOverride(row!) : null,
     })
   } catch (error) {
-    console.error('[AI Loop Override GET] Failure:', error)
+    logger.error('AI Loop Override GET — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to load loop override.',
@@ -313,7 +316,7 @@ export async function PUT(req: NextRequest, context: RouteContext): Promise<Resp
     if (error instanceof AiAgentRuntimeOverrideValidationError) {
       return jsonError(400, error.message, error.code)
     }
-    console.error('[AI Loop Override PUT] Failure:', error)
+    logger.error('AI Loop Override PUT — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to save loop override.',
@@ -378,7 +381,7 @@ export async function DELETE(req: NextRequest, context: RouteContext): Promise<R
 
     return NextResponse.json({ ok: true, agentId: agent.id, cleared: true })
   } catch (error) {
-    console.error('[AI Loop Override DELETE] Failure:', error)
+    logger.error('AI Loop Override DELETE — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to clear loop override.',

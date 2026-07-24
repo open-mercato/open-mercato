@@ -8,6 +8,10 @@ import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'
 import { applyDiOverridesToContainer } from '@open-mercato/shared/modules/overrides'
 import { createOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { getAllOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
+import { createCommandOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'di' })
 
 type DynamicCradle = Record<string, any>
 
@@ -106,7 +110,7 @@ function setGlobalRegistrars(registrars: DiRegistrar[]): void {
 export function registerDiRegistrars(registrars: DiRegistrar[]) {
   const existing = getGlobalRegistrars()
   if (existing !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] DI registrars re-registered (this may occur during HMR)')
+    logger.debug('DI registrars re-registered (this may occur during HMR)')
   }
   setGlobalRegistrars(registrars)
   // Force re-bootstrap on HMR — module subscribers may have changed.
@@ -170,6 +174,16 @@ export async function createRequestContainer(): Promise<AppContainer> {
         getEm: () => scopedEm,
         readers: getAllOptimisticLockReaders(),
       }),
+    ).scoped(),
+    // Default OSS command-level optimistic-lock guard, awaited by
+    // `enforceCommandOptimisticLockWithGuards` for Command-pattern writes.
+    // Header/explicit-token compare only (no `resolveExpected`), so it is
+    // behaviourally identical to calling `enforceCommandOptimisticLock`
+    // directly. The enterprise `record_locks` module overrides this DI key
+    // with a lock-backed `resolveExpected` via Awilix replace semantics.
+    // Spec: .ai/specs/enterprise/2026-06-09-record-locks-unified-coverage.md (Phase 0)
+    commandOptimisticLockGuardService: asFunction(() =>
+      createCommandOptimisticLockGuardService(),
     ).scoped(),
   })
   // Allow modules to override/extend

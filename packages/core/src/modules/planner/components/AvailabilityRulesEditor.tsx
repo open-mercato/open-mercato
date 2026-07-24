@@ -16,9 +16,12 @@ import {
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { ComboboxInput, TimePicker } from '@open-mercato/ui/backend/inputs'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import {
@@ -38,6 +41,9 @@ import {
   requiresResetConfirmation,
   selectCustomRuleIdsToDelete,
 } from './availabilityRulesEditorState'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('planner').child({ component: 'AvailabilityRulesEditor' })
 
 type AvailabilityRepeat = 'once' | 'daily' | 'weekly'
 type AvailabilitySubjectType = 'member' | 'resource' | 'ruleset'
@@ -106,6 +112,30 @@ function withOptimisticLockForRule<T>(rule: AvailabilityRule, mutation: () => Pr
 
 function withOptimisticLockForRuleSet<T>(ruleSet: AvailabilityRuleSet | null | undefined, mutation: () => Promise<T>): Promise<T> {
   return withScopedApiRequestHeaders(buildOptimisticLockHeader(ruleSet?.updatedAt ?? ruleSet?.updated_at ?? null), mutation)
+}
+
+/**
+ * The date-specific replace endpoint mutates a subject/date aggregate that has
+ * no single parent row, so its lock version is the latest `updated_at` of the
+ * one-off rules being replaced (mirrors the command-side derivation). Returns
+ * null when no existing rules back the date so the header is omitted (additive).
+ */
+function resolveDateSpecificLockToken(rules: AvailabilityRule[]): string | null {
+  let latestMs = Number.NEGATIVE_INFINITY
+  let latestIso: string | null = null
+  for (const rule of rules) {
+    const raw = rule.updatedAt ?? rule.updated_at ?? null
+    if (!raw) continue
+    const ms = Date.parse(raw)
+    if (!Number.isFinite(ms) || ms <= latestMs) continue
+    latestMs = ms
+    latestIso = raw
+  }
+  return latestIso
+}
+
+function withOptimisticLockForDateSpecific<T>(rules: AvailabilityRule[], mutation: () => Promise<T>): Promise<T> {
+  return withScopedApiRequestHeaders(buildOptimisticLockHeader(resolveDateSpecificLockToken(rules)), mutation)
 }
 
 const DAY_LABELS = [
@@ -381,6 +411,23 @@ export function AvailabilityRulesEditor({
 }: AvailabilityRulesEditorProps) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const mutationContextId = 'planner-availability-rules-editor'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo(
+    () => ({
+      formId: mutationContextId,
+      resourceKind: 'planner.availability',
+      retryLastMutation,
+    }),
+    [mutationContextId, retryLastMutation],
+  )
   const isReadOnly = Boolean(readOnly)
   const canManageUnavailability = allowUnavailability ?? true
   const dialogRef = React.useRef<HTMLDivElement | null>(null)
@@ -735,6 +782,12 @@ export function AvailabilityRulesEditor({
     void refreshBookedEvents()
   }, [refreshBookedEvents])
 
+  const refreshAfterRuleSetConflict = React.useCallback(() => {
+    void refreshRuleSets()
+    void refreshRuleSetRules()
+    void refreshAvailability()
+  }, [refreshAvailability, refreshRuleSetRules, refreshRuleSets])
+
   const weeklyDraft = React.useMemo(() => buildWeeklyDraft(activeRules), [activeRules])
   const [weeklyWindows, setWeeklyWindows] = React.useState<WeeklyWindows>(() => cloneWeeklyWindows(weeklyDraft))
   const weeklyWindowsRef = React.useRef<WeeklyWindows>(cloneWeeklyWindows(weeklyDraft))
@@ -814,20 +867,34 @@ export function AvailabilityRulesEditor({
     if (!subjectIdForRules) return
     if (weeklyHasErrors) return
 
+    // Weekly rules of a rule set are a sub-resource of that rule set. Send the
+    // parent's expected version so a concurrent rule-set change/delete is
+    // detected, and refresh it afterwards because the server bumps the rule
+    // set's `updated_at` on a successful replace (#2927).
+    const parentRuleSet = subjectForRules === 'ruleset'
+      ? (ruleSets.find((entry) => entry.id === subjectIdForRules) ?? null)
+      : null
+
     const shouldSkipRefresh = Boolean(options?.skipRefresh)
     setIsWeeklyAutoSaving(options?.silentSuccess === true)
     try {
       const windows = buildWeeklyPayload(normalizeWeeklyWindows(weeklyWindowsRef.current))
-      await apiCallOrThrow('/api/planner/availability-weekly', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subjectType: subjectForRules,
-          subjectId: subjectIdForRules,
-          timezone,
-          windows,
-        }),
-      }, { errorMessage: listLabels.saveWeeklyError })
+      await runMutation({
+        operation: () => withOptimisticLockForRuleSet(parentRuleSet, () => (
+          apiCallOrThrow('/api/planner/availability-weekly', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              subjectType: subjectForRules,
+              subjectId: subjectIdForRules,
+              timezone,
+              windows,
+            }),
+          }, { errorMessage: listLabels.saveWeeklyError })
+        )),
+        context: mutationContext,
+        mutationPayload: { action: 'save-weekly', subjectType: subjectForRules, subjectId: subjectIdForRules },
+      })
       lastSavedWeeklyKeyRef.current = weeklyKey
       weeklyDirtyRef.current = false
       if (!options?.silentSuccess) {
@@ -836,8 +903,15 @@ export function AvailabilityRulesEditor({
       if (!shouldSkipRefresh) {
         await refreshAvailability()
         await refreshRuleSetRules()
+        if (usingRuleSet) {
+          await refreshRuleSets()
+        }
+      }
+      if (parentRuleSet) {
+        await refreshRuleSets()
       }
     } catch (error) {
+      if (surfaceRecordConflict(error, t, { onRefresh: refreshAfterRuleSetConflict })) return
       const message = error instanceof Error ? error.message : listLabels.saveWeeklyError
       flash(message, 'error')
     } finally {
@@ -848,14 +922,20 @@ export function AvailabilityRulesEditor({
     listLabels.saveWeeklySuccess,
     refreshAvailability,
     refreshRuleSetRules,
+    refreshRuleSets,
+    refreshAfterRuleSetConflict,
     effectiveRulesetId,
+    ruleSets,
     subjectId,
     subjectType,
+    t,
     timezone,
     usingRuleSet,
     weeklyHasErrors,
     weeklyKey,
     isReadOnly,
+    mutationContext,
+    runMutation,
   ])
 
   React.useEffect(() => {
@@ -929,7 +1009,11 @@ export function AvailabilityRulesEditor({
         )))
       }
       if (updates.length) {
-        await Promise.all(updates)
+        await runMutation({
+          operation: () => Promise.all(updates),
+          context: mutationContext,
+          mutationPayload: { action: 'update-timezone', timezone: trimmedTimezone },
+        })
         await refreshAvailability()
         await refreshRuleSetRules()
       }
@@ -951,6 +1035,8 @@ export function AvailabilityRulesEditor({
     subjectId,
     subjectType,
     isReadOnly,
+    mutationContext,
+    runMutation,
   ])
 
   React.useEffect(() => {
@@ -990,14 +1076,18 @@ export function AvailabilityRulesEditor({
         kind: rule.kind ?? 'availability',
         note: rule.note ?? null,
       }))
-      await Promise.all(creations)
+      await runMutation({
+        operation: () => Promise.all(creations),
+        context: mutationContext,
+        mutationPayload: { action: 'customize', count: creations.length },
+      })
       setCustomOverridesEnabled(true)
       await refreshAvailability()
     } catch (error) {
       const message = error instanceof Error ? error.message : listLabels.saveWeeklyError
       flash(message, 'error')
     }
-  }, [effectiveRulesetId, listLabels.saveWeeklyError, refreshAvailability, rulesetRules, subjectId, subjectType, isReadOnly])
+  }, [effectiveRulesetId, listLabels.saveWeeklyError, refreshAvailability, rulesetRules, subjectId, subjectType, isReadOnly, mutationContext, runMutation])
 
   const handleResetToRuleSet = React.useCallback(async () => {
     if (isReadOnly) return
@@ -1012,21 +1102,25 @@ export function AvailabilityRulesEditor({
     try {
       const idsToDelete = selectCustomRuleIdsToDelete('reset', availabilityRules)
       const idsToDeleteSet = new Set(idsToDelete)
-      await Promise.all(
-        availabilityRules
-          .filter((rule) => idsToDeleteSet.has(rule.id))
-          .map((rule) => withOptimisticLockForRule(
-            rule,
-            () => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError }),
-          )),
-      )
+      await runMutation({
+        operation: () => Promise.all(
+          availabilityRules
+            .filter((rule) => idsToDeleteSet.has(rule.id))
+            .map((rule) => withOptimisticLockForRule(
+              rule,
+              () => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError }),
+            )),
+        ),
+        context: mutationContext,
+        mutationPayload: { action: 'reset-to-ruleset', ids: idsToDelete },
+      })
       setCustomOverridesEnabled(false)
       await refreshAvailability()
     } catch (error) {
       const message = error instanceof Error ? error.message : listLabels.saveWeeklyError
       flash(message, 'error')
     }
-  }, [availabilityRules, confirm, effectiveRulesetId, listLabels.ruleSetConfirm, listLabels.saveWeeklyError, refreshAvailability, isReadOnly])
+  }, [availabilityRules, confirm, effectiveRulesetId, listLabels.ruleSetConfirm, listLabels.saveWeeklyError, refreshAvailability, isReadOnly, mutationContext, runMutation])
 
   const handleRuleSetChange = React.useCallback(async (nextId: string | null) => {
     if (isReadOnly) return
@@ -1035,14 +1129,18 @@ export function AvailabilityRulesEditor({
     const idsToDelete = selectCustomRuleIdsToDelete('switch', availabilityRules)
     if (idsToDelete.length) {
       const idsToDeleteSet = new Set(idsToDelete)
-      await Promise.all(
-        availabilityRules
-          .filter((rule) => idsToDeleteSet.has(rule.id))
-          .map((rule) => withOptimisticLockForRule(
-            rule,
-            () => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError }),
-          )),
-      )
+      await runMutation({
+        operation: () => Promise.all(
+          availabilityRules
+            .filter((rule) => idsToDeleteSet.has(rule.id))
+            .map((rule) => withOptimisticLockForRule(
+              rule,
+              () => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError }),
+            )),
+        ),
+        context: mutationContext,
+        mutationPayload: { action: 'switch-ruleset', ids: idsToDelete },
+      })
     }
     setSelectedRulesetId(nextId)
     setCustomOverridesEnabled(false)
@@ -1060,6 +1158,8 @@ export function AvailabilityRulesEditor({
     onRulesetChange,
     refreshAvailability,
     isReadOnly,
+    mutationContext,
+    runMutation,
   ])
 
   const handleDeleteRuleSet = React.useCallback(async () => {
@@ -1076,9 +1176,13 @@ export function AvailabilityRulesEditor({
       deleteRuleSet: async (id) => {
         // Version-check the schedule delete (the list page already does; the editor
         // previously sent no header → last-write-wins on delete). #2055 round-5.
-        await withOptimisticLockForRuleSet(selected, () => (
-          deleteCrud('planner/availability-rule-sets', id, { errorMessage: listLabels.ruleSetDeleteError })
-        ))
+        await runMutation({
+          operation: () => withOptimisticLockForRuleSet(selected, () => (
+            deleteCrud('planner/availability-rule-sets', id, { errorMessage: listLabels.ruleSetDeleteError })
+          )),
+          context: mutationContext,
+          mutationPayload: { action: 'delete-ruleset', id },
+        })
       },
       clearAssignment: async () => {
         setCustomOverridesEnabled(false)
@@ -1088,7 +1192,8 @@ export function AvailabilityRulesEditor({
       refreshRuleSets,
       onSuccess: () => flash(listLabels.ruleSetDeleteSuccess, 'success'),
       onError: (error) => {
-        console.error('planner.availability-rule-sets.delete', error)
+        if (surfaceRecordConflict(error, t, { onRefresh: refreshAfterRuleSetConflict })) return
+        logger.error('Failed to delete availability rule set', { err: error })
         const normalized = normalizeCrudServerError(error)
         flash(normalized.message ?? listLabels.ruleSetDeleteError, 'error')
       },
@@ -1102,9 +1207,13 @@ export function AvailabilityRulesEditor({
     listLabels.ruleSetDeleteSuccess,
     onRulesetChange,
     refreshAvailability,
+    refreshAfterRuleSetConflict,
     refreshRuleSets,
     ruleSets,
     rulesetId,
+    t,
+    mutationContext,
+    runMutation,
   ])
 
   const ruleSetFormSchema = React.useMemo(
@@ -1299,11 +1408,11 @@ export function AvailabilityRulesEditor({
           unavailabilityReasonEntryId: editorUnavailable ? reasonEntryId : null,
           unavailabilityReasonValue: editorUnavailable ? reasonValue : null,
         }
-        await apiCallOrThrow('/api/planner/availability-date-specific', {
+        await withOptimisticLockForDateSpecific(editorRules, () => apiCallOrThrow('/api/planner/availability-date-specific', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-        }, { errorMessage: listLabels.saveDateError })
+        }, { errorMessage: listLabels.saveDateError }))
       } else {
         const rulesToDelete = editorRules
         const uniqueRulesById = new Map(rulesToDelete.map((rule) => [rule.id, rule]))
@@ -1338,6 +1447,7 @@ export function AvailabilityRulesEditor({
       await refreshAvailability()
       await refreshRuleSetRules()
     } catch (error) {
+      if (surfaceRecordConflict(error, t)) return
       const message = error instanceof Error ? error.message : listLabels.saveDateError
       flash(message, 'error')
     }
@@ -1364,6 +1474,7 @@ export function AvailabilityRulesEditor({
     usingRuleSet,
     canManageUnavailability,
     isReadOnly,
+    t,
   ])
 
   const handleSlotClick = React.useCallback((slot: ScheduleSlot) => {
@@ -1658,12 +1769,16 @@ export function AvailabilityRulesEditor({
                                 variant="outline"
                                 size="icon"
                                 onClick={async () => {
-                                  await Promise.all(
-                                    rules.map((rule) => withOptimisticLockForRule(
-                                      rule,
-                                      () => deleteCrud('planner/availability', rule.id),
-                                    )),
-                                  )
+                                  await runMutation({
+                                    operation: () => Promise.all(
+                                      rules.map((rule) => withOptimisticLockForRule(
+                                        rule,
+                                        () => deleteCrud('planner/availability', rule.id),
+                                      )),
+                                    ),
+                                    context: mutationContext,
+                                    mutationPayload: { action: 'delete-date-rules', count: rules.length },
+                                  })
                                   await refreshAvailability()
                                   await refreshRuleSetRules()
                                 }}
@@ -1742,44 +1857,25 @@ export function AvailabilityRulesEditor({
                   <div className="rounded-lg border bg-muted/30 p-4">
                     <div className="space-y-4">
                       <div className="space-y-2">
-                        <div role="tablist" aria-label={listLabels.applyScopeLabel} className="inline-flex rounded-lg border bg-muted p-1 text-xs">
-                          <Button
-                            type="button"
-                            role="tab"
-                            aria-selected={editorScope === 'date'}
-                            variant="ghost"
-                            size="sm"
-                            className={`h-auto rounded-md px-3 py-1.5 font-medium ${
-                              editorScope === 'date'
-                                ? 'bg-background text-foreground shadow-sm'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                            onClick={() => setEditorScope('date')}
-                          >
-                            {listLabels.applyScopeDate}
-                          </Button>
-                          <Button
-                            type="button"
-                            role="tab"
-                            aria-selected={editorScope === 'weekday'}
-                            variant="ghost"
-                            size="sm"
-                            className={`h-auto rounded-md px-3 py-1.5 font-medium ${
-                              editorScope === 'weekday'
-                                ? 'bg-background text-foreground shadow-sm'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                            onClick={() => {
-                              setEditorScope('weekday')
+                        <Tabs
+                          value={editorScope}
+                          onValueChange={(value) => {
+                            const nextScope = value as 'date' | 'weekday'
+                            setEditorScope(nextScope)
+                            if (nextScope === 'weekday') {
                               setEditorUnavailable(false)
                               setEditorNote('')
                               setEditorReasonEntryId(null)
                               setEditorReasonValue('')
-                            }}
-                          >
-                            {listLabels.editAllLabel}
-                          </Button>
-                        </div>
+                            }
+                          }}
+                          variant="underline"
+                        >
+                          <TabsList aria-label={listLabels.applyScopeLabel}>
+                            <TabsTrigger value="date">{listLabels.applyScopeDate}</TabsTrigger>
+                            <TabsTrigger value="weekday">{listLabels.editAllLabel}</TabsTrigger>
+                          </TabsList>
+                        </Tabs>
                       </div>
 
                       {editorScope === 'date' ? (

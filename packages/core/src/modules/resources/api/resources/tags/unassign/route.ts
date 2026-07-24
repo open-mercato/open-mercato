@@ -10,9 +10,16 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
+import {
   resourcesResourceTagAssignmentSchema,
   type ResourcesResourceTagAssignmentInput,
 } from '../../../../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('resources').child({ component: 'tags' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['resources.manage_resources'] },
@@ -37,16 +44,54 @@ async function buildContext(
   return { ctx, translate }
 }
 
+function resolveActorId(ctx: CommandRuntimeContext): string {
+  const auth = ctx.auth
+  if (auth && typeof auth.sub === 'string' && auth.sub.trim().length > 0) return auth.sub
+  if (auth && typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId
+  if (auth && typeof auth.keyId === 'string' && auth.keyId.trim().length > 0) return auth.keyId
+  return 'system'
+}
+
 export async function POST(req: Request) {
   try {
     const { ctx, translate } = await buildContext(req)
     const body = await req.json().catch(() => ({}))
     const input = parseScopedCommandInput(resourcesResourceTagAssignmentSchema, body, ctx, translate)
+    const actorId = resolveActorId(ctx)
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      userId: actorId,
+      resourceKind: 'resources.resourceTagAssignment',
+      resourceId: input.resourceId,
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<ResourcesResourceTagAssignmentInput, { assignmentId: string | null }>(
       'resources.resourceTags.unassign',
       { input, ctx },
     )
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        userId: actorId,
+        resourceKind: 'resources.resourceTagAssignment',
+        resourceId: input.resourceId,
+        operation: 'custom',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
     const response = NextResponse.json({ id: result?.assignmentId ?? null })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
@@ -68,7 +113,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('resources.resourceTags.unassign failed', err)
+    logger.error('Tag unassign failed', { err })
     return NextResponse.json({ error: translate('resources.resources.tags.updateError', 'Failed to update tags.') }, { status: 400 })
   }
 }

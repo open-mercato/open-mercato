@@ -21,6 +21,7 @@ step, you WILL produce incorrect imports and miss required patterns.
 
 | Task | Load |
 |---|---|
+| Understand the module system (anatomy, auto-discovery, naming, mandatory mechanisms, data integrity, migrations) | `.ai/guides/module-system.md` |
 | Scaffold a new module from scratch | `.ai/skills/om-module-scaffold/SKILL.md` |
 | Design entities and relationships | `.ai/skills/om-data-model-design/SKILL.md` |
 | Build backend UI (forms, tables, pages) | `.ai/skills/om-backend-ui-design/SKILL.md` |
@@ -60,44 +61,44 @@ step, you WILL produce incorrect imports and miss required patterns.
 
 ### Module-Specific Guides
 
-These guides ship automatically when the corresponding module is installed.
+These per-module fact-sheets are **generated from source** and bundled for the modules enabled in this app. The list below is regenerated on scaffold from your enabled module set — do not edit between the markers.
 
-| Task | Load |
-|---|---|
-| Build CRUD modules — reference patterns, commands, custom fields, search | `.ai/guides/core.customers.md` (if available) |
-| Use workflow automation, triggers, user tasks, signals | `.ai/guides/core.workflows.md` (if available) |
-| Use product catalog, pricing engine, variants, offers | `.ai/guides/core.catalog.md` (if available) |
-| Use sales orders, quotes, invoices, shipments, payments | `.ai/guides/core.sales.md` (if available) |
-| Use staff authentication, RBAC, roles, feature guards | `.ai/guides/core.auth.md` (if available) |
-| Use multi-currency, exchange rates, dual recording | `.ai/guides/core.currencies.md` (if available) |
-| Build integration providers, credentials, health checks | `.ai/guides/core.integrations.md` (if available) |
-| Build data sync adapters, import/export connectors | `.ai/guides/core.data_sync.md` (if available) |
-| Use customer portal auth, customer RBAC, portal pages | `.ai/guides/core.customer_accounts.md` (if available) |
+<!-- om:module-guides:start -->
+<!-- om:module-guides:end -->
+
+### Skills: local + shared collection
+
+Skills come from two places. Repo-local skills (module scaffolding, UI design, troubleshooting, etc.) ship inside `.ai/skills/` and are installed by tier (see `.ai/skills/tiers.json`). The PR-automation and review skills below are maintained in the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection — run **`yarn install-skills`** once to install the subset this app ships (`npx skills add`, then `npx skills update` on re-runs to refresh). Both sources install into the canonical cross-agent directory **`.agents/skills/`**; Codex and Cursor read it natively, while Claude Code — which cannot — additionally gets per-skill symlinks under `.claude/skills/`. The tables below therefore **reference external skills by name, not by a hard-coded harness path**: the directory depends on which agent you scaffolded, and pointing every reader at `.claude/skills/…` would mislead a Codex or Cursor scaffold. A folder under `.ai/skills/<name>/` matching an external skill is a repo-local **override** that the external skill reads on top of its built-in workflow (default-branch discovery, opt-in labels, `src/modules/…` layout). Repo-specific settings live in `.ai/agentic.config.json` and the tracker descriptor `.ai/trackers/github.md`.
 
 ### Quality & Process
 
 | Task | Load |
 |---|---|
 | Debug / fix errors | `.ai/skills/om-troubleshooter/SKILL.md` |
-| Review code changes | `.ai/skills/om-code-review/SKILL.md` |
-| Write a spec | `.ai/skills/om-spec-writing/SKILL.md`, `.ai/specs/SPEC-000-template.md` |
+| Review code changes | `om-code-review` (external — `yarn install-skills`) |
+| Write a spec | `om-spec-writing` (external — `yarn install-skills`), `.ai/specs/SPEC-000-template.md` |
 | Implement a spec (or selected phases) | `.ai/skills/om-implement-spec/SKILL.md` |
-| Create / run integration tests | `.ai/skills/om-integration-tests/SKILL.md` |
+| Create / run integration tests | `om-integration-tests` (external — `yarn install-skills`) |
+| Prepare / reuse a local test environment (shared descriptor for QA + integration tests) | `om-prepare-test-env` (external — invoked by `om-integration-tests` when no environment is running) |
+| Configure or re-configure the agent PR pipeline (`.ai/agentic.config.json`, tracker, labels, QA gate) | `om-setup-agent-pipeline` (external) |
+| Sync installed pipeline artifacts after `yarn install-skills` refreshed the collection | `om-apply-upgrade-notes` (external) |
 | Upgrade framework from 0.4.10 to 0.5.0 | `.ai/skills/om-auto-upgrade-0.4.10-to-0.5.0/SKILL.md` |
 
 ### Agent Automation / Auto-Skills
 
+These skills are installed from the shared collection by `yarn install-skills` (referenced by name — your harness loads them from its own skills directory); the matching `.ai/skills/<name>/` folder holds the standalone override they read on top of their workflow.
+
 | Task | Load |
 |---|---|
-| Delegate an arbitrary task end-to-end as a PR | `.ai/skills/om-auto-create-pr/SKILL.md` |
-| Resume an in-progress agent PR | `.ai/skills/om-auto-continue-pr/SKILL.md` |
-| Run a long multi-step spec implementation with resumable checkpoints | `.ai/skills/om-auto-create-pr-loop/SKILL.md` |
-| Resume a checkpointed PR started by `om-auto-create-pr-loop` | `.ai/skills/om-auto-continue-pr-loop/SKILL.md` |
-| Automated code review on a PR (with optional autofix) | `.ai/skills/om-auto-review-pr/SKILL.md` |
-| Fix a GitHub issue by number and open a PR | `.ai/skills/om-auto-fix-github/SKILL.md` |
+| Delegate an arbitrary task end-to-end as a PR | `om-auto-create-pr` (external) |
+| Resume an in-progress agent PR | `om-auto-continue-pr` (external) |
+| Run a long multi-step spec implementation with resumable checkpoints | `om-auto-create-pr-loop` (external) |
+| Resume a checkpointed PR started by `om-auto-create-pr-loop` | `om-auto-continue-pr-loop` (external) |
+| Automated code review on a PR (with optional autofix) | `om-auto-review-pr` (external) |
+| Fix a GitHub issue by number and open a PR | `om-auto-fix-issue` (external — drives the chain `om-verify-in-repo` → `om-root-cause` → `om-fix` → `om-open-pr` → `om-auto-review-pr`, all installed alongside it) |
 | Propose disabling unused built-in modules after the user adds a new module (classic-mode slimdown) | `.ai/skills/om-trim-unused-modules/SKILL.md` |
 
-Invoke these from the Claude Code CLI as slash commands, for example `/auto-create-pr add rate-limiting to the products API` or `/auto-fix-github 42`. The skills probe your repo's default branch via `gh repo view --json defaultBranchRef`, treat pipeline labels (`review`, `qa`, `merge-queue`, …) as opt-in, and run only those validation-gate commands that exist in your `package.json`.
+Invoke these as slash commands in your agent CLI (Claude Code, Codex, …), for example `/auto-create-pr add rate-limiting to the products API` or `/auto-fix-issue 42`. The skills read `.ai/agentic.config.json` (base branch `auto`, resolved via the tracker descriptor's **default-branch** operation; pipeline labels off by default; the standalone validation-gate command list) and perform every GitHub interaction through the tracker descriptor `.ai/trackers/github.md`. That config ships preconfigured, so the skills work without any setup step — run `/om-setup-agent-pipeline` when you want to tailor it: enable the full label pipeline (`labels.enabled: true` plus the tracker's **ensure-label-taxonomy** operation) and the QA gate, switch tracker, or change the validation commands. After `yarn install-skills` refreshes the external collection, run `/om-apply-upgrade-notes` to bring the installed artifacts (tracker descriptor, config) up to date with the new skill versions.
 
 ## Module Anatomy
 
@@ -147,7 +148,7 @@ When the user asks to **create a new application** or a **new module**, do not i
 | **Backend admin pages** | Auto-discovered files under `src/modules/<id>/backend/**`, paired `page.meta.ts` with `requireAuth` + `requireFeatures` + `pageGroup`/`pageGroupKey`/`pageOrder` | `.ai/skills/om-backend-ui-design/SKILL.md`, `.ai/skills/om-module-scaffold/references/navigation-patterns.md`; <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
 | **Frontend public pages** | Auto-discovered files under `src/modules/<id>/frontend/**`. Customer portal pages live under `frontend/[orgSlug]/portal/<path>/page.tsx` with `requireCustomerAuth` / `requireCustomerFeatures` in `page.meta.ts` | `.ai/guides/ui.md` → Portal Extension; <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
 | **API routes** | Files under `src/modules/<id>/api/**/route.ts` exporting handlers + `metadata` (per-method `requireAuth` / `requireFeatures`) + `openApi`. NEVER write a top-level `export const requireAuth` — the registry no longer recognises it | `.ai/guides/core.md` → API Routes; <https://docs.open-mercato.dev/framework/api/api-development-guide> |
-| **CRUD APIs (factory)** | `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/factory`. Always set `indexer` so query-index coverage stays correct. Custom (non-`makeCrudRoute`) write routes MUST call `validateCrudMutationGuard` before the mutation and `runCrudMutationGuardAfterSuccess` after success | `.ai/skills/om-module-scaffold/SKILL.md` → Create API Routes; <https://docs.open-mercato.dev/framework/api/crud-factory> |
+| **CRUD APIs (factory)** | `makeCrudRoute({ metadata, orm, list, create, update, del, indexer })` from `@open-mercato/shared/lib/crud/factory` (`orm` is required; `list`/`create`/`update`/`del` are the per-operation configs). Always set `indexer` so query-index coverage stays correct. Custom (non-`makeCrudRoute`) write routes MUST use the mutation guard registry: map the route to `create`/`update`/`delete` (action endpoints usually `update`), collect registered guards, append `bridgeLegacyGuard(container)` when present, call `runMutationGuards(...)` with `{ userFeatures }` before the mutation, merge `modifiedPayload`, and run returned `afterSuccessCallbacks` after success while catching/logging callback failures | `.ai/skills/om-module-scaffold/SKILL.md` → Create API Routes; <https://docs.open-mercato.dev/framework/api/crud-factory> |
 | **CRUD forms in admin** | `<CrudForm entityId apiPath mode fields />` from `@open-mercato/ui/backend/CrudForm`; helpers `createCrud` / `updateCrud` / `deleteCrud` from `@open-mercato/ui/backend/utils/crud`; `createCrudFormError` from `@open-mercato/ui/backend/utils/serverErrors`. Never raw `<form>`, never raw `fetch` | `.ai/skills/om-backend-ui-design/SKILL.md`; <https://docs.open-mercato.dev/framework/admin-ui/crud-form> |
 | **DataTables in admin** | `<DataTable entityId apiPath title columns />` from `@open-mercato/ui/backend/DataTable`. Keep `entityId` and `extensionTableId` stable so widget injection (columns, row actions, bulk actions, filters, toolbar) keeps working | `.ai/skills/om-backend-ui-design/SKILL.md`; <https://docs.open-mercato.dev/framework/admin-ui/data-grids> |
 | **Authorization (RBAC)** | Declare features in `<module>/acl.ts`, grant them in `<module>/setup.ts` `defaultRoleFeatures`, gate pages and routes with `requireFeatures` in `metadata` / `page.meta.ts`. NEVER use `requireRoles` (role names mutate). Run `yarn mercato auth sync-role-acls` after adding new features | `.ai/guides/core.md` → Access Control; <https://docs.open-mercato.dev/framework/rbac/overview> |
@@ -293,6 +294,10 @@ import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-intercept
 | `yarn initialize` | Bootstrap DB + first admin account |
 | `yarn build` | Build for production |
 | `yarn mercato eject <module>` | Copy a core module into `src/modules/` |
+| `yarn test:integration:ephemeral` | Run Playwright integration tests against a fresh ephemeral app + DB (reuses a healthy running env) — always prefer this over plain `yarn test:integration` |
+| `yarn test:integration:ephemeral:start` | Start the ephemeral app only (manual QA or iterative test loops; admin@acme.com / secret) — the `om-prepare-test-env` skill wraps this and shares the env via `.ai/qa/test-env.json` |
+| `yarn mercato test:integration <filter>` | Run small filtered test batches against the running ephemeral env (fast iteration) |
+| `npx playwright show-report .ai/qa/test-results/html` | Open the HTML integration test report |
 
 ## Architecture Rules
 

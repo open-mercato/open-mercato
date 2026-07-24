@@ -23,6 +23,7 @@ import {
   stripAnsi,
 } from './dev-splash-helpers.mjs'
 import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
+import { ensureDevInotifyLimits } from './dev-inotify-limits.mjs'
 import { killProcessTree } from './dev-shutdown-utils.mjs'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
@@ -34,6 +35,13 @@ import {
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
+import { describeWatchMode, parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
+import {
+  DEFAULT_MEMORY_TRACE_OUT_DIR,
+  createMemoryTraceSession,
+  isEnabledEnvFlag as isEnabledMemoryTraceFlag,
+  resolveMemoryTraceIntervalMs,
+} from './dev-memory-sampler.mjs'
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -190,6 +198,10 @@ const classic = args.includes('--classic') || isEnabledEnvFlag(process.env.OM_DE
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
+// Watch-scope CLI flags (e.g. `--watch=auto-optimized`, `--watch-popular`) are
+// translated into env vars and forwarded to the spawned package watcher, which
+// reads `OM_WATCH_SCOPE` / `OM_WATCH_PACKAGES`. CLI flags win over a pre-set env.
+const watchScopeArgs = parseWatchScopeArgs(args)
 const setupMode = !isMonorepo && args.includes('--setup')
 const reinstall = setupMode && args.includes('--reinstall')
 const standaloneLocalRegistryRefresh = !isMonorepo && shouldRefreshStandaloneRegistryPackages()
@@ -204,9 +216,25 @@ const warmupReadyFilePath = path.join(
   isMonorepo ? 'apps/mercato/.mercato/dev-warmup-ready.json' : '.mercato/dev-warmup-ready.json',
 )
 const devLogTeeDisabled = process.env.OM_DEV_LOG_TEE === '0' || process.env.OM_DEV_LOG_TEE === 'false'
+const memoryTraceEnabled = isEnabledMemoryTraceFlag(process.env.OM_DEV_MEMORY_TRACE)
+const memoryTrace = memoryTraceEnabled
+  ? createMemoryTraceSession({
+      rootPid: process.pid,
+      intervalMs: resolveMemoryTraceIntervalMs(process.env),
+      outDir: process.env.OM_DEV_MEMORY_TRACE_DIR?.trim() || DEFAULT_MEMORY_TRACE_OUT_DIR,
+      label: `live-dev-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+      onSample: (sample, summary) => {
+        updateSplashState({
+          memoryCurrentBytes: sample.totalRssBytes,
+          memoryPeakBytes: Math.round((summary.peakTotalMb ?? 0) * 1024 * 1024),
+        })
+      },
+    })
+  : null
 
 let devLogSessionInstance = null
 let devRunnerLogInstance = null
+let localDevLazyWorkerModeDefaultLogged = false
 
 function getDevLogSession() {
   if (devLogSessionInstance) return devLogSessionInstance
@@ -237,6 +265,17 @@ function closeDevLogSession() {
   if (devLogSessionInstance) {
     devLogSessionInstance.closeAll?.()
   }
+}
+
+async function finalizeDevProcess(exitCode) {
+  try {
+    await memoryTrace?.stop()
+  } catch (error) {
+    console.warn(`⚠️ Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  closeSplashServer()
+  closeDevLogSession()
+  process.exit(exitCode)
 }
 
 const children = new Set()
@@ -315,6 +354,32 @@ function printDevLogLocation() {
   if (process.env.OM_DEV_LOG_ANNOUNCED === '1') return
   console.log(`📝 Verbose logs ${formatDevLogAnnouncement(getDevLogSession())}`)
   process.env.OM_DEV_LOG_ANNOUNCED = '1'
+}
+
+function ensureDevFileWatchLimits() {
+  const result = ensureDevInotifyLimits()
+  if (result.fixed) {
+    console.log('🔧 Raised Linux inotify file-watch limits for Turbopack')
+    return true
+  }
+  if (result.ok) {
+    return true
+  }
+
+  updateSplashState({
+    phase: 'File-watch limits too low',
+    detail: 'Raise Linux inotify limits before starting Turbopack',
+    failed: true,
+    failureLines: result.message.split('\n').filter(Boolean).slice(0, 10),
+    failureCommand: 'yarn dev:fix-wsl-watchers',
+    ready: false,
+    readyUrl: null,
+    loginUrl: null,
+    activity: 'File-watch limit preflight failed',
+  })
+  console.error(result.message)
+  shutdown(1)
+  return false
 }
 
 function spawnCommand(command, commandArgs, options = {}) {
@@ -534,16 +599,40 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
     env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
   }
   if (
+    typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE !== 'string'
+    || process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE.trim() === ''
+  ) {
+    env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE = 'shared'
+    const lazyWorkersRaw = process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    const lazyWorkersCanRun =
+      typeof lazyWorkersRaw !== 'string'
+      || lazyWorkersRaw.trim() === ''
+      || isEnabledEnvFlag(lazyWorkersRaw)
+    if (lazyWorkersCanRun && !localDevLazyWorkerModeDefaultLogged) {
+      localDevLazyWorkerModeDefaultLogged = true
+      console.warn('⚠️ OM_AUTO_SPAWN_WORKERS_LAZY_MODE is not set; defaulting to "shared" for local dev.')
+    }
+  }
+  if (
     typeof process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY !== 'string'
     || process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY.trim() === ''
   ) {
     env.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
   }
+  if (
+    typeof process.env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER !== 'string'
+    || process.env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER.trim() === ''
+  ) {
+    env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER = 'true'
+  }
   return env
 }
 
 function buildAppDevEnv(options = {}) {
-  return applyLocalDevBackgroundServiceDefaults(buildSplashChildEnv(options) ?? {})
+  return applyLocalDevBackgroundServiceDefaults({
+    ...(buildSplashChildEnv(options) ?? {}),
+    ...(memoryTraceEnabled ? { OM_DEV_MEMORY_TRACE_OWNER: 'parent' } : {}),
+  })
 }
 
 function launchStandaloneDev(options = {}) {
@@ -742,6 +831,8 @@ function updateSplashState(patch) {
   if (typeof patch.ready === 'boolean') splashState.ready = patch.ready
   if (typeof patch.readyUrl === 'string' || patch.readyUrl === null) splashState.readyUrl = patch.readyUrl
   if (typeof patch.loginUrl === 'string' || patch.loginUrl === null) splashState.loginUrl = patch.loginUrl
+  if (typeof patch.memoryCurrentBytes === 'number' || patch.memoryCurrentBytes === null) splashState.memoryCurrentBytes = patch.memoryCurrentBytes
+  if (typeof patch.memoryPeakBytes === 'number' || patch.memoryPeakBytes === null) splashState.memoryPeakBytes = patch.memoryPeakBytes
   if (typeof patch.progressCurrent === 'number') splashState.progressCurrent = patch.progressCurrent
   if (typeof patch.progressTotal === 'number') splashState.progressTotal = patch.progressTotal
   if (typeof patch.progressLabel === 'string') splashState.progressLabel = patch.progressLabel
@@ -758,6 +849,10 @@ function updateSplashState(patch) {
     )
   }
   if (typeof patch.activity === 'string') pushSplashActivity(patch.activity)
+}
+
+function markMemoryTrace(type, label, details = {}) {
+  memoryTrace?.mark(type, label, details)
 }
 
 function normalizeCapturedLine(line) {
@@ -1044,9 +1139,7 @@ function shutdown(exitCode = 0) {
 
   const alive = Array.from(children).filter((child) => !child.killed)
   if (alive.length === 0) {
-    closeSplashServer()
-    closeDevLogSession()
-    process.exit(exitCode)
+    void finalizeDevProcess(exitCode)
     return
   }
 
@@ -1060,9 +1153,7 @@ function shutdown(exitCode = 0) {
         killProcessTree(child, 'SIGKILL')
       }
     }
-    closeSplashServer()
-    closeDevLogSession()
-    process.exit(exitCode)
+    void finalizeDevProcess(exitCode)
   }, 3000)
 }
 
@@ -1257,6 +1348,7 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
     return false
   }
 
+  markMemoryTrace('package-build:start', label, { command: commandArgs.join(' '), totalPackages: buildPlan.totalPackages })
   const initialPercent = resolveNestedStagePercent(stageCurrent, stageTotal, 0, buildPlan.totalPackages)
   progressReporter.update(`${formatPackageBuildProgressLine(label, stageCurrent, stageTotal, 0, buildPlan.totalPackages, initialPercent)}...`)
   updateSplashState({
@@ -1322,6 +1414,7 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
   const exitCode = resolveChildExitCode(result)
   if (exitCode !== 0) {
     progressReporter.clear()
+    markMemoryTrace('package-build:failure', label, { command: commandArgs.join(' '), exitCode })
     await reportStageFailure(label, commandArgs, capturedLines, exitCode, {
       stageCurrent,
       stageTotal,
@@ -1348,8 +1441,23 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
     buildPlan.totalPackages,
     finalPercent,
   )} in ${formatDuration(Date.now() - startedAt)}`)
+  markMemoryTrace('package-build:end', label, {
+    command: commandArgs.join(' '),
+    totalPackages: buildPlan.totalPackages,
+    completedPackages: completedCount,
+    durationMs: Date.now() - startedAt,
+  })
 
   return true
+}
+
+function classifyStageMarker(commandArgs) {
+  const command = Array.isArray(commandArgs) ? commandArgs.join(' ') : ''
+  if (commandArgs?.[0] === 'generate') return 'generate'
+  if (commandArgs?.[0] === 'build:packages' || command.includes('turbo run build')) return 'package-build'
+  if (commandArgs?.[0] === 'db:migrate') return 'database-migrate'
+  if (commandArgs?.[0] === 'initialize') return 'initialize'
+  return 'stage'
 }
 
 async function runStage(label, commandArgs, options = {}) {
@@ -1369,6 +1477,8 @@ async function runStage(label, commandArgs, options = {}) {
   }
 
   console.log(`${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}...`)
+  const markerType = classifyStageMarker(commandArgs)
+  markMemoryTrace(`${markerType}:start`, label, { command: commandArgs.join(' ') })
   updateSplashState({
     phase: label,
     detail: 'In progress',
@@ -1392,8 +1502,10 @@ async function runStage(label, commandArgs, options = {}) {
 
     const exitCode = resolveChildExitCode(result)
     if (exitCode !== 0) {
+      markMemoryTrace(`${markerType}:failure`, label, { command: commandArgs.join(' '), exitCode })
       shutdown(exitCode)
     }
+    markMemoryTrace(`${markerType}:end`, label, { command: commandArgs.join(' '), durationMs: Date.now() - startedAt })
     return
   }
 
@@ -1419,6 +1531,7 @@ async function runStage(label, commandArgs, options = {}) {
 
   const exitCode = resolveChildExitCode(result)
   if (exitCode !== 0) {
+    markMemoryTrace(`${markerType}:failure`, label, { command: commandArgs.join(' '), exitCode })
     await reportStageFailure(label, commandArgs, capturedLines, exitCode, {
       stageCurrent,
       stageTotal,
@@ -1436,6 +1549,7 @@ async function runStage(label, commandArgs, options = {}) {
     activity: `${label} completed in ${formatDuration(Date.now() - startedAt)}`,
   })
   console.log(`✅ ${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))} in ${formatDuration(Date.now() - startedAt)}`)
+  markMemoryTrace(`${markerType}:end`, label, { command: commandArgs.join(' '), durationMs: Date.now() - startedAt })
 }
 
 async function runPassthroughStage(label, commandArgs, options = {}) {
@@ -1449,6 +1563,8 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
     ?? stageOrder[commandArgs[0]]
     ?? (commandArgs[0] === 'build:packages' && splashState.progressCurrent >= 2 ? 3 : splashState.progressCurrent)
   const stageTotal = options.stageTotal ?? 5
+  const markerType = classifyStageMarker(commandArgs)
+  markMemoryTrace(`${markerType}:start`, label, { command: commandArgs.join(' ') })
   console.log(`${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}...`)
   updateSplashState({
     phase: label,
@@ -1476,6 +1592,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
 
     const exitCode = resolveChildExitCode(result)
     if (exitCode !== 0) {
+      markMemoryTrace(`${markerType}:failure`, label, { command: commandArgs.join(' '), exitCode })
       shutdown(exitCode)
     }
   } else {
@@ -1501,6 +1618,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
 
     const exitCode = resolveChildExitCode(result)
     if (exitCode !== 0) {
+      markMemoryTrace(`${markerType}:failure`, label, { command: commandArgs.join(' '), exitCode })
       await reportStageFailure(label, commandArgs, capturedLines, exitCode, {
         stageCurrent,
         stageTotal,
@@ -1519,6 +1637,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
     activity: `${label} completed in ${formatDuration(Date.now() - startedAt)}`,
   })
   console.log(`✅ ${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))} in ${formatDuration(Date.now() - startedAt)}`)
+  markMemoryTrace(`${markerType}:end`, label, { command: commandArgs.join(' '), durationMs: Date.now() - startedAt })
 }
 
 function resolveWatchPackagesScript() {
@@ -1530,14 +1649,30 @@ function resolveWatchPackagesScript() {
   return raw === 'legacy' ? 'watch:packages:legacy' : 'watch:packages'
 }
 
+function buildWatchScopeEnv() {
+  const env = {}
+  if (watchScopeArgs.mode) env.OM_WATCH_SCOPE = watchScopeArgs.mode
+  if (watchScopeArgs.packages?.length) env.OM_WATCH_PACKAGES = watchScopeArgs.packages.join(',')
+  if (watchScopeArgs.popularLimit) env.OM_WATCH_POPULAR_LIMIT = String(watchScopeArgs.popularLimit)
+  return env
+}
+
+function resolveActiveWatchScope(watchScopeEnv = buildWatchScopeEnv()) {
+  return resolveWatchScope({ env: { ...process.env, ...watchScopeEnv }, argv: [] }).mode
+}
+
 function startPackageWatch() {
   const watchScript = resolveWatchPackagesScript()
+  const watchScopeEnv = buildWatchScopeEnv()
+  const activeScope = resolveActiveWatchScope(watchScopeEnv)
+  markMemoryTrace('package-watch:start', 'Watching workspace packages', { script: watchScript, scope: activeScope })
 
   if (classic) {
     const child = spawnCommand(yarnCommand, [watchScript], {
       label: watchScript,
       logFile: getDevRunnerLog(),
       mirrorOutput: true,
+      env: watchScopeEnv,
     })
 
     child.on('close', (code, signal) => {
@@ -1559,9 +1694,16 @@ function startPackageWatch() {
   const stageCurrent = greenfield ? 5 : 2
   const stageTotal = greenfield ? 5 : 3
   console.log(`👀 ${formatProgressLine('Watching workspace packages', stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}`)
+  const watchMode = describeWatchMode(activeScope)
+  console.log(`   ↳ watch scope: ${watchMode.text}`)
+  if (watchMode.mode !== 'all') {
+    console.log('     tip: set OM_WATCH_SCOPE=all or pass --watch=all to watch every package')
+  }
   updateSplashState({
     phase: 'Watching workspace packages',
-    detail: 'Package watchers are running in the background',
+    detail: watchMode.mode === 'all'
+      ? 'Package watchers are running in the background'
+      : `Package watchers are running (watch scope: ${watchMode.text})`,
     progressCurrent: stageCurrent,
     progressTotal: stageTotal,
     progressPercent: resolveProgressPercent(stageCurrent, stageTotal),
@@ -1573,6 +1715,7 @@ function startPackageWatch() {
     label: 'Watching workspace packages',
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
+    env: watchScopeEnv,
   })
 
   if (verbose) {
@@ -1632,6 +1775,7 @@ function launchMonorepoAppDev() {
   const stageCurrent = greenfield ? 5 : 3
   const stageTotal = greenfield ? 5 : 3
   console.log(`🚀 ${formatProgressLine('Starting app runtime', stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}`)
+  markMemoryTrace('app-runtime:start', 'Starting app runtime', { command: ['yarn', ...appArgs].join(' ') })
   updateSplashState({
     phase: 'Preparing app runtime',
     detail: 'Launching app runtime, queue workers, and scheduler',
@@ -1756,6 +1900,7 @@ async function runClassicStandaloneDev() {
 async function main() {
   printDevLogLocation()
   await startSplashServer()
+  if (!ensureDevFileWatchLimits()) return
 
   if (!isMonorepo) {
     if (setupMode) {
@@ -1815,4 +1960,12 @@ async function main() {
   await runStandardDev()
 }
 
+memoryTrace?.start()
+markMemoryTrace('dev:start', 'Dev runner started', {
+  mode: splashMode,
+  runtimeMode,
+  appOnly,
+  greenfield,
+  classic,
+})
 await main()

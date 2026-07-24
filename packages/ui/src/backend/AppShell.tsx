@@ -29,11 +29,17 @@ import { dismissRecordConflict } from './conflicts/store'
 import { ProgressTopBar } from './progress/ProgressTopBar'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
+import { OrganizationScopeBoundary } from './OrganizationScopeBoundary'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
+import { readVersionedPreference, writeVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
 import { cloneSidebarGroups } from './sidebar/customization-helpers'
 import type { SectionNavGroup } from './section-page/types'
 import { InjectionSpot } from './injection/InjectionSpot'
+import {
+  BackendRecordInjectionContextProvider,
+  type RecordInjectionContext,
+} from './injection/recordContext'
 import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
 import { LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID } from './injection/mutationEvents'
 import { mergeMenuItems } from './injection/mergeMenuItems'
@@ -58,6 +64,25 @@ import {
   GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID,
   GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID,
 } from './injection/spotIds'
+
+// Versioned-envelope discriminator for the persisted sidebar open/closed group
+// map. This is a structured value (a record), so it carries a version so future
+// shape changes can migrate or safely discard stale data; legacy bare
+// `Record<string, boolean>` values are migrated forward on the next write. The
+// neighbouring `om:sidebarCollapsed` / `om:progress:expanded` flags are trivial
+// scalar booleans and deliberately stay raw (see their write sites). See
+// `@open-mercato/shared/lib/browser/versionedPreference`.
+const SIDEBAR_OPEN_GROUPS_KEY = 'om:sidebarOpenGroups'
+const SIDEBAR_OPEN_GROUPS_VERSION = 1
+
+function isBooleanRecord(value: unknown): value is Record<string, boolean> {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'boolean')
+  )
+}
 
 export type ShellLogo = {
   src: string
@@ -113,6 +138,12 @@ export type AppShellProps = {
   profileSectionTitle?: string
   profilePathPrefixes?: string[]
   mobileSidebarSlot?: React.ReactNode
+  /**
+   * Hide the backend footer status bar (app version + terms/privacy links).
+   * Intended for app developers and whitelabel/embedded deployments that want to
+   * suppress the footer entirely. Defaults to `false` (footer shown).
+   */
+  hideFooter?: boolean
   /**
    * How long (ms) to keep successfully completed progress operations visible
    * before auto-hiding. Pass `false` or `0` to disable. Defaults to 10 000 ms.
@@ -429,7 +460,7 @@ export function AppShell(props: AppShellProps) {
   )
 }
 
-function AppShellBody({ productName, logo, email, canManageUpgradeActions = false, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot, progressCompletedAutoHideMs }: AppShellProps) {
+function AppShellBody({ productName, logo, email, canManageUpgradeActions = false, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot, hideFooter = false, progressCompletedAutoHideMs }: AppShellProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const t = useT()
@@ -572,6 +603,21 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     [pathname, searchParams],
   )
 
+  // AppShell-owned transport for the current detail record (Phase 0 / S2).
+  // Detail pages publish here; the merged context feeds the global
+  // `backend:record:current` mount so the record_locks widget can resolve the
+  // resource without a hardcoded path allowlist. Stale context (published for a
+  // different path) is ignored so it never leaks across route transitions.
+  const [currentRecordInjectionContext, setCurrentRecordInjectionContext] =
+    React.useState<RecordInjectionContext | null>(null)
+
+  const recordInjectionContext = React.useMemo(() => {
+    if (!currentRecordInjectionContext) return injectionContext
+    const publishedPath = currentRecordInjectionContext.path
+    if (publishedPath && pathname && publishedPath !== pathname) return injectionContext
+    return { ...injectionContext, ...currentRecordInjectionContext }
+  }, [injectionContext, currentRecordInjectionContext, pathname])
+
   const isOnSettingsPath = React.useMemo(() => {
     if (!pathname) return false
     if (pathname === '/backend/settings') return true
@@ -605,22 +651,23 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   }, [mobileOpen])
 
   React.useEffect(() => {
-    try {
-      const savedOpen = typeof window !== 'undefined' ? localStorage.getItem('om:sidebarOpenGroups') : null
-      if (!savedOpen) return
-      const parsed = JSON.parse(savedOpen) as Record<string, boolean>
-      setOpenGroups((prev) => {
-        const next = { ...prev }
-        for (const group of resolvedGroups) {
-          const key = resolveGroupKey(group)
-          if (key in parsed) next[key] = !!parsed[key]
-          else if (group.name in parsed) next[key] = !!parsed[group.name]
-        }
-        return next
-      })
-    } catch {
-      // ignore localStorage errors to avoid breaking hydration
-    }
+    const parsed = readVersionedPreference<Record<string, boolean>>(
+      SIDEBAR_OPEN_GROUPS_KEY,
+      SIDEBAR_OPEN_GROUPS_VERSION,
+      isBooleanRecord,
+      {},
+      { legacyIsValid: isBooleanRecord },
+    )
+    if (Object.keys(parsed).length === 0) return
+    setOpenGroups((prev) => {
+      const next = { ...prev }
+      for (const group of resolvedGroups) {
+        const key = resolveGroupKey(group)
+        if (key in parsed) next[key] = !!parsed[key]
+        else if (group.name in parsed) next[key] = !!parsed[group.name]
+      }
+      return next
+    })
   }, [resolvedGroups])
 
   const toggleGroup = (groupId: string) => setOpenGroups((prev) => ({ ...prev, [groupId]: prev[groupId] === false }))
@@ -633,6 +680,9 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   // private/incognito mode (storage blocked) or when cookies are disabled —
   // the persisted preference is purely a UX nice-to-have, never functional, so
   // swallow the failure and let the component fall back to the default state.
+  // This is a trivial scalar flag ('1' | '0') with no schema to evolve, so it is
+  // intentionally kept raw rather than wrapped in a versioned envelope (the
+  // versioning threshold lives in `@open-mercato/shared/lib/browser/versionedPreference`).
   React.useEffect(() => {
     try { localStorage.setItem('om:sidebarCollapsed', collapsed ? '1' : '0') } catch { /* localStorage blocked (private mode) — non-critical */ }
     try {
@@ -659,7 +709,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     previousSidebarModeRef.current = sidebarMode
   }, [sidebarMode, collapsed])
   React.useEffect(() => {
-    try { localStorage.setItem('om:sidebarOpenGroups', JSON.stringify(openGroups)) } catch { /* localStorage blocked (private mode) — non-critical */ }
+    writeVersionedPreference(SIDEBAR_OPEN_GROUPS_KEY, SIDEBAR_OPEN_GROUPS_VERSION, openGroups)
   }, [openGroups])
 
   // Ensure current route's group is expanded on load
@@ -1369,30 +1419,36 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           {canManageUpgradeActions ? <UpgradeActionBanner /> : null}
           <LastOperationBanner />
           <RecordConflictBanner />
-          <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={injectionContext} />
+          <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={recordInjectionContext} />
           <InjectionSpot
             spotId={LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID}
             context={injectionContext}
           />
           <div id="om-top-banners" className="mb-3 space-y-2" />
-          {children}
+          <OrganizationScopeBoundary active={isOnSettingsPath}>
+            <BackendRecordInjectionContextProvider setCurrentRecordInjectionContext={setCurrentRecordInjectionContext}>
+              {children}
+            </BackendRecordInjectionContextProvider>
+          </OrganizationScopeBoundary>
           <InjectionSpot spotId={BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID} context={injectionContext} />
         </main>
-        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
-          {version ? (
-            <span className="text-xs text-muted-foreground">
-              {t('appShell.version', { version })}
-            </span>
-          ) : null}
-          <nav className="flex items-center gap-3 text-xs text-muted-foreground">
-            <Link href="/terms" className="transition hover:text-foreground">
-              {t('common.terms')}
-            </Link>
-            <Link href="/privacy" className="transition hover:text-foreground">
-              {t('common.privacy')}
-            </Link>
-          </nav>
-        </footer>
+        {hideFooter ? null : (
+          <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
+            {version ? (
+              <span className="text-xs text-muted-foreground">
+                {t('appShell.version', { version })}
+              </span>
+            ) : null}
+            <nav className="flex items-center gap-3 text-xs text-muted-foreground">
+              <Link href="/terms" className="transition hover:text-foreground">
+                {t('common.terms')}
+              </Link>
+              <Link href="/privacy" className="transition hover:text-foreground">
+                {t('common.privacy')}
+              </Link>
+            </nav>
+          </footer>
+        )}
       </div>
 
       {/* Mobile drawer */}
@@ -1438,13 +1494,13 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                       aria-selected={isActive}
                       aria-controls="mobile-drawer-tabpanel"
                       onClick={() => setMobileDrawerView(tab.id === 'main' ? 'main' : 'auto')}
-                      className="relative inline-flex items-center pb-2 text-sm font-medium leading-5 tracking-tight transition-colors focus:outline-none data-[active=true]:text-foreground data-[active=false]:text-muted-foreground hover:text-foreground"
+                      className="relative inline-flex items-center pb-2 text-sm font-medium leading-5 tracking-tight transition-colors outline-none focus-visible:shadow-focus data-[active=true]:text-foreground data-[active=false]:text-muted-foreground hover:text-foreground"
                       data-active={isActive}
                     >
                       <span>{tab.label}</span>
                       {isActive ? (
                         <span
-                          className="absolute -bottom-px left-0 right-0 h-0.5 bg-foreground"
+                          className="absolute -bottom-px left-0 right-0 h-0.5 bg-accent-indigo"
                           aria-hidden="true"
                         />
                       ) : null}

@@ -4,7 +4,7 @@ import React, { useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Shield, Users, Briefcase, Info, Rocket, ArrowRight, BookOpen } from 'lucide-react'
-import { getApiDocsResources, resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
+import { getApiDocsResources } from '@open-mercato/core/modules/api_docs/lib/resources'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -59,7 +59,7 @@ function RoleTile({
 
       {disabled ? (
         <>
-          <Button variant="outline" className="w-full cursor-not-allowed opacity-80" disabled>
+          <Button type="button" variant="outline" className="w-full cursor-not-allowed opacity-80" disabled>
             {disabledCtaLabel ?? defaultDisabledCtaLabel}
           </Button>
           {disabledMessage ? (
@@ -80,20 +80,29 @@ function RoleTile({
 interface StartPageContentProps {
   showStartPage: boolean
   showOnboardingCta?: boolean
+  // Resolved server-side: the fallback env vars (APP_URL) are unavailable in the
+  // client bundle, so resolving here would hydrate a different URL than SSR.
+  apiBaseUrl: string
 }
 
-export function StartPageContent({ showStartPage: initialShowStartPage, showOnboardingCta = false }: StartPageContentProps) {
+export function StartPageContent({ showStartPage: initialShowStartPage, showOnboardingCta = false, apiBaseUrl }: StartPageContentProps) {
   const t = useT()
   const [showStartPage, setShowStartPage] = useState(initialShowStartPage)
 
   const superAdminDisabled = showOnboardingCta
   const apiDocs = getApiDocsResources()
-  const baseUrl = resolveApiDocsBaseUrl()
 
   const handleCheckboxChange = (checked: boolean) => {
     setShowStartPage(checked)
-    // Set cookie to remember preference
-    document.cookie = `show_start_page=${checked}; path=/; max-age=${365 * 24 * 60 * 60}; SameSite=Lax`
+    if (checked) {
+      // Re-enable: clear the dismissal so `/` routes back here.
+      document.cookie = 'start_page_dismissed=; path=/; max-age=0; SameSite=Lax'
+    } else {
+      // Dismiss and leave now — `/` routes to the backend (authenticated) or
+      // login from here on. The `/` router reads this cookie server-side.
+      document.cookie = `start_page_dismissed=1; path=/; max-age=${365 * 24 * 60 * 60}; SameSite=Lax`
+      window.location.assign('/')
+    }
   }
 
   return (
@@ -106,26 +115,26 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
       </section>
 
       {showOnboardingCta ? (
-        <section className="rounded-lg border border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20 p-6 md:p-8 flex flex-col md:flex-row md:items-center gap-6 shadow-sm">
+        <section className="rounded-lg border border-status-success-border bg-status-success-bg p-6 md:p-8 flex flex-col md:flex-row md:items-center gap-6 shadow-sm">
           <div className="flex items-start gap-4">
-            <div className="rounded-full bg-emerald-600 text-white p-3">
+            <div className="rounded-full bg-status-success-icon text-status-success-bg p-3">
               <Rocket className="size-6" />
             </div>
             <div className="space-y-3">
               <div>
-                <h3 className="text-lg font-semibold text-emerald-900 dark:text-emerald-100">{t('startPage.onboarding.title', 'Launch your own workspace')}</h3>
-                <p className="text-sm text-emerald-800/80 dark:text-emerald-200/90">
+                <h3 className="text-lg font-semibold text-status-success-text">{t('startPage.onboarding.title', 'Launch your own workspace')}</h3>
+                <p className="text-sm text-status-success-text/90">
                   {t('startPage.onboarding.description', 'Create a tenant, organization, and administrator account in minutes. We\'ll verify your email and deliver a pre-seeded environment so you can explore Open Mercato with real data.')}
                 </p>
               </div>
-              <ul className="text-sm text-emerald-900/80 dark:text-emerald-200/90 space-y-1 list-disc pl-5 marker:text-emerald-600 dark:marker:text-emerald-400">
+              <ul className="text-sm text-status-success-text/90 space-y-1 list-disc pl-5 marker:text-status-success-icon">
                 <li>{t('startPage.onboarding.feature1', 'Automatic tenant and sample data provisioning')}</li>
                 <li>{t('startPage.onboarding.feature2', 'Ready-to-use superadmin credentials after verification')}</li>
               </ul>
             </div>
           </div>
           <div className="md:ml-auto">
-            <Button asChild className="bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-ring px-6 py-5 text-base font-semibold text-white shadow-md">
+            <Button asChild size="lg" className="font-semibold shadow-md">
               <Link href="/onboarding">
                 {t('startPage.onboarding.cta', 'Start onboarding')}
                 <ArrowRight className="size-4" aria-hidden />
@@ -135,16 +144,16 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
         </section>
       ) : null}
 
-      <section className="rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900 p-4">
+      <section className="rounded-lg border border-status-info-border bg-status-info-bg p-4">
         <div className="flex items-start gap-3">
-          <Info className="size-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+          <Info className="size-5 text-status-info-icon shrink-0 mt-0.5" />
           <div className="flex-1">
-            <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">{t('startPage.defaultPassword.title', 'Default Password')}</h3>
-            <p className="text-sm text-blue-800 dark:text-blue-200">
+            <h3 className="text-sm font-semibold text-status-info-text mb-1">{t('startPage.defaultPassword.title', 'Default Password')}</h3>
+            <p className="text-sm text-status-info-text">
               {t('startPage.defaultPassword.description1', 'The default password for all demo accounts is')}{' '}
-              <code className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 font-mono text-xs">secret</code>.
+              <code className="px-1.5 py-0.5 rounded border border-status-info-border/70 bg-background/70 font-mono text-xs text-foreground">secret</code>.
               {' '}{t('startPage.defaultPassword.description2', 'To change passwords, use the CLI command:')}{' '}
-              <code className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 font-mono text-xs">yarn mercato auth set-password --email &lt;email&gt; --password &lt;newPassword&gt;</code>
+              <code className="px-1.5 py-0.5 rounded border border-status-info-border/70 bg-background/70 font-mono text-xs text-foreground">yarn mercato auth set-password --email &lt;email&gt; --password &lt;newPassword&gt;</code>
               <span className="mt-2 block">{t('startPage.defaultPassword.description3', 'Demo account emails are printed in the terminal output during yarn initialize.')}</span>
             </p>
           </div>
@@ -248,7 +257,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
         </div>
         <p className="text-xs text-muted-foreground">
           {t('startPage.apiResources.baseUrl', 'Current API base URL:')}{' '}
-          <code className="rounded bg-muted px-2 py-0.5 text-overline text-foreground">{baseUrl}</code>
+          <code className="rounded bg-muted px-2 py-0.5 text-overline text-foreground">{apiBaseUrl}</code>
         </p>
       </section>
 

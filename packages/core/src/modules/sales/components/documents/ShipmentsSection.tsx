@@ -20,9 +20,12 @@ import type { SectionAction } from '@open-mercato/core/modules/customers/compone
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { formatAddressString, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { ShipmentDialog } from './ShipmentDialog'
-import { handleSectionMutationError, readRowUpdatedAt, rowOptimisticVersion } from './optimisticLock'
+import { handleSectionMutationError, readRowUpdatedAt } from './optimisticLock'
 import { extractCustomFieldValues } from './customFieldHelpers'
 import type { OrderLine, ShipmentRow, ShipmentItem } from './shipmentTypes'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
 const ADDRESS_FORMAT: 'line_first' = 'line_first'
@@ -33,6 +36,7 @@ type SalesShipmentsSectionProps = {
   shippingAddressSnapshot?: Record<string, unknown> | null
   organizationId?: string | null
   tenantId?: string | null
+  documentUpdatedAt?: string | null
   onActionChange?: (action: SectionAction | null) => void
   onAddComment?: (body: string) => Promise<void>
 }
@@ -114,6 +118,7 @@ export function SalesShipmentsSection({
   shippingAddressSnapshot,
   organizationId: organizationIdProp,
   tenantId: tenantIdProp,
+  documentUpdatedAt,
   onActionChange,
   onAddComment,
 }: SalesShipmentsSectionProps) {
@@ -351,7 +356,7 @@ export function SalesShipmentsSection({
         .filter((entry): entry is ShipmentRow => Boolean(entry))
       setShipments(mapped)
     } catch (err) {
-      console.error('sales.shipments.load', err)
+      logger.error('sales.shipments.load', { err })
       setError(t('sales.documents.shipments.errorLoad', 'Failed to load shipments.'))
     } finally {
       setLoading(false)
@@ -401,7 +406,9 @@ export function SalesShipmentsSection({
       if (!confirmed) return
       try {
         const result = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(rowOptimisticVersion(shipment)),
+          // The server guards the PARENT order's aggregate version (Gap B), so
+          // send the order's `updated_at`, not the shipment row's.
+          buildOptimisticLockHeader(documentUpdatedAt ?? undefined),
           () =>
             deleteCrud('sales/shipments', {
               body: {
@@ -421,11 +428,11 @@ export function SalesShipmentsSection({
         if (handleSectionMutationError(err, t, () => void loadShipments())) {
           return
         }
-        console.error('sales.shipments.delete', err)
+        logger.error('sales.shipments.delete', { err })
         flash(t('sales.documents.shipments.errorDelete', 'Failed to delete shipment.'), 'error')
       }
     },
-    [confirm, loadShipments, orderId, resolvedOrganizationId, resolvedTenantId, t]
+    [confirm, documentUpdatedAt, loadShipments, orderId, resolvedOrganizationId, resolvedTenantId, t]
   )
 
   const renderItemList = (items: ShipmentItem[]) => (
@@ -573,6 +580,7 @@ export function SalesShipmentsSection({
         currencyCode={currencyCode}
         organizationId={resolvedOrganizationId}
         tenantId={resolvedTenantId}
+        documentUpdatedAt={documentUpdatedAt ?? null}
         computeAvailable={computeAvailable}
         shippingAddressSnapshot={shippingAddressSnapshot}
         onClose={() => setDialogState(null)}

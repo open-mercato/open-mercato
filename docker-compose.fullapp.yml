@@ -14,11 +14,98 @@ services:
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      # In-network MCP wiring. MCP_SERVER_API_KEY (env) wins when set; the
+      # file fallback reads the key the mcp service provisioned into the
+      # shared volume after waiting for the MCP /health endpoint.
+      OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://mcp:3001/mcp}
+      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
+      MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
+    volumes:
+      - mcp_shared:/run/mcp-shared:ro
+    depends_on:
+      mcp:
+        condition: service_started
+    # Visibility only (compose ps / smoke tests): the entrypoint owns the
+    # wait-for-MCP-and-key sequencing.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:4096/global/health"]
+      interval: 30s
+      timeout: 6s
+      retries: 20
+      start_period: 900s
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - mercato-network-fullapp
+
+  mcp:
+    image: open-mercato/app:${DEPLOY_ENV:-local}
+    container_name: mercato-mcp-${DEPLOY_ENV:-local}
+    restart: unless-stopped
+    user: "0"
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        if [ ! -f /app/docker/scripts/mcp-entrypoint.sh ]; then
+          echo "ERROR: mcp-entrypoint.sh not found. Please rebuild the container: docker compose build --no-cache app"
+          exit 1
+        fi
+        sh /app/docker/scripts/mcp-entrypoint.sh
+    volumes:
+      - mcp_shared:/run/mcp-shared
+    environment:
+      NODE_ENV: development
+      NODE_OPTIONS: ${MCP_NODE_OPTIONS:---max-old-space-size=2048}
+      DEPLOY_ENV: ${DEPLOY_ENV:-local}
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
+      CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
+      CACHE_STRATEGY: redis
+      AUTO_SPAWN_WORKERS: "false"
+      AUTO_SPAWN_SCHEDULER: "false"
+      MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
+      JWT_SECRET: ${JWT_SECRET:-JWT}
+      # Code Mode api.request() must call back into the app over service DNS.
+      # NEXT_PUBLIC_* are pinned so a stray .env cannot hijack the base URL.
+      APP_URL: http://app:${CONTAINER_PORT:-3000}
+      NEXT_PUBLIC_APP_URL: http://app:${CONTAINER_PORT:-3000}
+      NEXT_PUBLIC_API_BASE_URL: ""
+      # Session-token (tier 2) decryption requires the app's encryption config.
+      TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
+      TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
+      TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
+      OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      MCP_PORT: "3001"
+      MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
+      MCP_WAIT_FOR_APP_TIMEOUT: ${MCP_WAIT_FOR_APP_TIMEOUT:-1800}
+      MCP_DEBUG: ${MCP_DEBUG:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+      app:
+        condition: service_started
+    # Visibility only (compose ps / smoke tests): startup ordering is owned by
+    # the entrypoint wait loops, not by this healthcheck.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+      start_period: 900s
     networks:
       - mercato-network-fullapp
 
@@ -33,6 +120,9 @@ services:
       args:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
     image: open-mercato/app:${DEPLOY_ENV:-local}
+    # Without a restart policy the app stays down after a daemon/host reboot
+    # while mcp and opencode (restart: unless-stopped) wait on it forever.
+    restart: unless-stopped
     user: "0"
     command:
       - /bin/sh
@@ -47,6 +137,7 @@ services:
     volumes:
       - init_marker:/tmp/init-marker
       - attachments_storage:/app/apps/mercato/storage
+      - mcp_shared:/run/mcp-shared:ro
     working_dir: /app/apps/mercato
     ports:
       - "${APP_PORT:-3000}:${CONTAINER_PORT:-3000}"
@@ -63,21 +154,44 @@ services:
       NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=3072}
       DEPLOY_ENV: ${DEPLOY_ENV:-local}
       PORT: ${CONTAINER_PORT:-3000}
+      # Bind on all interfaces so Docker's published-port forwarding can reach
+      # the server; next start otherwise honors the container's HOSTNAME and
+      # binds an address unreachable from the host.
+      HOSTNAME: 0.0.0.0
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_POOL_MIN: ${DB_POOL_MIN:-2}
+      DB_POOL_ACQUIRE_TIMEOUT: ${DB_POOL_ACQUIRE_TIMEOUT:-6000}
+      DB_POOL_IDLE_TIMEOUT: ${DB_POOL_IDLE_TIMEOUT:-3000}
+      DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: ${DB_IDLE_IN_TRANSACTION_TIMEOUT_MS:-120000}
       JWT_SECRET: ${JWT_SECRET:-JWT}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-}
+      CONSENT_INTEGRITY_SECRET: ${CONSENT_INTEGRITY_SECRET:-}
       APP_URL: ${APP_URL:-http://localhost:3000}
       # Additional trusted app/dev origins for the Open Mercato origin allowlist (resolveAllowedDevOrigins)
       APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-}
+      REDIS_URL: ${REDIS_URL:-}
+      QUEUE_REDIS_URL: ${QUEUE_REDIS_URL:-}
+      QUEUE_STRATEGY: ${QUEUE_STRATEGY:-local}
+      NEXT_PUBLIC_QUEUE_STRATEGY: ${NEXT_PUBLIC_QUEUE_STRATEGY:-local}
       CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       CACHE_STRATEGY: redis
+      RATE_LIMIT_STRATEGY: ${RATE_LIMIT_STRATEGY:-memory}
+      OM_MULTI_INSTANCE: ${OM_MULTI_INSTANCE:-false}
+      OM_INSTANCE_COUNT: ${OM_INSTANCE_COUNT:-1}
       ENABLE_CRUD_API_CACHE: ${ENABLE_CRUD_API_CACHE:-true}
       OM_AI_PROVIDER: ${OM_AI_PROVIDER:-openai}
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Point OpenCode clients at the sibling opencode service (the code default
+      # http://localhost:4096 is unreachable from inside the app container).
+      OPENCODE_URL: ${OPENCODE_URL:-http://opencode:4096}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
       MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED: ${NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED:-true}
@@ -88,6 +202,7 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-}
       NEW_RELIC_APP_NAME: ${NEW_RELIC_APP_NAME:-}
       NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:-}
+      OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING: ${OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING:-false}
       TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
@@ -100,6 +215,10 @@ services:
       PLATFORM_DOMAINS: ${PLATFORM_DOMAINS:-localhost,${PLATFORM_PRIMARY_HOST:-openmercato.com}}
       PLATFORM_PORTAL_BASE_URL: ${PLATFORM_PORTAL_BASE_URL:-https://${PLATFORM_PRIMARY_HOST:-openmercato.com}}
       CUSTOMER_DOMAIN_ORIGIN_HEADER: ${CUSTOMER_DOMAIN_ORIGIN_HEADER:-X-Open-Mercato-Origin}
+      # MCP wiring (OPENCODE_URL is declared above with the AI provider block;
+      # NEXT_PUBLIC_APP_URL stays a browser-resolvable URL, never service DNS).
+      MCP_URL: ${MCP_URL:-http://mcp:3001}
+      MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
     depends_on:
       postgres:
         condition: service_healthy
@@ -199,6 +318,8 @@ volumes:
     name: mercato-init-marker-${DEPLOY_ENV:-local}
   attachments_storage:
     name: mercato-attachments-storage-${DEPLOY_ENV:-local}
+  mcp_shared:
+    name: mercato-mcp-shared-${DEPLOY_ENV:-local}
 
 networks:
   mercato-network-fullapp:

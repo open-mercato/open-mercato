@@ -49,11 +49,32 @@ export function parseIdsParam(raw: unknown, maxIds: number = MAX_IDS_PER_REQUEST
   return parsed.slice(0, safeMax)
 }
 
+/**
+ * Whether an `?ids=` param was supplied at all (a non-empty string), regardless
+ * of whether any value survived UUID validation. Lets a caller tell "no ids
+ * filter requested" apart from "ids filter requested but every value was
+ * malformed" — the latter must match nothing, not fall back to the full list
+ * (#4143 Finding 3).
+ */
+export function isIdsParamProvided(raw: unknown): boolean {
+  return typeof raw === 'string' && raw.trim().length > 0
+}
+
 export function mergeIdFilter<Fields extends Record<string, unknown>>(
   existingFilters: Where<Fields>,
   parsedIds: string[],
+  options?: { idsParamProvided?: boolean },
 ): Where<Fields> {
-  if (parsedIds.length === 0) return existingFilters
+  if (parsedIds.length === 0) {
+    // The `?ids=` param was supplied but nothing survived UUID validation.
+    // Match nothing, mirroring a valid-but-unknown id returning zero rows,
+    // rather than silently dropping the filter and returning the full list
+    // (record-count side channel — #4143 Finding 3).
+    if (options?.idsParamProvided) {
+      return { ...existingFilters, id: { $in: [] } }
+    }
+    return existingFilters
+  }
 
   const existingFilter = (existingFilters as Record<string, unknown>).id
   const existingIds = readExistingIds(existingFilter)

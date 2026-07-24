@@ -3,7 +3,9 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup } from './aes'
 import { createKmsService, type KmsService, type TenantDek } from './kms'
 import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
-import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'tenant-encryption' })
 
 export type EncryptedFieldRule = {
   field: string
@@ -19,6 +21,10 @@ type MapCacheKey = {
   entityId: string
   tenantId: string | null
   organizationId: string | null
+}
+
+type SqlConnection = {
+  execute(sql: string, params?: readonly unknown[]): Promise<unknown>
 }
 
 const MAP_MISS_TTL_MS = 5 * 60 * 1000
@@ -39,8 +45,7 @@ function cacheKey(key: MapCacheKey): string {
 function debug(event: string, payload: Record<string, unknown>) {
   if (!isEncryptionDebugEnabled()) return
   try {
-    // eslint-disable-next-line no-console
-    console.debug(`${event} [tenant-encryption]`, payload)
+    logger.debug(event, payload)
   } catch {
     // ignore
   }
@@ -104,6 +109,36 @@ function isEncryptedWithDek(value: unknown, dek: TenantDek): boolean {
   const parts = value.split(':')
   if (parts.length !== 4 || parts[3] !== 'v1') return false
   return decryptWithAesGcm(value, dek.key) !== null
+}
+
+function normalizeEncryptedFieldNames(fields: readonly { field?: unknown }[] | null | undefined): string[] {
+  if (!Array.isArray(fields)) return []
+  return fields
+    .map((rule) => rule.field)
+    .filter((field): field is string => typeof field === 'string' && field.trim().length > 0)
+}
+
+function readEncryptedFieldsJson(row: Record<string, unknown>): EncryptedFieldRule[] {
+  const raw = row.fields_json ?? row.fieldsJson
+  if (Array.isArray(raw)) return raw as EncryptedFieldRule[]
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed as EncryptedFieldRule[] : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function getSqlConnection(em: EntityManager): SqlConnection | null {
+  const source = em as { getConnection?: () => unknown }
+  const conn = source.getConnection?.()
+  if (!conn || typeof conn !== 'object') return null
+  const candidate = conn as { execute?: unknown }
+  if (typeof candidate.execute !== 'function') return null
+  return candidate as SqlConnection
 }
 
 export class TenantDataEncryptionService {
@@ -181,8 +216,8 @@ export class TenantDataEncryptionService {
 
   private async fetchMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
     // Bypass ORM lifecycle hooks to avoid recursive decrypt loops by querying directly.
-    const conn: any = (this.em as any)?.getConnection?.()
-    if (!conn || typeof conn.execute !== 'function') return null
+    const conn = getSqlConnection(this.em)
+    if (!conn) return null
     const sql = `
       select entity_id, fields_json
       from encryption_maps
@@ -194,15 +229,13 @@ export class TenantDataEncryptionService {
       limit 1
     `
     const rows = await conn.execute(sql, [key.entityId, key.tenantId ?? null, key.organizationId ?? null])
-    const row = Array.isArray(rows) && rows.length ? rows[0] : null
+    const row = Array.isArray(rows) && rows.length && rows[0] && typeof rows[0] === 'object'
+      ? rows[0] as Record<string, unknown>
+      : null
     if (!row) return null
     return {
-      entityId: row.entity_id || row.entityId || key.entityId,
-      fields: Array.isArray(row.fields_json)
-        ? (row.fields_json as EncryptedFieldRule[])
-        : Array.isArray(row.fieldsJson)
-          ? (row.fieldsJson as EncryptedFieldRule[])
-          : [],
+      entityId: String(row.entity_id ?? row.entityId ?? key.entityId),
+      fields: readEncryptedFieldsJson(row),
     }
   }
 
@@ -260,6 +293,30 @@ export class TenantDataEncryptionService {
     return null
   }
 
+  private async fetchAllOrganizationFieldNames(entityId: string, tenantId: string | null): Promise<string[]> {
+    const conn = getSqlConnection(this.em)
+    if (!conn) return []
+    const sql = `
+      select fields_json
+      from encryption_maps
+      where entity_id = ?
+        and tenant_id is not distinct from ?
+        and organization_id is not null
+        and is_active = true
+        and deleted_at is null
+    `
+    const rows = await conn.execute(sql, [entityId, tenantId])
+    if (!Array.isArray(rows) || rows.length === 0) return []
+    const names = new Set<string>()
+    for (const row of rows) {
+      if (!row || typeof row !== 'object') continue
+      for (const field of normalizeEncryptedFieldNames(readEncryptedFieldsJson(row as Record<string, unknown>))) {
+        names.add(field)
+      }
+    }
+    return Array.from(names)
+  }
+
   async invalidateMap(entityId: string, tenantId: string | null, organizationId: string | null): Promise<void> {
     const tag = cacheKey({ entityId, tenantId, organizationId })
     this.memoryCache.delete(tag)
@@ -286,10 +343,13 @@ export class TenantDataEncryptionService {
   ): Promise<string[]> {
     if (!this.isEnabled()) return []
     const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
-    if (!map || !map.fields?.length) return []
-    return map.fields
-      .map((rule) => rule.field)
-      .filter((field): field is string => typeof field === 'string' && field.trim().length > 0)
+    const fields = new Set(normalizeEncryptedFieldNames(map?.fields))
+    if (organizationId == null) {
+      for (const field of await this.fetchAllOrganizationFieldNames(entityId, tenantId ?? null)) {
+        fields.add(field)
+      }
+    }
+    return Array.from(fields)
   }
 
   private encryptFields(

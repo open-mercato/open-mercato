@@ -3,7 +3,7 @@
 "use client"
 
 import * as React from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import {
   CustomDataSection,
@@ -37,6 +37,7 @@ import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/s
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { ContactEmailDisplay } from '@open-mercato/core/modules/sales/components/ContactEmailDisplay'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
 import { SalesDocumentItemsSection } from '@open-mercato/core/modules/sales/components/documents/ItemsSection'
@@ -68,6 +69,11 @@ import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dicti
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@open-mercato/core/modules/customers/lib/markdownPreference'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
+import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/components/useSalesChannelsEnabled'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 function formatMessageAmount(amount: number | null | undefined, currency: string | null | undefined): string | null {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return null
@@ -154,7 +160,7 @@ function CurrencyInlineEditor({
       await onSave(draft ?? null)
       setEditing(false)
     } catch (err) {
-      console.error('sales.documents.currency.save', err)
+      logger.error('sales.documents.currency.save', { err })
     } finally {
       setSaving(false)
     }
@@ -466,7 +472,7 @@ function CustomerInlineEditor({
       await onSave(draftId, draftEmail)
       setMode(null)
     } catch (err) {
-      console.error('sales.documents.customer.save', err)
+      logger.error('sales.documents.customer.save', { err })
     }
   }, [draftEmail, draftId, onClearError, onSave])
 
@@ -487,7 +493,7 @@ function CustomerInlineEditor({
       await onSaveSnapshot(payload)
       setMode(null)
     } catch (err) {
-      console.error('sales.documents.customer.snapshot.save', err)
+      logger.error('sales.documents.customer.snapshot.save', { err })
     }
   }, [buildSnapshotPayload, onClearError, onSaveSnapshot, phoneIsValid])
 
@@ -1890,8 +1896,10 @@ export default function SalesDocumentDetailPage({
   includeAmountInMessageMetadata?: boolean
 }) {
   const t = useT()
+  const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const pathname = usePathname()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [loading, setLoading] = React.useState(true)
   const [isNotFound, setIsNotFound] = React.useState(false)
@@ -1971,6 +1979,18 @@ export default function SalesDocumentDetailPage({
       })
     },
     [detailInjectionContext, runMutation],
+  )
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so record_locks gets presence + the action-log base (updatedAt/data) for
+  // this order/quote. Sub-resource sections inherit this context — no second mount.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: `sales.${kind}`,
+      resourceId: record?.id ?? null,
+      updatedAt: record?.updatedAt ?? null,
+      data: record as Record<string, unknown> | null,
+      path: pathname,
+    }),
   )
   const clearCustomerError = React.useCallback(() => setCustomerError(null), [])
   const { data: currencyDictionary } = useCurrencyDictionary()
@@ -2117,7 +2137,7 @@ export default function SalesDocumentDetailPage({
         })
         return merged
       } catch (err) {
-        console.error('sales.documents.loadCustomers', err)
+        logger.error('sales.documents.loadCustomers', { err })
         flash(t('sales.documents.form.errors.customers', 'Failed to load customers.'), 'error')
         return []
       } finally {
@@ -2152,7 +2172,7 @@ export default function SalesDocumentDetailPage({
         if (!query) upsertChannelOptions([])
         return []
       } catch (err) {
-        console.error('sales.documents.loadChannels', err)
+        logger.error('sales.documents.loadChannels', { err })
         if (!query) {
           flash(t('sales.channels.offers.filters.channelsLoadError', 'Failed to load channels'), 'error')
         }
@@ -2224,7 +2244,7 @@ export default function SalesDocumentDetailPage({
         if (!query) upsertShippingMethodOptions([])
         return []
       } catch (err) {
-        console.error('sales.documents.loadShippingMethods', err)
+        logger.error('sales.documents.loadShippingMethods', { err })
         if (!query) {
           flash(
             t('sales.documents.detail.shippingMethodLoadError', 'Failed to load shipping methods.'),
@@ -2281,7 +2301,7 @@ export default function SalesDocumentDetailPage({
         if (!query) upsertPaymentMethodOptions([])
         return []
       } catch (err) {
-        console.error('sales.documents.loadPaymentMethods', err)
+        logger.error('sales.documents.loadPaymentMethods', { err })
         if (!query) {
           flash(
             t('sales.documents.detail.paymentMethodLoadError', 'Failed to load payment methods.'),
@@ -2311,7 +2331,7 @@ export default function SalesDocumentDetailPage({
       const items = Array.isArray(response.result?.items) ? response.result.items : []
       setHasPayments(items.some((item) => item && typeof (item as any).id === 'string'))
     } catch (err) {
-      console.error('sales.documents.currency.paymentsGuard', err)
+      logger.error('sales.documents.currency.paymentsGuard', { err })
     }
   }, [kind, record?.id])
 
@@ -2335,7 +2355,7 @@ export default function SalesDocumentDetailPage({
         }
         return email ?? null
       } catch (err) {
-        console.error('sales.documents.fetchCustomerEmail', err)
+        logger.error('sales.documents.fetchCustomerEmail', { err })
         return null
       }
     },
@@ -2361,7 +2381,7 @@ export default function SalesDocumentDetailPage({
           return option
         }
       } catch (err) {
-        console.error('sales.documents.channel.ensure', err)
+        logger.error('sales.documents.channel.ensure', { err })
       }
       return null
     },
@@ -2465,7 +2485,7 @@ export default function SalesDocumentDetailPage({
       upsertStatusOptions([])
       return []
     } catch (err) {
-      console.error('sales.documents.loadStatuses', err)
+      logger.error('sales.documents.loadStatuses', { err })
       flash(t('sales.documents.detail.status.errorLoad', 'Failed to load statuses.'), 'error')
       return []
     } finally {
@@ -2561,11 +2581,11 @@ export default function SalesDocumentDetailPage({
   }, [record])
 
   React.useEffect(() => {
-    loadChannels().catch(() => {})
+    if (channelsEnabled) loadChannels().catch(() => {})
     loadStatuses().catch(() => {})
     loadShippingMethods().catch(() => {})
     loadPaymentMethods().catch(() => {})
-  }, [loadChannels, loadPaymentMethods, loadShippingMethods, loadStatuses, scopeVersion])
+  }, [channelsEnabled, loadChannels, loadPaymentMethods, loadShippingMethods, loadStatuses, scopeVersion])
 
   React.useEffect(() => {
     void refreshPaymentPresence()
@@ -2599,7 +2619,7 @@ export default function SalesDocumentDetailPage({
           addresses: normalizeGuardList(call.result?.orderAddressEditableStatuses ?? null),
         })
       } catch (err) {
-        console.error('sales.documents.loadGuards', err)
+        logger.error('sales.documents.loadGuards', { err })
       }
     }
     void loadGuards()
@@ -2705,7 +2725,7 @@ export default function SalesDocumentDetailPage({
       const ordered = [...mapped].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
       setAdjustmentRows(ordered)
     } catch (err) {
-      console.error('sales.documents.adjustments.totals.load', err)
+      logger.error('sales.documents.adjustments.totals.load', { err })
     }
   }, [kind, parseNumber, record?.currencyCode, record?.id])
 
@@ -2722,7 +2742,7 @@ export default function SalesDocumentDetailPage({
       }
       await loadAdjustmentsForTotals()
     } catch (err) {
-      console.error('sales.documents.totals.refresh', err)
+      logger.error('sales.documents.totals.refresh', { err })
     }
   }, [fetchDocumentByKind, kind, loadAdjustmentsForTotals, record?.id])
 
@@ -3705,7 +3725,7 @@ export default function SalesDocumentDetailPage({
         router.replace(`/backend/sales/orders/${orderId}`)
       }, { quoteId: record.id })
     } catch (err) {
-      console.error('sales.documents.convert', err)
+      logger.error('sales.documents.convert', { err })
       if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
         flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
       }
@@ -3730,7 +3750,7 @@ export default function SalesDocumentDetailPage({
         if (updated) setRecord(updated)
       }, { quoteId: record.id, validForDays })
     } catch (err) {
-      console.error('sales.quotes.send', err)
+      logger.error('sales.quotes.send', { err })
       flash(t('sales.quotes.send.failed', 'Failed to send quote.'), 'error')
     } finally {
       setSending(false)
@@ -3762,7 +3782,7 @@ export default function SalesDocumentDetailPage({
       const listPath = kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
       router.push(listPath)
     } catch (err) {
-      console.error('sales.documents.delete', err)
+      logger.error('sales.documents.delete', { err })
       if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
         flash(t('sales.documents.detail.deleteFailed', 'Could not delete document.'), 'error')
       }
@@ -3938,11 +3958,11 @@ export default function SalesDocumentDetailPage({
       emptyLabel: t('sales.documents.detail.empty', 'Not set'),
       type: 'email' as const,
     },
-    {
-      key: 'channel',
+    ...(channelsEnabled ? [{
+      key: 'channel' as const,
       title: t('sales.documents.detail.channel', 'Channel'),
       value: record?.channelId ?? null,
-    },
+    }] : []),
     {
       key: 'status',
       title: t('sales.documents.detail.status', 'Status'),
@@ -3957,21 +3977,9 @@ export default function SalesDocumentDetailPage({
   ]
 
   const renderEmailDisplay = React.useCallback(
-    ({ value, emptyLabel }: { value: string | null | undefined; emptyLabel: string }) => {
-      const emailValue = typeof value === 'string' ? value.trim() : ''
-      if (!emailValue.length) {
-        return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
-      }
-      return (
-        <a
-          className="inline-flex items-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline"
-          href={`mailto:${emailValue}`}
-        >
-          <Mail className="h-4 w-4" aria-hidden />
-          <span className="truncate">{emailValue}</span>
-        </a>
-      )
-    },
+    ({ value, emptyLabel }: { value: string | null | undefined; emptyLabel: string }) => (
+      <ContactEmailDisplay value={value} emptyLabel={emptyLabel} />
+    ),
     []
   )
 
@@ -4113,7 +4121,7 @@ export default function SalesDocumentDetailPage({
           appearanceColor: '#0ea5e9',
         })
       } catch (err) {
-        console.error('sales.shipments.comment', err)
+        logger.error('sales.shipments.comment', { err })
       }
     },
     [record, salesNotesAdapter],
@@ -4244,6 +4252,7 @@ export default function SalesDocumentDetailPage({
             currencyCode={record.currencyCode ?? null}
             organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
             tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
+            documentUpdatedAt={record.updatedAt ?? null}
             shippingAddressSnapshot={shippingSnapshot ?? null}
             onActionChange={handleSectionActionChange}
             onAddComment={appendShipmentComment}
@@ -4300,6 +4309,7 @@ export default function SalesDocumentDetailPage({
           currencyCode={record.currencyCode ?? null}
           organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
+          documentUpdatedAt={record.updatedAt ?? null}
           onActionChange={handleSectionActionChange}
           onPaymentsChange={(payments) => setHasPayments(payments.length > 0)}
           onTotalsChange={() => {

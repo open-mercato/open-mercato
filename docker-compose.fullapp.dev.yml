@@ -15,39 +15,73 @@ services:
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      # Additional OM AI providers (Windows setup / .env). Forwarded so a
+      # provider chosen in the configurator actually reaches this container.
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_BASE_URL: ${AZURE_OPENAI_BASE_URL:-}
+      DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY:-}
+      DEEPINFRA_BASE_URL: ${DEEPINFRA_BASE_URL:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_BASE_URL: ${GROQ_BASE_URL:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      TOGETHER_BASE_URL: ${TOGETHER_BASE_URL:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      FIREWORKS_BASE_URL: ${FIREWORKS_BASE_URL:-}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-}
+      LM_STUDIO_BASE_URL: ${LM_STUDIO_BASE_URL:-}
+      # In-network MCP wiring. MCP_SERVER_API_KEY (env) wins when set; the
+      # file fallback reads the key the mcp service provisioned into the
+      # shared volume after waiting for the MCP /health endpoint.
+      OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://mcp:3001/mcp}
+      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
+      MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
+    volumes:
+      - mcp_shared:/run/mcp-shared:ro
+    ports:
+      - "${OPENCODE_PORT:-4096}:4096"
+    depends_on:
+      mcp:
+        condition: service_started
+    # Visibility only (compose ps / smoke tests): the entrypoint owns the
+    # wait-for-MCP-and-key sequencing.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:4096/global/health"]
+      interval: 30s
+      timeout: 6s
+      retries: 20
+      start_period: 900s
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
       - mercato-network-fullapp
 
-  # Traefik (TLS termination, on-demand ACME, custom-domain ForwardAuth gate)
-  # is now an opt-in overlay so this base file works behind an external reverse
-  # proxy (Dokploy, Caddy, nginx, Cloudflare Tunnel, etc.) without conflict.
-  # To run the bundled Traefik in dev, layer the prod-default overlay plus the
-  # dev overlay (the dev overlay flips ACME to LE staging so iteration does
-  # not burn LE production rate limits):
-  #   docker compose -f docker-compose.fullapp.dev.yml \
-  #     -f docker-compose.fullapp.traefik.yml \
-  #     -f docker-compose.fullapp.traefik.dev.yml up --build
-
-  app:
-    build:
-      context: .
-      target: dev
+  mcp:
+    # No build block on purpose: compose builds this exact tag via the app
+    # service before creating containers, so declaring the build here would
+    # only solve the multi-hundred-MB build context a second time.
     image: open-mercato/app:${DEPLOY_ENV:-local}-dev
+    container_name: mercato-mcp-${DEPLOY_ENV:-local}
+    restart: unless-stopped
     user: "0"
-    command: ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
-    # Traefik labels live in docker-compose.fullapp.traefik.yml — opt-in only.
+    command: ["/bin/sh", "/app/docker/scripts/mcp-entrypoint.sh"]
     volumes:
       - .:/app
       - app_node_modules:/app/node_modules
-      - app_next:/app/apps/mercato/.next
-      - init_marker:/tmp/init-marker
-      - attachments_storage:/app/apps/mercato/storage
-      # Exclude package dist dirs so container builds own output (avoids host dist overwriting .js imports)
+      - mcp_shared:/run/mcp-shared
+      # Same dist volumes as the app service so the MCP process sees the
+      # container-built package output instead of any host dist/ artifacts.
+      # KEEP IN SYNC with the app service's pkg_*_dist list and the top-level
+      # volumes block — a package missing here resolves stale host artifacts
+      # only inside this container.
       - pkg_core_dist:/app/packages/core/dist
       - pkg_shared_dist:/app/packages/shared/dist
       - pkg_ui_dist:/app/packages/ui/dist
@@ -63,12 +97,143 @@ services:
       - pkg_ai_assistant_dist:/app/packages/ai-assistant/dist
       - pkg_create_app_dist:/app/packages/create-app/dist
     ports:
+      - "${MCP_PORT:-3001}:3001"
+    environment:
+      NODE_ENV: development
+      NODE_OPTIONS: ${MCP_NODE_OPTIONS:---max-old-space-size=2048}
+      DEPLOY_ENV: ${DEPLOY_ENV:-local}
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
+      REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
+      QUEUE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
+      CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
+      CACHE_STRATEGY: redis
+      AUTO_SPAWN_WORKERS: "false"
+      AUTO_SPAWN_SCHEDULER: "false"
+      MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
+      JWT_SECRET: ${JWT_SECRET:-JWT}
+      # Code Mode api.request() must call back into the app over service DNS.
+      # NEXT_PUBLIC_* are pinned because the CLI dotenv-loads the bind-mounted
+      # apps/mercato/.env for vars missing from the container env — a host
+      # .env pointing at localhost:3000 would otherwise hijack the base URL.
+      APP_URL: http://app:3000
+      NEXT_PUBLIC_APP_URL: http://app:3000
+      NEXT_PUBLIC_API_BASE_URL: ""
+      # Session-token (tier 2) decryption requires the app's encryption config.
+      TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
+      TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
+      TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
+      OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      MCP_PORT: "3001"
+      MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
+      MCP_WAIT_FOR_APP_TIMEOUT: ${MCP_WAIT_FOR_APP_TIMEOUT:-1800}
+      MCP_DEBUG: ${MCP_DEBUG:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+      app:
+        condition: service_started
+    # Visibility only (compose ps / smoke tests): startup ordering is owned by
+    # the entrypoint wait loops, not by this healthcheck.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+      start_period: 900s
+    networks:
+      - mercato-network-fullapp
+
+  # Traefik (TLS termination, on-demand ACME, custom-domain ForwardAuth gate)
+  # is now an opt-in overlay so this base file works behind an external reverse
+  # proxy (Dokploy, Caddy, nginx, Cloudflare Tunnel, etc.) without conflict.
+  # To run the bundled Traefik in dev, layer the prod-default overlay plus the
+  # dev overlay (the dev overlay flips ACME to LE staging so iteration does
+  # not burn LE production rate limits):
+  #   docker compose -f docker-compose.fullapp.dev.yml \
+  #     -f docker-compose.fullapp.traefik.yml \
+  #     -f docker-compose.fullapp.traefik.dev.yml up --build
+
+  # One-shot: raise the shared WSL2/Linux kernel's inotify limits before the
+  # app starts watching. Turbopack watches the whole repo via inotify and does
+  # NOT honor the polling env vars above, so the defaults overflow with
+  # "System limit for number of file watchers reached". All Docker Desktop /
+  # WSL2 containers share one kernel, so this single privileged container
+  # raises the limit for the app too. Each `|| true` keeps a read-only or
+  # already-higher value from failing the run. If your Docker policy forbids
+  # privileged containers, remove this service and the app's dependency on it,
+  # then raise the limits on the host/WSL2 kernel yourself.
+  file-watch-limits:
+    image: busybox:1.37
+    container_name: mercato-file-watch-limits-${DEPLOY_ENV:-local}
+    privileged: true
+    restart: "no"
+    network_mode: none
+    command:
+      - sh
+      - -c
+      - |
+        sysctl -w fs.inotify.max_user_watches=16777216 || true
+        sysctl -w fs.inotify.max_user_instances=8192 || true
+        sysctl -w fs.inotify.max_queued_events=1048576 || true
+        echo "[file-watch-limits] inotify limits now:"
+        sysctl fs.inotify.max_user_watches fs.inotify.max_user_instances fs.inotify.max_queued_events || true
+
+  app:
+    build:
+      context: .
+      target: dev
+    image: open-mercato/app:${DEPLOY_ENV:-local}-dev
+    # Without a restart policy the app stays down after a daemon/host reboot
+    # while mcp and opencode (restart: unless-stopped) wait on it forever.
+    restart: unless-stopped
+    user: "0"
+    command: ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
+    # Traefik labels live in docker-compose.fullapp.traefik.yml — opt-in only.
+    volumes:
+      - .:/app
+      - app_node_modules:/app/node_modules
+      - app_next:/app/apps/mercato/.next
+      - init_marker:/tmp/init-marker
+      - attachments_storage:/app/apps/mercato/storage
+      # Exclude package dist dirs so container builds own output (avoids host dist overwriting .js imports).
+      # KEEP IN SYNC with the mcp service's pkg_*_dist list and the top-level volumes block.
+      - pkg_core_dist:/app/packages/core/dist
+      - pkg_shared_dist:/app/packages/shared/dist
+      - pkg_ui_dist:/app/packages/ui/dist
+      - pkg_cli_dist:/app/packages/cli/dist
+      - pkg_cache_dist:/app/packages/cache/dist
+      - pkg_content_dist:/app/packages/content/dist
+      - pkg_checkout_dist:/app/packages/checkout/dist
+      - pkg_events_dist:/app/packages/events/dist
+      - pkg_onboarding_dist:/app/packages/onboarding/dist
+      - pkg_queue_dist:/app/packages/queue/dist
+      - pkg_search_dist:/app/packages/search/dist
+      - pkg_scheduler_dist:/app/packages/scheduler/dist
+      - pkg_ai_assistant_dist:/app/packages/ai-assistant/dist
+      - pkg_create_app_dist:/app/packages/create-app/dist
+      - mcp_shared:/run/mcp-shared:ro
+    ports:
       - "${APP_PORT:-3000}:3000"
       - "${OM_DEV_SPLASH_PORT:-4000}:${OM_DEV_SPLASH_PORT:-4000}"
     environment:
       CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
       WATCHPACK_POLLING: ${WATCHPACK_POLLING:-true}
       OM_DEV_SPLASH_PORT: ${OM_DEV_SPLASH_PORT:-4000}
+      # Bind on all interfaces INSIDE the container: the dev server (next dev)
+      # and the splash both default to loopback (127.0.0.1), which Docker's
+      # published-port forwarding cannot reach, so the browser gets connection
+      # refused even though the port is mapped.
+      HOSTNAME: 0.0.0.0
+      OM_DEV_SPLASH_BIND: ${OM_DEV_SPLASH_BIND:-0.0.0.0}
       REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       QUEUE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
@@ -90,9 +255,29 @@ services:
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      # Additional OM AI providers (Windows setup / .env), for the unified
+      # in-process AI framework (playground / <AiChat>).
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_BASE_URL: ${AZURE_OPENAI_BASE_URL:-}
+      DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY:-}
+      DEEPINFRA_BASE_URL: ${DEEPINFRA_BASE_URL:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_BASE_URL: ${GROQ_BASE_URL:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      TOGETHER_BASE_URL: ${TOGETHER_BASE_URL:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      FIREWORKS_BASE_URL: ${FIREWORKS_BASE_URL:-}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-}
+      LM_STUDIO_BASE_URL: ${LM_STUDIO_BASE_URL:-}
       MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED: ${NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED:-true}
@@ -108,7 +293,7 @@ services:
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
       SSO_DEV_SEED: ${SSO_DEV_SEED:-true}
-      SSO_DEV_ISSUER: ${SSO_DEV_ISSUER:-http://mercato-keycloak-${DEPLOY_ENV:-local}:8080/realms/open-mercato}
+      SSO_DEV_ISSUER: ${SSO_DEV_ISSUER:-http://mercato-keycloak-local:8080/realms/open-mercato}
       SSO_DEV_CLIENT_ID: ${SSO_DEV_CLIENT_ID:-open-mercato-app}
       SSO_DEV_CLIENT_SECRET: ${SSO_DEV_CLIENT_SECRET:-}
       SSO_DEV_ALLOWED_DOMAINS: ${SSO_DEV_ALLOWED_DOMAINS:-example.com}
@@ -116,16 +301,31 @@ services:
       DOMAIN_CHECK_SECRET: ${DOMAIN_CHECK_SECRET:-}
       DOMAIN_RESOLVE_SECRET: ${DOMAIN_RESOLVE_SECRET:-}
       INTERNAL_APP_ORIGIN: ${INTERNAL_APP_ORIGIN:-http://app:3000}
-      PLATFORM_DOMAINS: ${PLATFORM_DOMAINS:-localhost,${PLATFORM_PRIMARY_HOST:-openmercato.com}}
-      PLATFORM_PORTAL_BASE_URL: ${PLATFORM_PORTAL_BASE_URL:-https://${PLATFORM_PRIMARY_HOST:-openmercato.com}}
+      PLATFORM_DOMAINS: ${PLATFORM_DOMAINS:-localhost,openmercato.com}
+      PLATFORM_PORTAL_BASE_URL: ${PLATFORM_PORTAL_BASE_URL:-https://openmercato.com}
       CUSTOMER_DOMAIN_ORIGIN_HEADER: ${CUSTOMER_DOMAIN_ORIGIN_HEADER:-X-Open-Mercato-Origin}
+      # AI assistant wiring (service DNS; NEXT_PUBLIC_APP_URL stays a
+      # browser-resolvable URL and must NOT point at service DNS).
+      OPENCODE_URL: ${OPENCODE_URL:-http://opencode:4096}
+      MCP_URL: ${MCP_URL:-http://mcp:3001}
+      MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
     depends_on:
+      file-watch-limits:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       meilisearch:
         condition: service_healthy
+    # Visibility only (compose ps / smoke tests); dependents use their own
+    # entrypoint waits, so tuning this does not change startup ordering.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 40
+      start_period: 900s
     networks:
       - mercato-network-fullapp
 
@@ -235,6 +435,8 @@ volumes:
     name: mercato-localstack-data-${DEPLOY_ENV:-local}
   init_marker:
     name: mercato-init-marker-${DEPLOY_ENV:-local}
+  mcp_shared:
+    name: mercato-mcp-shared-${DEPLOY_ENV:-local}
   attachments_storage:
     name: mercato-attachments-storage-${DEPLOY_ENV:-local}
   app_node_modules:

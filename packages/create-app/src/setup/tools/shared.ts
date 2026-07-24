@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { Project, SyntaxKind } from 'ts-morph'
 import type { AgenticConfig } from '../wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -11,6 +12,110 @@ const GUIDES_DIR = join(__dirname, 'agentic', 'guides')
 
 function resolvePlaceholders(content: string, config: AgenticConfig): string {
   return content.replace(/\{\{PROJECT_NAME\}\}/g, config.projectName)
+}
+
+// AST-parse the static `enabledModules` array literal in the scaffolded app's
+// src/modules.ts and collect each entry's `id`. Only the static literal is read
+// (conditional .push()/spread entries are intentionally not seen — see spec D6).
+export function readEnabledModuleIds(modulesPath: string): string[] {
+  if (!existsSync(modulesPath)) return []
+  try {
+    const project = new Project({ useInMemoryFileSystem: true })
+    const sourceFile = project.createSourceFile('modules.ts', readFileSync(modulesPath, 'utf-8'))
+    const declaration = sourceFile.getVariableDeclaration('enabledModules')
+    const arrayLiteral = declaration?.getInitializerIfKind(SyntaxKind.ArrayLiteralExpression)
+    if (!arrayLiteral) return []
+    const ids: string[] = []
+    for (const element of arrayLiteral.getElements()) {
+      const objectLiteral = element.asKind(SyntaxKind.ObjectLiteralExpression)
+      if (!objectLiteral) continue
+      const idProperty = objectLiteral.getProperty('id')?.asKind(SyntaxKind.PropertyAssignment)
+      const idValue = idProperty?.getInitializerIfKind(SyntaxKind.StringLiteral)?.getLiteralValue()
+      if (idValue) ids.push(idValue)
+    }
+    return ids
+  } catch {
+    return []
+  }
+}
+
+// Resolve which per-module fact-sheets to ship: the intersection of the bundled
+// fact-sheets (the D5 allowlist, materialized by build.mjs) with the app's enabled
+// modules. Falls back to the full bundled set when the enabled set cannot be read
+// (R5 — degraded, never empty).
+export function selectModuleFactSheets(targetDir: string, modulesSubdir: string): string[] {
+  const available = existsSync(modulesSubdir)
+    ? readdirSync(modulesSubdir)
+        .filter((file) => file.endsWith('.md'))
+        .map((file) => file.replace(/\.md$/, ''))
+    : []
+  if (available.length === 0) return []
+  const enabled = new Set(readEnabledModuleIds(join(targetDir, 'src', 'modules.ts')))
+  const selected = available.filter((moduleId) => enabled.has(moduleId))
+  return selected.length > 0 ? selected : available
+}
+
+const MODULE_GUIDES_START = '<!-- om:module-guides:start -->'
+const MODULE_GUIDES_END = '<!-- om:module-guides:end -->'
+
+// Read each module's guide label from the bundled `module-facts.json` (emitted by
+// build.mjs from the generator's extraction of each module's own `metadata`). The
+// label falls back description → title → generic, so create-app never re-declares
+// specific module names or descriptions. A missing/malformed sidecar degrades to an
+// empty map (generic labels), never a throw.
+export function readModuleGuideLabels(guidesDir: string): Record<string, string> {
+  const factsPath = join(guidesDir, 'module-facts.json')
+  if (!existsSync(factsPath)) return {}
+  try {
+    const parsed = JSON.parse(readFileSync(factsPath, 'utf-8')) as Record<
+      string,
+      { description?: unknown; title?: unknown }
+    >
+    const labels: Record<string, string> = {}
+    for (const [moduleId, entry] of Object.entries(parsed)) {
+      const label =
+        (entry && typeof entry.description === 'string' && entry.description) ||
+        (entry && typeof entry.title === 'string' && entry.title) ||
+        ''
+      if (label) labels[moduleId] = label
+    }
+    return labels
+  } catch {
+    return {}
+  }
+}
+
+function renderModuleGuidesBlock(selected: string[], labels: Record<string, string>): string {
+  if (selected.length === 0) return '_No module fact-sheets are bundled for this app._'
+  const rows = selected.map((moduleId) => {
+    const label = labels[moduleId] ?? `Use the ${moduleId} module`
+    return `| ${label} | \`.ai/guides/modules/${moduleId}.md\` |`
+  })
+  return ['| Task | Load |', '|---|---|', ...rows].join('\n')
+}
+
+// Regenerate the marker-delimited Module-Specific Guides block in the written
+// AGENTS.md from the selected module set. Replaces strictly between the markers so
+// surrounding prose is untouched and repeat runs are idempotent.
+export function injectModuleGuides(
+  agentsMdPath: string,
+  selected: string[],
+  labels: Record<string, string> = {},
+): void {
+  if (!existsSync(agentsMdPath)) return
+  const content = readFileSync(agentsMdPath, 'utf-8')
+  const startIndex = content.indexOf(MODULE_GUIDES_START)
+  const endIndex = content.indexOf(MODULE_GUIDES_END)
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    console.warn(
+      `[agentic] Module-Specific Guides markers (${MODULE_GUIDES_START} … ${MODULE_GUIDES_END}) not found in ${agentsMdPath}; the per-module guide list was not generated.`,
+    )
+    return
+  }
+  const before = content.slice(0, startIndex + MODULE_GUIDES_START.length)
+  const after = content.slice(endIndex)
+  const next = `${before}\n${renderModuleGuidesBlock(selected, labels)}\n${after}`
+  if (next !== content) writeFileSync(agentsMdPath, next)
 }
 
 function ensureDir(filePath: string): void {
@@ -36,28 +141,29 @@ function copyFile(srcRelative: string, destPath: string): void {
 export function generateShared(config: AgenticConfig): void {
   const { targetDir } = config
 
+  // Resolve which per-module fact-sheets this app gets (enabled ∩ bundled allowlist).
+  const selectedModules = selectModuleFactSheets(targetDir, join(GUIDES_DIR, 'modules'))
+  const moduleGuideLabels = readModuleGuideLabels(GUIDES_DIR)
+
   // AGENTS.md (enhanced version replaces the minimal template one)
   writeTemplate('AGENTS.md.template', join(targetDir, 'AGENTS.md'), config)
+  injectModuleGuides(join(targetDir, 'AGENTS.md'), selectedModules, moduleGuideLabels)
 
   // .ai/ structure
   writeTemplate('ai/specs/README.md', join(targetDir, '.ai', 'specs', 'README.md'), config)
   copyFile('ai/specs/SPEC-000-template.md', join(targetDir, '.ai', 'specs', 'SPEC-000-template.md'))
   copyFile('ai/lessons.md', join(targetDir, '.ai', 'lessons.md'))
 
-  // .ai/skills/
-  writeTemplate(
-    'ai/skills/om-spec-writing/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'SKILL.md'),
-    config,
-  )
-  copyFile(
-    'ai/skills/om-spec-writing/references/spec-template.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-template.md'),
-  )
-  copyFile(
-    'ai/skills/om-spec-writing/references/spec-checklist.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-checklist.md'),
-  )
+  // .ai/skills/ — the shared skills-mixin manifest + tracker + external installer.
+  // Skills owned by the external open-mercato/skills collection (code review, spec
+  // writing, integration tests, prepare-issue, the auto-* PR family) are NOT copied
+  // here; the user installs them with `yarn install-skills` (npx skills add). Only
+  // standalone-only + kept-local skills and repo-local override folders are copied.
+  copyFile('ai/skills/tiers.json', join(targetDir, '.ai', 'skills', 'tiers.json'))
+  copyFile('ai/skills/tiers.schema.json', join(targetDir, '.ai', 'skills', 'tiers.schema.json'))
+  copyFile('ai/agentic.config.json', join(targetDir, '.ai', 'agentic.config.json'))
+  copyFile('ai/trackers/github.md', join(targetDir, '.ai', 'trackers', 'github.md'))
+  copyFile('scripts/install-skills.sh', join(targetDir, 'scripts', 'install-skills.sh'))
 
   copyFile(
     'ai/skills/om-backend-ui-design/SKILL.md',
@@ -69,15 +175,6 @@ export function generateShared(config: AgenticConfig): void {
   )
 
   copyFile(
-    'ai/skills/om-code-review/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-code-review', 'SKILL.md'),
-  )
-  copyFile(
-    'ai/skills/om-code-review/references/review-checklist.md',
-    join(targetDir, '.ai', 'skills', 'om-code-review', 'references', 'review-checklist.md'),
-  )
-
-  copyFile(
     'ai/skills/om-integration-builder/SKILL.md',
     join(targetDir, '.ai', 'skills', 'om-integration-builder', 'SKILL.md'),
   )
@@ -85,6 +182,12 @@ export function generateShared(config: AgenticConfig): void {
     'ai/skills/om-integration-builder/references/adapter-contracts.md',
     join(targetDir, '.ai', 'skills', 'om-integration-builder', 'references', 'adapter-contracts.md'),
   )
+  if (existsSync(join(AGENTIC_DIR, 'ai', 'skills', 'om-integration-builder', 'STANDALONE.md'))) {
+    copyFile(
+      'ai/skills/om-integration-builder/STANDALONE.md',
+      join(targetDir, '.ai', 'skills', 'om-integration-builder', 'STANDALONE.md'),
+    )
+  }
 
   // system-extension skill
   copyFile(
@@ -142,12 +245,6 @@ export function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'om-implement-spec', 'SKILL.md'),
   )
 
-  // integration-tests skill
-  copyFile(
-    'ai/skills/om-integration-tests/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-integration-tests', 'SKILL.md'),
-  )
-
   // help / workflow navigator skill
   copyFile(
     'ai/skills/om-help/SKILL.md',
@@ -168,18 +265,25 @@ export function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'om-auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
   )
 
-  // Agent automation / auto-* skills. Some skills also ship with a
-  // STANDALONE.md portability override that adjusts the workflow for use in
-  // standalone apps (default-branch discovery, opt-in pipeline labels,
-  // probe-before-run validation gate, src/modules/... file layout).
+  // Agent automation / auto-* skills. The workflow bodies now live in the external
+  // open-mercato/skills collection (installed via `yarn install-skills`); what ships
+  // in the scaffold is a slim repo-local OVERRIDE folder per skill (SKILL.md only)
+  // that the external skill reads on top of its built-in workflow to adjust for a
+  // standalone app (default-branch discovery, opt-in pipeline labels, probe-before-run
+  // validation gate, src/modules/... file layout). Autofix is the single
+  // om-auto-fix-issue override (formerly om-auto-fix-github).
+  // om-prepare-test-env's override carries environment knowledge instead of
+  // tracker adjustments: it points the external skill at the app's own
+  // cross-platform mercato CLI ephemeral runner (any entrypoint scripts the
+  // skill compiles are machine-local and gitignored, never shipped).
   for (const autoSkill of [
     'om-auto-create-pr',
     'om-auto-continue-pr',
     'om-auto-create-pr-loop',
     'om-auto-continue-pr-loop',
     'om-auto-review-pr',
-    'om-auto-fix-github',
-    'om-prepare-issue',
+    'om-auto-fix-issue',
+    'om-prepare-test-env',
   ]) {
     if (!existsSync(join(AGENTIC_DIR, 'ai', 'skills', autoSkill, 'SKILL.md'))) {
       continue
@@ -188,12 +292,6 @@ export function generateShared(config: AgenticConfig): void {
       `ai/skills/${autoSkill}/SKILL.md`,
       join(targetDir, '.ai', 'skills', autoSkill, 'SKILL.md'),
     )
-    if (existsSync(join(AGENTIC_DIR, 'ai', 'skills', autoSkill, 'STANDALONE.md'))) {
-      copyFile(
-        `ai/skills/${autoSkill}/STANDALONE.md`,
-        join(targetDir, '.ai', 'skills', autoSkill, 'STANDALONE.md'),
-      )
-    }
   }
 
   // Classic-mode slimdown skill — offered after the user adds a new module
@@ -206,16 +304,31 @@ export function generateShared(config: AgenticConfig): void {
   // .ai/qa/tests/ — Playwright config for integration tests
   copyFile('ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
 
-  // Package guides — auto-discovered from sibling packages during build
+  // Package & conceptual guides are copied wholesale (framework-wide). Per-module
+  // fact-sheets (.ai/guides/modules/<module>.md) are filtered to the app's enabled
+  // module set; the combined module-facts.json sidecar is copied as-is.
   if (existsSync(GUIDES_DIR)) {
     const guidesDestDir = join(targetDir, '.ai', 'guides')
     for (const file of readdirSync(GUIDES_DIR)) {
       if (file.endsWith('.md')) {
-        const srcPath = join(GUIDES_DIR, file)
         const destPath = join(guidesDestDir, file)
         ensureDir(destPath)
-        copyFileSync(srcPath, destPath)
+        copyFileSync(join(GUIDES_DIR, file), destPath)
       }
+    }
+
+    const moduleFactsPath = join(GUIDES_DIR, 'module-facts.json')
+    if (existsSync(moduleFactsPath)) {
+      const destPath = join(guidesDestDir, 'module-facts.json')
+      ensureDir(destPath)
+      copyFileSync(moduleFactsPath, destPath)
+    }
+
+    const modulesSubdir = join(GUIDES_DIR, 'modules')
+    for (const moduleId of selectedModules) {
+      const destPath = join(guidesDestDir, 'modules', `${moduleId}.md`)
+      ensureDir(destPath)
+      copyFileSync(join(modulesSubdir, `${moduleId}.md`), destPath)
     }
   }
 }

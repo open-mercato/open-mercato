@@ -168,7 +168,7 @@ function collectSources(opts: CliOptions): string[] {
     })
     for (const m of matches) seen.add(m)
   }
-  return Array.from(seen).sort()
+  return Array.from(seen).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 function main() {

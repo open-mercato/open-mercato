@@ -6,8 +6,15 @@ import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { roleWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
-import { resolveWidgetAssignmentReadScope } from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
+import {
+  resolveWidgetAssignmentReadScope,
+  resolveWidgetAssignmentTargetAccess,
+} from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   dashboardsTag,
@@ -17,6 +24,7 @@ import {
 } from '../../openapi'
 
 const FEATURE = 'dashboards.admin.assign-widgets'
+const RESOURCE_KIND = 'dashboards.roleWidgets'
 
 function pickBestRecord(records: DashboardRoleWidgets[], tenantId: string | null, organizationId: string | null): DashboardRoleWidgets | null {
   let best: DashboardRoleWidgets | null = null
@@ -65,7 +73,15 @@ export async function GET(req: Request) {
   })
 
   const role = await em.findOne(Role, { id: roleId, deletedAt: null })
-  if (!role || (tenantId && role.tenantId !== tenantId)) {
+  const access = resolveWidgetAssignmentTargetAccess({
+    isSuperAdmin: !!acl.isSuperAdmin,
+    scopeTenantId: tenantId,
+    target: role,
+  })
+  if (access === 'forbidden') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  if (access === 'not-found') {
     return NextResponse.json({ error: 'Role not found' }, { status: 404 })
   }
 
@@ -99,7 +115,8 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Invalid payload', issues: parsed.error.issues }, { status: 400 })
   }
 
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = resolve('em') as any
   const rbac = resolve('rbacService') as any
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
@@ -115,8 +132,31 @@ export async function PUT(req: Request) {
   const organizationId = auth.orgId ?? null
 
   const role = await em.findOne(Role, { id: parsed.data.roleId, deletedAt: null })
-  if (!role || (tenantId && role.tenantId !== tenantId)) {
+  const access = resolveWidgetAssignmentTargetAccess({
+    isSuperAdmin: !!acl.isSuperAdmin,
+    scopeTenantId: tenantId,
+    target: role,
+  })
+  if (access === 'forbidden') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  if (access === 'not-found') {
     return NextResponse.json({ error: 'Role not found' }, { status: 404 })
+  }
+
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: tenantId ?? '',
+    organizationId,
+    userId: String(auth.sub),
+    resourceKind: RESOURCE_KIND,
+    resourceId: parsed.data.roleId,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: { roleId: parsed.data.roleId, widgetIds },
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
 
   let record = await em.findOne(DashboardRoleWidgets, {
@@ -129,6 +169,19 @@ export async function PUT(req: Request) {
   if (!widgetIds.length) {
     if (record) {
       await em.remove(record).flush()
+    }
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: tenantId ?? '',
+        organizationId,
+        userId: String(auth.sub),
+        resourceKind: RESOURCE_KIND,
+        resourceId: parsed.data.roleId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
     }
     return NextResponse.json({ ok: true, widgetIds: [] })
   }
@@ -145,6 +198,20 @@ export async function PUT(req: Request) {
     record.widgetIdsJson = widgetIds
   }
   await em.flush()
+
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: tenantId ?? '',
+      organizationId,
+      userId: String(auth.sub),
+      resourceKind: RESOURCE_KIND,
+      resourceId: parsed.data.roleId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
 
   return NextResponse.json({ ok: true, widgetIds })
 }

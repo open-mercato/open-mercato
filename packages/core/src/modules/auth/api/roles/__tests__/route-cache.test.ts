@@ -162,4 +162,42 @@ describe('GET /api/auth/roles — list cache (#2919)', () => {
     expect(firstKey).toContain('page:1')
     expect(secondKey).toContain('page:2')
   })
+
+  it('scopes a filtered super-admin cache entry and its tags to the requested tenant', async () => {
+    cacheEnabled = true
+    authResult.tenantId = null
+    authResult.orgId = null
+    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true })
+    mockCache.get.mockResolvedValueOnce(null)
+    primeSingleRolePage()
+
+    await (await GET(makeRequest({ tenantId: '00000000-0000-4000-8000-000000000001' }))).json()
+
+    expect(mockRunWithCacheTenant).toHaveBeenCalledWith(
+      '00000000-0000-4000-8000-000000000001',
+      expect.any(Function),
+    )
+    const [key, , options] = mockCache.set.mock.calls[0]
+    expect(key).toContain('tenant:00000000-0000-4000-8000-000000000001')
+    expect(options.tags).toEqual(
+      expect.arrayContaining([
+        'crud:auth.role:tenant:00000000-0000-4000-8000-000000000001:org:null:collection',
+        'crud:auth.user:tenant:00000000-0000-4000-8000-000000000001:org:null:collection',
+        'rbac:tenant:00000000-0000-4000-8000-000000000001',
+      ]),
+    )
+  })
+
+  it('does not cache an unfiltered super-admin response that spans tenants', async () => {
+    cacheEnabled = true
+    authResult.tenantId = null
+    authResult.orgId = null
+    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true })
+    primeSingleRolePage()
+
+    await (await GET(makeRequest())).json()
+
+    expect(mockCache.get).not.toHaveBeenCalled()
+    expect(mockCache.set).not.toHaveBeenCalled()
+  })
 })

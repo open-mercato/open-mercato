@@ -23,8 +23,10 @@ import {
   isCrudCacheEnabled,
   resolveCrudCache,
 } from '@open-mercato/shared/lib/crud/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const ROLES_LIST_CACHE_TTL_MS = 120_000
+const logger = createLogger('auth').child({ component: 'roles' })
 
 function buildRolesListCacheKey(scope: {
   tenantId: string | null
@@ -169,7 +171,7 @@ export async function GET(req: Request) {
       isSuperAdmin = !!acl?.isSuperAdmin
     }
   } catch (err) {
-    console.error('roles: failed to resolve rbac', err)
+    logger.error('Failed to resolve rbac', { err })
   }
   const actorTenantId = auth.tenantId ? String(auth.tenantId) : null
   if (!isSuperAdmin && !actorTenantId) {
@@ -177,8 +179,10 @@ export async function GET(req: Request) {
   }
   const { id, page, pageSize, search, tenantId: requestedTenantId } = parsed.data
   const tenantFilter = isSuperAdmin && requestedTenantId ? String(requestedTenantId) : null
-  const cacheTenantId = auth.tenantId ? String(auth.tenantId) : null
-  const cache = isCrudCacheEnabled() ? resolveCrudCache(container) : null
+  const cacheTenantId = isSuperAdmin ? tenantFilter : actorTenantId
+  // An unfiltered super-admin response spans tenants and cannot be invalidated
+  // by any one tenant's collection tags, so keep that view uncached.
+  const cache = isCrudCacheEnabled() && cacheTenantId ? resolveCrudCache(container) : null
   const cacheKey = cache
     ? buildRolesListCacheKey({
         tenantId: cacheTenantId,
@@ -309,9 +313,8 @@ export async function GET(req: Request) {
           tags: [
             // Roles are tenant-level (org:null) — flushed on auth.roles.* command writes.
             ...buildCollectionTags('auth.role', cacheTenantId, [null]),
-            // usersCount derives from UserRole grants — flushed on auth.users.* command
-            // writes. Those writes also flush org-scoped collection tags, so the short
-            // TTL backstops cross-org user mutations the org:null tag does not cover.
+            // usersCount derives from UserRole grants — auth.users.* command writes
+            // flush both tenant-level and record-organization collection tags.
             ...buildCollectionTags('auth.user', cacheTenantId, [null]),
             // Role-ACL feature changes flush rbac:tenant:<T> from the roles/acl route.
             `rbac:tenant:${cacheTenantId ?? 'null'}`,
@@ -319,7 +322,7 @@ export async function GET(req: Request) {
         }),
       )
     } catch (err) {
-      console.warn('[auth:roles] Failed to set roles list cache', err)
+      logger.warn('Failed to set roles list cache', { err })
     }
   }
   return NextResponse.json(payload)

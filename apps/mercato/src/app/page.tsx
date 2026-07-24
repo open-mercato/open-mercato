@@ -1,165 +1,29 @@
-import { modules } from '@/.mercato/generated/modules.app.generated'
-import { frontendRoutes } from '@/.mercato/generated/frontend-routes.generated'
-import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
-import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
-import { StartPageContent } from '@/components/StartPageContent'
-import type { Metadata } from 'next'
-import { resolveLocalizedAppMetadata } from '@/lib/metadata'
 import { cookies } from 'next/headers'
-import Image from 'next/image'
-import Link from 'next/link'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
-import { buildHomeQuickLinks } from '@/lib/homeQuickLinks'
-import { Fragment } from 'react'
+import { redirect } from 'next/navigation'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { isAutoLoginEnabled } from '@open-mercato/core/modules/auth/lib/autologin'
 
-function FeatureBadge({ label }: { label: string }) {
-  return (
-    <span className="inline-flex items-center rounded border px-2 py-0.5 text-xs text-muted-foreground">
-      {label}
-    </span>
-  )
-}
-
-export async function generateMetadata(): Promise<Metadata> {
-  return resolveLocalizedAppMetadata()
-}
-
-const routeCountsByModule = modules.reduce((map, module) => {
-  map.set(module.id, { frontend: 0, backend: 0, api: 0 })
-  return map
-}, new Map<string, { frontend: number; backend: number; api: number }>())
-
-for (const route of frontendRoutes) {
-  const entry = routeCountsByModule.get(route.moduleId)
-  if (entry) entry.frontend += 1
-}
-
-for (const route of backendRoutes) {
-  const entry = routeCountsByModule.get(route.moduleId)
-  if (entry) entry.backend += 1
-}
-
-for (const route of apiRoutes) {
-  const entry = routeCountsByModule.get(route.moduleId)
-  if (entry) entry.api += route.methods.length
-}
-
+// The home route is a pure router: it never renders. Unless the visitor has
+// dismissed the start page, it sends them there; otherwise into the app
+// (backend when authenticated, login otherwise).
 export default async function Home() {
-  const { t } = await resolveTranslations()
-  const quickLinks = buildHomeQuickLinks(modules)
-  
-  // Check if user wants to see the start page
-  const cookieStore = await cookies()
-  const showStartPageCookie = cookieStore.get('show_start_page')
-  const showStartPage = showStartPageCookie?.value !== 'false'
+  const auth = await getAuthFromCookies()
 
-  // Database status and counts
-  let dbStatus = t('app.page.dbStatus.unknown', 'Unknown')
-  let usersCount = 0
-  let tenantsCount = 0
-  let orgsCount = 0
-  try {
-    const container = await createRequestContainer()
-    const em = container.resolve<EntityManager>('em')
-    usersCount = await em.count(User, {})
-    tenantsCount = await em.count(Tenant, {})
-    orgsCount = await em.count(Organization, {})
-    dbStatus = t('app.page.dbStatus.connected', 'Connected')
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : t('app.page.dbStatus.noConnection', 'no connection')
-    dbStatus = t('app.page.dbStatus.error', 'Error: {message}', { message })
+  // Demo autologin: when OM_AUTOLOGIN_* credentials are configured and there is
+  // no active session, hand off to the autologin route which signs the visitor
+  // in and drops them into the app. Fully gated behind env vars — with them
+  // unset, behavior below is unchanged. The route falls back to /login when the
+  // credentials are invalid, so a misconfigured demo can never loop.
+  if (!auth && isAutoLoginEnabled()) {
+    redirect('/api/auth/autologin')
   }
 
-  const onboardingAvailable =
-    process.env.SELF_SERVICE_ONBOARDING_ENABLED === 'true' &&
-    Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim()) &&
-    Boolean(process.env.APP_URL && process.env.APP_URL.trim())
+  const cookieStore = await cookies()
+  const startPageDismissed = cookieStore.get('start_page_dismissed')?.value === '1'
 
-  return (
-    <main className="min-h-svh w-full p-8 flex flex-col gap-8">
-      <header className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
-        <Image
-          src="/open-mercato.svg"
-          alt={t('app.page.logoAlt', 'Open Mercato')}
-          width={40}
-          height={40}
-          priority
-        />
-        <div className="flex-1">
-          <h1 className="text-3xl font-semibold tracking-tight">{t('app.page.title', 'Open Mercato')}</h1>
-          <p className="text-sm text-muted-foreground">{t('app.page.subtitle', 'AI‑supportive, modular ERP foundation for product & service companies')}</p>
-        </div>
-      </header>
+  if (!startPageDismissed) {
+    redirect('/start')
+  }
 
-      <StartPageContent showStartPage={showStartPage} showOnboardingCta={onboardingAvailable} />
-
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="rounded-lg border bg-card p-4">
-          <div className="text-sm font-medium mb-2">{t('app.page.dbStatus.title', 'Database Status')}</div>
-          <div className="text-sm text-muted-foreground">{t('app.page.dbStatus.label', 'Status:')} <span className="font-medium text-foreground">{dbStatus}</span></div>
-          <div className="mt-3 space-y-1.5 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t('app.page.dbStatus.users', 'Users:')}</span>
-              <span className="font-mono font-medium">{usersCount}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t('app.page.dbStatus.tenants', 'Tenants:')}</span>
-              <span className="font-mono font-medium">{tenantsCount}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t('app.page.dbStatus.organizations', 'Organizations:')}</span>
-              <span className="font-mono font-medium">{orgsCount}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg border bg-card p-4 md:col-span-2">
-          <div className="text-sm font-medium mb-3">{t('app.page.activeModules.title', 'Active Modules')}</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[200px] overflow-y-auto pr-2">
-            {modules.map((m) => {
-              const counts = routeCountsByModule.get(m.id) ?? { frontend: 0, backend: 0, api: 0 }
-              const fe = counts.frontend
-              const be = counts.backend
-              const api = counts.api
-              const i18n = m.translations ? Object.keys(m.translations).length : 0
-              return (
-                <div key={m.id} className="rounded border p-3 bg-background">
-                  <div className="text-sm font-medium">{m.info?.title || m.id}{m.info?.version ? <span className="ml-2 text-xs text-muted-foreground">v{m.info.version}</span> : null}</div>
-                  {m.info?.description ? <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{m.info.description}</div> : null}
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {fe ? <FeatureBadge label={`FE:${fe}`} /> : null}
-                    {be ? <FeatureBadge label={`BE:${be}`} /> : null}
-                    {api ? <FeatureBadge label={`API:${api}`} /> : null}
-                    {i18n ? <FeatureBadge label={`i18n:${i18n}`} /> : null}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-lg border bg-card p-4">
-        <div className="text-sm font-medium mb-2">{t('app.page.quickLinks.title', 'Quick Links')}</div>
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          {quickLinks.map((link, index) => (
-            <Fragment key={link.href}>
-              {index > 0 ? <span className="text-muted-foreground">·</span> : null}
-              <Link className="underline hover:text-primary transition-colors" href={link.href}>
-                {t(link.translationKey, link.fallbackLabel)}
-              </Link>
-            </Fragment>
-          ))}
-        </div>
-      </section>
-
-      <footer className="text-xs text-muted-foreground text-center">
-        {t('app.page.footer', 'Built with Next.js, MikroORM, and Awilix — modular by design.')}
-      </footer>
-    </main>
-  )
+  redirect(auth ? '/backend' : '/login')
 }
