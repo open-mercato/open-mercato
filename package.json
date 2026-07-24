@@ -33,7 +33,7 @@
     "build:app": "turbo run build --filter=@open-mercato/app",
     "build:packages": "turbo run build --filter='./packages/*'",
     "lint": "turbo run lint",
-    "lint:ds": "eslint --config eslint.ds.config.mjs packages/core/src/modules packages/enterprise/src/modules packages/ui/src/backend",
+    "lint:ds": "node --require ./scripts/typescript-js-require-hook.cjs node_modules/eslint/bin/eslint.js --config eslint.ds.config.mjs packages/core/src/modules packages/enterprise/src/modules packages/ui/src/backend",
     "typecheck": "turbo run typecheck",
     "test": "cross-env NODE_OPTIONS=--max-old-space-size=768 turbo run test --concurrency=2",
     "start": "turbo run start --filter=@open-mercato/app",
