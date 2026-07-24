@@ -59,6 +59,8 @@ When changes affect app shell behavior, verify all relevant template files are r
 9. `apps/mercato/src/app/page.tsx` ↔ `packages/create-app/template/src/app/page.tsx`
 10. `apps/mercato/.env.example` ↔ `packages/create-app/template/.env.example` (env var names + their doc comments)
 
+Note: `src/app/theme.css` is **user-owned** in scaffolded apps — the template ships an inert (comments-only) copy mirrored with `apps/mercato/src/app/theme.css`, but upgrade tooling and `om-auto-upgrade-*` migrations must never rewrite a user's `theme.css`; brand overrides live there precisely so `globals.css` can stay framework-owned.
+
 ## Dev Runtime Expectations
 
 - `yarn dev` is the compact runtime. It folds routine startup logs and lets the user press `d` to show or hide raw logs.
