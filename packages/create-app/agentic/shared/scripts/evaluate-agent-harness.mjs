@@ -501,7 +501,15 @@ function analyzeCommand(command, root) {
   }
   const visit = (text, depth = 0) => {
     if (depth > 2) return
-    const tokens = String(text).match(/"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|`(?:\\.|[^`])*`|[^\s|;&<>]+/g) ?? []
+    const commandPart = String(text).trim()
+    const segments = commandPart.split(/\s*(?:;|&&|\|\|?|\n)\s*/).filter(Boolean)
+    if (segments.length > 1) {
+      for (const segment of segments) visit(segment, depth + 1)
+      return
+    }
+    const unwrapped = commandPart.replace(/^['"`]+|['"`]+$/g, '').trim()
+    if (/^(?:find|ls|stat|wc)(?:\s|$)/.test(unwrapped) || /^(?:rg|grep)\b[^;&|]*\s--files(?:\s|$)/.test(unwrapped)) return
+    const tokens = commandPart.match(/"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|`(?:\\.|[^`])*`|[^\s|;&<>]+/g) ?? []
     tokens.forEach((token, index) => {
       const stripped = stripShellToken(token, root)
       if (index === 0 && /\/(?:ba|z|fi)?sh$|\/env$/.test(stripped)) return

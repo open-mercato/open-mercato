@@ -424,7 +424,7 @@ fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
   decisions: ['standalone-boundary', 'facts-first'], violations: []
 }))
-for (const command of ['cat AGENTS.md .ai/guides/architecture.md', 'cat /etc/passwd', 'find . -maxdepth 1']) {
+for (const command of ['cat AGENTS.md .ai/guides/architecture.md', 'cat /etc/passwd', 'find . -maxdepth 1', 'cat .']) {
   console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command } }))
 }
 `)
@@ -437,6 +437,39 @@ for (const command of ['cat AGENTS.md .ai/guides/architecture.md', 'cat /etc/pas
     const [stored] = storedResults(root)
     assert.ok(stored.violations.some((entry) => entry.startsWith('unsafe out-of-root context read:')))
     assert.ok(stored.violations.includes('unsafe broad app-root context read'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('file-discovery shell commands do not count as content reads', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+for (const command of [
+  'cat AGENTS.md .ai/guides/architecture.md',
+  \"rg --files .ai/skills .agents/skills 2>/dev/null | rg 'SKILL.md'\",
+  'find .ai/skills -type f',
+  'ls .ai/guides',
+  'stat .ai/guides/architecture.md',
+  'wc -c .ai/guides/architecture.md'
+]) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command } }))
+`)
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}`)
+    const [stored] = storedResults(root)
+    assert.deepEqual(stored.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
