@@ -43,6 +43,8 @@ Goal: close the trigger gap reported in issue #4479, where the CI `audit` job ca
 
 ## Progress
 
+PR: #4497
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Scheduled audit workflow
@@ -57,4 +59,4 @@ Goal: close the trigger gap reported in issue #4479, where the CI `audit` job ca
 ### Phase 3: Verify and publish
 
 - [x] 3.1 Validate both workflow files and the audit command behavior — 511be8cd7
-- [ ] 3.2 Open the PR against develop and record the label set
+- [x] 3.2 Open the PR against develop and record the label set — d0066e81c
