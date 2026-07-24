@@ -36,6 +36,7 @@ import { apiCall, withScopedApiRequestHeaders } from './utils/apiCall'
 import { buildOptimisticLockHeader } from './utils/optimisticLock'
 import { useGuardedMutation } from './injection/useGuardedMutation'
 import { raiseCrudError } from './utils/serverErrors'
+import { computeMenuViewportShiftX } from './utils/viewport'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
 import { formatWithPublicDateFormat, normalizeDateFormatPattern } from '../primitives/date-format'
@@ -707,8 +708,32 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
   const disabled = Boolean(config.disabled)
   const hasSections = sections.length > 0
   const [open, setOpen] = React.useState(false)
+  const [menuOffsetX, setMenuOffsetX] = React.useState(0)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
+
+  // Keep the menu inside the viewport on narrow screens: the trigger can sit
+  // near the left edge, and a `right-0` menu would otherwise render off-screen.
+  // Measure the untransformed rect and shift it back on-screen, re-measuring on
+  // resize/orientation change while the menu stays open.
+  React.useLayoutEffect(() => {
+    if (!open) {
+      setMenuOffsetX(0)
+      return
+    }
+    const measure = () => {
+      const el = menuRef.current
+      if (!el || typeof window === 'undefined') return
+      const previousTransform = el.style.transform
+      el.style.transform = 'none'
+      const rect = el.getBoundingClientRect()
+      el.style.transform = previousTransform
+      setMenuOffsetX(computeMenuViewportShiftX(rect, window.innerWidth))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [open])
 
   React.useEffect(() => {
     if (!open || !hasSections) return
@@ -790,7 +815,8 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
         <div
           ref={menuRef}
           role="menu"
-          className="absolute right-0 mt-2 w-60 rounded-md border bg-background py-2 shadow z-dropdown"
+          className="absolute right-0 mt-2 w-60 max-w-[calc(100vw-1rem)] rounded-md border bg-background py-2 shadow z-dropdown"
+          style={menuOffsetX ? { transform: `translateX(${menuOffsetX}px)` } : undefined}
         >
           {sections.map((section, idx) => (
             <div key={section.key} className={idx > 0 ? 'mt-2 border-t pt-3' : ''}>
