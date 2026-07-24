@@ -37,9 +37,13 @@ describe('design_system gallery registry integrity', () => {
     }
   })
 
-  it("includes the entry's importPath in every variant code snippet", async () => {
+  it("includes the entry's importPath in every component variant code snippet", async () => {
     const all = await loadAllEntries()
     for (const { entry } of all) {
+      // Foundations-style entries point at the token source of truth, not an
+      // importable package — their snippets are copy-ready class usage and the
+      // import-line requirement does not apply.
+      if (!entry.importPath.startsWith('@open-mercato/')) continue
       for (const variant of entry.variants) {
         expect(variant.code).toContain(entry.importPath)
       }

@@ -46,6 +46,13 @@ const badgeEntry: GalleryEntry = {
   id: 'badge',
   title: 'Badge',
   importPath: '@open-mercato/ui/primitives/badge',
+  usage: {
+    do: [
+      'Counts and short semantic labels; the brand variant for custom-view and renewal pills.',
+      'Semantic variants (success/warning/info/neutral/error) come from status tokens — no custom colors.',
+    ],
+    dont: ['Not for system statuses (use StatusBadge) or user-applied labels (use Tag).'],
+  },
   variants: [
     {
       id: 'semantic',
@@ -122,6 +129,13 @@ const statusBadgeEntry: GalleryEntry = {
   id: 'status-badge',
   title: 'StatusBadge',
   importPath: '@open-mercato/ui/primitives/status-badge',
+  usage: {
+    do: [
+      'System-computed statuses (active, pending, failed) — drive variants through a shared StatusMap.',
+      'The dot makes state scannable in dense tables.',
+    ],
+    dont: ['Not for user-applied labels or categories — that is Tag.'],
+  },
   variants: [
     {
       id: 'with-dot',
@@ -164,6 +178,10 @@ const tagEntry: GalleryEntry = {
   id: 'tag',
   title: 'Tag',
   importPath: '@open-mercato/ui/primitives/tag',
+  usage: {
+    do: ['User-applied labels and categories; map domain types via TagMap for consistency.'],
+    dont: ['Not for system status — that is StatusBadge.'],
+  },
   variants: [
     {
       id: 'variants',

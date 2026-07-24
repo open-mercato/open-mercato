@@ -8,7 +8,14 @@ export type GalleryVariant = {
   code: string                  // the snippet the copy button yields
 }
 
+export type GalleryUsage = {
+  do?: string[]                 // when/how to use — developer-facing docs prose (English, like ui-components.md)
+  dont?: string[]               // anti-patterns for this component
+}
+
 export type GalleryEntry = {
+  usage?: GalleryUsage
+  keywords?: string[]          // extra search aliases (e.g. 'radiobutton' for Radio)
   id: string                    // 'button' — unique across the whole gallery
   title: string                 // 'Button'
   importPath: string            // '@open-mercato/ui/primitives/button'
@@ -32,5 +39,6 @@ export type GalleryEntry = {
 export type GalleryFamily = {
   id: string                    // 'charts'
   labelKey: string              // i18n key for the family label
+  icon?: React.ReactNode        // section-nav icon (lucide, size-4)
   load: () => Promise<{ entries: GalleryEntry[] }>   // next/dynamic-compatible loader
 }

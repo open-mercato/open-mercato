@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { ExternalLink } from 'lucide-react'
+import { Check, ExternalLink, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import type { GalleryEntry } from '../types'
@@ -47,6 +47,40 @@ export function EntryCard({ entry }: { entry: GalleryEntry }) {
           ) : null}
         </div>
       </div>
+      {entry.usage && (entry.usage.do?.length || entry.usage.dont?.length) ? (
+        <div className="grid gap-4 rounded-md border border-border bg-muted/30 p-4 sm:grid-cols-2">
+          {entry.usage.do?.length ? (
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                {t('design_system.gallery.usageDo', 'Do')}
+              </div>
+              <ul className="space-y-1.5">
+                {entry.usage.do.map((rule) => (
+                  <li key={rule} className="flex items-start gap-2 text-sm text-foreground">
+                    <Check aria-hidden className="mt-0.5 size-3.5 shrink-0 text-status-success-icon" />
+                    <span>{rule}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {entry.usage.dont?.length ? (
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                {t('design_system.gallery.usageDont', "Don't")}
+              </div>
+              <ul className="space-y-1.5">
+                {entry.usage.dont.map((rule) => (
+                  <li key={rule} className="flex items-start gap-2 text-sm text-foreground">
+                    <X aria-hidden className="mt-0.5 size-3.5 shrink-0 text-status-error-icon" />
+                    <span>{rule}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="space-y-4">
         {entry.variants.map((variant) => (
           <div key={variant.id} className="space-y-2">

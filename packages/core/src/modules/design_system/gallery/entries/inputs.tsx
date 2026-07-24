@@ -751,6 +751,7 @@ const radioEntry: GalleryEntry = {
   id: 'radio',
   title: 'Radio',
   importPath: '@open-mercato/ui/primitives/radio',
+  keywords: ['radiobutton', 'radio button', 'option group'],
   variants: [
     {
       id: 'group',
@@ -790,6 +791,7 @@ const radioEntry: GalleryEntry = {
 }
 
 const radioFieldEntry: GalleryEntry = {
+  keywords: ['radiobutton', 'radio button'],
   id: 'radio-field',
   title: 'RadioField',
   importPath: '@open-mercato/ui/primitives/radio-field',

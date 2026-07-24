@@ -25,6 +25,7 @@ export function buildDesignSystemSections(): SectionNavGroup[] {
         id: family.id,
         label: familyLabelFallback(family.id),
         labelKey: family.labelKey,
+        icon: family.icon,
         href: `${GALLERY_BASE_PATH}?family=${family.id}`,
       })),
     },
