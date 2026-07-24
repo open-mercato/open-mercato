@@ -18,5 +18,3 @@ requires the agentic setup files. Run:
 then re-run `yarn install-skills`. (Scaffolding with --skip-agentic-setup or
 --agents none intentionally leaves this app without agent tooling.)
 MESSAGE
-
-exit 1
