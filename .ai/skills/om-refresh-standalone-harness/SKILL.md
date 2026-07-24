@@ -39,7 +39,7 @@ $om-refresh-standalone-harness --from <git-ref> --to <git-ref> [--dry-run]
     yarn harness:release --prepare-targets /absolute/empty-release-targets --acknowledge-writes
     ```
 
-    The target directory must be absolute, new or empty, outside the controller app, and hosted on a supported containment platform. The command owns the configured live-routing, writable, fixed-oracle, target `generate`/`typecheck`/`lint`/`build`, and generated-code-review lanes in `release-matrix.json`. An unavailable runner or containment prerequisite is a blocker, never a pass.
+    The target directory must be absolute, new or empty, outside the controller app, and hosted on a supported containment platform. The command owns the configured live-routing, writable, fixed-oracle, target `generate`/`typecheck`/`lint`/`build`, declared generated-test, and generated-code-review lanes in `release-matrix.json`. Every writable case requires review; test-authoring cases must execute their generated Jest or loopback-only Playwright test through fixed controller-owned commands. An unavailable runner, test runtime, browser, or containment prerequisite is a blocker, never a pass.
 11. Require the schema-valid, mode-`0600` sanitized `*-release-suite.json` report under the fresh scaffold's `.ai/harness/results/`. Verify its overall status and every required lane before claiming the release gate passed; record only its sanitized summary, hash, tool/model versions, and unavailable reasons in the refresh report.
 12. Publish the sanitized local report described in `references/report-template.md`. Do not publish it externally.
 

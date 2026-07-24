@@ -107,7 +107,7 @@ yarn install-skills
 yarn harness:release --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-This is the actual full release gate. It prepares a separate disposable app for every writable case and runs deterministic coverage, configured live runners, trusted writable oracles, target `generate`/`typecheck`/`lint`/`build`, and isolated generated-code review. It writes a schema-validated, sanitized, mode-`0600` report under `.ai/harness/results/`. An unavailable required runner is reported as unavailable and blocks a complete release claim.
+This is the actual full release gate. The current catalog contains 184 cases: 92 are written as framework-neutral business requests and 39 (21.2%) are writable implementation/regression cases. The suite prepares a separate disposable app for every writable case and runs deterministic coverage, configured live runners, trusted writable oracles, target `generate`/`typecheck`/`lint`/`build`, any declared generated test, and isolated generated-code review for every writable result. Its three test-authoring cases execute a focused Jest unit test, a loopback Playwright API test, and a Playwright browser test with fixed controller-owned commands. It writes a schema-validated, sanitized, mode-`0600` report under `.ai/harness/results/`. An unavailable required runner, browser, or containment prerequisite is reported as unavailable and blocks a complete release claim.
 
 Writable evaluation fails closed without host containment:
 
@@ -115,7 +115,7 @@ Writable evaluation fails closed without host containment:
 - Linux requires Bubblewrap (`bwrap`) with user namespaces available;
 - native Windows is unsupported for this lane; use a Linux VM or container with Bubblewrap.
 
-The target directory must be an absolute, new or empty regular directory outside the controller app. Model-authored validation commands run without network access, receive a minimal sanitized environment, can write only their disposable target/temp area, and see controller dependencies as read-only. Do not weaken containment to make a failing release pass.
+The target directory must be an absolute, new or empty regular directory outside the controller app. Model-authored validation commands run without network access, receive a minimal sanitized environment, can write only their disposable target/temp area, and see controller dependencies as read-only. Generated tests are stricter: the complete target is read-only, unit tests have no network, and API/browser tests receive isolated loopback only. Do not weaken containment to make a failing release pass.
 
 When a new failure or use case is discovered, invoke the bundled `om-evolve-harness` skill: add a failing semantic case first, choose one smallest knowledge owner, run generated tests and target checks, perform mandatory code review, then run the full release suite. Framework maintainers also run `$om-refresh-standalone-harness --from <release-ref> --to <release-ref>` in the Open Mercato monorepo to classify each local release change, extend coverage when needed, and publish a sanitized local maintenance report.
 
