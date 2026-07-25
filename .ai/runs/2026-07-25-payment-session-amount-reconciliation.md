@@ -65,3 +65,7 @@ PR: #4507
 
 - [x] 3.1 Add unit coverage for the reconciliation matrix — 565abb198, a237646a5
 - [x] 3.2 Document the behavior in SPEC-044 and the API docs — 04fbf3032
+
+### Maintenance
+
+- [x] M.1 Merge `develop` into the branch and resolve the `UPGRADE_NOTES.md` conflict (both the #4488 and the #4201 entry now live side by side under 0.6.5 → 0.6.6) — efb8ccb74
