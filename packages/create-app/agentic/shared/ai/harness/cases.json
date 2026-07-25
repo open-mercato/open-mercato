@@ -5971,7 +5971,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Build an app-owned ERP synchronization module for customers and products. Include encrypted credentials and a connection-health action, inbound and outbound mappings, stable external IDs, scoped cursors, deterministic conflict ownership, resumable queue execution, progress UI, manual retry and reconciliation. A failed page must never advance its saved position or duplicate committed records.",
+    "prompt": "Build an app-owned ERP synchronization module for our existing CRM customer and product catalog records. Include encrypted credentials and a connection-health action, inbound and outbound mappings, stable external IDs, scoped cursors, deterministic conflict ownership, resumable queue execution, progress UI, manual retry and reconciliation. A failed page must never advance its saved position or duplicate committed records.",
     "tags": ["business", "erp", "data-sync", "customers", "catalog"],
     "owner": {
       "kind": "skill",
@@ -6816,7 +6816,8 @@
       ".ai/guides/modules/messages.md",
       ".ai/guides/modules/translations.md",
       ".ai/guides/modules/onboarding.md",
-      ".ai/guides/modules/communication_channels.md"
+      ".ai/guides/modules/communication_channels.md",
+      ".ai/guides/modules/scheduler.md"
       ],
       "forbidden": [
         ".env*",
