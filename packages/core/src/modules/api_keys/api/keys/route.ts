@@ -13,6 +13,8 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { enforceTenantSelection, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { assertActorCanGrantRoles } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import { isOrganizationAccessAllowed } from '@open-mercato/shared/lib/auth/organizationAccess'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type ApiKeyCrudCtx = CrudCtx & {
   __apiKeySecret?: { secret: string; prefix: string }
@@ -297,10 +299,15 @@ const crud = makeCrudRoute<
 
       const allowedIds = ctx.organizationScope?.allowedIds ?? null
       const organizationId = input.organizationId ?? ctx.selectedOrganizationId ?? auth.orgId ?? null
-      if (organizationId && Array.isArray(allowedIds) && allowedIds.length > 0) {
-        if (!allowedIds.includes(organizationId)) {
-          throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
-        }
+      const isSuperAdmin = await resolveIsSuperAdmin(scopedCtx)
+      if (
+        !isOrganizationAccessAllowed({
+          isSuperAdmin,
+          allowedOrganizationIds: allowedIds,
+          targetOrganizationId: organizationId,
+        })
+      ) {
+        throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
       }
       scopedCtx.__apiKeyOrganizationId = organizationId ?? null
 
@@ -322,18 +329,34 @@ const crud = makeCrudRoute<
       const { translate } = await resolveTranslations()
       if (!auth?.tenantId) throw json({ error: translate('api_keys.errors.tenantRequired', 'Tenant context required') }, { status: 400 })
       const em = (ctx.container.resolve('em') as EntityManager)
-      const record = await em.findOne(ApiKey, { id, deletedAt: null })
-      if (!record) throw json({ error: translate('api_keys.errors.notFound', 'Not found') }, { status: 404 })
       const scopedCtx = ctx as ApiKeyCrudCtx
       const isSuperAdmin = await resolveIsSuperAdmin(scopedCtx)
-      if (!isSuperAdmin && record.tenantId && record.tenantId !== auth.tenantId) {
-        throw json({ error: translate('api_keys.errors.forbidden', 'Forbidden') }, { status: 403 })
-      }
       const allowedIds = ctx.organizationScope?.allowedIds ?? null
-      if (record.organizationId && Array.isArray(allowedIds) && allowedIds.length > 0) {
-        if (!allowedIds.includes(record.organizationId)) {
-          throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
-        }
+      const recordFilter: FilterQuery<ApiKey> = {
+        id,
+        tenantId: auth.tenantId,
+        deletedAt: null,
+      }
+      if (!isSuperAdmin && Array.isArray(allowedIds)) {
+        recordFilter.organizationId = { $in: allowedIds }
+      }
+      const record = await findOneWithDecryption(
+        em,
+        ApiKey,
+        recordFilter,
+        undefined,
+        { tenantId: auth.tenantId, organizationId: null },
+      )
+      if (
+        !record ||
+        record.tenantId !== auth.tenantId ||
+        !isOrganizationAccessAllowed({
+          isSuperAdmin,
+          allowedOrganizationIds: allowedIds,
+          targetOrganizationId: record.organizationId ?? null,
+        })
+      ) {
+        throw json({ error: translate('api_keys.errors.notFound', 'Not found') }, { status: 404 })
       }
       scopedCtx.__apiKeyOrganizationId = record.organizationId ?? null
     },

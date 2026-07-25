@@ -108,9 +108,13 @@ export function Tabs({
 export type TabsListProps = {
   children: React.ReactNode
   className?: string
+  /** Accessible name for the `role="tablist"` element. Set it when the
+   * surrounding context does not already label the strip (e.g. a bare
+   * detail-page section switcher). */
+  'aria-label'?: string
 }
 
-export function TabsList({ children, className }: TabsListProps) {
+export function TabsList({ children, className, 'aria-label': ariaLabel }: TabsListProps) {
   const { variant, orientation } = useTabsContext()
 
   const baseClasses =
@@ -130,6 +134,7 @@ export function TabsList({ children, className }: TabsListProps) {
       data-slot="tabs-list"
       className={cn(baseClasses, className)}
       role="tablist"
+      aria-label={ariaLabel}
       aria-orientation={orientation}
     >
       {children}

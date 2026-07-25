@@ -7,7 +7,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -218,7 +218,7 @@ async function resolveCanonicalTodoTargetId(
 
   const legacyLink = await findLegacyTodoLink(em, target, tenantId)
   if (!legacyLink) {
-    if (!target.todoId) throw new CrudHttpError(404, { error: 'Todo not found' })
+    if (!target.todoId) throw notFound('Todo not found')
     return target.todoId
   }
 

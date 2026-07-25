@@ -12,6 +12,7 @@ set -eu
 #      externally installed skill and must NOT be tiered.
 #   4. No skill is assigned to more than one tier.
 #   5. No name appears both in a tier and in `external.skills`.
+#   6. Every entry in `agents.ignore` names an agent install-skills.sh knows.
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "validate-skills-tiers: jq is required but not installed." >&2
@@ -130,7 +131,28 @@ for assigned in ${unique_assigned}; do
   fi
 done
 
+# Agent ids install-skills.sh knows about (see its agent support matrix).
+known_agents="claude-code codex cursor"
+unknown_agents=""
+for agent in $(jq -r '.agents.ignore[]?' "${manifest}"); do
+  match=0
+  for candidate in ${known_agents}; do
+    if [ "${candidate}" = "${agent}" ]; then
+      match=1
+      break
+    fi
+  done
+  if [ "${match}" -eq 0 ]; then
+    unknown_agents="${unknown_agents} ${agent}"
+  fi
+done
+
 problems=0
+if [ -n "${unknown_agents}" ]; then
+  echo "validate-skills-tiers: 'agents.ignore' names unknown agent(s):${unknown_agents}" >&2
+  echo "  Valid agents: ${known_agents}" >&2
+  problems=1
+fi
 if [ -n "${external_and_tiered}" ]; then
   echo "validate-skills-tiers: skill(s) listed both in a tier and in 'external.skills':${external_and_tiered}" >&2
   echo "  External skills are installed via npx; remove them from the tier or from external.skills." >&2

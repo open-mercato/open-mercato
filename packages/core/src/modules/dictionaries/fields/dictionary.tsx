@@ -90,9 +90,12 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
   const [error, setError] = React.useState<string | null>(null)
   const multiId = React.useId()
   const inlineCreateId = React.useId()
+  const inlineCreateHintId = React.useId()
+  const defaultValueHintId = React.useId()
   const selectedId = typeof def?.configJson?.dictionaryId === 'string' ? def?.configJson?.dictionaryId : ''
   const inlineCreate = def?.configJson?.dictionaryInlineCreate !== false
   const isMulti = def?.configJson?.multi === true
+  const inlineCreateDisabled = !selectedId || isMulti
   const errorLoadLabel = t('dictionaries.customFields.errorLoad', 'Failed to load dictionaries.')
 
   React.useEffect(() => {
@@ -181,45 +184,65 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
           </a>
         </div>
       ) : null}
-      <div className="inline-flex items-center gap-2 text-xs">
-        <Checkbox
-          id={multiId}
-          checked={isMulti}
-          onCheckedChange={(checked) => {
-            const enabled = checked === true
-            onChange({ multi: enabled, defaultValue: enabled ? undefined : def?.configJson?.defaultValue })
-          }}
-          disabled={!selectedId}
-        />
-        <label
-          htmlFor={multiId}
-          className={selectedId ? 'cursor-pointer select-none' : 'cursor-not-allowed opacity-60'}
-        >
-          {t('dictionaries.customFields.allowMultiple', 'Allow selecting multiple entries')}
-        </label>
-      </div>
-      {!isMulti ? (
-        <div className="inline-flex items-center gap-2 text-xs">
-          <Checkbox
-            id={inlineCreateId}
-            checked={inlineCreate}
-            onCheckedChange={(checked) => onChange({ dictionaryInlineCreate: checked === true })}
-            disabled={!selectedId}
-          />
-          <label
-            htmlFor={inlineCreateId}
-            className={selectedId ? 'cursor-pointer select-none' : 'cursor-not-allowed opacity-60'}
-          >
-            {t('dictionaries.customFields.allowInlineCreate', 'Allow inline creation inside forms')}
-          </label>
+      <div className="space-y-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4">
+          <div className="inline-flex items-center gap-2 text-xs">
+            <Checkbox
+              id={multiId}
+              checked={isMulti}
+              onCheckedChange={(checked) => {
+                const enabled = checked === true
+                onChange({ multi: enabled, defaultValue: enabled ? undefined : def?.configJson?.defaultValue })
+              }}
+              disabled={!selectedId}
+            />
+            <label
+              htmlFor={multiId}
+              className={selectedId ? 'cursor-pointer select-none' : 'cursor-not-allowed opacity-60'}
+            >
+              {t('dictionaries.customFields.allowMultiple', 'Allow selecting multiple entries')}
+            </label>
+          </div>
+          <div className="inline-flex items-center gap-2 text-xs">
+            <Checkbox
+              id={inlineCreateId}
+              checked={!isMulti && inlineCreate}
+              onCheckedChange={(checked) => onChange({ dictionaryInlineCreate: checked === true })}
+              disabled={inlineCreateDisabled}
+              aria-describedby={isMulti ? inlineCreateHintId : undefined}
+            />
+            <label
+              htmlFor={inlineCreateId}
+              className={!inlineCreateDisabled ? 'cursor-pointer select-none' : 'cursor-not-allowed opacity-60'}
+            >
+              {t('dictionaries.customFields.allowInlineCreate', 'Allow inline creation inside forms')}
+            </label>
+          </div>
         </div>
-      ) : null}
+        {isMulti ? (
+          <p id={inlineCreateHintId} className="text-xs text-muted-foreground">
+            {t(
+              'dictionaries.customFields.inlineCreateSingleOnly',
+              'Inline creation is available for single-entry dictionary fields only.',
+            )}
+          </p>
+        ) : null}
+      </div>
       {selectedId && !isMulti ? (
         <DictionaryDefaultSelector
           dictionaryId={selectedId}
           defaultValue={typeof def?.configJson?.defaultValue === 'string' ? def.configJson.defaultValue : ''}
           onChange={(value) => onChange({ defaultValue: value || undefined })}
         />
+      ) : selectedId && isMulti ? (
+        <div className="inline-flex items-center gap-2 text-xs">
+          <p id={defaultValueHintId} className="text-xs text-muted-foreground">
+            {t(
+              'dictionaries.customFields.defaultValueMultiUnavailable',
+              'Default values are not available for multi-select dictionary fields.',
+            )}
+          </p>
+        </div>
       ) : null}
     </div>
   )

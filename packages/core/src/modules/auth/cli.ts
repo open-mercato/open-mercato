@@ -9,6 +9,7 @@ import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { ensureRoles, setupInitialTenant, ensureDefaultRoleAcls, ensureCustomRoleAcls, OrgSlugExistsError, DerivedUserPasswordRequiredError } from './lib/setup-app'
 import { normalizeTenantId } from './lib/tenantAccess'
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { computeEmailHash, emailHashLookupValues } from './lib/emailHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
@@ -71,7 +72,7 @@ const addUser: ModuleCli = {
     })
     await em.persist(u).flush()
     if (rolesCsv) {
-      const names = rolesCsv.split(',').map(s => s.trim()).filter(Boolean)
+      const names = parseCommaSeparatedList(rolesCsv)
       for (const name of names) {
         const role = await resolveTenantScopedRole(em, name, normalizedTenantId)
         const link = em.create(UserRole, { user: u, role })
@@ -493,7 +494,7 @@ const setupApp: ModuleCli = {
     const container = await createRequestContainer()
     const em = container.resolve<EntityManager>('em')
     const roleNames = rolesCsv
-      ? rolesCsv.split(',').map((s) => s.trim()).filter(Boolean)
+      ? parseCommaSeparatedList(rolesCsv)
       : undefined
 
     try {

@@ -13,7 +13,6 @@ import { EntityManager } from '@mikro-orm/core'
 import {
   WorkflowInstance,
   WorkflowBranchInstance,
-  WorkflowDefinition,
   StepInstance,
   UserTask,
   WorkflowEvent,
@@ -22,6 +21,7 @@ import {
 } from '../data/entities'
 import { parseDuration } from './duration'
 import { logWorkflowEvent } from './event-logger'
+import { findDefinitionForInstance } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -76,9 +76,7 @@ export async function enterStep(
   branch?: WorkflowBranchInstance | null
 ): Promise<StepInstance> {
   // Load workflow definition to get step details
-  const definition = await em.findOne(WorkflowDefinition, {
-    id: instance.definitionId,
-  })
+  const definition = await findDefinitionForInstance(em, instance)
 
   if (!definition) {
     throw new StepExecutionError(
@@ -213,9 +211,7 @@ export async function executeStep(
     const stepInstance = await enterStep(em, instance, stepId, context, branch)
 
     // Load workflow definition to get step configuration
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       throw new StepExecutionError(
@@ -359,7 +355,7 @@ async function executeStepByType(
           { stepType, stepId: stepDef.stepId }
         )
       }
-      const definition = await em.findOne(WorkflowDefinition, { id: instance.definitionId })
+      const definition = await findDefinitionForInstance(em, instance)
       if (!definition) {
         throw new StepExecutionError(
           `Workflow definition not found: ${instance.definitionId}`,

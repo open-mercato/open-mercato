@@ -7,7 +7,7 @@ ARG OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
 WORKDIR /app
 
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
-RUN corepack enable && corepack prepare yarn@4.12.0 --activate
+RUN corepack enable
 
 COPY package.json yarn.lock .yarnrc.yml ./
 RUN if grep -Eq 'http://(localhost|127\\.0\\.0\\.1):' .yarnrc.yml; then \
@@ -36,7 +36,7 @@ ARG OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
 WORKDIR /app
 
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
-RUN corepack enable && corepack prepare yarn@4.12.0 --activate
+RUN corepack enable
 
 COPY package.json yarn.lock .yarnrc.yml ./
 RUN if grep -Eq 'http://(localhost|127\\.0\\.0\\.1):' .yarnrc.yml; then \
@@ -74,7 +74,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 RUN apk add --no-cache ca-certificates openssl
-RUN corepack enable && corepack prepare yarn@4.12.0 --activate
+RUN corepack enable
 
 COPY package.json yarn.lock .yarnrc.yml ./
 RUN if grep -Eq 'http://(localhost|127\\.0\\.0\\.1):' .yarnrc.yml; then \
