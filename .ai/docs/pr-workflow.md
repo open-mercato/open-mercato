@@ -82,9 +82,32 @@ When QA passes, move it back and record approval (`gh pr edit <number> --remove-
 ## QA meta labels and the merge gate
 
 - `needs-qa` is for UI changes, new features, sales or order flows, and other customer-facing
-  behavior that needs manual exercise.
-- `skip-qa` is for docs-only, dependency-only, CI-only, test-only, typo-only, or similarly
-  low-risk non-customer-facing changes.
+  behavior that needs manual exercise. It presumes there is a surface a QA reviewer can actually
+  exercise by hand; when there is not, see the automated-verification exemption below.
+- `skip-qa` is for docs-only, dependency-only, CI-only, test-only, typo-only, changes with no
+  manually exercisable surface (see the exemption below), or similarly low-risk
+  non-customer-facing changes.
+- **Automated-verification exemption (no manually exercisable surface):** a change that touches
+  no UI-rendering file — no `.tsx` outside tests, nothing under `packages/ui/src/`, nothing under
+  `**/components/**` — gives a QA reviewer nothing to click through, so manual exercise cannot
+  produce evidence beyond what the test suite already proves. Such a PR takes `skip-qa` instead of
+  `needs-qa`, **but only when it leaves the database structure and API surface unchanged, does not
+  break any contract in `BACKWARD_COMPATIBILITY.md`, and ships automated tests covering the
+  changed behavior in the same PR**: unit tests at minimum, and an integration test whenever the
+  change crosses component boundaries or touches auth, session, tenant scope, money, or event
+  reliability. A PR that changes the database structure or API surface, breaks a
+  backward-compatibility contract, or lacks the required coverage keeps `needs-qa`; the QA
+  reviewer verifies a non-UI change through its applicable interface instead of the UI.
+  Translation-only changes to `i18n/*.json` fall under the same exemption: they are verified by
+  reading the diff plus `yarn i18n:check-sync` and `yarn i18n:check-usage`, which the validation
+  gate already runs. This exemption replaces manual clicking that cannot happen with executable
+  proof that runs on every push — it does not lower the bar, so `security` and `risk-high` neither
+  qualify nor disqualify a PR for it. The risk-inference rule above still applies: a `risk-high`
+  PR is a reason to demand the integration test and a deeper review, not a reason to demand
+  clicking that cannot happen. A reviewer may always override the exemption back to `needs-qa`
+  with a stated reason (for example when the change alters a response the UI renders). It does not
+  touch the QA-approval merge gate below: a PR that carries `needs-qa` still MUST NOT merge
+  without `qa-approved`.
 - `qa-approved` records that manual QA passed for a `needs-qa` PR. It is the durable proof that
   gates the merge; the `merge-queue` pipeline label is the routing state, while `qa-approved` is
   the evidence that QA actually happened. Set both when QA passes.
@@ -110,6 +133,17 @@ describing what was exercised and the observed result. After that, apply BOTH `q
 the gate passes) and `qa-self-verified` (so it is auditable that a non-QA engineer signed off via
 this exception, not the QA team). Do not apply `qa-approved` via the self-QA path without the
 attached evidence. Refer to QA reviewers by role, never by GitHub handle — assignments change.
+
+**Self-QA requires `triage` permission to finish.** Applying `qa-approved` + `qa-self-verified`
+is a label write, so a contributor with `read` permission (the usual case for fork-based
+contributions) can perform the testing and attach the evidence but cannot complete the exception.
+For them it splits into two halves: the contributor posts the evidence comment on the PR — that
+comment is the durable artifact, the labels only record it — and a maintainer applies the two
+labels on the strength of it. A maintainer doing so is upholding the gate, not bypassing it, as
+long as the linked evidence actually exists. Until the labels are on the PR it stays gated: an
+attached evidence comment alone does not make a `needs-qa` PR merge-ready, and an `om-auto-*`
+skill that cannot apply the labels MUST report that it stopped there rather than treat the
+self-QA as complete.
 
 `qa-failed` is a hard block: a PR carrying it MUST NOT merge until QA re-runs and it is cleared.
 `do-not-merge` and `blocked` are likewise hard merge blocks. The QA-approval gate (reviewers +
