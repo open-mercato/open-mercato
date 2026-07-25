@@ -152,6 +152,28 @@ describe('evaluateRun', () => {
     expect(storeFor(AgentRun)[0].goldenPassed).toBe(true)
   })
 
+  it('matches a golden case even when the agent has NO online assertions', async () => {
+    const input = { claim: 'CLM-9' }
+    const { em, storeFor } = createFakeEm({
+      runs: [run({ input, output: { ok: true } })],
+      assertions: [], // agent has no assertions — golden match must still fire
+      evalCases: [
+        {
+          id: 'golden-9',
+          ...SCOPE,
+          agentDefinitionId: 'a',
+          status: 'approved',
+          inputKey: canonicalInputKey(input),
+          expected: { ok: true },
+          assertions: null,
+        },
+      ],
+    })
+    const result = await evaluateRun(em, SCOPE, 'run-1')
+    expect(result.goldenCaseId).toBe('golden-9')
+    expect(storeFor(AgentRun)[0].goldenCaseId).toBe('golden-9')
+  })
+
   it('does not match when the input key differs (no golden verdict)', async () => {
     const { em, storeFor } = createFakeEm({
       runs: [run({ input: { claim: 'CLM-2' }, output: { ok: true } })],

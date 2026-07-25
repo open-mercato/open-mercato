@@ -74,7 +74,25 @@ export async function evaluateRun(
     deletedAt: null,
     appliesTo: { $in: [run.agentId, '*'] },
   })
-  if (!assertions.length) return empty
+
+  // Golden-match lookup up-front (one indexed query): a live/playground run whose
+  // input reproduces an APPROVED eval case is scored against that case's `expected`.
+  // Deliberately NOT gated behind the agent having online assertions — a golden
+  // comparison (and its diff) is meaningful even for an agent with none.
+  const matchedCase = await findOneWithDecryption(
+    em,
+    AgentEvalCase,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      agentDefinitionId: run.agentId,
+      inputKey: canonicalInputKey(run.input),
+      status: 'approved',
+    },
+    { orderBy: { createdAt: 'asc' } },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+  if (!assertions.length && !matchedCase) return empty
 
   // Tool calls and spans feed the trajectory scorers; the proposal supplies
   // `disposition`. Loaded once and projected, so the scorer path stays pure.
@@ -143,19 +161,6 @@ export async function evaluateRun(
   // the two planes can never disagree about what a golden means.
   let goldenCaseId: string | null = null
   let goldenPassed: boolean | null = null
-  const matchedCase = await findOneWithDecryption(
-    em,
-    AgentEvalCase,
-    {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      agentDefinitionId: run.agentId,
-      inputKey: canonicalInputKey(run.input),
-      status: 'approved',
-    },
-    { orderBy: { createdAt: 'asc' } },
-    { tenantId: scope.tenantId, organizationId: scope.organizationId },
-  )
   if (matchedCase) {
     goldenCaseId = matchedCase.id
     const goldenResolved = resolveEffectiveAssertions(assertions, parseCaseAssertionRefs(matchedCase.assertions))
