@@ -1212,7 +1212,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add an authenticated customer portal page and portal navigation. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add an authenticated customer portal page and portal navigation through the app page-metadata contract, without injecting into an installed host. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "module",
       "module-data",
@@ -10159,7 +10159,6 @@
     },
     "expectedRouter": {
       "required": [
-        "module-data",
         "umes",
         "debugging"
       ],
@@ -10170,17 +10169,14 @@
       ]
     },
     "requiredSkills": [
-      "om-module-scaffold",
       "om-system-extension",
       "om-troubleshooter"
     ],
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/guides/contracts.md",
         ".ai/guides/extensions.md",
         ".ai/guides/testing-debugging.md",
-        ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-troubleshooter/SKILL.md",
         ".ai/guides/modules/customer_accounts.md",
