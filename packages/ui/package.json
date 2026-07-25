@@ -145,13 +145,13 @@
     "@radix-ui/react-select": "^2.3.1",
     "@radix-ui/react-slider": "^1.4.1",
     "@radix-ui/react-tooltip": "^1.2.10",
-    "@tanstack/react-virtual": "^3.14.3",
+    "@tanstack/react-virtual": "^3.14.4",
     "cmdk": "^1.0.0",
     "date-fns": "4.4.0",
     "react-big-calendar": "^1.20.0",
     "react-day-picker": "^10.0.1",
     "react-markdown": "^10.1.0",
-    "recharts": "^3.8.1",
+    "recharts": "^3.9.0",
     "remark-gfm": "^4.0.1"
   },
   "peerDependencies": {

@@ -127,7 +127,7 @@ jobs:
         run: corepack enable
 
       - name: Cache Yarn packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .yarn/cache
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
@@ -138,7 +138,7 @@ jobs:
         # when .yarn/cache hits — the extraction alone is ~85s. Caching node_modules
         # directly and skipping install on hit eliminates that cost.
         id: nm-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -147,7 +147,7 @@ jobs:
           key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Cache Turbo build outputs
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-${{ runner.os }}-${{ github.sha }}
@@ -284,7 +284,7 @@ jobs:
         run: corepack enable
 
       - name: Cache Yarn packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .yarn/cache
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
@@ -294,7 +294,7 @@ jobs:
         # Keyed on package manifests and lockfiles — if none of these changed,
         # a prior passing audit is still valid.
         id: audit-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .audit-passed
           key: audit-${{ runner.os }}-${{ hashFiles('**/package.json', '**/yarn.lock', '**/package-lock.json', '**/npm-shrinkwrap.json', '**/pnpm-lock.yaml', '**/bun.lock', '**/bun.lockb') }}
@@ -304,7 +304,7 @@ jobs:
         # Shared key with other jobs — whichever runs first saves it.
         if: steps.audit-cache.outputs.cache-hit != 'true'
         id: nm-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -342,7 +342,7 @@ jobs:
         run: corepack enable
 
       - name: Cache Yarn packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .yarn/cache
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
@@ -350,7 +350,7 @@ jobs:
 
       - name: Cache node_modules
         id: nm-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -395,7 +395,7 @@ jobs:
         run: corepack enable
 
       - name: Cache Yarn packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .yarn/cache
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
@@ -403,7 +403,7 @@ jobs:
 
       - name: Cache node_modules
         id: nm-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -412,7 +412,7 @@ jobs:
           key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Cache pip packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: pip-markitdown-v2
@@ -437,7 +437,7 @@ jobs:
         run: yarn install --immutable
 
       - name: Cache Turbo build outputs
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-${{ runner.os }}-${{ github.sha }}
@@ -578,7 +578,7 @@ jobs:
         run: corepack enable
 
       - name: Cache Yarn packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .yarn/cache
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
@@ -586,7 +586,7 @@ jobs:
 
       - name: Cache node_modules
         id: nm-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -617,7 +617,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-v1.50.0

@@ -78,6 +78,22 @@ function round(value: number): number {
   return Math.round((value + Number.EPSILON) * 1e4) / 1e4
 }
 
+/**
+ * Payment totals live on the order, not in the line/adjustment math a return
+ * recalculates. Every `calculateDocumentTotals` call that writes order totals
+ * back to the order MUST seed these so `buildBaseDocumentResult` preserves the
+ * recorded `paidTotalAmount` / `refundedTotalAmount` instead of defaulting them
+ * to 0 — otherwise creating/undoing/redoing a return silently zeroes the paid
+ * amount and the order's outstanding balance goes wrong on any paid order
+ * (#3756). Mirrors `resolveExistingPaymentTotals` in `commands/documents.ts`.
+ */
+function resolveExistingPaymentTotals(order: SalesOrder): { paidTotalAmount: number; refundedTotalAmount: number } {
+  return {
+    paidTotalAmount: toNumeric(order.paidTotalAmount),
+    refundedTotalAmount: toNumeric(order.refundedTotalAmount),
+  }
+}
+
 function applyOrderTotals(order: SalesOrder, totals: SalesDocumentCalculationResult['totals'], lineCount: number): void {
   order.subtotalNetAmount = toNumericString(totals.subtotalNetAmount) ?? '0'
   order.subtotalGrossAmount = toNumericString(totals.subtotalGrossAmount) ?? '0'
@@ -194,10 +210,7 @@ export async function recalculateOrderTotalsForDisplay(
     lines: lineSnapshots,
     adjustments: adjustmentDrafts,
     context: buildCalculationContext(order),
-    existingTotals: {
-      paidTotalAmount: toNumeric(order.paidTotalAmount),
-      refundedTotalAmount: toNumeric(order.refundedTotalAmount),
-    },
+    existingTotals: resolveExistingPaymentTotals(order),
   })
   return calculation.totals
 }
@@ -382,6 +395,7 @@ async function reverseReturnEffects(
           lines: lineSnapshots,
           adjustments: adjustmentDrafts,
           context: buildCalculationContext(order),
+          existingTotals: resolveExistingPaymentTotals(order),
         })
         applyOrderTotals(order, calculation.totals, calculation.lines.length)
         order.updatedAt = new Date()
@@ -531,6 +545,7 @@ async function restoreReturnEffects(
           lines: lineSnapshots,
           adjustments: adjustmentDrafts,
           context: buildCalculationContext(order),
+          existingTotals: resolveExistingPaymentTotals(order),
         })
         applyOrderTotals(order, calculation.totals, calculation.lines.length)
         order.updatedAt = new Date()
@@ -746,6 +761,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         lines: lineSnapshots,
         adjustments: adjustmentDrafts,
         context: buildCalculationContext(order),
+        existingTotals: resolveExistingPaymentTotals(order),
       })
       applyOrderTotals(order, calculation.totals, calculation.lines.length)
       order.updatedAt = new Date()
