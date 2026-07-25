@@ -2,16 +2,36 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
-import { PlannerAvailabilityRule } from '../data/entities'
+import { PlannerAvailabilityRule, PlannerAvailabilityRuleSet } from '../data/entities'
 import {
   plannerAvailabilityWeeklyReplaceSchema,
   type PlannerAvailabilityWeeklyReplaceInput,
 } from '../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import {
+  enforceCommandOptimisticLock,
+  enforceRecordGoneIsConflict,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { PlannerAvailabilityKind, PlannerAvailabilitySubjectType } from '../data/entities'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+import { plannerAvailabilityRuleSetCrudEvents } from '../lib/crud'
+import { E } from '#generated/entities.ids.generated'
 
 const AVAILABILITY_RULE_RESOURCE_KIND = 'planner.availability.rule'
+const AVAILABILITY_RULE_SET_CACHE_RESOURCE_KIND = 'planner.availability-rule-set'
+
+const availabilityRuleSetCrudIndexer: CrudIndexerConfig<PlannerAvailabilityRuleSet> = {
+  entityType: E.planner.planner_availability_rule_set,
+}
+
+// Canonical resource kind for the parent rule set, matching the tag the CRUD
+// factory derives for `planner.availability-rule-sets.*` commands. Weekly
+// replace mutates the rule set's child `availability_rules`, so the parent is
+// the optimistic-lock consistency boundary (document-aggregate pattern).
+const AVAILABILITY_RULE_SET_RESOURCE_KIND = 'planner.availability.rule.set'
 
 const DAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
 
@@ -83,6 +103,14 @@ function toAvailabilityRuleSnapshot(record: PlannerAvailabilityRule): Availabili
     note: record.note ?? null,
     deletedAt: record.deletedAt ?? null,
   }
+}
+
+function nextRuleSetUpdatedAt(current: Date | null | undefined, fallback: Date): Date {
+  const currentMs = current instanceof Date ? current.getTime() : Number.NaN
+  if (Number.isFinite(currentMs) && fallback.getTime() <= currentMs) {
+    return new Date(currentMs + 1)
+  }
+  return fallback
 }
 
 async function loadWeeklySnapshots(
@@ -163,7 +191,39 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<PlannerAvailabilityWeekly
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
 
-    await em.transactional(async (trx) => {
+    // The weekly rules of a rule set are a sub-resource of that rule set: the
+    // parent is the optimistic-lock consistency boundary. Guard the parent's
+    // version (so a stale weekly save loses to a concurrent rule-set
+    // change/delete) and bump its `updated_at` after the replace (so a
+    // concurrent rule-set delete/update with a stale token conflicts). See #2927.
+    const touchedRuleSet = await em.transactional(async (trx): Promise<PlannerAvailabilityRuleSet | null> => {
+      let ruleSet: PlannerAvailabilityRuleSet | null = null
+      if (parsed.subjectType === 'ruleset') {
+        ruleSet = await trx.findOne(PlannerAvailabilityRuleSet, {
+          id: parsed.subjectId,
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+          deletedAt: null,
+        })
+        if (ruleSet) {
+          enforceCommandOptimisticLock({
+            resourceKind: AVAILABILITY_RULE_SET_RESOURCE_KIND,
+            resourceId: ruleSet.id,
+            current: ruleSet.updatedAt,
+            request: ctx.request ?? null,
+          })
+        } else {
+          // The rule set was deleted concurrently. When the client opted into
+          // optimistic locking, surface the unified conflict instead of
+          // silently writing orphan rules; otherwise preserve legacy behavior.
+          enforceRecordGoneIsConflict({
+            resourceKind: AVAILABILITY_RULE_SET_RESOURCE_KIND,
+            resourceId: parsed.subjectId,
+            request: ctx.request ?? null,
+          })
+        }
+      }
+
       const existing = await trx.find(PlannerAvailabilityRule, {
         tenantId: parsed.tenantId,
         organizationId: parsed.organizationId,
@@ -207,8 +267,30 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<PlannerAvailabilityWeekly
         trx.persist(record)
       })
 
+      if (ruleSet) {
+        ruleSet.updatedAt = nextRuleSetUpdatedAt(ruleSet.updatedAt, now)
+        trx.persist(ruleSet)
+      }
+
       await trx.flush()
+      return ruleSet
     })
+
+    if (touchedRuleSet) {
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: touchedRuleSet,
+        identifiers: {
+          id: touchedRuleSet.id,
+          organizationId: touchedRuleSet.organizationId,
+          tenantId: touchedRuleSet.tenantId,
+        },
+        events: plannerAvailabilityRuleSetCrudEvents,
+        indexer: availabilityRuleSetCrudIndexer,
+      })
+    }
 
     return { ok: true }
   },
@@ -237,6 +319,9 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<PlannerAvailabilityWeekly
           after,
         } satisfies WeeklyUndoPayload,
       },
+      context: parsed.subjectType === 'ruleset'
+        ? { cacheAliases: [AVAILABILITY_RULE_SET_CACHE_RESOURCE_KIND] }
+        : null,
     }
   },
   undo: async ({ logEntry, ctx }) => {

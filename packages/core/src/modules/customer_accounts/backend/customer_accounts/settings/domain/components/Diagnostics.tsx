@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { AlertTriangle } from 'lucide-react'
 import { Alert, AlertTitle, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { DomainMappingRow } from './types'
@@ -15,7 +14,6 @@ export function DnsDiagnostics({ mapping }: DiagnosticsProps) {
   if (mapping.status !== 'dns_failed') return null
   return (
     <Alert variant="destructive">
-      <AlertTriangle className="h-4 w-4" aria-hidden />
       <AlertTitle>
         {t('customer_accounts.domainMapping.dns.diagnostics.title', 'DNS configuration issue')}
       </AlertTitle>
@@ -41,7 +39,6 @@ export function TlsDiagnostics({ mapping }: DiagnosticsProps) {
   if (mapping.status !== 'tls_failed') return null
   return (
     <Alert variant="warning">
-      <AlertTriangle className="h-4 w-4" aria-hidden />
       <AlertTitle>
         {t('customer_accounts.domainMapping.tls.diagnostics.title', 'SSL certificate issue')}
       </AlertTitle>

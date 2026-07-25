@@ -87,6 +87,7 @@ export async function POST(req: Request) {
   const entityId = typeof payload.entityId === 'string' ? payload.entityId : undefined
   // Use queue by default (requires queue workers to be running), can be disabled with useQueue: false
   const useQueue = payload.useQueue !== false
+  let keepLockForQueuedWorkers = false
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
@@ -320,7 +321,8 @@ export async function POST(req: Request) {
           ? `Reindex ${entityId} (${useQueue ? 'queued' : 'sync'})`
           : `Reindex all entities (${useQueue ? 'queued' : 'sync'})`,
       })
-      if (!useQueue) {
+      const jobsEnqueued = result.jobsEnqueued ?? 0
+      if (!useQueue || jobsEnqueued === 0) {
         await completeReindexProgress({
           em,
           progressService,
@@ -334,6 +336,8 @@ export async function POST(req: Request) {
             errors: result.errors.length,
           },
         })
+      } else {
+        keepLockForQueuedWorkers = true
       }
 
       // Get updated stats from all strategies
@@ -452,7 +456,7 @@ export async function POST(req: Request) {
   } finally {
     // Only clear lock immediately if NOT using queue mode
     // When using queue mode, workers update heartbeat and stale detection handles cleanup
-    if (!useQueue) {
+    if (!keepLockForQueuedWorkers) {
       await clearReindexLock(db, tenantId, 'fulltext', auth.orgId ?? null)
     }
 

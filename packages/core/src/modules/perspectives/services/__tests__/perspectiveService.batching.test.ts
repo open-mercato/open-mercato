@@ -1,5 +1,5 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals'
-import { saveRolePerspectives } from '../perspectiveService'
+import { clearRolePerspectives, deleteUserPerspective, saveRolePerspectives } from '../perspectiveService'
 
 type Where = Record<string, unknown>
 
@@ -71,5 +71,72 @@ describe('saveRolePerspectives (issue #1399)', () => {
     expect(em.create).toHaveBeenCalledTimes(1)
     expect(em.create.mock.calls[0][1]).toMatchObject({ roleId: roleB })
     expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('perspective mutation affected-row reporting', () => {
+  const scope = { userId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+  it('reports whether a personal perspective was deleted', async () => {
+    const existing = { deletedAt: null, isDefault: true }
+    const em = {
+      findOne: jest.fn(async () => existing),
+      flush: jest.fn(async () => {}),
+    }
+    const cache = { deleteByTags: jest.fn(async () => {}) }
+
+    await expect(deleteUserPerspective(em as any, cache as any, {
+      scope,
+      tableId: 'orders',
+      perspectiveId: 'perspective-1',
+    })).resolves.toBe(true)
+
+    expect(existing.deletedAt).toBeInstanceOf(Date)
+    expect(existing.isDefault).toBe(false)
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(cache.deleteByTags).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns false for personal perspective delete misses', async () => {
+    const em = {
+      findOne: jest.fn(async () => null),
+      flush: jest.fn(async () => {}),
+    }
+    const cache = { deleteByTags: jest.fn(async () => {}) }
+
+    await expect(deleteUserPerspective(em as any, cache as any, {
+      scope,
+      tableId: 'orders',
+      perspectiveId: 'missing',
+    })).resolves.toBe(false)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(cache.deleteByTags).not.toHaveBeenCalled()
+  })
+
+  it('returns the affected count for role perspective clears', async () => {
+    const em = createMockEm()
+    em.nativeUpdate.mockResolvedValueOnce(2)
+    const cache = { deleteByTags: jest.fn(async () => {}) }
+
+    await expect(clearRolePerspectives(em as any, cache as any, {
+      ...baseOptions,
+      roleIds: ['role-1', 'role-2'],
+    })).resolves.toBe(2)
+
+    expect(cache.deleteByTags).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves role perspective cache invalidation when nothing was cleared', async () => {
+    const em = createMockEm()
+    em.nativeUpdate.mockResolvedValueOnce(0)
+    const cache = { deleteByTags: jest.fn(async () => {}) }
+
+    await expect(clearRolePerspectives(em as any, cache as any, {
+      ...baseOptions,
+      roleIds: ['role-1'],
+    })).resolves.toBe(0)
+
+    expect(cache.deleteByTags).toHaveBeenCalledTimes(1)
   })
 })

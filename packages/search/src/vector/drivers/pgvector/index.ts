@@ -6,7 +6,7 @@ type PgPoolClient = {
   query<T = any>(text: string, params?: any[]): Promise<PgPoolQueryResult<T>>
   release(): void
 }
-type PgPool = {
+export type PgPool = {
   connect(): Promise<PgPoolClient>
   query<T = any>(text: string, params?: any[]): Promise<PgPoolQueryResult<T>>
   end(): Promise<void>
@@ -302,11 +302,19 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     return res.rowCount ? res.rows[0].checksum : null
   }
 
-  const purge = async (entityId: string, tenantId: string) => {
+  const purge = async (entityId: string, tenantId: string, organizationId?: string | null) => {
     await ensureReady()
+    const normalizedOrganizationId =
+      typeof organizationId === 'string' && organizationId.trim().length > 0 ? organizationId.trim() : null
+    const conditions = ['driver_id = $1', 'entity_id = $2', 'tenant_id = $3::uuid']
+    const values: any[] = [DRIVER_ID, entityId, tenantId]
+    if (normalizedOrganizationId !== null) {
+      conditions.push('organization_id = $4::uuid')
+      values.push(normalizedOrganizationId)
+    }
     await pool.query(
-      `DELETE FROM ${tableIdent} WHERE driver_id = $1 AND entity_id = $2 AND tenant_id = $3::uuid`,
-      [DRIVER_ID, entityId, tenantId],
+      `DELETE FROM ${tableIdent} WHERE ${conditions.join(' AND ')}`,
+      values,
     )
   }
 

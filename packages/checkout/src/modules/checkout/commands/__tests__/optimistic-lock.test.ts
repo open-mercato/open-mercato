@@ -3,6 +3,7 @@
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const ORG_ID = '123e4567-e89b-12d3-a456-426614174000'
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
@@ -59,7 +60,9 @@ const mockEm = {
 
 const mockDataEngine = {}
 
-function makeContext(headerVersion: string | null): CommandRuntimeContext {
+type GuardServiceOverride = { enforce: (input: unknown) => Promise<void> } | undefined
+
+function makeContext(headerVersion: string | null, guardService?: GuardServiceOverride): CommandRuntimeContext {
   const headers = new Headers()
   if (headerVersion) headers.set(OPTIMISTIC_LOCK_HEADER_NAME, headerVersion)
   const request = new Request('http://localhost/api/checkout/links/x', { method: 'PUT', headers })
@@ -69,6 +72,12 @@ function makeContext(headerVersion: string | null): CommandRuntimeContext {
         if (token === 'em') return mockEm
         if (token === 'dataEngine') return mockDataEngine
         if (token === 'paymentGatewayDescriptorService') return {}
+        // Phase 6b async seam resolves the optional enterprise guard from the
+        // request container; OSS-only builds resolve nothing.
+        if (token === 'commandOptimisticLockGuardService') {
+          if (guardService === undefined) throw new Error('not registered')
+          return guardService
+        }
         return null
       },
     } as unknown as CommandRuntimeContext['container'],
@@ -123,10 +132,15 @@ function templateRecord() {
   }
 }
 
-async function runUpdate(commandId: string, input: Record<string, unknown>, headerVersion: string | null) {
+async function runUpdate(
+  commandId: string,
+  input: Record<string, unknown>,
+  headerVersion: string | null,
+  guardService?: GuardServiceOverride,
+) {
   const handler = commandRegistry.get(commandId)
   if (!handler) throw new Error(`Command ${commandId} not registered`)
-  return handler.execute(input, makeContext(headerVersion))
+  return handler.execute(input, makeContext(headerVersion, guardService))
 }
 
 describe('checkout command optimistic locking', () => {
@@ -255,6 +269,54 @@ describe('checkout command optimistic locking', () => {
     it('passes the lock guard when no expected-version header is sent', async () => {
       await expect(
         runUpdate('checkout.template.delete', { id: TEMPLATE_ID }, null),
+      ).rejects.toThrow(FLUSH_SENTINEL)
+    })
+  })
+
+  // Phase 6b part B: the commands now call the async DI-aware seam
+  // `enforceCommandOptimisticLockWithGuards`. These prove the seam behaves like
+  // the OSS floor when disabled / OSS-only, and is fail-closed for the
+  // enterprise enrichment.
+  describe('async command seam (record_locks Phase 6b)', () => {
+    beforeEach(() => {
+      mockFindOneWithDecryption.mockResolvedValue(linkRecord())
+    })
+
+    it('OM_OPTIMISTIC_LOCK=off disables the guard — stale version is not blocked', async () => {
+      process.env.OM_OPTIMISTIC_LOCK = 'off'
+      await expect(
+        runUpdate('checkout.link.update', { id: LINK_ID, status: 'draft' }, STALE_VERSION),
+      ).rejects.toThrow(FLUSH_SENTINEL)
+    })
+
+    it('OSS-only build (no enterprise guard registered) still enforces the OSS floor 409', async () => {
+      expect.assertions(2)
+      try {
+        // guardService omitted → container throws "not registered" → OSS floor only.
+        await runUpdate('checkout.link.update', { id: LINK_ID, status: 'draft' }, STALE_VERSION)
+      } catch (error) {
+        const httpError = error as { status?: number; body?: Record<string, unknown> }
+        expect(httpError.status).toBe(409)
+        expect(mockEm.flush).not.toHaveBeenCalled()
+      }
+    })
+
+    it('awaits the enterprise guard after the floor passes; its 409 blocks the write', async () => {
+      expect.assertions(2)
+      const conflict = new CrudHttpError(409, { code: 'record_lock_conflict' })
+      const guardService = { enforce: jest.fn(async () => { throw conflict }) }
+      try {
+        await runUpdate('checkout.link.update', { id: LINK_ID, status: 'draft' }, CURRENT_VERSION, guardService)
+      } catch (error) {
+        expect((error as { status?: number }).status).toBe(409)
+        expect(mockEm.flush).not.toHaveBeenCalled()
+      }
+    })
+
+    it('a non-conflict error from the enterprise guard degrades to OSS-only (write proceeds to flush)', async () => {
+      const guardService = { enforce: jest.fn(async () => { throw new Error('guard exploded') }) }
+      await expect(
+        runUpdate('checkout.link.update', { id: LINK_ID, status: 'draft' }, CURRENT_VERSION, guardService),
       ).rejects.toThrow(FLUSH_SENTINEL)
     })
   })

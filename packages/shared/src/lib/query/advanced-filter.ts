@@ -1,4 +1,4 @@
-import { escapeLikePattern } from '../db/escapeLikePattern'
+import { buildIlikeTerm } from '../db/buildIlikeTerm'
 
 export type FilterOperator =
   | 'is' | 'is_not' | 'contains' | 'does_not_contain' | 'starts_with' | 'ends_with' | 'is_empty' | 'is_not_empty'
@@ -190,19 +190,19 @@ function buildConditionFilter(condition: FilterCondition): Record<string, unknow
       break
     case 'contains':
       if (normalizeSingleValue(condition.value) === null) return null
-      filter[condition.field] = { $ilike: `%${escapeLikePattern(String(normalizeSingleValue(condition.value)))}%` }
+      filter[condition.field] = { $ilike: buildIlikeTerm(String(normalizeSingleValue(condition.value))) }
       break
     case 'does_not_contain':
       if (normalizeSingleValue(condition.value) === null) return null
-      filter[condition.field] = { $not: { $ilike: `%${escapeLikePattern(String(normalizeSingleValue(condition.value)))}%` } }
+      filter[condition.field] = { $not: { $ilike: buildIlikeTerm(String(normalizeSingleValue(condition.value))) } }
       break
     case 'starts_with':
       if (normalizeSingleValue(condition.value) === null) return null
-      filter[condition.field] = { $ilike: `${escapeLikePattern(String(normalizeSingleValue(condition.value)))}%` }
+      filter[condition.field] = { $ilike: buildIlikeTerm(String(normalizeSingleValue(condition.value)), 'startsWith') }
       break
     case 'ends_with':
       if (normalizeSingleValue(condition.value) === null) return null
-      filter[condition.field] = { $ilike: `%${escapeLikePattern(String(normalizeSingleValue(condition.value)))}` }
+      filter[condition.field] = { $ilike: buildIlikeTerm(String(normalizeSingleValue(condition.value)), 'endsWith') }
       break
     case 'is_empty':
       filter[condition.field] = { $exists: false }

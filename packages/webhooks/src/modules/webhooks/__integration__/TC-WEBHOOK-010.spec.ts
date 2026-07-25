@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
   buildMockInboundUrl,
+  mockInboundAuthHeaders,
   createWebhookFixture,
   deleteWebhookIfExists,
   getDeliveryDetail,
@@ -28,7 +29,7 @@ test.describe('TC-WEBHOOK-010: Delivery detail full payload and response body', 
         name: `Webhook Detail ${Date.now()}`,
         url: buildMockInboundUrl(),
         subscribedEvents: ['catalog.product.created'],
-        customHeaders: { 'x-mock-webhook-signature': 'valid' },
+        customHeaders: mockInboundAuthHeaders(),
       });
       webhookId = created.id;
 

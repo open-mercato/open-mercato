@@ -1,5 +1,4 @@
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
-import './commands'
 
 export const metadata: ModuleInfo = {
   name: 'staff',
@@ -7,7 +6,7 @@ export const metadata: ModuleInfo = {
   version: '0.1.0',
   description: 'Teams, roles, and employee rosters.',
   author: 'Open Mercato Team',
-  license: 'Proprietary',
+  license: 'MIT',
   requires: ['planner', 'resources'],
   ejectable: true,
 }

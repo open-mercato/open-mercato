@@ -3,7 +3,7 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
 
 /**
  * TC-UX-007: RecordNotFoundState renders for a missing sales document detail (default kind → quotes)
- * Source: .ai/specs/2026-03-23-unified-record-not-found-ui-state.md (Phase 5 — Integration Coverage)
+ * Source: .ai/specs/implemented/2026-03-23-unified-record-not-found-ui-state.md (Phase 5 — Integration Coverage)
  *
  * The sales documents detail page is backed by a list API that returns an
  * empty `items` array when the requested id does not exist (not an HTTP 404).

@@ -72,6 +72,13 @@ describe('TagInput primitive', () => {
     expect(screen.getByText('stay')).toBeInTheDocument()
   })
 
+  it('localizes the remove button accessible name via removeTagLabel', () => {
+    render(<Harness initial={['Call']} removeTagLabel={(tag) => `Usuń ${tag}`} aria-label="tags" />)
+    expect(screen.queryByRole('button', { name: 'Remove Call' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Usuń Call' }))
+    expect(screen.queryByText('Call')).not.toBeInTheDocument()
+  })
+
   it('blocks further additions when maxTags is reached', () => {
     render(<Harness initial={['a', 'b']} maxTags={2} aria-label="tags" />)
     const input = getInput()

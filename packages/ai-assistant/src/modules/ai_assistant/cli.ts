@@ -1,5 +1,6 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resetServerLoggerCache } from '@open-mercato/shared/lib/logger'
 /**
  * Ensure app bootstrap is called before creating DI container.
  * Uses the shared generated-bootstrap loader so the command works both from
@@ -46,31 +47,47 @@ function parseArgs(rest: string[]): Record<string, string | boolean> {
 const mcpServe: ModuleCli = {
   command: 'mcp:serve',
   async run(rest) {
+    // stdout carries the MCP JSON-RPC protocol (StdioServerTransport) — route all
+    // facade logs to stderr and rebuild any pino root created earlier in this process.
+    process.env.OM_LOG_DESTINATION = 'stderr'
+    resetServerLoggerCache()
     const args = parseArgs(rest)
-    const apiKey = String(args['api-key'] ?? args.apiKey ?? '') || null
+    // Prefer the OPEN_MERCATO_API_KEY env var so the secret never has to be
+    // placed on the command line (argv is world-readable via ps / /proc).
+    // The --api-key flag stays supported for backward compatibility.
+    const apiKey = String(args['api-key'] ?? args.apiKey ?? '') || process.env.OPEN_MERCATO_API_KEY || null
     const tenantId = String(args.tenant ?? args.tenantId ?? '') || null
     const organizationId = String(args.org ?? args.organizationId ?? '') || null
     const userId = String(args.user ?? args.userId ?? '') || null
     const debug = args.debug === true || args.debug === 'true'
+    const allowUnauthenticatedSuperadmin =
+      args['allow-unauthenticated-superadmin'] === true ||
+      args['allow-unauthenticated-superadmin'] === 'true'
 
     // Either API key or tenant is required
     if (!apiKey && !tenantId) {
       console.error('Usage: mercato ai_assistant mcp:serve [options]')
       console.error('')
       console.error('Authentication (choose one):')
-      console.error('  --api-key <secret>   API key secret for authentication (recommended)')
-      console.error('  --tenant <id>        Tenant ID (for manual context)')
+      console.error('  OPEN_MERCATO_API_KEY env   API key secret (recommended — keeps the secret off argv)')
+      console.error('  --api-key <secret>         API key secret for authentication (visible in process listings)')
+      console.error('  --tenant <id>              Tenant ID (for manual context)')
       console.error('')
       console.error('Options (with --tenant):')
       console.error('  --org <id>           Organization ID (optional)')
-      console.error('  --user <id>          User ID for ACL (optional, uses superadmin if not set)')
+      console.error('  --user <id>          User ID for ACL (required unless --allow-unauthenticated-superadmin is set)')
       console.error('')
       console.error('Common options:')
       console.error('  --debug              Enable debug logging')
+      console.error('  --allow-unauthenticated-superadmin')
+      console.error('                       DEV/TEST ONLY: run as superadmin with no per-user ACL when')
+      console.error('                       no --user (and no --api-key) is supplied. Never use in production.')
       console.error('')
       console.error('Examples:')
+      console.error('  OPEN_MERCATO_API_KEY=omk_xxxx.yyyy... mercato ai_assistant mcp:serve')
       console.error('  mercato ai_assistant mcp:serve --api-key omk_xxxx.yyyy...')
-      console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000')
+      console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000 --user <user-id>')
+      console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000 --allow-unauthenticated-superadmin')
       return
     }
 
@@ -102,6 +119,7 @@ const mcpServe: ModuleCli = {
           organizationId,
           userId,
         },
+        allowUnauthenticatedSuperadmin,
       })
     }
   },
@@ -143,6 +161,47 @@ const mcpDev: ModuleCli = {
   },
 }
 
+const mcpEnsureApiKey: ModuleCli = {
+  command: 'mcp:ensure-api-key',
+  async run(rest) {
+    const args = parseArgs(rest)
+    // A bare `--file` (no value) parses to boolean true — treat it as missing
+    // rather than provisioning into a file literally named "true".
+    const fileArg = typeof args.file === 'string' ? args.file.trim() : ''
+    const filePath =
+      fileArg || process.env.MCP_SERVER_API_KEY_FILE?.trim() || process.env.MCP_API_KEY_FILE?.trim() || ''
+    if (!filePath) {
+      console.error('Usage: mercato ai_assistant mcp:ensure-api-key --file <path> [options]')
+      console.error('')
+      console.error('Ensures a valid MCP server API key exists in the database and that its')
+      console.error('plaintext secret is stored in <path> (the idempotency anchor). The secret')
+      console.error('is never printed; consumers such as the OpenCode container read the file.')
+      console.error('')
+      console.error('Options:')
+      console.error('  --file <path>    Secret file path (or MCP_SERVER_API_KEY_FILE env)')
+      console.error('  --name <name>    API key name (default __mcp_server__)')
+      console.error('  --email <email>  Owner user email (default OM_INIT_SUPERADMIN_EMAIL, then superadmin@acme.com)')
+      console.error('  --rotate         Force rotation even when the file secret is still valid')
+      process.exitCode = 1
+      return
+    }
+
+    const keyName = typeof args.name === 'string' && args.name.length > 0 ? args.name : undefined
+    const ownerEmail = typeof args.email === 'string' && args.email.length > 0 ? args.email : undefined
+    const rotate = args.rotate === true || args.rotate === 'true'
+
+    await ensureBootstrap()
+    const container = await createRequestContainer()
+    const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
+    const rbac = container.resolve('rbacService') as import('@open-mercato/core/modules/auth/services/rbacService').RbacService
+
+    const { ensureMcpApiKey } = await import('./lib/mcp-ensure-api-key')
+    const result = await ensureMcpApiKey({ em, filePath, keyName, ownerEmail, rotate, rbac })
+    const message = result.status === 'valid' ? 'Existing key is valid' : 'New key created'
+    console.log(`[mcp:ensure-api-key] ${message} (id=${result.keyId}, prefix=${result.keyPrefix})`)
+  },
+}
+
 const listTools: ModuleCli = {
   command: 'mcp:list-tools',
   async run(rest) {
@@ -177,13 +236,13 @@ const listTools: ModuleCli = {
     }
 
     // Sort modules alphabetically
-    const sortedModules = Array.from(byModule.keys()).sort()
+    const sortedModules = Array.from(byModule.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
     for (const module of sortedModules) {
       const tools = byModule.get(module)!
       console.log(`${module} (${tools.length} tools):`)
 
-      for (const name of tools.sort()) {
+      for (const name of tools.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
         const tool = registry.getTool(name)
         if (!tool) continue
 
@@ -314,7 +373,7 @@ const testTools: ModuleCli = {
         list.push(record)
         byModule.set(record.module, list)
       }
-      const sortedModules = Array.from(byModule.keys()).sort()
+      const sortedModules = Array.from(byModule.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
       for (const moduleId of sortedModules) {
         const list = byModule.get(moduleId)!
         console.log('')
@@ -359,6 +418,7 @@ export default [
   mcpServe,
   mcpServeHttp,
   mcpDev,
+  mcpEnsureApiKey,
   listTools,
   entityGraph,
   runPendingActionCleanup,

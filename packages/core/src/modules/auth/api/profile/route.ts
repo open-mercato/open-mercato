@@ -12,6 +12,9 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'profile' })
 
 const profileResponseSchema = z.object({
   email: z.string().email(),
@@ -105,7 +108,7 @@ export async function GET(req: Request) {
     }
     return NextResponse.json({ email: String(user.email), roles: auth.roles ?? [] })
   } catch (err) {
-    console.error('auth.profile.load failed', err)
+    logger.error('Profile load failed', { err })
     return NextResponse.json({ error: translate('auth.profile.form.errors.load', 'Failed to load profile.') }, { status: 400 })
   }
 }
@@ -193,7 +196,7 @@ export async function PUT(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('auth.profile.update failed', err)
+    logger.error('Profile update failed', { err })
     return NextResponse.json({ error: translate('auth.profile.form.errors.save', 'Failed to update profile.') }, { status: 400 })
   }
 }

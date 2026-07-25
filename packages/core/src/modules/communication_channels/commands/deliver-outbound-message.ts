@@ -22,6 +22,9 @@ import {
   ExternalMessage,
   MessageChannelLink,
 } from '../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const moduleLogger = createLogger('communication_channels').child({ component: 'deliver-outbound-message' })
 
 /**
  * Sentinel — `Message.threadId` of an internal-only (no channel link) message
@@ -311,7 +314,7 @@ const deliverOutboundMessageCommand: CommandHandler<
       },
       {
         credentialsService,
-        logger: (...args) => console.warn(...args),
+        logger: (...args) => moduleLogger.warn('credential refresh diagnostic', { details: args }),
       },
     )
     credentials = refreshResult.credentials
@@ -334,10 +337,7 @@ const deliverOutboundMessageCommand: CommandHandler<
       // Token creation should never block a send — if it fails, the message
       // still goes out, just without our thread-token attachment point.
       // Threading falls back to the JWZ strategy via Message-Id headers.
-      console.warn(
-        '[communication_channels:deliver-outbound] thread token unavailable, proceeding without it:',
-        tokenErr instanceof Error ? tokenErr.message : tokenErr,
-      )
+      moduleLogger.warn('thread token unavailable, proceeding without it', { err: tokenErr })
     }
 
     // (5) + (6) Convert + send.

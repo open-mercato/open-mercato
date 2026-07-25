@@ -9,6 +9,8 @@ import { useAutoHideCompletedJobs } from './useAutoHideCompletedJobs'
 import type { ProgressJobDto } from './useProgressPoll'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '../utils/apiCall'
+import { useBackendChrome } from '../BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 
 export type ProgressTopBarProps = {
   className?: string
@@ -21,11 +23,25 @@ export type ProgressTopBarProps = {
   completedAutoHideMs?: number | false
 }
 
-export function ProgressTopBar({ className, t, completedAutoHideMs }: ProgressTopBarProps) {
+export function ProgressTopBar(props: ProgressTopBarProps) {
+  const { payload } = useBackendChrome()
+  // The progress read routes (`/api/progress/active`, `/api/progress/jobs`) are
+  // gated on `progress.view`. Users without the feature would only get 403s, so
+  // skip mounting the polling/SSE hooks entirely instead of firing doomed reads.
+  const canViewProgress = hasFeature(payload?.grantedFeatures, 'progress.view')
+  if (!canViewProgress) return null
+  return <ProgressTopBarContent {...props} />
+}
+
+function ProgressTopBarContent({ className, t, completedAutoHideMs }: ProgressTopBarProps) {
   const { activeJobs, recentlyCompleted, refresh } = useProgress()
   const visibleCompleted = useAutoHideCompletedJobs(recentlyCompleted, completedAutoHideMs)
   const [expanded, setExpanded] = React.useState(false)
 
+  // `om:progress:expanded` is a trivial scalar flag ('true' | 'false') with no
+  // schema to evolve, so it is intentionally kept raw rather than wrapped in a
+  // versioned envelope (the versioning threshold for structured persisted state
+  // lives in `@open-mercato/shared/lib/browser/versionedPreference`).
   React.useEffect(() => {
     const saved = localStorage.getItem('om:progress:expanded')
     if (saved === 'true') setExpanded(true)

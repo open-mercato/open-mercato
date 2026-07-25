@@ -9,6 +9,11 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  */
 test.describe('TC-CRM-013: Pipeline View Navigation', () => {
   test('should display pipeline columns, show deal card info, open detail, and return to list view', async ({ page, request }) => {
+    // Heavy multi-navigation flow (login → kanban load → pipeline popover → deal
+    // detail → back to filtered list) routinely exceeds Playwright's 20s default
+    // on a loaded CI shard; opt into the sanctioned 3× budget instead of bumping
+    // the global timeout. Previously flaked at ~20.1s, passed at ~11s on retry.
+    test.slow();
     let token: string | null = null;
     let companyId: string | null = null;
     let dealId: string | null = null;
@@ -68,10 +73,9 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
       // on the page (e.g. lane-total breakdown).
       await expect(dealCard.getByText('USD', { exact: true })).toBeVisible();
 
-      // Open the card's kebab menu and choose "Open deal". The menu items are
-      // rendered via React portal, so the menuitem lookup is page-scoped, not card-scoped.
-      await dealCard.getByRole('button', { name: 'Deal actions' }).click();
-      await page.getByRole('menuitem', { name: 'Open deal', exact: true }).click();
+      // Clicking the card title is the primary card-to-detail navigation path and avoids
+      // coupling this navigation test to the portal-rendered action menu.
+      await dealCard.getByRole('heading', { name: dealTitle, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/backend/customers/deals/${dealId}$`));
       await expect(page.getByText(dealTitle, { exact: true }).first()).toBeVisible();
 

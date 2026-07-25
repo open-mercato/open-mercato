@@ -2,7 +2,7 @@
  * Tests for the server-side task-plan SSE injector
  * (`packages/ai-assistant/src/modules/ai_assistant/lib/task-plan-stream.ts`).
  *
- * Covers spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`
+ * Covers spec `.ai/specs/implemented/2026-05-13-ai-chat-visible-task-plan.md`
  * acceptance criteria:
  *   - runtime-derived labels from tool lifecycle chunks
  *   - agent-authored labels via the safe `meta.update_task_plan` tool

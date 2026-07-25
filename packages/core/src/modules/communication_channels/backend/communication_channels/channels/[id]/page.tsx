@@ -159,7 +159,7 @@ export default function ChannelDetailPage() {
             </p>
           ) : (
             <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm md:grid-cols-3">
-              {capabilityKeys.sort().map((key) => (
+              {capabilityKeys.sort((a, b) => a.localeCompare(b)).map((key) => (
                 <React.Fragment key={key}>
                   <dt className="text-muted-foreground">{key}</dt>
                   <dd className="md:col-span-2">{renderCapabilityValue(capabilities[key])}</dd>

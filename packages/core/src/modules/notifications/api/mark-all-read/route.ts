@@ -1,16 +1,30 @@
 import { z } from 'zod'
-import { resolveNotificationContext } from '../../lib/routeHelpers'
+import {
+  NOTIFICATION_RESOURCE_KIND,
+  resolveNotificationContext,
+  runGuardedNotificationWrite,
+} from '../../lib/routeHelpers'
 
 export const metadata = {
   PUT: { requireAuth: true },
 }
 
 export async function PUT(req: Request) {
-  const { service, scope } = await resolveNotificationContext(req)
+  const { service, scope, ctx } = await resolveNotificationContext(req)
 
-  const count = await service.markAllAsRead(scope)
+  const guarded = await runGuardedNotificationWrite(
+    ctx.container,
+    scope,
+    req,
+    {
+      resourceKind: NOTIFICATION_RESOURCE_KIND,
+      operation: 'update',
+    },
+    () => service.markAllAsRead(scope),
+  )
+  if (!guarded.ok) return guarded.response
 
-  return Response.json({ ok: true, count })
+  return Response.json({ ok: true, count: guarded.result })
 }
 
 export const openApi = {

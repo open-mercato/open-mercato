@@ -120,9 +120,10 @@ describe('<AiChatSessionsProvider> — tenant/org scope isolation', () => {
 
     const scoped = window.localStorage.getItem(scopedKey('T1', 'O1'))
     expect(scoped).not.toBeNull()
-    const parsed = JSON.parse(scoped!) as { sessions: Array<{ agentId: string }> }
-    expect(parsed.sessions).toHaveLength(1)
-    expect(parsed.sessions[0].agentId).toBe('assistant')
+    const parsed = JSON.parse(scoped!) as { v: number; data: { sessions: Array<{ agentId: string }> } }
+    expect(parsed.v).toBe(1)
+    expect(parsed.data.sessions).toHaveLength(1)
+    expect(parsed.data.sessions[0].agentId).toBe('assistant')
 
     expect(window.localStorage.getItem(scopedKey('T2', 'O2'))).toBeNull()
   })
@@ -185,11 +186,14 @@ describe('<AiChatSessionsProvider> — tenant/org scope isolation', () => {
       expect(screen.getByTestId('session-count').textContent).toBe('1')
     })
 
-    // T1/O1 bucket must remain untouched after the swap.
+    // T1/O1 bucket must retain its 2 sessions after the swap. The legacy bare
+    // value seeded above is migrated forward to the versioned `{ v, data }`
+    // envelope on mount, so read the sessions from `data`.
     const t1Raw = window.localStorage.getItem(scopedKey('T1', 'O1'))
     expect(t1Raw).not.toBeNull()
-    const t1Parsed = JSON.parse(t1Raw!) as { sessions: unknown[] }
-    expect(t1Parsed.sessions).toHaveLength(2)
+    const t1Parsed = JSON.parse(t1Raw!) as { v: number; data: { sessions: unknown[] } }
+    expect(t1Parsed.v).toBe(1)
+    expect(t1Parsed.data.sessions).toHaveLength(2)
   })
 
   it('refires the server conversation list on scope change', async () => {

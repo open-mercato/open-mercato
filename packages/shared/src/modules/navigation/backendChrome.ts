@@ -39,6 +39,14 @@ export type BackendChromeSectionGroup = {
   order?: number
 }
 
+export type BackendChromeBrand = {
+  name?: string
+  logo?: {
+    src: string
+    alt?: string
+  } | null
+}
+
 export type BackendChromePayload = {
   groups: BackendChromeNavGroup[]
   settingsSections: BackendChromeSectionGroup[]
@@ -47,4 +55,5 @@ export type BackendChromePayload = {
   profilePathPrefixes: string[]
   grantedFeatures: string[]
   roles: string[]
+  brand?: BackendChromeBrand | null
 }

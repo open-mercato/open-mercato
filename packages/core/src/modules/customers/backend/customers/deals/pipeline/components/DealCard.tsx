@@ -4,8 +4,9 @@ import * as React from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { AlertTriangle, Building2, Calendar, Clock, Mail, Phone, StickyNote } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { DealCardMenu } from './DealCardMenu'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -369,62 +370,76 @@ function DealCardImpl({
         // is what restores drag-and-drop. Without it the (invisible) Call/Email/Note row sits in
         // the middle of the card and intercepts every pointer-down, so dnd-kit never gets the
         // gesture and the card snaps back to the source lane.
-        className="flex items-center gap-1 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto [@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto"
+        className="flex items-center justify-center gap-2 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto [@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto"
         onClick={(event) => event.stopPropagation()}
         onPointerDown={stopPointerDown}
       >
         {(() => {
           const disabled = !deal.primaryCompany
-          const disabledTitle = disabled
+          const disabledTooltip = disabled
             ? translateWithFallback(
                 t,
                 'customers.deals.kanban.card.action.disabledNoCompany',
                 'Link a company to this deal before logging activities.',
               )
             : undefined
-          const baseClass =
-            'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+          const renderActionButton = (
+            type: 'call' | 'email' | 'note',
+            label: string,
+            icon: React.ReactNode,
+          ) => {
+            const button = (
+              <IconButton
+                variant="ghost"
+                size="default"
+                onClick={handleActionClick(type)}
+                disabled={disabled}
+                aria-disabled={disabled || undefined}
+                aria-label={label}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                {icon}
+              </IconButton>
+            )
+
+            if (!disabled) {
+              return (
+                <SimpleTooltip key={type} content={label} size="sm">
+                  {button}
+                </SimpleTooltip>
+              )
+            }
+
+            return (
+              <SimpleTooltip key={type} content={disabledTooltip} size="sm">
+                <span
+                  className="inline-flex shrink-0 rounded-md focus-visible:outline-none focus-visible:shadow-focus"
+                  tabIndex={0}
+                  aria-label={`${label}: ${disabledTooltip}`}
+                >
+                  {button}
+                </span>
+              </SimpleTooltip>
+            )
+          }
+
           return (
             <>
-              <Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                onClick={handleActionClick('call')}
-                disabled={disabled}
-                title={disabledTitle}
-                aria-disabled={disabled || undefined}
-                className={baseClass}
-              >
-                <Phone className="size-3.5 shrink-0" aria-hidden="true" />
-                <span>{translateWithFallback(t, 'customers.deals.kanban.card.action.call', 'Call')}</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                onClick={handleActionClick('email')}
-                disabled={disabled}
-                title={disabledTitle}
-                aria-disabled={disabled || undefined}
-                className={baseClass}
-              >
-                <Mail className="size-3.5 shrink-0" aria-hidden="true" />
-                <span>{translateWithFallback(t, 'customers.deals.kanban.card.action.email', 'Email')}</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                onClick={handleActionClick('note')}
-                disabled={disabled}
-                title={disabledTitle}
-                aria-disabled={disabled || undefined}
-                className={baseClass}
-              >
-                <StickyNote className="size-3.5 shrink-0" aria-hidden="true" />
-                <span>{translateWithFallback(t, 'customers.deals.kanban.card.action.note', 'Note')}</span>
-              </Button>
+              {renderActionButton(
+                'call',
+                translateWithFallback(t, 'customers.deals.kanban.card.action.call', 'Call'),
+                <Phone className="size-5" aria-hidden="true" />,
+              )}
+              {renderActionButton(
+                'email',
+                translateWithFallback(t, 'customers.deals.kanban.card.action.email', 'Email'),
+                <Mail className="size-5" aria-hidden="true" />,
+              )}
+              {renderActionButton(
+                'note',
+                translateWithFallback(t, 'customers.deals.kanban.card.action.note', 'Note'),
+                <StickyNote className="size-5" aria-hidden="true" />,
+              )}
             </>
           )
         })()}

@@ -15,6 +15,9 @@ import type { AnalyticsRegistry } from '../../../../services/analyticsRegistry'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../../openapi'
 import { widgetDataRequestSchema, widgetDataResponseSchema } from '../schema'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'widgets-data-batch' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['analytics.view'] },
@@ -127,7 +130,7 @@ export async function POST(req: Request) {
     })
     return NextResponse.json({ results })
   } catch (err) {
-    console.error('[widgets/data/batch] Error:', err)
+    logger.error('Widget batch data request failed', { err })
     return NextResponse.json(
       { error: 'An error occurred while processing your request' },
       { status: 500 },

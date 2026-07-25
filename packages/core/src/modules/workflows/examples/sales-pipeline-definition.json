@@ -262,10 +262,10 @@
             "activityType": "CALL_API",
             "config": {
               "method": "POST",
-              "url": "{{env.CONTRACT_SERVICE_URL}}/api/contracts/generate",
+              "url": "{{context.integration.contractServiceUrl}}/api/contracts/generate",
               "headers": {
                 "Content-Type": "application/json",
-                "Authorization": "Bearer {{env.SERVICE_TOKEN}}"
+                "Authorization": "Bearer {{context.integration.serviceToken}}"
               },
               "body": {
                 "orderId": "{{context.order.id}}",
@@ -331,7 +331,7 @@
             "activityType": "CALL_API",
             "config": {
               "method": "POST",
-              "url": "{{env.CONTRACT_SERVICE_URL}}/api/contracts/verify",
+              "url": "{{context.integration.contractServiceUrl}}/api/contracts/verify",
               "body": {
                 "contractId": "{{context.contract.id}}",
                 "signatureId": "{{task.result.signatureId}}"
@@ -393,10 +393,10 @@
             "activityType": "CALL_API",
             "config": {
               "method": "POST",
-              "url": "{{env.BILLING_SERVICE_URL}}/api/invoices",
+              "url": "{{context.integration.billingServiceUrl}}/api/invoices",
               "headers": {
                 "Content-Type": "application/json",
-                "Authorization": "Bearer {{env.SERVICE_TOKEN}}"
+                "Authorization": "Bearer {{context.integration.serviceToken}}"
               },
               "body": {
                 "orderId": "{{context.order.id}}",
@@ -486,10 +486,10 @@
             "activityType": "CALL_API",
             "config": {
               "method": "POST",
-              "url": "{{env.WAREHOUSE_SERVICE_URL}}/api/fulfillment/orders",
+              "url": "{{context.integration.warehouseServiceUrl}}/api/fulfillment/orders",
               "headers": {
                 "Content-Type": "application/json",
-                "Authorization": "Bearer {{env.SERVICE_TOKEN}}"
+                "Authorization": "Bearer {{context.integration.serviceToken}}"
               },
               "body": {
                 "orderId": "{{context.order.id}}",

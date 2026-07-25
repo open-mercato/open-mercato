@@ -265,17 +265,23 @@ export function ActivityHistorySection({
       let combined = canonicalItems
 
       if (!useCanonicalInteractions) {
+        // Legacy fallback uses known page numbers, so request every page in
+        // parallel (sharing the abort signal) and merge them in page order.
+        const legacyPageNumbers = Array.from({ length: loadedPages }, (_, index) => index + 1)
+        const legacyPayloads = await Promise.all(
+          legacyPageNumbers.map((legacyPage) =>
+            readApiResultOrThrow<{ items?: ActivitySummary[]; totalPages?: number }>(
+              `/api/customers/activities?entityId=${encodeURIComponent(entityId)}&page=${legacyPage}&pageSize=20&sortField=occurredAt&sortDir=desc`,
+              { signal },
+            ).catch(() => ({ items: [] as ActivitySummary[], totalPages: 1 })),
+          ),
+        )
+        if (isStale()) return
         const legacyItems: InteractionSummary[] = []
         let legacyTotalPages = 1
-        for (let legacyPage = 1; legacyPage <= loadedPages; legacyPage += 1) {
-          const legacyPayload = await readApiResultOrThrow<{ items?: ActivitySummary[]; totalPages?: number }>(
-            `/api/customers/activities?entityId=${encodeURIComponent(entityId)}&page=${legacyPage}&pageSize=20&sortField=occurredAt&sortDir=desc`,
-            { signal },
-          ).catch(() => ({ items: [] as ActivitySummary[], totalPages: 1 }))
-          if (isStale()) return
+        for (const legacyPayload of legacyPayloads) {
           legacyItems.push(...(Array.isArray(legacyPayload.items) ? legacyPayload.items.map(normalizeLegacyActivity) : []))
           legacyTotalPages = typeof legacyPayload.totalPages === 'number' ? legacyPayload.totalPages : legacyTotalPages
-          if (legacyPage >= legacyTotalPages) break
         }
         const rangeStartDate = computeRangeStart(dateRange)
         const filteredLegacy = legacyItems.filter((item) => {

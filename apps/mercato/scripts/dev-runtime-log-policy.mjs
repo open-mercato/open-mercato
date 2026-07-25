@@ -1,16 +1,35 @@
+// Mirrors the pretty transport format in packages/shared/src/lib/logger/transport.pretty.ts:
+// `HH:MM:SS.mmm LEVEL [scope] message key=value`, with an `err` binding appended
+// as the error stack on the following lines (first line e.g. `TypeError: fetch failed`).
+const STRUCTURED_PRETTY_LOG_PREFIX = /^\d{2}:\d{2}:\d{2}\.\d{3}\s+(?:DEBUG|INFO|WARN|ERROR)\s+/
+
+export function stripStructuredLogPrefix(line) {
+  if (typeof line !== 'string') return ''
+  return line.replace(STRUCTURED_PRETTY_LOG_PREFIX, '')
+}
+
+const KMS_VAULT_FALLBACK_MESSAGE_PATTERN = /^\[shared:kms\] (?:Vault (?:read|write) (?:error|failed)\b|Vault write CAS conflict\b|No tenant DEK found in Vault\b|Failed to store tenant DEK in Vault\b)/
+
 export function isIgnorableDerivedKeyWarningLine(line) {
   if (typeof line !== 'string') return false
 
-  return line.startsWith('⚠️ [encryption][kms] Vault read error')
-    || line.startsWith('⚠️ [encryption][kms] No tenant DEK found in Vault')
-    || line.startsWith("path: 'secret/data/tenant_key_")
-    || line.startsWith("error: 'fetch failed'")
-    || line === '}'
-    || line.startsWith('━━━━━━━━')
-    || line.includes('Using derived tenant encryption keys')
-    || line.startsWith('Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
-    || line.startsWith('Secret: ')
-    || line.startsWith('Persist this secret securely.')
+  const normalized = stripStructuredLogPrefix(line.trim())
+
+  return normalized.startsWith('⚠️ [encryption][kms] Vault read error')
+    || normalized.startsWith('⚠️ [encryption][kms] No tenant DEK found in Vault')
+    || KMS_VAULT_FALLBACK_MESSAGE_PATTERN.test(normalized)
+    || normalized.startsWith("path: 'secret/data/tenant_key_")
+    || normalized.startsWith("error: 'fetch failed'")
+    || normalized === 'TypeError: fetch failed'
+    || normalized === '}'
+    || normalized.startsWith('━━━━━━━━')
+    || normalized.includes('Using derived tenant encryption keys')
+    || normalized.startsWith('Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
+    || normalized.startsWith('Source: TENANT_DATA_ENCRYPTION_KEY')
+    || normalized.startsWith('Source: dev default secret')
+    || normalized.startsWith('Secret: ')
+    || normalized.startsWith('Secret fingerprint (sha256, truncated):')
+    || normalized.startsWith('Persist this secret securely.')
 }
 
 function isIgnorableStructuredWarningBlockStartLine(line) {

@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -7,50 +8,17 @@ import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
 import { jsonSchemaToZod } from './schema-utils'
+import { getApiKeyFromMcpJson } from './mcp-dev-key-resolution'
 import type { McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
+const logger = createLogger('ai_assistant')
+
 const DEFAULT_PORT = 3001
 
 const log = (message: string, ...args: unknown[]) => {
-  console.error(`[MCP Dev] ${message}`, ...args)
-}
-
-async function getApiKeyFromMcpJson(): Promise<string | undefined> {
-  const { readFile, access } = await import('node:fs/promises')
-  const { resolve, dirname } = await import('node:path')
-
-  // Search for .mcp.json starting from cwd and walking up to project root
-  const findMcpJson = async (startDir: string): Promise<string | null> => {
-    let dir = startDir
-    const root = resolve('/')
-    while (dir !== root) {
-      const candidate = resolve(dir, '.mcp.json')
-      try {
-        await access(candidate)
-        return candidate
-      } catch {
-        dir = dirname(dir)
-      }
-    }
-    return null
-  }
-
-  try {
-    const mcpJsonPath = await findMcpJson(process.cwd())
-    if (!mcpJsonPath) {
-      return undefined
-    }
-
-    const content = await readFile(mcpJsonPath, 'utf-8')
-    const config = JSON.parse(content)
-    const serverConfig = config?.mcpServers?.['open-mercato']
-
-    return serverConfig?.headers?.['x-api-key']
-  } catch {
-    return undefined
-  }
+  logger.info(message, args.length > 0 ? { details: args.map((arg) => String(arg)).join(' ') } : undefined)
 }
 
 /**

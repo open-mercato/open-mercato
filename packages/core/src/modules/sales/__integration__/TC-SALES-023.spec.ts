@@ -3,6 +3,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
 import {
   createOrderLineFixture,
   createSalesOrderFixture,
+  createShipmentFixture,
   deleteSalesEntityIfExists,
 } from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
 
@@ -50,6 +51,7 @@ test.describe('TC-SALES-023: Order Returns - Adjustments and returned_quantity',
         unitPriceGross: 12,
         currencyCode: 'USD',
       })
+      await createShipmentFixture(request, token, orderId, [{ orderLineId, quantity: 2 }])
 
       const beforeOrderRes = await apiRequest(
         request,
@@ -157,6 +159,7 @@ test.describe('TC-SALES-023: Order Returns - Adjustments and returned_quantity',
         unitPriceGross: 12,
         currencyCode: 'USD',
       })
+      await createShipmentFixture(request, token, orderId, [{ orderLineId, quantity: 1 }])
 
       const payload = {
         orderId,

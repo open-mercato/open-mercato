@@ -15,9 +15,13 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainer(...args),
 }))
 
-jest.mock('@open-mercato/core/modules/auth/lib/requestRedirect', () => ({
-  buildRequestOriginUrl: (_req: Request, path: string) => `http://localhost${path}`,
-}))
+jest.mock('@open-mercato/core/modules/auth/lib/requestRedirect', () => {
+  const { NextResponse } = require('next/server')
+  return {
+    buildSafeRedirectResponse: (_req: Request, path: string) =>
+      new NextResponse(null, { status: 307, headers: { Location: `http://localhost${path}` } }),
+  }
+})
 
 import * as logoutRoute from '@open-mercato/core/modules/auth/api/logout'
 import { POST } from '@open-mercato/core/modules/auth/api/logout'

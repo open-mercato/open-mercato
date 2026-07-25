@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
-import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
+import { resolveDictionariesRouteContext, resolveDictionaryActorId } from '@open-mercato/core/modules/dictionaries/api/context'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   DEFAULT_DICTIONARY_ENTRY_SORT_MODE,
@@ -16,6 +20,9 @@ import {
   upsertDictionarySchema,
 } from './openapi'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'api' })
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['dictionaries.view'] },
@@ -63,7 +70,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries.GET] Unexpected error', err)
+    logger.error('Failed to load dictionaries', { err })
     return NextResponse.json({ error: 'Failed to load dictionaries' }, { status: 500 })
   }
 }
@@ -100,8 +107,39 @@ export async function POST(req: Request) {
       createdAt: new Date(),
       updatedAt: new Date(),
     })
+
+    const guardUserId = resolveDictionaryActorId(context.auth)
+    const guardResult = await validateCrudMutationGuard(context.container, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: guardUserId,
+      resourceKind: 'dictionaries.dictionary',
+      resourceId: dictionary.id,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: payload,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     context.em.persist(dictionary)
     await context.em.flush()
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(context.container, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userId: guardUserId,
+        resourceKind: 'dictionaries.dictionary',
+        resourceId: dictionary.id,
+        operation: 'create',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     return NextResponse.json({
       id: dictionary.id,
@@ -118,7 +156,7 @@ export async function POST(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries.POST] Unexpected error', err)
+    logger.error('Failed to create dictionary', { err })
     return NextResponse.json({ error: 'Failed to create dictionary' }, { status: 500 })
   }
 }

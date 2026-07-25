@@ -39,6 +39,9 @@ import {
   slugifyAttachmentFileName,
 } from "@open-mercato/core/modules/attachments/lib/imageUrls";
 import { canonicalizeUnitCode } from "../lib/unitCodes";
+import { createLogger } from '@open-mercato/shared/lib/logger';
+
+const logger = createLogger('catalog');
 
 type SeedScope = { tenantId: string; organizationId: string };
 
@@ -84,7 +87,7 @@ async function attachMediaFromExamples(
     try {
       buffer = await fs.readFile(sourcePath);
     } catch (error) {
-      console.warn(`[catalog.seed] Example media missing: ${sourcePath}`);
+      logger.warn('catalog.seed example media missing', { sourcePath });
       continue;
     }
     const stored = await storePartitionFile({
@@ -1043,10 +1046,7 @@ export async function seedCatalogExamples(
     try {
       await assign();
     } catch (err) {
-      console.warn(
-        "[catalog.seed] Failed to set example custom field values",
-        err,
-      );
+      logger.warn("catalog.seed failed to set example custom field values", { err });
     }
   }
 

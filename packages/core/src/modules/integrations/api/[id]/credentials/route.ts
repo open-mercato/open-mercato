@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { emitIntegrationsEvent } from '../../../events'
 import { saveCredentialsSchema } from '../../../data/validators'
 import {
@@ -11,10 +13,15 @@ import {
 } from '../../../lib/credentials-service'
 import { collectCredentialUrlValidationErrors } from '../../../lib/credentials-field-validation'
 import {
+  maskSecretCredentials,
+  mergeMaskedSecretCredentials,
+} from '../../../lib/credentials-masking'
+import {
   resolveUserFeatures,
   runIntegrationMutationGuardAfterSuccess,
   runIntegrationMutationGuards,
 } from '../../guards'
+import { resolveIntegrationsOrganizationId } from '../../../lib/organization-scope'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
 
@@ -38,7 +45,8 @@ function resolveParams(ctx: { params?: Promise<{ id?: string }> | { id?: string 
 
 export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  const organizationId = resolveIntegrationsOrganizationId(auth)
+  if (!auth?.tenantId || !organizationId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -55,11 +63,13 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   const container = await createRequestContainer()
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId: organizationId, tenantId: auth.tenantId }
 
   let values: Record<string, unknown> | null
+  let updatedAt: Date | null
   try {
     values = await credentialsService.resolve(integration.id, scope)
+    updatedAt = await credentialsService.resolveUpdatedAt(integration.id, scope)
   } catch (error) {
     if (isCredentialsEncryptionUnavailableError(error)) {
       return NextResponse.json({ error: 'Integration credentials encryption is unavailable' }, { status: 503 })
@@ -67,16 +77,22 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     throw error
   }
 
+  const schema = credentialsService.getSchema(integration.id)
+  const { credentials, secretFieldsConfigured } = maskSecretCredentials(schema, values ?? {})
+
   return NextResponse.json({
     integrationId: integration.id,
-    schema: credentialsService.getSchema(integration.id),
-    credentials: values ?? {},
+    schema,
+    credentials,
+    secretFieldsConfigured,
+    updatedAt: updatedAt?.toISOString() ?? null,
   })
 }
 
 export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  const organizationId = resolveIntegrationsOrganizationId(auth)
+  if (!auth?.tenantId || !organizationId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -102,7 +118,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     container,
     {
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     userId: auth.sub ?? '',
     resourceKind: 'integrations.integration',
     resourceId: integration.id,
@@ -128,10 +144,29 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
 
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId: organizationId, tenantId: auth.tenantId }
+  const schema = credentialsService.getSchema(integration.id)
+
+  try {
+    const currentUpdatedAt = await credentialsService.resolveUpdatedAt(integration.id, scope)
+    enforceCommandOptimisticLock({
+      resourceKind: 'integrations.integration',
+      resourceId: integration.id,
+      current: currentUpdatedAt,
+      request: req,
+    })
+  } catch (error) {
+    if (isCrudHttpError(error)) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
+    if (isCredentialsEncryptionUnavailableError(error)) {
+      return NextResponse.json({ error: 'Integration credentials encryption is unavailable' }, { status: 503 })
+    }
+    throw error
+  }
 
   const credentialFieldErrors = collectCredentialUrlValidationErrors(
-    credentialsService.getSchema(integration.id),
+    schema,
     payloadData.credentials,
   )
   if (Object.keys(credentialFieldErrors).length > 0) {
@@ -142,7 +177,12 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
 
   try {
-    await credentialsService.save(integration.id, payloadData.credentials, scope)
+    // Secret fields are returned masked on GET; when the client round-trips the
+    // mask sentinel it means "unchanged", so restore the existing stored secret
+    // instead of overwriting it with the placeholder.
+    const existing = await credentialsService.resolve(integration.id, scope)
+    const credentialsToSave = mergeMaskedSecretCredentials(schema, payloadData.credentials, existing ?? {})
+    await credentialsService.save(integration.id, credentialsToSave, scope)
   } catch (error) {
     if (isCredentialsEncryptionUnavailableError(error)) {
       return NextResponse.json({ error: 'Integration credentials encryption is unavailable' }, { status: 503 })
@@ -153,13 +193,13 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   await emitIntegrationsEvent('integrations.credentials.updated', {
     integrationId: integration.id,
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     userId: auth.sub,
   })
 
   await runIntegrationMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
       tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      organizationId,
       userId: auth.sub ?? '',
       resourceKind: 'integrations.integration',
       resourceId: integration.id,

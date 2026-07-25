@@ -2,7 +2,7 @@
 #
 # Use this overlay when you want the bundled Traefik to terminate TLS,
 # auto-issue Let's Encrypt certificates, and run the custom-domain
-# ForwardAuth gate (Phase 3 of `.ai/specs/2026-04-08-portal-custom-domain-routing.md`).
+# ForwardAuth gate (Phase 3 of `.ai/specs/implemented/2026-04-08-portal-custom-domain-routing.md`).
 #
 # Skip this overlay when an external reverse proxy already terminates TLS
 # (Dokploy, Caddy, nginx, Cloudflare Tunnel, etc.) — point that proxy at

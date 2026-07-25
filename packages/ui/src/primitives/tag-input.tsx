@@ -25,6 +25,15 @@ export type TagInputProps = {
    * the Figma `Tag Input` Filled state with `Right Icon=true`.
    */
   rightIcon?: InputProps['rightIcon']
+  /**
+   * Builds the accessible label for each tag's remove (×) button. Lets callers
+   * localize the action; defaults to the English `Remove {tag}`.
+   */
+  removeTagLabel?: (tag: string) => string
+}
+
+function defaultRemoveTagLabel(tag: string): string {
+  return `Remove ${tag}`
 }
 
 function escapeRegExp(input: string): string {
@@ -58,6 +67,7 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
       'aria-label': ariaLabel,
       'aria-invalid': ariaInvalid,
       rightIcon,
+      removeTagLabel = defaultRemoveTagLabel,
     },
     ref,
   ) => {
@@ -199,7 +209,7 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
                 shape="square"
                 disabled={disabled}
                 onRemove={() => removeTagAt(index)}
-                removeAriaLabel={`Remove ${tag}`}
+                removeAriaLabel={removeTagLabel(tag)}
               >
                 {tag}
               </Tag>

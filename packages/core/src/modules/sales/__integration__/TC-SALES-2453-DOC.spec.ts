@@ -17,7 +17,7 @@ import {
  * TC-SALES-2453-DOC — sales document update persists scalar columns even when
  * the command performs an interleaved read inside `withAtomicFlush`.
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md +
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md +
  *       packages/core/AGENTS.md → "Entity Update Safety — `withAtomicFlush`"
  *
  * Regression guard for the #2453-class bug. `sales.orders.update` /

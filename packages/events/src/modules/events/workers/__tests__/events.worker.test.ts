@@ -1,7 +1,22 @@
 import { registerCliModules, getCliModules } from '@open-mercato/shared/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import handle, { metadata, EVENTS_QUEUE_NAME, clearListenerCache } from '../events.worker'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const workerLoggerError = createLogger('events').error as jest.Mock
 
 // Clear modules and listener cache before each test
 function clearModules() {
@@ -14,6 +29,7 @@ function clearModules() {
 describe('Events Worker', () => {
   beforeEach(() => {
     clearModules()
+    workerLoggerError.mockClear()
   })
 
   afterEach(() => {
@@ -33,6 +49,19 @@ describe('Events Worker', () => {
   })
 
   describe('handle', () => {
+    // These tests exercise the legacy exact-match dispatch (the worker runs every
+    // matching subscriber, persistent or not). Single-delivery (now default-on)
+    // dispatches only persistent subscribers in the worker, so pin the legacy
+    // path here; single-delivery semantics are covered in the sibling describe.
+    const ORIG_SINGLE_DELIVERY = process.env.OM_EVENTS_SINGLE_DELIVERY
+    beforeEach(() => {
+      process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
+    })
+    afterEach(() => {
+      if (ORIG_SINGLE_DELIVERY === undefined) delete process.env.OM_EVENTS_SINGLE_DELIVERY
+      else process.env.OM_EVENTS_SINGLE_DELIVERY = ORIG_SINGLE_DELIVERY
+    })
+
     const createMockJob = (
       event: string,
       payload: unknown,
@@ -326,8 +355,6 @@ describe('Events Worker', () => {
       const job = createMockJob('test.event', { data: 'test' })
       const ctx = createMockContext()
 
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-
       await expect(handle(job, ctx)).rejects.toThrow(
         '1/2 subscriber(s) failed for event "test.event": a:failing-subscriber'
       )
@@ -336,7 +363,12 @@ describe('Events Worker', () => {
       expect(subscriber2Calls.length).toBe(1)
       expect(subscriber2Calls[0]).toEqual({ data: 'test' })
 
-      errorSpy.mockRestore()
+      expect(workerLoggerError).toHaveBeenCalledTimes(1)
+      expect(workerLoggerError).toHaveBeenCalledWith('Subscriber failed for event', {
+        event: 'test.event',
+        subscriberId: 'a:failing-subscriber',
+        err: expect.any(Error),
+      })
     })
 
     it('should dispatch subscribers in parallel, not sequentially', async () => {
@@ -422,13 +454,153 @@ describe('Events Worker', () => {
       const job = createMockJob('test.event', { data: 'test' })
       const ctx = createMockContext()
 
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-
       await expect(handle(job, ctx)).rejects.toThrow(
         '2/2 subscriber(s) failed for event "test.event": a:failing-subscriber, b:failing-subscriber'
       )
 
-      errorSpy.mockRestore()
+      expect(workerLoggerError).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('single-delivery dispatch (OM_EVENTS_SINGLE_DELIVERY) — issue #2960', () => {
+    const origFlag = process.env.OM_EVENTS_SINGLE_DELIVERY
+
+    afterEach(() => {
+      if (origFlag === undefined) delete process.env.OM_EVENTS_SINGLE_DELIVERY
+      else process.env.OM_EVENTS_SINGLE_DELIVERY = origFlag
+    })
+
+    const createMockJob = (
+      event: string,
+      payload: unknown,
+      options?: { tenantId?: string | null; organizationId?: string | null },
+    ): QueuedJob<{
+      event: string
+      payload: unknown
+      options?: { tenantId?: string | null; organizationId?: string | null }
+    }> => ({
+      id: 'test-job-id',
+      payload: { event, payload, options },
+      createdAt: new Date().toISOString(),
+    })
+
+    const createMockContext = (): JobContext & { resolve: <T = unknown>(name: string) => T } => ({
+      jobId: 'test-job-id',
+      attemptNumber: 1,
+      queueName: 'events',
+      resolve: <T = unknown>(name: string): T => { throw new Error(`No mock for ${name}`) },
+    })
+
+    it('flag ON: dispatches wildcard persistent subscribers that exact-match never reached', async () => {
+      process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+      clearListenerCache()
+      const calls: string[] = []
+      registerCliModules([{
+        id: 'm',
+        subscribers: [
+          { id: 'wildcard:persistent', event: '*', persistent: true, handler: () => { calls.push('wild') } },
+        ],
+      }])
+
+      await handle(createMockJob('any.event', {}), createMockContext())
+
+      expect(calls).toEqual(['wild'])
+    })
+
+    it('flag ON: excludes non-persistent subscribers from worker dispatch', async () => {
+      process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+      clearListenerCache()
+      const calls: string[] = []
+      registerCliModules([{
+        id: 'm',
+        subscribers: [
+          { id: 'p', event: 'user.created', persistent: true, handler: () => { calls.push('p') } },
+          { id: 'e', event: 'user.created', persistent: false, handler: () => { calls.push('e') } },
+        ],
+      }])
+
+      await handle(createMockJob('user.created', {}), createMockContext())
+
+      expect(calls).toEqual(['p'])
+    })
+
+    it('default (unset): dispatches wildcard persistent subscribers (single-delivery is default-on)', async () => {
+      delete process.env.OM_EVENTS_SINGLE_DELIVERY
+      clearListenerCache()
+      const calls: string[] = []
+      registerCliModules([{
+        id: 'm',
+        subscribers: [
+          { id: 'p', event: 'user.created', persistent: true, handler: () => { calls.push('p') } },
+          { id: 'w', event: '*', persistent: true, handler: () => { calls.push('w') } },
+        ],
+      }])
+
+      await handle(createMockJob('user.created', {}), createMockContext())
+
+      // Default-on: pattern dispatch reaches both the exact-match and the wildcard
+      // persistent subscriber.
+      expect(calls.sort()).toEqual(['p', 'w'])
+    })
+
+    it('default (unset): forwards eventName and trusted scope to persistent wildcard subscribers', async () => {
+      delete process.env.OM_EVENTS_SINGLE_DELIVERY
+      clearListenerCache()
+      const contexts: Array<{
+        eventName?: string
+        tenantId?: string | null
+        organizationId?: string | null
+      }> = []
+      registerCliModules([{
+        id: 'm',
+        subscribers: [
+          {
+            id: 'workflow:event-trigger',
+            event: '*',
+            persistent: true,
+            handler: (_payload, ctx) => {
+              contexts.push({
+                eventName: ctx.eventName,
+                tenantId: ctx.tenantId,
+                organizationId: ctx.organizationId,
+              })
+            },
+          },
+        ],
+      }])
+
+      await handle(
+        createMockJob(
+          'customers.deal.created',
+          { id: 'deal-1', tenantId: 'payload-tenant', organizationId: 'payload-org' },
+          { tenantId: 'trusted-tenant', organizationId: 'trusted-org' },
+        ),
+        createMockContext(),
+      )
+
+      expect(contexts).toEqual([{
+        eventName: 'customers.deal.created',
+        tenantId: 'trusted-tenant',
+        organizationId: 'trusted-org',
+      }])
+    })
+
+    it('flag explicitly OFF (legacy opt-out): preserves exact-match dispatch and never reaches wildcards', async () => {
+      process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
+      clearListenerCache()
+      const calls: string[] = []
+      registerCliModules([{
+        id: 'm',
+        subscribers: [
+          { id: 'p', event: 'user.created', persistent: true, handler: () => { calls.push('p') } },
+          { id: 'w', event: '*', persistent: true, handler: () => { calls.push('w') } },
+        ],
+      }])
+
+      await handle(createMockJob('user.created', {}), createMockContext())
+
+      // Legacy behavior: exact-match only, so the wildcard subscriber is not reached here.
+      expect(calls).toEqual(['p'])
     })
   })
 })

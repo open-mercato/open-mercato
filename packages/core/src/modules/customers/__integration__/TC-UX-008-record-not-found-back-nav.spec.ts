@@ -3,7 +3,7 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
 
 /**
  * TC-UX-008: RecordNotFoundState back-to-list action navigates to the owning list page
- * Source: .ai/specs/2026-03-23-unified-record-not-found-ui-state.md (Phase 5 — Integration Coverage)
+ * Source: .ai/specs/implemented/2026-03-23-unified-record-not-found-ui-state.md (Phase 5 — Integration Coverage)
  *
  * Uses the Phase-1 representative page `/backend/customers/companies/[id]`
  * (introduced in PR #2014) to confirm the recovery action actually navigates,

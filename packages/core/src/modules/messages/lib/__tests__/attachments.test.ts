@@ -202,7 +202,6 @@ describe('messages attachments helpers', () => {
       em as never,
       'source-msg',
       'target-msg',
-      'org-1',
       'tenant-1',
     )
 
@@ -219,6 +218,76 @@ describe('messages attachments helpers', () => {
     )
     expect(em.persist).toHaveBeenCalledTimes(1)
     expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('inherits the source attachment scope pair rather than a caller-supplied org', async () => {
+    const globalAttachment = {
+      id: 'att-global',
+      tenantId: null,
+      organizationId: null,
+      fileName: 'global.pdf',
+      mimeType: 'application/pdf',
+      fileSize: 12,
+      storageDriver: 'local',
+      storagePath: '/tmp/global.pdf',
+      storageMetadata: null,
+      url: '/f/global.pdf',
+      partitionCode: 'messages',
+    }
+
+    const em = createEm({
+      find: jest.fn(async () => [globalAttachment]),
+    })
+
+    const copiedCount = await copyAttachmentsForForward(
+      em as never,
+      'source-msg',
+      'target-msg',
+      'tenant-1',
+    )
+
+    expect(copiedCount).toBe(1)
+    expect(em.create).toHaveBeenCalledWith(
+      Attachment,
+      expect.objectContaining({
+        recordId: 'target-msg',
+        organizationId: null,
+        tenantId: null,
+        fileName: 'global.pdf',
+      }),
+    )
+  })
+
+  it('skips partial-null source rows instead of propagating an invalid scope', async () => {
+    const partialNullAttachment = {
+      id: 'att-bad',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      fileName: 'orphan.pdf',
+      mimeType: 'application/pdf',
+      fileSize: 12,
+      storageDriver: 'local',
+      storagePath: '/tmp/orphan.pdf',
+      storageMetadata: null,
+      url: '/f/orphan.pdf',
+      partitionCode: 'messages',
+    }
+
+    const em = createEm({
+      find: jest.fn(async () => [partialNullAttachment]),
+    })
+
+    const copiedCount = await copyAttachmentsForForward(
+      em as never,
+      'source-msg',
+      'target-msg',
+      'tenant-1',
+    )
+
+    expect(copiedCount).toBe(0)
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   it('copies and deduplicates attachments for forward across thread slice message ids', async () => {
@@ -256,7 +325,6 @@ describe('messages attachments helpers', () => {
       em as never,
       ['source-1', 'source-2'],
       'target-msg',
-      'org-1',
       'tenant-1',
     )
 

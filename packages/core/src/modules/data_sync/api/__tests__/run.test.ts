@@ -17,6 +17,11 @@ const mockIntegrationStateService = {
   isEnabled: jest.fn(),
 }
 
+const mockCrudMutationGuardService = {
+  validateMutation: jest.fn(),
+  afterMutationSuccess: jest.fn(),
+}
+
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn((request: Request) => mockGetAuthFromRequest(request)),
 }))
@@ -62,9 +67,12 @@ describe('data_sync run route', () => {
         if (token === 'dataSyncRunService') return mockSyncRunService
         if (token === 'progressService') return mockProgressService
         if (token === 'integrationStateService') return mockIntegrationStateService
+        if (token === 'crudMutationGuardService') return mockCrudMutationGuardService
         throw new Error(`Unexpected token: ${token}`)
       },
     })
+    mockCrudMutationGuardService.validateMutation.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: null })
+    mockCrudMutationGuardService.afterMutationSuccess.mockResolvedValue(undefined)
     mockGetIntegration.mockReturnValue({
       id: 'sync_excel',
       providerKey: 'excel',
@@ -126,5 +134,75 @@ describe('data_sync run route', () => {
       progressJobId: '22222222-2222-4222-8222-222222222222',
     })
     expect(mockStartDataSyncRun).toHaveBeenCalled()
+    expect(mockCrudMutationGuardService.validateMutation).toHaveBeenCalledWith(expect.objectContaining({
+      resourceKind: 'data_sync.run',
+      operation: 'custom',
+    }))
+    expect(mockCrudMutationGuardService.afterMutationSuccess).toHaveBeenCalledWith(expect.objectContaining({
+      resourceKind: 'data_sync.run',
+      resourceId: '11111111-1111-4111-8111-111111111111',
+    }))
+  })
+
+  it('short-circuits the run when the mutation guard blocks it', async () => {
+    mockCrudMutationGuardService.validateMutation.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      body: { error: 'Blocked by guard' },
+    })
+
+    const response = await postHandler(new Request('http://localhost/api/data_sync/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        integrationId: 'generic_sync',
+        entityType: 'customers.person',
+        direction: 'import',
+      }),
+    }))
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: 'Blocked by guard' })
+    expect(mockStartDataSyncRun).not.toHaveBeenCalled()
+    expect(mockCrudMutationGuardService.afterMutationSuccess).not.toHaveBeenCalled()
+  })
+
+  it('does not run the after-success hook when the guard opts out', async () => {
+    mockCrudMutationGuardService.validateMutation.mockResolvedValueOnce({
+      ok: true,
+      shouldRunAfterSuccess: false,
+      metadata: null,
+    })
+
+    const response = await postHandler(new Request('http://localhost/api/data_sync/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        integrationId: 'generic_sync',
+        entityType: 'customers.person',
+        direction: 'import',
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(mockStartDataSyncRun).toHaveBeenCalled()
+    expect(mockCrudMutationGuardService.afterMutationSuccess).not.toHaveBeenCalled()
+  })
+
+  it('does not leak the error message or stack in the 500 response (CWE-209)', async () => {
+    const internalDetail = '/srv/app/internal at customers_pkey; connection tenant_secret'
+    mockStartDataSyncRun.mockRejectedValueOnce(new Error(internalDetail))
+
+    const response = await postHandler(new Request('http://localhost/api/data_sync/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        integrationId: 'generic_sync',
+        entityType: 'customers.person',
+        direction: 'import',
+      }),
+    }))
+
+    expect(response.status).toBe(500)
+    const body = await response.json()
+    expect(body).toEqual({ error: 'Failed to start data sync run.' })
+    expect(JSON.stringify(body)).not.toContain(internalDetail)
   })
 })

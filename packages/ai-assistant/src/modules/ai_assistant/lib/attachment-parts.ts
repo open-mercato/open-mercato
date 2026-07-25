@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { promises as fs } from 'fs'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -10,6 +11,8 @@ import type {
   AiChatRequestContext,
   AiResolvedAttachmentPart,
 } from './attachment-bridge-types'
+
+const logger = createLogger('ai_assistant')
 
 // Provider-native inline byte limit. Most AI providers accept inline image/PDF
 // payloads comfortably under 4 MB; anything larger SHOULD travel as a short-lived
@@ -128,10 +131,23 @@ async function loadAttachmentRow(
   // core package owns the MikroORM metadata and is the only place tests would
   // need to bootstrap for real DB access.
   const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
+  // Tenant isolation is enforced in the SQL WHERE clause, not just the JS
+  // post-filter below: the decryption scope (5th arg) only drives field
+  // decryption, so omitting tenant/org from `where` would let `em.findOne`
+  // return a row from another tenant. Super-admins bypass the scope. Org-scoped
+  // callers also constrain by org; tenant-wide callers (organizationId === null)
+  // may read any org within their tenant.
+  const where: Record<string, unknown> = { id: attachmentId }
+  if (!authContext.isSuperAdmin) {
+    where.tenantId = authContext.tenantId
+    if (authContext.organizationId != null) {
+      where.organizationId = authContext.organizationId
+    }
+  }
   const record = await findOneWithDecryption(
     em,
     Attachment as never,
-    { id: attachmentId } as never,
+    where as never,
     undefined,
     {
       tenantId: authContext.tenantId,
@@ -157,10 +173,18 @@ async function loadAttachmentRow(
 
 function rowBelongsToCaller(row: AttachmentRow, authContext: AiChatRequestContext): boolean {
   if (authContext.isSuperAdmin) return true
-  // Tenant scope: if the record is tenant-scoped, it MUST match the caller tenant.
-  if (row.tenantId && row.tenantId !== authContext.tenantId) return false
-  // Organization scope: if the record is org-scoped, it MUST match the caller org.
-  if (row.organizationId && row.organizationId !== authContext.organizationId) return false
+  // Tenant scope: fail closed. The record MUST carry the caller's tenant.
+  // A null `tenant_id` (a supported "global"/unscoped attachment state) is NOT
+  // accessible through the AI path: it has no `partition.isPublic` gate, so a
+  // truthiness short-circuit here would leak the bytes / extracted text into a
+  // different tenant's LLM context (cross-tenant IDOR, issue #2663). Requiring
+  // strict equality also rejects a non-super-admin caller with a null tenant.
+  if (authContext.tenantId == null || row.tenantId !== authContext.tenantId) return false
+  // Organization scope: when the caller is org-scoped, the record MUST match
+  // that organization (this also rejects null-org rows for an org-scoped
+  // caller). Tenant-wide callers (organizationId === null) may read any org
+  // within their tenant.
+  if (authContext.organizationId != null && row.organizationId !== authContext.organizationId) return false
   return true
 }
 
@@ -177,10 +201,7 @@ async function readAttachmentBytes(row: AttachmentRow): Promise<Uint8Array | nul
     const buffer = await fs.readFile(absolutePath)
     return new Uint8Array(buffer)
   } catch (error) {
-    console.warn(
-      `[AI Agents] Failed to read attachment ${row.id} from storage; falling back to metadata-only:`,
-      error,
-    )
+    logger.warn('Failed to read attachment from storage; falling back to metadata-only', { attachmentId: row.id, err: error })
     return null
   }
 }
@@ -238,10 +259,7 @@ async function classifyAndBuildPart(
           }
         }
       } catch (error) {
-        console.warn(
-          `[AI Agents] attachmentSigner failed for ${row.id}; falling back to metadata-only:`,
-          error,
-        )
+        logger.warn('attachmentSigner failed; falling back to metadata-only', { attachmentId: row.id, err: error })
       }
     }
     return { ...base, source: 'metadata-only' }
@@ -258,12 +276,12 @@ async function classifyAndBuildPart(
  * Contract:
  *
  * - Tenant/org scope is enforced: records that don't belong to the caller are
- *   dropped with a `console.warn`. Super-admin callers bypass the scope check.
+ *   dropped with a logger warning. Super-admin callers bypass the scope check.
  * - When the agent declares `acceptedMediaTypes`, parts whose classified media
- *   type is not in the whitelist are dropped with a `console.warn`.
+ *   type is not in the whitelist are dropped with a logger warning.
  *   `acceptedMediaTypes: undefined` means "no filter".
  * - When the DI container is missing or the attachments service is
- *   unavailable, the helper returns `[]` with a single `console.warn` and
+ *   unavailable, the helper returns `[]` with a single logger warning and
  *   does NOT throw — the caller's `attachmentIds` pass-through to
  *   {@link resolveAiAgentTools} remains the Step 3.6 parity behavior.
  * - The returned parts are ordered to match `attachmentIds`. Any id that
@@ -278,9 +296,7 @@ export async function resolveAttachmentParts(
 
   const em = resolveEm(input.container)
   if (!em) {
-    console.warn(
-      '[AI Agents] resolveAttachmentParts called without a DI container exposing `em`; skipping attachment resolution.',
-    )
+    logger.warn('resolveAttachmentParts called without a DI container exposing `em`; skipping attachment resolution')
     return []
   }
 
@@ -298,27 +314,20 @@ export async function resolveAttachmentParts(
     try {
       row = await loadAttachmentRow(em, id, input.authContext)
     } catch (error) {
-      console.warn(
-        `[AI Agents] Failed to load attachment ${id}; skipping:`,
-        error,
-      )
+      logger.warn('Failed to load attachment; skipping', { attachmentId: id, err: error })
       continue
     }
     if (!row) {
-      console.warn(`[AI Agents] Attachment ${id} not found; skipping.`)
+      logger.warn('Attachment not found; skipping', { attachmentId: id })
       continue
     }
     if (!rowBelongsToCaller(row, input.authContext)) {
-      console.warn(
-        `[AI Agents] Attachment ${id} is out of scope for caller (tenant=${input.authContext.tenantId}, org=${input.authContext.organizationId}); skipping.`,
-      )
+      logger.warn('Attachment is out of scope for caller; skipping', { attachmentId: id, tenantId: input.authContext.tenantId, organizationId: input.authContext.organizationId })
       continue
     }
     const mediaClass = classifyMediaType(row.mimeType)
     if (acceptedSet && !acceptedSet.has(mediaClass)) {
-      console.warn(
-        `[AI Agents] Attachment ${id} (${row.mimeType}) is not in agent acceptedMediaTypes=${[...acceptedSet].join(',')}; skipping.`,
-      )
+      logger.warn('Attachment is not in agent acceptedMediaTypes; skipping', { attachmentId: id, mimeType: row.mimeType, acceptedMediaTypes: [...acceptedSet].join(',') })
       continue
     }
     try {
@@ -332,10 +341,7 @@ export async function resolveAttachmentParts(
       )
       parts.push(part)
     } catch (error) {
-      console.warn(
-        `[AI Agents] Failed to build attachment part for ${id}; skipping:`,
-        error,
-      )
+      logger.warn('Failed to build attachment part; skipping', { attachmentId: id, err: error })
     }
   }
 

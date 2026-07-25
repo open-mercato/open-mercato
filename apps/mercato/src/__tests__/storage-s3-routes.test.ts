@@ -30,6 +30,7 @@ jest.mock('../../../../packages/storage-s3/src/modules/storage_s3/lib/s3-driver'
   })),
 }))
 
+import { S3StorageDriver } from '../../../../packages/storage-s3/src/modules/storage_s3/lib/s3-driver'
 import { GET as download } from '../../../../packages/storage-s3/src/modules/storage_s3/api/get/storage-providers/s3/download'
 import { POST as upload } from '../../../../packages/storage-s3/src/modules/storage_s3/api/post/storage-providers/s3/upload'
 
@@ -70,6 +71,11 @@ describe('storage_s3 upload/download routes', () => {
     }))
 
     expect(response.status).toBe(200)
+    expect(S3StorageDriver).toHaveBeenCalledWith(expect.objectContaining({
+      bucket: 'bucket',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+    }))
     expect(putObjectMock).toHaveBeenCalledWith(expect.any(String), expect.any(Buffer), 'image/png')
     await expect(response.json()).resolves.toEqual(expect.objectContaining({
       bucket: 'test-bucket',

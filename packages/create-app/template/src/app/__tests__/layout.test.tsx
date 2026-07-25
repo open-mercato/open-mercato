@@ -17,6 +17,7 @@ jest.mock('@/bootstrap', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  registerAppDictionaryLoader: jest.fn(),
   detectLocale: jest.fn(async () => 'en'),
   loadDictionary: jest.fn(async () => ({ common: 'value' })),
 }))

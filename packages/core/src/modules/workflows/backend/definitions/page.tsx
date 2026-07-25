@@ -153,20 +153,29 @@ export default function WorkflowDefinitionsListPage() {
     setDeleteTarget(null)
   }
 
-  const handleToggleEnabled = async (id: string, currentEnabled: boolean) => {
-    const result = await apiCall(`/api/workflows/definitions/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        enabled: !currentEnabled,
+  const handleToggleEnabled = async (id: string, currentEnabled: boolean, updatedAt: string | null) => {
+    const result = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(updatedAt),
+      () => apiCall(`/api/workflows/definitions/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: !currentEnabled,
+        }),
       }),
-    })
+    )
 
     if (result.ok) {
       flash(t('workflows.messages.updated'), 'success')
       queryClient.invalidateQueries({ queryKey: ['workflow-definitions'] })
     } else {
-      flash(t('workflows.messages.updateFailed'), 'error')
+      const conflictError = Object.assign(new Error(t('workflows.messages.updateFailed')), {
+        status: result.status,
+        ...(result.result && typeof result.result === 'object' ? result.result : {}),
+      })
+      if (!surfaceRecordConflict(conflictError, t)) {
+        flash(t('workflows.messages.updateFailed'), 'error')
+      }
     }
   }
 
@@ -296,7 +305,7 @@ export default function WorkflowDefinitionsListPage() {
       accessorKey: 'enabled',
       cell: ({ row }) => (
         <button
-          onClick={() => handleToggleEnabled(row.original.id, row.original.enabled)}
+          onClick={() => handleToggleEnabled(row.original.id, row.original.enabled, row.original.updatedAt)}
           className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium cursor-pointer ${
             row.original.enabled
               ? 'bg-status-success-bg text-status-success-text hover:bg-status-success-border'
@@ -356,7 +365,7 @@ export default function WorkflowDefinitionsListPage() {
           ...(!isCodeOnly ? [{
             id: row.original.enabled ? 'disable' : 'enable',
             label: row.original.enabled ? t('common.disable') : t('common.enable'),
-            onSelect: () => handleToggleEnabled(row.original.id, row.original.enabled),
+            onSelect: () => handleToggleEnabled(row.original.id, row.original.enabled, row.original.updatedAt),
           }] : []),
           ...(!isCodeOnly ? [{
             id: 'duplicate',

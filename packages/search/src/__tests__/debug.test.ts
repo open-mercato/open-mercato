@@ -1,4 +1,22 @@
-import { isSearchDebugEnabled, searchDebug, searchDebugWarn, searchError } from '../lib/debug'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isSearchDebugEnabled, searchDebug, searchDebugWarn, searchWarn, searchError } from '../lib/debug'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const searchLoggerDebug = createLogger('search').debug as jest.Mock
+const searchLoggerWarn = createLogger('search').warn as jest.Mock
+const searchLoggerError = createLogger('search').error as jest.Mock
+const searchLoggerChild = createLogger('search').child as jest.Mock
 
 describe('search debug utilities', () => {
   const originalDebugEnv = process.env.OM_SEARCH_DEBUG
@@ -13,12 +31,14 @@ describe('search debug utilities', () => {
 
   beforeEach(() => {
     restoreDebugEnv()
-    jest.restoreAllMocks()
+    searchLoggerDebug.mockClear()
+    searchLoggerWarn.mockClear()
+    searchLoggerError.mockClear()
+    searchLoggerChild.mockClear()
   })
 
   afterAll(() => {
     restoreDebugEnv()
-    jest.restoreAllMocks()
   })
 
   describe('isSearchDebugEnabled', () => {
@@ -42,72 +62,77 @@ describe('search debug utilities', () => {
   describe('searchDebug', () => {
     it('does not log when debug is disabled', () => {
       delete process.env.OM_SEARCH_DEBUG
-      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
       searchDebug('search.test', 'suppressed')
 
-      expect(consoleSpy).not.toHaveBeenCalled()
+      expect(searchLoggerDebug).not.toHaveBeenCalled()
     })
 
     it('logs message and payload when debug is enabled', () => {
       process.env.OM_SEARCH_DEBUG = 'true'
-      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
       const payload = { entityId: 'customers:person', recordId: 'rec-123' }
 
       searchDebug('search.test', 'indexed', payload)
 
-      expect(consoleSpy).toHaveBeenCalledWith('[search.test] indexed', payload)
+      expect(searchLoggerChild).toHaveBeenCalledWith({ component: 'search.test' })
+      expect(searchLoggerDebug).toHaveBeenCalledWith('indexed', payload)
     })
 
-    it('logs only the formatted message when payload is omitted', () => {
+    it('logs only the message when payload is omitted', () => {
       process.env.OM_SEARCH_DEBUG = 'true'
-      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
       searchDebug('search.test', 'indexed')
 
-      expect(consoleSpy).toHaveBeenCalledWith('[search.test] indexed')
+      expect(searchLoggerDebug).toHaveBeenCalledWith('indexed', undefined)
     })
   })
 
   describe('searchDebugWarn', () => {
     it('does not warn when debug is disabled', () => {
       process.env.OM_SEARCH_DEBUG = 'false'
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
 
       searchDebugWarn('search.test', 'suppressed')
 
-      expect(consoleSpy).not.toHaveBeenCalled()
+      expect(searchLoggerWarn).not.toHaveBeenCalled()
     })
 
-    it('warns with the formatted message and payload when enabled', () => {
+    it('warns with the message and payload when enabled', () => {
       process.env.OM_SEARCH_DEBUG = 'yes'
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
       const payload = { queue: 'vector-indexing' }
 
       searchDebugWarn('search.test', 'retrying', payload)
 
-      expect(consoleSpy).toHaveBeenCalledWith('[search.test] retrying', payload)
+      expect(searchLoggerWarn).toHaveBeenCalledWith('retrying', payload)
+    })
+  })
+
+  describe('searchWarn', () => {
+    it('always warns even when debug is disabled', () => {
+      process.env.OM_SEARCH_DEBUG = 'false'
+      const payload = { provider: 'ollama' }
+
+      searchWarn('search.test', 'provider unreachable', payload)
+
+      expect(searchLoggerWarn).toHaveBeenCalledWith('provider unreachable', payload)
     })
   })
 
   describe('searchError', () => {
     it('always logs errors even when debug is disabled', () => {
       process.env.OM_SEARCH_DEBUG = 'false'
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
       const payload = { error: 'boom' }
 
       searchError('search.test', 'failed', payload)
 
-      expect(consoleSpy).toHaveBeenCalledWith('[search.test] failed', payload)
+      expect(searchLoggerError).toHaveBeenCalledWith('failed', payload)
     })
 
-    it('logs only the formatted error message when payload is omitted', () => {
+    it('logs only the error message when payload is omitted', () => {
       delete process.env.OM_SEARCH_DEBUG
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
       searchError('search.test', 'failed')
 
-      expect(consoleSpy).toHaveBeenCalledWith('[search.test] failed')
+      expect(searchLoggerError).toHaveBeenCalledWith('failed', undefined)
     })
   })
 })

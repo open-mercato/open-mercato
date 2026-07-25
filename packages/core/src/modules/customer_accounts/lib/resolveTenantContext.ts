@@ -12,8 +12,8 @@
  * signup, magic-link, password-reset) so they all behave consistently when
  * the request arrives on a tenant's branded URL.
  *
- * See `.ai/specs/2026-04-08-portal-custom-domain-routing.md` Phase 1.5 and
- * `.ai/specs/2026-06-05-tenant-ownership-and-module-acl-authorization.md` § C.
+ * See `.ai/specs/implemented/2026-04-08-portal-custom-domain-routing.md` Phase 1.5 and
+ * `.ai/specs/implemented/2026-06-05-tenant-ownership-and-module-acl-authorization.md` § C.
  */
 
 import { tryNormalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'

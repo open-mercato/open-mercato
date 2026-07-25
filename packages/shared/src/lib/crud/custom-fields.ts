@@ -6,6 +6,7 @@ import type { TenantDataEncryptionService } from '../encryption/tenantDataEncryp
 import { decryptCustomFieldValue, resolveTenantEncryptionService } from '../encryption/customFieldValues'
 import { parseBooleanToken } from '../boolean'
 import { extractCustomFieldEntries } from './custom-fields-client'
+import { createLogger } from '../logger'
 import {
   buildCustomFieldDefinitionIndexFromRows,
   normalizeDefinitionKey,
@@ -15,6 +16,8 @@ import {
   type CustomFieldDefinitionRow,
   type CustomFieldDefinitionSummary,
 } from './custom-field-definition-index'
+
+const logger = createLogger('shared').child({ component: 'crud' })
 
 export type { CustomFieldDefinitionSummary, CustomFieldDefinitionIndex } from './custom-field-definition-index'
 
@@ -269,8 +272,8 @@ function buildCfDefIndexCacheKey(opts: {
   fieldsetKey: string | null
 }): string {
   const tenant = opts.tenantId ?? 'global'
-  const entities = opts.entityIds.slice().sort().join('|')
-  const orgs = opts.organizationIds.length ? opts.organizationIds.slice().sort().join('|') : 'none'
+  const entities = opts.entityIds.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join('|')
+  const orgs = opts.organizationIds.length ? opts.organizationIds.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join('|') : 'none'
   const fieldset = opts.fieldsetKey ?? 'all'
   return `${CF_DEF_INDEX_CACHE_KEY_PREFIX}:${tenant}:${entities}:${orgs}:${fieldset}`
 }
@@ -295,7 +298,7 @@ function normalizeFieldsetKey(value: string | string[] | null | undefined): stri
       .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
       .filter((entry) => entry.length > 0)
     if (!cleaned.length) return null
-    return cleaned.sort().join(',')
+    return cleaned.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')
   }
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
@@ -416,7 +419,7 @@ export async function loadCustomFieldDefinitionIndex(opts: LoadCustomFieldDefini
         return restored
       }
     } catch (err) {
-      console.warn('[crud:cf-def-cache] read failed', err)
+      logger.warn('Custom-field definition cache read failed', { err })
     }
   }
 
@@ -433,7 +436,7 @@ export async function loadCustomFieldDefinitionIndex(opts: LoadCustomFieldDefini
         tags: buildCfDefIndexCacheTags({ tenantId, entityIds }),
       })
     } catch (err) {
-      console.warn('[crud:cf-def-cache] write failed', err)
+      logger.warn('Custom-field definition cache write failed', { err })
     }
   }
   if (requestBucket) requestBucket.set(cacheKey, index)
@@ -632,7 +635,7 @@ export async function loadCustomFieldValues(opts: {
   type Bucket = { orgId: string | null; tenantId: string | null; values: unknown[]; def?: CustomFieldDef | null; encrypted?: boolean }
   const buckets = new Map<string, Bucket>()
 
-  for (const row of cfRows) {
+  const rowInfos = cfRows.map((row) => {
     const recordId = String(row.recordId)
     const key = String(row.fieldKey)
     const bucketKey = `${recordId}::${key}`
@@ -643,26 +646,39 @@ export async function loadCustomFieldValues(opts: {
     const def = pickDefinition(key, resolvedOrgId, resolvedTenantId)
     const encrypted = Boolean(def?.configJson && (def as any).configJson?.encrypted)
     const value = valueFromRow(row)
-    const decrypted = encrypted
-      ? await decryptCustomFieldValue(
-          value,
-          resolvedTenantId ?? tenantId ?? null,
-          getEncryptionService(),
-          encryptionCache,
-          { kind: def?.kind ?? null },
-        )
-      : value
-    const existing = buckets.get(bucketKey)
+    return { bucketKey, resolvedOrgId, resolvedTenantId, tenantId, def, encrypted, value }
+  })
+
+  // Decrypt every encrypted value concurrently so a list of N rows × M encrypted
+  // fields costs the slowest single decryption rather than the sum (issue #2229).
+  // The shared encryptionCache keeps DEK lookups deduped per tenant.
+  const decryptedValues = await Promise.all(
+    rowInfos.map((info) =>
+      info.encrypted
+        ? decryptCustomFieldValue(
+            info.value,
+            info.resolvedTenantId ?? info.tenantId ?? null,
+            getEncryptionService(),
+            encryptionCache,
+            { kind: info.def?.kind ?? null },
+          )
+        : info.value,
+    ),
+  )
+
+  rowInfos.forEach((info, index) => {
+    const decrypted = decryptedValues[index]
+    const existing = buckets.get(info.bucketKey)
     if (existing) {
-      if (existing.orgId == null && resolvedOrgId) existing.orgId = resolvedOrgId
-      if (existing.tenantId == null && resolvedTenantId) existing.tenantId = resolvedTenantId
-      if (existing.def == null && def) existing.def = def
-      existing.encrypted = existing.encrypted || encrypted
+      if (existing.orgId == null && info.resolvedOrgId) existing.orgId = info.resolvedOrgId
+      if (existing.tenantId == null && info.resolvedTenantId) existing.tenantId = info.resolvedTenantId
+      if (existing.def == null && info.def) existing.def = info.def
+      existing.encrypted = existing.encrypted || info.encrypted
       existing.values.push(decrypted)
     } else {
-      buckets.set(bucketKey, { orgId: resolvedOrgId, tenantId: resolvedTenantId, values: [decrypted], def: def ?? null, encrypted })
+      buckets.set(info.bucketKey, { orgId: info.resolvedOrgId, tenantId: info.resolvedTenantId, values: [decrypted], def: info.def ?? null, encrypted: info.encrypted })
     }
-  }
+  })
 
   const result: Record<string, Record<string, unknown>> = {}
   for (const [compoundKey, bucket] of buckets.entries()) {

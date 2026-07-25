@@ -185,6 +185,17 @@ describe('catalog.list_offers', () => {
     expect(tool.isMutation).toBeFalsy()
   })
 
+  it('covers the GET /catalog/offers route features so the api runner does not fail closed', () => {
+    // The offers route declares `requireFeatures: ['sales.channels.manage']`
+    // and the api-backed runner refuses to call a route whose required
+    // features the tool does not cover. Regression guard for #2899: without
+    // sales.channels.manage the tool was unreachable. catalog.products.view
+    // stays for the variant→offer resolution path.
+    expect(tool.requiredFeatures).toEqual(
+      expect.arrayContaining(['catalog.products.view', 'sales.channels.manage']),
+    )
+  })
+
   it('caps limit at 100', () => {
     expect(tool.inputSchema.safeParse({ limit: 200 }).success).toBe(false)
   })

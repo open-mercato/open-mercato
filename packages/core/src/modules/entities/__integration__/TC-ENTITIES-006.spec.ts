@@ -22,10 +22,11 @@ import {
  * Verified behavior note (corrects the issue's premise):
  *   The issue expected records to disappear after deleting the entity definition.
  *   In reality, records live in `custom_entities_storage` independently of the
- *   `custom_entities` definition row, and the records endpoint detects the entity
- *   from its storage rows — so the entity-definition soft delete is metadata-only
- *   and its stored records REMAIN queryable. This spec asserts the true invariant:
- *   the entity vanishes from the entity list while its records persist.
+ *   `custom_entities` definition row, and the records endpoint classifies the entity
+ *   from its registration row (active OR soft-deleted) — so the entity-definition
+ *   soft delete is metadata-only and its stored records REMAIN queryable. This spec
+ *   asserts the true invariant: the entity vanishes from the entity list while its
+ *   records persist.
  */
 test.describe('TC-ENTITIES-006: Soft-deleting a custom entity hides it from the list', () => {
   test('removes the entity from the default list; stored records persist', async ({ request }) => {

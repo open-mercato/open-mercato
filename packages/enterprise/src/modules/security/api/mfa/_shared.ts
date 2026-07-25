@@ -8,6 +8,9 @@ import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { MfaService, MfaServiceError } from '../../services/MfaService'
 import type { MfaVerificationService, MfaVerificationServiceError } from '../../services/MfaVerificationService'
 import { localizeSecurityApiBody, securityApiError } from '../i18n'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('security').child({ component: 'mfa' })
 
 const jsonRecordSchema = z.record(z.string(), z.unknown())
 
@@ -70,7 +73,7 @@ export async function mapMfaError(error: unknown): Promise<NextResponse> {
   if (isMfaServiceError(error) || isMfaVerificationServiceError(error)) {
     return securityApiError(error.statusCode, error.message)
   }
-  console.error('security.mfa.route failure', error)
+  logger.error('MFA route failure', { err: error })
   return securityApiError(500, 'Failed to process MFA request.')
 }
 

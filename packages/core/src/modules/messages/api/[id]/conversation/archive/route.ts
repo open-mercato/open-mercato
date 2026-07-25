@@ -2,6 +2,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { attachOperationMetadataHeader } from '../../../../lib/operationMetadata'
 import { resolveMessageContext } from '../../../../lib/routeHelpers'
+import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../../../guards'
 import {
   conversationMutationResponseSchema,
   errorResponseSchema,
@@ -9,16 +10,43 @@ import {
 
 export const metadata = {
   PUT: { requireAuth: true, requireFeatures: ['messages.view'] },
+  DELETE: { requireAuth: true, requireFeatures: ['messages.view'] },
 }
 
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
+async function runConversationArchiveMutation(
+  req: Request,
+  id: string,
+  commandId: 'messages.conversation.archive_for_actor' | 'messages.conversation.unarchive_for_actor',
+) {
   const { ctx, scope } = await resolveMessageContext(req)
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
 
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.conversation',
+      resourceId: id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: null,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
+
   try {
-    const { result, logEntry } = await commandBus.execute('messages.conversation.archive_for_actor', {
+    const { result, logEntry } = await commandBus.execute(commandId, {
       input: {
-        anchorMessageId: params.id,
+        anchorMessageId: id,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         userId: scope.userId,
@@ -36,7 +64,17 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     const response = Response.json(result)
     attachOperationMetadataHeader(response, logEntry, {
       resourceKind: 'messages.conversation',
-      resourceId: params.id,
+      resourceId: id,
+    })
+    await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.conversation',
+      resourceId: id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
     })
     return response
   } catch (error) {
@@ -52,6 +90,14 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   }
 }
 
+export async function PUT(req: Request, { params }: { params: { id: string } }) {
+  return runConversationArchiveMutation(req, params.id, 'messages.conversation.archive_for_actor')
+}
+
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  return runConversationArchiveMutation(req, params.id, 'messages.conversation.unarchive_for_actor')
+}
+
 export const openApi: OpenApiRouteDoc = {
   tag: 'Messages',
   methods: {
@@ -59,6 +105,16 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Archive conversation for current actor',
       responses: [
         { status: 200, description: 'Conversation archived', schema: conversationMutationResponseSchema },
+      ],
+      errors: [
+        { status: 403, description: 'Access denied', schema: errorResponseSchema },
+        { status: 404, description: 'Message not found', schema: errorResponseSchema },
+      ],
+    },
+    DELETE: {
+      summary: 'Unarchive conversation for current actor',
+      responses: [
+        { status: 200, description: 'Conversation unarchived', schema: conversationMutationResponseSchema },
       ],
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },

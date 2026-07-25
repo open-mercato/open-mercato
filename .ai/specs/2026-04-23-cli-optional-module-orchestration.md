@@ -5,7 +5,7 @@
 | **Status** | Partially Implemented |
 | **Author** | Codex |
 | **Created** | 2026-04-23 |
-| **Related** | [2026-04-02-empty-app-starter-presets.md](./2026-04-02-empty-app-starter-presets.md), [SPEC-067-2026-03-17-cli-standalone-app-support.md](./SPEC-067-2026-03-17-cli-standalone-app-support.md), [BACKWARD_COMPATIBILITY.md](../../BACKWARD_COMPATIBILITY.md) |
+| **Related** | [2026-04-02-empty-app-starter-presets.md](./2026-04-02-empty-app-starter-presets.md), [SPEC-067-2026-03-17-cli-standalone-app-support.md](./implemented/SPEC-067-2026-03-17-cli-standalone-app-support.md), [BACKWARD_COMPATIBILITY.md](../../BACKWARD_COMPATIBILITY.md) |
 
 ## TLDR
 

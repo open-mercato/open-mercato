@@ -158,7 +158,7 @@ function createFakeKysely(overrides?: FakeData) {
           return infoRows.find((row: any) => !targetTable || row.table_name === targetTable)
         }
         if (localOps.selects.some((s: any) => s && typeof s === 'object' && (s.__isCount || String(s?.alias || '') === 'count'))) {
-          return { count: '0' }
+          return { count: String((data[localOps.table] || []).length) }
         }
         const rows = data[localOps.table] || []
         if (rows.length === 0) return { count: '0' }
@@ -642,9 +642,230 @@ describe('BasicQueryEngine (Kysely)', () => {
     })
 
     expect(result.items.map((item: any) => item.display_name)).toEqual(['Charlie', 'Dave'])
-    const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'customer_entities')
-    expect(baseCall._ops.orderBys).toEqual([])
-    expect(baseCall._ops.limits).toBe(0)
+    const baseCalls = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+    expect(baseCalls.length).toBe(2)
+    // qFull ('full' projection) is built first (used for count + phase 2);
+    // qSort ('sortKeys' projection) is built second (phase 1).
+    const [phase2Call, phase1Call] = baseCalls
+    // Phase 1 (slim id+sort-column scan): no SQL order/limit — the full candidate
+    // set is fetched, decrypted, and sorted in memory.
+    expect(phase1Call._ops.orderBys).toEqual([])
+    expect(phase1Call._ops.limits).toBe(0)
+    // Phase 2 (full-row fetch for the page's ids): filtered by `id in [...]`, no
+    // SQL order/limit needed since the id list already bounds it to the page.
+    expect(phase2Call._ops.orderBys).toEqual([])
+    expect(phase2Call._ops.limits).toBe(0)
+    expect(phase2Call._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'customer_entities.id' && w[1] === 'in')).toBe(true)
+  })
+
+  test('sorts encrypted base fields in all-organization scope', async () => {
+    const fakeDb = createFakeKysely({
+      customer_entities: [
+        { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-c' },
+        { id: '2', tenant_id: 't1', organization_id: 'org2', display_name: 'cipher-a' },
+        { id: '3', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+      ],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'id' },
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_entities', column_name: 'organization_id' },
+        { table_name: 'customer_entities', column_name: 'deleted_at' },
+        { table_name: 'customer_entities', column_name: 'display_name' },
+      ],
+    })
+    const namesById: Record<string, string> = {
+      '1': 'Combocompany',
+      '2': 'Aardvark Solutions',
+      '3': 'Beta Corp',
+    }
+    const orgById: Record<string, string> = {
+      '1': 'org1',
+      '2': 'org2',
+      '3': 'org1',
+    }
+    const encryptedFieldLookups: Array<string | null | undefined> = []
+    const decryptScopes: Array<string | null> = []
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async (_entityId, _tenantId, organizationId) => {
+          encryptedFieldLookups.push(organizationId)
+          return organizationId == null ? ['display_name'] : []
+        },
+        decryptEntityPayload: async (_entityId, payload, _tenantId, organizationId) => {
+          decryptScopes.push(organizationId ?? null)
+          const id = String(payload.id)
+          return organizationId === orgById[id] ? { display_name: namesById[id] } : {}
+        },
+      }),
+    )
+
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationIds: ['org1', 'org2'],
+      fields: ['id', 'display_name', 'organization_id'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 3 },
+    })
+
+    expect(encryptedFieldLookups).toEqual([null])
+    expect(decryptScopes.slice(0, 3)).toEqual(['org1', 'org2', 'org1'])
+    expect(decryptScopes).toEqual(expect.arrayContaining(['org1', 'org2']))
+    expect(result.items.map((item: any) => item.display_name)).toEqual([
+      'Aardvark Solutions',
+      'Beta Corp',
+      'Combocompany',
+    ])
+    const baseCalls = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+    const [phase2Call, phase1Call] = baseCalls
+    expect(phase1Call._ops.orderBys).toEqual([])
+    expect(phase2Call._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'customer_entities.id' && w[1] === 'in')).toBe(true)
+  })
+
+  test('paginates encrypted-sorted results correctly on page 1 and the tail page', async () => {
+    const fakeDb = createFakeKysely({
+      customer_entities: [
+        { id: '3', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-c' },
+        { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-a' },
+        { id: '5', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-e' },
+        { id: '2', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+        { id: '4', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-d' },
+      ],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'id' },
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_entities', column_name: 'organization_id' },
+        { table_name: 'customer_entities', column_name: 'deleted_at' },
+        { table_name: 'customer_entities', column_name: 'display_name' },
+      ],
+    })
+    const namesById: Record<string, string> = {
+      '1': 'Alice', '2': 'Bob', '3': 'Charlie', '4': 'Dave', '5': 'Eve',
+    }
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => ['display_name'],
+        decryptEntityPayload: async (_entityId, payload) => ({
+          display_name: namesById[String(payload.id)],
+        }),
+      }),
+    )
+
+    const page1 = await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'display_name'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 2 },
+    })
+    expect(page1.items.map((item: any) => item.display_name)).toEqual(['Alice', 'Bob'])
+
+    const page3 = await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'display_name'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 3, pageSize: 2 },
+    })
+    expect(page3.items.map((item: any) => item.display_name)).toEqual(['Eve'])
+  })
+
+  describe('OM_ENCRYPTED_SORT_MAX_ROWS cap', () => {
+    const originalEnv = process.env.OM_ENCRYPTED_SORT_MAX_ROWS
+
+    afterEach(() => {
+      if (originalEnv === undefined) delete process.env.OM_ENCRYPTED_SORT_MAX_ROWS
+      else process.env.OM_ENCRYPTED_SORT_MAX_ROWS = originalEnv
+    })
+
+    function buildFixture() {
+      const fakeDb = createFakeKysely({
+        customer_entities: [
+          { id: '3', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-c' },
+          { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-a' },
+          { id: '5', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-e' },
+          { id: '2', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+          { id: '4', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-d' },
+        ],
+        'information_schema.columns': [
+          { table_name: 'customer_entities', column_name: 'id' },
+          { table_name: 'customer_entities', column_name: 'tenant_id' },
+          { table_name: 'customer_entities', column_name: 'organization_id' },
+          { table_name: 'customer_entities', column_name: 'deleted_at' },
+          { table_name: 'customer_entities', column_name: 'display_name' },
+        ],
+      })
+      const namesById: Record<string, string> = {
+        '1': 'Alice', '2': 'Bob', '3': 'Charlie', '4': 'Dave', '5': 'Eve',
+      }
+      const engine = new BasicQueryEngine(
+        {} as any,
+        () => fakeDb as any,
+        () => ({
+          isEnabled: () => true,
+          getEncryptedFieldNames: async () => ['display_name'],
+          decryptEntityPayload: async (_entityId, payload) => ({
+            display_name: namesById[String(payload.id)],
+          }),
+        }),
+      )
+      return { fakeDb, engine }
+    }
+
+    test('unset: no limit on the phase-1 scan, no warning', async () => {
+      delete process.env.OM_ENCRYPTED_SORT_MAX_ROWS
+      const { fakeDb, engine } = buildFixture()
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        fields: ['id', 'display_name'],
+        sort: [{ field: 'display_name', dir: SortDir.Asc }],
+        page: { page: 1, pageSize: 2 },
+      })
+      expect(result.meta?.encryptedSortRowCapWarning).toBeUndefined()
+      const [, phase1Call] = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+      expect(phase1Call._ops.limits).toBe(0)
+    })
+
+    test('set but not exceeded: no warning, identical results to uncapped', async () => {
+      process.env.OM_ENCRYPTED_SORT_MAX_ROWS = '10'
+      const { fakeDb, engine } = buildFixture()
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        fields: ['id', 'display_name'],
+        sort: [{ field: 'display_name', dir: SortDir.Asc }],
+        page: { page: 1, pageSize: 2 },
+      })
+      expect(result.meta?.encryptedSortRowCapWarning).toBeUndefined()
+      expect(result.items.map((item: any) => item.display_name)).toEqual(['Alice', 'Bob'])
+    })
+
+    test('set and exceeded: caps + orders the phase-1 scan and attaches a warning', async () => {
+      process.env.OM_ENCRYPTED_SORT_MAX_ROWS = '3'
+      const { fakeDb, engine } = buildFixture()
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        fields: ['id', 'display_name'],
+        sort: [{ field: 'display_name', dir: SortDir.Asc }],
+        page: { page: 1, pageSize: 2 },
+      })
+      expect(result.meta?.encryptedSortRowCapWarning).toEqual({
+        entity: 'customers:customer_entity',
+        sortFields: ['display_name'],
+        maxRows: 3,
+        totalMatched: 5,
+      })
+      const [, phase1Call] = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+      expect(phase1Call._ops.limits).toBe(3)
+      expect(phase1Call._ops.orderBys).toEqual([['customer_entities.id', 'asc']])
+    })
   })
 
   test('keeps SQL ordering and pagination for unencrypted base fields', async () => {

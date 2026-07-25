@@ -58,6 +58,9 @@ import {
 } from './_shared'
 import type { CatalogPricingService } from '../services/catalogPricingService'
 import type { PriceRow, PricingContext } from '../lib/pricing'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 /* -------------------------------------------------------------------------- */
 /*  Shared helpers                                                             */
@@ -295,7 +298,7 @@ async function loadUserMedia(
   const tenantScoped = rows.filter((row) => (row.tenantId ?? null) === tenantId)
   for (const dropped of unique) {
     if (!tenantScoped.find((row) => row.id === dropped)) {
-      console.warn(`[catalog.draft_description_from_media] dropping attachment not in scope: ${dropped}`)
+      logger.warn('catalog.draft_description_from_media dropping attachment not in scope', { attachmentId: dropped })
     }
   }
   return tenantScoped.map((row) => ({

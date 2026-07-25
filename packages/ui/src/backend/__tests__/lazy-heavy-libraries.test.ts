@@ -123,4 +123,12 @@ describe('heavy libraries are lazy-loaded', () => {
     const source = read('packages/ui/src/backend/schedule/ScheduleCalendar.tsx')
     expect(source).toMatch(/import\s+['"]react-big-calendar\/lib\/css\/react-big-calendar\.css['"]/)
   })
+
+  it('AttachmentContentPreview does not statically import react-markdown or remark-gfm', () => {
+    const source = read(
+      'packages/core/src/modules/attachments/components/AttachmentContentPreview.tsx',
+    )
+    expect(source).not.toMatch(/from\s+['"]react-markdown['"]/)
+    expect(source).not.toMatch(/from\s+['"]remark-gfm['"]/)
+  })
 })

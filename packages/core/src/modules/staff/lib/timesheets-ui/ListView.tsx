@@ -3,7 +3,9 @@
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ProjectColorDot } from './ProjectColorDot'
 
 type TimeEntry = {
@@ -86,6 +88,7 @@ function InlineDescription({
   placeholder: string
   onSaved?: () => void
 }) {
+  const t = useT()
   const [editing, setEditing] = React.useState(false)
   const [value, setValue] = React.useState(initialValue ?? '')
   const [saving, setSaving] = React.useState(false)
@@ -103,19 +106,24 @@ function InlineDescription({
     }
     setSaving(true)
     try {
-      await apiCall(`/api/staff/timesheets/time-entries`, {
+      await apiCallOrThrow(`/api/staff/timesheets/time-entries`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: entryId, notes: trimmed || null }),
       })
-      onSaved?.()
-    } catch {
-      // silent
-    } finally {
       setSaving(false)
       setEditing(false)
+      onSaved?.()
+    } catch (err) {
+      setSaving(false)
+      if (!surfaceRecordConflict(err, t)) {
+        flash(
+          t('staff.timesheets.my.list.saveError', 'Failed to save description. Please try again.'),
+          'error',
+        )
+      }
     }
-  }, [entryId, value, initialValue, onSaved])
+  }, [entryId, value, initialValue, onSaved, t])
 
   if (!editing) {
     return (

@@ -89,7 +89,7 @@ export const features = [
   // privacy model is strict owner-only with NO admin bypass, so this feature is
   // declared but INERT — granting it does not unlock other users' private emails
   // (the visibility filter and the visibility-change gate ignore it). See
-  // .ai/specs/2026-05-27-crm-email-integration.md (v1 strict owner-only).
+  // .ai/specs/implemented/2026-05-27-crm-email-integration.md (v1 strict owner-only).
   {
     id: 'customers.email.view_private',
     title: 'View other users\' private emails (reserved — inert in v1)',

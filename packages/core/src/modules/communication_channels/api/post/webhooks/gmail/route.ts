@@ -12,6 +12,9 @@ import {
   getGmailPubSubVerifier,
   GmailPubSubJwtError,
 } from '../../../../lib/gmail-pubsub-jwt'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'gmail-webhook' })
 
 /**
  * Spec C § Phase C2 — Gmail Pub/Sub push webhook.
@@ -51,9 +54,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!expectedAudience || !expectedEmail) {
     // Misconfiguration is operator-facing; log and 503 so Pub/Sub retries
     // briefly and the operator notices.
-    console.error(
-      '[gmail-webhook] OM_GMAIL_PUBSUB_AUDIENCE / OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL not set',
-    )
+    logger.error('OM_GMAIL_PUBSUB_AUDIENCE / OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL not set')
     return NextResponse.json({ error: 'webhook not configured' }, { status: 503 })
   }
 
@@ -131,9 +132,9 @@ export async function POST(req: Request): Promise<Response> {
     try {
       await queue.enqueue(job as unknown as Record<string, unknown>)
     } catch (err) {
-      console.error(
-        `[gmail-webhook] failed to enqueue history-sync for channel ${channel.id}:`,
-        err,
+      logger.error(
+        'failed to enqueue history-sync for channel',
+        { channelId: channel.id, err },
       )
     }
   }

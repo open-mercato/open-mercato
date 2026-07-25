@@ -40,7 +40,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
   const em = container.resolve('em') as EntityManager
-  const user = await customerUserService.findById(params.id, auth.tenantId!)
+  const user = await customerUserService.findById(params.id, auth.tenantId!, auth.orgId)
   if (!user) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
@@ -54,15 +54,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     id: user.id,
     recipientUserId: user.id,
     email: user.email,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    tenantId: user.tenantId,
+    organizationId: user.organizationId,
     resetBy: auth.sub,
   }).catch(() => undefined)
 
   void emitCustomerAccountsEvent('customer_accounts.password.changed', {
     userId: user.id,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId ?? null,
+    tenantId: user.tenantId,
+    organizationId: user.organizationId,
     changedBy: 'admin',
     changedById: auth.sub,
     at: new Date().toISOString(),

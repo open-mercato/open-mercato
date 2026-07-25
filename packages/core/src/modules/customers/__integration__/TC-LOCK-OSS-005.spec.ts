@@ -16,7 +16,7 @@ import {
  * TC-LOCK-OSS-005: deterministic two-session concurrent-edit conflict across
  * the CRM entities — `customers.company`, `customers.person`, `customers.deal`.
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md +
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md +
  *       .ai/specs/2026-05-28-optimistic-locking-coverage-completion.md
  *
  * Pattern (see __concurrent_edit_pattern.md): two independent sessions hold the

@@ -3,7 +3,7 @@
 **Scope:** OSS
 **Status:** Draft
 **Tracking issue:** [#2191](https://github.com/open-mercato/open-mercato/issues/2191)
-**Related spec:** `.ai/specs/2026-05-25-oss-optimistic-locking.md`
+**Related spec:** `.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md`
 
 ---
 
@@ -346,7 +346,7 @@ The exact payload is endpoint-specific and must be covered by endpoint tests.
 
 | Rule Source | Rule | Status | Notes |
 |---|---|---|---|
-| root `AGENTS.md` | Check existing specs before modifying modules | Compliant | Reviewed `.ai/specs/2026-05-25-oss-optimistic-locking.md`. |
+| root `AGENTS.md` | Check existing specs before modifying modules | Compliant | Reviewed `.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md`. |
 | `.ai/specs/AGENTS.md` | New specs use `{date}-{title}.md` | Compliant | This spec uses `2026-05-28-optimistic-locking-coverage-completion.md`. |
 | root `AGENTS.md` | Preserve behavior unless explicitly changed | Compliant | This spec proposes phased future work only; no runtime changes in this PR step. |
 | root `AGENTS.md` | Keep changes minimal and focused | Compliant | Adds a follow-up spec and tracking issue. |

@@ -15,7 +15,7 @@ import {
 /**
  * TC-LOCK-OSS-024 — sales QUOTE header edit + delete (SAL-02).
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md +
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md +
  *       .ai/specs/2026-05-28-optimistic-locking-coverage-completion.md
  *
  * The quote detail page `/backend/sales/quotes/<id>` re-uses the shared sales

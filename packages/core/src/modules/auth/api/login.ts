@@ -108,21 +108,21 @@ export async function POST(req: Request) {
     user = await auth.findUserByEmailAndTenant(parsed.data.email, tenantId)
   } else {
     const users = await auth.findUsersByEmail(parsed.data.email)
-    if (users.length > 1) {
-      return NextResponse.json({
-        ok: false,
-        error: translate('auth.login.errors.tenantRequired', 'Use the login link provided with your tenant activation to continue.'),
-      }, { status: 400 })
-    }
-    user = users[0] ?? null
+    // Never disclose that an email is registered across multiple tenants — a
+    // password-independent 400-vs-401 response is an account/topology oracle
+    // (issue #2242). Treat an ambiguous match as no resolvable user and fall
+    // through to the uniform invalid-credentials path; tenant-selection
+    // guidance is delivered out-of-band via the activation/login link.
+    user = users.length === 1 ? users[0] : null
   }
-  if (!user || !user.passwordHash) {
-    void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason: 'invalid_credentials' }).catch(() => undefined)
-    return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
-  }
+  // Always verify the password — verifyPassword runs a constant-time bcrypt
+  // comparison even when the user is missing or has no hash — so unknown-email,
+  // wrong-password, and multi-tenant cases return an identical 401 with
+  // identical latency.
   const ok = await auth.verifyPassword(user, parsed.data.password)
-  if (!ok) {
-    void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason: 'invalid_password' }).catch(() => undefined)
+  if (!user || !ok) {
+    const reason = user?.passwordHash ? 'invalid_password' : 'invalid_credentials'
+    void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason }).catch(() => undefined)
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
   // Optional role requirement

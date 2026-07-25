@@ -4,6 +4,10 @@ import type { PerspectiveSettings } from '@open-mercato/shared/modules/perspecti
 export const perspectiveSettingsSchema: z.ZodType<PerspectiveSettings> = z.object({
   columnOrder: z.array(z.string().min(1)).max(120).optional(),
   columnVisibility: z.record(z.string(), z.boolean()).optional(),
+  // User-resized column widths in pixels, keyed by column id (#1835). Clamped to
+  // the same [60, 900] bound the client enforces so a saved perspective cannot
+  // carry a column width that collapses or blows out the table.
+  columnSizing: z.record(z.string().min(1), z.number().int().min(60).max(900)).optional(),
   filters: z.record(z.string(), z.unknown()).optional(),
   sorting: z
     .array(z.object({ id: z.string().min(1), desc: z.boolean().optional() }))
@@ -22,6 +26,8 @@ export const perspectiveSaveSchema = z.object({
   isDefault: z.boolean().optional(),
   applyToRoles: z.array(z.string().uuid()).optional(),
   clearRoleIds: z.array(z.string().uuid()).optional(),
+  roleExpectedUpdatedAtByRoleId: z.record(z.string().uuid(), z.string().min(1).nullable()).optional(),
+  roleExpectedUpdatedAtByPerspectiveId: z.record(z.string().uuid(), z.string().min(1).nullable()).optional(),
   setRoleDefault: z.boolean().optional(),
 })
 

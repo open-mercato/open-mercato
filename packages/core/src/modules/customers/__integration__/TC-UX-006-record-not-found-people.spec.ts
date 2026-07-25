@@ -3,7 +3,7 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
 
 /**
  * TC-UX-006: RecordNotFoundState renders for a missing person detail
- * Source: .ai/specs/2026-03-23-unified-record-not-found-ui-state.md (Phase 5 — Integration Coverage)
+ * Source: .ai/specs/implemented/2026-03-23-unified-record-not-found-ui-state.md (Phase 5 — Integration Coverage)
  *
  * Verifies:
  * - Navigating to `/backend/customers/people/<random-uuid>` renders the shared

@@ -139,14 +139,17 @@ export async function expectConflictBody(response: { status(): number; json(): P
  * dialog — see `CONFLICT_DIALOG_TESTID` for why both are valid and why pinning one
  * is racy when enterprise modules are enabled.
  */
-export async function expectConflictBanner(page: Page): Promise<void> {
+export async function expectConflictBanner(
+  page: Page,
+  options?: { timeout?: number },
+): Promise<void> {
   const conflictSurface = page
     .getByTestId(CONFLICT_BANNER_TESTID)
     .or(page.getByTestId(CONFLICT_DIALOG_TESTID))
   await expect(
     conflictSurface.first(),
     'a conflict surface (OSS bar or record_locks dialog) should appear after a stale save',
-  ).toBeVisible({ timeout: 10_000 })
+  ).toBeVisible({ timeout: options?.timeout ?? 10_000 })
 }
 
 /** Assert no conflict surface is present (a clean single-tab save must not 409). */

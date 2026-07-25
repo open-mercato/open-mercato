@@ -1,7 +1,7 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { seedSalesAdjustmentKinds, seedSalesStatusDictionaries } from './lib/dictionaries'
+import { backfillDealLossReasonDictionary, seedSalesAdjustmentKinds, seedSalesStatusDictionaries } from './lib/dictionaries'
 import { seedSalesTaxRates } from './lib/seeds'
 import { ensureExamplePaymentMethods, ensureExampleShippingMethods } from './seed/examples-data'
 import { seedSalesExamples } from './seed/examples'
@@ -103,6 +103,43 @@ const seedAdjustmentKindsCommand: ModuleCli = {
   },
 }
 
+const backfillDealLossReasonsCommand: ModuleCli = {
+  command: 'backfill-deal-loss-reasons',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato sales backfill-deal-loss-reasons --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    const container = await createRequestContainer()
+    try {
+      const em = container.resolve<EntityManager>('em')
+      const result = await em.transactional(async (tem) => {
+        const backfillResult = await backfillDealLossReasonDictionary(tem, { tenantId, organizationId })
+        await tem.flush()
+        return backfillResult
+      })
+      console.log(
+        [
+          `Deal loss reasons dictionary ready for organization ${organizationId}.`,
+          `dictionaryId=${result.dictionaryId}`,
+          `createdDictionary=${String(result.createdDictionary)}`,
+          `copiedLegacyEntries=${String(result.copiedLegacyEntries)}`,
+          `seededDefaultEntries=${String(result.seededDefaultEntries)}`,
+          `existingEntries=${String(result.existingEntries)}`,
+        ].join(' '),
+      )
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
 const seedShippingMethodsCommand: ModuleCli = {
   command: 'seed-shipping-methods',
   async run(rest) {
@@ -189,6 +226,7 @@ export default [
   seedTaxRatesCommand,
   seedStatusesCommand,
   seedAdjustmentKindsCommand,
+  backfillDealLossReasonsCommand,
   seedShippingMethodsCommand,
   seedPaymentMethodsCommand,
   seedExamplesCommand,

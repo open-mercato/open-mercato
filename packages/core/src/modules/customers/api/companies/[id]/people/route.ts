@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -18,6 +18,9 @@ import {
   filterActivePersonCompanyLinks,
   withActiveCustomerPersonCompanyLinkFilter,
 } from '../../../../lib/personCompanyLinkTable'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -113,7 +116,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       decryptionScope,
     )
     if (!company) {
-      throw new CrudHttpError(404, { error: translate('customers.errors.company_not_found', 'Company not found') })
+      throw notFound(translate('customers.errors.company_not_found', 'Company not found'))
     }
 
     if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: company.organizationId })) {
@@ -202,7 +205,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     if (isCrudHttpError(error)) {
       return NextResponse.json(error.body, { status: error.status })
     }
-    console.error('[customers.companies.people.GET]', error)
+    logger.error('customers.companies.people.GET', { err: error })
     return NextResponse.json({ error: translate('customers.errors.company_people_load_failed', 'Failed to load linked people') }, { status: 500 })
   }
 }

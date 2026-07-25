@@ -6,6 +6,8 @@ import { z } from 'zod'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { useRecordsEntityGuard } from '@open-mercato/core/modules/entities/components/useRecordsEntityGuard'
 
 type UpdateRecordRequest = (payload: { entityId: string; recordId: string; values: Record<string, unknown> }) => Promise<void>
 
@@ -38,6 +40,19 @@ export async function submitCustomEntityRecordUpdate(options: {
 type RecordsResponse = { items: any[] }
 
 export default function EditRecordPage({ params }: { params: { entityId?: string; recordId?: string } }) {
+  const t = useT()
+  const entityId = decodeURIComponent(params?.entityId || '')
+  const guard = useRecordsEntityGuard(entityId)
+  if (guard === 'blocked') {
+    return <ErrorMessage label={t('entities.userEntities.records.errors.systemEntity', 'This entity is system-managed. Records are available for custom entities only.')} />
+  }
+  if (guard === 'checking') {
+    return <LoadingMessage label={t('entities.userEntities.records.loading', 'Loading records...')} />
+  }
+  return <EditRecordPageInner params={params} />
+}
+
+function EditRecordPageInner({ params }: { params: { entityId?: string; recordId?: string } }) {
   const t = useT()
   const entityId = decodeURIComponent(params?.entityId || '')
   const recordId = decodeURIComponent(params?.recordId || '')

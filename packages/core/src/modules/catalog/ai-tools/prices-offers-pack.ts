@@ -11,7 +11,7 @@
  * names available so the D18 tool can layer merchandising-specific shape
  * over the base enumerator.
  *
- * Phase 3b of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
+ * Phase 3b of `.ai/specs/implemented/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
  * `catalog.list_prices` and `catalog.list_offers` are now API-backed wrappers
  * over `GET /api/catalog/prices` and `GET /api/catalog/offers`. Tool names,
  * schemas, requiredFeatures, and output shapes are unchanged. The offers
@@ -293,7 +293,11 @@ const listOffersTool = defineApiBackedAiTool<
   description:
     'List catalog offers for the caller tenant + organization, optionally narrowed to a product (or a variant via its prices).',
   inputSchema: listOffersInput,
-  requiredFeatures: ['catalog.products.view'],
+  // Must cover the underlying route. `GET /catalog/offers` requires
+  // `sales.channels.manage` (offers are sales-channel scoped); the API-backed
+  // runner fails closed when the tool's features don't cover the route's.
+  // `catalog.products.view` stays for the variant→offer resolution path.
+  requiredFeatures: ['catalog.products.view', 'sales.channels.manage'],
   toOperation: async (input, ctx) => {
     const { tenantId } = assertTenantScope(ctx as unknown as CatalogToolContext)
     const limit = input.limit ?? 50

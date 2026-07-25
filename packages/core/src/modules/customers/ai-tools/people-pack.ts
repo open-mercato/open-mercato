@@ -5,7 +5,7 @@
  * the existing customers query engine + encryption helpers. Mutation tools
  * are deferred to Step 5.13+ under the pending-action contract.
  *
- * Phase 3a of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
+ * Phase 3a of `.ai/specs/implemented/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
  * `customers.list_people` is now an API-backed wrapper over
  * `GET /api/customers/people`. The `companyId` AI input has no inclusion
  * equivalent on the route (the route exposes `excludeLinkedCompanyId` only)
@@ -17,7 +17,6 @@
  * documented aggregate detail route). Tool name, schema, requiredFeatures,
  * and output shape are unchanged.
  */
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { defineApiBackedAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-backed-tool'
 import {
@@ -30,19 +29,16 @@ import {
   CustomerPersonProfile,
 } from '../data/entities'
 import { assertTenantScope, type CustomersAiToolDefinition, type CustomersToolContext } from './types'
+import {
+  buildRelatedRecords,
+  buildScope,
+  resolveEm,
+  toCustomerListSummary,
+  toIso,
+  type CustomerRelatedRecords,
+} from './_shared'
 
 const NIL_UUID = '00000000-0000-0000-0000-000000000000'
-
-function resolveEm(ctx: CustomersToolContext | AiToolExecutionContext): EntityManager {
-  return ctx.container.resolve<EntityManager>('em')
-}
-
-function buildScope(ctx: CustomersToolContext | AiToolExecutionContext, tenantId: string) {
-  return {
-    tenantId,
-    organizationId: ctx.organizationId,
-  }
-}
 
 const listPeopleInput = z
   .object({
@@ -146,23 +142,7 @@ const listPeopleTool = defineApiBackedAiTool<ListPeopleInput, ListPeopleApiRespo
     const data = (response.data ?? {}) as ListPeopleApiResponse
     const rawItems: ListPeopleApiItem[] = Array.isArray(data.items) ? data.items : []
     return {
-      items: rawItems.map((row) => {
-        const createdAtRaw = row.created_at ?? row.createdAt ?? null
-        const createdAt = createdAtRaw ? new Date(String(createdAtRaw)).toISOString() : null
-        return {
-          id: row.id,
-          displayName: row.display_name ?? row.displayName ?? null,
-          primaryEmail: row.primary_email ?? row.primaryEmail ?? null,
-          primaryPhone: row.primary_phone ?? row.primaryPhone ?? null,
-          status: row.status ?? null,
-          lifecycleStage: row.lifecycle_stage ?? row.lifecycleStage ?? null,
-          source: row.source ?? null,
-          ownerUserId: row.owner_user_id ?? row.ownerUserId ?? null,
-          organizationId: row.organization_id ?? row.organizationId ?? null,
-          tenantId: row.tenant_id ?? row.tenantId ?? null,
-          createdAt,
-        }
-      }),
+      items: rawItems.map((row) => toCustomerListSummary(row)),
       total: typeof data.total === 'number' ? data.total : 0,
       limit,
       offset,
@@ -181,13 +161,6 @@ const getPersonInput = z.object({
 type GetPersonInput = z.infer<typeof getPersonInput>
 
 type ApiPersonDetailRow = Record<string, unknown> | null | undefined
-
-function toIso(value: unknown): string | null {
-  if (!value) return null
-  const dt = value instanceof Date ? value : new Date(String(value))
-  if (Number.isNaN(dt.getTime())) return null
-  return dt.toISOString()
-}
 
 const getPersonTool: CustomersAiToolDefinition = {
   name: 'customers.get_person',
@@ -226,104 +199,9 @@ const getPersonTool: CustomersAiToolDefinition = {
     const profileRow = (data.profile ?? null) as ApiPersonDetailRow
     const customFields = (data.customFields ?? {}) as Record<string, unknown>
 
-    let related: Record<string, unknown> | null = null
+    let related: CustomerRelatedRecords | null = null
     if (includeRelated) {
-      const addresses = Array.isArray(data.addresses) ? (data.addresses as Array<Record<string, unknown>>) : []
-      const activities = Array.isArray(data.activities) ? (data.activities as Array<Record<string, unknown>>) : []
-      const notes = Array.isArray(data.comments) ? (data.comments as Array<Record<string, unknown>>) : []
-      const todos = Array.isArray(data.todos) ? (data.todos as Array<Record<string, unknown>>) : []
-      const interactions = Array.isArray(data.interactions) ? (data.interactions as Array<Record<string, unknown>>) : []
-      const tagsRows = Array.isArray(data.tags) ? (data.tags as Array<Record<string, unknown>>) : []
-      const dealsRows = Array.isArray(data.deals) ? (data.deals as Array<Record<string, unknown>>) : []
-      related = {
-        addresses: addresses.map((address) => ({
-          id: address.id,
-          name: address.name ?? null,
-          purpose: address.purpose ?? null,
-          addressLine1: address.addressLine1 ?? null,
-          addressLine2: address.addressLine2 ?? null,
-          city: address.city ?? null,
-          region: address.region ?? null,
-          postalCode: address.postalCode ?? null,
-          country: address.country ?? null,
-          isPrimary: !!address.isPrimary,
-        })),
-        activities: activities.map((activity) => ({
-          id: activity.id,
-          activityType: activity.activityType,
-          subject: activity.subject ?? null,
-          body: activity.body ?? null,
-          occurredAt: toIso(activity.occurredAt),
-          createdAt: toIso(activity.createdAt),
-        })),
-        notes: notes.map((comment) => ({
-          id: comment.id,
-          body: comment.body,
-          authorUserId: comment.authorUserId ?? null,
-          createdAt: toIso(comment.createdAt),
-        })),
-        tasks: todos.map((task) => ({
-          id: task.id,
-          todoId: task.todoId ?? task.id,
-          todoSource: task.todoSource ?? null,
-          createdAt: toIso(task.createdAt),
-        })),
-        interactions: interactions.map((interaction) => ({
-          id: interaction.id,
-          interactionType: interaction.interactionType,
-          title: interaction.title ?? null,
-          status: interaction.status,
-          scheduledAt: toIso(interaction.scheduledAt),
-          occurredAt: toIso(interaction.occurredAt),
-        })),
-        tags: tagsRows
-          .map((tag) => {
-            if (!tag || typeof tag !== 'object') return null
-            const id = typeof tag.id === 'string' ? tag.id : null
-            const label = typeof tag.label === 'string' ? tag.label : null
-            if (!id || !label) return null
-            const slug = typeof tag.slug === 'string' ? tag.slug : label
-            const color = typeof tag.color === 'string' ? tag.color : null
-            return { id, slug, label, color }
-          })
-          .filter(
-            (entry): entry is { id: string; slug: string; label: string; color: string | null } =>
-              entry !== null,
-          ),
-        deals: dealsRows
-          .map((deal) => {
-            if (!deal || typeof deal !== 'object') return null
-            const id = typeof deal.id === 'string' ? deal.id : null
-            if (!id) return null
-            return {
-              id,
-              title: typeof deal.title === 'string' ? deal.title : '',
-              status: typeof deal.status === 'string' ? deal.status : null,
-              pipelineStageId:
-                typeof deal.pipelineStageId === 'string' ? deal.pipelineStageId : null,
-              valueAmount:
-                typeof deal.valueAmount === 'string'
-                  ? deal.valueAmount
-                  : deal.valueAmount === null || deal.valueAmount === undefined
-                    ? null
-                    : String(deal.valueAmount),
-              valueCurrency:
-                typeof deal.valueCurrency === 'string' ? deal.valueCurrency : null,
-            }
-          })
-          .filter(
-            (
-              value,
-            ): value is {
-              id: string
-              title: string
-              status: string | null
-              pipelineStageId: string | null
-              valueAmount: string | null
-              valueCurrency: string | null
-            } => value !== null,
-          ),
-      }
+      related = buildRelatedRecords(data)
     }
 
     return {

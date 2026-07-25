@@ -48,6 +48,14 @@ test.describe('TC-CRM-062: keyboard reorder within group', () => {
     fieldLabelMatcher: RegExp,
   ): Promise<boolean> {
     const panel = page.locator('[data-testid="advanced-filter-panel"]').first();
+    // A previously selected field picker lingers in the DOM during its Radix exit
+    // animation. Wait for any open picker to fully close before opening the next
+    // one, so the search input targeted below is always the freshly opened picker
+    // and never a detaching stale one (the historic flake: `.first()` resolved to
+    // a closing popover still holding the prior query, then detached mid-fill).
+    const searchInputs = page.getByPlaceholder(/search field/i);
+    await expect(searchInputs).toHaveCount(0, { timeout: 5_000 }).catch(() => {});
+
     const emptyAddBtn = panel
       .locator('[data-testid="filter-empty-state"]')
       .getByRole('button', { name: /add condition/i })
@@ -60,14 +68,20 @@ test.describe('TC-CRM-062: keyboard reorder within group', () => {
       await builderAddBtn.click();
     }
 
-    const search = page.getByPlaceholder(/search field/i).first();
+    const search = searchInputs.last();
     await expect(search).toBeVisible({ timeout: 5_000 });
-    const optionLabel = fieldLabelMatcher.toString().replace(/[\\/^$]/g, '').slice(0, 30);
+    // Use `.source` (e.g. /^Name$/i → "^Name$") and strip the anchors. `.toString()`
+    // leaked the trailing `i` flag into the typed query ("Namei"), which filtered
+    // out every option and left the rule unseeded.
+    const optionLabel = fieldLabelMatcher.source.replace(/[\\^$]/g, '').slice(0, 30);
     await search.fill(optionLabel);
     const option = page.getByRole('option', { name: fieldLabelMatcher }).first();
     const haveField = await option.isVisible({ timeout: 3_000 }).catch(() => false);
     if (!haveField) return false;
     await option.click();
+    // Selecting closes the picker (onSelect → onOpenChange(false)). Wait for it to
+    // detach so the next addRule call starts from a single, clean picker state.
+    await expect(searchInputs).toHaveCount(0, { timeout: 5_000 }).catch(() => {});
     return true;
   }
 
@@ -117,12 +131,23 @@ test.describe('TC-CRM-062: keyboard reorder within group', () => {
       // Focus the drag handle of the second rule (index 1)
       const secondHandle = ruleNodes.nth(1).locator('[data-testid="filter-drag-handle"]').first();
       await expect(secondHandle).toBeVisible();
-      await secondHandle.focus();
 
-      // dnd-kit keyboard protocol: Space lifts, ArrowUp moves up, Space drops
+      await secondHandle.focus();
+      await expect(secondHandle).toBeFocused();
+
+      // dnd-kit KeyboardSensor protocol: Space lifts, ArrowUp moves up, Space drops.
+      // dnd-kit measures droppable rects on lift and recomputes per move, so firing
+      // the three keys back-to-back occasionally dropped the ArrowUp and left the
+      // order unchanged (historic flake). A settle tick between each key lets dnd-kit
+      // process lift → move → drop in order so the move always registers.
+      // NOTE: do NOT press Escape to "reset" — the advanced-filter panel closes on
+      // Escape (Radix popover), which unmounts the rules and empties `ruleNodes`.
       await page.keyboard.press('Space');
+      await page.waitForTimeout(250);
       await page.keyboard.press('ArrowUp');
+      await page.waitForTimeout(250);
       await page.keyboard.press('Space');
+      await page.waitForTimeout(250);
 
       // Wait for the reorder to apply by polling the new id order until it differs.
       await expect
@@ -131,7 +156,7 @@ test.describe('TC-CRM-062: keyboard reorder within group', () => {
             await ruleNodes.evaluateAll((nodes) =>
               nodes.map((n) => n.getAttribute('data-filter-rule-id') ?? '').join('|'),
             ),
-          { timeout: 10_000 },
+          { timeout: 15_000 },
         )
         .not.toBe(idsBefore.join('|'));
 

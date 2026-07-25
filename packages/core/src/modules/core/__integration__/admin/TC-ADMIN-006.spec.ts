@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { login } from '@open-mercato/core/helpers/integration/auth';
 
 /**
  * TC-ADMIN-006: Feature Toggle Overrides

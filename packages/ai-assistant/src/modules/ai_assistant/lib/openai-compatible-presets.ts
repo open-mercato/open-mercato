@@ -12,7 +12,7 @@
  * file.
  *
  * @see ./llm-adapters/openai.ts
- * @see .ai/specs/2026-04-14-llm-provider-ports-and-adapters.md
+ * @see .ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md
  */
 
 import type { OpenAICompatiblePreset } from './llm-adapters/openai'
@@ -214,6 +214,9 @@ const LITELLM_PRESET: OpenAICompatiblePreset = {
   baseURLEnvKeys: ['LITELLM_BASE_URL'],
   envKeys: ['LITELLM_API_KEY'],
   defaultModel: 'gpt-4o-mini',
+  // LiteLLM proxies arbitrary upstreams and commonly relays `vendor/model` ids
+  // (e.g. `anthropic/claude-…`), so a configured selection must not slash-split.
+  usesVendorPrefixedModelIds: true,
   defaultModels: [
     {
       id: 'gpt-4o-mini',
@@ -261,11 +264,37 @@ const OPENROUTER_PRESET: OpenAICompatiblePreset = {
   baseURLEnvKeys: ['OPENROUTER_BASE_URL'],
   envKeys: ['OPENROUTER_API_KEY'],
   defaultModel: 'meta-llama/llama-3.3-70b-instruct',
+  // OpenRouter model ids are `vendor/model` (e.g. `anthropic/claude-sonnet-4.5`);
+  // the leading `anthropic/` is part of the model id, not a native-provider pin.
+  usesVendorPrefixedModelIds: true,
   defaultModels: [
     {
       id: 'meta-llama/llama-3.3-70b-instruct',
       name: 'Llama 3.3 70B Instruct',
       contextWindow: 131072,
+    },
+  ],
+}
+
+/**
+ * Requesty — unified OpenAI-compatible LLM gateway providing access to
+ * models from many providers via a single endpoint, using `provider/model`
+ * naming (e.g. `openai/gpt-4o-mini`).
+ */
+const REQUESTY_PRESET: OpenAICompatiblePreset = {
+  id: 'requesty',
+  name: 'Requesty',
+  baseURL: 'https://router.requesty.ai/v1',
+  baseURLEnvKeys: ['REQUESTY_BASE_URL'],
+  envKeys: ['REQUESTY_API_KEY'],
+  defaultModel: 'openai/gpt-4o-mini',
+  // Requesty uses `provider/model` naming (e.g. `openai/gpt-4o-mini`) natively.
+  usesVendorPrefixedModelIds: true,
+  defaultModels: [
+    {
+      id: 'openai/gpt-4o-mini',
+      name: 'GPT-4o mini',
+      contextWindow: 128000,
     },
   ],
 }
@@ -302,5 +331,6 @@ export const OPENAI_COMPATIBLE_PRESETS: readonly OpenAICompatiblePreset[] = [
   LITELLM_PRESET,
   OLLAMA_PRESET,
   OPENROUTER_PRESET,
+  REQUESTY_PRESET,
   LM_STUDIO_PRESET,
 ]

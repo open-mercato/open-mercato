@@ -79,6 +79,22 @@ describe('GlobalError component', () => {
     expect(reloadMock).not.toHaveBeenCalled()
   })
 
+  it('renders with design-system tokens and the shared Button primitive', () => {
+    setOnLine(true)
+    const reset = jest.fn()
+    const err = Object.assign(new Error('boom'), { name: 'TypeError' })
+    render(<GlobalError error={err} reset={reset} />)
+    const alert = screen.getByRole('alert')
+    const button = screen.getByRole('button', { name: /try again/i })
+
+    expect(alert).toHaveClass('bg-background', 'text-foreground')
+    expect(alert).not.toHaveAttribute('style')
+    expect(screen.getByRole('heading', { level: 1 })).not.toHaveAttribute('style')
+    expect(screen.getByText(/unexpected error occurred/i)).not.toHaveAttribute('style')
+    expect(button).toHaveAttribute('data-slot', 'button')
+    expect(button).not.toHaveAttribute('style')
+  })
+
   it('renders offline UI for ChunkLoadError even when navigator reports online', () => {
     setOnLine(true)
     const reset = jest.fn()

@@ -1,4 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'consent-integrity' })
 
 type ConsentHashInput = {
   userId: string
@@ -14,20 +17,20 @@ const DEV_ONLY_SECRET = 'om-consent-integrity-dev-only-secret'
 let missingSecretWarned = false
 
 function getSecret(): string {
-  const secret = process.env.CONSENT_INTEGRITY_SECRET || process.env.NEXTAUTH_SECRET
+  const secret = process.env.CONSENT_INTEGRITY_SECRET
+    || process.env.AUTH_SECRET
+    || process.env.NEXTAUTH_SECRET
+    || process.env.JWT_SECRET
   if (!secret) {
     if (process.env.NODE_ENV === 'production') {
       throw new Error(
-        '[consentIntegrity] No CONSENT_INTEGRITY_SECRET/NEXTAUTH_SECRET set. ' +
+        '[consentIntegrity] No CONSENT_INTEGRITY_SECRET/AUTH_SECRET/NEXTAUTH_SECRET/JWT_SECRET set. ' +
         'Refusing to compute or verify consent integrity hashes in production without a real secret.',
       )
     }
     if (!missingSecretWarned) {
       missingSecretWarned = true
-      console.warn(
-        '[consentIntegrity] No CONSENT_INTEGRITY_SECRET/NEXTAUTH_SECRET set — ' +
-        'using insecure dev-only default. Set a secret before deploying to production.',
-      )
+      logger.warn('No CONSENT_INTEGRITY_SECRET/AUTH_SECRET/NEXTAUTH_SECRET/JWT_SECRET set — using insecure dev-only default. Set a secret before deploying to production.')
     }
     return DEV_ONLY_SECRET
   }

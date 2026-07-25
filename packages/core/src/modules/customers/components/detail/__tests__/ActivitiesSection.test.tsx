@@ -324,4 +324,53 @@ describe('Customer ActivitiesSection wrapper', () => {
     fireEvent.keyDown(window, { key: '1', metaKey: true })
     expect(document.activeElement).not.toBe(searchInput)
   })
+
+  it('fetches legacy fallback pages in parallel rather than one at a time', async () => {
+    let legacyInFlight = 0
+    let legacyMaxInFlight = 0
+    const legacyPagesRequested: number[] = []
+    readApiResultOrThrowMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customers/interactions?')) {
+        if (url.includes('cursor=cursor-2')) {
+          return Promise.resolve({
+            items: [sampleActivity({ id: 'canonical-2', interactionType: 'email' })],
+          })
+        }
+        return Promise.resolve({
+          items: [sampleActivity({ id: 'canonical-1', interactionType: 'call' })],
+          nextCursor: 'cursor-2',
+        })
+      }
+      if (url.startsWith('/api/customers/activities?')) {
+        const page = Number(new URL(url, 'http://localhost').searchParams.get('page'))
+        legacyPagesRequested.push(page)
+        legacyInFlight += 1
+        legacyMaxInFlight = Math.max(legacyMaxInFlight, legacyInFlight)
+        return Promise.resolve({ items: [], totalPages: 5 }).finally(() => {
+          legacyInFlight -= 1
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    renderWithProviders(
+      <CustomerActivitiesSection
+        entityId="company-123"
+        useCanonicalInteractions={false}
+        addActionLabel="Log activity"
+        emptyState={{ title: 'No activities logged yet', actionLabel: 'Log activity' }}
+      />,
+    )
+
+    // First load (loadedPages=1) must finish and reveal the "Load more" control.
+    const loadMore = await screen.findByRole('button', { name: 'Load more' })
+    fireEvent.click(loadMore)
+
+    // Loading a second page requests legacy page 2 in both the old and new code…
+    await waitFor(() => {
+      expect(legacyPagesRequested.filter((page) => page === 2)).toHaveLength(1)
+    })
+    // …but the two legacy page fetches must overlap (parallel), not run one-at-a-time.
+    expect(legacyMaxInFlight).toBeGreaterThanOrEqual(2)
+  })
 })

@@ -27,6 +27,9 @@ import {
   findWithDecryption,
   findOneWithDecryption,
 } from "@open-mercato/shared/lib/encryption/find";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 const rawBodySchema = z.object({}).passthrough();
 
@@ -235,7 +238,7 @@ const crud = makeCrudRoute({
         Object.assign(filters, cfFilters);
       } catch (err) {
         // Custom field filter parsing may fail for non-existent or misconfigured fields.
-        if (process.env.NODE_ENV === 'development') console.warn('[catalog:prices] custom field filter error', err);
+        logger.debug('catalog.prices custom field filter error', { err });
       }
       if (
         typeof query.quantity === "number" &&

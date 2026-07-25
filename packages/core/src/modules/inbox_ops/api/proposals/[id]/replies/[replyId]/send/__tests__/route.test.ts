@@ -22,6 +22,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 const mockEm = {
   fork: jest.fn(),
   flush: jest.fn(),
+  nativeUpdate: jest.fn(),
 }
 
 const mockContainer = {
@@ -106,6 +107,7 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.flush.mockResolvedValue(undefined)
+    mockEm.nativeUpdate.mockResolvedValue(1)
     mockEmitInboxOpsEvent.mockResolvedValue(undefined)
     mockCreateMessageRecordForReply.mockResolvedValue(null)
     process.env = {
@@ -269,6 +271,32 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
     expect(mockResendSend).not.toHaveBeenCalled()
   })
 
+  it('claims the send before calling Resend so a concurrent request cannot double-send', async () => {
+    setupHappyPath()
+
+    const response = await POST(makeRequest())
+
+    expect(response.status).toBe(200)
+    expect(mockEm.nativeUpdate).toHaveBeenCalled()
+    // The claim must be issued before the external email provider is invoked.
+    expect(mockEm.nativeUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+      mockResendSend.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('returns 409 without calling Resend when the send is already claimed by a concurrent request', async () => {
+    setupHappyPath()
+    mockEm.nativeUpdate.mockResolvedValueOnce(0)
+
+    const response = await POST(makeRequest())
+    const payload = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(payload.error).toContain('already in progress')
+    expect(mockResendSend).not.toHaveBeenCalled()
+    expect(mockEm.flush).not.toHaveBeenCalled()
+  })
+
   it('returns 502 when Resend fails', async () => {
     setupHappyPath()
     mockResendSend.mockResolvedValueOnce({
@@ -281,6 +309,20 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
 
     expect(response.status).toBe(502)
     expect(payload.error).toContain('Failed to send email')
+  })
+
+  it('releases the send claim when Resend fails so the reply can be retried', async () => {
+    setupHappyPath()
+    mockResendSend.mockResolvedValueOnce({
+      data: null,
+      error: { message: 'Invalid API key' },
+    })
+
+    const response = await POST(makeRequest())
+
+    expect(response.status).toBe(502)
+    // The claim (nativeUpdate #1) plus the release (nativeUpdate #2) must both run.
+    expect(mockEm.nativeUpdate).toHaveBeenCalledTimes(2)
   })
 
   it('returns 401 when not authenticated', async () => {

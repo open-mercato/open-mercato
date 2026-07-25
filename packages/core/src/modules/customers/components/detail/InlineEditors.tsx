@@ -3,15 +3,13 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { AtSign, Briefcase, Loader2, Pencil, X } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
 import { Button } from '@open-mercato/ui/primitives/button'
-import type { PluggableList } from 'unified'
+import { MarkdownContent } from '@open-mercato/ui/backend/markdown'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import remarkGfm from 'remark-gfm'
 import { useEmailDuplicateCheck } from '../../backend/hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../../utils/phoneDuplicates'
 import {
@@ -172,8 +170,6 @@ export function InlineTextEditor(props: InlineFieldProps) {
 export const InlineMultilineEditor = UiInlineMultilineEditor
 export const InlineSelectEditor = UiInlineSelectEditor
 
-const MARKDOWN_PREVIEW_PLUGINS: PluggableList = [remarkGfm]
-
 function createSocialRenderDisplay(IconComponent: typeof Briefcase): NonNullable<InlineFieldProps['renderDisplay']> {
   // eslint-disable-next-line react/display-name
   return ({ value, emptyLabel }) => {
@@ -206,11 +202,11 @@ export const renderMultilineMarkdownDisplay: InlineMultilineDisplayRenderer = ({
     return <span className="text-muted-foreground">{emptyLabel}</span>
   }
   return (
-    <div className="text-sm text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs">
-      <ReactMarkdown remarkPlugins={MARKDOWN_PREVIEW_PLUGINS}>
-        {raw}
-      </ReactMarkdown>
-    </div>
+    <MarkdownContent
+      format="markdown"
+      body={raw}
+      className="text-sm text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+    />
   )
 }
 

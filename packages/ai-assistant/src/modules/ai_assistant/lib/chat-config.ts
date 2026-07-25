@@ -12,7 +12,7 @@ import './llm-bootstrap'
 // refactor the registry accepts any stable id string, so this type
 // becomes `string`. Backward-compatibility note: downstream callers that
 // used exhaustive switches on the old union must add a `default:` branch.
-// See `.ai/specs/2026-04-14-llm-provider-ports-and-adapters.md`.
+// See `.ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md`.
 export type ChatProviderId = string
 
 export type ChatModelInfo = {

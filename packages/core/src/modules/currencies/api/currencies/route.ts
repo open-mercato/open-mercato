@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { currencyCreateSchema, currencyUpdateSchema } from '../../data/validators'
 import {
   createCurrenciesCrudOpenApi,
@@ -148,9 +149,9 @@ export async function GET(req: Request) {
   if (code) filter.code = code
   if (search) {
     filter.$or = [
-      { code: { $ilike: `%${search}%` } },
-      { name: { $ilike: `%${search}%` } },
-      { symbol: { $ilike: `%${search}%` } },
+      { code: { $ilike: `%${escapeLikePattern(search)}%` } },
+      { name: { $ilike: `%${escapeLikePattern(search)}%` } },
+      { symbol: { $ilike: `%${escapeLikePattern(search)}%` } },
     ]
   }
   if (isBase === 'true') filter.isBase = true

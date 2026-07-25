@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
   createProductFixture,
   deleteCatalogProductIfExists,
-} from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures';
-import { createSalesDocument } from '@open-mercato/core/modules/core/__integration__/helpers/salesUi';
+} from '@open-mercato/core/helpers/integration/catalogFixtures';
+import { createSalesDocument } from '@open-mercato/core/helpers/integration/salesUi';
 
 /**
  * TC-INT-003: Product Creation to Sales Channel to Order

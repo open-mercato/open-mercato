@@ -63,6 +63,7 @@ const mockResolveFeatureCheckContext = jest.fn<
   Promise<{ organizationId: string | null; scope: { tenantId: string | null }; allowedOrganizationIds: string[] | null }>,
   [unknown]
 >()
+const mockGetSelectedOrganizationFromRequest = jest.fn<string | null, [Request]>()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (req: Request) => mockGetAuthFromRequest(req),
@@ -102,6 +103,7 @@ jest.mock('@open-mercato/core/modules/auth/services/sidebarPreferencesService', 
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  getSelectedOrganizationFromRequest: (req: Request) => mockGetSelectedOrganizationFromRequest(req),
   resolveFeatureCheckContext: (args: unknown) => mockResolveFeatureCheckContext(args),
 }))
 
@@ -166,6 +168,7 @@ describe('GET /api/auth/admin/nav', () => {
     mockLoadFirstRoleSidebarPreference.mockResolvedValue(null)
     mockCacheGet.mockResolvedValue(null)
     mockCacheSet.mockResolvedValue(undefined)
+    mockGetSelectedOrganizationFromRequest.mockReturnValue(null)
     mockResolveFeatureCheckContext.mockResolvedValue({
       organizationId: 'org-1',
       scope: { tenantId: 'tenant-1' },

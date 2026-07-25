@@ -6,8 +6,11 @@ import ChannelPayloadRendererWidget from './widget.client'
  * (Slack Block Kit, WhatsApp interactive, email MIME, etc.) below the body in the
  * messages detail page (`detail:messages:message:body:after`).
  *
- * For `email/*` content types, HTML is sanitized via `sanitizeChannelHtml` before
- * being passed to `dangerouslySetInnerHTML` — see SPEC-045d §4.6.
+ * For `email/*` content types, HTML is sanitized server-side by the
+ * channel-payload enricher (`data/enrichers.ts`, via `sanitizeChannelHtml`) and
+ * delivered as `_channelPayload.sanitizedHtml`, which this widget renders with
+ * `dangerouslySetInnerHTML` — keeping `sanitize-html` off the client bundle.
+ * See SPEC-045d §4.6.
  *
  * Provider packages override this via UMES component replacement (handle
  * `widget:communication_channels.injection.channel-payload-renderer`) to render

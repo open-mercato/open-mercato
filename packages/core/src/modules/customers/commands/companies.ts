@@ -11,7 +11,7 @@ import {
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
   CustomerAddress,
   CustomerComment,
@@ -518,7 +518,10 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       websiteUrl: parsed.websiteUrl ?? null,
       industry: parsed.industry ?? null,
       sizeBucket: parsed.sizeBucket ?? null,
-      annualRevenue: parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null,
+      annualRevenue:
+        parsed.annualRevenue !== undefined && parsed.annualRevenue !== null
+          ? String(parsed.annualRevenue)
+          : null,
     })
 
     await withAtomicFlush(em, [
@@ -735,7 +738,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     const profile = await em.findOne(CustomerCompanyProfile, { entity: record })
-    if (!profile) throw new CrudHttpError(404, { error: 'Company profile not found' })
+    if (!profile) throw notFound('Company profile not found')
 
     await withAtomicFlush(em, [
       () => {

@@ -83,6 +83,12 @@ export const features = [
     dependsOn: ['sales.returns.view', 'sales.orders.manage'],
   },
   {
+    id: 'sales.returns.manage',
+    title: 'Edit and delete order returns',
+    module: 'sales',
+    dependsOn: ['sales.returns.create'],
+  },
+  {
     id: 'sales.invoices.manage',
     title: 'Manage sales invoices',
     module: 'sales',

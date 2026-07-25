@@ -1,8 +1,28 @@
-import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 
 @Entity({ tableName: 'perspectives' })
 @Index({ name: 'perspectives_user_scope_idx', properties: ['userId', 'tenantId', 'organizationId', 'tableId'] })
-@Unique({ properties: ['userId', 'tenantId', 'organizationId', 'tableId', 'name'] })
+// Live-row uniqueness is owned by partial indexes; ordinary unique decorators cannot express these scope rules.
+@Index({
+  name: 'perspectives_live_user_org_uq',
+  expression:
+    'create unique index "perspectives_live_user_org_uq" on "perspectives" ("user_id", "tenant_id", "organization_id", "table_id", "name") where "deleted_at" is null and "tenant_id" is not null and "organization_id" is not null',
+})
+@Index({
+  name: 'perspectives_live_user_tenant_uq',
+  expression:
+    'create unique index "perspectives_live_user_tenant_uq" on "perspectives" ("user_id", "tenant_id", "table_id", "name") where "deleted_at" is null and "tenant_id" is not null and "organization_id" is null',
+})
+@Index({
+  name: 'perspectives_live_user_org_only_uq',
+  expression:
+    'create unique index "perspectives_live_user_org_only_uq" on "perspectives" ("user_id", "organization_id", "table_id", "name") where "deleted_at" is null and "tenant_id" is null and "organization_id" is not null',
+})
+@Index({
+  name: 'perspectives_live_user_global_uq',
+  expression:
+    'create unique index "perspectives_live_user_global_uq" on "perspectives" ("user_id", "table_id", "name") where "deleted_at" is null and "tenant_id" is null and "organization_id" is null',
+})
 export class Perspective {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -40,7 +60,27 @@ export class Perspective {
 
 @Entity({ tableName: 'role_perspectives' })
 @Index({ name: 'role_perspectives_role_scope_idx', properties: ['roleId', 'tenantId', 'organizationId', 'tableId'] })
-@Unique({ properties: ['roleId', 'tenantId', 'organizationId', 'tableId', 'name'] })
+// Live-row uniqueness is owned by partial indexes; ordinary unique decorators cannot express these scope rules.
+@Index({
+  name: 'role_perspectives_live_role_org_uq',
+  expression:
+    'create unique index "role_perspectives_live_role_org_uq" on "role_perspectives" ("role_id", "tenant_id", "organization_id", "table_id", "name") where "deleted_at" is null and "tenant_id" is not null and "organization_id" is not null',
+})
+@Index({
+  name: 'role_perspectives_live_role_tenant_uq',
+  expression:
+    'create unique index "role_perspectives_live_role_tenant_uq" on "role_perspectives" ("role_id", "tenant_id", "table_id", "name") where "deleted_at" is null and "tenant_id" is not null and "organization_id" is null',
+})
+@Index({
+  name: 'role_perspectives_live_role_org_only_uq',
+  expression:
+    'create unique index "role_perspectives_live_role_org_only_uq" on "role_perspectives" ("role_id", "organization_id", "table_id", "name") where "deleted_at" is null and "tenant_id" is null and "organization_id" is not null',
+})
+@Index({
+  name: 'role_perspectives_live_role_global_uq',
+  expression:
+    'create unique index "role_perspectives_live_role_global_uq" on "role_perspectives" ("role_id", "table_id", "name") where "deleted_at" is null and "tenant_id" is null and "organization_id" is null',
+})
 export class RolePerspective {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

@@ -85,6 +85,9 @@ export function buildFormFieldFromCustomFieldDef(
     case 'datetime':
       return { id, label, type: 'datetime', ...baseProps }
     case 'multiline': {
+      if (def.editor === 'plain') {
+        return { id, label, type: 'textarea', ...baseProps }
+      }
       let editor: 'simple' | 'uiw' | 'html' = 'html'
       if (def.editor === 'simpleMarkdown') editor = 'simple'
       else if (def.editor === 'htmlRichText') editor = 'html'
@@ -120,6 +123,40 @@ export function buildFormFieldFromCustomFieldDef(
           : {}),
         ...(def.multi && def.input === 'listbox' ? ({ listbox: true } as any) : {}),
       }
+    case 'dictionary': {
+      if (!def.multi) {
+        const input = FieldRegistry.getInput(def.kind)
+        if (input) {
+          return {
+            id,
+            label,
+            type: 'custom',
+            ...baseProps,
+            component: (props) => input({ ...props, def }),
+          }
+        }
+        return { id, label, type: 'text', ...baseProps }
+      }
+      const optionsUrl = def.optionsUrl || (def.dictionaryId ? `/api/dictionaries/${def.dictionaryId}/entries` : undefined)
+      return {
+        id,
+        label,
+        type: 'select',
+        description: def.description,
+        required,
+        options: [],
+        multiple: true,
+        listbox: true,
+        ...(optionsUrl
+          ? {
+              loadOptions: async (query?: string) => {
+                const url = buildOptionsUrl(optionsUrl, query)
+                return loadRemoteOptions(url)
+              },
+            }
+          : {}),
+      }
+    }
     default: {
       if (def.kind === 'text' && def.multi) {
         const base: any = { id, label, type: 'tags', ...baseProps }
@@ -136,6 +173,9 @@ export function buildFormFieldFromCustomFieldDef(
         return base
       }
       if (def.kind === 'text' && typeof def.editor === 'string' && def.editor) {
+        if (def.editor === 'plain') {
+          return { id, label, type: 'textarea', ...baseProps }
+        }
         let editor: 'simple' | 'uiw' | 'html' = 'html'
         if (def.editor === 'simpleMarkdown') editor = 'simple'
         else if (def.editor === 'htmlRichText') editor = 'html'

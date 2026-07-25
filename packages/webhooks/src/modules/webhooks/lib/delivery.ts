@@ -5,6 +5,7 @@ import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { emitWebhooksEvent } from '../events'
 import { enqueueWebhookDelivery } from './queue'
 import { isWebhookIntegrationEnabled, WEBHOOK_INTEGRATION_DISABLED_MESSAGE } from './integration-state'
+import { sanitizeWebhookCustomHeaders } from './custom-headers'
 import {
   assertSafeWebhookDeliveryUrl,
   safeWebhookFetch,
@@ -165,8 +166,8 @@ export async function processWebhookDeliveryJob(
         redirect: 'manual',
         headers: {
           'content-type': 'application/json',
+          ...sanitizeWebhookCustomHeaders(webhook.customHeaders),
           ...headers,
-          ...(webhook.customHeaders ?? {}),
         },
         body,
         signal: controller.signal,

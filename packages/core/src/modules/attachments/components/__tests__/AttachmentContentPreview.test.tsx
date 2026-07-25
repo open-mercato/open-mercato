@@ -1,18 +1,9 @@
 /**
  * @jest-environment jsdom
  */
-jest.mock('react-markdown', () => ({
-  __esModule: true,
-  default: (props: any) => <div data-testid="markdown-preview">{props.children}</div>,
-}))
-
-jest.mock('remark-gfm', () => ({
-  __esModule: true,
-  default: 'remark-gfm',
-}))
-
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { AttachmentContentPreview } from '../AttachmentContentPreview'
+
 describe('AttachmentContentPreview', () => {
   it('shows placeholder when content is missing', () => {
     render(<AttachmentContentPreview content={null} />)
@@ -45,11 +36,13 @@ describe('AttachmentContentPreview', () => {
     expect(preview.textContent).toContain(longText.trim())
   })
 
-  it('renders markdown preview when tab is selected', () => {
+  it('renders markdown preview when tab is selected', async () => {
     const { container } = render(<AttachmentContentPreview content="**bold** text" />)
     const previewTab = screen.getByRole('tab', { name: /preview/i })
     fireEvent.click(previewTab)
     expect(previewTab).toHaveAttribute('aria-selected', 'true')
-    expect(container.querySelector('[data-testid="markdown-preview"]')?.textContent).toContain('bold')
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="markdown-preview"]')?.textContent).toContain('bold')
+    })
   })
 })

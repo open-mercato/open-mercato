@@ -66,6 +66,25 @@ describe('messages /api/messages/[id]/archive', () => {
     )
   })
 
+  it('returns a domain-specific error when sender archives a sent message without a recipient row', async () => {
+    emFork.findOne.mockImplementation(async (entity: unknown) => {
+      if (entity === Message) return { id: 'message-1', organizationId: 'org-1', senderUserId: 'user-1' }
+      if (entity === MessageRecipient) return null
+      return null
+    })
+
+    const response = await PUT(new Request('http://localhost', { method: 'PUT' }), {
+      params: { id: 'message-1' },
+    })
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({
+      code: 'messages_sender_archive_unsupported',
+      error: 'You cannot archive messages you sent.',
+    })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
   it('restores read status on DELETE when readAt exists', async () => {
     const recipient = {
       archivedAt: new Date('2026-02-15T10:00:00.000Z'),

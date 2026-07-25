@@ -2,12 +2,14 @@ export type ParsedModuleInstallArgs = {
   packageSpec: string | null
   eject: boolean
   moduleId: string | null
+  allowThirdParty: boolean
 }
 
 export function parseModuleInstallArgs(args: string[]): ParsedModuleInstallArgs {
   let packageSpec: string | null = null
   let eject = false
   let moduleId: string | null = null
+  let allowThirdParty = false
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
@@ -20,6 +22,15 @@ export function parseModuleInstallArgs(args: string[]): ParsedModuleInstallArgs 
 
     if (arg.startsWith('--eject=')) {
       throw new Error('--eject does not accept a value')
+    }
+
+    if (arg === '--allow-third-party') {
+      allowThirdParty = true
+      continue
+    }
+
+    if (arg.startsWith('--allow-third-party=')) {
+      throw new Error('--allow-third-party does not accept a value')
     }
 
     if (arg === '--module') {
@@ -46,5 +57,5 @@ export function parseModuleInstallArgs(args: string[]): ParsedModuleInstallArgs 
     }
   }
 
-  return { packageSpec, eject, moduleId }
+  return { packageSpec, eject, moduleId, allowThirdParty }
 }

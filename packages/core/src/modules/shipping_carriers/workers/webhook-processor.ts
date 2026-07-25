@@ -7,6 +7,9 @@ import type { ShippingWebhookEvent } from '../lib/adapter'
 import { getShippingAdapter } from '../lib/adapter-registry'
 import { getTerminalShippingEvent, syncShipmentStatus, TERMINAL_SHIPPING_STATUSES } from '../lib/status-sync'
 import { claimWebhookProcessing, releaseWebhookClaim } from '../lib/webhook-utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('shipping_carriers').child({ component: 'webhook-processor' })
 
 type WebhookJobPayload = {
   providerKey: string
@@ -99,11 +102,7 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
       throw error
     }
   } catch (error) {
-    console.error('[shipping-carriers:webhook-processor] Job processing failed', {
-      providerKey: job.payload.providerKey,
-      shipmentId: job.payload.shipmentId,
-      error: error instanceof Error ? error.message : String(error),
-    })
+    logger.error('Job processing failed', { providerKey: job.payload.providerKey, shipmentId: job.payload.shipmentId, err: error })
     throw error
   }
 }

@@ -1,4 +1,7 @@
 import type { EntityId } from './entities'
+import { createLogger } from '../lib/logger'
+
+const logger = createLogger('shared').child({ component: 'search-registry' })
 
 // =============================================================================
 // Strategy Identifiers
@@ -160,7 +163,7 @@ export interface SearchStrategy {
   bulkIndex?(records: IndexableRecord[]): Promise<void>
 
   /** Purge all records for an entity type (optional) */
-  purge?(entityId: EntityId, tenantId: string): Promise<void>
+  purge?(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void>
 }
 
 // =============================================================================
@@ -173,7 +176,7 @@ export interface SearchStrategy {
 export type ResultMergeConfig = {
   /** How to handle duplicate results: 'highest_score' | 'first' | 'merge_scores' */
   duplicateHandling: 'highest_score' | 'first' | 'merge_scores'
-  /** Weight multipliers per strategy (e.g., { meilisearch: 1.2, tokens: 0.8 }) */
+  /** Weight multipliers per strategy (e.g., { fulltext: 1.2, tokens: 0.8 }) */
   strategyWeights?: Record<SearchStrategyId, number>
   /** Minimum score threshold to include in results */
   minScore?: number
@@ -337,7 +340,7 @@ let _searchModuleConfigs: SearchModuleConfig[] | null = null
  */
 export function registerSearchModuleConfigs(configs: SearchModuleConfig[]): void {
   if (_searchModuleConfigs !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Search module configs re-registered (this may occur during HMR)')
+    logger.debug('Search module configs re-registered (this may occur during HMR)')
   }
   _searchModuleConfigs = configs
 }

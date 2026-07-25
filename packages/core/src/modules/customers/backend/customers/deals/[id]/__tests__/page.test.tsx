@@ -33,6 +33,7 @@ const plannedActivitiesSectionMock = jest.fn(
     </div>
   ),
 )
+const dealFormMock = jest.fn(() => <div>form</div>)
 let activeTabParam: string | null = 'activities'
 let detailRequestCount = 0
 
@@ -49,6 +50,7 @@ jest.mock('next/navigation', () => ({
     get: (key: string) => (key === 'tab' ? activeTabParam : null),
     toString: () => (activeTabParam ? `tab=${activeTabParam}` : ''),
   }),
+  usePathname: () => '/backend/customers/deals/test',
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({
@@ -97,6 +99,7 @@ jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: jest.fn(),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+  withScopedApiRequestHeaders: (_headers: Record<string, string>, run: () => Promise<unknown>) => run(),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
@@ -162,7 +165,7 @@ jest.mock('../../../../../components/detail/DealDetailTabs', () => ({
 }))
 
 jest.mock('../../../../../components/detail/DealForm', () => ({
-  DealForm: () => <div>form</div>,
+  DealForm: (props: Record<string, unknown>) => dealFormMock(props),
   useDealAssociationLookups: () => ({
     searchPeoplePage: jest.fn(async () => ({ items: [], totalPages: 1 })),
     fetchPeopleByIds: jest.fn(),
@@ -331,6 +334,7 @@ function createDealPayload(closureOutcome: 'won' | 'lost' | null = null) {
     pipelineStages: [
       { id: 'stage-1', label: 'Discovery', order: 1, color: '#2563eb', icon: 'search' },
     ],
+    pipelineName: 'Enterprise pipeline',
     stageTransitions: [
       {
         stageId: 'stage-1',
@@ -358,6 +362,7 @@ describe('DealDetailPage', () => {
     pushMock.mockReset()
     inlineActivityComposerMock.mockClear()
     plannedActivitiesSectionMock.mockClear()
+    dealFormMock.mockClear()
 
     updateCrudMock.mockResolvedValue(undefined)
     deleteCrudMock.mockResolvedValue(undefined)
@@ -419,6 +424,23 @@ describe('DealDetailPage', () => {
         'customer_deal:deal-1:Files:Upload and manage files linked to this deal.',
       )
     })
+  })
+
+  it('seeds the embedded deal form with loaded pipeline metadata', async () => {
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await waitFor(() => {
+      expect(dealFormMock).toHaveBeenCalled()
+    })
+
+    expect(dealFormMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      initialPipelineOptions: [
+        { id: 'pipeline-1', name: 'Enterprise pipeline', isDefault: false },
+      ],
+      initialPipelineStageOptions: [
+        { id: 'stage-1', label: 'Discovery', order: 1, color: '#2563eb', icon: 'search' },
+      ],
+    }))
   })
 
   it('persists tab changes to the URL search params', async () => {

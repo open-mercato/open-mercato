@@ -244,6 +244,15 @@ Replace generic text with specific field-based issues:
 
 ## Changelog
 
+### 2026-06-13
+- Implemented on branch `feat/948-seo-helper-validation-visibility` (off `develop`).
+- Phase 1 (inline field errors) was already present in `develop`: `CrudForm` merges injection `fieldErrors` into the same field-error state used for server validation. Field keys are flat (`title`, `description`) and match the SEO widget output — the spec's open question is resolved.
+- Phase 2: added optional `requiredFields?: string[]` to `InjectionWidgetMetadata`; `CrudForm` renders a visual required marker for fields declared by active injection widgets (presentational only — enforcement stays in `onBeforeSave`); the SEO widget declares `requiredFields: ['description']`.
+- Phase 3: `CrudForm` scrolls to the first field-mapped error (`scrollIntoView({ behavior: 'smooth', block: 'center' })`), falling back to the injection widget region (`[data-crud-injection-region]`) when the widget returns only a message. Scoped to the injection-block path so standard validation behavior is unchanged.
+- Phase 4: SEO `onBeforeSave` returns a concise, field-specific toast message (1 / 2–3 / >3-issue format). Validation logic extracted to `validation.ts` and unit-tested.
+- Tests: `widgets/injection/product-seo/__tests__/validation.test.ts` (core); `backend/__tests__/CrudForm.injectionScroll.test.tsx`, `backend/__tests__/CrudForm.requiredMarker.test.tsx` (ui).
+- Product-form caveat: the catalog product create/edit forms do **not** use standard `CrudForm` fields for Title/Description — they render them manually inside custom group components (`ProductBuilder` in `create/page.tsx`, `ProductDetailsSection` in `[id]/page.tsx`), so the `FieldControl`-level marker/scroll/inline-error do not reach them. To keep the marker metadata-driven there, `CrudFormGroupComponentProps` now exposes `requiredFieldIds: ReadonlySet<string>` (the union of active widgets' `requiredFields`); both custom components consume it to render the Description `*`, display `errors.description` inline, and carry `data-crud-field-id="title"|"description"` anchors so the injection-block auto-scroll lands on them. Title/Description error styling on these forms migrated from hardcoded `text-red-600` to the `text-status-error-text` DS token on touched lines.
+
 ### 2026-04-06
 - Initial specification
 - Incorporated review feedback: formalized validation contract, multi-source merge rules, error clear behavior, metadata-driven required fields, acceptance criteria

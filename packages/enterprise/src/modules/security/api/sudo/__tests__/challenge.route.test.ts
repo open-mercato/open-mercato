@@ -66,6 +66,7 @@ describe('security sudo challenge routes', () => {
     expect(context.sudoChallengeService.prepare).toHaveBeenCalledWith(
       '11111111-1111-4111-8111-111111111111',
       'totp',
+      { expectedUserId: context.auth.sub },
       expect.any(Request),
     )
   })

@@ -20,8 +20,6 @@ import {
   Ban,
   ArrowDownToLine,
   Undo2,
-  CheckCircle2,
-  AlertCircle,
   Info,
   Zap,
 } from 'lucide-react'
@@ -329,7 +327,10 @@ export default function PaymentGatewayDemoPage() {
   async function refreshStatus(transactionId = transaction?.transactionId) {
     if (!transactionId) return
     try {
-      const response = await apiCall(`/api/payment_gateways/status?transactionId=${encodeURIComponent(transactionId)}`)
+      const response = await apiCall('/api/payment_gateways/status', {
+        method: 'POST',
+        body: JSON.stringify({ transactionId }),
+      })
       if (response.ok) {
         const data = response.result as { status?: string } | null
         setTransaction((prev) => prev ? { ...prev, status: data?.status ?? prev.status } : prev)
@@ -433,7 +434,6 @@ export default function PaymentGatewayDemoPage() {
           {/* Error Display */}
           {error && (
             <Alert variant="destructive">
-              <AlertCircle className="size-4" />
               <AlertTitle>{t('example.payments.error.title', 'Error')}</AlertTitle>
               <AlertDescription>{error}</AlertDescription>
             </Alert>
@@ -442,7 +442,6 @@ export default function PaymentGatewayDemoPage() {
           {/* Action Result */}
           {actionResult && (
             <Alert variant="success">
-              <CheckCircle2 className="size-4" />
               <AlertTitle>{t('example.payments.success.title', 'Success')}</AlertTitle>
               <AlertDescription>{actionResult}</AlertDescription>
             </Alert>

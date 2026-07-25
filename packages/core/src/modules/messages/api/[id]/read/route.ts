@@ -5,6 +5,7 @@ import { Message, MessageRecipient } from '../../../data/entities'
 import { attachOperationMetadataHeader } from '../../../lib/operationMetadata'
 import { hasOrganizationAccess, resolveMessageContext } from '../../../lib/routeHelpers'
 import type { MessageScope } from '../../../lib/routeHelpers'
+import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../../guards'
 import { errorResponseSchema, okResponseSchema } from '../../openapi'
 
 export const metadata = {
@@ -56,6 +57,27 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   if ('response' in context) return context.response
   const { ctx, scope } = context
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: params.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: null,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
   const { logEntry } = await commandBus.execute('messages.recipients.mark_read', {
     input: {
       messageId: params.id,
@@ -78,6 +100,16 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     resourceKind: 'messages.message',
     resourceId: params.id,
   })
+  await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: scope.userId,
+    resourceKind: 'messages.message',
+    resourceId: params.id,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+  })
   return response
 }
 
@@ -86,6 +118,27 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   if ('response' in context) return context.response
   const { ctx, scope } = context
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: params.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: null,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
   const { logEntry } = await commandBus.execute('messages.recipients.mark_unread', {
     input: {
       messageId: params.id,
@@ -107,6 +160,16 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   attachOperationMetadataHeader(response, logEntry, {
     resourceKind: 'messages.message',
     resourceId: params.id,
+  })
+  await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: scope.userId,
+    resourceKind: 'messages.message',
+    resourceId: params.id,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
   })
   return response
 }

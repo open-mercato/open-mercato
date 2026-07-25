@@ -157,10 +157,10 @@ export class VectorSearchStrategy implements SearchStrategy {
     await this.vectorDriver.delete(entityId, recordId, tenantId)
   }
 
-  async purge(entityId: EntityId, tenantId: string): Promise<void> {
+  async purge(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void> {
     await this.ensureReady()
     if (this.vectorDriver.purge) {
-      await this.vectorDriver.purge(entityId, tenantId)
+      await this.vectorDriver.purge(entityId, tenantId, organizationId)
     }
   }
 

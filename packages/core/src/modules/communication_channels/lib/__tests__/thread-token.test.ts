@@ -54,7 +54,14 @@ describe('thread-token', () => {
 
     it('verifyToken rejects a token tampered in the HMAC portion', () => {
       const token = generateToken()
-      const tampered = `${token.slice(0, -2)}AA`
+      // Flip the first character of the 11-char HMAC portion. Its 6 bits are
+      // all significant (they map to the top of HMAC byte 0), so any different
+      // base64url char changes the decoded HMAC. Swapping the trailing char(s)
+      // is unreliable: the last char of an 8-byte value carries 2 padding bits
+      // the decoder discards, so e.g. `…AA` can decode to the original HMAC.
+      const hmacStart = token.length - 11
+      const replacement = token[hmacStart] === 'A' ? 'B' : 'A'
+      const tampered = `${token.slice(0, hmacStart)}${replacement}${token.slice(hmacStart + 1)}`
       expect(verifyToken(tampered)).toBe(false)
     })
 

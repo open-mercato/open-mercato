@@ -1,6 +1,6 @@
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { registerDictionaryEntryCommands } from '@open-mercato/core/modules/dictionaries/commands/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
   ensureSalesDictionary,
   getSalesDictionaryDefinition,
@@ -15,6 +15,24 @@ import {
   statusDictionaryUpdateSchema,
 } from '../data/validators'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+export const commandIds = [
+  'sales.order-statuses.create',
+  'sales.order-statuses.update',
+  'sales.order-statuses.delete',
+  'sales.order-line-statuses.create',
+  'sales.order-line-statuses.update',
+  'sales.order-line-statuses.delete',
+  'sales.shipment-statuses.create',
+  'sales.shipment-statuses.update',
+  'sales.shipment-statuses.delete',
+  'sales.payment-statuses.create',
+  'sales.payment-statuses.update',
+  'sales.payment-statuses.delete',
+  'sales.adjustment-kinds.create',
+  'sales.adjustment-kinds.update',
+  'sales.adjustment-kinds.delete',
+] as const
 
 function ensureScope(ctx: Parameters<typeof ensureTenantScope>[0], scope: { tenantId: string; organizationId: string }): void {
   ensureTenantScope(ctx, scope.tenantId)
@@ -52,7 +70,7 @@ function registerStatusDictionaryCommands(kind: SalesDictionaryKind): void {
     resolveEntry: async ({ em, ctx, id }) => {
       const entry = await findOneWithDecryption(em, DictionaryEntry, id, { populate: ['dictionary'] })
       if (!entry) {
-        throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
+        throw notFound('Dictionary entry not found')
       }
       if (entry.dictionary.key !== definition.key) {
         throw new CrudHttpError(400, { error: 'Entry does not belong to this dictionary.' })

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { deleteGeneralEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { deleteGeneralEntityIfExists } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
  * TC-ADMIN-012: API Key CRUD via API

@@ -9,7 +9,7 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
  * TC-LOCK-OSS-004: OSS opt-in optimistic locking on customers.deal — proves
  * the *auto-registered generic reader* path (Phase 13).
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md §3.5.1
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md §3.5.1
  *
  * Unlike TC-LOCK-OSS-001..003 (which exercise the 3 hand-wired readers
  * in `customers/di.ts` and `sales/di.ts`), `customers.deal` has NO

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ShippingCarrierService } from '../../lib/shipping-service'
+import { shippingCarrierUpstreamErrorResponse } from '../../lib/upstream-error-response'
 import { searchDropOffPointsQuerySchema } from '../../data/validators'
 import { shippingCarriersTag } from '../openapi'
 
@@ -35,8 +36,7 @@ export async function GET(req: Request) {
     })
     return NextResponse.json({ points })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to search drop-off points'
-    return NextResponse.json({ error: message }, { status: 502 })
+    return shippingCarrierUpstreamErrorResponse('points.search', error)
   }
 }
 

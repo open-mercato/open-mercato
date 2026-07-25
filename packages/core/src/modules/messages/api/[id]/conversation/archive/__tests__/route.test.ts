@@ -1,4 +1,4 @@
-import { PUT } from '@open-mercato/core/modules/messages/api/[id]/conversation/archive/route'
+import { DELETE, PUT } from '@open-mercato/core/modules/messages/api/[id]/conversation/archive/route'
 
 const resolveMessageContextMock = jest.fn()
 
@@ -41,6 +41,24 @@ describe('messages /api/messages/[id]/conversation/archive', () => {
     expect(response.status).toBe(200)
     expect(commandBus.execute).toHaveBeenCalledWith(
       'messages.conversation.archive_for_actor',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          anchorMessageId: 'message-1',
+          userId: 'user-1',
+        }),
+      }),
+    )
+    await expect(response.json()).resolves.toEqual({ ok: true, affectedCount: 3 })
+  })
+
+  it('unarchives conversation recipients for current actor', async () => {
+    const response = await DELETE(new Request('http://localhost', { method: 'DELETE' }), {
+      params: { id: 'message-1' },
+    })
+
+    expect(response.status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.conversation.unarchive_for_actor',
       expect.objectContaining({
         input: expect.objectContaining({
           anchorMessageId: 'message-1',

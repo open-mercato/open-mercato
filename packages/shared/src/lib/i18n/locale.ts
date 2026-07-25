@@ -32,6 +32,18 @@ export function resolveLocaleFromCandidates(
   return null
 }
 
+/**
+ * Reads the optional `OM_FORCE_LOCALE` env override. When set to a supported
+ * locale (e.g. `pl`), the whole app is pinned to it and cookie/Accept-Language
+ * detection is bypassed. Unset (the default) → `null` → normal detection.
+ * Pure: pass the env bag so it stays testable and safe to call server-side only.
+ */
+export function resolveForcedLocale(
+  env: Record<string, string | undefined>,
+): Locale | null {
+  return resolveSupportedLocale(env.OM_FORCE_LOCALE)
+}
+
 export function resolveLocaleFromAcceptLanguage(
   acceptLanguage: string | null | undefined,
 ): Locale | null {

@@ -493,5 +493,90 @@ describe('feature_toggles.global commands', () => {
 
             await expect(deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)).rejects.toThrow('Feature toggle not found')
         })
+
+        it('refuses a stale delete with a 409 optimistic-lock conflict (issue #3239)', async () => {
+            let deleteCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                deleteCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.delete')?.[0]
+            })
+            expect(deleteCommand).toBeDefined()
+
+            const currentUpdatedAt = new Date('2026-06-01T10:00:00.000Z')
+            const existingToggle = {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                identifier: 'test_feature',
+                updatedAt: currentUpdatedAt,
+            }
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                findOne: jest.fn().mockResolvedValue(existingToggle),
+                flush: jest.fn().mockResolvedValue(undefined),
+            }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    return undefined
+                }),
+            }
+            const staleUpdatedAt = '2026-05-01T08:00:00.000Z'
+            const ctx: any = {
+                container,
+                auth: { isSuperAdmin: true },
+                request: new Request('http://localhost/api/feature_toggles/global', {
+                    method: 'DELETE',
+                    headers: { 'x-om-ext-optimistic-lock-expected-updated-at': staleUpdatedAt },
+                }),
+            }
+
+            await expect(
+                deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx),
+            ).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+            expect(em.flush).not.toHaveBeenCalled()
+        })
+
+        it('allows a delete whose lock header matches the current version (issue #3239)', async () => {
+            let deleteCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                deleteCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.delete')?.[0]
+            })
+            expect(deleteCommand).toBeDefined()
+
+            const currentUpdatedAt = new Date('2026-06-01T10:00:00.000Z')
+            const existingToggle = {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                identifier: 'test_feature',
+                updatedAt: currentUpdatedAt,
+            }
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                findOne: jest.fn().mockResolvedValue(existingToggle),
+                find: jest.fn().mockResolvedValue([]),
+                remove: jest.fn(),
+                flush: jest.fn().mockResolvedValue(undefined),
+            }
+            const dataEngine = { markOrmEntityChange: jest.fn() }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    if (token === 'dataEngine') return dataEngine
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
+                    return undefined
+                }),
+            }
+            const ctx: any = {
+                container,
+                auth: { isSuperAdmin: true },
+                request: new Request('http://localhost/api/feature_toggles/global', {
+                    method: 'DELETE',
+                    headers: { 'x-om-ext-optimistic-lock-expected-updated-at': currentUpdatedAt.toISOString() },
+                }),
+            }
+
+            const result = await deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)
+            expect(result).toEqual({ toggleId: '123e4567-e89b-12d3-a456-426614174000' })
+            expect(em.flush).toHaveBeenCalled()
+        })
     })
 })

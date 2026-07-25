@@ -38,6 +38,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-open-mercato}
       JWT_SECRET: ${JWT_SECRET:-JWT}
       APP_URL: ${APP_URL:-http://localhost:3000}
+      # Additional trusted app/dev origins for the Open Mercato origin allowlist (resolveAllowedDevOrigins)
+      APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-}
       CACHE_REDIS_URL: redis://redis:6379
       CACHE_STRATEGY: ${CACHE_STRATEGY:-redis}
       ENABLE_CRUD_API_CACHE: ${ENABLE_CRUD_API_CACHE:-true}
@@ -48,6 +50,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
       MEILISEARCH_HOST: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-meilisearch-dev-key}
       MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}

@@ -9,8 +9,8 @@ node_modules/
 coverage/
 test-results/
 playwright-report/
-storage/
-data/
+/storage/
+/data/
 *.db
 *.db-shm
 *.db-wal

@@ -191,20 +191,19 @@ function CreateUserDialog({
                 {roleOptions.map((role) => {
                   const isSelected = selectedRoleIds.includes(role.id)
                   return (
-                    <button
+                    <Button
                       key={role.id}
                       type="button"
+                      size="2xs"
+                      variant={isSelected ? 'secondary' : 'outline'}
+                      aria-pressed={isSelected}
                       onClick={() => setSelectedRoleIds((prev) =>
                         prev.includes(role.id) ? prev.filter((rid) => rid !== role.id) : [...prev, role.id],
                       )}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        isSelected
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border bg-background text-muted-foreground hover:bg-muted'
-                      }`}
+                      className="rounded-full"
                     >
                       {role.label}
-                    </button>
+                    </Button>
                   )
                 })}
               </div>
@@ -500,7 +499,7 @@ export default function CustomerAccountsPage() {
                 })}
               </p>
               <p className="mt-0.5 text-xs text-status-info-text">
-                {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / password123')}
+                {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / Password123!')}
               </p>
             </div>
             <div className="flex shrink-0 flex-col gap-2">

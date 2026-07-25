@@ -60,6 +60,7 @@ export type CarrierShipmentRow = {
   unifiedStatus: string
   trackingNumber: string
   labelUrl: string | null
+  lastPolledAt: string | null
   organizationId: string
   tenantId: string
 }
@@ -81,10 +82,11 @@ export async function getCarrierShipmentRowFromDb(shipmentId: string): Promise<C
       unified_status: string
       tracking_number: string
       label_url: string | null
+      last_polled_at: string | null
       organization_id: string
       tenant_id: string
     }>(
-      `select unified_status, tracking_number, label_url, organization_id, tenant_id
+      `select unified_status, tracking_number, label_url, last_polled_at, organization_id, tenant_id
          from carrier_shipments
         where id = $1
         limit 1`,
@@ -96,6 +98,7 @@ export async function getCarrierShipmentRowFromDb(shipmentId: string): Promise<C
       unifiedStatus: row.unified_status,
       trackingNumber: row.tracking_number,
       labelUrl: row.label_url,
+      lastPolledAt: row.last_polled_at,
       organizationId: row.organization_id,
       tenantId: row.tenant_id,
     }
@@ -107,5 +110,24 @@ export async function deleteCarrierShipmentInDb(shipmentId: string | null): Prom
   if (!shipmentId) return
   await withClient(async (client) => {
     await client.query('delete from carrier_shipments where id = $1', [shipmentId])
+  })
+}
+
+/** Counts persisted shipment rows for a given order (used to assert idempotency creates no duplicate). */
+export async function countCarrierShipmentsByOrderInDb(orderId: string): Promise<number> {
+  return withClient(async (client) => {
+    const result = await client.query<{ count: string }>(
+      'select count(*)::text as count from carrier_shipments where order_id = $1',
+      [orderId],
+    )
+    return Number(result.rows[0]?.count ?? '0')
+  })
+}
+
+/** Hard-deletes shipment-create idempotency claim rows for a key (best-effort test cleanup). */
+export async function deleteCarrierShipmentIdempotencyByKeyInDb(idempotencyKey: string | null): Promise<void> {
+  if (!idempotencyKey) return
+  await withClient(async (client) => {
+    await client.query('delete from carrier_shipment_idempotency_keys where idempotency_key = $1', [idempotencyKey])
   })
 }

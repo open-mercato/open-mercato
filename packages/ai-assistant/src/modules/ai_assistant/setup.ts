@@ -1,7 +1,19 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { createHash } from 'node:crypto'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 
-const PENDING_ACTION_CLEANUP_SCHEDULE_ID = 'ai_assistant:pending-action-cleanup'
-const TOKEN_USAGE_PRUNE_SCHEDULE_ID = 'ai_assistant:token-usage-prune'
+const logger = createLogger('ai_assistant')
+
+const PENDING_ACTION_CLEANUP_SCHEDULE_KEY = 'ai_assistant:pending-action-cleanup'
+const TOKEN_USAGE_PRUNE_SCHEDULE_KEY = 'ai_assistant:token-usage-prune'
+
+function stableScheduleUuid(stableKey: string): string {
+  const hex = createHash('sha256').update(stableKey).digest('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
+
+const PENDING_ACTION_CLEANUP_SCHEDULE_ID = stableScheduleUuid(PENDING_ACTION_CLEANUP_SCHEDULE_KEY)
+const TOKEN_USAGE_PRUNE_SCHEDULE_ID = stableScheduleUuid(TOKEN_USAGE_PRUNE_SCHEDULE_KEY)
 
 /**
  * System-scoped recurring schedule: every 5 minutes, enqueue a job to the
@@ -43,10 +55,7 @@ async function ensurePendingActionCleanupSchedule(
       isEnabled: true,
     })
   } catch (error) {
-    console.warn(
-      '[ai_assistant] Failed to register pending-action cleanup schedule:',
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('Failed to register pending-action cleanup schedule', { err: error })
   }
 }
 
@@ -90,10 +99,7 @@ async function ensureTokenUsagePruneSchedule(
       isEnabled: true,
     })
   } catch (error) {
-    console.warn(
-      '[ai_assistant] Failed to register token-usage prune schedule:',
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('Failed to register token-usage prune schedule', { err: error })
   }
 }
 

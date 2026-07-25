@@ -175,7 +175,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": true,
+          "unique": false,
           "length": null,
           "precision": null,
           "scale": null,
@@ -197,18 +197,40 @@
           "unique": true
         },
         {
-          "columnNames": [
-            "user_id",
-            "tenant_id",
-            "organization_id",
-            "table_id",
-            "name"
-          ],
-          "composite": true,
-          "constraint": true,
-          "keyName": "perspectives_user_id_tenant_id_organization_id_ta_0c702_unique",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "perspectives_live_user_global_uq",
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"perspectives_live_user_global_uq\" on \"perspectives\" (\"user_id\", \"table_id\", \"name\") where \"deleted_at\" is null and \"tenant_id\" is null and \"organization_id\" is null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "perspectives_live_user_org_only_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"perspectives_live_user_org_only_uq\" on \"perspectives\" (\"user_id\", \"organization_id\", \"table_id\", \"name\") where \"deleted_at\" is null and \"tenant_id\" is null and \"organization_id\" is not null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "perspectives_live_user_org_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"perspectives_live_user_org_uq\" on \"perspectives\" (\"user_id\", \"tenant_id\", \"organization_id\", \"table_id\", \"name\") where \"deleted_at\" is null and \"tenant_id\" is not null and \"organization_id\" is not null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "perspectives_live_user_tenant_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"perspectives_live_user_tenant_uq\" on \"perspectives\" (\"user_id\", \"tenant_id\", \"table_id\", \"name\") where \"deleted_at\" is null and \"tenant_id\" is not null and \"organization_id\" is null"
         },
         {
           "columnNames": [
@@ -335,7 +357,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": true,
+          "unique": false,
           "length": null,
           "precision": null,
           "scale": null,
@@ -421,18 +443,40 @@
           "unique": true
         },
         {
-          "columnNames": [
-            "role_id",
-            "tenant_id",
-            "organization_id",
-            "table_id",
-            "name"
-          ],
-          "composite": true,
-          "constraint": true,
-          "keyName": "role_perspectives_role_id_tenant_id_organization__f0fc6_unique",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "role_perspectives_live_role_global_uq",
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"role_perspectives_live_role_global_uq\" on \"role_perspectives\" (\"role_id\", \"table_id\", \"name\") where \"deleted_at\" is null and \"tenant_id\" is null and \"organization_id\" is null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "role_perspectives_live_role_org_only_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"role_perspectives_live_role_org_only_uq\" on \"role_perspectives\" (\"role_id\", \"organization_id\", \"table_id\", \"name\") where \"deleted_at\" is null and \"tenant_id\" is null and \"organization_id\" is not null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "role_perspectives_live_role_org_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"role_perspectives_live_role_org_uq\" on \"role_perspectives\" (\"role_id\", \"tenant_id\", \"organization_id\", \"table_id\", \"name\") where \"deleted_at\" is null and \"tenant_id\" is not null and \"organization_id\" is not null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "role_perspectives_live_role_tenant_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"role_perspectives_live_role_tenant_uq\" on \"role_perspectives\" (\"role_id\", \"tenant_id\", \"table_id\", \"name\") where \"deleted_at\" is null and \"tenant_id\" is not null and \"organization_id\" is null"
         },
         {
           "columnNames": [

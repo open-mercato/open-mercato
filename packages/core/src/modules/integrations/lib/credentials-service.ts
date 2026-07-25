@@ -13,12 +13,22 @@ import { EncryptionMap } from '../../entities/data/entities'
 import { IntegrationCredentials } from '../data/entities'
 
 const ENCRYPTED_CREDENTIALS_BLOB_KEY = '__om_encrypted_credentials_blob_v1'
-const CREDENTIALS_ENCRYPTION_UNAVAILABLE_MESSAGE =
-  'Integration credentials encryption key is unavailable. Configure Vault KMS or TENANT_DATA_ENCRYPTION_FALLBACK_KEY.'
 
+/**
+ * Raised when integration credentials cannot be encrypted or decrypted because
+ * no tenant DEK is available — typically a production deployment with neither
+ * Vault nor `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` (or equivalent env vars)
+ * configured. The credentials path deliberately fails closed instead of using
+ * a hardcoded fallback secret; see security tracker finding #7.
+ */
 export class CredentialsEncryptionUnavailableError extends Error {
-  constructor() {
-    super(CREDENTIALS_ENCRYPTION_UNAVAILABLE_MESSAGE)
+  readonly code = 'CREDENTIALS_ENCRYPTION_UNAVAILABLE'
+  constructor(tenantId: string) {
+    super(
+      `Cannot encrypt or decrypt integration credentials for tenant ${tenantId}: ` +
+        `no tenant DEK is available. Configure Vault (VAULT_ADDR/VAULT_TOKEN) or ` +
+        `set TENANT_DATA_ENCRYPTION_FALLBACK_KEY in the environment.`,
+    )
     this.name = 'CredentialsEncryptionUnavailableError'
   }
 }
@@ -110,7 +120,7 @@ export function createCredentialsService(em: EntityManager) {
     const created = await kms.createTenantDek(scope.tenantId)
     if (created?.key) return created.key
 
-    throw new CredentialsEncryptionUnavailableError()
+    throw new CredentialsEncryptionUnavailableError(scope.tenantId)
   }
 
   async function encryptCredentialsBlob(
@@ -172,6 +182,41 @@ export function createCredentialsService(em: EntityManager) {
       }
       if (!row) return null
       return decryptCredentialsBlob(row.credentials, scope)
+    },
+
+    async getRowUpdatedAt(integrationId: string, scope: IntegrationScope): Promise<Date | null> {
+      let row = await findOneWithDecryption(
+        em,
+        IntegrationCredentials,
+        buildCredentialsFilter(integrationId, scope),
+        undefined,
+        scope,
+      )
+      if (!row && scope.userId) {
+        row = await findOneWithDecryption(
+          em,
+          IntegrationCredentials,
+          buildCredentialsFilter(integrationId, { ...scope, userId: null }),
+          undefined,
+          scope,
+        )
+      }
+      return row?.updatedAt ?? null
+    },
+
+    /**
+     * Resolve the persisted `updated_at` version for the credentials a caller
+     * would read via {@link resolve} (direct row first, then the bundle
+     * fallthrough). Returns `null` when no credentials row exists yet — the
+     * optimistic-lock guard treats a missing current version as "no conflict".
+     */
+    async resolveUpdatedAt(integrationId: string, scope: IntegrationScope): Promise<Date | null> {
+      const direct = await this.getRowUpdatedAt(integrationId, scope)
+      if (direct) return direct
+
+      const definition = getIntegration(integrationId)
+      if (!definition?.bundleId) return null
+      return this.getRowUpdatedAt(definition.bundleId, scope)
     },
 
     async resolve(integrationId: string, scope: IntegrationScope): Promise<Record<string, unknown> | null> {

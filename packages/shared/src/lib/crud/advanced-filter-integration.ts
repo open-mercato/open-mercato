@@ -5,6 +5,9 @@ import {
   convertAdvancedFilterToWhere,
 } from '../query/advanced-filter'
 import { compileTreeToWhere, type AdvancedFilterTree } from '../query/advanced-filter-tree'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'crud' })
 
 function splitOrClauses(filters: Record<string, unknown>): {
   directFilters: Record<string, unknown>
@@ -142,7 +145,7 @@ export function consumeAdvancedFilterState(query: Record<string, unknown>): Adva
         if (!g[sentinel]) {
           g[sentinel] = true
           // eslint-disable-next-line no-console
-          console.warn('[advanced-filter] legacy v1 URL detected; auto-upgraded to v2 tree')
+          logger.warn('Legacy v1 advanced-filter URL detected; auto-upgraded to v2 tree')
         }
       }
     }

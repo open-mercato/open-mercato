@@ -60,6 +60,37 @@ describe('Pagination', () => {
     expect(nav.getAttribute('aria-label')).toBe('Pagination')
   })
 
+  // The info text, page buttons, and page-size select together need ~600px of
+  // min-content (info and the select are shrink-0). Without flex-wrap the row
+  // cannot compress on a phone-width container, overflows its card, and drags
+  // the whole page into horizontal scroll. Every level that holds a fixed-width,
+  // shrink-0 button run must be allowed to wrap: the root row, the controls
+  // group (first/prev/pages/next/last ≈ 392px at 6 pages — wider than a phone
+  // on its own), and the page-number list itself (so a long run wraps instead
+  // of overflowing). Wrapping just the outer row leaves the ~392px controls
+  // group on a single unbreakable line that still overflows.
+  it('lets every fixed-width control row wrap on narrow containers', () => {
+    const { container } = render(
+      <Pagination
+        page={3}
+        pageSize={20}
+        total={120}
+        onPageChange={() => {}}
+        onPageSizeChange={() => {}}
+      />,
+    )
+    const tokensOf = (selector: string) => {
+      const el = container.querySelector(selector) as HTMLElement | null
+      expect(el).not.toBeNull()
+      return (el!.getAttribute('class') ?? '').split(/\s+/).filter(Boolean)
+    }
+    expect(tokensOf('[data-slot="pagination"]')).toEqual(
+      expect.arrayContaining(['flex-wrap', 'justify-between']),
+    )
+    expect(tokensOf('[data-slot="pagination-controls"]')).toContain('flex-wrap')
+    expect(tokensOf('[data-slot="pagination-pages"]')).toContain('flex-wrap')
+  })
+
   it('renders "Page X of Y" info by default', () => {
     const { container } = render(
       <Pagination page={2} pageSize={10} total={100} onPageChange={() => {}} />,

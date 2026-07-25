@@ -6,11 +6,18 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import CurrenciesPage from '../page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
+const mockRunMutation = jest.fn(({ operation }: { operation: () => unknown }) => operation())
+const mockRetryLastMutation = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
+}))
+
+jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
+  useGuardedMutation: () => ({ runMutation: mockRunMutation, retryLastMutation: mockRetryLastMutation }),
 }))
 
 jest.mock('next/link', () => ({ children, href }: any) => <a href={href}>{children}</a>)
@@ -34,6 +41,7 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
           isBase: false,
           organizationId: 'org-1',
           tenantId: 'ten-1',
+          updatedAt: '2024-01-01',
         })}
       </div>
       <div data-testid="row-actions-base">
@@ -74,9 +82,22 @@ jest.mock('@open-mercato/ui/backend/ValueIcons', () => ({
   BooleanIcon: ({ value }: { value: boolean }) => <span>{String(value)}</span>,
 }))
 
+let scopedHeaderStack: Record<string, string> = {}
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
-  withScopedApiRequestHeaders: (_headers: unknown, run: () => unknown) => run(),
+  withScopedApiRequestHeaders: (headers: Record<string, string>, run: () => unknown) => {
+    const previous = scopedHeaderStack
+    scopedHeaderStack = { ...previous, ...headers }
+    try {
+      return run()
+    } finally {
+      scopedHeaderStack = previous
+    }
+  },
+}))
+
+jest.mock('@open-mercato/ui/backend/conflicts', () => ({
+  surfaceRecordConflict: jest.fn(() => false),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
@@ -110,21 +131,33 @@ HTMLDialogElement.prototype.close = jest.fn(function (this: HTMLDialogElement) {
   this.removeAttribute('open')
 })
 
+type RecordedApiCall = { url: string; init?: Record<string, unknown>; scopedHeaders: Record<string, string> }
+let recordedApiCalls: RecordedApiCall[] = []
+
+const LIST_RESULT = {
+  ok: true,
+  status: 200,
+  result: {
+    items: [
+      { id: 'cur-1', code: 'EUR', name: 'Euro', symbol: '€', decimalPlaces: 2, isBase: false, isActive: true, organizationId: 'org-1', tenantId: 'ten-1', createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+      { id: 'cur-2', code: 'USD', name: 'US Dollar', symbol: '$', decimalPlaces: 2, isBase: true, isActive: true, organizationId: 'org-1', tenantId: 'ten-1', createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+    ],
+    total: 2,
+    page: 1,
+    totalPages: 1,
+  },
+}
+
 describe('CurrenciesPage', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    ;(apiCall as jest.Mock).mockResolvedValue({
-      ok: true,
-      result: {
-        items: [
-          { id: 'cur-1', code: 'EUR', name: 'Euro', symbol: '€', decimalPlaces: 2, isBase: false, isActive: true, organizationId: 'org-1', tenantId: 'ten-1', createdAt: '2024-01-01', updatedAt: '2024-01-01' },
-          { id: 'cur-2', code: 'USD', name: 'US Dollar', symbol: '$', decimalPlaces: 2, isBase: true, isActive: true, organizationId: 'org-1', tenantId: 'ten-1', createdAt: '2024-01-01', updatedAt: '2024-01-01' },
-        ],
-        total: 2,
-        page: 1,
-        totalPages: 1,
-      },
+    recordedApiCalls = []
+    scopedHeaderStack = {}
+    ;(apiCall as jest.Mock).mockImplementation((url: string, init?: Record<string, unknown>) => {
+      recordedApiCalls.push({ url, init, scopedHeaders: { ...scopedHeaderStack } })
+      return Promise.resolve(LIST_RESULT)
     })
+    ;(surfaceRecordConflict as jest.Mock).mockReturnValue(false)
   })
 
   it('loads currencies from the correct API endpoint', async () => {
@@ -176,5 +209,55 @@ describe('CurrenciesPage', () => {
       expect(deleteCall).toBeDefined()
       expect(deleteCall[0]).toBe('/api/currencies/currencies')
     })
+  })
+
+  // Regression for #3191: every non-CrudForm write must route through the
+  // guarded mutation so global injections, scoped headers, and the unified
+  // optimistic-lock conflict handling run consistently.
+  it('routes set-base through the guarded mutation', async () => {
+    render(<CurrenciesPage />)
+    await waitFor(() => expect(apiCall).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByTestId('row-action-set-base'))
+
+    await waitFor(() => expect(mockRunMutation).toHaveBeenCalled())
+    const ctx = mockRunMutation.mock.calls.at(-1)?.[0]?.context
+    expect(ctx?.resourceKind).toBe('currencies.currency')
+    expect(typeof ctx?.retryLastMutation).toBe('function')
+  })
+
+  it('routes delete through the guarded mutation', async () => {
+    render(<CurrenciesPage />)
+    await waitFor(() => expect(apiCall).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByTestId('row-action-delete'))
+
+    await waitFor(() => expect(mockRunMutation).toHaveBeenCalled())
+    const ctx = mockRunMutation.mock.calls.at(-1)?.[0]?.context
+    expect(ctx?.resourceKind).toBe('currencies.currency')
+    expect(typeof ctx?.retryLastMutation).toBe('function')
+  })
+
+  it('handleDelete routes a 409 conflict through surfaceRecordConflict instead of a generic flash', async () => {
+    render(<CurrenciesPage />)
+    await waitFor(() => expect(apiCall).toHaveBeenCalledTimes(1))
+
+    ;(apiCall as jest.Mock).mockImplementation((url: string, init?: Record<string, unknown>) => {
+      recordedApiCalls.push({ url, init, scopedHeaders: { ...scopedHeaderStack } })
+      if ((init as Record<string, unknown> | undefined)?.method === 'DELETE') {
+        return Promise.resolve({ ok: false, status: 409, result: { code: 'optimistic_lock_conflict', currentUpdatedAt: '2024-02-02', expectedUpdatedAt: '2024-01-01' } })
+      }
+      return Promise.resolve(LIST_RESULT)
+    })
+    ;(surfaceRecordConflict as jest.Mock).mockReturnValue(true)
+
+    fireEvent.click(screen.getByTestId('row-action-delete'))
+
+    await waitFor(() => expect(surfaceRecordConflict as jest.Mock).toHaveBeenCalled())
+    const conflictArg = (surfaceRecordConflict as jest.Mock).mock.calls[0][0] as Record<string, unknown>
+    expect(conflictArg.status).toBe(409)
+    expect(conflictArg.code).toBe('optimistic_lock_conflict')
+    // When the conflict surface owns the resolution, the generic delete-error flash is suppressed.
+    expect(flash).not.toHaveBeenCalledWith('currencies.flash.deleteError', 'error')
   })
 })

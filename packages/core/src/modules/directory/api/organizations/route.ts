@@ -250,6 +250,7 @@ export async function GET(req: Request) {
     const items = orgs.map((org) => ({
       id: stringId(org.id),
       name: org.name,
+      logoUrl: org.logoUrl ?? null,
       parentId: org.parentId ?? null,
       tenantId: tenantId,
       isActive: !!org.isActive,
@@ -341,8 +342,12 @@ export async function GET(req: Request) {
     }
 
     const slugByOrgId = new Map<string, string | null>()
+    const updatedAtByOrgId = new Map<string, string | null>()
+    const logoUrlByOrgId = new Map<string, string | null>()
     for (const org of allOrgs) {
       slugByOrgId.set(String(org.id), org.slug ?? null)
+      updatedAtByOrgId.set(String(org.id), org.updatedAt instanceof Date ? org.updatedAt.toISOString() : null)
+      logoUrlByOrgId.set(String(org.id), org.logoUrl ?? null)
     }
 
     const tenantIds = Array.from(byTenant.keys())
@@ -426,6 +431,8 @@ export async function GET(req: Request) {
         id: node.id,
         name: node.name,
         slug: slugByOrgId.get(recordId) ?? null,
+        updatedAt: updatedAtByOrgId.get(recordId) ?? null,
+        logoUrl: logoUrlByOrgId.get(recordId) ?? null,
         tenantId: tid,
         tenantName: tenantNameMap[tid] ?? tid,
         parentId: node.parentId,
@@ -467,9 +474,11 @@ export async function GET(req: Request) {
   const orgs = await em.find(Organization, orgListFilter, { orderBy: { name: 'ASC' } })
   const hierarchy = computeHierarchyForOrganizations(orgs, tenantId)
   const slugByOrgId = new Map<string, string | null>()
+  const logoUrlByOrgId = new Map<string, string | null>()
   const updatedAtByOrgId = new Map<string, string | null>()
   for (const org of orgs) {
     slugByOrgId.set(String(org.id), org.slug ?? null)
+    logoUrlByOrgId.set(String(org.id), org.logoUrl ?? null)
     updatedAtByOrgId.set(String(org.id), org.updatedAt instanceof Date ? org.updatedAt.toISOString() : null)
   }
 
@@ -533,6 +542,7 @@ export async function GET(req: Request) {
       id: node.id,
       name: node.name,
       slug: slugByOrgId.get(recordId) ?? null,
+      logoUrl: logoUrlByOrgId.get(recordId) ?? null,
       updatedAt: updatedAtByOrgId.get(recordId) ?? null,
       tenantId: node.tenantId,
       tenantName,

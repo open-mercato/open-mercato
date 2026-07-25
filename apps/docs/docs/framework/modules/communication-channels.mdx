@@ -146,14 +146,14 @@ export interface OAuthClientConfig {
 The hub's `refreshCredentialsIfNeeded` helper resolves `oauth_<providerKey>` via `IntegrationCredentialsService.resolve(...)` and passes the result through. Provider adapters that implement OAuth refresh MUST read `clientId` / `clientSecret` from `input.oauthClient` — see `packages/channel-gmail/.../lib/adapter.ts:refreshCredentials` for the reference implementation.
 
 :::warning Legacy `credentials._client` path is deprecated
-Prior to the wiring spec ([`.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`](#)), adapters read OAuth client config from `credentials._client` — a field no production code path ever populated, which caused token refresh to fail silently after ~1 hour. The Gmail adapter still recognizes `_client` for one minor release with a one-time deprecation warning per process. Remove any test fixtures or callers that rely on `_client` and pass `oauthClient` instead.
+Prior to the wiring spec ([`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`](#)), adapters read OAuth client config from `credentials._client` — a field no production code path ever populated, which caused token refresh to fail silently after ~1 hour. The Gmail adapter still recognizes `_client` for one minor release with a one-time deprecation warning per process. Remove any test fixtures or callers that rely on `_client` and pass `oauthClient` instead.
 :::
 
 When the helper cannot resolve the OAuth client (missing `oauth_<provider>` integration credential row, or `credentialsService` not registered), `oauthClient` is left `undefined`. Adapters then fall through to the legacy `_client` path; if neither field is present, refresh fails with a clear error and the channel flips to `status='requires_reauth'` so the operator-visible notification fires.
 
 ## Inbound reliability & threading (Spec B)
 
-Shipped 2026-05-27. See [`.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`](#) for the full design rationale.
+Shipped 2026-05-27. See [`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`](#) for the full design rationale.
 
 ### Layered thread matching
 
@@ -203,7 +203,7 @@ The UI lives on `/backend/profile/communication-channels` as a per-row "Import h
 
 ## Provider push delivery (Spec C)
 
-Shipped 2026-05-27. See [`.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`](#) for the full design rationale.
+Shipped 2026-05-27. See [`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`](#) for the full design rationale.
 
 Spec B established the polling foundation: 60-second cadence for IMAP and Gmail alike. Spec C **replaces** the 60s polling cadence for Gmail with native push delivery, dropping inbound latency from ≤60s to 5–15s typical while leaving 30-minute polling as a belt-and-suspenders fallback.
 

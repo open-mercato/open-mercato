@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { sql } from 'kysely'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -100,21 +101,36 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   )
   const conversationIds = conversations.map((c) => c.id).filter(Boolean) as string[]
 
-  let links: MessageChannelLink[] = []
+  const counts = { sent: 0, delivered: 0, read: 0, failed: 0, pending: 0, queued: 0, other: 0 }
+  let totalsLast24h = 0
   let recentFailures: MessageChannelLink[] = []
   if (conversationIds.length > 0) {
     const since = new Date(Date.now() - WINDOW_HOURS * 60 * 60 * 1000)
-    links = await findWithDecryption(
-      em,
-      MessageChannelLink,
-      {
-        externalConversationId: { $in: conversationIds },
-        tenantId: auth.tenantId,
-        createdAt: { $gte: since },
-      },
-      undefined,
-      dscope,
-    )
+
+    // Aggregate the delivery-status counts in the database so the response stays
+    // a small fixed shape regardless of how much traffic the channel saw in the
+    // window. `delivery_status`, `external_conversation_id`, `tenant_id` and
+    // `created_at` are plaintext columns (see encryption.ts — only
+    // `channel_ingest_dead_letter.raw_body` is encrypted on this module), so a
+    // grouped count is safe without the decryption helpers.
+    const db = em.getKysely<any>() as any
+    const statusRows = (await db
+      .selectFrom('message_channel_links')
+      .select(['delivery_status', sql<string>`count(*)`.as('count')])
+      .where('external_conversation_id', 'in', conversationIds)
+      .where('tenant_id', '=', auth.tenantId)
+      .where('created_at', '>=', since)
+      .groupBy('delivery_status')
+      .execute()) as Array<{ delivery_status: string | null; count: string | number }>
+
+    for (const row of statusRows) {
+      const value = Number(row.count) || 0
+      totalsLast24h += value
+      const key = row.delivery_status as keyof typeof counts
+      if (key && key in counts) counts[key] += value
+      else counts.other += value
+    }
+
     recentFailures = await findWithDecryption(
       em,
       MessageChannelLink,
@@ -128,20 +144,13 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
     )
   }
 
-  const counts = { sent: 0, delivered: 0, read: 0, failed: 0, pending: 0, queued: 0, other: 0 }
-  for (const link of links) {
-    const key = link.deliveryStatus as keyof typeof counts
-    if (key in counts) counts[key] += 1
-    else counts.other += 1
-  }
-
   return NextResponse.json({
     channelId: channel.id,
     providerKey: channel.providerKey,
     channelType: channel.channelType,
     windowHours: WINDOW_HOURS,
     counts,
-    totalsLast24h: links.length,
+    totalsLast24h,
     recentFailures: recentFailures.map((link) => ({
       id: link.id,
       messageId: link.messageId,

@@ -4,7 +4,7 @@
  * Read-only tools scoped to `ctx.tenantId` + `ctx.organizationId`. Mutation
  * tools are deferred to Step 5.14 under the pending-action contract.
  *
- * Phase 3b of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
+ * Phase 3b of `.ai/specs/implemented/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
  * `catalog.list_products` is now an API-backed wrapper over
  * `GET /api/catalog/products`. Tool name, schema, requiredFeatures, and
  * output shape are unchanged.

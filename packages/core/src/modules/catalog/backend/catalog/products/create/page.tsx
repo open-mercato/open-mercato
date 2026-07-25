@@ -77,6 +77,7 @@ import {
   updateDimensionValue,
   updateWeightValue,
   isConfigurableProductType,
+  buildComplianceProductPayload,
 } from "@open-mercato/core/modules/catalog/components/products/productForm";
 import { CATALOG_PRODUCT_TYPES } from "@open-mercato/core/modules/catalog/data/types";
 import {
@@ -84,6 +85,7 @@ import {
   slugifyAttachmentFileName,
 } from "@open-mercato/core/modules/attachments/lib/imageUrls";
 import { ProductUomSection } from "@open-mercato/core/modules/catalog/components/products/ProductUomSection";
+import { ProductComplianceSection } from "@open-mercato/core/modules/catalog/components/products/ProductComplianceSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
 import {
   UNIT_PRICE_REFERENCE_UNITS,
@@ -94,6 +96,9 @@ import {
   normalizeProductConversionInputs,
   type ProductUnitConversionInput,
 } from "@open-mercato/core/modules/catalog/components/products/productFormUtils";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 const productFormTypedSchema =
   productFormSchema as unknown as ZodType<ProductFormValues>;
@@ -149,6 +154,33 @@ const STEP_FIELD_MATCHERS: Record<
     matchField("unitPriceReferenceUnit"),
     matchField("unitPriceBaseQuantity"),
     matchPrefix("unitConversions"),
+  ],
+  compliance: [
+    matchField("countryOfOriginCode"),
+    matchField("pkwiuCode"),
+    matchField("cnCode"),
+    matchField("hsCode"),
+    matchField("taxClassificationCode"),
+    matchField("gtuCodes"),
+    matchField("ageMin"),
+    matchField("isExciseGood"),
+    matchField("exciseCategory"),
+    matchField("requiresPrescription"),
+    matchPrefix("hazmat"),
+    matchField("unNumber"),
+    matchField("containsLithiumBattery"),
+    matchField("launchAt"),
+    matchField("endOfLifeAt"),
+    matchField("availableFrom"),
+    matchField("availableUntil"),
+    matchField("minOrderQty"),
+    matchField("maxOrderQty"),
+    matchField("orderQtyIncrement"),
+    matchField("requiresShipping"),
+    matchField("isQuoteOnly"),
+    matchField("seoTitle"),
+    matchField("seoDescription"),
+    matchField("canonicalUrl"),
   ],
   variants: [
     matchField("hasVariants"),
@@ -239,7 +271,7 @@ export default function CreateCatalogProductPage() {
             .filter((item): item is PriceKindSummary => item !== null),
         );
       } catch (err) {
-        console.error("catalog.price-kinds.fetch failed", err);
+        logger.error('catalog.price-kinds.fetch failed', { err });
         setPriceKinds([]);
       }
     };
@@ -288,7 +320,7 @@ export default function CreateCatalogProductPage() {
           }),
         );
       } catch (err) {
-        console.error("sales.tax-rates.fetch failed", err);
+        logger.error('sales.tax-rates.fetch failed', { err });
         setTaxRates([]);
       }
     };
@@ -304,6 +336,7 @@ export default function CreateCatalogProductPage() {
           values,
           setValue,
           errors,
+          requiredFieldIds,
         }: CrudFormGroupComponentProps) => (
           <ProductBuilder
             values={values as ProductFormValues}
@@ -311,6 +344,7 @@ export default function CreateCatalogProductPage() {
             errors={errors}
             priceKinds={priceKinds}
             taxRates={taxRates}
+            requiredFieldIds={requiredFieldIds}
           />
         ),
       },
@@ -540,6 +574,7 @@ export default function CreateCatalogProductPage() {
               unitPriceBaseQuantity: unitPriceEnabled
                 ? unitPriceBaseQuantity
                 : undefined,
+              ...buildComplianceProductPayload(formValues),
             };
             if (optionSchemaDefinition) {
               productPayload.optionSchema = optionSchemaDefinition;
@@ -743,10 +778,7 @@ export default function CreateCatalogProductPage() {
                   { fallback: null },
                 );
                 if (!transfer.ok) {
-                  console.error(
-                    "attachments.transfer.failed",
-                    transfer.result?.error,
-                  );
+                  logger.error("attachments.transfer.failed", { err: transfer.result?.error });
                 }
               }
 
@@ -827,6 +859,7 @@ type ProductBuilderProps = {
   errors: Record<string, string>;
   priceKinds: PriceKindSummary[];
   taxRates: TaxRateSummary[];
+  requiredFieldIds?: ReadonlySet<string>;
 };
 
 type ProductMetaSectionProps = {
@@ -984,6 +1017,7 @@ function ProductBuilder({
   errors,
   priceKinds,
   taxRates,
+  requiredFieldIds,
 }: ProductBuilderProps) {
   const t = useT();
   const steps = PRODUCT_FORM_STEPS;
@@ -1308,6 +1342,8 @@ function ProductBuilder({
               t("catalog.products.create.steps.organize", "Organize")}
             {step === "uom" &&
               t("catalog.products.uom.title", "Units of measure")}
+            {step === "compliance" &&
+              t("catalog.products.compliance.title", "Compliance & commerce")}
             {step === "variants" &&
               t("catalog.products.create.steps.variants", "Variants")}
             {(stepErrors[step]?.length ?? 0) > 0 ? (
@@ -1325,10 +1361,10 @@ function ProductBuilder({
 
       {currentStepKey === "general" ? (
         <div className="space-y-6">
-          <div className="space-y-2">
+          <div className="space-y-2" data-crud-field-id="title">
             <Label className="flex items-center gap-1">
               {t("catalog.products.form.title", "Title")}
-              <span className="text-red-600">*</span>
+              <span className="text-status-error-text">*</span>
             </Label>
             <Input
               value={values.title}
@@ -1339,14 +1375,17 @@ function ProductBuilder({
               )}
             />
             {errors.title ? (
-              <p className="text-xs text-red-600">{errors.title}</p>
+              <p className="text-xs text-status-error-text">{errors.title}</p>
             ) : null}
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2" data-crud-field-id="description">
             <div className="flex items-center justify-between">
-              <Label>
+              <Label className="flex items-center gap-1">
                 {t("catalog.products.form.description", "Description")}
+                {requiredFieldIds?.has("description") ? (
+                  <span className="text-status-error-text">*</span>
+                ) : null}
               </Label>
               <Button
                 type="button"
@@ -1389,6 +1428,9 @@ function ProductBuilder({
                 )}
               />
             )}
+            {errors.description ? (
+              <p className="text-xs text-status-error-text">{errors.description}</p>
+            ) : null}
           </div>
 
           <ProductMediaManager
@@ -1417,6 +1459,15 @@ function ProductBuilder({
 
       {currentStepKey === "uom" ? (
         <ProductUomSection
+          values={values as ProductFormValues}
+          setValue={setValue}
+          errors={errors}
+          embedded
+        />
+      ) : null}
+
+      {currentStepKey === "compliance" ? (
+        <ProductComplianceSection
           values={values as ProductFormValues}
           setValue={setValue}
           errors={errors}

@@ -434,6 +434,8 @@ export const RETURN_ADJUSTMENT_POSITIVE_NET_MESSAGE =
   'Return adjustments must use a non-positive amountNet (returns reduce the total).'
 export const RETURN_ADJUSTMENT_POSITIVE_GROSS_MESSAGE =
   'Return adjustments must use a non-positive amountGross (returns reduce the total).'
+export const RETURN_ADJUSTMENT_ZERO_MESSAGE =
+  'Return adjustments must use a non-zero amount. Create the return through the Returns tab instead of recording a zero-value Return adjustment.'
 export const DISCOUNT_ADJUSTMENT_NEGATIVE_NET_MESSAGE =
   'Discount adjustments must use a non-negative amountNet (discounts reduce the total).'
 export const DISCOUNT_ADJUSTMENT_NEGATIVE_GROSS_MESSAGE =
@@ -482,19 +484,32 @@ export const enforceAdjustmentSign = (
 ) => {
   if (!value.kind) return
   if (value.kind === 'return') {
-    if (typeof value.amountNet === 'number' && value.amountNet > 0) {
+    const netIsPositive = typeof value.amountNet === 'number' && value.amountNet > 0
+    const grossIsPositive = typeof value.amountGross === 'number' && value.amountGross > 0
+    if (netIsPositive) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: RETURN_ADJUSTMENT_POSITIVE_NET_MESSAGE,
         path: ['amountNet'],
       })
     }
-    if (typeof value.amountGross === 'number' && value.amountGross > 0) {
+    if (grossIsPositive) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: RETURN_ADJUSTMENT_POSITIVE_GROSS_MESSAGE,
         path: ['amountGross'],
       })
+    }
+    if (!netIsPositive && !grossIsPositive) {
+      const netIsNegative = typeof value.amountNet === 'number' && value.amountNet < 0
+      const grossIsNegative = typeof value.amountGross === 'number' && value.amountGross < 0
+      if (!netIsNegative && !grossIsNegative) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: RETURN_ADJUSTMENT_ZERO_MESSAGE,
+          path: ['amountNet'],
+        })
+      }
     }
     return
   }
@@ -803,11 +818,23 @@ const returnLineQuantitySchema = z.coerce
   .min(1, 'Return quantity must be at least 1.')
   .max(MAX_QUANTITY, 'Quantity is too large.')
 
+export const RETURN_DATE_IN_FUTURE_MESSAGE = 'Return date cannot be in the future.'
+
+// A return records when goods physically came back to the seller, so a future
+// date is not yet a fact. Evaluate "now" at parse time (not module-load time)
+// so a long-running server never rejects legitimate same-day returns.
+const returnedAtSchema = z.coerce
+  .date()
+  .refine((value) => value.getTime() <= Date.now(), {
+    message: RETURN_DATE_IN_FUTURE_MESSAGE,
+  })
+  .optional()
+
 export const returnCreateSchema = scoped.extend({
   orderId: uuid(),
   reason: z.string().trim().max(4000).optional(),
   notes: z.string().trim().max(4000).optional(),
-  returnedAt: z.coerce.date().optional(),
+  returnedAt: returnedAtSchema,
   lines: z
     .array(
       z.object({
@@ -816,6 +843,19 @@ export const returnCreateSchema = scoped.extend({
       })
     )
     .min(1),
+})
+
+export const returnUpdateSchema = scoped.extend({
+  id: uuid(),
+  orderId: uuid(),
+  reason: z.string().trim().max(4000).optional(),
+  notes: z.string().trim().max(4000).optional(),
+  returnedAt: returnedAtSchema,
+})
+
+export const returnDeleteSchema = scoped.extend({
+  id: uuid(),
+  orderId: uuid(),
 })
 
 export const invoiceCreateSchema = scoped.extend({
@@ -1021,6 +1061,8 @@ export type QuoteAdjustmentUpdateInput = z.infer<typeof quoteAdjustmentUpdateSch
 export type ShipmentCreateInput = z.infer<typeof shipmentCreateSchema>
 export type ShipmentUpdateInput = z.infer<typeof shipmentUpdateSchema>
 export type ReturnCreateInput = z.infer<typeof returnCreateSchema>
+export type ReturnUpdateInput = z.infer<typeof returnUpdateSchema>
+export type ReturnDeleteInput = z.infer<typeof returnDeleteSchema>
 export type InvoiceCreateInput = z.infer<typeof invoiceCreateSchema>
 export type InvoiceUpdateInput = z.infer<typeof invoiceUpdateSchema>
 export type CreditMemoCreateInput = z.infer<typeof creditMemoCreateSchema>

@@ -637,6 +637,18 @@ export function register(container: AppContainer) {
 }
 ```
 
+#### 6.4.1 Manual operation idempotency
+
+Manual capture, refund, and cancel are protected by a durable `gateway_payment_operations` claim created before the provider call. The claim is scoped by tenant and organization, fingerprints the transaction/action/payload, stores the deterministic provider idempotency key and successful result, and uses an expiring lease plus compare-and-set attempt token for stale or failed recovery.
+
+- The capture/refund/cancel request schemas accept an optional `operationId`. Existing callers remain compatible: when omitted, the service derives a deterministic legacy ID from the scoped transaction, action, amount, and reason.
+- A completed duplicate returns the stored result without another provider call while the transaction remains at that result status, an active duplicate returns `409 payment_operation_in_progress`, and reusing an ID for different input returns `409 payment_operation_conflict`.
+- Intentional equal partial refunds use distinct caller-supplied operation IDs. Retrying the same logical refund reuses its original ID.
+- `CaptureInput`, `RefundInput`, and `CancelInput` add the optional `idempotencyKey` field. Provider packages that support native idempotency pass it to their SDK; Stripe does so for every supported API version and derives partial-refund status from the charge's cumulative refunded amount.
+- Provider success and the local transaction/operation result finalize in one database transaction. Failed or abandoned attempts are reclaimable and always reuse the same provider key.
+
+Integration coverage: `TC-PGWY-021` verifies completed replay, payload-conflict rejection, and distinct equal partial refunds through the authenticated API routes. Unit coverage uses a barrier-controlled concurrent refund to prove that only one adapter call occurs.
+
 ### 6.5 Events
 
 ```typescript

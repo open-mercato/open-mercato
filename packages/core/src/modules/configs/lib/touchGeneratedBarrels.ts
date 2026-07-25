@@ -34,7 +34,7 @@ export function touchGeneratedBarrels(
   options: TouchGeneratedBarrelsOptions = {},
 ): TouchGeneratedBarrelsResult {
   const cwd = options.cwd ?? process.cwd()
-  const log = options.log ?? ((message: string) => console.log(message))
+  const log = options.log ?? ((message: string) => process.stdout.write(`${message}\n`))
   const quiet = options.quiet === true
 
   const generatedDir = findGeneratedDir(cwd)

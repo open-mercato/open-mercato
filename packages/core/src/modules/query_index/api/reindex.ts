@@ -5,6 +5,10 @@ import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib
 import { queryIndexTag, queryIndexErrorSchema, queryIndexOkSchema, queryIndexReindexRequestSchema } from './openapi'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { isValidEntityIdShape } from '@open-mercato/shared/lib/query/engine'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['query_index.reindex'] },
@@ -31,16 +35,39 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'partitionIndex must be < partitionCount' }, { status: 400 })
   }
 
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
   let em: any | null = null
   try {
-    em = resolve('em')
+    em = container.resolve('em')
   } catch {}
-  const bus = resolve('eventBus') as any
+  const bus = container.resolve('eventBus') as any
   const partitions = partitionIndex !== undefined
     ? [partitionIndex]
     : Array.from({ length: partitionCount }, (_, idx) => idx)
   const firstPartition = partitions[0] ?? 0
+
+  const guardUserId = typeof auth.sub === 'string' ? auth.sub : ''
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+    userId: guardUserId,
+    resourceKind: 'query_index',
+    resourceId: entityType,
+    operation: 'custom',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: {
+      entityType,
+      force,
+      batchSize: batchSize ?? null,
+      partitionCount,
+      partitionIndex: partitionIndex ?? null,
+    },
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
   await recordIndexerLog(
     { em: em ?? undefined },
     {
@@ -81,7 +108,7 @@ export async function POST(req: Request) {
         return bus.emitEvent(
           'query_index.reindex',
           payload,
-          { persistent: true },
+          { persistent: true, deliverInline: false },
         )
       }),
     )
@@ -102,6 +129,19 @@ export async function POST(req: Request) {
         },
       },
     ).catch(() => undefined)
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+        userId: guardUserId,
+        resourceKind: 'query_index',
+        resourceId: entityType,
+        operation: 'custom',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
   } catch (error) {
     await recordIndexerLog(
       { em: em ?? undefined },

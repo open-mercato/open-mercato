@@ -3,13 +3,40 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { DealDetailPayload } from './types'
 
+type LoadDataOptions = {
+  cache?: boolean
+}
+
 type UseDealDataResult = {
   data: DealDetailPayload | null
   setData: React.Dispatch<React.SetStateAction<DealDetailPayload | null>>
   isLoading: boolean
   error: string | null
   isNotFound: boolean
-  loadData: () => Promise<void>
+  loadData: (options?: LoadDataOptions) => Promise<void>
+}
+
+type DealDataCacheEntry = {
+  promise: Promise<DealDetailPayload>
+}
+
+const dealDataCache = new Map<string, DealDataCacheEntry>()
+
+function fetchDealData(id: string, errorMessage: string, useCache: boolean): Promise<DealDetailPayload> {
+  const url = `/api/customers/deals/${encodeURIComponent(id)}?include=stages&view=lite`
+  const cached = dealDataCache.get(url)
+  if (useCache && cached) return cached.promise
+  const entry: DealDataCacheEntry = {
+    promise: readApiResultOrThrow<DealDetailPayload>(
+      url,
+      undefined,
+      { errorMessage },
+    ),
+  }
+  if (useCache) dealDataCache.set(url, entry)
+  return entry.promise.finally(() => {
+    if (dealDataCache.get(url) === entry) dealDataCache.delete(url)
+  })
 }
 
 export function useDealData(id: string): UseDealDataResult {
@@ -20,7 +47,7 @@ export function useDealData(id: string): UseDealDataResult {
   const [isNotFound, setIsNotFound] = React.useState(false)
   const initialLoadDoneRef = React.useRef(false)
 
-  const loadData = React.useCallback(async () => {
+  const loadData = React.useCallback(async (options: LoadDataOptions = {}) => {
     if (!id) {
       setIsNotFound(true)
       setIsLoading(false)
@@ -31,10 +58,10 @@ export function useDealData(id: string): UseDealDataResult {
     }
     setError(null)
     try {
-      const payload = await readApiResultOrThrow<DealDetailPayload>(
-        `/api/customers/deals/${encodeURIComponent(id)}?include=stages&view=lite`,
-        undefined,
-        { errorMessage: t('customers.deals.detail.error.load', 'Failed to load deal.') },
+      const payload = await fetchDealData(
+        id,
+        t('customers.deals.detail.error.load', 'Failed to load deal.'),
+        options.cache === true,
       )
       setData(payload)
     } catch (loadError) {

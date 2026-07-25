@@ -9,7 +9,7 @@ import {
   emitCrudUndoSideEffects,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { notFound } from '@open-mercato/shared/lib/crud/errors'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -196,7 +196,7 @@ const channelCrudIndexer: CrudIndexerConfig<SalesChannel> = {
 }
 
 async function loadChannelSnapshot(em: EntityManager, id: string): Promise<ChannelSnapshot | null> {
-  const channel = await em.findOne(SalesChannel, { id, deletedAt: null })
+  const channel = await findOneWithDecryption(em, SalesChannel, { id, deletedAt: null }, {})
   if (!channel) return null
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: E.sales.sales_channel,
@@ -674,7 +674,7 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(SalesChannel, { id: after.id })
+    const record = await findOneWithDecryption(em, SalesChannel, { id: after.id }, {}, { tenantId: after.tenantId, organizationId: after.organizationId })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -750,8 +750,8 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(channelUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(SalesChannel, { id: parsed.id, deletedAt: null })
-    if (!record) throw new CrudHttpError(404, { error: 'Channel not found' })
+    const record = await findOneWithDecryption(em, SalesChannel, { id: parsed.id, deletedAt: null }, {}, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
+    if (!record) throw notFound('Channel not found')
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const scope = resolveScopeFromUpdate(record, parsed, ctx)
 
@@ -843,7 +843,7 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(SalesChannel, { id: before.id })
+    let record = await findOneWithDecryption(em, SalesChannel, { id: before.id }, {}, { tenantId: before.tenantId, organizationId: before.organizationId })
     if (!record) {
       record = em.create(SalesChannel, channelSeedFromSnapshot(before))
       em.persist(record)
@@ -898,8 +898,8 @@ const deleteChannelCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, 'Channel id is required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(SalesChannel, { id })
-    if (!record) throw new CrudHttpError(404, { error: 'Channel not found' })
+    const record = await findOneWithDecryption(em, SalesChannel, { id }, {})
+    if (!record) throw notFound('Channel not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
@@ -942,7 +942,7 @@ const deleteChannelCommand: CommandHandler<
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(SalesChannel, { id: before.id })
+    let record = await findOneWithDecryption(em, SalesChannel, { id: before.id }, {}, { tenantId: before.tenantId, organizationId: before.organizationId })
     if (!record) {
       record = em.create(SalesChannel, channelSeedFromSnapshot(before))
       em.persist(record)
@@ -1097,7 +1097,7 @@ const updateDeliveryWindowCommand: CommandHandler<
     const { parsed, custom } = parseWithCustomFields(deliveryWindowUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(SalesDeliveryWindow, { id: parsed.id, deletedAt: null })
-    if (!record) throw new CrudHttpError(404, { error: 'Delivery window not found' })
+    if (!record) throw notFound('Delivery window not found')
     const scope = resolveScopeFromUpdate(record, parsed, ctx)
     record.organizationId = scope.organizationId
     record.tenantId = scope.tenantId
@@ -1201,7 +1201,7 @@ const deleteDeliveryWindowCommand: CommandHandler<
     const id = requireId(input, 'Delivery window id is required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(SalesDeliveryWindow, { id })
-    if (!record) throw new CrudHttpError(404, { error: 'Delivery window not found' })
+    if (!record) throw notFound('Delivery window not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
@@ -1377,7 +1377,7 @@ const updateShippingMethodCommand: CommandHandler<
     const { parsed, custom } = parseWithCustomFields(shippingMethodUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(SalesShippingMethod, { id: parsed.id, deletedAt: null })
-    if (!record) throw new CrudHttpError(404, { error: 'Shipping method not found' })
+    if (!record) throw notFound('Shipping method not found')
     const scope = resolveScopeFromUpdate(record, parsed, ctx)
     record.organizationId = scope.organizationId
     record.tenantId = scope.tenantId
@@ -1501,7 +1501,7 @@ const deleteShippingMethodCommand: CommandHandler<
     const id = requireId(input, 'Shipping method id is required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(SalesShippingMethod, { id })
-    if (!record) throw new CrudHttpError(404, { error: 'Shipping method not found' })
+    if (!record) throw notFound('Shipping method not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
@@ -1672,7 +1672,7 @@ const updatePaymentMethodCommand: CommandHandler<
     const { parsed, custom } = parseWithCustomFields(paymentMethodUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(SalesPaymentMethod, { id: parsed.id, deletedAt: null })
-    if (!record) throw new CrudHttpError(404, { error: 'Payment method not found' })
+    if (!record) throw notFound('Payment method not found')
     const scope = resolveScopeFromUpdate(record, parsed, ctx)
     record.organizationId = scope.organizationId
     record.tenantId = scope.tenantId
@@ -1785,7 +1785,7 @@ const deletePaymentMethodCommand: CommandHandler<
     const id = requireId(input, 'Payment method id is required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(SalesPaymentMethod, { id })
-    if (!record) throw new CrudHttpError(404, { error: 'Payment method not found' })
+    if (!record) throw notFound('Payment method not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
@@ -1845,7 +1845,7 @@ const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: stri
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     if (parsed.channelId) {
-      const channel = await em.findOne(SalesChannel, { id: parsed.channelId, deletedAt: null })
+      const channel = await findOneWithDecryption(em, SalesChannel, { id: parsed.channelId, deletedAt: null }, {}, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
       const channelInScope = assertFound(channel, 'Channel not found for tax rate')
       ensureSameScope(channelInScope, parsed.organizationId, parsed.tenantId)
     }
@@ -1971,12 +1971,12 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
     const { parsed, custom } = parseWithCustomFields(taxRateUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(SalesTaxRate, { id: parsed.id, deletedAt: null })
-    if (!record) throw new CrudHttpError(404, { error: 'Tax rate not found' })
+    if (!record) throw notFound('Tax rate not found')
     const scope = resolveScopeFromUpdate(record, parsed, ctx)
     record.organizationId = scope.organizationId
     record.tenantId = scope.tenantId
     if (parsed.channelId !== undefined && parsed.channelId !== null) {
-      const channel = await em.findOne(SalesChannel, { id: parsed.channelId, deletedAt: null })
+      const channel = await findOneWithDecryption(em, SalesChannel, { id: parsed.channelId, deletedAt: null }, {}, { tenantId: record.tenantId, organizationId: record.organizationId })
       const channelInScope = assertFound(channel, 'Channel not found for tax rate')
       ensureSameScope(channelInScope, record.organizationId, record.tenantId)
     }
@@ -2102,7 +2102,7 @@ const deleteTaxRateCommand: CommandHandler<
     const id = requireId(input, 'Tax rate id is required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(SalesTaxRate, { id })
-    if (!record) throw new CrudHttpError(404, { error: 'Tax rate not found' })
+    if (!record) throw notFound('Tax rate not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     const snapshot = await loadTaxRateSnapshot((ctx.container.resolve('em') as EntityManager), id)

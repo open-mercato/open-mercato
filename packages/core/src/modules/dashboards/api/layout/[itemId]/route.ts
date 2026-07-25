@@ -5,6 +5,10 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { DashboardLayout } from '@open-mercato/core/modules/dashboards/data/entities'
 import { dashboardLayoutItemPatchSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   dashboardsTag,
@@ -14,6 +18,7 @@ import {
 } from '../../openapi'
 
 const DEFAULT_SIZE = 'md'
+const RESOURCE_KIND = 'dashboards.layout'
 
 export const metadata = {
   PATCH: { requireAuth: true, requireFeatures: ['dashboards.configure'] },
@@ -39,7 +44,8 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
     return NextResponse.json({ error: 'Invalid payload', issues: parsed.error.issues }, { status: 400 })
   }
 
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = resolve('em') as any
   const rbac = resolve('rbacService') as any
 
@@ -52,6 +58,21 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
   const acl = await rbac.loadAcl(scope.userId, { tenantId: scope.tenantId, organizationId: scope.organizationId })
   if (!acl.isSuperAdmin && !hasFeature(acl.features, 'dashboards.configure')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: scope.tenantId ?? '',
+    organizationId: scope.organizationId,
+    userId: scope.userId,
+    resourceKind: RESOURCE_KIND,
+    resourceId: layoutItemId,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: { id: layoutItemId, size: parsed.data.size, settings: parsed.data.settings },
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
 
   const layout = await em.findOne(DashboardLayout, {
@@ -76,6 +97,20 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
     settings: parsed.data.settings ?? current.settings,
   }
   await em.flush()
+
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: scope.tenantId ?? '',
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: RESOURCE_KIND,
+      resourceId: layoutItemId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
 
   return NextResponse.json({ ok: true })
 }

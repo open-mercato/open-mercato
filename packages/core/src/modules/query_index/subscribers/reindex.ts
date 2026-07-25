@@ -8,8 +8,14 @@ import { resolveQueryIndexReindexScope } from '../lib/subscriber-scope'
 
 export const metadata = { event: 'query_index.reindex', persistent: true }
 
+function forkReindexEntityManager(em: EntityManager): EntityManager {
+  const fork = (em as unknown as { fork?: (options?: Record<string, unknown>) => EntityManager }).fork
+  if (typeof fork !== 'function') return em
+  return fork.call(em, { clear: true, freshEventManager: true, useContext: false })
+}
+
 export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
-  const em = ctx.resolve<EntityManager>('em')
+  const em = forkReindexEntityManager(ctx.resolve<EntityManager>('em'))
   const eventBus = ctx.resolve<any>('eventBus')
   let vectorService: VectorIndexService | null = null
   try {

@@ -1,5 +1,11 @@
 /** @jest-environment node */
 
+const mockFetchStuckDealIds = jest.fn()
+
+jest.mock('../../../lib/stuckDeals', () => ({
+  fetchStuckDealIds: (...args: unknown[]) => mockFetchStuckDealIds(...args),
+}))
+
 import { buildDealListFilters, dealListQuerySchema } from '../route'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 
@@ -29,6 +35,11 @@ function createDealFilterContext(rows: Array<{ id: string }>, url = 'https://exa
 }
 
 describe('customers deals list filters', () => {
+  beforeEach(() => {
+    mockFetchStuckDealIds.mockReset()
+    mockFetchStuckDealIds.mockResolvedValue([])
+  })
+
   it('parses explicit false booleans without applying stuck or overdue filters', async () => {
     const parsed = dealListQuerySchema.parse({
       isStuck: 'false',
@@ -117,6 +128,33 @@ describe('customers deals list filters', () => {
     const parsed = dealListQuerySchema.parse({ isStuck: 'true' })
     const filters = await buildDealListFilters(parsed)
     expect(filters.id).toBeUndefined()
+  })
+
+  it('needsAttention=true unions overdue open deals with open stuck deals before pagination', async () => {
+    const overdueDeal = '66666666-6666-4666-8666-666666666666'
+    const openStuckDeal = '77777777-7777-4777-8777-777777777777'
+    const closedStuckDeal = '88888888-8888-4888-8888-888888888888'
+    const { ctx, execute } = createDealFilterContext([])
+    execute
+      .mockResolvedValueOnce([{ id: overdueDeal }])
+      .mockResolvedValueOnce([{ id: openStuckDeal }])
+    mockFetchStuckDealIds.mockResolvedValue([openStuckDeal, closedStuckDeal])
+
+    const parsed = dealListQuerySchema.parse({ needsAttention: 'true' })
+    const filters = await buildDealListFilters(parsed, ctx)
+
+    expect(filters.id).toEqual({ $in: [overdueDeal, openStuckDeal] })
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute.mock.calls[0]?.[0]).toContain('expected_close_at < CURRENT_DATE')
+    expect(execute.mock.calls[1]?.[0]).toContain('status IN (?,?)')
+    expect(execute.mock.calls[1]?.[1]).toEqual([
+      organizationId,
+      tenantId,
+      'open',
+      'in_progress',
+      openStuckDeal,
+      closedStuckDeal,
+    ])
   })
 
   it('narrows canonical personId/companyId filters before pagination', async () => {

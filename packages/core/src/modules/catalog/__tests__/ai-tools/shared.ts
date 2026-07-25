@@ -2,6 +2,7 @@
  * Shared test helpers for the catalog AI tool pack tests.
  */
 import features from '../../acl'
+import salesFeatures from '../../../sales/acl'
 
 export type FakeCtx = {
   tenantId: string | null
@@ -55,4 +56,11 @@ export function makeCtx(overrides: Partial<FakeCtx & { organizationId: string | 
   }
 }
 
-export const knownFeatureIds = new Set(features.map((entry) => entry.id))
+// Catalog AI tools may legitimately call routes owned by other modules and so
+// must declare those routes' features (e.g. catalog.list_offers reaches
+// GET /catalog/offers, which requires sales.channels.manage). Union the acl of
+// every module whose features the catalog tools reference so the typo-guard
+// still rejects unknown ids without flagging valid cross-module grants.
+export const knownFeatureIds = new Set(
+  [...features, ...salesFeatures].map((entry) => entry.id),
+)

@@ -14,7 +14,7 @@
  *
  * @see packages/shared/src/lib/ai/llm-provider.ts
  * @see ./openai-compatible-presets.ts
- * @see .ai/specs/2026-04-14-llm-provider-ports-and-adapters.md
+ * @see .ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md
  */
 
 import { createOpenAI } from '@ai-sdk/openai'
@@ -62,6 +62,14 @@ export interface OpenAICompatiblePreset {
    * The first non-empty value wins and overrides {@link baseURL}.
    */
   baseURLEnvKeys?: readonly string[]
+  /**
+   * True when this gateway's model ids are `vendor/model` strings (OpenRouter,
+   * Requesty, LiteLLM). Surfaced on the resolved `LlmProvider` so the model
+   * factory suppresses intra-tier slash provider-splitting for a configured
+   * selection of this provider. Omit for non-gateway backends (openai,
+   * deepinfra, groq, …).
+   */
+  usesVendorPrefixedModelIds?: boolean
 }
 
 function readFirstNonEmpty(
@@ -114,6 +122,7 @@ export function createOpenAICompatibleProvider(
     envKeys: preset.envKeys,
     defaultModel: preset.defaultModel,
     defaultModels: preset.defaultModels,
+    usesVendorPrefixedModelIds: preset.usesVendorPrefixedModelIds ?? false,
 
     isConfigured(env?: EnvLookup): boolean {
       return resolveApiKey(env) !== null

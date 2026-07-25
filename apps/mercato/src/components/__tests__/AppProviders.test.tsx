@@ -10,10 +10,19 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   I18nProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
-jest.mock('@open-mercato/ui', () => ({
+jest.mock('@open-mercato/ui/theme/ThemeProvider', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  FrontendLayout: ({ children }: { children: React.ReactNode }) => <div data-testid="frontend-layout">{children}</div>,
+}))
+
+jest.mock('@open-mercato/ui/theme/QueryProvider', () => ({
   QueryProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}))
+
+jest.mock('@open-mercato/ui/frontend/Layout', () => ({
+  FrontendLayout: ({ children }: { children: React.ReactNode }) => <div data-testid="frontend-layout">{children}</div>,
+}))
+
+jest.mock('@open-mercato/ui/frontend/AuthFooter', () => ({
   AuthFooter: () => <div data-testid="auth-footer" />,
 }))
 

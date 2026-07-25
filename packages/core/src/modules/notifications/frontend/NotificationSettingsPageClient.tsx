@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -35,12 +36,23 @@ const emptySettings: NotificationDeliveryConfig = {
   },
 }
 
+const SETTINGS_CONTEXT_ID = 'notifications-settings'
+
 export function NotificationSettingsPageClient() {
   const t = useT()
   const [settings, setSettings] = React.useState<NotificationDeliveryConfig | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: SETTINGS_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   const fetchSettings = React.useCallback(async () => {
     setLoading(true)
@@ -96,10 +108,15 @@ export function NotificationSettingsPageClient() {
     if (!settings) return
     setSaving(true)
     try {
-      const response = await apiCall<SettingsResponse>('/api/notifications/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+      const response = await runMutation({
+        operation: () =>
+          apiCall<SettingsResponse>('/api/notifications/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings),
+          }),
+        context: { formId: SETTINGS_CONTEXT_ID, resourceKind: 'notifications.settings', retryLastMutation },
+        mutationPayload: { settings },
       })
       if (!response.ok) {
         const message = response.result?.error || t('notifications.settings.saveError', 'Failed to save notification settings')

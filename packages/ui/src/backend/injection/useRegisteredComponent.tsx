@@ -4,6 +4,9 @@ import * as React from 'react'
 import type { ComponentType } from 'react'
 import { getComponentEntry, getComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useOverrideUserFeatures } from './ComponentOverrideProvider'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'useRegisteredComponent' })
 
 class ReplacementErrorBoundary extends React.Component<
   { fallback: React.ReactNode; onError: (error: unknown) => void; children: React.ReactNode },
@@ -38,7 +41,7 @@ export function useRegisteredComponent<TProps>(
     const original = (entry?.component as ComponentType<TProps> | undefined) ?? fallback ?? null
     if (!original) {
       if (process.env.NODE_ENV !== 'production' && !fallback) {
-        console.warn(`[UMES] Component "${componentId}" is not registered.`)
+        logger.warn('Component is not registered', { componentId })
       }
       const Missing = () => null
       return Missing as ComponentType<TProps>
@@ -46,9 +49,7 @@ export function useRegisteredComponent<TProps>(
     const overrides = getComponentOverrides(componentId, userFeatures)
     const replacementOverrides = overrides.filter((override) => 'replacement' in override)
     if (process.env.NODE_ENV !== 'production' && replacementOverrides.length > 1) {
-      console.warn(
-        `[UMES] Multiple replacements registered for "${componentId}". Highest-priority replacement is applied.`,
-      )
+      logger.warn('Multiple replacements registered; highest-priority replacement is applied', { componentId })
     }
 
     let replacement: ComponentType<TProps> | null = null
@@ -78,10 +79,7 @@ export function useRegisteredComponent<TProps>(
       ) {
         const validation = replacementOverride.propsSchema.safeParse(transformed)
         if (!validation.success) {
-          console.error(
-            `[UMES] Props schema validation failed for replacement "${componentId}" from module "${replacementOverride.metadata?.module ?? 'unknown'}"`,
-            validation.error.format(),
-          )
+          logger.error('Props schema validation failed for replacement', { componentId, module: replacementOverride.metadata?.module ?? 'unknown', issues: validation.error.format() })
           return Fallback
         }
       }
@@ -90,7 +88,7 @@ export function useRegisteredComponent<TProps>(
           fallback={Fallback}
           onError={(error) => {
             const replacementModule = overrides.find((override) => 'replacement' in override)?.metadata?.module ?? 'unknown'
-            console.error(`[UMES] Component replacement failed for "${componentId}" from module "${replacementModule}"`, error)
+            logger.error('Component replacement failed', { componentId, module: replacementModule, err: error })
           }}
         >
           {React.createElement(wrapped as React.ComponentType<Record<string, unknown>>, transformed as Record<string, unknown>)}

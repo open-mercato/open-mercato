@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
-export type KanbanView = 'kanban' | 'list'
+export type KanbanView = 'kanban' | 'list' | 'map'
 
 type ViewTabsRowProps = {
   active: KanbanView
@@ -14,17 +14,23 @@ type ViewTabsRowProps = {
 
 const VIEW_KANBAN_HREF = '/backend/customers/deals/pipeline'
 const VIEW_LIST_HREF = '/backend/customers/deals'
+const VIEW_MAP_HREF = '/backend/customers/deals/map'
 
 export function ViewTabsRow({ active, className }: ViewTabsRowProps): React.ReactElement {
   const t = useT()
   const labels = {
     kanban: translateWithFallback(t, 'customers.deals.kanban.view.kanban', 'Kanban'),
     list: translateWithFallback(t, 'customers.deals.kanban.view.list', 'List'),
+    map: translateWithFallback(t, 'customers.deals.kanban.view.map', 'Map'),
   }
 
+  // Link-based tab row (two routes), so the Tabs primitive (state-driven,
+  // onValueChange) does not fit — real <Link> semantics must stay. Classes
+  // mirror the Tabs underline variant: accent-indigo active border,
+  // shadow-focus halo.
   const baseTab =
-    'inline-flex items-center px-3.5 py-2.5 text-sm leading-normal transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
-  const activeTab = 'border-b-2 border-foreground font-semibold text-foreground'
+    'inline-flex items-center px-3.5 py-2.5 text-sm leading-normal transition-colors focus-visible:outline-none focus-visible:shadow-focus'
+  const activeTab = 'border-b-2 border-accent-indigo font-semibold text-foreground'
   const inactiveTab = 'border-b-2 border-transparent font-normal text-muted-foreground hover:text-foreground'
 
   // Renders the active tab as a non-navigating `<span>` and the inactive tab as a `<Link>`,
@@ -34,6 +40,7 @@ export function ViewTabsRow({ active, className }: ViewTabsRowProps): React.Reac
   // navigate back to /pipeline.
   const isKanbanActive = active === 'kanban'
   const isListActive = active === 'list'
+  const isMapActive = active === 'map'
 
   return (
     <div
@@ -75,6 +82,24 @@ export function ViewTabsRow({ active, className }: ViewTabsRowProps): React.Reac
           className={`${baseTab} ${inactiveTab}`}
         >
           {labels.list}
+        </Link>
+      )}
+      {isMapActive ? (
+        <span
+          role="tab"
+          aria-selected={true}
+          className={`${baseTab} ${activeTab}`}
+        >
+          {labels.map}
+        </span>
+      ) : (
+        <Link
+          href={VIEW_MAP_HREF}
+          role="tab"
+          aria-selected={false}
+          className={`${baseTab} ${inactiveTab}`}
+        >
+          {labels.map}
         </Link>
       )}
     </div>

@@ -22,7 +22,7 @@ Tracking issue: [#2588](https://github.com/open-mercato/open-mercato/issues/2588
 | `extended` | Non-fork PR with `extended-integration` label | Baseline plus tagged expensive regression suites such as undo, CrudForm matrix, optimistic-lock matrix, custom fields, queue/realtime, long request tests |
 | `full` | Pushes to `develop`/`main`, shared fail-closed paths, every PR targeting `main` | All monorepo integration specs, sharded, with coverage |
 | `standalone-sentinel` | Trusted PRs touching standalone-impact paths | Minimal installed-package/create-app smoke coverage |
-| `standalone-full` | Snapshot/develop/release pipeline and release PRs to `main` | Full standalone app integration coverage |
+| `standalone-full` | Develop snapshot/release pipeline, release PRs to `main`, and PRs explicitly dispatched with `NPM Snapshot Preview` | Full standalone app integration coverage |
 
 ## Maintainer Label
 
@@ -46,7 +46,18 @@ This protects release PRs from relying on a maintainer remembering to add `exten
 
 Fork PRs run safe baseline checks only.
 
-They must not run privileged snapshot publishing or trusted standalone flows. If a fork-originated change needs release/full standalone evidence, a maintainer should replay it from a trusted branch before merge.
+They must not run privileged npm snapshot publishing or trusted standalone flows. If a fork-originated change needs release/full standalone evidence, a maintainer should replay it from a trusted branch before merge.
+
+## Package Preview Dispatch
+
+Package publication previews are opt-in:
+
+| Dispatch path | Workflow | Effect |
+|---|---|---|
+| Manual workflow dispatch, `gh workflow run`, or `om-auto-publish-pr` | `package-previews.yml` | Publishes pkg.pr.new previews for all public packages without publishing to npm |
+| Manual workflow dispatch | `npm-snapshot-preview.yml` | Publishes the legacy npm canary snapshot and runs standalone-full validation |
+
+Both preview workflows require a PR number and are restricted to trusted same-repository PR branches because they publish artifacts and use write-capable workflow credentials. Label triggers and comment slash-command routers are intentionally avoided: GitHub Actions creates workflow runs for every matching label/comment event before job-level filtering can happen, which clutters PR checks with skipped or no-op entries.
 
 ## Standalone-Impact Paths
 

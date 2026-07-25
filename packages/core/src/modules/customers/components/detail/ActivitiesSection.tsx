@@ -11,6 +11,9 @@ import { Kbd } from '@open-mercato/ui/primitives/kbd'
 import { ActivityTimelineFilters } from './ActivityTimelineFilters'
 import { ActivityTimeline } from './ActivityTimeline'
 import type { ActivitySummary, InteractionSummary } from './types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type GuardedMutationRunner = <T>(
   operation: () => Promise<T>,
@@ -204,21 +207,30 @@ export function ActivitiesSection({
         return
       }
 
-      // In legacy mode, also fetch legacy activities and merge with canonical
+      // In legacy mode, also fetch legacy activities and merge with canonical.
+      // Legacy fallback uses known page numbers, so request every page up front
+      // and resolve them together instead of awaiting each one sequentially.
+      const legacyPageNumbers = Array.from({ length: loadedPages }, (_, index) => index + 1)
+      const legacyPayloads = await Promise.all(
+        legacyPageNumbers.map((legacyPage) => {
+          const legacyParams = new URLSearchParams({
+            entityId,
+            page: String(legacyPage),
+            pageSize: '50',
+            sortField: 'occurredAt',
+            sortDir: 'desc',
+          })
+          if (dealId) legacyParams.set('dealId', dealId)
+          return readApiResultOrThrow<{ items?: ActivitySummary[]; totalPages?: number }>(
+            `/api/customers/activities?${legacyParams.toString()}`,
+          ).catch(() => ({ items: [] as ActivitySummary[], totalPages: 1 }))
+        }),
+      )
+      // Merge in page order so timeline ordering stays stable regardless of
+      // which request settles first.
       const legacyItems: InteractionSummary[] = []
       let legacyTotalPages = 1
-      for (let legacyPage = 1; legacyPage <= loadedPages; legacyPage += 1) {
-        const legacyParams = new URLSearchParams({
-          entityId,
-          page: String(legacyPage),
-          pageSize: '50',
-          sortField: 'occurredAt',
-          sortDir: 'desc',
-        })
-        if (dealId) legacyParams.set('dealId', dealId)
-        const legacyPayload = await readApiResultOrThrow<{ items?: ActivitySummary[]; totalPages?: number }>(
-          `/api/customers/activities?${legacyParams.toString()}`,
-        ).catch(() => ({ items: [] as ActivitySummary[], totalPages: 1 }))
+      for (const legacyPayload of legacyPayloads) {
         legacyItems.push(...(Array.isArray(legacyPayload?.items) ? legacyPayload.items.map(normalizeLegacyActivity) : []))
         legacyTotalPages = typeof legacyPayload?.totalPages === 'number' ? legacyPayload.totalPages : legacyTotalPages
       }
@@ -242,7 +254,7 @@ export function ActivitiesSection({
       setActivities(sortTimelineActivities(merged))
       setHasMore(canonicalHasMore || legacyTotalPages > loadedPages)
     } catch (error) {
-      console.error('customers.activities.history failed', error)
+      logger.error('customers.activities.history failed', { err: error })
       flash(t('customers.activities.loadFailed', 'Failed to load activities.'), 'error')
       setActivities([])
       setHasMore(false)
@@ -275,7 +287,7 @@ export function ActivitiesSection({
       flash(t('customers.activities.actions.markDoneSuccess', 'Activity marked done'), 'success')
       await loadActivities()
     } catch (err) {
-      console.warn('[customers.activitiesSection] mark done failed', activityId, err)
+      logger.warn('Mark done failed', { component: 'ActivitiesSection', activityId, err })
       flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
     }
   }, [loadActivities, runGuardedMutation, t])
@@ -286,7 +298,7 @@ export function ActivitiesSection({
   React.useEffect(() => {
     loadActivities()
       .then(() => { resolvedUserIdsRef.current = new Set() })
-      .catch((err) => console.warn('[ActivitiesSection] loadActivities failed', err))
+      .catch((err) => logger.warn('loadActivities failed', { component: 'ActivitiesSection', err }))
   }, [loadActivities])
 
   React.useEffect(() => {
@@ -328,7 +340,7 @@ export function ActivitiesSection({
           )
         }
       })
-      .catch((err) => console.warn('[ActivitiesSection] resolve author names failed', err))
+      .catch((err) => logger.warn('resolve author names failed', { component: 'ActivitiesSection', err }))
     return () => controller.abort()
   }, [activities])
 

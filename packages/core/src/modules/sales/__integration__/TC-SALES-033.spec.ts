@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { readUpdatedAt } from '@open-mercato/core/helpers/integration/optimisticLockUi'
+import { createShipmentFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 
 /**
  * TC-SALES-033: Return creation and returned-quantity tracking via API.
@@ -15,11 +16,9 @@ import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integratio
  * asserts the quantity increment (the key fulfilment contract) and the detail read-back.
  * Returns require whole-integer quantities >= 1 and reject over-returns.
  *
- * Cache note: the order line's `returned_quantity` is read back exactly once, after the
- * return — and never before it. The return command updates the line column but does not
- * invalidate the order-lines list cache, so a read taken before the return would be served
- * stale from cache (`ENABLE_CRUD_API_CACHE`, on in CI). Reading only after the return keeps
- * the request a cache miss for this freshly created order, so it reflects the live value.
+ * Cache coverage: prime both the order and its order-lines cache before creating
+ * a return. The committed return must invalidate the parent order resource so
+ * the immediate reads receive its new optimistic-lock version and returned quantity.
  */
 
 type JsonRecord = Record<string, unknown>
@@ -83,6 +82,9 @@ test.describe('TC-SALES-033 return creation + quantity tracking', () => {
       expect(lineResponse.status()).toBe(201)
       orderLineId = (await readJson(lineResponse)).id as string
       expect(orderLineId).toBeTruthy()
+      await createShipmentFixture(request, token, orderId, [{ orderLineId: orderLineId!, quantity: 5 }])
+      const updatedAtBeforeReturn = await readUpdatedAt(request, token, '/api/sales/orders', orderId)
+      await readOrderLine(request, token, orderId, orderLineId)
 
       const returnResponse = await apiRequest(request, 'POST', '/api/sales/returns', {
         token,
@@ -115,6 +117,12 @@ test.describe('TC-SALES-033 return creation + quantity tracking', () => {
       )
       expect(byOrder.some((row) => row.id === returnId)).toBeTruthy()
 
+      const updatedAtAfterReturn = await readUpdatedAt(request, token, '/api/sales/orders', orderId)
+      expect(
+        updatedAtAfterReturn,
+        'return must invalidate the cached parent order version',
+      ).not.toBe(updatedAtBeforeReturn)
+
       // The source line now reports 2 returned of 5.
       const after = await readOrderLine(request, token, orderId!, orderLineId!)
       expect(num(after.returned_quantity)).toBe(2)
@@ -140,6 +148,7 @@ test.describe('TC-SALES-033 return creation + quantity tracking', () => {
         data: { orderId, currencyCode: 'USD', quantity: 2, name: `Over-return ${Date.now()}`, unitPriceNet: 50, unitPriceGross: 50 },
       })
       const orderLineId = (await readJson(lineResponse)).id as string
+      await createShipmentFixture(request, token, orderId, [{ orderLineId, quantity: 2 }])
 
       const response = await apiRequest(request, 'POST', '/api/sales/returns', {
         token,

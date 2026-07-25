@@ -235,7 +235,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
         ref={ref}
         data-slot="pagination"
         aria-label={props['aria-label'] ?? t('ui.pagination.landmark.ariaLabel', 'Pagination')}
-        className={cn('flex w-full items-center justify-between gap-6', className)}
+        className={cn('flex w-full flex-wrap items-center justify-between gap-x-6 gap-y-2', className)}
         {...props}
       >
         {showInfo ? (
@@ -251,7 +251,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
 
         <div
           data-slot="pagination-controls"
-          className="inline-flex items-center gap-2"
+          className="flex flex-wrap items-center justify-center gap-2"
         >
           {showFirstLast ? (
             <button
@@ -280,7 +280,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
 
           <ol
             data-slot="pagination-pages"
-            className="inline-flex items-center gap-2 list-none"
+            className="flex flex-wrap items-center justify-center gap-2 list-none"
           >
             {items.map((entry, index) => {
               if (entry === 'ellipsis-left' || entry === 'ellipsis-right') {

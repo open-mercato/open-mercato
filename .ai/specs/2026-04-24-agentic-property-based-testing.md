@@ -3,7 +3,7 @@
 **Date:** 2026-04-24  
 **Status:** Draft  
 **Scope:** OSS QA and developer tooling  
-**Related:** `.ai/qa/AGENTS.md`, `.ai/specs/implemented/SPEC-027-2026-02-08-integration-testing-automation.md`, `.ai/specs/SPEC-050-2026-02-20-catalog-unit-tests.md`, `.ai/specs/2026-04-14-llm-provider-ports-and-adapters.md`
+**Related:** `.ai/qa/AGENTS.md`, `.ai/specs/implemented/SPEC-027-2026-02-08-integration-testing-automation.md`, `.ai/specs/SPEC-050-2026-02-20-catalog-unit-tests.md`, `.ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md`
 
 ## TLDR
 
@@ -172,7 +172,7 @@ Expected outputs:
 
 #### LLM integration
 
-Discovery MUST route all LLM calls through the approved provider layer defined in `.ai/specs/2026-04-14-llm-provider-ports-and-adapters.md`. It MUST NOT hard-code provider SDKs, bake in API keys, or call external services directly. A discovery run with no configured provider MUST degrade to a heuristics-only mode that still scans specs/validators/events and emits candidate skeletons without generator strategies.
+Discovery MUST route all LLM calls through the approved provider layer defined in `.ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md`. It MUST NOT hard-code provider SDKs, bake in API keys, or call external services directly. A discovery run with no configured provider MUST degrade to a heuristics-only mode that still scans specs/validators/events and emits candidate skeletons without generator strategies.
 
 #### Candidate ranking heuristic
 
@@ -502,7 +502,7 @@ Backward-compatibility impact is low because the feature lives in test and devel
 
 **Goal:** generate candidate properties from repository intent without allowing unreviewed candidates into CI.
 
-1. Implement `mercato test:properties:discover`, routing all LLM calls through the provider layer from `.ai/specs/2026-04-14-llm-provider-ports-and-adapters.md`. Provide a heuristics-only fallback when no provider is configured.
+1. Implement `mercato test:properties:discover`, routing all LLM calls through the provider layer from `.ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md`. Provide a heuristics-only fallback when no provider is configured.
 2. Read and rank candidate invariants from:
    - specs
    - `AGENTS.md`
@@ -684,7 +684,7 @@ None.
 - Initial specification
 - Applied review findings from PR #1702 review (pat-lewczuk)
   - [Blocker 1] Normalized "Phase 1-3" / "Phase 1-4" wording to "across all phases of this spec" — Out-of-Scope, Commands & Events, API Contracts, i18n, Migration & Compatibility, and Migration & Deployment Risks. Phase 4 does not re-open these decisions, so the distinction was not load-bearing.
-  - [Blocker 2] Verified `Related` cross-references resolve at the cited paths: `.ai/specs/implemented/SPEC-027-2026-02-08-integration-testing-automation.md`, `.ai/specs/SPEC-050-2026-02-20-catalog-unit-tests.md`, `.ai/specs/2026-04-14-llm-provider-ports-and-adapters.md`. Per `.ai/specs/AGENTS.md` legacy clause, existing `SPEC-*` filenames are preserved; references will be updated in lockstep if those files are renormalized.
+  - [Blocker 2] Verified `Related` cross-references resolve at the cited paths: `.ai/specs/implemented/SPEC-027-2026-02-08-integration-testing-automation.md`, `.ai/specs/SPEC-050-2026-02-20-catalog-unit-tests.md`, `.ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md`. Per `.ai/specs/AGENTS.md` legacy clause, existing `SPEC-*` filenames are preserved; references will be updated in lockstep if those files are renormalized.
   - [Blocker 3] Added "`--scope` accepted shapes" subsection to API Contracts spelling out the three accepted shapes (package | module | file) and the resolution order. Updated each per-command `--scope` description and the `Recommended runtime flags` table to point at the new subsection. Updated the developer-facing CLI bullet to reflect the unified shape.
 - Review — 2026-04-24
   - **Reviewer**: Agent (om-spec-writing)

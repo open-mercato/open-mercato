@@ -7,6 +7,8 @@
 // drop every cache entry tagged for that tenant; the TTL is the backstop
 // for races where the event fires after a request reads the cache.
 
+import { buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
+
 type CacheService = {
   deleteByTags(tags: string[]): Promise<number>
 }
@@ -32,7 +34,7 @@ export default async function handle(
   }
   if (!cache) return
   try {
-    await cache.deleteByTags([`org-scope:tenant:${tenantId}`])
+    await cache.deleteByTags([buildOrgScopeTenantCacheTag(tenantId)])
   } catch {
     // best-effort; TTL is the backstop.
   }

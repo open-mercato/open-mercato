@@ -24,13 +24,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
-  const user = await customerUserService.findById(params.id, auth.tenantId!)
+  const user = await customerUserService.findById(params.id, auth.tenantId!, auth.orgId)
   if (!user) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
 
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
-  const rawToken = await customerTokenService.createPasswordReset(user.id, auth.tenantId!)
+  const rawToken = await customerTokenService.createPasswordReset(user.id, user.tenantId)
 
   const resetLink = `/portal/reset-password?token=${rawToken}`
 
@@ -38,8 +38,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     id: user.id,
     recipientUserId: user.id,
     email: user.email,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    tenantId: user.tenantId,
+    organizationId: user.organizationId,
     resetBy: auth.sub,
   }).catch(() => undefined)
 

@@ -145,12 +145,14 @@ export class WidgetDataService {
       }
     }
 
-    const mainResult = await this.executeQuery(request, dateRangeResolved)
+    const shouldFetchComparison = Boolean(comparisonRange && request.dateRange)
 
-    let comparisonResult: { value: number | null; data: WidgetDataItem[] } | undefined
-    if (comparisonRange && request.dateRange) {
-      comparisonResult = await this.executeQuery(request, comparisonRange)
-    }
+    const [mainResult, comparisonResult] = await Promise.all([
+      this.executeQuery(request, dateRangeResolved),
+      shouldFetchComparison && comparisonRange
+        ? this.executeQuery(request, comparisonRange)
+        : Promise.resolve<{ value: number | null; data: WidgetDataItem[] } | undefined>(undefined),
+    ])
 
     const response: WidgetDataResponse = {
       value: mainResult.value,

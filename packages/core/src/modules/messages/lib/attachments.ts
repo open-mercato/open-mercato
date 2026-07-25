@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/core'
+import { resolveAttachmentScopePair } from '@open-mercato/core/modules/attachments/lib/scope'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from './constants'
 const LIBRARY_ATTACHMENT_ENTITY_ID = 'attachments:library'
 
@@ -135,14 +136,12 @@ export async function copyAttachmentsForForward(
   em: EntityManager,
   sourceMessageId: string,
   targetMessageId: string,
-  organizationId: string | null,
   tenantId: string,
 ): Promise<number> {
   return copyAttachmentsForForwardMessages(
     em,
     [sourceMessageId],
     targetMessageId,
-    organizationId,
     tenantId,
   )
 }
@@ -151,7 +150,6 @@ export async function copyAttachmentsForForwardMessages(
   em: EntityManager,
   sourceMessageIds: string[],
   targetMessageId: string,
-  targetOrganizationId: string | null,
   tenantId: string,
 ): Promise<number> {
   if (sourceMessageIds.length === 0) return 0
@@ -173,12 +171,19 @@ export async function copyAttachmentsForForwardMessages(
     }
   }
 
+  let copied = 0
   for (const sourceAttachment of dedupedById.values()) {
+    // Carry the source attachment's scope across as a unit so a forwarded copy
+    // can never become a partial-null row. Source rows that are themselves
+    // partial-null are unreadable dead data; skip rather than propagate them.
+    const scope = resolveAttachmentScopePair(sourceAttachment)
+    if (!scope) continue
+
     const copy = em.create(Attachment, {
       entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
       recordId: targetMessageId,
-      organizationId: targetOrganizationId,
-      tenantId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
       fileName: sourceAttachment.fileName,
       mimeType: sourceAttachment.mimeType,
       fileSize: sourceAttachment.fileSize,
@@ -190,8 +195,11 @@ export async function copyAttachmentsForForwardMessages(
     })
 
     em.persist(copy)
+    copied += 1
   }
 
-  await em.flush()
-  return dedupedById.size
+  if (copied > 0) {
+    await em.flush()
+  }
+  return copied
 }

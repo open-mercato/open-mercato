@@ -89,3 +89,36 @@ export class CarrierWebhookProcessedEvent {
   @Property({ name: 'processed_at', type: Date, onCreate: () => new Date() })
   processedAt: Date = new Date()
 }
+
+@Entity({ tableName: 'carrier_shipment_idempotency_keys' })
+@Unique({
+  name: 'carrier_shipment_idempotency_keys_unique',
+  properties: ['idempotencyKey', 'providerKey', 'organizationId', 'tenantId'],
+})
+export class CarrierShipmentIdempotencyKey {
+  [OptionalProps]?: 'shipmentId' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'provider_key', type: 'text' })
+  providerKey!: string
+
+  @Property({ name: 'idempotency_key', type: 'text' })
+  idempotencyKey!: string
+
+  @Property({ name: 'request_hash', type: 'text' })
+  requestHash!: string
+
+  @Property({ name: 'shipment_id', type: 'uuid', nullable: true })
+  shipmentId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}

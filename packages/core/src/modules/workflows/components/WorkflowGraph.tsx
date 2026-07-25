@@ -8,8 +8,8 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 export interface WorkflowGraphProps {
   initialNodes?: Node[]
   initialEdges?: Edge[]
-  onNodesChange?: (changes: any[]) => void
-  onEdgesChange?: (changes: any[]) => void
+  onNodesChange?: (nodes: Node[]) => void
+  onEdgesChange?: (edges: Edge[]) => void
   onNodeClick?: (event: React.MouseEvent, node: Node) => void
   onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void
   onConnect?: (connection: Connection) => void

@@ -1,6 +1,9 @@
 import type { SyncCrudEventPayload } from './sync-event-types'
 import type { SyncSubscriberEntry } from './sync-subscriber-store'
 import { matchWildcardPattern } from '@open-mercato/shared/lib/patterns/wildcard'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'crud' })
 
 // ---------------------------------------------------------------------------
 // Event pattern matching
@@ -63,7 +66,7 @@ export async function runSyncAfterEvent(
     try {
       await subscriber.handler(payload, ctx)
     } catch (error) {
-      console.error(`[sync-event] after-subscriber failed: ${subscriber.metadata.id}`, error)
+      logger.error('Sync-event after-subscriber failed', { subscriberId: subscriber.metadata.id, err: error })
     }
   }
 }

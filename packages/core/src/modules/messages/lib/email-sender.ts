@@ -12,9 +12,11 @@ import MessageEmail from '../emails/MessageEmail'
 import { resolveAttachmentAbsolutePath } from '../../attachments/lib/storage'
 import { generateAuthToken, hashAuthToken } from '../../auth/lib/tokenHash'
 import type { MessageEmailAttachment } from './attachments'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('messages').child({ component: 'email-sender' })
 
 const ACCESS_TOKEN_EXPIRY_HOURS = 24 * 7
-const DEBUG = process.env.MESSAGES_EMAIL_DEBUG === 'true'
 const MAX_EMAIL_ATTACHMENTS = 10
 const MAX_TOTAL_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
@@ -24,12 +26,7 @@ export type SenderIdentity = {
 }
 
 function logDebug(message: string, details?: Record<string, unknown>) {
-  if (!DEBUG) return
-  if (details) {
-    console.log(`[messages:email-sender] ${message}`, details)
-    return
-  }
-  console.log(`[messages:email-sender] ${message}`)
+  logger.debug(message, details)
 }
 
 function resolveAppUrl(): string | null {

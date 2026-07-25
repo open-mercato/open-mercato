@@ -148,6 +148,13 @@ export default function InboxOpsProposalsPage() {
     if (initialLoadComplete) loadProposals()
   }, [page, statusFilter, categoryFilter, search, scopeVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  React.useEffect(() => {
+    if (initialLoadComplete) {
+      loadCounts()
+      loadSettings()
+    }
+  }, [scopeVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleCopyAddress = React.useCallback(() => {
     if (settings?.inboxAddress) {
       navigator.clipboard.writeText(settings.inboxAddress)

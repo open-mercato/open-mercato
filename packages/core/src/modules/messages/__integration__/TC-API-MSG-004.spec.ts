@@ -86,4 +86,52 @@ test.describe('TC-API-MSG-004: Terminal Action Can Be Executed Once', () => {
     const detailBody = (await detailResponse.json()) as { actionTaken?: unknown };
     expect(detailBody.actionTaken).toBe('ack');
   });
+
+  test('executes the terminal action at most once under concurrent requests', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin@acme.com', 'secret');
+    const employeeToken = await getAuthToken(request, 'employee@acme.com', 'secret');
+    const employeeId = decodeJwtSubject(employeeToken);
+
+    const subject = `QA TC-API-MSG-004 concurrent ${Date.now()}`;
+    const messageId = await composeActionMessage(request, adminToken, employeeId, subject);
+
+    // Fire two requests at the same terminal action simultaneously. Exactly one
+    // must execute the target and succeed; the other must lose the atomic claim
+    // and receive the existing "Action already taken" 409 response.
+    const [first, second] = await Promise.all([
+      apiRequest(request, 'POST', `/api/messages/${messageId}/actions/ack`, {
+        token: employeeToken,
+        data: {},
+      }),
+      apiRequest(request, 'POST', `/api/messages/${messageId}/actions/ack`, {
+        token: employeeToken,
+        data: {},
+      }),
+    ]);
+
+    const statuses = [first.status(), second.status()].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    const okResponse = first.status() === 200 ? first : second;
+    const conflictResponse = first.status() === 409 ? first : second;
+
+    expect((await okResponse.json()) as { ok?: unknown; actionId?: unknown }).toMatchObject({
+      ok: true,
+      actionId: 'ack',
+    });
+
+    const conflictBody = (await conflictResponse.json()) as {
+      error?: unknown;
+      actionTaken?: unknown;
+    };
+    expect(conflictBody.error).toBe('Action already taken');
+    expect(conflictBody.actionTaken).toBe('ack');
+
+    const detailResponse = await apiRequest(request, 'GET', `/api/messages/${messageId}`, {
+      token: employeeToken,
+    });
+    expect(detailResponse.status()).toBe(200);
+    const detailBody = (await detailResponse.json()) as { actionTaken?: unknown };
+    expect(detailBody.actionTaken).toBe('ack');
+  });
 });

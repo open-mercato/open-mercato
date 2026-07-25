@@ -1,11 +1,10 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import { bootstrap } from '@/bootstrap'
+import '@/lib/i18n/register-dictionary-loader'
 import { AppProviders } from '@/components/AppProviders'
 
-// Bootstrap all package registrations at module load time
-bootstrap()
 import { detectLocale, loadDictionary } from '@open-mercato/shared/lib/i18n/server'
+import { resolveForcedLocale } from '@open-mercato/shared/lib/i18n/locale'
 
 export const metadata: Metadata = {
   title: 'Open Mercato',
@@ -22,6 +21,7 @@ export default async function RootLayout({
 }>) {
   const locale = await detectLocale()
   const dict = await loadDictionary(locale)
+  const localeLocked = resolveForcedLocale(process.env) !== null
   const demoModeEnabled = process.env.DEMO_MODE !== 'false'
   const noticeBarsEnabled = process.env.OM_INTEGRATION_TEST !== 'true'
   return (
@@ -45,7 +45,7 @@ export default async function RootLayout({
         />
       </head>
       <body className="antialiased" suppressHydrationWarning data-gramm="false">
-        <AppProviders locale={locale} dict={dict} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled}>
+        <AppProviders locale={locale} dict={dict} localeLocked={localeLocked} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled}>
           {children}
         </AppProviders>
       </body>

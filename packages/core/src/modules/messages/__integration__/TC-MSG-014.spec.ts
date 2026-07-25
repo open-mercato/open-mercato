@@ -78,7 +78,7 @@ async function waitForFlashEvent(page: Parameters<typeof expectFlashMessage>[0],
 
 /**
  * TC-MSG-014: Inbox Bulk Archive And Delete
- * Source: .ai/specs/2026-04-23-messages-inbox-bulk-actions.md
+ * Source: .ai/specs/implemented/2026-04-23-messages-inbox-bulk-actions.md
  */
 test.describe('TC-MSG-014: Inbox Bulk Archive And Delete', () => {
   test('should report partial archive success and confirm bulk delete', async ({ page, request }) => {

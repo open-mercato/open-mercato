@@ -1,12 +1,16 @@
 'use client'
 
 import * as React from 'react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@open-mercato/ui/primitives/dialog'
 import {
@@ -65,6 +69,31 @@ export default function PipelineStagesPage() {
   const [stageColor, setStageColor] = React.useState<string | null>(null)
   const [stageIcon, setStageIcon] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: 'customers-pipeline-stages-page',
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const pipelineMutationContext = React.useMemo(
+    () => ({
+      formId: 'customers-pipeline-stages-page',
+      resourceKind: 'customers.pipeline',
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
+  const stageMutationContext = React.useMemo(
+    () => ({
+      formId: 'customers-pipeline-stages-page',
+      resourceKind: 'customers.pipeline_stage',
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
 
   const selectedPipeline = React.useMemo(
     () => pipelines.find((p) => p.id === selectedPipelineId) ?? null,
@@ -135,30 +164,54 @@ export default function PipelineStagesPage() {
     setSaving(true)
     try {
       if (pipelineDialog?.mode === 'create') {
-        const result = await apiCall<{ id: string }>('/api/customers/pipelines', {
-          method: 'POST',
-          body: JSON.stringify({ name: pipelineName.trim(), isDefault: pipelineIsDefault }),
-          headers: { 'Content-Type': 'application/json' },
-        })
-        if (!result.ok) {
-          flash(t('customers.config.pipelineStages.errorCreatePipeline', 'Failed to create pipeline'), 'error')
+        let newId: string | null = null
+        try {
+          await runMutation({
+            operation: async () => {
+              const result = await apiCall<{ id: string }>('/api/customers/pipelines', {
+                method: 'POST',
+                body: JSON.stringify({ name: pipelineName.trim(), isDefault: pipelineIsDefault }),
+                headers: { 'Content-Type': 'application/json' },
+              })
+              if (!result.ok) {
+                throw new Error(t('customers.config.pipelineStages.errorCreatePipeline', 'Failed to create pipeline'))
+              }
+              newId = result.result?.id ?? null
+            },
+            context: pipelineMutationContext,
+            mutationPayload: { action: 'create', name: pipelineName.trim(), isDefault: pipelineIsDefault },
+          })
+        } catch (err) {
+          const msg = err instanceof Error && err.message ? err.message : t('customers.config.pipelineStages.errorCreatePipeline', 'Failed to create pipeline')
+          flash(msg, 'error')
           return
         }
         flash(t('customers.config.pipelineStages.createdPipeline', 'Pipeline created'), 'success')
-        const newId = result.result?.id ?? null
         await loadPipelines()
         if (newId) setSelectedPipelineId(newId)
       } else if (pipelineDialog?.mode === 'edit') {
-        const result = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(pipelineDialog.pipeline.updatedAt),
-          () => apiCall('/api/customers/pipelines', {
-            method: 'PUT',
-            body: JSON.stringify({ id: pipelineDialog.pipeline.id, name: pipelineName.trim(), isDefault: pipelineIsDefault }),
-            headers: { 'Content-Type': 'application/json' },
-          }),
-        )
-        if (!result.ok) {
-          flash(t('customers.config.pipelineStages.errorUpdatePipeline', 'Failed to update pipeline'), 'error')
+        const targetPipeline = pipelineDialog.pipeline
+        try {
+          await runMutation({
+            operation: async () => {
+              const result = await withScopedApiRequestHeaders(
+                buildOptimisticLockHeader(targetPipeline.updatedAt),
+                () => apiCall('/api/customers/pipelines', {
+                  method: 'PUT',
+                  body: JSON.stringify({ id: targetPipeline.id, name: pipelineName.trim(), isDefault: pipelineIsDefault }),
+                  headers: { 'Content-Type': 'application/json' },
+                }),
+              )
+              if (!result.ok) {
+                throw new Error(t('customers.config.pipelineStages.errorUpdatePipeline', 'Failed to update pipeline'))
+              }
+            },
+            context: pipelineMutationContext,
+            mutationPayload: { action: 'update', id: targetPipeline.id, name: pipelineName.trim(), isDefault: pipelineIsDefault },
+          })
+        } catch (err) {
+          const msg = err instanceof Error && err.message ? err.message : t('customers.config.pipelineStages.errorUpdatePipeline', 'Failed to update pipeline')
+          flash(msg, 'error')
           return
         }
         flash(t('customers.config.pipelineStages.updatedPipeline', 'Pipeline updated'), 'success')
@@ -181,17 +234,28 @@ export default function PipelineStagesPage() {
       variant: 'destructive',
     })
     if (!confirmed) return
-    const result = await withScopedApiRequestHeaders(
-      buildOptimisticLockHeader(pipeline.updatedAt),
-      () => apiCall('/api/customers/pipelines', {
-        method: 'DELETE',
-        body: JSON.stringify({ id: pipeline.id }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    )
-    if (!result.ok) {
-      const error = (result.result as { error?: string })?.error
-      flash(error ?? t('customers.config.pipelineStages.errorDeletePipeline', 'Failed to delete pipeline'), 'error')
+    try {
+      await runMutation({
+        operation: async () => {
+          const result = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(pipeline.updatedAt),
+            () => apiCall('/api/customers/pipelines', {
+              method: 'DELETE',
+              body: JSON.stringify({ id: pipeline.id }),
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+          if (!result.ok) {
+            const error = (result.result as { error?: string })?.error
+            throw new Error(error ?? t('customers.config.pipelineStages.errorDeletePipeline', 'Failed to delete pipeline'))
+          }
+        },
+        context: pipelineMutationContext,
+        mutationPayload: { action: 'delete', id: pipeline.id },
+      })
+    } catch (err) {
+      const msg = err instanceof Error && err.message ? err.message : t('customers.config.pipelineStages.errorDeletePipeline', 'Failed to delete pipeline')
+      flash(msg, 'error')
       return
     }
     flash(t('customers.config.pipelineStages.deletedPipeline', 'Pipeline deleted'), 'success')
@@ -222,27 +286,50 @@ export default function PipelineStagesPage() {
           ...(stageColor !== null ? { color: stageColor } : {}),
           ...(stageIcon !== null ? { icon: stageIcon } : {}),
         }
-        const result = await apiCall('/api/customers/pipeline-stages', {
-          method: 'POST',
-          body: JSON.stringify({ pipelineId: selectedPipelineId, label: stageName.trim(), ...appearancePayload }),
-          headers: { 'Content-Type': 'application/json' },
-        })
-        if (!result.ok) {
-          flash(t('customers.config.pipelineStages.errorCreateStage', 'Failed to create stage'), 'error')
+        try {
+          await runMutation({
+            operation: async () => {
+              const result = await apiCall('/api/customers/pipeline-stages', {
+                method: 'POST',
+                body: JSON.stringify({ pipelineId: selectedPipelineId, label: stageName.trim(), ...appearancePayload }),
+                headers: { 'Content-Type': 'application/json' },
+              })
+              if (!result.ok) {
+                throw new Error(t('customers.config.pipelineStages.errorCreateStage', 'Failed to create stage'))
+              }
+            },
+            context: stageMutationContext,
+            mutationPayload: { action: 'create', pipelineId: selectedPipelineId, label: stageName.trim(), ...appearancePayload },
+          })
+        } catch (err) {
+          const msg = err instanceof Error && err.message ? err.message : t('customers.config.pipelineStages.errorCreateStage', 'Failed to create stage')
+          flash(msg, 'error')
           return
         }
         flash(t('customers.config.pipelineStages.createdStage', 'Stage created'), 'success')
       } else if (stageDialog?.mode === 'edit') {
-        const result = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(stageDialog.stage.updatedAt),
-          () => apiCall('/api/customers/pipeline-stages', {
-            method: 'PUT',
-            body: JSON.stringify({ id: stageDialog.stage.id, label: stageName.trim(), color: stageColor, icon: stageIcon }),
-            headers: { 'Content-Type': 'application/json' },
-          }),
-        )
-        if (!result.ok) {
-          flash(t('customers.config.pipelineStages.errorUpdateStage', 'Failed to update stage'), 'error')
+        const targetStage = stageDialog.stage
+        try {
+          await runMutation({
+            operation: async () => {
+              const result = await withScopedApiRequestHeaders(
+                buildOptimisticLockHeader(targetStage.updatedAt),
+                () => apiCall('/api/customers/pipeline-stages', {
+                  method: 'PUT',
+                  body: JSON.stringify({ id: targetStage.id, label: stageName.trim(), color: stageColor, icon: stageIcon }),
+                  headers: { 'Content-Type': 'application/json' },
+                }),
+              )
+              if (!result.ok) {
+                throw new Error(t('customers.config.pipelineStages.errorUpdateStage', 'Failed to update stage'))
+              }
+            },
+            context: stageMutationContext,
+            mutationPayload: { action: 'update', id: targetStage.id, label: stageName.trim(), color: stageColor, icon: stageIcon },
+          })
+        } catch (err) {
+          const msg = err instanceof Error && err.message ? err.message : t('customers.config.pipelineStages.errorUpdateStage', 'Failed to update stage')
+          flash(msg, 'error')
           return
         }
         flash(t('customers.config.pipelineStages.updatedStage', 'Stage updated'), 'success')
@@ -265,17 +352,28 @@ export default function PipelineStagesPage() {
       variant: 'destructive',
     })
     if (!confirmed) return
-    const result = await withScopedApiRequestHeaders(
-      buildOptimisticLockHeader(stage.updatedAt),
-      () => apiCall('/api/customers/pipeline-stages', {
-        method: 'DELETE',
-        body: JSON.stringify({ id: stage.id }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    )
-    if (!result.ok) {
-      const error = (result.result as { error?: string })?.error
-      flash(error ?? t('customers.config.pipelineStages.errorDeleteStage', 'Failed to delete stage'), 'error')
+    try {
+      await runMutation({
+        operation: async () => {
+          const result = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(stage.updatedAt),
+            () => apiCall('/api/customers/pipeline-stages', {
+              method: 'DELETE',
+              body: JSON.stringify({ id: stage.id }),
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+          if (!result.ok) {
+            const error = (result.result as { error?: string })?.error
+            throw new Error(error ?? t('customers.config.pipelineStages.errorDeleteStage', 'Failed to delete stage'))
+          }
+        },
+        context: stageMutationContext,
+        mutationPayload: { action: 'delete', id: stage.id },
+      })
+    } catch (err) {
+      const msg = err instanceof Error && err.message ? err.message : t('customers.config.pipelineStages.errorDeleteStage', 'Failed to delete stage')
+      flash(msg, 'error')
       return
     }
     flash(t('customers.config.pipelineStages.deletedStage', 'Stage deleted'), 'success')
@@ -293,13 +391,25 @@ export default function PipelineStagesPage() {
     const updated = reordered.map((stage, i) => ({ ...stage, order: i }))
     setStages(updated)
 
-    const result = await apiCall('/api/customers/pipeline-stages/reorder', {
-      method: 'POST',
-      body: JSON.stringify({ stages: updated.map((s) => ({ id: s.id, order: s.order })) }),
-      headers: { 'Content-Type': 'application/json' },
-    })
-    if (!result.ok) {
-      flash(t('customers.config.pipelineStages.errorReorder', 'Failed to reorder stages'), 'error')
+    const orderedStages = updated.map((s) => ({ id: s.id, order: s.order }))
+    try {
+      await runMutation({
+        operation: async () => {
+          const result = await apiCall('/api/customers/pipeline-stages/reorder', {
+            method: 'POST',
+            body: JSON.stringify({ stages: orderedStages }),
+            headers: { 'Content-Type': 'application/json' },
+          })
+          if (!result.ok) {
+            throw new Error(t('customers.config.pipelineStages.errorReorder', 'Failed to reorder stages'))
+          }
+        },
+        context: stageMutationContext,
+        mutationPayload: { action: 'reorder', stages: orderedStages },
+      })
+    } catch (err) {
+      const msg = err instanceof Error && err.message ? err.message : t('customers.config.pipelineStages.errorReorder', 'Failed to reorder stages')
+      flash(msg, 'error')
       if (selectedPipelineId) await loadStages(selectedPipelineId)
     }
   }
@@ -409,24 +519,28 @@ export default function PipelineStagesPage() {
                       {stages.map((stage, index) => (
                         <div key={stage.id} className="flex items-center gap-3 px-4 py-3">
                           <div className="flex flex-col gap-1">
-                            <button
+                            <IconButton
                               type="button"
-                              className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+                              variant="ghost"
+                              size="xs"
+                              className="text-muted-foreground hover:text-foreground"
                               onClick={() => moveStage(index, 'up')}
                               disabled={index === 0}
                               aria-label={t('customers.config.pipelineStages.moveUp', 'Move up')}
                             >
-                              ↑
-                            </button>
-                            <button
+                              <ChevronUp className="size-4" />
+                            </IconButton>
+                            <IconButton
                               type="button"
-                              className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+                              variant="ghost"
+                              size="xs"
+                              className="text-muted-foreground hover:text-foreground"
                               onClick={() => moveStage(index, 'down')}
                               disabled={index === stages.length - 1}
                               aria-label={t('customers.config.pipelineStages.moveDown', 'Move down')}
                             >
-                              ↓
-                            </button>
+                              <ChevronDown className="size-4" />
+                            </IconButton>
                           </div>
                           <span className="flex-1 text-sm flex items-center gap-2">
                             {stage.color ? renderDictionaryColor(stage.color) : null}
@@ -476,11 +590,11 @@ export default function PipelineStagesPage() {
                   autoFocus
                 />
               </div>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
+              <label htmlFor="pipeline-is-default" className="flex items-center gap-2 text-sm cursor-pointer">
+                <Checkbox
+                  id="pipeline-is-default"
                   checked={pipelineIsDefault}
-                  onChange={(e) => setPipelineIsDefault(e.target.checked)}
+                  onCheckedChange={(checked) => setPipelineIsDefault(checked === true)}
                 />
                 {t('customers.config.pipelineStages.setAsDefault', 'Set as default pipeline')}
               </label>

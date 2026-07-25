@@ -44,6 +44,7 @@ export const createShipmentSchema = z.object({
   receiverEmail: emailField,
   targetPoint: z.string().optional(),
   c2cSendingMethod: z.enum(['parcel_locker', 'dispatch_order', 'pop', 'any_point']).optional(),
+  idempotencyKey: z.string().min(1).max(255).optional(),
 })
 
 export const trackingQuerySchema = z.object({
@@ -53,6 +54,11 @@ export const trackingQuerySchema = z.object({
 }).refine((value) => Boolean(value.shipmentId || value.trackingNumber), {
   message: 'shipmentId or trackingNumber is required',
   path: ['shipmentId'],
+})
+
+export const trackingRefreshSchema = z.object({
+  providerKey: z.string().min(1),
+  shipmentId: z.string().uuid(),
 })
 
 export const cancelShipmentSchema = z.object({

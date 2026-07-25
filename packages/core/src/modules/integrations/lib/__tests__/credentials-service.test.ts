@@ -1,5 +1,7 @@
 /** @jest-environment node */
 
+import fs from 'node:fs'
+import path from 'node:path'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import { decryptWithAesGcm, encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -166,6 +168,32 @@ describe('integration credentials service encryption', () => {
     await expect(service.getRaw('gateway_test', scope))
       .rejects
       .toBeInstanceOf(CredentialsEncryptionUnavailableError)
+  })
+
+  it('returns the record as-is when the row has no encrypted blob marker, even if KMS is unavailable', async () => {
+    mockKms(null)
+    mockFindOneWithDecryption.mockResolvedValueOnce({
+      credentials: { apiKey: 'legacy-plain' },
+    } as never)
+    const { em } = createMockEntityManager()
+    const service = createCredentialsService(em as never)
+
+    await expect(service.getRaw('gateway_test', scope)).resolves.toEqual({ apiKey: 'legacy-plain' })
+  })
+
+  it('error carries a stable code so HTTP routes can identify it', () => {
+    const err = new CredentialsEncryptionUnavailableError('tenant-7')
+    expect(err.code).toBe('CREDENTIALS_ENCRYPTION_UNAVAILABLE')
+    expect(err.message).toContain('tenant-7')
+    expect(err).toBeInstanceOf(Error)
+  })
+
+  it('source file no longer contains the hardcoded emergency fallback literal', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '..', 'credentials-service.ts'),
+      'utf8',
+    )
+    expect(source).not.toContain('om-emergency-fallback-rotate-me')
   })
 })
 

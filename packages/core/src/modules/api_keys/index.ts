@@ -6,7 +6,7 @@ export const metadata: ModuleInfo = {
   version: '0.1.0',
   description: 'Manage access tokens for external API access.',
   author: 'Open Mercato Team',
-  license: 'Proprietary',
+  license: 'MIT',
   requires: ['auth'],
 }
 

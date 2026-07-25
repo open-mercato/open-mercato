@@ -69,6 +69,13 @@ const sectionGroupSchema = z.object({
 })
 
 const adminNavResponseSchema = z.object({
+  brand: z.object({
+    name: z.string().optional(),
+    logo: z.object({
+      src: z.string(),
+      alt: z.string().optional(),
+    }).nullable().optional(),
+  }).nullable().optional(),
   groups: z.array(
     z.object({
       id: z.string().optional(),
@@ -131,7 +138,7 @@ export async function GET(req: Request) {
     selectedTenantId = auth.tenantId ?? null
   }
 
-  const cacheVersion = 'v2'
+  const cacheVersion = 'v4'
   const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}`
   try {
     if (cache?.get) {
@@ -160,6 +167,8 @@ export async function GET(req: Request) {
         `nav:entities:${cacheScopeTenantId || 'null'}`,
         `nav:locale:${locale}`,
         `nav:sidebar:user:${auth.sub}`,
+        cacheScopeTenantId ? `nav:sidebar:tenant:${cacheScopeTenantId}` : undefined,
+        cacheScopeOrganizationId ? `nav:sidebar:organization:${cacheScopeOrganizationId}` : undefined,
         `nav:sidebar:scope:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}:${locale}`,
         ...((Array.isArray(auth.roles) ? auth.roles : []).map((role) => `nav:sidebar:role:${role}`)),
       ].filter(Boolean) as string[]

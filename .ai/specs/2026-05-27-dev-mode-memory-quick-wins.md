@@ -6,7 +6,7 @@
 **Related work:**
 - PR #2102 — workspace package watcher consolidation (`fix/dev-mode-package-watch-consolidation`); the dominant single intervention. Not yet on `develop`.
 - `.ai/specs/2026-05-13-frontend-client-boundary-ram-reduction.md` — long-running effort to migrate 934 `"use client"` files to server-first. Multi-phase, separate workstream.
-- `.ai/specs/2026-05-13-lazy-auto-spawn-scheduler.md` and `.ai/specs/2026-05-07-lazy-auto-spawn-queue-workers.md` — already implemented; `yarn dev` auto-sets `OM_AUTO_SPAWN_WORKERS_LAZY=true` and `OM_AUTO_SPAWN_SCHEDULER_LAZY=true` in `scripts/dev.mjs:517-526`.
+- `.ai/specs/implemented/2026-05-13-lazy-auto-spawn-scheduler.md` and `.ai/specs/implemented/2026-05-07-lazy-auto-spawn-queue-workers.md` — already implemented; `yarn dev` auto-sets `OM_AUTO_SPAWN_WORKERS_LAZY=true` and `OM_AUTO_SPAWN_SCHEDULER_LAZY=true` in `scripts/dev.mjs:517-526`.
 
 ## Context
 
@@ -128,6 +128,32 @@ yarn dev:profile:report
 Paste the resulting Markdown table into the PR body. Reports are written under `.mercato/dev-rss/<label>.json` and persist across runs.
 
 For CI memory-regression checks, the harness exposes a `--duration` flag (default 90 s); shrink to e.g. 30 s for fast CI loops and gate on the JSON `summary.peakTotalMb` field.
+
+### 2026-06-19 issue #3065 follow-up: reliable live trace attribution
+
+Stage 1 for issue #3065 extends the harness into shared measurement infrastructure:
+
+- `scripts/dev-memory-sampler.mjs` is the canonical Darwin/Linux process-tree RSS sampler used by both `yarn dev:profile` and live dev memory monitoring.
+- `OM_DEV_MEMORY_TRACE=1 yarn dev` emits opt-in NDJSON samples plus a final JSON summary under `.mercato/dev-rss/`, including peak RSS, dominant process class, top processes, cgroup memory when available, and lifecycle markers nearest the peak.
+- Native process-tree RSS and Docker cgroup memory are reported as separate fields; they must not be collapsed into one unlabeled number.
+- Stage 1 identifies the responsible process class and lifecycle phase. Source-level attribution remains a follow-up step using the peak route/phase plus Turbopack traces/import analysis.
+
+### 2026-06-21 Next.js 16.3 canary memory signal
+
+A local A/B smoke on `next@16.3.0-canary.59` showed a material Turbopack memory improvement, but not enough to meet the sub-1 GB target:
+
+| Profile | Next.js | Peak total RSS | Mean RSS | Top `next-server` RSS | Dominant class |
+|---------|---------|----------------|----------|------------------------|----------------|
+| First full baseline | `16.2.9` | `8027.6 MB` | `4005.09 MB` | `6889.64 MB` | `next-turbopack` |
+| Canary smoke | `16.3.0-canary.59` | `5820.6 MB` | `2715.26 MB` | `4580.64 MB` | `next-turbopack` |
+
+Measured delta:
+
+- Peak total RSS decreased by `2207 MB` (`27.5%`).
+- Mean RSS decreased by `1289.83 MB` (`32.2%`).
+- Top `next-server` RSS decreased by `2309 MB` (`33.5%`).
+
+Action item: when the `16.3.x` line is released as stable, retest before upgrading. Expected impact is roughly a **30% dev-memory reduction** for this repo, but the stable release alone should not be treated as a complete fix because the canary still peaked at `5.8 GB` and remained dominated by `next-turbopack`.
 
 ## Migration & backward compatibility
 

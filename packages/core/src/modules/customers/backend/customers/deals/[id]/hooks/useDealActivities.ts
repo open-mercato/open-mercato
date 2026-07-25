@@ -3,6 +3,13 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { InteractionSummary } from '../../../../../components/detail/types'
 import { useInteractionMutations } from '../../../../../components/detail/hooks/useInteractionMutations'
 import type { GuardedMutationRunner } from './types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
+
+type LoadPlannedActivitiesOptions = {
+  cache?: boolean
+}
 
 type UseDealActivitiesOptions = {
   dealId: string
@@ -12,10 +19,30 @@ type UseDealActivitiesOptions = {
 type UseDealActivitiesResult = {
   plannedActivities: InteractionSummary[]
   activityRefreshKey: number
-  loadPlannedActivities: () => Promise<void>
+  loadPlannedActivities: (options?: LoadPlannedActivitiesOptions) => Promise<void>
   handleActivityCreated: () => Promise<void>
   handleMarkDone: (interactionId: string) => Promise<void>
   handleCancelActivity: (interactionId: string) => Promise<void>
+}
+
+type PlannedActivitiesCacheEntry = {
+  promise: Promise<InteractionSummary[]>
+}
+
+const plannedActivitiesCache = new Map<string, PlannedActivitiesCacheEntry>()
+
+function fetchPlannedActivities(dealId: string, useCache: boolean): Promise<InteractionSummary[]> {
+  const url = `/api/customers/interactions?dealId=${encodeURIComponent(dealId)}&status=planned&excludeInteractionType=task&limit=100&sortField=scheduledAt&sortDir=asc`
+  const cached = plannedActivitiesCache.get(url)
+  if (useCache && cached) return cached.promise
+  const entry: PlannedActivitiesCacheEntry = {
+    promise: readApiResultOrThrow<{ items?: InteractionSummary[] }>(url)
+      .then((result) => (Array.isArray(result.items) ? result.items : [])),
+  }
+  if (useCache) plannedActivitiesCache.set(url, entry)
+  return entry.promise.finally(() => {
+    if (plannedActivitiesCache.get(url) === entry) plannedActivitiesCache.delete(url)
+  })
 }
 
 export function useDealActivities({
@@ -25,15 +52,13 @@ export function useDealActivities({
   const [plannedActivities, setPlannedActivities] = React.useState<InteractionSummary[]>([])
   const [activityRefreshKey, setActivityRefreshKey] = React.useState(0)
 
-  const loadPlannedActivities = React.useCallback(async () => {
+  const loadPlannedActivities = React.useCallback(async (options: LoadPlannedActivitiesOptions = {}) => {
     if (!dealId) return
     try {
-      const result = await readApiResultOrThrow<{ items?: InteractionSummary[] }>(
-        `/api/customers/interactions?dealId=${encodeURIComponent(dealId)}&status=planned&excludeInteractionType=task&limit=100&sortField=scheduledAt&sortDir=asc`,
-      )
-      setPlannedActivities(Array.isArray(result.items) ? result.items : [])
+      const items = await fetchPlannedActivities(dealId, options.cache === true)
+      setPlannedActivities(items)
     } catch (err) {
-      console.warn('[customers.deals.detail] load planned activities failed', err)
+      logger.warn('load planned activities failed', { component: 'deals.detail', err })
       setPlannedActivities([])
     }
   }, [dealId])

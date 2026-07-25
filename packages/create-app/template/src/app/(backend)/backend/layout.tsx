@@ -82,6 +82,7 @@ export default async function BackendLayout({
   const collapsedCookie = cookieStore.get('om_sidebar_collapsed')?.value
   const initialCollapsed = collapsedCookie === '1'
   const demoModeEnabled = parseBooleanWithDefault(process.env.DEMO_MODE, true)
+  const hideBackendFooter = parseBooleanWithDefault(process.env.OM_HIDE_BACKEND_FOOTER, false)
   const deployEnv = process.env.DEPLOY_ENV
   const grantedFeatures = Array.isArray(auth?.features)
     ? auth.features.filter((feature): feature is string => typeof feature === 'string')
@@ -122,6 +123,7 @@ export default async function BackendLayout({
         )}
         adminNavApi="/api/auth/admin/nav"
         version={APP_VERSION}
+        hideFooter={hideBackendFooter}
         settingsPathPrefixes={collectStaticSettingsPathPrefixes()}
         settingsSections={[]}
         settingsSectionTitle={translate('backend.nav.settings', 'Settings')}

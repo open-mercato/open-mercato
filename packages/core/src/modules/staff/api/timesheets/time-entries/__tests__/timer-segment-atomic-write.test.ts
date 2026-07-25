@@ -139,8 +139,14 @@ describe('timer-start atomic write (#2416)', () => {
   }
 
   test('starts the timer inside a locking transaction', async () => {
-    mockFindOneWithDecryption.mockImplementation(async (_em, _cls, _where, opts) => {
+    mockFindOneWithDecryption.mockImplementation(async (_em, _cls, where, opts) => {
       if (opts) findOneOptions.push(opts)
+      // The cross-entry single-active-timer guard (#2855) queries with
+      // id: { $ne }; it must find no other running entry for this start to
+      // proceed.
+      if ((where as Record<string, unknown>).id && typeof (where as Record<string, unknown>).id === 'object') {
+        return null
+      }
       return makeEntry()
     })
 
@@ -155,6 +161,57 @@ describe('timer-start atomic write (#2416)', () => {
       segmentType: 'work',
     }))
     expect(lastTrxFlushCount).toBe(1)
+  })
+
+  test('rejects the start when the staff member already has another running entry (#2855)', async () => {
+    const otherRunningEntry = makeEntry({
+      id: '99999999-9999-4999-8999-999999999999',
+      startedAt: new Date('2026-01-01T07:00:00.000Z'),
+      endedAt: null,
+    })
+    let call = 0
+    mockFindOneWithDecryption.mockImplementation(async (_em, _cls, where, opts) => {
+      if (opts) findOneOptions.push(opts)
+      call += 1
+      // Calls 1 (unlocked load) and 2 (locked re-read) target this entry and
+      // see it as not-yet-started; the third lookup is the cross-entry guard
+      // querying for any OTHER running entry by the same staff member.
+      if ((where as Record<string, unknown>).id && typeof (where as Record<string, unknown>).id === 'object') {
+        return otherRunningEntry
+      }
+      return makeEntry()
+    })
+
+    const { POST } = await import('../[id]/timer-start/route')
+    const res = await POST(request())
+    const body = (await res.json()) as Record<string, unknown>
+
+    expect(res.status).toBe(409)
+    expect(String(body.error)).toMatch(/already running/i)
+    expect(lockOptionWasUsed()).toBe(true)
+    // No new entry/segment work happened — the guard short-circuited the start.
+    expect(mockEm.create).not.toHaveBeenCalled()
+    expect(lastTrxFlushCount).toBe(0)
+  })
+
+  test('starts when no other running entry exists for the staff member (#2855)', async () => {
+    mockFindOneWithDecryption.mockImplementation(async (_em, _cls, where, opts) => {
+      if (opts) findOneOptions.push(opts)
+      // The cross-entry guard query (id: { $ne }) finds no other running entry.
+      if ((where as Record<string, unknown>).id && typeof (where as Record<string, unknown>).id === 'object') {
+        return null
+      }
+      return makeEntry()
+    })
+
+    const { POST } = await import('../[id]/timer-start/route')
+    const res = await POST(request())
+
+    expect(res.status).toBe(200)
+    expect(mockEm.create).toHaveBeenCalledWith(StaffTimeEntrySegment, expect.objectContaining({
+      timeEntryId: ENTRY_ID,
+      segmentType: 'work',
+    }))
   })
 
   test('rejects a concurrent start when the lock observes startedAt already set', async () => {

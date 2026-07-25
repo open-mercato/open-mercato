@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "baseBranch": "develop",
+  "tracker": "github",
+  "validation": {
+    "commands": [
+      "yarn build:packages",
+      "yarn generate",
+      "yarn build:packages",
+      "yarn i18n:check-sync",
+      "yarn i18n:check-usage",
+      "yarn typecheck",
+      "yarn test",
+      "yarn build:app"
+    ]
+  },
+  "labels": {
+    "enabled": true,
+    "pipeline": ["review", "changes-requested", "qa", "qa-failed", "merge-queue", "blocked", "do-not-merge"],
+    "category": ["bug", "feature", "refactor", "security", "dependencies", "enterprise", "documentation"],
+    "meta": ["needs-qa", "skip-qa", "qa-approved", "qa-self-verified", "in-progress", "screenshots"],
+    "priority": ["priority-low", "priority-medium", "priority-high", "priority-extreme"],
+    "risk": ["risk-low", "risk-medium", "risk-high"]
+  },
+  "qaGate": true,
+  "paths": {
+    "runs": ".ai/runs",
+    "analysis": ".ai/analysis",
+    "specs": ".ai/specs",
+    "scripts": ".ai/scripts",
+    "qa": ".ai/qa"
+  },
+  "reviewChecklist": ".ai/review-checklist.md"
+}

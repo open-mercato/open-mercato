@@ -3,10 +3,12 @@
 import React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 interface AccountStatusData {
@@ -49,6 +51,10 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
   const [availableRoles, setAvailableRoles] = React.useState<RoleOption[]>([])
   const [isLoadingRoles, setIsLoadingRoles] = React.useState(true)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  const { runMutation } = useGuardedMutation<{ entityType: string }>({
+    contextId: 'customer_accounts:account-status-invite',
+  })
 
   React.useEffect(() => {
     let cancelled = false
@@ -109,9 +115,7 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
     )
   }
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault()
-
+  async function handleSubmit() {
     const trimmedEmail = email.trim()
     if (!trimmedEmail) {
       flash(t('customer_accounts.widgets.invite.error.emailRequired', 'Email is required'), 'error')
@@ -124,28 +128,35 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
 
     setIsSubmitting(true)
     try {
-      const call = await apiCall<{ ok: boolean; error?: string }>(
-        '/api/customer_accounts/admin/users-invite',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            email: trimmedEmail,
-            roleIds: selectedRoleIds,
-            displayName: displayName.trim() || undefined,
-            customerEntityId: personEntityId,
-          }),
+      await runMutation({
+        context: { entityType: 'customer_accounts:user' },
+        mutationPayload: { customerEntityId: personEntityId, roleIds: selectedRoleIds },
+        operation: async () => {
+          // optimistic-lock-exempt: creates a new portal invitation, not a concurrent record edit
+          const call = await apiCall<{ ok: boolean; error?: string }>(
+            '/api/customer_accounts/admin/users-invite',
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                email: trimmedEmail,
+                roleIds: selectedRoleIds,
+                displayName: displayName.trim() || undefined,
+                customerEntityId: personEntityId,
+              }),
+            },
+          )
+
+          if (!call.ok) {
+            const errorMessage = (call.result as Record<string, unknown> | null)?.error as string | undefined
+            flash(errorMessage || t('customer_accounts.widgets.invite.error.failed', 'Failed to send invitation'), 'error')
+            return
+          }
+
+          flash(t('customer_accounts.widgets.invite.success', 'Invitation sent successfully'), 'success')
+          onSuccess()
         },
-      )
-
-      if (!call.ok) {
-        const errorMessage = (call.result as Record<string, unknown> | null)?.error as string | undefined
-        flash(errorMessage || t('customer_accounts.widgets.invite.error.failed', 'Failed to send invitation'), 'error')
-        return
-      }
-
-      flash(t('customer_accounts.widgets.invite.success', 'Invitation sent successfully'), 'success')
-      onSuccess()
+      })
     } catch {
       flash(t('customer_accounts.widgets.invite.error.failed', 'Failed to send invitation'), 'error')
     } finally {
@@ -164,7 +175,7 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 mt-2">
+    <div className="space-y-3 mt-2">
       <div>
         <label htmlFor="invite-email" className="block text-xs font-medium text-muted-foreground mb-1">
           {t('common.email', 'Email')}
@@ -222,8 +233,9 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
 
       <div className="flex justify-end gap-2 pt-1">
         <Button
-          type="submit"
+          type="button"
           size="sm"
+          onClick={handleSubmit}
           disabled={isSubmitting || !email.trim() || selectedRoleIds.length === 0}
         >
           {isSubmitting
@@ -231,7 +243,7 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
             : t('customer_accounts.widgets.invite.submit', 'Send Invitation')}
         </Button>
       </div>
-    </form>
+    </div>
   )
 }
 
@@ -293,9 +305,9 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
       <div className="space-y-1 text-sm">
         <div className="flex justify-between">
           <span className="text-muted-foreground">{t('common.status', 'Status')}</span>
-          <span className={data.isActive ? 'text-green-600' : 'text-red-600'}>
+          <StatusBadge variant={data.isActive ? 'success' : 'error'} dot>
             {data.isActive ? t('common.active', 'Active') : t('common.inactive', 'Inactive')}
-          </span>
+          </StatusBadge>
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">{t('common.email', 'Email')}</span>

@@ -170,11 +170,16 @@ export class TokenSearchStrategy implements SearchStrategy {
     await replaceSearchTokensForBatch(this.db, payloads)
   }
 
-  async purge(entityId: EntityId, tenantId: string): Promise<void> {
-    await this.db
+  async purge(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void> {
+    const normalizedOrganizationId =
+      typeof organizationId === 'string' && organizationId.trim().length > 0 ? organizationId.trim() : null
+    let query = this.db
       .deleteFrom('search_tokens' as any)
       .where('entity_type' as any, '=', entityId)
       .where('tenant_id' as any, '=', tenantId)
-      .execute()
+    if (normalizedOrganizationId !== null) {
+      query = query.where('organization_id' as any, '=', normalizedOrganizationId)
+    }
+    await query.execute()
   }
 }

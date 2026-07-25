@@ -41,6 +41,8 @@ export type AddressEditorDraft = {
   region: string
   postalCode: string
   country: string
+  latitude?: string
+  longitude?: string
   isPrimary: boolean
 }
 
@@ -56,6 +58,8 @@ export type AddressEditorField =
   | 'region'
   | 'postalCode'
   | 'country'
+  | 'latitude'
+  | 'longitude'
   | 'isPrimary'
 
 type AddressEditorProps = {
@@ -67,6 +71,7 @@ type AddressEditorProps = {
   errors?: Partial<Record<AddressEditorField, string>>
   hidePrimaryToggle?: boolean
   showFormatHint?: boolean
+  showCoordinateFields?: boolean
 }
 
 export function AddressEditor({
@@ -78,6 +83,7 @@ export function AddressEditor({
   errors = {},
   hidePrimaryToggle = false,
   showFormatHint = true,
+  showCoordinateFields = false,
 }: AddressEditorProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -108,6 +114,9 @@ export function AddressEditor({
     region: value.region ?? '',
     postalCode: value.postalCode ?? '',
     country: value.country ?? '',
+    ...(showCoordinateFields
+      ? { latitude: value.latitude ?? '', longitude: value.longitude ?? '' }
+      : {}),
     isPrimary: value.isPrimary ?? false,
   }
 
@@ -437,6 +446,32 @@ export function AddressEditor({
           </DialogContent>
         </Dialog>
         {errors.country ? <p className="text-xs text-destructive">{errors.country}</p> : null}
+        {showCoordinateFields ? (
+          <>
+            <Input
+              className={inputClass('latitude')}
+              placeholder={t('customers.people.detail.addresses.fields.latitude', 'Latitude')}
+              aria-label={t('customers.people.detail.addresses.fields.latitude', 'Latitude')}
+              inputMode="decimal"
+              value={current.latitude ?? ''}
+              onChange={(evt) => update('latitude', evt.target.value)}
+              disabled={disabled}
+              aria-invalid={errors.latitude ? 'true' : undefined}
+            />
+            {errors.latitude ? <p className="text-xs text-destructive">{errors.latitude}</p> : null}
+            <Input
+              className={inputClass('longitude')}
+              placeholder={t('customers.people.detail.addresses.fields.longitude', 'Longitude')}
+              aria-label={t('customers.people.detail.addresses.fields.longitude', 'Longitude')}
+              inputMode="decimal"
+              value={current.longitude ?? ''}
+              onChange={(evt) => update('longitude', evt.target.value)}
+              disabled={disabled}
+              aria-invalid={errors.longitude ? 'true' : undefined}
+            />
+            {errors.longitude ? <p className="text-xs text-destructive">{errors.longitude}</p> : null}
+          </>
+        ) : null}
       </div>
       {!hidePrimaryToggle ? (
         <label className="inline-flex items-center gap-2 text-sm">

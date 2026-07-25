@@ -3,13 +3,15 @@
 import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { sanitizeChannelHtml } from '../../../lib/sanitize-channel-html'
 
 type ChannelPayloadEnrichment = {
   channelContentType: string | null
   channelPayload: Record<string, unknown> | null
   interactiveState: Record<string, unknown> | null
   channelMetadata: Record<string, unknown> | null
+  // Email HTML is sanitized server-side by the channel-payload enricher and
+  // delivered here ready to render — the client never imports `sanitize-html`.
+  sanitizedHtml: string | null
 }
 
 type MessageWithPayload = Record<string, unknown> & {
@@ -24,11 +26,10 @@ export default function ChannelPayloadRendererWidget({
   const payload = data?._channelPayload ?? null
   if (!payload || !payload.channelContentType) return null
 
-  const { channelContentType, channelPayload } = payload
+  const { channelContentType, channelPayload, sanitizedHtml } = payload
 
-  // Email / HTML — sanitize, then render.
-  if (channelContentType.startsWith('email/') && typeof channelPayload?.html === 'string') {
-    const sanitized = sanitizeChannelHtml(channelPayload.html as string)
+  // Email / HTML — render the HTML the server already sanitized.
+  if (channelContentType.startsWith('email/') && typeof sanitizedHtml === 'string') {
     return (
       <section
         className="rounded-md border bg-card p-4 text-sm"
@@ -37,7 +38,7 @@ export default function ChannelPayloadRendererWidget({
           'Channel payload — email',
         )}
       >
-        <div dangerouslySetInnerHTML={{ __html: sanitized }} />
+        <div dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
       </section>
     )
   }

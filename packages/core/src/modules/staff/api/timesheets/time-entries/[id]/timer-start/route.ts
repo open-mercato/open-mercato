@@ -17,6 +17,9 @@ import {
   runStaffMutationGuards,
 } from '../../../../guards'
 import { emitStaffEvent } from '../../../../../events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 function extractEntryIdFromUrl(request?: Request): string | null {
   if (!request?.url) return null
@@ -120,6 +123,36 @@ export async function POST(req: Request) {
         })
       }
 
+      // Single-active-timer invariant (issue #2855): reject the start when the
+      // staff member already has another running entry (started_at set,
+      // ended_at null). Without this guard a second surface (dashboard widget,
+      // another tab) could create and start a parallel timer, leaving two
+      // concurrent running entries and the "stopped timer comes back running"
+      // symptom reported in #2456.
+      const otherRunningEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        {
+          tenantId,
+          organizationId,
+          staffMemberId: lockedEntry.staffMemberId,
+          id: { $ne: lockedEntry.id },
+          startedAt: { $ne: null },
+          endedAt: null,
+          deletedAt: null,
+        },
+        {},
+        scopeCtx,
+      )
+      if (otherRunningEntry) {
+        throw new CrudHttpError(409, {
+          error: translate(
+            'staff.timesheets.errors.timerAlreadyRunning',
+            'Another timer is already running. Stop it before starting a new one.',
+          ),
+        })
+      }
+
       const startedAt = new Date()
       lockedEntry.startedAt = startedAt
       lockedEntry.source = 'timer'
@@ -144,7 +177,7 @@ export async function POST(req: Request) {
       organizationId: entry.organizationId,
       startedAt: now.toISOString(),
     }, { persistent: true }).catch((err) => {
-      console.error('[staff.timesheets] emit timer_started failed', err)
+      logger.error('staff.timesheets emit timer_started failed', { err })
     })
 
     if (guardResult.afterSuccessCallbacks.length) {
@@ -166,7 +199,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('staff.timesheets.time-entries.timer-start failed', err)
+    logger.error('staff.timesheets.time-entries.timer-start failed', { err })
     return NextResponse.json(
       { error: translate('staff.timesheets.errors.timerStart', 'Failed to start timer.') },
       { status: 400 },
@@ -184,7 +217,7 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         { status: 200, description: 'Timer started', schema: z.object({ ok: z.literal(true) }) },
         { status: 404, description: 'Time entry not found', schema: z.object({ error: z.string() }) },
-        { status: 409, description: 'Timer already started', schema: z.object({ error: z.string() }) },
+        { status: 409, description: 'Timer already started, or another timer is already running for this staff member', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
       ],
     },
