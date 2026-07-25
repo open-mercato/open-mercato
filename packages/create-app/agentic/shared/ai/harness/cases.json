@@ -5984,8 +5984,9 @@
       "required": [
         "AGENTS.md", ".ai/guides/contracts.md", ".ai/guides/backend-ui.md", ".ai/guides/integrations.md", ".ai/guides/extensions.md",
         ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md", ".ai/skills/om-data-model-design/SKILL.md", ".ai/skills/om-integration-builder/SKILL.md", ".ai/skills/om-backend-ui-design/SKILL.md", ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/integrations.md", ".ai/guides/modules/data_sync.md", ".ai/guides/modules/customers.md", ".ai/guides/modules/catalog.md", ".ai/guides/modules/progress.md"
+        ".ai/guides/modules/data_sync.md", ".ai/guides/modules/customers.md", ".ai/guides/modules/catalog.md", ".ai/guides/modules/progress.md"
       ],
+      "allowedExtra": [".ai/guides/modules/integrations.md"],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
     "requiredDecisions": ["data-sync-adapter", "stable-external-id", "scoped-cursor", "cursor-after-success", "rerun-idempotency", "deterministic-conflict-owner", "operation-progress"],
@@ -6152,7 +6153,10 @@
         "AGENTS.md", ".ai/guides/extensions.md", ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-system-extension/references/mechanism-selector.md", ".ai/skills/om-system-extension/references/extension-branches.md"
       ],
-      "allowedExtra": [".ai/guides/modules/notifications.md"],
+      "allowedExtra": [
+        ".ai/guides/modules/notifications.md",
+        ".ai/guides/modules/integrations.md"
+      ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
     "requiredDecisions": ["additive-before-replacement", "exact-host-token", "enricher-interceptor-guard", "command-interceptor-execute-undo", "command-interceptor-acl-scope", "safe-command-block-rewrite", "query-enricher-and-subscriber", "headless-and-rendered-widgets", "client-operation-filter", "entity-extension", "event-and-notification-reaction", "dom-event-bridge", "integration-ui-specialization", "vector-ai-provider-registration", "component-wrapper", "optional-host", "roundtrip-verification"],
@@ -6804,7 +6808,8 @@
     "allowedExtra": [
       ".ai/guides/modules/notifications.md",
       ".ai/guides/modules/progress.md",
-      ".ai/guides/modules/messages.md"
+      ".ai/guides/modules/messages.md",
+      ".ai/guides/modules/translations.md"
       ],
       "forbidden": [
         ".env*",
@@ -9339,7 +9344,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Give warehouse staff a screen to receive part of a purchase order, mark quantities damaged or missing, and complete later receipts. Never receive more than ordered, require a reason for discrepancies, post accepted stock atomically with the receipt, preserve cumulative quantities, and make retrying a scan or submission safe.",
+    "prompt": "Give warehouse staff a screen to receive part of a purchase order into the installed catalog inventory, mark quantities damaged or missing, and complete later receipts. Never receive more than ordered, require a reason for discrepancies, post accepted stock atomically with the receipt, preserve cumulative quantities, and make retrying a scan or submission safe.",
     "tags": [
       "business-language",
       "purchasing",
@@ -10802,11 +10807,11 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-build-workflow/SKILL.md",
         ".ai/guides/modules/sales.md",
-        ".ai/guides/modules/workflows.md",
-        ".ai/guides/modules/scheduler.md"
+        ".ai/guides/modules/workflows.md"
       ],
       "allowedExtra": [
-        ".ai/guides/modules/integrations.md"
+        ".ai/guides/modules/integrations.md",
+        ".ai/guides/modules/scheduler.md"
       ],
       "forbidden": [
         ".env*",
@@ -11540,17 +11545,18 @@
       "required": [
         "integration",
         "module-data",
-        "backend-ui"
+        "backend-ui",
+        "umes"
       ],
       "allowedExtra": [
-        "architecture",
-        "ai-workflow"
+        "architecture"
       ]
     },
     "requiredSkills": [
       "om-integration-builder",
       "om-module-scaffold",
-      "om-backend-ui-design"
+      "om-backend-ui-design",
+      "om-system-extension"
     ],
     "context": {
       "required": [
@@ -11570,8 +11576,7 @@
         ".ai/guides/modules/sales.md"
       ],
       "allowedExtra": [
-        ".ai/guides/modules/integrations.md",
-        ".ai/guides/modules/workflows.md"
+        ".ai/guides/modules/integrations.md"
       ],
       "forbidden": [
         ".env*",
@@ -12250,7 +12255,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-troubleshooter/SKILL.md","ruleIds":["BC-02","BC-04","BC-05","BC-09"]},
     "expectedRouter":{"required":["architecture","debugging","integration","testing"],"allowedExtra":["module-data"]},
     "requiredSkills":["om-troubleshooter","om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/skills/om-troubleshooter/SKILL.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/shipping_carriers.md",".ai/guides/modules/webhooks.md"],"allowedExtra":[".ai/guides/modules/integrations.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/skills/om-troubleshooter/SKILL.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/webhooks.md"],"allowedExtra":[".ai/guides/modules/integrations.md",".ai/guides/modules/shipping_carriers.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["webhook-signature","replay-protection","subscriber-idempotency","atomic-inbox-claim","unit-regression-oracle"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","catch.{0,40}(?:ignore|swallow)","(?:random|timestamp).{0,20}idempotency"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],

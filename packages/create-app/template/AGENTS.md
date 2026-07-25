@@ -50,7 +50,7 @@ Each work-unit route loads its named skill; a `module-data` business vertical MU
 
 Only explicit work. `testing` = tests/coverage/security proof/real API-UI verification; exclude routine validation/reindex/smoke. Use external `om-integration-tests` only for integration/E2E/browser/live-app. `debugging` = failure/security/drift. Specs/staged plans = `spec-pr` only, with self-contained API/UI integration coverage. Architecture-only business plans = `architecture` + `module-data` + scaffold blueprint/contracts. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer from specs/PRs.
 
-App-owned workflow state, commands, or audit records select `module-data` + `ai-workflow`; add `umes` for installed-module mutation interception/reaction.
+App-owned durable process state, activities, or user tasks select `module-data` + `ai-workflow`; add `umes` for installed-module interception/reaction.
 
 Unified-override audits select only `umes`; add `architecture` or `framework-context` only for unresolved ownership or installed keys.
 

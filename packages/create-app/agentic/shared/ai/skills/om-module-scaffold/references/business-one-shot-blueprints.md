@@ -8,7 +8,7 @@ Load this reference when the user describes a business outcome rather than files
 - `U` — `om-system-extension` plus the extensions guide for additive installed-module behavior.
 - `P` — `om-integration-builder` plus the integrations guide for a reusable external provider.
 - `B` — `om-backend-ui-design` for admin, public, or portal UI.
-- `W` — `om-build-workflow` for durable, retryable orchestration or human tasks.
+- `W` — `om-build-workflow` for durable business-process state, activities, or human tasks; not schedules, queues, retries, or progress alone.
 - `A` — `om-create-ai-agent` only when the brief actually requests agentic behavior.
 
 `App module` owns app-specific records and behavior under `src/modules/`. `UMES` augments an installed module without copying it. `Provider` is a dedicated package/module for a reusable external system. A mixed choice names the owner of each leg.
@@ -74,8 +74,8 @@ Load this reference when the user describes a business outcome rather than files
 |---|---|---|---|---|
 | “Require manager approval for discounts above a threshold.” | Workflow/policy app module + UMES sales mutation guard/UI | `M+U+W+B` | threshold policy, approval task, submit/approve/reject, guarded discount mutation, audit | server-side money comparison; separation of duties; stale document conflict; decision replay cannot double-apply |
 | “Automate customer onboarding across sales, tasks, and email.” | App module + durable workflow + optional providers/UMES | `M+W+U+P+B` | trigger, checklist/tasks, email steps, waits/escalations, progress UI, retry/recovery tests | idempotent steps; explicit compensation; no credentials in workflow state; missing optional provider yields actionable pause |
-| “Synchronize customers and products with our ERP.” | Data-sync provider + thin app mapping/UMES layer | `P+U+B+W` | credentials/health, cursors, inbound/outbound mappings, conflict policy, run UI/progress, retry/CLI | stable external mapping; scope every cursor; deterministic conflict ownership; resumable exactly-once effects |
-| “Add scheduled CSV/SFTP imports and exports with custom mappings.” | Provider for reusable SFTP/storage; app module owns format/mapping | `P+M+B+W` | format schema, preview/validate, batch job, row errors, export, schedule/progress | path/CSV hardening; encrypted credentials; resumable batches; no scope in untrusted file; formula-injection-safe export |
+| “Synchronize customers and products with our ERP.” | Data-sync provider + thin app mapping/UMES layer | `P+M+U+B` | credentials/health, cursors, inbound/outbound mappings, conflict policy, run UI/progress, retry/CLI | stable external mapping; scope every cursor; deterministic conflict ownership; resumable exactly-once effects |
+| “Add scheduled CSV/SFTP imports and exports with custom mappings.” | Provider for reusable SFTP/storage; app module owns format/mapping | `P+M+B` | format schema, preview/validate, batch job, row errors, export, schedule/progress | path/CSV hardening; encrypted credentials; resumable batches; no scope in untrusted file; formula-injection-safe export |
 
 ## External Integrations
 
