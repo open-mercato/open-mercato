@@ -4382,9 +4382,8 @@
         ".ai/guides/ai-workflows.md",
         ".ai/guides/extensions.md",
         ".ai/skills/om-create-ai-agent/SKILL.md",
-        ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/ai_assistant.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+      ".ai/skills/om-system-extension/SKILL.md",
+      ".ai/guides/modules/ai_assistant.md"
       ],
       "forbidden": [
         ".env*",
