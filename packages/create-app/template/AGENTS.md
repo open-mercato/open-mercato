@@ -55,9 +55,9 @@ Route only the request. `testing` needs explicit tests/coverage; routine validat
 | Route | Match | Context |
 |---|---|---|
 | `architecture` | Capabilities, discovery, overrides, upgrades, ownership | `.ai/guides/architecture.md` + named facts |
-| `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/architecture.md` + `.ai/guides/contracts.md` |
+| `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership or mechanism is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
-| `backend-ui` | Admin/public/portal/form/table/menu/i18n/component | `.ai/guides/backend-ui.md` + host facts |
+| `backend-ui` | Custom admin/public/portal/form/table/menu/i18n/component | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
 | `integration` | Email/shipping/payment/sync/webhook/storage/file interchange/provider | `.ai/guides/integrations.md`; not workflow `CALL_API` or ordinary downloads |
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + target facts |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
@@ -70,8 +70,8 @@ Split the outcome; match every row.
 
 | Route | Work unit | Skill/context |
 |---|---|---|
-| `architecture` | Explain/choose module, UMES, package, eject | architecture; `om-help` only if unresolved |
-| `module-data` | Business vertical slice | `om-module-scaffold` + `business-one-shot-blueprints.md`; union its units |
+| `architecture` | Explain/choose module, UMES, package, eject | architecture; use `om-help` for an unresolved choice or a comparative decision framework across these mechanisms |
+| `module-data` | Business outcome or vertical slice | `om-module-scaffold` + `business-one-shot-blueprints.md`; its route key resolves ownership and units |
 | `spec-pr` | Cohesive spec phases | Axis 3 skill; deployable phases |
 | `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill |
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |
@@ -116,7 +116,7 @@ If the selected skill is absent, run `yarn install-skills` once and retry; do no
 
 ## Module-Specific Facts
 
-Facts supply exact identifiers/surfaces. Load only changed, integrated, or named hosts. Portal work maps to `customer_accounts`; quote/order work maps to `sales`; notifications, workflows, progress, and integrations name their modules. API/search/events alone do not. Never preload facts.
+Facts supply exact identifiers/surfaces. Load only changed, integrated, or named hosts. Customer/contact/deal/pipeline work maps to `customers`; portal work maps to `customer_accounts`; quote/order work maps to `sales`; notifications, workflows, progress, and integrations name their modules. API/search/events alone do not. Never preload facts.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->

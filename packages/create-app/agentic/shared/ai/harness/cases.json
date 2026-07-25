@@ -6,7 +6,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, explain the installed application architecture and enabled-module capabilities without monorepo assumptions. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, explain the extension architecture and how enabled-module capabilities are discovered without monorepo assumptions. Stay at the capability and discovery level: no named module or exact implementation lookup is requested. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "architecture",
       "standalone-boundary"
@@ -26,8 +26,7 @@
         "architecture"
       ],
       "allowedExtra": [
-        "debugging",
-        "framework-context"
+        "debugging"
       ]
     },
     "requiredSkills": [],
@@ -164,10 +163,10 @@
     },
     "expectedRouter": {
       "required": [
-        "architecture",
         "framework-context"
       ],
       "allowedExtra": [
+        "architecture",
         "debugging"
       ]
     },
@@ -177,7 +176,7 @@
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/guides/architecture.md",
+        ".ai/guides/modules/customers.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
       "forbidden": [
@@ -4313,10 +4312,10 @@
     },
     "expectedRouter": {
       "required": [
+        "module-data",
         "debugging"
       ],
       "allowedExtra": [
-        "module-data",
         "architecture"
       ]
     },
@@ -4326,6 +4325,7 @@
     "context": {
       "required": [
         "AGENTS.md",
+        ".ai/guides/contracts.md",
         ".ai/guides/testing-debugging.md",
         ".ai/skills/om-troubleshooter/SKILL.md"
       ],
@@ -4391,7 +4391,7 @@
     "mode": "bugfix",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Fix a reported bug in a freshly scaffolded standalone Open Mercato app: support all-organizations mode without refresh loops or scope widening. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "Fix a reported bug in a freshly scaffolded standalone Open Mercato app: support all-organizations mode in the backend UI session bootstrap without refresh loops or scope widening. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "bugfix",
       "debugging",
@@ -4407,22 +4407,26 @@
     },
     "expectedRouter": {
       "required": [
-        "debugging"
+        "debugging",
+        "backend-ui"
       ],
       "allowedExtra": [
         "architecture",
-        "module-data",
-        "backend-ui"
+        "module-data"
       ]
     },
     "requiredSkills": [
-      "om-troubleshooter"
+      "om-troubleshooter",
+      "om-backend-ui-design"
     ],
     "context": {
       "required": [
         "AGENTS.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/guides/modules/auth.md",
         ".ai/guides/testing-debugging.md",
-        ".ai/skills/om-troubleshooter/SKILL.md"
+        ".ai/skills/om-troubleshooter/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -4450,7 +4454,7 @@
       "patterns.forbidden",
       "safety.mandatory"
     ],
-    "maxContextFiles": 5,
+    "maxContextFiles": 6,
     "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
@@ -10963,7 +10967,8 @@
     },
     "expectedRouter": {
       "required": [
-        "integration"
+        "integration",
+        "testing"
       ],
       "allowedExtra": [
         "architecture",
@@ -10977,7 +10982,9 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/integrations.md",
-        ".ai/skills/om-integration-builder/SKILL.md"
+        ".ai/guides/testing-debugging.md",
+        ".ai/skills/om-integration-builder/SKILL.md",
+        ".ai/guides/modules/integrations.md"
       ],
       "forbidden": [
         ".env*",
@@ -11036,7 +11043,7 @@
       "src/modules/smtp_email/**",
       "src/modules.ts"
     ],
-    "maxContextFiles": 6,
+    "maxContextFiles": 8,
     "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 114688,
     "relatedCases": [
@@ -11631,7 +11638,7 @@
     "owner":{"kind":"guide","path":".ai/guides/testing-debugging.md","ruleIds":["BC-01","BC-02","BC-05"]},
     "expectedRouter":{"required":["testing"],"allowedExtra":["module-data","debugging"]},
     "requiredSkills":[],
-    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/modules/sales.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["unit-regression-oracle","failure-injection","focused-test-command","honest-test-result","separation-of-duties"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:skip|todo|only).{0,30}test","mock.{0,30}(?:the assertion|everything)"] ,
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden","writable.allowed-paths","oracle.artifacts","oracle.business.test-authoring"],
@@ -12275,7 +12282,7 @@
     "prompt":"Our coding assistant keeps putting supplier scorecards in the wrong place; add a repeatable test that reproduces the mistake and prevents it returning.",
     "tags":["business-language","harness-evolution","supplier-scorecards"],
     "owner":{"kind":"skill","path":".ai/skills/om-evolve-harness/SKILL.md","ruleIds":["BC-01","BC-14"]},
-    "expectedRouter":{"required":["architecture","testing"],"allowedExtra":["module-data"]},
+    "expectedRouter":{"required":["testing","debugging"],"allowedExtra":["architecture","module-data"]},
     "requiredSkills":["om-evolve-harness"],
     "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/skills/om-evolve-harness/SKILL.md",".ai/skills/om-evolve-harness/references/case-workflow.md",".ai/skills/om-evolve-harness/references/owner-selection.md"],"forbidden":[".env*",".git/**","node_modules/**",".ai/harness/results/**"]},
     "requiredDecisions":["sanitized-failure-evidence","semantic-case-deduplication","failing-case-first","single-knowledge-owner","versioned-before-after-evidence"],
