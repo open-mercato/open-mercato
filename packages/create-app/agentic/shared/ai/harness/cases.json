@@ -5575,14 +5575,13 @@
       "ruleIds": ["BC-01", "BC-02", "BC-07", "BC-08", "BC-10"]
     },
     "expectedRouter": {
-      "required": ["architecture", "module-data", "backend-ui", "umes", "testing"],
-      "allowedExtra": ["framework-context"]
+      "required": ["module-data", "backend-ui", "umes", "testing"],
+      "allowedExtra": ["architecture", "framework-context"]
     },
     "requiredSkills": ["om-module-scaffold", "om-data-model-design", "om-backend-ui-design", "om-system-extension", "om-integration-tests"],
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/guides/architecture.md",
         ".ai/guides/contracts.md",
         ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
@@ -11827,7 +11826,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-03","BC-04","BC-08"]},
     "expectedRouter":{"required":["integration"],"allowedExtra":["module-data"]},
     "requiredSkills":["om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/catalog.md"],"allowedExtra":[".ai/guides/modules/integrations.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/catalog.md",".ai/guides/modules/data_sync.md"],"allowedExtra":[".ai/guides/modules/integrations.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["provider-variant","preserve-mode","deterministic-mapping"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","always (?:global|website|store)","(?:float|number).{0,20}(?:price|money)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
