@@ -1,5 +1,12 @@
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesOrder } from '../../data/entities'
 import { createSalesPaymentOrderTotalResolver, resolveOrderAmountDue } from '../paymentOrderTotalResolver'
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn(),
+}))
+
+const findOneMock = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 
 const ORDER_ID = '11111111-1111-4111-8111-111111111111'
 const scope = { organizationId: 'org_1', tenantId: 'tenant_1' }
@@ -13,15 +20,18 @@ type OrderRow = {
 }
 
 function buildResolver(rows: Array<{ where: Record<string, unknown>; row: OrderRow }>) {
-  const findOne = jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+  findOneMock.mockReset()
+  findOneMock.mockImplementation(async (_em, entity, where) => {
     if (entity !== SalesOrder) return null
+    const criteria = where as Record<string, unknown>
     const match = rows.find((candidate) => (
-      Object.entries(candidate.where).every(([key, value]) => where[key] === value)
+      Object.entries(candidate.where).every(([key, value]) => criteria[key] === value)
     ))
-    return match ? match.row : null
+    return (match ? match.row : null) as never
   })
-  const resolver = createSalesPaymentOrderTotalResolver({ em: { findOne } as never })
-  return { resolver, findOne }
+  const em = {} as never
+  const resolver = createSalesPaymentOrderTotalResolver({ em })
+  return { resolver, findOne: findOneMock, em }
 }
 
 const unpaidOrder: OrderRow = {
@@ -34,7 +44,7 @@ const unpaidOrder: OrderRow = {
 
 describe('sales payment order total resolver (#4488)', () => {
   it('returns the outstanding amount for an in-scope order', async () => {
-    const { resolver, findOne } = buildResolver([{ where: { id: ORDER_ID, ...scope }, row: unpaidOrder }])
+    const { resolver, findOne, em } = buildResolver([{ where: { id: ORDER_ID, ...scope }, row: unpaidOrder }])
 
     await expect(resolver.resolveOrderTotal(ORDER_ID, scope)).resolves.toEqual({
       orderId: ORDER_ID,
@@ -42,6 +52,7 @@ describe('sales payment order total resolver (#4488)', () => {
       amountDue: 150,
     })
     expect(findOne).toHaveBeenCalledWith(
+      em,
       SalesOrder,
       expect.objectContaining({
         id: ORDER_ID,
@@ -50,6 +61,7 @@ describe('sales payment order total resolver (#4488)', () => {
         deletedAt: null,
       }),
       expect.anything(),
+      scope,
     )
   })
 

@@ -17,19 +17,22 @@ type Cradle = {
   integrationStateService: IntegrationStateService
 }
 
+const ORDER_TOTAL_RESOLVER_NAME = 'paymentOrderTotalResolver'
+
 /**
  * The order-total resolver is owned by whichever module owns orders (`sales`
- * registers the default one). It is optional on purpose: an installation
- * without that module resolves nothing and session amounts stay unreconciled
- * rather than failing.
+ * registers the default one). Its absence is the only supported reason to skip
+ * amount reconciliation, so this only tolerates a missing registration: a
+ * registered resolver that fails to build or does not satisfy the contract
+ * throws instead of silently disabling the check.
  */
-function tryResolveOrderTotalResolver(cradle: Cradle): PaymentOrderTotalResolver | null {
-  try {
-    const candidate = (cradle as Cradle & { paymentOrderTotalResolver?: unknown }).paymentOrderTotalResolver
-    return isPaymentOrderTotalResolver(candidate) ? candidate : null
-  } catch {
-    return null
+function resolveOrderTotalResolver(container: AppContainer, cradle: Cradle): PaymentOrderTotalResolver | null {
+  if (!container.hasRegistration(ORDER_TOTAL_RESOLVER_NAME)) return null
+  const candidate = (cradle as Cradle & { paymentOrderTotalResolver?: unknown })[ORDER_TOTAL_RESOLVER_NAME]
+  if (!isPaymentOrderTotalResolver(candidate)) {
+    throw new Error(`[internal] ${ORDER_TOTAL_RESOLVER_NAME} does not implement resolveOrderTotal`)
   }
+  return candidate
 }
 
 export function register(container: AppContainer) {
@@ -40,7 +43,7 @@ export function register(container: AppContainer) {
         integrationCredentialsService: cradle.integrationCredentialsService,
         integrationLogService: cradle.integrationLogService,
         integrationStateService: cradle.integrationStateService,
-        paymentOrderTotalResolver: tryResolveOrderTotalResolver(cradle),
+        paymentOrderTotalResolver: resolveOrderTotalResolver(container, cradle),
       }),
     ).scoped().proxy(),
     paymentGatewayDescriptorService: asFunction(({ integrationCredentialsService, integrationStateService }: Cradle) =>

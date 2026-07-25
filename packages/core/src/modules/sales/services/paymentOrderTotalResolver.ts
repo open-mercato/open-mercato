@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type {
   PaymentGatewayScope,
   PaymentOrderTotal,
@@ -35,7 +36,8 @@ export function createSalesPaymentOrderTotalResolver(deps: { em: EntityManager }
   return {
     async resolveOrderTotal(orderId: string, scope: PaymentGatewayScope): Promise<PaymentOrderTotal | null> {
       if (!UUID_PATTERN.test(orderId) || !scope.tenantId || !scope.organizationId) return null
-      const order = await deps.em.findOne(
+      const order = await findOneWithDecryption(
+        deps.em,
         SalesOrder,
         {
           id: orderId,
@@ -52,6 +54,7 @@ export function createSalesPaymentOrderTotalResolver(deps: { em: EntityManager }
             'grandTotalGrossAmount',
           ] as const,
         },
+        scope,
       )
       if (!order) return null
       return {
