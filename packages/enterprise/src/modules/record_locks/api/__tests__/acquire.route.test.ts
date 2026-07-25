@@ -86,6 +86,37 @@ describe('record_locks acquire route', () => {
     expect(resolveRequestIp).toHaveBeenCalled()
   })
 
+  test('returns quota error payload when service reports active-lock cap', async () => {
+    const acquire = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      error: 'Active record lock limit reached',
+      code: 'record_lock_quota_exceeded',
+      allowForceUnlock: false,
+      lock: null,
+    })
+
+    ;(resolveRecordLocksApiContext as jest.Mock).mockResolvedValue(makeContext({
+      recordLockService: { acquire },
+    }))
+
+    const response = await POST(
+      makeRequest({
+        resourceKind: 'sales.quote',
+        resourceId: '40000000-0000-4000-8000-000000000001',
+      }),
+    )
+
+    expect(response.status).toBe(429)
+    const body = await response.json()
+    expect(body).toMatchObject({
+      code: 'record_lock_quota_exceeded',
+      error: 'Active record lock limit reached',
+      allowForceUnlock: false,
+      lock: null,
+    })
+  })
+
   test('returns successful acquire response', async () => {
     const acquire = jest.fn().mockResolvedValue({
       ok: true,

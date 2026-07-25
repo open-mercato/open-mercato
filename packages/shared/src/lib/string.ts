@@ -6,3 +6,11 @@ export function trimToUndefined(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined
 }
 
+export function parseCommaSeparatedList(value: string | null | undefined): string[] {
+  if (typeof value !== 'string') return []
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+

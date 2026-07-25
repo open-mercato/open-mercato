@@ -8,9 +8,8 @@ import {
   generateSessionToken,
   createSessionApiKey,
 } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
-import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { getUserRoleIds } from '../../lib/user-role-ids'
 
 const logger = createLogger('ai_assistant')
 
@@ -19,29 +18,6 @@ export const metadata = {
 }
 
 const SESSION_TTL_MINUTES = 120 // 2 hours
-
-/**
- * Get user's role IDs from the database.
- */
-async function getUserRoleIds(
-  em: EntityManager,
-  userId: string,
-  tenantId: string | null
-): Promise<string[]> {
-  if (!tenantId) return []
-
-  const links = await findWithDecryption(
-    em,
-    UserRole,
-    { user: userId as any, role: { tenantId } } as any,
-    { populate: ['role'] },
-    { tenantId, organizationId: null },
-  )
-  const linkList = Array.isArray(links) ? links : []
-  return linkList
-    .map((l) => (l.role as any)?.id)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0)
-}
 
 /**
  * POST /api/ai_assistant/session-key

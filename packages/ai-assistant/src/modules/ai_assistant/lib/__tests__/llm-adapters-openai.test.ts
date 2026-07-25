@@ -46,6 +46,32 @@ describe('OpenAIAdapter (OpenAI-compatible provider factory)', () => {
     expect(provider.defaultModels[0].id).toBe('zai-org/GLM-5.1')
   })
 
+  it('defaults usesVendorPrefixedModelIds to false when the preset omits it', () => {
+    const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
+    expect(provider.usesVendorPrefixedModelIds).toBe(false)
+  })
+
+  it('surfaces usesVendorPrefixedModelIds from the preset', () => {
+    const provider = createOpenAICompatibleProvider({
+      ...DEEPINFRA_PRESET,
+      id: 'my-gateway',
+      usesVendorPrefixedModelIds: true,
+    })
+    expect(provider.usesVendorPrefixedModelIds).toBe(true)
+  })
+
+  it('flags exactly the gateway presets (openrouter/requesty/litellm) in the catalog', () => {
+    const flagged = new Set(
+      OPENAI_COMPATIBLE_PRESETS.filter((p) => p.usesVendorPrefixedModelIds).map((p) => p.id),
+    )
+    expect(flagged).toEqual(new Set(['openrouter', 'requesty', 'litellm']))
+    // Non-gateway backends stay unflagged.
+    for (const id of ['openai', 'deepinfra', 'together', 'fireworks', 'groq', 'azure']) {
+      const preset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === id)!
+      expect(preset.usesVendorPrefixedModelIds).toBeFalsy()
+    }
+  })
+
   it('detects configuration via the preset-specific env key', () => {
     const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
     expect(provider.isConfigured({ DEEPINFRA_API_KEY: 'key' })).toBe(true)

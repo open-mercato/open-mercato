@@ -245,6 +245,22 @@ Each guide below is self-contained and covers all prerequisites, infrastructure 
   </tr>
 </table>
 
+---
+
+### 🤖 Learn AI Engineering like we do!
+
+All of our experience building this enterprise-grade ERP is distilled into **[open-mercato/skills](https://github.com/open-mercato/skills)** — re-usable, **technology-agnostic** agent skills for autonomous PR creation, code review, CI stabilization, spec writing, integration testing, and merge management.
+
+Stack-agnostic — install them all with one command:
+
+```bash
+npx skills add open-mercato/skills --skill '*'
+```
+
+[![Open Mercato Skills](https://img.shields.io/badge/GitHub-open--mercato%2Fskills-181717?logo=github)](https://github.com/open-mercato/skills)
+
+---
+
 ## Spec Driven Development
 
 Open Mercato follows a **spec-first development approach**. Before implementing new features or making significant changes, we document the design in the `.ai/specs/` folder.

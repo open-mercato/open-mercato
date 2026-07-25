@@ -12,6 +12,7 @@ import {
   UnauthorizedError,
 } from '../../routeHelpers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { canViewEmailContent, serializeInboxEmail } from '../response'
 
 const logger = createLogger('inbox_ops').child({ component: 'emails' })
 
@@ -48,7 +49,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Email not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ email })
+    const includeContent = await canViewEmailContent(ctx)
+    return NextResponse.json({ email: serializeInboxEmail(email, includeContent) })
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

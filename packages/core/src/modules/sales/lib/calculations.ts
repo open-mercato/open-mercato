@@ -208,6 +208,21 @@ function buildBaseDocumentResult(params: {
         }
         break
       default:
+        // `return` (credit) adjustments are handled by the dedicated loop below;
+        // skip them here so an order-scoped return is not counted twice.
+        if (adj.kind === 'return') break
+        // Custom / operator-defined kinds carry an operator-controlled sign
+        // (positive adds, negative credits). Fold the raw signed amount into the
+        // grand total so a persisted adjustment can never be silently dropped
+        // from the headline total while still appearing in the itemized
+        // breakdown (#4052). No abs()/clamp here: unlike the sign-constrained
+        // kinds above, custom kinds are intentionally unconstrained
+        // (see enforceAdjustmentSign).
+        subtotalNet += net
+        subtotalGross += gross
+        if (taxPortion) {
+          taxTotal += taxPortion
+        }
         break
     }
   }

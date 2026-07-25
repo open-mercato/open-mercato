@@ -14,7 +14,7 @@ import {
   resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
@@ -288,7 +288,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
     const parsed = addressUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const address = await em.findOne(CustomerAddress, { id: parsed.id })
-    if (!address) throw new CrudHttpError(404, { error: 'Address not found' })
+    if (!address) throw notFound('Address not found')
     ensureTenantScope(ctx, address.tenantId)
     ensureOrganizationScope(ctx, address.organizationId)
 
@@ -477,7 +477,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const id = requireId(input, 'Address id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const address = await em.findOne(CustomerAddress, { id })
-      if (!address) throw new CrudHttpError(404, { error: 'Address not found' })
+      if (!address) throw notFound('Address not found')
       ensureTenantScope(ctx, address.tenantId)
       ensureOrganizationScope(ctx, address.organizationId)
       em.remove(address)

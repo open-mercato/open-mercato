@@ -63,6 +63,26 @@ describe('ensureCustomFieldDefinitions (issue #1399)', () => {
     expect(em.flush).toHaveBeenCalledTimes(1)
   })
 
+  it('passes a declared priority through to configJson (#4378)', async () => {
+    const em = createMockEm()
+    const sets = [
+      {
+        entity: 'a:one',
+        fields: [
+          { key: 'tax_id', kind: 'text' as const, priority: 5 },
+          { key: 'notes', kind: 'text' as const },
+        ],
+      },
+    ]
+
+    await ensureCustomFieldDefinitions(em as any, sets, scope)
+
+    const [taxId, notes] = em.persisted as Array<{ key: string; configJson: Record<string, unknown> }>
+    expect(taxId.key).toBe('tax_id')
+    expect(taxId.configJson.priority).toBe(5)
+    expect(notes.configJson.priority).toBeUndefined()
+  })
+
   it('does not query or flush on a dry run', async () => {
     const em = createMockEm()
     const sets = [{ entity: 'a:one', fields: [{ key: 'foo', kind: 'text' as const }] }]

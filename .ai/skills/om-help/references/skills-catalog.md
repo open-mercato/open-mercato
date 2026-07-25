@@ -1,6 +1,8 @@
 # Skills Catalog
 
 > All `om-*` skills organized by tier. Load this file when answering "what skill should I use?" or "what comes next?".
+>
+> Note: many pipeline skills (code review, auto-create/review PR, merge buddy, spec writing, changelog, …) are installed from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into `.agents/skills/` by `yarn install-skills` — see the `external` block in `.ai/skills/tiers.json`. Skill names below stay valid regardless of source; the external collection also adds `om-auto-fix-issue`, `om-setup-agent-pipeline`, and `om-auto-fix-pr` (CI stabilization via `--ci-only`).
 
 ## Table of Contents
 
@@ -47,16 +49,15 @@ Opt-in: `yarn install-skills --with automation`
 | `om-auto-create-pr-loop` | Long multi-step spec implementation with step-level resumability | — | `om-auto-review-pr` |
 | `om-auto-continue-pr-loop` | Resume a PR started by `om-auto-create-pr-loop` | — | `om-auto-review-pr` |
 | `om-auto-review-pr` | Automated PR review — runs `om-code-review`, sets labels | `om-auto-create-pr` | `om-merge-buddy` |
-| `om-auto-fix-github` | Fix a GitHub issue by number end-to-end | — | `om-auto-create-pr` |
-| `om-auto-verify-and-fix-github` | Browser-first issue fix — reproduce in the Browser, record a failing Playwright test, fix, open a PR | — | `om-auto-review-pr` |
+| `om-auto-fix-issue` | Fix a GitHub issue by number end-to-end | — | `om-auto-create-pr` |
 | `om-prepare-issue` | Capture a feature to build later — write the spec, ship a docs-only spec PR, open a tracking issue | `om-spec-writing` | `om-implement-spec` |
 | `om-verify-in-repo` | Verify a change works in the repo (build + smoke check) | `om-implement-spec` | — |
 | `om-root-cause` | Analyze root cause of a bug before fixing | — | `om-fix` |
 | `om-fix` | Fix a bug autonomously after root cause is known | `om-root-cause` | `om-smart-test` |
 | `om-open-pr` | Open a GitHub PR from the current branch | `om-check-and-commit` | `om-auto-review-pr` |
 | `om-review-prs` | Review all unreviewed open PRs in batch | — | — |
-| `om-merge-buddy` | Classify PRs as merge-ready / close-but-blocked | `om-auto-review-pr` | `om-sync-merged-pr-issues` |
-| `om-sync-merged-pr-issues` | Close linked issues after merge, comment on abandoned PRs | `om-merge-buddy` | `om-auto-update-changelog` |
+| `om-merge-buddy` | Classify PRs as merge-ready / close-but-blocked | `om-auto-review-pr` | `om-close-fixed-issues` |
+| `om-close-fixed-issues` | Close linked issues after merge, comment on abandoned PRs | `om-merge-buddy` | `om-auto-update-changelog` |
 | `om-auto-update-changelog` | Draft CHANGELOG.md release entry for merged PRs | after merge | — |
 | `om-auto-qa-scenarios` | Generate human QA report (P0/P1/P2 routes) for merged PRs | `om-implement-spec` | — |
 

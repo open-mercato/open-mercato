@@ -41,6 +41,7 @@ export type TaskFormPayload = {
   base: {
     title: string
     is_done?: boolean
+    status?: string
     description?: string | null
     priority?: number | null
     scheduledAt?: string | null

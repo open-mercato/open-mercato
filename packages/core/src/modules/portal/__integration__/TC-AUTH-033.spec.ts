@@ -23,24 +23,14 @@ test.describe('TC-AUTH-033: portal dashboard waits for nav bootstrap', () => {
 
     try {
       adminToken = await getAuthToken(request, 'admin')
-      const { tenantId } = getTokenContext(adminToken)
-
-      const createOrgRes = await apiRequest(request, 'POST', '/api/directory/organizations', {
-        token: adminToken,
-        data: {
-          name: `QA Portal Org ${stamp}`,
-          tenantId,
-        },
-      })
-      expect(createOrgRes.status(), 'organization should be created').toBe(201)
-      const createOrgBody = (await createOrgRes.json()) as { id?: string }
-      organizationId = createOrgBody.id ?? null
-      expect(organizationId, 'organization id should be returned').toBeTruthy()
+      const { tenantId, organizationId: tokenOrganizationId } = getTokenContext(adminToken)
+      organizationId = tokenOrganizationId
+      expect(organizationId, 'admin organization id should be present').toBeTruthy()
 
       const orgDetailsRes = await apiRequest(
         request,
         'GET',
-        `/api/directory/organizations?view=manage&ids=${encodeURIComponent(organizationId!)}&tenantId=${encodeURIComponent(tenantId)}`,
+        `/api/directory/organizations?view=manage&ids=${encodeURIComponent(organizationId)}&tenantId=${encodeURIComponent(tenantId)}`,
         { token: adminToken },
       )
       expect(orgDetailsRes.ok(), 'organization lookup should succeed').toBeTruthy()
@@ -54,7 +44,6 @@ test.describe('TC-AUTH-033: portal dashboard waits for nav bootstrap', () => {
           email: customerEmail,
           password,
           displayName: `QA Auth 033 ${stamp}`,
-          organizationId,
         },
       })
       expect(createRes.status(), 'customer user should be created').toBe(201)
@@ -102,14 +91,6 @@ test.describe('TC-AUTH-033: portal dashboard waits for nav bootstrap', () => {
           request,
           'DELETE',
           `/api/customer_accounts/admin/users/${customerId}`,
-          { token: adminToken },
-        ).catch(() => {})
-      }
-      if (adminToken && organizationId) {
-        await apiRequest(
-          request,
-          'DELETE',
-          `/api/directory/organizations?id=${encodeURIComponent(organizationId)}`,
           { token: adminToken },
         ).catch(() => {})
       }

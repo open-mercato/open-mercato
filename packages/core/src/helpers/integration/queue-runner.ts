@@ -55,6 +55,11 @@ export async function drainQueueFromAppRoot(
       )
       const handled = result.processed + result.failed
       processedJobs += handled
+      if (result.failed > 0) {
+        process.stderr.write(
+          `[queue-drain] ${result.failed} job(s) FAILED in "${queueName}" (processed ${result.processed}); failed jobs retry with backoff and dead-letter after max attempts\n`,
+        )
+      }
       if (handled === 0) return processedJobs
     }
   } finally {

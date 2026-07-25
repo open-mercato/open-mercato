@@ -10,6 +10,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CustomerInteraction } from '../../../data/entities'
+import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -103,7 +104,7 @@ export async function GET(req: Request) {
       .selectFrom('customer_interactions')
       .select(['id', 'scheduled_at', 'duration_minutes', 'interaction_type'])
       .where('tenant_id', '=', auth.tenantId)
-      .where('status', '=', 'planned')
+      .where('status', 'not in', [...TERMINAL_INTERACTION_STATUS_LIST])
       .where('scheduled_at', 'is not', null)
       .where('deleted_at', 'is', null)
 

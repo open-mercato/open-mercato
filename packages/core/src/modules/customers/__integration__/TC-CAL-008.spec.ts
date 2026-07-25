@@ -195,8 +195,8 @@ test.describe('TC-CAL-008: Calendar week-view states', () => {
     const editor = page.getByRole('dialog');
     await expect(editor).toBeVisible();
     await expect(editor.getByText('New event').first()).toBeVisible();
-    // The dragged range prefilled the schedule — the start time input is populated.
-    await expect(editor.locator('input[type="time"]').first()).not.toHaveValue('');
+    // The dragged range prefilled the schedule — the start time (DS Select) shows a value.
+    await expect(editor.getByRole('combobox', { name: 'Starts' })).toContainText(/\d{1,2}:\d{2}/);
 
     // No fixture was saved; just dismiss the editor.
     await page.keyboard.press('Escape');

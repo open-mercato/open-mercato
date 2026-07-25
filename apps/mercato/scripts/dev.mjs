@@ -1771,7 +1771,10 @@ function classifyServerLine(line) {
       progressLabel: 'Background services (lazy)',
     }
   }
-  if (line.match(/^\[lazy-supervisor\] Pending job detected(?: .*)? — starting shared worker for all queues$/)) {
+  if (
+    line.match(/^\[lazy-supervisor\] Pending job detected(?: .*)? — starting shared worker for all queues$/)
+    || line === '[lazy-supervisor] Enabled schedule detected — starting shared worker for all queues'
+  ) {
     const status = 'Starting shared worker (lazy shared)'
     return {
       type: 'status',

@@ -5,37 +5,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createApiKey } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
-import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { getUserRoleIds } from '../../lib/user-role-ids'
 
 const logger = createLogger('ai_assistant')
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['api_keys.create'] },
-}
-
-/**
- * Resolve the calling user's role ids for the active tenant. Mirrors the
- * `session-key` route so the generated key carries exactly the caller's roles.
- */
-async function getUserRoleIds(
-  em: EntityManager,
-  userId: string,
-  tenantId: string | null,
-): Promise<string[]> {
-  if (!tenantId) return []
-  const links = await findWithDecryption(
-    em,
-    UserRole,
-    { user: userId as any, role: { tenantId } } as any,
-    { populate: ['role'] },
-    { tenantId, organizationId: null },
-  )
-  const linkList = Array.isArray(links) ? links : []
-  return linkList
-    .map((link) => (link.role as any)?.id)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0)
 }
 
 const bodySchema = z.object({

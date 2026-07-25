@@ -12,6 +12,7 @@ import type {
   CrudIndexerConfig,
   CrudEntityIdentifiers,
 } from '../crud/types'
+import type { BulkImportSuppression } from '../commands/types'
 import { CrudHttpError } from '../crud/errors'
 import { resolveRegisteredEntityTableName } from '../query/engine'
 import { getEntityIds } from '../encryption/entityIds'
@@ -56,6 +57,7 @@ type QueuedCrudSideEffect = {
   entity: unknown
   identifiers: CrudEntityIdentifiers
   syncOrigin?: string | null
+  actorUserId?: string | null
   events?: CrudEventsConfig<unknown>
   indexer?: CrudIndexerConfig<unknown>
 }
@@ -124,6 +126,9 @@ export interface DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
+    /** Bulk-import deferral: skip the domain event and/or inline reindex for this emit. */
+    suppress?: BulkImportSuppression
   }): Promise<void>
 
   markOrmEntityChange<T>(opts: {
@@ -133,9 +138,15 @@ export interface DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
   }): void
 
-  flushOrmEntityChanges(): Promise<void>
+  /**
+   * Drain queued side effects. When `suppress` is passed (a bulk-import backfill), the
+   * flagged per-record events / reindex are skipped for every drained entry; the caller
+   * is responsible for rebuilding the `query_index` afterwards.
+   */
+  flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void>
 }
 
 export const SYSTEM_ENTITY_RECORDS_BLOCKED_CODE = 'system_entity_records_blocked'
@@ -545,9 +556,15 @@ export class DefaultDataEngine implements DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
+    suppress?: BulkImportSuppression
   }): Promise<void> {
-    const { action, entity, events, indexer, identifiers, syncOrigin } = opts
-    if (!events && !indexer) return
+    const { action, entity, events, indexer, identifiers, syncOrigin, suppress } = opts
+    // Bulk-import deferral: an entry may suppress its domain event and/or inline reindex. When both
+    // the config is absent AND (for the present one) suppressed, there is nothing left to do.
+    const emitEvents = !!events && !suppress?.skipEvents
+    const runIndexer = !!indexer && !suppress?.skipReindex
+    if (!emitEvents && !runIndexer) return
     if (!identifiers?.id) return
 
     let bus: EventBus | null = null
@@ -567,9 +584,10 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: identifiers.tenantId ?? null,
       },
       syncOrigin: syncOrigin ?? null,
+      actorUserId: opts.actorUserId ?? null,
     }
 
-    if (events) {
+    if (events && !suppress?.skipEvents) {
       const eventName = `${events.module}.${events.entity}.${action}`
       warnIfUndeclaredEvent(eventName, 'emitOrmEntityEvent')
       const payload = events.buildPayload
@@ -591,7 +609,7 @@ export class DefaultDataEngine implements DataEngine {
       }
     }
 
-    if (indexer) {
+    if (indexer && !suppress?.skipReindex) {
       const resolveCoverageBaseDelta = (): number | undefined => {
         if (action === 'created') return 1
         if (action === 'deleted') return -1
@@ -660,6 +678,7 @@ export class DefaultDataEngine implements DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
   }): void {
     const { entity, identifiers } = opts
     if (!entity) return
@@ -674,6 +693,7 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: identifiers.tenantId ?? null,
       }
       existing.syncOrigin = opts.syncOrigin ?? null
+      existing.actorUserId = opts.actorUserId ?? null
       if (opts.events) existing.events = opts.events as CrudEventsConfig<unknown>
       if (opts.indexer) existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
       this.pendingSideEffects.set(key, existing)
@@ -688,13 +708,14 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: identifiers.tenantId ?? null,
       },
       syncOrigin: opts.syncOrigin ?? null,
+      actorUserId: opts.actorUserId ?? null,
     }
     if (opts.events) entry.events = opts.events as CrudEventsConfig<unknown>
     if (opts.indexer) entry.indexer = opts.indexer as CrudIndexerConfig<unknown>
     this.pendingSideEffects.set(key, entry)
   }
 
-  async flushOrmEntityChanges(): Promise<void> {
+  async flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void> {
     if (!this.pendingSideEffects.size) return
     const entries = Array.from(this.pendingSideEffects.values())
     this.pendingSideEffects.clear()
@@ -705,8 +726,10 @@ export class DefaultDataEngine implements DataEngine {
           entity: entry.entity,
           identifiers: entry.identifiers,
           syncOrigin: entry.syncOrigin ?? null,
+          actorUserId: entry.actorUserId ?? null,
           events: entry.events as CrudEventsConfig<unknown>,
           indexer: entry.indexer as CrudIndexerConfig<unknown>,
+          suppress,
         })
       } catch {
         // best-effort; continue with remaining side effects

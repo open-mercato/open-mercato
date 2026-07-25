@@ -228,6 +228,7 @@ const sidebars: SidebarsConfig = {
       label: "REST API",
       items: [
         "api/overview",
+        "api/exporting",
         {
           type: "category",
           label: "Module Guides",

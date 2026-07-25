@@ -188,6 +188,11 @@ jobs:
           EOF
           )
 
+          # Wait for the published version's METADATA to propagate. This does NOT
+          # cover npm's post-publish tarball QUARANTINE (metadata goes public
+          # first while the tarball stays quarantined for a security scan) — that
+          # is handled by retrying the real scaffold/install steps below via
+          # scripts/ci/npm-retry-on-quarantine.sh.
           echo "Waiting for Open Mercato packages @ ${VERSION} on npm..."
           for pkg in "${PACKAGES[@]}"; do
             echo "Checking ${pkg}@${VERSION}..."
@@ -209,7 +214,10 @@ jobs:
 
       # --- Scaffold & build standalone app ---
       - name: Scaffold standalone app
-        run: npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app --skip-agentic-setup --registry https://registry.npmjs.org
+        # Retry through npm's post-publish quarantine window (see the script).
+        run: |
+          bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" \
+            npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app --skip-agentic-setup --registry https://registry.npmjs.org
 
       - name: Configure standalone app environment
         working-directory: /tmp/standalone-app
@@ -240,7 +248,15 @@ jobs:
           OM_ENABLE_ENTERPRISE_MODULES_SECURITY=true
           AUTO_SPAWN_WORKERS=false
           AUTO_SPAWN_SCHEDULER=false
-          CACHE_STRATEGY=memory
+          # MUST be a cross-process strategy (sqlite/redis), never `memory`:
+          # with AUTO_SPAWN_WORKERS=false the integration tests drain queue jobs
+          # in separate child processes, and a per-process memory cache leaves the
+          # server serving stale ENABLE_CRUD_API_CACHE entries after those jobs
+          # mutate records (TC-CRM-079, TC-SX-001). Mirrors the ephemeral runner.
+          # The sqlite path is pinned absolute so the server and every drain
+          # child open the same store regardless of process cwd.
+          CACHE_STRATEGY=sqlite
+          CACHE_SQLITE_PATH=/tmp/standalone-app/.mercato/cache/cache.db
           OM_OPTIMISTIC_LOCK=all
           EOF
 
@@ -254,14 +270,16 @@ jobs:
         env:
           YARN_ENABLE_HARDENED_MODE: '0'
           YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
-        run: yarn install
+        # Retry through npm's post-publish quarantine window (see the script).
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" yarn install
 
       - name: Install standalone enterprise package
         working-directory: /tmp/standalone-app
         env:
           YARN_ENABLE_HARDENED_MODE: '0'
           YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
-        run: yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
+        # Retry through npm's post-publish quarantine window (see the script).
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
 
       - name: Generate standalone app modules
         working-directory: /tmp/standalone-app
@@ -317,6 +335,17 @@ jobs:
           MOCK_GATEWAY_WEBHOOK_SECRET: open-mercato-mock-dev-webhook-secret
           MOCK_CARRIER_WEBHOOK_SECRET: open-mercato-mock-dev-carrier-webhook-secret
           MOCK_INBOUND_WEBHOOK_SECRET: open-mercato-mock-dev-inbound-webhook-secret
+          # Queue-drain child processes inherit this env (they do NOT read the
+          # app's .env) — keep the strategy aligned with the app so their cache
+          # invalidations land in the same shared sqlite store the server reads.
+          CACHE_STRATEGY: sqlite
+          CACHE_SQLITE_PATH: /tmp/standalone-app/.mercato/cache/cache.db
+          # Surface drain-child stdout/stderr in the Playwright output. Without
+          # this, per-job failures and cache-fallback warnings inside the drain
+          # children are silently discarded, making standalone-only failures
+          # (like the TC-CRM-079 / TC-SX-001 stale-read investigation)
+          # undiagnosable from CI logs.
+          OM_DRAIN_DEBUG: '1'
         run: yarn test:integration
 
       - name: Print standalone app log on test failure

@@ -14,6 +14,7 @@ import type * as eventLoggerModule from './event-logger'
 import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
 import type * as workflowExecutorModule from './workflow-executor'
+import { resolveCodeDefinitionForInstance } from './find-definition'
 
 export interface FireTimerOptions {
   instanceId: string
@@ -110,7 +111,7 @@ export async function fireTimer(
     )
   }
 
-  const definition = await findOneWithDecryption(
+  const definition = (await findOneWithDecryption(
     em as PostgreSqlEntityManager,
     WorkflowDefinition,
     {
@@ -121,7 +122,7 @@ export async function fireTimer(
     },
     undefined,
     { tenantId: instance.tenantId, organizationId: instance.organizationId },
-  )
+  )) ?? resolveCodeDefinitionForInstance(instance)
   if (!definition) {
     throw new TimerError(
       'Workflow definition not found',

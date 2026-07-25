@@ -6,6 +6,7 @@ import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { appendWidgetsToRoles, resolveAnalyticsWidgetIds } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
 import { seedAnalyticsData } from './seed/analytics'
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 
 type Args = Record<string, string>
 
@@ -108,10 +109,7 @@ const seedDefaults: ModuleCli = {
       return
     }
 
-    const roleNames = roleCsv
-      .split(',')
-      .map((name) => name.trim())
-      .filter(Boolean)
+    const roleNames = parseCommaSeparatedList(roleCsv)
 
     if (!roleNames.length) {
       console.log('No roles provided, nothing to seed.')
@@ -125,7 +123,7 @@ const seedDefaults: ModuleCli = {
       tenantId,
       organizationId,
       roleNames,
-      widgetIds: widgetCsv ? widgetCsv.split(',').map((id) => id.trim()).filter(Boolean) : undefined,
+      widgetIds: widgetCsv ? parseCommaSeparatedList(widgetCsv) : undefined,
       logger: (message) => console.log(message),
     })
   },
@@ -143,10 +141,7 @@ const enableAnalyticsWidgets: ModuleCli = {
       return
     }
 
-    const roleNames = roleCsv
-      .split(',')
-      .map((name) => name.trim())
-      .filter(Boolean)
+    const roleNames = parseCommaSeparatedList(roleCsv)
 
     if (!roleNames.length) {
       console.log('No roles provided, nothing to update.')
