@@ -9,6 +9,8 @@ Produce evidence, a smallest root cause, a regression oracle, and a verified min
 
 ## Workflow
 
+Route before reading: select affected domain routes from the reproduced symptom and app call sites first. Use `om-framework-context` only when one named installed implementation/export remains unresolved; never probe its skill and discard the route.
+
 1. Read `.ai/guides/testing-debugging.md` and reproduce the exact failing runtime with expected versus actual evidence.
 2. Route the symptom using `references/diagnosis-map.md`; load only the matching domain guide and module facts.
 3. Invoke `om-framework-context` if the failure depends on exact installed implementation or package exports.
