@@ -9,7 +9,7 @@ Create a provider-owned app module or separately published package that composes
 
 ## Workflow
 
-Route before reading: select the provider and any UI/module/UMES work from the brief first, then read only those route guides/skills. Generated facts and the integration references are sufficient unless one named exact-version symbol remains unresolved; only then select and read `om-framework-context`.
+Route before reading: select the provider and any UI/module/UMES work from the brief first, then read only those route guides/skills. Generated facts and the integration references are sufficient unless one named exact-version symbol remains unresolved; do not open `om-framework-context` merely to confirm supplied facts, and only select/read it after naming the missing detail.
 
 1. Read `.ai/guides/integrations.md`; first separate transactional email from mailbox channels, then choose the provider family and exact installed host contract with `references/provider-families.md`.
 2. Follow `references/package-and-activation.md` to choose the standalone-local or separately published branch, then apply its discovery, DI, `integration.ts`, setup/env preset, activation, and validation contract.

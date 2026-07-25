@@ -2940,7 +2940,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a feature toggle that extends installed behavior and consistently hides or degrades its injected UI and backend path. Use supported UMES surfaces and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a feature toggle that extends installed behavior and consistently hides or degrades its existing injected UI surface and backend path, without designing a new page or component. Use supported UMES surfaces and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "backend-ui",

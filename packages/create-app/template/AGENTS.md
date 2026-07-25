@@ -40,15 +40,15 @@ yarn build
 yarn test:integration:ephemeral
 ```
 
-Record failures honestly. Do not apply a database migration merely to make validation pass.
+Report failures; never apply migrations for validation
 
 ## Three-Axis Context Assembler
 
 Combine matches. In-app notifications/editable custom fields: `module-data` + `backend-ui` + `umes`; `testing` only if explicit. Lifecycle reactions: `module-data` + `umes`. Convergence bugs add `debugging`. Registry drift: `module-data` + `architecture` + `debugging`; `framework-context` only for an unresolved contract.
 
-Each route loads its skill; a `module-data` business vertical MUST load `om-module-scaffold` + exact blueprint.
+Business verticals MUST load `om-module-scaffold` + their exact blueprint.
 
-Only explicit work. `testing` = requested tests/coverage/security proof/API-UI verification, not routine validation; external `om-integration-tests` only for integration/E2E/browser/live-app. `debugging` = failure/security/drift. Requested specs or delivery/implementation plans = `spec-pr` + self-contained API/UI integration coverage. Architecture-only business capability outlines (ownership, canonical primitives, vertical slice) = `architecture` + `module-data` + blueprint/contracts, without a delivery skill. For spec-only decomposition, route first with root + `om-spec-writing` + its config; defer domain guides until the task asks for implementation contracts. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer from specs/PRs.
+Explicit work only. `testing` = requested tests/coverage/proof, not routine validation; use external `om-integration-tests` only for integration/E2E/browser/live-app. `debugging` = failure/security/drift. Specs/delivery phases = `spec-pr` + integration coverage. Capability outlines naming ownership/primitives/vertical slice (no delivery phases) = `architecture` + `module-data` + blueprint/contracts. Spec-only decomposition reads root + `om-spec-writing` + config; defer domain guides to implementation contracts. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer work from specs/PRs.
 
 App-owned durable process state, activities, or user tasks select `module-data` + `ai-workflow`; add `umes` for installed-module interception/reaction.
 
@@ -56,9 +56,9 @@ Unified-override audits select only `umes`; add `architecture` or `framework-con
 
 App-owned page/form/table-only = `backend-ui`; installed host changes add `umes`. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
 
-Every `backend-ui` reads its skill's `references/quality-states.md`; public/portal/responsive/accessibility also reads `references/frontend-and-design-system.md`. Payload wording is not UI.
+Every `backend-ui` loads `references/quality-states.md`; public/portal/responsive/a11y also loads `references/frontend-and-design-system.md`. Payload text is not UI.
 
-### Axis 1 — Area and Ownership
+### Axis 1 — Area/Ownership
 
 | Route | Match | Context |
 |---|---|---|
@@ -70,11 +70,11 @@ Every `backend-ui` reads its skill's `references/quality-states.md`; public/port
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/reminders/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
-App code lives in `src/modules/<id>/`; installed customization uses UMES. Reusable providers are published dependencies, never `packages/*`; ask before ejection.
+App: `src/modules/<id>/`; installed: UMES. Reusable providers are published dependencies, never `packages/*`.
 
-### Axis 2 — Work Units and Primitives
+### Axis 2 — Work Units
 
-Split the outcome; match every row.
+Match every work-unit row.
 
 | Route | Work unit | Skill/context |
 |---|---|---|
@@ -121,7 +121,7 @@ If a skill is absent, run `yarn install-skills` once; never invent a substitute.
 - Load each matched guide once, then only its needed references and facts.
 - For specs, list names and open one task match; skip README/template otherwise.
 - Inspect app call sites before bounded `framework-context`.
-- Read `BACKWARD_COMPATIBILITY.md` only before changing a public contract. Preserving an existing contract through a documented extension point does not select it.
+- Read `BACKWARD_COMPATIBILITY.md` only to change a public contract; preserving one through an extension does not select it.
 - Never bulk-read guide, skill, fact, or source trees.
 
 ## Module-Specific Facts
