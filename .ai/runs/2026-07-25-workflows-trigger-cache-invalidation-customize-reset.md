@@ -51,21 +51,23 @@ Two residual items were reported on the issue while verifying that merged fix:
 
 ## Progress
 
+PR: #4509
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Invalidate the trigger cache on both ownership-changing routes
 
-- [ ] 1.1 Verify in repo that `4e5aabe8b` is present and that neither route calls `invalidateTriggerCache`
-- [ ] 1.2 `customize/route.ts`: invalidate after the flush that materializes the override
-- [ ] 1.3 `reset-to-code/route.ts`: invalidate after the flush that removes the override
-- [ ] 1.4 Unit test covering both endpoints, including the 409 active-instances path that must NOT invalidate
+- [x] 1.1 Verify in repo that `4e5aabe8b` is present and that neither route calls `invalidateTriggerCache`
+- [x] 1.2 `customize/route.ts`: invalidate after the flush that materializes the override — a1082141b
+- [x] 1.3 `reset-to-code/route.ts`: invalidate after the flush that removes the override — a1082141b
+- [x] 1.4 Unit test covering both endpoints, including the 409 active-instances path that must NOT invalidate — a1082141b
 
 ### Phase 2: Document the three-source trigger model
 
-- [ ] 2.1 `workflows/AGENTS.md` § Event Triggers: sources table, "DB row wins" precedence, invalidation rule
-- [ ] 2.2 Spec: close the #4425 Phase 2 gap in the risk register, add the stale-cache risk, extend the changelog
+- [x] 2.1 `workflows/AGENTS.md` § Event Triggers: sources table, "DB row wins" precedence, invalidation rule — defc3af16
+- [x] 2.2 Spec: close the #4425 Phase 2 gap in the risk register, add the stale-cache risk, extend the changelog — defc3af16
 
 ### Phase 3: Validation and delivery
 
-- [ ] 3.1 Run the configured validation gate
-- [ ] 3.2 Open the PR against `develop` and apply labels
+- [x] 3.1 Run the configured validation gate — green on 99f11ba71 (build:packages, generate, i18n:check-sync, i18n:check-usage, typecheck, test 23/23 tasks, lint)
+- [x] 3.2 Open the PR against `develop` and apply labels — PR #4509 (labels requested from a maintainer; this account has no triage permission)
