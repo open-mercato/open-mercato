@@ -56,7 +56,7 @@ Unified-override audits select only `umes`; add `architecture` or `framework-con
 
 App-owned page/form/table-only = `backend-ui`; installed host changes add `umes`. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
 
-Every `backend-ui` loads `references/quality-states.md`; public/portal/responsive/a11y also loads `references/frontend-and-design-system.md`. Payload text is not UI.
+`backend-ui`: UI skill `references/quality-states.md`; public/portal/responsive/a11y adds `references/frontend-and-design-system.md`. Payload text is not UI.
 
 ### Axis 1 — Area/Ownership
 
