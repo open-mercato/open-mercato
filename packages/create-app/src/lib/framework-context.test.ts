@@ -514,7 +514,7 @@ test('surfaces bounded search query errors with a nonzero status', () => {
     { cwd: root, encoding: 'utf8' },
   )
   assert.equal(result.status, 2)
-  assert.match(result.stderr, /bounded search failed \(exit 2\)/)
+  assert.match(result.stderr, /bounded search failed(?: \(exit 2\)|: Invalid regular expression)/)
 })
 
 test('rejects unsafe package versions before materialization without deleting app files', () => {

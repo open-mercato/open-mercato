@@ -87,16 +87,16 @@ Match every work-unit row.
 | `module-data` | CRUD/API/command/OpenAPI/ACL/setup/mutation | `om-module-scaffold` + contracts |
 | `backend-ui` | Form/table/page/middleware/nav/i18n/UI states | `om-backend-ui-design` + backend UI |
 | `module-data` | Search/analytics/event/notification/message/worker/progress/cache/CLI | scaffold + contracts |
-| `umes` | Fields/enrichers/injection/interceptors/guards/subscribers/DOM/widgets/toggles/overrides | `om-system-extension` + extensions; add specialists |
+| `umes` | Fields/enrichers/injection/interceptors/guards/subscribers/DOM/widgets/toggles/overrides | `om-system-extension` + extensions; choices load `mechanism-selector` + `extension-branches` |
 | `integration` | Provider/credentials/health/webhook/files/client/reconciliation/package | `om-integration-builder` + integrations |
-| `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `ai_assistant` facts |
+| `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `surface-selector` + `ai_assistant` facts |
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
 | `testing` | Write/run tests or explicit coverage | testing/debugging; external `om-integration-tests` for integration/E2E |
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging + affected units |
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
 
-“Installed contract(s)” alone does not select `framework-context`. Use guides/facts and supplied values; read its skill only after selecting the route for one named unresolved exact-version detail.
+“Installed contract(s)” alone does not select `framework-context`. Exact response/error identity does; otherwise use guides/facts and invoke its skill only for one named unresolved version detail.
 
 ### Axis 3 — SDLC and Delivery
 
@@ -118,15 +118,15 @@ If a skill is absent, run `yarn install-skills` once; never invent a substitute.
 
 ### Token-Efficient Assembly Policy
 
-- Load each matched guide once, then only its needed references and facts.
+- Load each matched guide once, then only needed references and facts.
 - For specs, list names and open one task match; skip README/template otherwise.
 - Inspect app call sites before bounded `framework-context`.
-- Read `BACKWARD_COMPATIBILITY.md` only to change a public contract; preserving one through an extension does not select it.
+- Change/preserve public response/error contracts: read `BACKWARD_COMPATIBILITY.md`.
 - Never bulk-read guide, skill, fact, or source trees.
 
 ## Module-Specific Facts
 
-Facts for changed/named hosts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; cart/checkout/shopper→checkout; portal→customer_accounts; quote/order→sales; webhook/callback→webhooks; schedule/reminder→scheduler; progress→progress; search convergence→search. Generic staff/employee = actor (not optional `staff`); audit/record-who = command/action log (not `audit_logs`) unless explicitly extended. App primitives skip `api_docs`/`search`/`query_index`/`events` facts unless changed.
+Host facts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→customer_accounts; quote/order→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; progress→progress; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index/events unless changed.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
