@@ -305,6 +305,22 @@ test('deterministic evaluation rejects dangling relations, excessive budgets, an
   }
 })
 
+test('catalog validation reports malformed optional skills without throwing', () => {
+  const root = stageApp()
+  try {
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{ optionalSkills?: unknown[] }>
+    cases[8].optionalSkills = [null, { route: 'framework-context' }]
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /optionalSkills must bind unique om-\* names to routes/)
+    assert.doesNotMatch(result.stderr, /TypeError|ERR_INVALID_ARG_TYPE/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('fixture preparer safely seeds one writable case and refuses reuse', () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)
@@ -943,7 +959,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
 })
 
 test('a selected optional skill requires both its bound route and observed SKILL.md', { skip: process.platform === 'win32' }, () => {
-  const scenarios = [
+  const scenarios: Array<{ routes: string[]; context: string[]; observedContext?: string[]; expected: string }> = [
     {
       routes: ['module-data'],
       context: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md', '.ai/skills/om-framework-context/SKILL.md'],
@@ -954,10 +970,16 @@ test('a selected optional skill requires both its bound route and observed SKILL
       context: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
       expected: 'selected skill context missing om-framework-context',
     },
+    {
+      routes: ['module-data', 'framework-context'],
+      context: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md', '.ai/skills/om-framework-context/SKILL.md'],
+      observedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+      expected: 'selected skill context not observed om-framework-context',
+    },
   ]
   for (const scenario of scenarios) {
     const root = stageApp()
-    const command = `cat ${scenario.context.join(' ')}`
+    const command = `cat ${(scenario.observedContext ?? scenario.context).join(' ')}`
     const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs'); const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }

@@ -320,13 +320,17 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     if ((requiredRoutes ?? []).some((route) => allowedExtra.includes(route))) add(id, 'required and allowed-extra routes overlap')
     if (!isUniqueStringArray(item.requiredSkills) || item.requiredSkills.some((skill) => !/^om-[a-z0-9-]+$/.test(skill))) add(id, 'requiredSkills must be unique om-* names')
     const optionalSkills = Array.isArray(item.optionalSkills) ? item.optionalSkills : []
-    const optionalSkillIds = optionalSkills.map((skill) => skill?.id)
-    if ((item.optionalSkills !== undefined && !Array.isArray(item.optionalSkills)) || optionalSkills.some((skill) => !isPlainObject(skill)
+    const validOptionalSkills = optionalSkills.filter((skill) => isPlainObject(skill)
+      && Object.keys(skill).every((key) => ['id', 'route'].includes(key))
+      && /^om-[a-z0-9-]+$/.test(skill.id ?? '') && ROUTERS.has(skill.route))
+    const optionalSkillIds = validOptionalSkills.map((skill) => skill.id)
+    if ((item.optionalSkills !== undefined && !Array.isArray(item.optionalSkills)) || validOptionalSkills.length !== optionalSkills.length
+      || optionalSkills.some((skill) => !isPlainObject(skill)
       || Object.keys(skill).some((key) => !['id', 'route'].includes(key))
       || !/^om-[a-z0-9-]+$/.test(skill.id ?? '') || !ROUTERS.has(skill.route))) add(id, 'optionalSkills must bind unique om-* names to routes')
     if (new Set(optionalSkillIds).size !== optionalSkillIds.length) add(id, 'optionalSkills must bind unique om-* names to routes')
     if ((item.requiredSkills ?? []).some((skill) => optionalSkillIds.includes(skill))) add(id, 'required and optional skills overlap')
-    for (const skill of optionalSkills) if (!allowedExtra.includes(skill.route)) add(id, `optional skill ${skill.id} route must be allowed-extra`)
+    for (const skill of validOptionalSkills) if (!allowedExtra.includes(skill.route)) add(id, `optional skill ${skill.id} route must be allowed-extra`)
     for (const skill of [...(item.requiredSkills ?? []), ...optionalSkillIds]) {
       const local = path.join(root, '.ai', 'skills', skill, 'SKILL.md')
       const canonical = path.join(root, '.agents', 'skills', skill, 'SKILL.md')
