@@ -79,6 +79,6 @@ PR: #4448
 
 ### Phase 4: Tighten the exemption's contract-safety conditions
 
-- [ ] 4.1 Add database, API-surface, and backward-compatibility eligibility guards
-- [ ] 4.2 Mirror the tightened exemption in the pull-request template
+- [x] 4.1 Add database, API-surface, and backward-compatibility eligibility guards — e83b34a71
+- [x] 4.2 Mirror the tightened exemption in the pull-request template — e83b34a71
 - [ ] 4.3 Validate the amended policy and run the authoritative review pass
