@@ -59,9 +59,9 @@ PR: #4507
 ### Phase 2: Authoritative sales order totals
 
 - [x] 2.1 Implement and register the scoped sales order total resolver — 565abb198
-- [x] 2.2 Wire the optional resolver into payment_gateways DI — 565abb198
+- [x] 2.2 Wire the optional resolver into payment_gateways DI — 565abb198, a237646a5
 
 ### Phase 3: Regression coverage and documentation
 
-- [x] 3.1 Add unit coverage for the reconciliation matrix — 565abb198
+- [x] 3.1 Add unit coverage for the reconciliation matrix — 565abb198, a237646a5
 - [x] 3.2 Document the behavior in SPEC-044 and the API docs — 04fbf3032
