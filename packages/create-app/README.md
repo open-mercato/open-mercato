@@ -102,6 +102,16 @@ yarn install-skills
 
 `.agents/skills/` is canonical; Claude Code receives compatibility links. The installer validates pinned hashes, preserves unknown user-owned skills, and quarantines stale or modified installer-owned content.
 
+### Upgrade an existing generated harness
+
+After upgrading Open Mercato, refresh generated harness assets without overwriting local context:
+
+```bash
+yarn mercato agentic:init --update-harness
+```
+
+The ownership-aware update replaces unchanged generated files, recreates missing owned files, and refreshes the manifest atomically. Modified or unknown files remain in place; exact generated-path conflicts get an adjacent `.incoming` candidate. Use `--force` only when intentionally replacing known generated targets. External skill installation is a separate retryable phase, so offline installation does not roll back the harness update.
+
 ### Resolve installed framework context
 
 Use the escape hatch when the routed guides do not contain an exact contract. It resolves the package versions selected by the app and their source/`AGENTS.md` chain without bulk-loading dependencies:
@@ -124,7 +134,7 @@ yarn harness:validate --family testing
 yarn harness:validate --all
 ```
 
-`harness:validate --all` is the deterministic catalog gate, not the full release suite. Authenticated `--runner codex` / `--runner claude` live routing should run only in a fresh or otherwise non-sensitive generated app because CLI read-only modes do not provide a portable filesystem read denylist.
+`harness:validate --all` is the deterministic catalog gate, not the full release suite. Authenticated `--runner codex` / `--runner claude` live routing uses host filesystem containment on macOS (`sandbox-exec`) and Linux (Bubblewrap), but the selected app itself remains readable for routing; use a fresh or otherwise non-sensitive generated app. Native Windows must use a contained Linux VM/container for live lanes.
 
 Run the full matrix once per Open Mercato release from a fresh scaffold:
 
@@ -133,7 +143,7 @@ yarn install-skills
 yarn harness:release --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-The target directory must be absolute, new or empty, and outside the controller app. Use a fresh, sanitized controller: automatic preparation fails before copying `.env`/`.env.*` local configuration (safe example/sample/template files remain allowed), credential files, or private-key files. Writable lanes require `/usr/bin/sandbox-exec` on macOS or Bubblewrap (`bwrap`) with user namespaces on Linux; native Windows must use a contained Linux VM/container. The command fails closed when containment or a required runner, browser, or test runtime is unavailable. The 184-case catalog includes 92 framework-neutral business prompts and 39 writable implementation/regression cases (21.2%). The release command runs live routing, writable trusted oracles, per-target `generate`/`typecheck`/`lint`/`build`, any declared generated test, and isolated generated-code review for every writable result. Foundation and target validation receive a minimal environment, and persisted diagnostics redact sensitive environment values and URL userinfo. Test-authoring coverage executes a Jest unit test plus loopback-only Playwright API and browser tests through fixed controller-owned commands against a read-only target. The suite then writes a schema-valid sanitized mode-`0600` report under `.ai/harness/results/`.
+The target directory must be absolute, new or empty, and outside the controller app. Use a fresh, sanitized controller: automatic preparation fails before copying `.env`/`.env.*` local configuration (safe example/sample/template files remain allowed), credential files, or private-key files. Writable lanes require `/usr/bin/sandbox-exec` on macOS or Bubblewrap (`bwrap`) with user namespaces on Linux; native Windows must use a contained Linux VM/container. The command fails closed when containment or a required runner, browser, or test runtime is unavailable. The 184-case catalog includes 92 framework-neutral business prompts and 39 writable implementation/regression cases (21.2%). The release command runs live routing, writable trusted oracles, per-target `generate`/`typecheck`/`lint`/`build`, any declared generated test, and isolated generated-code review for every writable result. Foundation and target validation receive a minimal environment, and persisted diagnostics redact sensitive environment values and URL userinfo. Test-authoring coverage executes a Jest unit test plus loopback-only Playwright API and browser tests through fixed controller-owned commands against a read-only target; runtime reports must attest at least one passed test and zero skipped, todo, focused, flaky, or expected-failure tests. The suite then writes a schema-valid sanitized mode-`0600` report under `.ai/harness/results/`.
 
 Use the bundled `om-evolve-harness` skill to add a real case: reproduce failure first, select one smallest knowledge owner, run any generated unit/integration tests plus target checks, require code review, and finish with the full release suite. Open Mercato framework maintainers use the monorepo-only `$om-refresh-standalone-harness --from <ref> --to <ref>` workflow for every release range and retain its sanitized maintenance report.
 

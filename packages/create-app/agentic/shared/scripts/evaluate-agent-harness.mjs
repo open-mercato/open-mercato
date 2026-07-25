@@ -1343,12 +1343,13 @@ function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, wr
 }
 
 function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writable, validateResponse = validateRoutingResponse }) {
+  const canonicalRoot = fs.realpathSync(root)
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-result-'))
   const outputPath = path.join(tempDir, 'structured.json')
   const isolatedSchemaPath = path.join(tempDir, 'output.schema.json')
   fs.copyFileSync(schemaPath, isolatedSchemaPath, fs.constants.COPYFILE_EXCL)
   fs.chmodSync(isolatedSchemaPath, 0o600)
-  const invocation = buildRunnerInvocation({ runner, root, schemaPath: isolatedSchemaPath, outputPath, model, writable })
+  const invocation = buildRunnerInvocation({ runner, root: canonicalRoot, schemaPath: isolatedSchemaPath, outputPath, model, writable })
   const runnerEnv = narrowRunnerEnv(runner)
   if (runner === 'codex') {
     const isolatedCodexHome = path.join(tempDir, 'codex-home')
@@ -1379,16 +1380,17 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
   }
   const started = Date.now()
   try {
-    const contained = writable
-      ? sandboxedInvocation({
-          ...invocation,
-          cwd: root,
-          writableRoots: [root, tempDir],
-          readOnlyRoots: fs.existsSync(path.join(root, 'node_modules')) ? [fs.realpathSync(path.join(root, 'node_modules'))] : [],
-          networkAllowed: true,
-          env: runnerEnv,
-        })
-      : { ...invocation, cwd: root, env: runnerEnv }
+    const dependencyRoots = fs.existsSync(path.join(canonicalRoot, 'node_modules'))
+      ? [fs.realpathSync(path.join(canonicalRoot, 'node_modules'))]
+      : []
+    const contained = sandboxedInvocation({
+      ...invocation,
+      cwd: canonicalRoot,
+      writableRoots: [...(writable ? [canonicalRoot] : []), tempDir],
+      readOnlyRoots: [...(writable ? [] : [canonicalRoot]), ...dependencyRoots],
+      networkAllowed: true,
+      env: runnerEnv,
+    })
     const processResult = spawnSync(contained.command, contained.args, {
       cwd: contained.cwd,
       input: prompt,
@@ -1731,8 +1733,8 @@ function readTargetValidationResult(root, requestedPath, schema, sourceRecord, r
     const [observed] = observedTests
     const cliPackage = expectedTest.runner === 'jest' ? 'jest' : '@playwright/test'
     const expectedArgv = expectedTest.runner === 'jest'
-      ? ['<resolved-cli>', '--config', 'jest.config.cjs', '--runInBand', '--runTestsByPath', expectedTest.artifact, '--cacheDirectory', '<isolated-temp>/jest-cache']
-      : ['<resolved-cli>', 'test', '--config', '.ai/qa/tests/playwright.config.ts', expectedTest.artifact, '--retries=0', '--workers=1', '--forbid-only', '--reporter=line', '--output', '<isolated-temp>/playwright-output', '--update-snapshots=none']
+      ? ['<resolved-cli>', '--config', 'jest.config.cjs', '--runInBand', '--runTestsByPath', expectedTest.artifact, '--cacheDirectory', '<isolated-temp>/jest-cache', '--json', '--outputFile', '<isolated-temp>/jest-results.json']
+      : ['<resolved-cli>', 'test', '--config', '.ai/qa/tests/playwright.config.ts', expectedTest.artifact, '--retries=0', '--workers=1', '--forbid-only', '--reporter=json', '--output', '<isolated-temp>/playwright-output', '--update-snapshots=none']
     const expectedCommand = ['node', ...expectedArgv].join(' ')
     const requireFromTarget = createRequire(path.join(targetRoot, 'package.json'))
     const cli = expectedTest.runner === 'jest'
@@ -1747,6 +1749,8 @@ function readTargetValidationResult(root, requestedPath, schema, sourceRecord, r
       || JSON.stringify(observed?.argv) !== JSON.stringify(expectedArgv) || observed?.command !== expectedCommand
       || !cliStat.isFile() || cliStat.isSymbolicLink() || !isPathInside(dependencyRoot, realCli)
       || observed?.cliSha256 !== sha256(fs.readFileSync(realCli)) || observed?.network !== expectedTest.network
+      || !Number.isInteger(observed?.testCounts?.passedTests) || observed.testCounts.passedTests < 1
+      || observed?.testCounts?.skippedTests !== 0 || observed?.testCounts?.todoTests !== 0 || observed?.testCounts?.expectedFailureTests !== 0
       || observed?.status !== 'pass' || observed?.exitStatus !== 0
       || !fs.existsSync(artifact) || observed?.artifactSha256 !== sha256(fs.readFileSync(artifact))) {
       throw new Error('target validation result does not contain matching passing generated-test evidence')
@@ -2050,7 +2054,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
       if (execution.kind === 'invalid-structured-output' || (options.runner === 'claude' && isRetryableClaudeFailure(execution))) {
         const retryPrompt = execution.kind === 'invalid-structured-output'
           ? `${prompt}\n\nYour previous response was not valid structured output. Return only the schema object.`
-          : prompt
+          : `${prompt}\n\nThis is retry attempt 2 after a transient provider failure. Continue with the same routing contract.`
         execution = runAgentOnce({ runner: options.runner, root: runRoot, schemaPath, prompt: retryPrompt, timeout: options.timeout, model, writable })
         executions.push(execution)
       }

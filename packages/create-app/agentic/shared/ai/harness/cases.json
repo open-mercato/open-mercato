@@ -322,6 +322,9 @@
       "required": [
         "AGENTS.md"
       ],
+      "allowedExtra": [
+        ".ai/agentic.config.json"
+      ],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -546,8 +549,10 @@
       ".ai/guides/architecture.md",
       ".ai/skills/om-trim-unused-modules/SKILL.md"
     ],
-    "allowedExtra": [
-      ".ai/guides/modules/dashboards.md"
+      "allowedExtra": [
+        ".ai/guides/modules/dashboards.md",
+        "src/modules.ts",
+        "package.json"
     ],
       "forbidden": [
         ".env*",
@@ -572,7 +577,7 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 5,
+    "maxContextFiles": 7,
     "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [

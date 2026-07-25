@@ -73,7 +73,7 @@ Split the outcome; match every row.
 | `architecture` | Explain/choose module, UMES, package, eject | architecture; use `om-help` for an unresolved choice or a comparative decision framework across these mechanisms |
 | `module-data` | Business outcome or vertical slice | `om-module-scaffold` + `business-one-shot-blueprints.md`; its route key resolves ownership and units |
 | `spec-pr` | Cohesive spec phases | Axis 3 skill; deployable phases |
-| `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill |
+| `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts` and `package.json` |
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |
 | `module-data` | Entity/link/validator/migration/encryption/lock/transaction | `om-data-model-design` + contracts |
 | `module-data` | CRUD/API/command/OpenAPI/ACL/setup/mutation | `om-module-scaffold` + contracts |
@@ -86,9 +86,9 @@ Split the outcome; match every row.
 | `testing` | Write/run tests or explicit coverage | testing/debugging; external `om-integration-tests` for integration/E2E |
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging + affected units |
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
+| — | Add/fix recurring harness case | `om-evolve-harness` |
 
 The request saying “installed contract(s)” or “installed-package contracts” is not enough to select `framework-context`. Use routed guides and facts first. A contract value stated by the request is already resolved; do not invoke the escape hatch merely to reverify it during routing. Invoke it only when one named exact-version detail still cannot be resolved, never as future-phase work.
-| — | Add/fix recurring harness case | `om-evolve-harness` |
 
 ### Axis 3 — SDLC and Delivery
 
@@ -96,7 +96,7 @@ Select delivery independently from pinned `open-mercato/skills` (`yarn install-s
 
 | Route ID | Delivery need | Skill |
 |---|---|---|
-| `spec-pr` | Write/revise spec | `om-spec-writing` (OMH-005) |
+| `spec-pr` | Write/revise spec | `om-spec-writing` (OMH-005) + exact `.ai/agentic.config.json` for its specs-directory setting |
 | `spec-pr` | Implement approved phases locally | `om-implement-spec` (OMH-006) |
 | `spec-pr` | Ship complete approved spec | `om-auto-implement-spec` |
 | `spec-pr` | One-shot ready PR | `om-auto-create-pr`; resume `om-auto-continue-pr` |

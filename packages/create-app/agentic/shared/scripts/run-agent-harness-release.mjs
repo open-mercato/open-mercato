@@ -277,9 +277,61 @@ function validTargetsManifest(targetsManifest) {
 export function generatedTestExecutionContract(entry) {
   const cliPackage = entry.runner === 'jest' ? 'jest' : '@playwright/test'
   const argv = entry.runner === 'jest'
-    ? ['<resolved-cli>', '--config', 'jest.config.cjs', '--runInBand', '--runTestsByPath', entry.artifact, '--cacheDirectory', '<isolated-temp>/jest-cache']
-    : ['<resolved-cli>', 'test', '--config', '.ai/qa/tests/playwright.config.ts', entry.artifact, '--retries=0', '--workers=1', '--forbid-only', '--reporter=line', '--output', '<isolated-temp>/playwright-output', '--update-snapshots=none']
+    ? ['<resolved-cli>', '--config', 'jest.config.cjs', '--runInBand', '--runTestsByPath', entry.artifact, '--cacheDirectory', '<isolated-temp>/jest-cache', '--json', '--outputFile', '<isolated-temp>/jest-results.json']
+    : ['<resolved-cli>', 'test', '--config', '.ai/qa/tests/playwright.config.ts', entry.artifact, '--retries=0', '--workers=1', '--forbid-only', '--reporter=json', '--output', '<isolated-temp>/playwright-output', '--update-snapshots=none']
   return { executor: 'node', cliPackage, argv, command: ['node', ...argv].join(' ') }
+}
+
+function readGeneratedTestReport(file, tempRoot, label) {
+  const stat = fs.lstatSync(file)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 2 || stat.size > 8 * 1024 * 1024
+    || !isPathInside(fs.realpathSync(tempRoot), fs.realpathSync(file))) {
+    throw new Error(`${label} report must be a bounded regular file in the isolated output root`)
+  }
+  return readJson(file)
+}
+
+function collectPlaywrightTests(suites, output = []) {
+  for (const suite of Array.isArray(suites) ? suites : []) {
+    for (const spec of Array.isArray(suite?.specs) ? suite.specs : []) {
+      for (const test of Array.isArray(spec?.tests) ? spec.tests : []) output.push(test)
+    }
+    collectPlaywrightTests(suite?.suites, output)
+  }
+  return output
+}
+
+function generatedTestCounts(testRunner, tempRoot) {
+  if (testRunner === 'jest') {
+    const report = readGeneratedTestReport(path.join(tempRoot, 'jest-results.json'), tempRoot, 'Jest')
+    const counts = {
+      passedTests: Number(report.numPassedTests ?? 0),
+      skippedTests: Number(report.numPendingTests ?? 0),
+      todoTests: Number(report.numTodoTests ?? 0),
+      expectedFailureTests: 0,
+    }
+    const assertions = (Array.isArray(report.testResults) ? report.testResults : [])
+      .flatMap((suite) => Array.isArray(suite?.assertionResults) ? suite.assertionResults : [])
+    if (report.success !== true || Number(report.numFailedTests ?? 0) !== 0 || counts.passedTests < 1
+      || counts.skippedTests !== 0 || counts.todoTests !== 0
+      || assertions.some((assertion) => assertion?.status !== 'passed')) {
+      throw new Error('generated Jest report must contain at least one passing test and zero failed, skipped, todo, or expected-failure tests')
+    }
+    return counts
+  }
+  const report = readGeneratedTestReport(path.join(tempRoot, 'playwright-results.json'), tempRoot, 'Playwright')
+  const tests = collectPlaywrightTests(report.suites)
+  const skippedTests = tests.filter((test) => test?.expectedStatus === 'skipped' || test?.status === 'skipped').length
+  const expectedFailureTests = tests.filter((test) => !['passed', 'skipped'].includes(test?.expectedStatus)).length
+  const passedTests = tests.filter((test) => test?.expectedStatus === 'passed' && test?.status === 'expected'
+    && Array.isArray(test.results) && test.results.length > 0 && test.results.every((result) => result?.status === 'passed')).length
+  const counts = { passedTests, skippedTests, todoTests: 0, expectedFailureTests }
+  if (tests.length < 1 || passedTests !== tests.length || skippedTests !== 0 || expectedFailureTests !== 0
+    || Number(report?.stats?.skipped ?? 0) !== 0 || Number(report?.stats?.unexpected ?? 0) !== 0
+    || Number(report?.stats?.flaky ?? 0) !== 0 || (Array.isArray(report?.errors) && report.errors.length > 0)) {
+    throw new Error('generated Playwright report must contain at least one passing test and zero skipped, focused, flaky, unexpected, or expected-failure tests')
+  }
+  return counts
 }
 
 function resolveTargetTestCli(target, runner) {
@@ -1012,6 +1064,7 @@ export function runGeneratedTestStep({ step, target, timeout, roots, browserRunt
   let execution
   let before
   let cli
+  let testCounts
   try {
     const artifact = path.resolve(target, step.artifact)
     const artifactStat = fs.lstatSync(artifact)
@@ -1031,6 +1084,7 @@ export function runGeneratedTestStep({ step, target, timeout, roots, browserRunt
       readOnlyRoots.push(browser.browserRoot)
       env.PLAYWRIGHT_BROWSERS_PATH = browser.isolatedCache
     }
+    if (step.testRunner !== 'jest') env.PLAYWRIGHT_JSON_OUTPUT_FILE = path.join(tempRoot, 'playwright-results.json')
     const contract = generatedTestExecutionContract({ runner: step.testRunner, artifact: step.artifact })
     if (step.executor !== contract.executor || step.cliPackage !== contract.cliPackage
       || JSON.stringify(step.argv) !== JSON.stringify(contract.argv) || step.command !== contract.command) {
@@ -1050,6 +1104,7 @@ export function runGeneratedTestStep({ step, target, timeout, roots, browserRunt
       env,
     })
     execution = execute(invocation.command, invocation.args, invocation.cwd, timeout, invocation.env)
+    if (execution.status === 0 && !execution.error) testCounts = generatedTestCounts(step.testRunner, tempRoot)
   } catch (error) {
     execution = { status: null, error, stdout: '', stderr: '', durationMs: 0 }
   }
@@ -1062,6 +1117,7 @@ export function runGeneratedTestStep({ step, target, timeout, roots, browserRunt
     const result = {
       ...stepResult(step, execution, [], roots),
       ...(typeof cli === 'string' && fs.existsSync(cli) ? { cliSha256: sha256(fs.readFileSync(cli)) } : {}),
+      ...(testCounts ? { testCounts } : {}),
     }
     if (unsafeEntries.length) {
       result.status = 'fail'
@@ -1155,6 +1211,7 @@ function writeTargetValidationResult(root, target, caseId, sourceArtifact, comma
       argv: generatedTestStep.argv,
       command: generatedTestStep.command,
       network: generatedTestStep.network,
+      testCounts: generatedTestStep.testCounts,
       status: generatedTestStep.status,
       exitStatus: generatedTestStep.exitStatus,
       durationMs: generatedTestStep.durationMs,

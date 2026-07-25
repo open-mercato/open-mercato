@@ -172,6 +172,17 @@
           "cliSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
           "argv": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 300 } },
           "command": { "type": "string", "maxLength": 1000 },
+          "testCounts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["passedTests", "skippedTests", "todoTests", "expectedFailureTests"],
+            "properties": {
+              "passedTests": { "type": "integer", "minimum": 1 },
+              "skippedTests": { "const": 0 },
+              "todoTests": { "const": 0 },
+              "expectedFailureTests": { "const": 0 }
+            }
+          },
           "status": { "enum": ["pass", "fail", "skipped"] },
           "exitStatus": { "type": ["integer", "null"] },
           "durationMs": { "type": "integer", "minimum": 0 },

@@ -1,6 +1,6 @@
 # Standalone AI Development Harness
 
-- **Status:** Implemented — final release evidence and PR handoff pending
+- **Status:** Implemented — deterministic and focused gates green; final dual-runner release evidence pending Claude authentication
 - **Date:** 2026-07-24
 - **Scope:** OSS, standalone applications emitted by `create-mercato-app` only
 - **Tracking plan:** `.ai/runs/2026-07-24-standalone-app-ai-harness.md`
@@ -185,7 +185,7 @@ The manifest is finalized atomically only after shared emission, module-row inje
 
 ## 📝 Data Model
 
-This feature adds no runtime database model. It defines two JSON artifact contracts.
+This feature adds no runtime database model. It defines versioned JSON contracts for catalog cases, validator/release matrices, generated ownership, routing/review responses, writable/target-validation evidence, and sanitized release results.
 
 ### Harness case record
 
@@ -195,7 +195,7 @@ Each object in `.ai/harness/cases.json` contains:
 type HarnessCase = {
   id: string
   title: string
-  family: 'architecture' | 'module' | 'umes' | 'integration' | 'ai-workflow' | 'bugfix'
+  family: 'architecture' | 'module' | 'umes' | 'integration' | 'ai-workflow' | 'bugfix' | 'business' | 'testing'
   mode: 'analysis' | 'one-shot' | 'spec' | 'bugfix' | 'review'
   evaluationKind: 'static' | 'routing' | 'implementation' | 'regression'
   risk: 'low' | 'medium' | 'high'
@@ -204,7 +204,8 @@ type HarnessCase = {
   owner: { kind: 'root' | 'guide' | 'skill' | 'facts' | 'hook'; path: string; ruleIds: string[] }
   expectedRouter: { required: string[]; allowedExtra?: string[] }
   requiredSkills: string[]
-  context: { required: string[]; forbidden: string[] }
+  optionalSkills?: Array<{ id: string; route: string }>
+  context: { required: string[]; allowedExtra?: string[]; forbidden: string[] }
   requiredDecisions: string[]
   forbiddenPatterns: string[]
   validators: string[]
@@ -235,6 +236,11 @@ yarn framework:context --module <id> [--query <text>] [--json]
 yarn framework:context --package <@scope/name> [--query <text>] [--json]
 yarn harness:validate [--case <id> | --family <name> | --all]
 yarn harness:validate --runner <codex|claude> [--case/--family/--all] [--batch-size <n>] [--timeout <ms>]
+yarn harness:fixture --case <id> --target <absolute-disposable-app> --acknowledge-writes
+yarn harness:validate --runner <codex|claude> --case <id> --writable-root <absolute-disposable-app> --acknowledge-writes
+yarn harness:validate --runner <codex|claude> --review-writable-result <result.json> --writable-root <absolute-disposable-app> [--review-validation-result <result.json>]
+yarn harness:release --prepare-targets <absolute-empty-directory> --acknowledge-writes
+yarn mercato agentic:init [--tool <id>] [--update-harness | --force]
 ```
 
 All commands default to read-only behavior. Routing evaluation invokes Codex with a read-only sandbox and schema output, or Claude with plan permission mode, read-only tools, structured output, no session persistence, and a fresh session per case (batching is orchestration only). Implementation/regression evaluation requires an explicit writable disposable scaffold and restricts writes to `allowedWrites`. Exit codes are `0` pass, `1` evaluated failure, and `2` invalid invocation/environment; timeouts/non-zero agent exits are failures with partial sanitized results. Results go under ignored `.ai/harness/results/`.
@@ -695,5 +701,5 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 - **2026-07-24** — Replaced writable token scans with controller-owned AST and isolated behavior oracles, made every seeded fixture fail its precondition, added the fixed after-phase typecheck gate, and prevented writable targets from supplying executable validation code.
 - **2026-07-24** — Compacted the generated enabled-module marker from per-module description/path rows to an identifier-only index with one progressive fact-sheet path rule, preserving enabled/bundled selection and fallback semantics while keeping compound routing under the initial context budget.
 - **2026-07-24** — Added an independent generated-code review lane for all 31 one-shot implementation cases, binding the pinned installed `om-code-review` skill to passing target-command attestation, controller oracle evidence, and the final post-build fingerprint inside a bounded source-only bundle with sanitized strict verdict artifacts.
-- **2026-07-24** — Doubled the catalog to 184 cases, grouped cases 93–184 by developer outcome, and set the writable release target to 37 cases with aligned fixture, oracle, evaluator, and release-matrix gates.
+- **2026-07-24** — Doubled the catalog to 184 cases, grouped cases 93–184 by developer outcome, and set the writable release target to 39 cases with aligned fixture, oracle, real generated-test, mandatory review, evaluator, and release-matrix gates.
 - **2026-07-24** — Strengthened the release target to 39 cases (21.2%), made generated-code review mandatory for every writable implementation/regression, and added fixed-argv execution of generated Jest, Playwright API, and Playwright browser tests under fail-closed host containment.

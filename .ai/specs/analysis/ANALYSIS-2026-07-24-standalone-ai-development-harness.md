@@ -57,7 +57,7 @@ The change modifies no frozen runtime surface and therefore needs no deprecation
 
 ### Remediations applied to the target spec
 
-- Split 184/184 deterministic/routing coverage from a fixed 37-case writable implementation/regression matrix with fixtures, allowed writes, executable oracles, target validation, and independent generated-code review.
+- Split 184/184 deterministic/routing coverage from a fixed 39-case writable implementation/regression matrix with fixtures, allowed writes, executable oracles, target validation, three real generated-test lanes, and mandatory independent generated-code review.
 - Added owner/rule IDs, validator registry IDs, precise subset/glob matching, byte/token budgets, safe result schema, exit codes, timeout semantics, and a fixed release matrix.
 - Pinned both installer CLI and external collection commit, required content hashes and machine-readable dependency closure, and moved nonessential loop/issue workflows to opt-in.
 - Defined concern-specific instruction precedence and app-root package resolution; stale facts are rejected rather than merely warned.
@@ -102,7 +102,7 @@ The change modifies no frozen runtime surface and therefore needs no deprecation
 5. Framework context for customers and an enabled declared package, hoisted/duplicate/mixed-version/missing-source fixtures, safe bounded query, read-only output, and stale-fact rejection.
 6. Entity hooks for `data/entities.ts`, correct Cursor payload handling, no setup-time Claude directory link, and no duplicated architecture prose.
 7. Fresh standalone scaffold and `agentic:init` parity, offline then fake-online skill installation, framework lookup, generation/typecheck/test/build, and unchanged `.mercato/generated` export contract.
-8. Codex 184-case routing, Claude 37-case representative routing, and 37 disposable writable implementation/regression targets with trusted oracles, generate/typecheck/lint/build, and independent code review from the final commit.
+8. Codex 184-case routing, Claude 39-case representative routing, and 39 disposable writable implementation/regression targets with trusted oracles, generate/typecheck/lint/build, three real generated-test lanes, and independent code review from the final commit.
 
 ## Recommendation
 

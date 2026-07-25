@@ -554,8 +554,9 @@ test('injected failure rolls back', () => expect(0).toBe(0))
     assert.match(result.cliSha256, /^[a-f0-9]{64}$/)
     assert.deepEqual(result.argv, [
       '<resolved-cli>', '--config', 'jest.config.cjs', '--runInBand', '--runTestsByPath', artifact,
-      '--cacheDirectory', '<isolated-temp>/jest-cache',
+      '--cacheDirectory', '<isolated-temp>/jest-cache', '--json', '--outputFile', '<isolated-temp>/jest-results.json',
     ])
+    assert.deepEqual(result.testCounts, { passedTests: 3, skippedTests: 0, todoTests: 0, expectedFailureTests: 0 })
     assert.equal(result.command, `node ${result.argv.join(' ')}`)
     assert.equal(fs.existsSync(path.join(target, 'TARGET_SCRIPT_RAN')), false)
   } finally { fs.rmSync(target, { recursive: true, force: true }) }
@@ -587,6 +588,22 @@ test('generated tests reject a fictional package-script command instead of attes
     assert.equal(result.status, 'fail')
     assert.match(result.sanitizedError, /fixed direct controller contract/)
   } finally { fs.rmSync(target, { recursive: true, force: true }) }
+})
+
+test('generated Jest evidence rejects zero-exit skipped and todo tests from the runtime report', { skip: !targetSandboxAvailable }, () => {
+  for (const [label, source] of [
+    ['skipped', "test.skip('disabled', () => expect(true).toBe(true))\ntest('enabled', () => expect(true).toBe(true))\n"],
+    ['todo', "test.todo('later')\ntest('enabled', () => expect(true).toBe(true))\n"],
+  ] as const) {
+    const target = stageGeneratedTestTarget()
+    const artifact = 'src/modules/quote_approval/commands/__tests__/approve-quote.test.ts'
+    writeGeneratedTest(target, artifact, source)
+    try {
+      const result = release.runGeneratedTestStep({ step: generatedTestStep('OMH-163', 'jest', artifact, 'none'), target, timeout: 30_000, roots: [target] })
+      assert.equal(result.status, 'fail', `${label} coverage was incorrectly accepted`)
+      assert.match(result.sanitizedError, /zero failed, skipped, todo, or expected-failure tests/)
+    } finally { fs.rmSync(target, { recursive: true, force: true }) }
+  }
 })
 
 test('generated API Playwright tests can use isolated loopback but cannot reach an external address', { skip: !targetSandboxAvailable }, () => {
@@ -632,6 +649,25 @@ test('real browser', async ({ page }) => {
     const result = release.runGeneratedTestStep({ step: generatedTestStep('OMH-165', 'playwright-browser', artifact, 'loopback'), target, timeout: 45_000, roots: [target] })
     assert.equal(result.status, 'pass', result.sanitizedError)
   } finally { fs.rmSync(target, { recursive: true, force: true }) }
+})
+
+test('generated Playwright evidence rejects skipped and expected-failure tests even when the runner exits zero', { skip: !targetSandboxAvailable }, () => {
+  for (const [label, body] of [
+    ['skipped', "test.skip(true, 'disabled')"],
+    ['expected failure', "test.fail(); throw new Error('expected failure')"],
+  ] as const) {
+    const target = stageGeneratedTestTarget()
+    const artifact = 'src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts'
+    writeGeneratedTest(target, artifact, `
+import { expect, test } from '@playwright/test'
+test(${JSON.stringify(label)}, async () => { ${body}; expect(true).toBe(true) })
+`)
+    try {
+      const result = release.runGeneratedTestStep({ step: generatedTestStep('OMH-164', 'playwright-api', artifact, 'loopback'), target, timeout: 30_000, roots: [target] })
+      assert.equal(result.status, 'fail', `${label} coverage was incorrectly accepted`)
+      assert.match(result.sanitizedError, /zero skipped, focused, flaky, unexpected, or expected-failure tests/)
+    } finally { fs.rmSync(target, { recursive: true, force: true }) }
+  }
 })
 
 test('generated-test execution fails closed for missing runtimes and browser prerequisites', { skip: !targetSandboxAvailable }, () => {

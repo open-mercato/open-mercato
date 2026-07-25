@@ -14,6 +14,8 @@ const sourceEvaluator = path.join(sharedRoot, 'scripts', 'evaluate-agent-harness
 const sourceExecutionSandbox = path.join(sharedRoot, 'scripts', 'execution-sandbox.mjs')
 const sourceFixturePreparer = path.join(sharedRoot, 'scripts', 'prepare-agent-harness-fixture.mjs')
 const typescriptPackageRoot = path.dirname(fileURLToPath(import.meta.resolve('typescript/package.json')))
+const targetSandboxAvailable = process.platform === 'darwin'
+  || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
 
 type HarnessCase = {
   id: string
@@ -68,6 +70,9 @@ function stageApp(): string {
   fs.copyFileSync(sourceExecutionSandbox, path.join(root, 'scripts', 'execution-sandbox.mjs'))
   fs.copyFileSync(sourceFixturePreparer, path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'))
   fs.mkdirSync(path.join(root, 'node_modules'))
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'src', 'modules.ts'), 'export const enabledModules = []\n')
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"harness-evaluator-fixture","private":true}\n')
   fs.symlinkSync(typescriptPackageRoot, path.join(root, 'node_modules', 'typescript'), process.platform === 'win32' ? 'junction' : 'dir')
   return root
 }
@@ -508,17 +513,14 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
 
 test('live Claude retries one recognized transient process failure and then succeeds', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
-  const attemptsPath = path.join(root, 'claude-attempts')
   const bin = installFakeRunner(root, 'claude', `
 const fs = require('node:fs')
 const path = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
 if (!args.includes('--safe-mode')) process.exit(9)
-const attemptsPath = ${JSON.stringify(attemptsPath)}
-const attempt = fs.existsSync(attemptsPath) ? Number(fs.readFileSync(attemptsPath, 'utf8')) + 1 : 1
-fs.writeFileSync(attemptsPath, String(attempt))
-if (attempt === 1) {
+const prompt = fs.readFileSync(0, 'utf8')
+if (!prompt.includes('retry attempt 2 after a transient provider failure')) {
   console.log(JSON.stringify({ type: 'system', subtype: 'init', plugins: Array.from({ length: 800 }, (_, index) => 'plugin-' + index) }))
   console.log(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'API Error 529: overloaded_error' }))
   process.exit(1)
@@ -540,7 +542,6 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
-    assert.equal(fs.readFileSync(attemptsPath, 'utf8'), '2')
     assert.match(result.stdout, /PASS OMH-009/)
     const [stored] = storedResults(root)
     assert.equal(stored.attempts, 2)
@@ -552,14 +553,9 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
 
 test('live Claude preserves its terminal error event without retrying a non-transient failure', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
-  const attemptsPath = path.join(root, 'claude-attempts')
   const bin = installFakeRunner(root, 'claude', `
-const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
-const attemptsPath = ${JSON.stringify(attemptsPath)}
-const attempt = fs.existsSync(attemptsPath) ? Number(fs.readFileSync(attemptsPath, 'utf8')) + 1 : 1
-fs.writeFileSync(attemptsPath, String(attempt))
 console.log(JSON.stringify({ type: 'system', subtype: 'init', plugins: Array.from({ length: 800 }, (_, index) => 'plugin-' + index) }))
 console.log(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'authentication failed: invalid account' }))
 process.exit(1)
@@ -570,8 +566,8 @@ process.exit(1)
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
-    assert.equal(fs.readFileSync(attemptsPath, 'utf8'), '1')
     const [stored] = storedResults(root)
+    assert.equal(stored.attempts, 1)
     assert.match(stored.sanitizedError ?? '', /authentication failed: invalid account/)
     assert.doesNotMatch(stored.sanitizedError ?? '', /plugin-0/)
   } finally {
@@ -581,15 +577,10 @@ process.exit(1)
 
 test('live Claude does not retry routing or safety assertion failures', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
-  const attemptsPath = path.join(root, 'claude-attempts')
   const bin = installFakeRunner(root, 'claude', `
-const fs = require('node:fs')
 const path = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
-const attemptsPath = ${JSON.stringify(attemptsPath)}
-const attempt = fs.existsSync(attemptsPath) ? Number(fs.readFileSync(attemptsPath, 'utf8')) + 1 : 1
-fs.writeFileSync(attemptsPath, String(attempt))
 console.log(JSON.stringify({ type: 'assistant', message: { content: [
   { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), 'AGENTS.md') } },
   { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/guides/contracts.md') } },
@@ -607,8 +598,8 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
-    assert.equal(fs.readFileSync(attemptsPath, 'utf8'), '1')
     const [stored] = storedResults(root)
+    assert.equal(stored.attempts, 1)
     assert.ok(stored.violations.includes('unexpected route testing'))
     assert.ok(stored.violations.includes('runner violation: safety assertion failed'))
   } finally {
@@ -1646,9 +1637,13 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('generated-code review fails closed on out-of-bundle reads and reviewer writes without exposing the target path', { skip: process.platform === 'win32' }, () => {
+test('generated-code review host sandbox blocks real out-of-bundle reads and writes before trace validation', { skip: !targetSandboxAvailable }, () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-review-host-secret-')))
+  const secret = path.join(outside, 'secret.txt')
+  const escaped = path.join(outside, 'escaped.txt')
+  fs.writeFileSync(secret, 'host-only-review-secret')
   try {
     const sourceResult = preparePassingWritableCrudResult(controller, target)
     installFakeCodeReviewSkill(controller)
@@ -1656,13 +1651,15 @@ test('generated-code review fails closed on out-of-bundle reads and reviewer wri
 const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-review-fake 1.0'); process.exit(0) }
+try { fs.readFileSync(${JSON.stringify(secret)}, 'utf8'); process.exit(31) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT'].includes(error.code)) throw error }
+try { fs.writeFileSync(${JSON.stringify(escaped)}, 'escaped'); process.exit(32) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT', 'EROFS'].includes(error.code)) throw error }
+try { fs.writeFileSync('reviewer-created.txt', 'escaped'); process.exit(33) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT', 'EROFS'].includes(error.code)) throw error }
 const evidence = [
   { id: 'oracle:allowed-writes', status: 'pass' },
   { id: 'oracle:writable-ast-oracles.mjs', status: 'pass' },
   { id: 'oracle:target-fingerprint', status: 'pass' }
 ]
 const report = '# 🔍 Code Review: Isolated review\\n## 🎯 Summary\\nThe review response is intentionally long enough for schema validation and exercises fail-closed trace handling.\\n## Verdict\\n✅ approve — The structured response itself contains no blocking finding.\\n## 🧪 Validation Gate\\n| Command | Status |\\n|---|---|\\n| oracle:allowed-writes | ✅ PASS |\\n| oracle:writable-ast-oracles.mjs | ✅ PASS |\\n| oracle:target-fingerprint | ✅ PASS |\\n## Findings\\nNo findings.\\n## 💥 Breaking Changes\\n- [x] No break identified.\\n## 🧪 Test Coverage\\nController evidence was supplied.'
-fs.writeFileSync('reviewer-created.txt', 'must be detected')
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ schemaVersion: 1, verdict: 'approve', report, validationEvidence: evidence, findings: [] }))
 for (const command of [
   'cat AGENTS.md REVIEW_POLICY.md REVIEW_EVIDENCE.json .agents/skills/om-code-review/SKILL.md .agents/skills/om-code-review/references/agentic-setup.md .agents/skills/om-code-review/references/output-format.md .agents/skills/om-code-review/references/review-checklist.md .agents/skills/om-code-review/references/rules.md REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt',
@@ -1683,11 +1680,13 @@ for (const command of [
     assert.ok(stored.violations.some((entry) => entry.includes('unsafe out-of-root context read:')))
     assert.ok(stored.violations.includes('forbidden review command execution'))
     assert.ok(stored.violations.includes('forbidden process inspection command'))
-    assert.ok(stored.violations.includes('reviewer modified the isolated review bundle'))
+    assert.equal(fs.existsSync(escaped), false)
+    assert.equal(fs.existsSync(path.join(outside, 'reviewer-created.txt')), false)
     assert.doesNotMatch(JSON.stringify(stored), new RegExp(target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   } finally {
     fs.rmSync(controller, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
   }
 })
 

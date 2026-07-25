@@ -76,6 +76,16 @@ yarn install-skills
 
 Skills are discovered from `.agents/skills/`; Claude Code receives the compatibility links it needs. The installer verifies the pinned external commit and file hashes, preserves unknown user-owned skills, and quarantines stale or modified installer-owned copies instead of silently trusting them.
 
+### Upgrade an existing generated harness
+
+After upgrading Open Mercato, refresh generated harness files through the ownership manifest instead of deleting local AI context:
+
+```bash
+yarn mercato agentic:init --update-harness
+```
+
+Unmodified generated files are replaced, missing owned files are recreated, and the manifest is refreshed atomically. User-modified or unknown files are preserved; an exact generated-path conflict is written beside the file as `.incoming` for review. Use `--force` only when you intentionally want to replace known generated targets. Skill installation runs afterward as a separate retryable step, so an offline registry does not invalidate the refreshed harness.
+
 ### Load exact framework context only when needed
 
 The app's root router starts with a small instruction set. When a task needs a framework implementation detail, use the context escape hatch rather than scanning all of `node_modules`:
@@ -98,7 +108,7 @@ yarn harness:validate --family testing
 yarn harness:validate --all
 ```
 
-`harness:validate --all` checks the complete catalog deterministically. Authenticated live routing can be sampled with `--runner codex` or `--runner claude`, but read-only runner modes do not provide a portable host filesystem denylist; run live cases only in a freshly generated or otherwise non-sensitive app.
+`harness:validate --all` checks the complete catalog deterministically. Authenticated live routing can be sampled with `--runner codex` or `--runner claude`. The controller adds host filesystem containment on macOS (`sandbox-exec`) and Linux (Bubblewrap), but the selected app itself remains readable for routing, so use a freshly generated or otherwise non-sensitive app. Native Windows must use a contained Linux VM/container for live lanes.
 
 Once per Open Mercato release, install the pinned skills and run the full matrix from a fresh controller scaffold:
 
@@ -107,7 +117,7 @@ yarn install-skills
 yarn harness:release --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-This is the actual full release gate. The current catalog contains 184 cases: 92 are written as framework-neutral business requests and 39 (21.2%) are writable implementation/regression cases. The suite prepares a separate disposable app for every writable case and runs deterministic coverage, configured live runners, trusted writable oracles, target `generate`/`typecheck`/`lint`/`build`, any declared generated test, and isolated generated-code review for every writable result. Its three test-authoring cases execute a focused Jest unit test, a loopback Playwright API test, and a Playwright browser test with fixed controller-owned commands. It writes a schema-validated, sanitized, mode-`0600` report under `.ai/harness/results/`. An unavailable required runner, browser, or containment prerequisite is reported as unavailable and blocks a complete release claim.
+This is the actual full release gate. The current catalog contains 184 cases: 92 are written as framework-neutral business requests and 39 (21.2%) are writable implementation/regression cases. The suite prepares a separate disposable app for every writable case and runs deterministic coverage, configured live runners, trusted writable oracles, target `generate`/`typecheck`/`lint`/`build`, any declared generated test, and isolated generated-code review for every writable result. Its three test-authoring cases execute a focused Jest unit test, a loopback Playwright API test, and a Playwright browser test with fixed controller-owned commands. Runtime reports must attest at least one passed test and zero skipped, todo, focused, flaky, or expected-failure tests. It writes a schema-validated, sanitized, mode-`0600` report under `.ai/harness/results/`. An unavailable required runner, browser, or containment prerequisite is reported as unavailable and blocks a complete release claim.
 
 Writable evaluation fails closed without host containment:
 
