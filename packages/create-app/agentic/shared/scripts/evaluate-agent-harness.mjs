@@ -124,7 +124,7 @@ function parseArgs(argv) {
     selectorValue: undefined,
     runner: undefined,
     model: undefined,
-    timeout: 180_000,
+    timeout: 300_000,
     batchSize: 1,
     writableRoot: undefined,
     reviewWritableResult: undefined,
