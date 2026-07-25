@@ -5820,7 +5820,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Build configurable quote-approval policies over installed sales quotes. Include submission, manager approval and rejection, durable user tasks, separation-of-duties ACL, guarded conversion of approved quotes into orders, aggregate optimistic locking, audit events, notifications, retries, and proof that conversion happens exactly once.",
+    "prompt": "Build configurable quote-approval policies over installed sales quotes, including submitter and manager work screens. Include submission, manager approval and rejection, durable user tasks, separation-of-duties ACL, guarded conversion of approved quotes into orders, aggregate optimistic locking, audit events, notifications, retries, and proof that conversion happens exactly once.",
     "tags": ["business", "sales", "quotes", "approval", "workflow"],
     "owner": {
       "kind": "skill",
@@ -10836,6 +10836,7 @@
     },
     "requiredSkills": [
       "om-module-scaffold",
+      "om-data-model-design",
       "om-integration-builder",
       "om-system-extension",
       "om-build-workflow"
@@ -10848,6 +10849,7 @@
         ".ai/guides/extensions.md",
         ".ai/guides/ai-workflows.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-build-workflow/SKILL.md",
@@ -10910,7 +10912,7 @@
       "src/modules/invoice_dunning/events.ts"
     ],
     "maxContextFiles": 12,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 61440,
     "maxTotalContextBytes": 147456,
     "relatedCases": [
       "OMH-039",
