@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
-import { assertSandboxRuntimeAvailable, sandboxedInvocation } from './execution-sandbox.mjs'
+import { assertSandboxRuntimeAvailable, sandboxedInvocation, verifyLinuxSandboxIsolation } from './execution-sandbox.mjs'
 
 const WRITABLE_KINDS = new Set(['implementation', 'regression'])
 const RELEASE_SUPPORTED_RUNNERS = ['codex', 'claude']
@@ -61,8 +61,8 @@ files are retained. Targets exclude dependencies, build outputs, harness results
 generated framework context, then safely reference the controller's protected dependency
 tree. Externally supplied targets must use the same
 node_modules link to that protected tree; nested dependency copies are rejected.
-Writable execution requires sandbox-exec on
-macOS or Bubblewrap on Linux; unsupported hosts fail closed. The command preflights complete matrix,
+The complete release requires trusted Bubblewrap plus working user/network namespaces on Linux;
+native macOS, Windows, untrusted runtimes, and unavailable isolation fail closed. The command preflights complete matrix,
 fixture, review, and target coverage before
 running deterministic validation, selected primary routing, optional portability routing, writable trusted-oracle
 gates, explicit om-code-review, and the release-matrix validation commands. It stores
@@ -764,11 +764,19 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
 
 export function releaseHostPrerequisiteViolations(releaseMatrix, platform = process.platform, env = process.env) {
   const entries = Array.isArray(releaseMatrix?.generatedTests?.entries) ? releaseMatrix.generatedTests.entries : []
-  const modes = ['none', ...(entries.some((entry) => entry?.network === 'loopback') ? ['loopback'] : [])]
+  const requiresLoopback = entries.some((entry) => entry?.network === 'loopback')
+  const modes = ['none', ...(requiresLoopback ? ['loopback'] : [])]
   const violations = []
   for (const mode of modes) {
     try {
       assertSandboxRuntimeAvailable(mode, platform, env)
+    } catch (error) {
+      violations.push(error instanceof Error ? error.message : String(error))
+    }
+  }
+  if (platform === 'linux' && requiresLoopback && violations.length === 0) {
+    try {
+      verifyLinuxSandboxIsolation(env)
     } catch (error) {
       violations.push(error instanceof Error ? error.message : String(error))
     }

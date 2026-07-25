@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -21,6 +23,15 @@ function executableCandidate(command, env = process.env) {
 
 function resolveExecutable(command, env = process.env) {
   return fs.realpathSync(executableCandidate(command, env))
+}
+
+function trustedBubblewrapExecutable(env = process.env) {
+  const executable = resolveExecutable('bwrap', env)
+  const stat = fs.lstatSync(executable)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== 0 || (stat.mode & 0o022) !== 0) {
+    throw new Error('Linux target isolation requires a root-owned, non-group/world-writable Bubblewrap executable')
+  }
+  return executable
 }
 
 function regularDirectory(root, label) {
@@ -96,13 +107,85 @@ export function assertSandboxRuntimeAvailable(networkMode, platform = process.pl
   assertSandboxNetworkModeSupported(networkMode, platform)
   if (platform === 'darwin') {
     if (!fs.existsSync('/usr/bin/sandbox-exec')) throw new Error('macOS target isolation requires /usr/bin/sandbox-exec')
-    return
+    return '/usr/bin/sandbox-exec'
   }
   if (platform === 'linux') {
-    resolveExecutable('bwrap', env)
-    return
+    return trustedBubblewrapExecutable(env)
   }
   throw new Error(`target isolation is unsupported on ${platform}; use a Linux VM/container with Bubblewrap`)
+}
+
+export function verifyLinuxSandboxIsolation(env = process.env) {
+  const bubblewrap = trustedBubblewrapExecutable(env)
+  const probeRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-bwrap-probe-')))
+  const nonce = crypto.randomBytes(18).toString('hex')
+  const marker = `OM_BWRAP_ISOLATED_${nonce}`
+  const node = fs.realpathSync(process.execPath)
+  const baseArgs = [
+    '--die-with-parent',
+    '--new-session',
+    ...linuxNamespaceArgs('loopback'),
+    '--tmpfs', '/',
+    '--proc', '/proc',
+    '--dev', '/dev',
+    '--tmpfs', '/tmp',
+    '--bind', probeRoot, probeRoot,
+  ]
+  for (const root of runtimeReadRoots(node, env)) baseArgs.push('--ro-bind', root, root)
+  baseArgs.push('--chdir', probeRoot, '--', node, '-e')
+  const outerProbe = `
+const { spawnSync } = require('node:child_process')
+const net = require('node:net')
+const bubblewrap = process.argv[1]
+const args = JSON.parse(process.argv[2])
+const marker = process.argv[3]
+const host = net.createServer()
+host.once('error', () => process.exit(71))
+host.listen(0, '127.0.0.1', () => {
+  const address = host.address()
+  if (!address || typeof address === 'string') process.exit(72)
+  const inner = \`
+const net = require('node:net')
+const marker = \${JSON.stringify(marker)}
+const hostPort = \${address.port}
+const local = net.createServer((socket) => socket.end())
+const fail = () => process.exit(81)
+local.once('error', fail)
+local.listen(0, '127.0.0.1', () => {
+  const address = local.address()
+  if (!address || typeof address === 'string') fail()
+  const self = net.connect(address.port, '127.0.0.1')
+  self.once('error', fail)
+  self.once('connect', () => {
+    self.destroy()
+    local.close()
+    const outside = net.connect(hostPort, '127.0.0.1')
+    outside.once('connect', () => process.exit(82))
+    outside.once('error', () => { console.log(marker); process.exit(0) })
+    outside.setTimeout(1500, () => { outside.destroy(); console.log(marker); process.exit(0) })
+  })
+})
+setTimeout(fail, 4000).unref()
+\`
+  const result = spawnSync(bubblewrap, [...args, inner], { encoding: 'utf8', timeout: 7000 })
+  const passed = result.status === 0 && result.stdout.trim() === marker
+  host.close(() => process.exit(passed ? 0 : 73))
+})
+setTimeout(() => process.exit(74), 9000).unref()
+`
+  try {
+    const result = spawnSync(node, ['-e', outerProbe, bubblewrap, JSON.stringify(baseArgs), marker], {
+      cwd: probeRoot,
+      env: { PATH: String(env.PATH ?? ''), TZ: 'UTC' },
+      encoding: 'utf8',
+      timeout: 10_000,
+    })
+    if (result.status !== 0 || result.error) {
+      throw new Error('Bubblewrap isolation probe failed: private user/network namespaces and isolated loopback are required')
+    }
+  } finally {
+    fs.rmSync(probeRoot, { recursive: true, force: true })
+  }
 }
 
 export function macSandboxProfile({ command, writableRoots, readOnlyRoots, networkMode, env }) {
@@ -148,8 +231,7 @@ export function linuxNetworkReadFiles(networkMode) {
 }
 
 function linuxInvocation({ command, args, cwd, writableRoots, readOnlyRoots, networkMode, env }) {
-  assertSandboxRuntimeAvailable(networkMode, 'linux', env)
-  const bubblewrap = resolveExecutable('bwrap', env)
+  const bubblewrap = assertSandboxRuntimeAvailable(networkMode, 'linux', env)
   const writable = writableRoots.map((root, index) => regularDirectory(root, `writable sandbox root ${index + 1}`))
   const readOnly = readOnlyRoots.map((root, index) => regularDirectory(root, `read-only sandbox root ${index + 1}`))
   const readable = uniqueExistingDirectories([...readOnly, ...runtimeReadRoots(command, env)])

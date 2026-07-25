@@ -29,6 +29,7 @@ const release = await import(pathToFileURL(releaseScript).href) as {
 const executionSandbox = await import(pathToFileURL(executionSandboxScript).href) as {
   assertSandboxNetworkModeSupported: (network: string, platform?: string) => void
   assertSandboxRuntimeAvailable: (network: string, platform?: string, env?: NodeJS.ProcessEnv) => void
+  verifyLinuxSandboxIsolation: (env?: NodeJS.ProcessEnv) => void
   linuxNamespaceArgs: (network: string) => string[]
   linuxNetworkReadFiles: (network: string) => string[]
   macSandboxProfile: (input: { command: string; writableRoots: string[]; readOnlyRoots: string[]; networkMode: string; env: NodeJS.ProcessEnv }) => string
@@ -815,11 +816,18 @@ test('release preflight requires Linux isolation when the matrix contains loopba
   matrix.generatedTests.entries = [{ caseId: 'OMH-002', network: 'loopback' }]
   try {
     assert.match(release.releaseHostPrerequisiteViolations(matrix, 'darwin')[0], /Linux VM\/container with Bubblewrap/)
-    assert.deepEqual(release.releaseHostPrerequisiteViolations(matrix, 'linux', { PATH: bin }), [])
+    assert.match(release.releaseHostPrerequisiteViolations(matrix, 'linux', { PATH: bin })[0], /root-owned|isolation probe failed/)
+    fs.writeFileSync(fakeBwrap, '#!/bin/sh\nwhile [ "$1" != "--" ] && [ "$#" -gt 0 ]; do shift; done\nshift\nexec "$@"\n')
+    fs.chmodSync(fakeBwrap, 0o755)
+    assert.match(release.releaseHostPrerequisiteViolations(matrix, 'linux', { PATH: bin })[0], /root-owned|isolation probe failed/)
     assert.match(release.releaseHostPrerequisiteViolations(matrix, 'linux', { PATH: '' })[0], /bwrap/)
     matrix.generatedTests.entries = []
     assert.deepEqual(release.releaseHostPrerequisiteViolations(matrix, 'darwin'), [])
   } finally { fs.rmSync(bin, { recursive: true, force: true }) }
+})
+
+test('Linux release preflight proves private loopback with the trusted Bubblewrap runtime', { skip: !isolatedLoopbackAvailable }, () => {
+  assert.doesNotThrow(() => executionSandbox.verifyLinuxSandboxIsolation(process.env))
 })
 
 test('macOS release preflight rejects loopback before dependencies or writable targets are touched', { skip: process.platform !== 'darwin' }, () => {
