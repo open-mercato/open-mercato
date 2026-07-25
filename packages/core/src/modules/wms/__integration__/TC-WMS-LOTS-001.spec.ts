@@ -154,7 +154,7 @@ test.describe('TC-WMS-LOTS-001 past-due lots list', () => {
       await expect(page.getByRole('heading', { name: /past.?due lots/i })).toBeVisible()
       await expect(page.getByPlaceholder(/search lots/i)).toBeVisible()
       await expect(page.getByRole('columnheader', { name: /lot number/i })).toBeVisible()
-      await expect(page.getByRole('columnheader', { name: /^sku$/i })).toBeVisible()
+      await expect(page.getByRole('columnheader', { name: /sku/i })).toBeVisible()
       await expect(page.getByRole('columnheader', { name: /expires/i })).toBeVisible()
       await expect(page.getByRole('link', { name: lotNumber })).toBeVisible()
 
