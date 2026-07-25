@@ -59,12 +59,12 @@ Run the configured `validation.commands` gate and fix anything it surfaces.
 
 ### Phase 1: Distinguish and log registry load failures
 
-- [ ] 1.1 Add `GeneratedFileNotFoundError` and the `loadOptionalGeneratedModule` helper
-- [ ] 1.2 Route the optional generated registries through the helper
+- [x] 1.1 Add `GeneratedFileNotFoundError` and the `loadOptionalGeneratedModule` helper — 914963321
+- [x] 1.2 Route the optional generated registries through the helper — 914963321
 
 ### Phase 2: Regression coverage
 
-- [ ] 2.1 Cover missing-file fallback vs. logged compile/import failure
+- [x] 2.1 Cover missing-file fallback vs. logged compile/import failure — 914963321
 
 ### Phase 3: Validation gate
 
