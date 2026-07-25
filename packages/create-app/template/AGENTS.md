@@ -54,7 +54,7 @@ Route only the request. `testing` needs explicit tests/coverage; routine validat
 
 | Route | Match | Context |
 |---|---|---|
-| `architecture` | Capabilities, discovery, overrides, upgrades, ownership | `.ai/guides/architecture.md` + named facts |
+| `architecture` | Capability/ownership choices, upgrades, overrides, or registry/discovery failures; routine auto-discovered files stay in their owning area | `.ai/guides/architecture.md` + named facts |
 | `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership or mechanism is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
 | `backend-ui` | Custom admin/public/portal/form/table/menu/i18n/component | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
