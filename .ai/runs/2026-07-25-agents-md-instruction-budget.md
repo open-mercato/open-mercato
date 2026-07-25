@@ -67,26 +67,43 @@ regression, and the passing case.
 
 ## Progress
 
+PR: #4506
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Extract the long-form sections
 
-- [ ] 1.1 Create `.ai/docs/pr-workflow.md`
-- [ ] 1.2 Create `.ai/docs/official-modules.md`
+- [x] 1.1 Create `.ai/docs/pr-workflow.md` — 647ffa641
+- [x] 1.2 Create `.ai/docs/official-modules.md` — 647ffa641
 
 ### Phase 2: Rewrite the root AGENTS.md under budget
 
-- [ ] 2.1 Condense the Task Router
-- [ ] 2.2 Replace extracted sections with summaries and links
-- [ ] 2.3 Keep the precise post-cutoff rules in the root file
+- [x] 2.1 Condense the Task Router — 1993e3971
+- [x] 2.2 Replace extracted sections with summaries and links — 1993e3971
+- [x] 2.3 Keep the precise post-cutoff rules in the root file — 1993e3971
 
 ### Phase 3: Automated budget check
 
-- [ ] 3.1 Add `scripts/check-agents-md-budget.mjs`
-- [ ] 3.2 Add `yarn agents:check-budget` and wire it into CI
-- [ ] 3.3 Add unit tests for the checker
-- [ ] 3.4 Document the budget in the root `AGENTS.md`
+- [x] 3.1 Add `scripts/check-agents-md-budget.mjs` — a8db4b9ed
+- [x] 3.2 Add `yarn agents:check-budget` and wire it into CI — a8db4b9ed
+- [x] 3.3 Add unit tests for the checker — a8db4b9ed
+- [x] 3.4 Document the budget in the root `AGENTS.md` — 1993e3971, a8db4b9ed
 
 ### Phase 4: Validation
 
-- [ ] 4.1 Run the validation gate
+- [x] 4.1 Run the validation gate
+
+## Outcome
+
+- Root `AGENTS.md`: 44,393 → 29,688 bytes (9.4% under Codex's 32,768-byte default budget, and
+  under the 30,720-byte root limit the checker enforces). No rule was dropped; the long-form
+  label policy, official-modules contract, boundary-label definitions and the Docker/local
+  validation-runner procedure now live in `.ai/docs/`.
+- `yarn agents:check-budget` (+ CI step, + 7 `node --test` cases) enforces the root limit and
+  ratchets the four representative root-to-module chains, which are still 32–100 KiB over budget
+  and can now only shrink.
+- Validation: `node --test scripts/__tests__/*.test.mjs` → 307 passed; `node --test
+  apps/mercato/scripts/__tests__/*.test.mjs` → 24 passed (this mirrors the CI `yarn test:scripts`
+  step; the worktree has no local `node_modules`, so the yarn wrapper was bypassed). No
+  TypeScript, locale or app source changed, so the build/typecheck/i18n legs of the gate are not
+  affected by this diff.
