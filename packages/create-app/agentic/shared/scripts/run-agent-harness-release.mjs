@@ -21,6 +21,8 @@ const COPY_EXCLUDED_PREFIXES = [
   '.git', '.next', '.turbo', '.cache', 'build', 'coverage', 'dist', 'node_modules', 'out',
   '.ai/framework-context', '.ai/harness/results', '.ai/reports',
 ]
+const SAFE_ENV_TEMPLATES = new Set(['.env.example', '.env.sample', '.env.template'])
+const SENSITIVE_ENV_KEY = /(?:^|_)(?:api_?key|auth|credential|credentials|password|passwd|private_?key|secret|token)(?:_|$)/i
 
 function usage() {
   return `Run the complete standalone agent-harness release gate.
@@ -38,9 +40,11 @@ Options:
   --acknowledge-writes          Required: fixture preparation and validation commands write files
   --help                        Show this help
 
-Exactly one target option is required. Automatic targets exclude dependencies, build
-outputs, harness results, and generated framework context, then safely reference the
-controller's protected dependency tree. Externally supplied targets must use the same
+Exactly one target option is required. Automatic targets require a fresh controller
+without local environment, credential, or private-key files; safe .env.example/sample/template
+files are retained. Targets exclude dependencies, build outputs, harness results, and
+generated framework context, then safely reference the controller's protected dependency
+tree. Externally supplied targets must use the same
 node_modules link to that protected tree; nested dependency copies are rejected.
 Writable execution requires sandbox-exec on
 macOS or Bubblewrap on Linux; unsupported hosts fail closed. The command preflights complete matrix,
@@ -108,6 +112,14 @@ function copyPathExcluded(relative) {
   return COPY_EXCLUDED_PREFIXES.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
 }
 
+function sensitiveScaffoldPath(relative) {
+  const basename = path.posix.basename(relative).toLowerCase()
+  if ((basename === '.env' || basename.startsWith('.env.')) && !SAFE_ENV_TEMPLATES.has(basename)) return true
+  if (/\.(?:key|pem|p12|pfx|jks|keystore)$/.test(basename)) return true
+  if (/^(?:id_rsa|id_dsa|id_ecdsa|id_ed25519)$/.test(basename)) return true
+  return /(?:^|[._-])(?:credential|credentials|private[._-]?key|service[._-]?account)(?:[._-]|$)/.test(basename)
+}
+
 function validateScaffoldCopySource(root) {
   const realRoot = fs.realpathSync(root)
   const visit = (directory) => {
@@ -115,6 +127,9 @@ function validateScaffoldCopySource(root) {
       const source = path.join(directory, name)
       const relative = normalizedRelative(realRoot, source)
       if (copyPathExcluded(relative)) continue
+      if (sensitiveScaffoldPath(relative)) {
+        throw new Error('fresh controller contains a local environment, credential, or private-key file; use a sanitized fresh scaffold')
+      }
       const stat = fs.lstatSync(source)
       if (stat.isSymbolicLink()) {
         const resolved = fs.realpathSync(source)
@@ -137,6 +152,10 @@ function copyFreshScaffold(sourceRoot, targetRoot) {
       const source = path.join(sourceDirectory, name)
       const relative = normalizedRelative(realSourceRoot, source)
       if (copyPathExcluded(relative)) continue
+      // Fail closed if a sensitive file appears between validation and copy.
+      if (sensitiveScaffoldPath(relative)) {
+        throw new Error('fresh controller contains a local environment, credential, or private-key file; use a sanitized fresh scaffold')
+      }
       const destination = path.join(targetDirectory, name)
       const stat = fs.lstatSync(source)
       if (stat.isDirectory()) visit(source, destination)
@@ -626,6 +645,12 @@ export function aggregateQualityMetrics(results) {
 export function sanitizeReportText(value, roots = []) {
   let result = String(value ?? '')
   for (const root of [...roots, os.homedir()].filter(Boolean).sort((left, right) => right.length - left.length)) result = result.split(root).join('<redacted-path>')
+  const environmentSecrets = [...new Set(Object.entries(process.env)
+    .filter(([key, entry]) => SENSITIVE_ENV_KEY.test(key) && typeof entry === 'string' && entry.length >= 4)
+    .map(([, entry]) => entry))]
+    .sort((left, right) => right.length - left.length)
+  for (const secret of environmentSecrets) result = result.split(secret).join('<redacted-secret>')
+  result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, '$1<redacted-secret>@')
   result = result.replace(/\b(?:sk|pk|ghp|github_pat|xox[baprs]|AKIA)[-_A-Za-z0-9]{10,}\b/g, '<redacted-secret>')
   result = result.replace(/\b(?:api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '<redacted-secret>')
   return result.slice(0, ERROR_LIMIT)
@@ -852,7 +877,7 @@ function skippedStep(step, reason) {
   }
 }
 
-function targetValidationEnvironment(tempRoot, pathValue = process.env.PATH ?? '') {
+export function createMinimalValidationEnvironment(tempRoot, pathValue = process.env.PATH ?? '') {
   const home = path.join(tempRoot, 'home')
   const temporary = path.join(tempRoot, 'tmp')
   const cache = path.join(tempRoot, 'cache')
@@ -888,7 +913,7 @@ function targetValidationEnvironment(tempRoot, pathValue = process.env.PATH ?? '
 export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCommand = process.platform === 'win32' ? 'yarn.cmd' : 'yarn', pathValue }) {
   const results = []
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-validation-'))
-  const { env, toolReadRoots } = targetValidationEnvironment(tempRoot, pathValue)
+  const { env, toolReadRoots } = createMinimalValidationEnvironment(tempRoot, pathValue)
   const dependencyPath = path.join(target, 'node_modules')
   let before = targetSnapshot(target)
   try {
@@ -935,7 +960,7 @@ export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCo
 
 export function runGeneratedTestStep({ step, target, timeout, roots, browserRuntimeResolver = resolveBrowserRuntime }) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-generated-test-'))
-  const { env, toolReadRoots } = targetValidationEnvironment(tempRoot)
+  const { env, toolReadRoots } = createMinimalValidationEnvironment(tempRoot)
   const dependencyPath = path.join(target, 'node_modules')
   const readOnlyRoots = [fs.realpathSync(target), ...(fs.existsSync(dependencyPath) ? [fs.realpathSync(dependencyPath)] : []), ...toolReadRoots]
   let execution
@@ -1194,26 +1219,39 @@ export function main(argv = process.argv.slice(2)) {
   const steps = []
   const resultArtifacts = []
   const deterministicStep = plan.steps.find((step) => step.kind === 'deterministic')
-  const deterministicExecution = execute(process.execPath, [evaluator, '--root', root, '--all'], root, options.caseTimeout * Math.max(1, plan.catalog.caseCount) + 60_000)
-  const deterministicObserved = sortedUnique((deterministicExecution.stdout ?? '').match(/^PASS (OMH-[0-9]{3})/gm)?.map((entry) => entry.slice('PASS '.length)) ?? [])
-  const deterministicResult = stepResult(deterministicStep, deterministicExecution, [], roots)
-  deterministicResult.observedCaseIds = deterministicObserved
-  if (deterministicObserved.length !== plan.catalog.caseCount) {
-    deterministicResult.status = 'fail'
-    deterministicResult.sanitizedError = `expected ${plan.catalog.caseCount} deterministic cases, observed ${deterministicObserved.length}`
-  }
-  steps.push(deterministicResult)
-
   const validationSteps = plan.steps.filter((step) => step.kind === 'validation')
-  if (deterministicResult.status === 'pass') {
-    const yarn = process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
-    for (const step of validationSteps) {
-      const script = step.command.slice('yarn '.length)
-      const execution = execute(yarn, [script], root, options.validationTimeout)
-      steps.push(stepResult(step, execution, [], roots))
+  const foundationTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-foundation-'))
+  const { env: foundationEnv } = createMinimalValidationEnvironment(foundationTempRoot)
+  let deterministicResult
+  try {
+    const deterministicExecution = execute(
+      process.execPath,
+      [evaluator, '--root', root, '--all'],
+      root,
+      options.caseTimeout * Math.max(1, plan.catalog.caseCount) + 60_000,
+      foundationEnv,
+    )
+    const deterministicObserved = sortedUnique((deterministicExecution.stdout ?? '').match(/^PASS (OMH-[0-9]{3})/gm)?.map((entry) => entry.slice('PASS '.length)) ?? [])
+    deterministicResult = stepResult(deterministicStep, deterministicExecution, [], roots)
+    deterministicResult.observedCaseIds = deterministicObserved
+    if (deterministicObserved.length !== plan.catalog.caseCount) {
+      deterministicResult.status = 'fail'
+      deterministicResult.sanitizedError = `expected ${plan.catalog.caseCount} deterministic cases, observed ${deterministicObserved.length}`
     }
-  } else {
-    for (const step of validationSteps) steps.push(skippedStep(step, 'deterministic gate failed'))
+    steps.push(deterministicResult)
+
+    if (deterministicResult.status === 'pass') {
+      const yarn = process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
+      for (const step of validationSteps) {
+        const script = step.command.slice('yarn '.length)
+        const execution = execute(yarn, [script], root, options.validationTimeout, foundationEnv)
+        steps.push(stepResult(step, execution, [], roots))
+      }
+    } else {
+      for (const step of validationSteps) steps.push(skippedStep(step, 'deterministic gate failed'))
+    }
+  } finally {
+    fs.rmSync(foundationTempRoot, { recursive: true, force: true })
   }
 
   const foundationsPassed = deterministicResult.status === 'pass'

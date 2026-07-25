@@ -15,6 +15,7 @@ const release = await import(pathToFileURL(releaseScript).href) as {
   buildReleasePlan: (input: Record<string, unknown>) => any
   aggregateQualityMetrics: (results: any[]) => any
   sanitizeReportText: (value: string, roots?: string[]) => string
+  createMinimalValidationEnvironment: (tempRoot: string, pathValue?: string) => { env: NodeJS.ProcessEnv; toolReadRoots: string[] }
   prepareWritableTargets: (input: { root: string; prepareRoot: string; caseIds: string[] }) => { schemaVersion: number; targets: Record<string, string> }
   resolvePreparationRoot: (requested: string, controllerRoot: string) => string
   dependencyContentFingerprint: (appRoot: string) => string
@@ -116,6 +117,7 @@ test('automatic target preparation clones only fresh source inputs and safely sh
   fs.writeFileSync(path.join(controller, '.ai', 'framework-context', 'old.txt'), 'context\n')
   fs.writeFileSync(path.join(controller, 'build', 'old.js'), 'build\n')
   fs.writeFileSync(path.join(controller, 'README.md'), 'fresh\n')
+  fs.writeFileSync(path.join(controller, '.env.example'), 'DATABASE_URL=postgres://localhost/example\n')
   try {
     const manifest = release.prepareWritableTargets({ root: controller, prepareRoot, caseIds: ['OMH-002', 'OMH-003'] })
     assert.deepEqual(Object.keys(manifest.targets), ['OMH-002', 'OMH-003'])
@@ -124,6 +126,7 @@ test('automatic target preparation clones only fresh source inputs and safely sh
     assert.equal(fs.existsSync(path.join(target, 'build')), false)
     assert.equal(fs.existsSync(path.join(target, '.ai', 'harness', 'results')), false)
     assert.equal(fs.existsSync(path.join(target, '.ai', 'framework-context')), false)
+    assert.equal(fs.readFileSync(path.join(target, '.env.example'), 'utf8'), 'DATABASE_URL=postgres://localhost/example\n')
     assert.equal(fs.lstatSync(path.join(target, 'node_modules')).isSymbolicLink(), true)
     assert.equal(fs.realpathSync(path.join(target, 'node_modules')), fs.realpathSync(path.join(controller, 'node_modules')))
     fs.writeFileSync(path.join(target, 'README.md'), 'changed\n')
@@ -136,6 +139,34 @@ test('automatic target preparation clones only fresh source inputs and safely sh
   } finally {
     fs.rmSync(parent, { recursive: true, force: true })
     fs.rmSync(controller, { recursive: true, force: true })
+  }
+})
+
+test('automatic target preparation rejects local environment, credential, and private-key files without copying them', { skip: process.platform === 'win32' }, () => {
+  const sensitiveFiles = ['.env', '.env.local', 'config/service-account-credentials.json', 'certs/signing.key']
+  for (const relative of sensitiveFiles) {
+    const controller = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-sensitive-source-')))
+    const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-sensitive-target-')))
+    const prepareRoot = path.join(parent, 'targets')
+    fs.mkdirSync(path.join(controller, 'src'), { recursive: true })
+    fs.mkdirSync(path.join(controller, 'node_modules', 'example'), { recursive: true })
+    fs.mkdirSync(path.join(controller, '.ai', 'harness'), { recursive: true })
+    fs.mkdirSync(path.dirname(path.join(controller, relative)), { recursive: true })
+    fs.writeFileSync(path.join(controller, 'package.json'), '{}\n')
+    fs.writeFileSync(path.join(controller, 'src', 'modules.ts'), 'export default []\n')
+    fs.writeFileSync(path.join(controller, '.ai', 'harness', 'cases.json'), '[]\n')
+    fs.writeFileSync(path.join(controller, relative), 'must-not-be-copied\n')
+    try {
+      assert.throws(
+        () => release.prepareWritableTargets({ root: controller, prepareRoot, caseIds: ['OMH-002'] }),
+        /sanitized fresh scaffold/,
+        relative,
+      )
+      assert.equal(fs.existsSync(prepareRoot), false, relative)
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true })
+      fs.rmSync(controller, { recursive: true, force: true })
+    }
   }
 })
 
@@ -244,6 +275,42 @@ fs.writeFileSync('contained.txt', 'ok')
     else process.env.FAKE_PROVIDER_SECRET = previous
     fs.rmSync(target, { recursive: true, force: true })
     fs.rmSync(outside, { recursive: true, force: true })
+  }
+})
+
+test('minimal validation environment omits provider secrets and process diagnostics redact inherited scalars and URL userinfo', { skip: !targetSandboxAvailable }, () => {
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-redaction-')))
+  const environmentRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-env-')))
+  const scalar = 'provider-scalar-must-not-persist'
+  const databaseUrl = 'postgres://release-user:database-password@db.example.test:5432/app'
+  const fakeYarn = path.join(target, 'fake-yarn')
+  fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
+if (process.env.FAKE_PROVIDER_SECRET) process.exit(21)
+console.error(${JSON.stringify(`${scalar} ${databaseUrl}`)})
+process.exit(7)
+`)
+  fs.chmodSync(fakeYarn, 0o755)
+  const previous = process.env.FAKE_PROVIDER_SECRET
+  process.env.FAKE_PROVIDER_SECRET = scalar
+  try {
+    const minimal = release.createMinimalValidationEnvironment(environmentRoot)
+    assert.equal(minimal.env.FAKE_PROVIDER_SECRET, undefined)
+    const [result] = release.runTargetValidationSteps({
+      steps: [{ id: 'target-validation:OMH-002:lint', kind: 'target-validation', caseId: 'OMH-002', command: 'yarn lint' }],
+      target,
+      timeout: 10_000,
+      roots: [target, environmentRoot],
+      yarnCommand: fakeYarn,
+    })
+    assert.equal(result.status, 'fail')
+    assert.equal(result.exitStatus, 7)
+    assert.doesNotMatch(result.sanitizedError, /provider-scalar-must-not-persist|release-user|database-password/)
+    assert.match(result.sanitizedError, /postgres:\/\/<redacted-secret>@db\.example\.test/)
+  } finally {
+    if (previous === undefined) delete process.env.FAKE_PROVIDER_SECRET
+    else process.env.FAKE_PROVIDER_SECRET = previous
+    fs.rmSync(target, { recursive: true, force: true })
+    fs.rmSync(environmentRoot, { recursive: true, force: true })
   }
 })
 
@@ -605,9 +672,111 @@ test('release command fails closed before execution and stores a sanitized exact
   }
 })
 
-test('release sanitization removes controller paths and common secret forms', () => {
+test('persisted foundation process diagnostics use a minimal environment and redact environment scalars plus URL userinfo', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-foundation-redaction-')))
+  const harness = path.join(root, '.ai', 'harness')
+  const fakeBin = path.join(root, 'fake-bin')
+  const scalar = 'foundation-provider-secret-must-not-persist'
+  const databaseUrl = 'postgres://foundation-user:foundation-password@db.example.test:5432/app'
+  fs.mkdirSync(path.join(harness, 'fixtures'), { recursive: true })
+  fs.mkdirSync(path.join(root, 'scripts'), { recursive: true })
+  fs.mkdirSync(path.join(root, 'node_modules'), { recursive: true })
+  fs.mkdirSync(fakeBin)
+  const input = releaseInputs()
+  const targets: Record<string, string> = {}
+  for (const caseId of ['OMH-002', 'OMH-003']) {
+    const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `om-release-foundation-${caseId}-`)))
+    fs.mkdirSync(path.join(target, 'src'), { recursive: true })
+    fs.mkdirSync(path.join(target, '.ai', 'harness'), { recursive: true })
+    fs.writeFileSync(path.join(target, 'package.json'), '{}\n')
+    fs.writeFileSync(path.join(target, 'src', 'modules.ts'), 'export default []\n')
+    fs.writeFileSync(path.join(target, '.ai', 'harness', 'cases.json'), '[]\n')
+    fs.symlinkSync(path.join(root, 'node_modules'), path.join(target, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+    targets[caseId] = target
+  }
+  input.targetsManifest = { schemaVersion: 1, targets }
+  fs.writeFileSync(path.join(harness, 'cases.json'), JSON.stringify(input.cases))
+  fs.writeFileSync(path.join(harness, 'validators.json'), JSON.stringify(input.registry))
+  fs.writeFileSync(path.join(harness, 'release-matrix.json'), JSON.stringify(input.releaseMatrix))
+  fs.copyFileSync(releaseSchema, path.join(harness, 'release-result.schema.json'))
+  fs.copyFileSync(targetValidationSchema, path.join(harness, 'target-validation-result.schema.json'))
+  fs.writeFileSync(path.join(harness, 'fixtures', 'index.json'), JSON.stringify(input.fixtures))
+  fs.writeFileSync(path.join(harness, 'fixtures', 'seeds.json'), JSON.stringify(input.seeds))
+  const reviewFiles = [
+    '.agents/skills/om-code-review/SKILL.md',
+    '.agents/skills/om-code-review/references/agentic-setup.md',
+    '.agents/skills/om-code-review/references/output-format.md',
+    '.agents/skills/om-code-review/references/review-checklist.md',
+    '.agents/skills/om-code-review/references/rules.md',
+    '.agents/skills/.om-external-ownership.json',
+  ]
+  for (const relative of reviewFiles) {
+    fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true })
+    fs.writeFileSync(path.join(root, relative), '{}\n')
+  }
+  fs.writeFileSync(path.join(root, 'scripts', 'evaluate-agent-harness.mjs'), `
+if (process.env.FAKE_PROVIDER_SECRET || process.env.DATABASE_URL) process.exit(21)
+console.error(${JSON.stringify(`${scalar} ${databaseUrl}`)})
+console.log('PASS OMH-001\\nPASS OMH-002\\nPASS OMH-003')
+`)
+  const fakeYarn = path.join(fakeBin, process.platform === 'win32' ? 'yarn.cmd' : 'yarn')
+  fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
+if (process.env.FAKE_PROVIDER_SECRET || process.env.DATABASE_URL) process.exit(22)
+console.error(${JSON.stringify(`${scalar} ${databaseUrl}`)})
+if (process.argv[2] === 'lint') process.exit(7)
+`)
+  fs.chmodSync(fakeYarn, 0o755)
+  const targetsPath = path.join(root, 'targets.json')
+  fs.writeFileSync(targetsPath, JSON.stringify(input.targetsManifest))
+  try {
+    const run = spawnSync(process.execPath, [
+      releaseScript, '--root', root, '--writable-targets', targetsPath, '--acknowledge-writes',
+    ], {
+      cwd: root,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ''}`,
+        FAKE_PROVIDER_SECRET: scalar,
+        DATABASE_URL: databaseUrl,
+      },
+    })
+    assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+    const resultDirectory = path.join(harness, 'results')
+    const reportFile = fs.readdirSync(resultDirectory).find((entry) => entry.endsWith('-release-suite.json'))
+    assert.ok(reportFile)
+    const reportText = fs.readFileSync(path.join(resultDirectory, reportFile), 'utf8')
+    const report = JSON.parse(reportText)
+    assert.equal(report.steps.find((step: any) => step.id === 'deterministic:all').status, 'pass')
+    assert.equal(report.steps.find((step: any) => step.id === 'validation:lint').exitStatus, 7)
+    assert.doesNotMatch(reportText, /foundation-provider-secret|foundation-user|foundation-password/)
+    assert.match(reportText, /postgres:\/\/<redacted-secret>@db\.example\.test/)
+  } finally {
+    for (const target of Object.values(targets)) fs.rmSync(target, { recursive: true, force: true })
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('release sanitization removes controller paths, environment scalars, URL userinfo, and common secret forms', () => {
   const root = path.join(os.tmpdir(), 'sensitive-release-root')
-  const sanitized = release.sanitizeReportText(`${root} token=abc123supersecret ghp_1234567890abcdefghij`, [root])
-  assert.doesNotMatch(sanitized, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-  assert.doesNotMatch(sanitized, /abc123supersecret|ghp_1234567890abcdefghij/)
+  const scalar = 'fake-provider-value-which-must-not-persist'
+  const previous = process.env.FAKE_PROVIDER_SECRET
+  process.env.FAKE_PROVIDER_SECRET = scalar
+  try {
+    const sanitized = release.sanitizeReportText([
+      root,
+      'token=abc123supersecret',
+      'ghp_1234567890abcdefghij',
+      scalar,
+      'postgres://database-user:database-password@db.example.test:5432/app',
+      'https://http-user:http-password@example.test/private',
+    ].join(' '), [root])
+    assert.doesNotMatch(sanitized, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.doesNotMatch(sanitized, /abc123supersecret|ghp_1234567890abcdefghij|fake-provider-value|database-user|database-password|http-user|http-password/)
+    assert.match(sanitized, /postgres:\/\/<redacted-secret>@db\.example\.test/)
+    assert.match(sanitized, /https:\/\/<redacted-secret>@example\.test/)
+  } finally {
+    if (previous === undefined) delete process.env.FAKE_PROVIDER_SECRET
+    else process.env.FAKE_PROVIDER_SECRET = previous
+  }
 })
