@@ -30,15 +30,25 @@ const executionSandbox = await import(pathToFileURL(executionSandboxScript).href
   assertSandboxNetworkModeSupported: (network: string, platform?: string) => void
   assertSandboxRuntimeAvailable: (network: string, platform?: string, env?: NodeJS.ProcessEnv) => void
   verifyLinuxSandboxIsolation: (env?: NodeJS.ProcessEnv) => void
+  collapseReadOnlyRoots: (roots: string[]) => string[]
+  linuxMergedUsrSymlinkArgs: () => string[]
   linuxNamespaceArgs: (network: string) => string[]
+  linuxIsolationArgs: (network: string) => string[]
   linuxNetworkReadFiles: (network: string) => string[]
   macSandboxProfile: (input: { command: string; writableRoots: string[]; readOnlyRoots: string[]; networkMode: string; env: NodeJS.ProcessEnv }) => string
   sandboxedInvocation: (input: Record<string, unknown>) => { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }
 }
 const targetSandboxAvailable = process.platform === 'darwin'
   || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
-const isolatedLoopbackAvailable = process.platform === 'linux'
+const bwrapPresent = process.platform === 'linux'
   && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0
+const isolatedLoopbackAvailable = (() => {
+  if (!bwrapPresent) return false
+  try {
+    executionSandbox.verifyLinuxSandboxIsolation(process.env)
+    return true
+  } catch { return false }
+})()
 
 function releaseInputs() {
   const targetA = path.join(os.tmpdir(), 'om-release-OMH-002')
@@ -721,6 +731,9 @@ test('Linux sandbox namespaces are private by default and host networking is sha
   assert.deepEqual(executionSandbox.linuxNamespaceArgs('none'), ['--unshare-all'])
   assert.deepEqual(executionSandbox.linuxNamespaceArgs('loopback'), ['--unshare-all'])
   assert.deepEqual(executionSandbox.linuxNamespaceArgs('all'), ['--unshare-all', '--share-net'])
+  assert.deepEqual(executionSandbox.linuxIsolationArgs('none'), ['--unshare-all', '--cap-drop', 'ALL'])
+  assert.deepEqual(executionSandbox.linuxIsolationArgs('loopback'), ['--unshare-all', '--cap-drop', 'ALL'])
+  assert.deepEqual(executionSandbox.linuxIsolationArgs('all'), ['--unshare-all', '--share-net', '--cap-drop', 'ALL'])
   assert.deepEqual(executionSandbox.linuxNetworkReadFiles('none'), [])
   assert.deepEqual(executionSandbox.linuxNetworkReadFiles('loopback'), [])
   assert.deepEqual(
@@ -729,6 +742,40 @@ test('Linux sandbox namespaces are private by default and host networking is sha
   )
   assert.throws(() => executionSandbox.linuxNamespaceArgs('provider'), /invalid sandbox network mode/)
   assert.throws(() => executionSandbox.linuxNetworkReadFiles('provider'), /invalid sandbox network mode/)
+})
+
+test('Linux Bubblewrap relies on its empty root instead of masking later bind sources', () => {
+  const source = fs.readFileSync(executionSandboxScript, 'utf8')
+  assert.doesNotMatch(source, /'--tmpfs', '\/'/)
+})
+
+test('sandbox runtime mounts collapse nested read roots before Bubblewrap applies them', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-read-roots-')))
+  const nested = path.join(root, 'nested')
+  const leaf = path.join(nested, 'leaf')
+  fs.mkdirSync(leaf, { recursive: true })
+  try {
+    assert.deepEqual(
+      executionSandbox.collapseReadOnlyRoots([leaf, root, nested, leaf]),
+      [root],
+    )
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('Linux Bubblewrap recreates only exact merged-usr root aliases', () => {
+  const expected = [
+    ['/bin', 'usr/bin'],
+    ['/sbin', 'usr/sbin'],
+    ['/lib', 'usr/lib'],
+    ['/lib64', 'usr/lib64'],
+  ].flatMap(([alias, target]) => {
+    try {
+      return fs.lstatSync(alias).isSymbolicLink() && fs.readlinkSync(alias) === target
+        ? ['--symlink', target, alias]
+        : []
+    } catch { return [] }
+  })
+  assert.deepEqual(executionSandbox.linuxMergedUsrSymlinkArgs(), expected)
 })
 
 test('macOS sandbox policy never grants wildcard host Mach lookup or POSIX IPC', () => {
@@ -826,8 +873,42 @@ test('release preflight requires Linux isolation when the matrix contains loopba
   } finally { fs.rmSync(bin, { recursive: true, force: true }) }
 })
 
-test('Linux release preflight proves private loopback with the trusted Bubblewrap runtime', { skip: !isolatedLoopbackAvailable }, () => {
+test('Linux release preflight proves private loopback with the trusted Bubblewrap runtime', { skip: !bwrapPresent }, () => {
   assert.doesNotThrow(() => executionSandbox.verifyLinuxSandboxIsolation(process.env))
+})
+
+test('Linux isolated payloads receive exact argv and no capabilities', { skip: !isolatedLoopbackAvailable }, () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-linux-caps-')))
+  const sentinels = ['space value', 'line\nbreak', ';$(touch SHOULD_NOT_EXIST)']
+  try {
+    const invocation = executionSandbox.sandboxedInvocation({
+      command: process.execPath,
+      args: ['-e', `
+const fs = require('node:fs')
+const capabilities = Object.fromEntries(fs.readFileSync('/proc/self/status', 'utf8')
+  .split('\\n').filter((line) => /^Cap(?:Inh|Prm|Eff|Bnd|Amb):/.test(line))
+  .map((line) => line.split(/:\\s+/)))
+console.log(JSON.stringify({ capabilities, argv: process.argv.slice(1) }))
+`, ...sentinels],
+      cwd: root,
+      writableRoots: [],
+      readOnlyRoots: [root],
+      networkMode: 'loopback',
+      env: process.env,
+    })
+    const result = spawnSync(invocation.command, invocation.args, {
+      cwd: invocation.cwd,
+      env: invocation.env,
+      encoding: 'utf8',
+      timeout: 5_000,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const payload = JSON.parse(result.stdout)
+    assert.deepEqual(payload.argv, sentinels)
+    assert.deepEqual(Object.keys(payload.capabilities).sort(), ['CapAmb', 'CapBnd', 'CapEff', 'CapInh', 'CapPrm'])
+    for (const value of Object.values(payload.capabilities)) assert.match(String(value), /^0+$/)
+    assert.equal(fs.existsSync(path.join(root, 'SHOULD_NOT_EXIST')), false)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
 test('macOS release preflight rejects loopback before dependencies or writable targets are touched', { skip: process.platform !== 'darwin' }, () => {

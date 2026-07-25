@@ -47,6 +47,37 @@ function uniqueExistingDirectories(values) {
   }).map((entry) => fs.realpathSync(entry))
 }
 
+export function collapseReadOnlyRoots(values) {
+  const roots = [...new Set(uniqueExistingDirectories(values))]
+    .sort((left, right) => left.split(path.sep).length - right.split(path.sep).length || left.localeCompare(right))
+  const result = []
+  for (const root of roots) {
+    const nested = result.some((parent) => {
+      const relative = path.relative(parent, root)
+      return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+    })
+    if (!nested) result.push(root)
+  }
+  return result
+}
+
+export function linuxMergedUsrSymlinkArgs() {
+  const aliases = [
+    ['/bin', 'usr/bin'],
+    ['/sbin', 'usr/sbin'],
+    ['/lib', 'usr/lib'],
+    ['/lib64', 'usr/lib64'],
+  ]
+  return aliases.flatMap(([alias, expected]) => {
+    try {
+      const stat = fs.lstatSync(alias)
+      return stat.isSymbolicLink() && fs.readlinkSync(alias) === expected
+        ? ['--symlink', expected, alias]
+        : []
+    } catch { return [] }
+  })
+}
+
 function uniqueExistingRegularFiles(values) {
   return [...new Set(values)].filter((entry) => {
     try { return fs.statSync(entry).isFile() } catch { return false }
@@ -81,7 +112,7 @@ function runtimeReadRoots(command, env) {
   const system = process.platform === 'darwin'
     ? ['/System', '/usr', '/bin', '/sbin', '/Library/Apple', '/Library/Fonts', '/Library/ColorSync', '/Library/Keyboard Layouts', '/Library/Keychains', '/Library/Security/Trust Settings', '/private/var/db', '/private/etc/ssl', '/etc/ssl', '/dev']
     : ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc/ssl', '/etc/ca-certificates']
-  return uniqueExistingDirectories([
+  return collapseReadOnlyRoots([
     ...system,
     nodeInstallRoot,
     path.dirname(executablePath),
@@ -124,8 +155,8 @@ export function verifyLinuxSandboxIsolation(env = process.env) {
   const baseArgs = [
     '--die-with-parent',
     '--new-session',
-    ...linuxNamespaceArgs('loopback'),
-    '--tmpfs', '/',
+    ...linuxIsolationArgs('loopback'),
+    ...linuxMergedUsrSymlinkArgs(),
     '--proc', '/proc',
     '--dev', '/dev',
     '--tmpfs', '/tmp',
@@ -146,10 +177,16 @@ host.listen(0, '127.0.0.1', () => {
   if (!address || typeof address === 'string') process.exit(72)
   const inner = \`
 const net = require('node:net')
+const fs = require('node:fs')
 const marker = \${JSON.stringify(marker)}
 const hostPort = \${address.port}
 const local = net.createServer((socket) => socket.end())
 const fail = () => process.exit(81)
+const capabilities = fs.readFileSync('/proc/self/status', 'utf8')
+  .split('\\\\n')
+  .filter((line) => /^Cap(?:Inh|Prm|Eff|Bnd|Amb):/.test(line))
+  .map((line) => line.split(/:\\\\s+/)[1])
+if (capabilities.length !== 5 || capabilities.some((value) => !/^0+$/.test(value))) fail()
 local.once('error', fail)
 local.listen(0, '127.0.0.1', () => {
   const address = local.address()
@@ -181,7 +218,7 @@ setTimeout(() => process.exit(74), 9000).unref()
       timeout: 10_000,
     })
     if (result.status !== 0 || result.error) {
-      throw new Error('Bubblewrap isolation probe failed: private user/network namespaces and isolated loopback are required')
+      throw new Error('Bubblewrap isolation probe failed: private user/network namespaces, capability-free payloads, and isolated loopback are required')
     }
   } finally {
     fs.rmSync(probeRoot, { recursive: true, force: true })
@@ -223,6 +260,10 @@ export function linuxNamespaceArgs(networkMode) {
   return ['--unshare-all', ...(networkMode === 'all' ? ['--share-net'] : [])]
 }
 
+export function linuxIsolationArgs(networkMode) {
+  return [...linuxNamespaceArgs(networkMode), '--cap-drop', 'ALL']
+}
+
 export function linuxNetworkReadFiles(networkMode) {
   linuxNamespaceArgs(networkMode)
   return networkMode === 'all'
@@ -239,8 +280,8 @@ function linuxInvocation({ command, args, cwd, writableRoots, readOnlyRoots, net
   const sandboxArgs = [
     '--die-with-parent',
     '--new-session',
-    ...linuxNamespaceArgs(networkMode),
-    '--tmpfs', '/',
+    ...linuxIsolationArgs(networkMode),
+    ...linuxMergedUsrSymlinkArgs(),
     '--proc', '/proc',
     '--dev', '/dev',
     '--tmpfs', '/tmp',
