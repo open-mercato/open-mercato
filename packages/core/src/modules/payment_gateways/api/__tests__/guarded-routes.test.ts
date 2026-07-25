@@ -2,6 +2,7 @@
 
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { conflict } from '@open-mercato/shared/lib/crud/errors'
 import {
   runPaymentGatewayMutationGuardAfterSuccess,
   runPaymentGatewayMutationGuards,
@@ -95,6 +96,18 @@ describe('payment gateway write routes wire the mutation guard lifecycle', () =>
       expect(response.status).toBe(201)
       expect(service.createPaymentSession).toHaveBeenCalledTimes(1)
       expect(runPaymentGatewayMutationGuardAfterSuccess).toHaveBeenCalledTimes(1)
+    })
+
+    it('surfaces an order reconciliation conflict as 409 instead of a gateway error', async () => {
+      service.createPaymentSession.mockRejectedValue(
+        conflict('Payment session amount 1 does not match the amount due for order o-1'),
+      )
+      const response = await createSession(buildRequest(body))
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({
+        error: 'Payment session amount 1 does not match the amount due for order o-1',
+      })
+      expect(runPaymentGatewayMutationGuardAfterSuccess).not.toHaveBeenCalled()
     })
   })
 

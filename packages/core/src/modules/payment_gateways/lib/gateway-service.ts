@@ -11,6 +11,7 @@ import {
   type GatewayAdapter,
   type GatewayPaymentStatus,
   type PaymentGatewayPresentationRequest,
+  type PaymentOrderTotalResolver,
   type UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
@@ -21,6 +22,7 @@ import { GatewaySessionInitialization, GatewayTransaction } from '../data/entiti
 import { canApplyManualAction, isValidTransition, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
+import { reconcileSessionAmountWithOrder } from './order-amount-reconciliation'
 import {
   completePaymentOperation,
   failPaymentOperation,
@@ -73,6 +75,11 @@ export interface PaymentGatewayServiceDeps {
   integrationCredentialsService: CredentialsService
   integrationStateService?: IntegrationStateService
   integrationLogService?: IntegrationLogService
+  /**
+   * Optional seam supplied by the module that owns orders (`sales` by default).
+   * When absent, session amounts cannot be reconciled and are accepted as-is.
+   */
+  paymentOrderTotalResolver?: PaymentOrderTotalResolver | null
   sessionClaimOptions?: {
     staleAfterMs?: number
     heartbeatIntervalMs?: number
@@ -376,6 +383,13 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
   return {
     async createPaymentSession(input: CreatePaymentSessionInput): Promise<{ transaction: GatewayTransaction; session: CreateSessionResult }> {
       const scope = { organizationId: input.organizationId, tenantId: input.tenantId }
+      await reconcileSessionAmountWithOrder({
+        orderId: input.orderId,
+        amount: input.amount,
+        currencyCode: input.currencyCode,
+        scope,
+        resolver: deps.paymentOrderTotalResolver,
+      })
       const { adapter, credentials } = await resolveAdapterAndCredentials(input.providerKey, scope)
 
       const sessionInput: CreateSessionInput = {
