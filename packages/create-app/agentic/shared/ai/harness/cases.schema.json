@@ -43,7 +43,18 @@
         }
       },
       "requiredSkills": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^om-[a-z0-9-]+$" } },
-      "optionalSkills": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^om-[a-z0-9-]+$" } },
+      "optionalSkills": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "route"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^om-[a-z0-9-]+$" },
+            "route": { "$ref": "#/$defs/router" }
+          }
+        }
+      },
       "context": {
         "type": "object",
         "additionalProperties": false,

@@ -942,6 +942,45 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
+test('a selected optional skill requires both its bound route and observed SKILL.md', { skip: process.platform === 'win32' }, () => {
+  const scenarios = [
+    {
+      routes: ['module-data'],
+      context: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md', '.ai/skills/om-framework-context/SKILL.md'],
+      expected: 'optional skill om-framework-context requires route framework-context',
+    },
+    {
+      routes: ['module-data', 'framework-context'],
+      context: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+      expected: 'selected skill context missing om-framework-context',
+    },
+  ]
+  for (const scenario of scenarios) {
+    const root = stageApp()
+    const command = `cat ${scenario.context.join(' ')}`
+    const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs'); const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ${JSON.stringify(scenario.routes)}, selectedSkills: ['om-data-model-design', 'om-framework-context'],
+  selectedContext: ${JSON.stringify(scenario.context)},
+  decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: ${JSON.stringify(command)} } }))
+`)
+    try {
+      const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-009'], {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+      })
+      assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+      assert.ok(storedResults(root)[0].violations.includes(scenario.expected), JSON.stringify(storedResults(root), null, 2))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
 test('Codex login-shell wrappers preserve narrow reads without authorizing nested interpreters', { skip: process.platform === 'win32' }, () => {
   for (const command of [
     `/bin/zsh -lc "sed -n '1,120p' AGENTS.md && sed -n '1,120p' .ai/guides/architecture.md"`,

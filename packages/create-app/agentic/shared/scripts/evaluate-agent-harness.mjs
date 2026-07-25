@@ -319,9 +319,15 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     if (!isUniqueStringArray(allowedExtra) || allowedExtra.some((route) => !ROUTERS.has(route))) add(id, 'expectedRouter.allowedExtra is invalid')
     if ((requiredRoutes ?? []).some((route) => allowedExtra.includes(route))) add(id, 'required and allowed-extra routes overlap')
     if (!isUniqueStringArray(item.requiredSkills) || item.requiredSkills.some((skill) => !/^om-[a-z0-9-]+$/.test(skill))) add(id, 'requiredSkills must be unique om-* names')
-    if (!isUniqueStringArray(item.optionalSkills ?? []) || (item.optionalSkills ?? []).some((skill) => !/^om-[a-z0-9-]+$/.test(skill))) add(id, 'optionalSkills must be unique om-* names')
-    if ((item.requiredSkills ?? []).some((skill) => (item.optionalSkills ?? []).includes(skill))) add(id, 'required and optional skills overlap')
-    for (const skill of [...(item.requiredSkills ?? []), ...(item.optionalSkills ?? [])]) {
+    const optionalSkills = Array.isArray(item.optionalSkills) ? item.optionalSkills : []
+    const optionalSkillIds = optionalSkills.map((skill) => skill?.id)
+    if ((item.optionalSkills !== undefined && !Array.isArray(item.optionalSkills)) || optionalSkills.some((skill) => !isPlainObject(skill)
+      || Object.keys(skill).some((key) => !['id', 'route'].includes(key))
+      || !/^om-[a-z0-9-]+$/.test(skill.id ?? '') || !ROUTERS.has(skill.route))) add(id, 'optionalSkills must bind unique om-* names to routes')
+    if (new Set(optionalSkillIds).size !== optionalSkillIds.length) add(id, 'optionalSkills must bind unique om-* names to routes')
+    if ((item.requiredSkills ?? []).some((skill) => optionalSkillIds.includes(skill))) add(id, 'required and optional skills overlap')
+    for (const skill of optionalSkills) if (!allowedExtra.includes(skill.route)) add(id, `optional skill ${skill.id} route must be allowed-extra`)
+    for (const skill of [...(item.requiredSkills ?? []), ...optionalSkillIds]) {
       const local = path.join(root, '.ai', 'skills', skill, 'SKILL.md')
       const canonical = path.join(root, '.agents', 'skills', skill, 'SKILL.md')
       if (!fs.existsSync(local) && !fs.existsSync(canonical) && !externalSkills.has(skill)) add(id, `unknown skill ${skill}`)
@@ -1040,7 +1046,7 @@ function isAllowedObservedPath(relative, caseRecord, writable) {
 }
 
 function supportingSkillPaths(caseRecord) {
-  return [...(caseRecord.requiredSkills ?? []), ...(caseRecord.optionalSkills ?? [])].flatMap((skill) => [
+  return [...(caseRecord.requiredSkills ?? []), ...(caseRecord.optionalSkills ?? []).map((skill) => skill.id)].flatMap((skill) => [
     `.ai/skills/${skill}/SKILL.md`,
     `.agents/skills/${skill}/SKILL.md`,
   ])
@@ -1233,10 +1239,19 @@ function evaluateRouting(caseRecord, response, stats) {
   const permitted = new Set([...caseRecord.expectedRouter.required, ...(caseRecord.expectedRouter.allowedExtra ?? [])])
   for (const selected of selectedRoutes) if (!permitted.has(selected)) failures.push(`unexpected route ${selected}`)
   const selectedSkills = new Set(response.selectedSkills)
-  for (const required of caseRecord.requiredSkills) if (!selectedSkills.has(required)) failures.push(`missing skill ${required}`)
-  const permittedSkills = new Set([...caseRecord.requiredSkills, ...(caseRecord.optionalSkills ?? [])])
-  for (const selected of selectedSkills) if (!permittedSkills.has(selected)) failures.push(`unexpected skill ${selected}`)
   const selectedContext = new Set(response.selectedContext)
+  for (const required of caseRecord.requiredSkills) if (!selectedSkills.has(required)) failures.push(`missing skill ${required}`)
+  const optionalSkills = new Map((caseRecord.optionalSkills ?? []).map((skill) => [skill.id, skill.route]))
+  const permittedSkills = new Set([...caseRecord.requiredSkills, ...optionalSkills.keys()])
+  for (const selected of selectedSkills) if (!permittedSkills.has(selected)) failures.push(`unexpected skill ${selected}`)
+  for (const selected of selectedSkills) {
+    const skillPaths = [`.ai/skills/${selected}/SKILL.md`, `.agents/skills/${selected}/SKILL.md`]
+    const declaredSkillPath = skillPaths.find((skillPath) => selectedContext.has(skillPath))
+    if (!declaredSkillPath) failures.push(`selected skill context missing ${selected}`)
+    else if (!stats.paths.includes(declaredSkillPath)) failures.push(`selected skill context not observed ${selected}`)
+    const optionalRoute = optionalSkills.get(selected)
+    if (optionalRoute && !selectedRoutes.has(optionalRoute)) failures.push(`optional skill ${selected} requires route ${optionalRoute}`)
+  }
   for (const required of caseRecord.context.required) {
     if (![...selectedContext].some((selected) => globToRegExp(required).test(selected))) failures.push(`missing context ${required}`)
     if (!stats.paths.some((observed) => globToRegExp(required).test(observed))) failures.push(`required context not observed ${required}`)

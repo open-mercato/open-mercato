@@ -614,7 +614,10 @@
     "om-data-model-design"
   ],
   "optionalSkills": [
-    "om-framework-context"
+    {
+      "id": "om-framework-context",
+      "route": "framework-context"
+    }
   ],
     "context": {
       "required": [
