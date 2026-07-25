@@ -836,7 +836,7 @@
       "oracle.artifacts",
       "oracle.module.crud"
     ],
-    "maxContextFiles": 8,
+    "maxContextFiles": 6,
     "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
