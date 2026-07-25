@@ -1,6 +1,6 @@
 # {{PROJECT_NAME}} — Standalone App Agent Rules
 
-Extend this Open Mercato app. Route here first; load every match and never probe unmatched context.
+Extend this app. Route here first; load every match; never probe unmatched context.
 
 ## Always
 
@@ -44,7 +44,7 @@ Report failures; never apply migrations for validation
 
 ## Three-Axis Context Assembler
 
-Combine matches: notification/editable custom field = `module-data` + `backend-ui` + `umes`; lifecycle reaction = `module-data` + `umes`; convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. Add `testing` only when explicit and `framework-context` only for an unresolved contract.
+Combine matches: notification/editable custom field = `module-data` + `backend-ui` + `umes`; lifecycle reaction = `module-data` + `umes` (UMES owns it); convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. Add `testing` only when explicit and `framework-context` only for an unresolved contract.
 
 Business verticals MUST load `om-module-scaffold` + their exact blueprint.
 

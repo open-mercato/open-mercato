@@ -2236,12 +2236,12 @@
   },
   {
     "id": "OMH-029",
-    "title": "Hide or replace an installed page through supported overrides",
+    "title": "Hide or rewire an installed page through supported overrides",
     "family": "umes",
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, hide or replace an installed page through supported overrides. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, hide an installed page or rewire it to an existing app-owned page through supported overrides. This task only registers the override; do not design a new page or reconsider module ownership. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "backend-ui",
@@ -2664,16 +2664,14 @@
       ]
     },
     "requiredSkills": [
-      "om-system-extension",
-      "om-module-scaffold"
+      "om-system-extension"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/extensions.md",
-        ".ai/guides/contracts.md",
-        ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/skills/om-module-scaffold/SKILL.md"
+      ".ai/guides/contracts.md",
+      ".ai/skills/om-system-extension/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -7417,7 +7415,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Import a large customer spreadsheet through a preview step that maps columns, validates every row, and shows a downloadable error report before anything is saved. Neutralize spreadsheet formulas, stream rather than load the whole file, isolate bad rows according to an explicit policy, deduplicate safely, and keep all created customers in the authorized scope.",
+    "prompt": "Import a large customer spreadsheet through a preview step that maps columns, validates every row, and shows a downloadable error report before anything is saved. Save valid rows into the existing CRM customer records rather than creating a second customer store. Neutralize spreadsheet formulas, stream rather than load the whole file, isolate bad rows according to an explicit policy, deduplicate safely, and keep all created customers in the authorized scope.",
     "tags": [
       "business-language",
       "customers",
