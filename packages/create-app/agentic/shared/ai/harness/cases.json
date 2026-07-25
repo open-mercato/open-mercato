@@ -363,7 +363,7 @@
     "mode": "spec",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "Given an approved standalone library-management specification with separate data/API, admin UI, and overdue-notification phases, explain how to implement selected phases so every completed phase leaves a working app and preserves the spec contracts.",
+    "prompt": "Given an approved standalone library-management specification with separate data/API, admin UI, and event-subscriber overdue-notification phases (not a durable workflow), explain how to implement selected phases so every completed phase leaves a working app and preserves the spec contracts.",
     "tags": [
       "architecture",
       "spec-pr",
