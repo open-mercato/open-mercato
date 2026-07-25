@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import { createServer } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -23,8 +24,11 @@ const release = await import(pathToFileURL(releaseScript).href) as {
   runGeneratedTestStep: (input: { steps?: never; step: any; target: string; timeout: number; roots: string[]; browserRuntimeResolver?: (target: string, cache: string) => any }) => any
   generatedTestExecutionContract: (entry: { runner: string; artifact: string }) => { executor: string; cliPackage: string; argv: string[]; command: string }
   targetContentFingerprint: (root: string) => string
+  releaseHostPrerequisiteViolations: (matrix: Record<string, unknown>, platform?: string, env?: NodeJS.ProcessEnv) => string[]
 }
 const executionSandbox = await import(pathToFileURL(executionSandboxScript).href) as {
+  assertSandboxNetworkModeSupported: (network: string, platform?: string) => void
+  assertSandboxRuntimeAvailable: (network: string, platform?: string, env?: NodeJS.ProcessEnv) => void
   linuxNamespaceArgs: (network: string) => string[]
   linuxNetworkReadFiles: (network: string) => string[]
   macSandboxProfile: (input: { command: string; writableRoots: string[]; readOnlyRoots: string[]; networkMode: string; env: NodeJS.ProcessEnv }) => string
@@ -32,6 +36,8 @@ const executionSandbox = await import(pathToFileURL(executionSandboxScript).href
 }
 const targetSandboxAvailable = process.platform === 'darwin'
   || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
+const isolatedLoopbackAvailable = process.platform === 'linux'
+  && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0
 
 function releaseInputs() {
   const targetA = path.join(os.tmpdir(), 'om-release-OMH-002')
@@ -741,6 +747,108 @@ test('macOS sandbox policy never grants wildcard host Mach lookup or POSIX IPC',
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
+test('macOS sandbox rejects loopback because it cannot isolate host listeners', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-mac-loopback-')))
+  try {
+    assert.throws(
+      () => executionSandbox.macSandboxProfile({
+        command: process.execPath,
+        writableRoots: [root],
+        readOnlyRoots: [],
+        networkMode: 'loopback',
+        env: process.env,
+      }),
+      /isolated loopback is unavailable with macOS sandbox-exec; run this lane in a Linux VM\/container with Bubblewrap/,
+    )
+    assert.throws(
+      () => executionSandbox.assertSandboxNetworkModeSupported('loopback', 'darwin'),
+      /isolated loopback is unavailable/,
+    )
+    assert.doesNotThrow(() => executionSandbox.assertSandboxNetworkModeSupported('loopback', 'linux'))
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('sandboxed network-free lanes cannot connect to an evaluator-owned host listener', { skip: !targetSandboxAvailable }, async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-host-listener-')))
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  try {
+    const address = server.address()
+    assert.ok(address && typeof address !== 'string')
+    const invocation = executionSandbox.sandboxedInvocation({
+      command: process.execPath,
+      args: ['-e', `
+const socket = require('node:net').connect(${address.port}, '127.0.0.1')
+socket.once('connect', () => { console.log('HOST_LOOPBACK_REACHED'); process.exit(91) })
+socket.once('error', () => process.exit(0))
+setTimeout(() => process.exit(0), 500).unref()
+`],
+      cwd: root,
+      writableRoots: [],
+      readOnlyRoots: [root],
+      networkMode: process.platform === 'linux' ? 'loopback' : 'none',
+      env: process.env,
+    })
+    const result = spawnSync(invocation.command, invocation.args, {
+      cwd: invocation.cwd,
+      env: invocation.env,
+      encoding: 'utf8',
+      timeout: 5_000,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.doesNotMatch(result.stdout, /HOST_LOOPBACK_REACHED/)
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('release preflight requires Linux isolation when the matrix contains loopback lanes', () => {
+  const bin = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-fake-bwrap-')))
+  const fakeBwrap = path.join(bin, 'bwrap')
+  fs.writeFileSync(fakeBwrap, '#!/bin/sh\nexit 0\n')
+  fs.chmodSync(fakeBwrap, 0o755)
+  const matrix = releaseInputs().releaseMatrix
+  matrix.generatedTests.entries = [{ caseId: 'OMH-002', network: 'loopback' }]
+  try {
+    assert.match(release.releaseHostPrerequisiteViolations(matrix, 'darwin')[0], /Linux VM\/container with Bubblewrap/)
+    assert.deepEqual(release.releaseHostPrerequisiteViolations(matrix, 'linux', { PATH: bin }), [])
+    assert.match(release.releaseHostPrerequisiteViolations(matrix, 'linux', { PATH: '' })[0], /bwrap/)
+    matrix.generatedTests.entries = []
+    assert.deepEqual(release.releaseHostPrerequisiteViolations(matrix, 'darwin'), [])
+  } finally { fs.rmSync(bin, { recursive: true, force: true }) }
+})
+
+test('macOS release preflight rejects loopback before dependencies or writable targets are touched', { skip: process.platform !== 'darwin' }, () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-mac-preflight-')))
+  const harness = path.join(root, '.ai', 'harness')
+  const prepareRoot = path.join(root, 'prepared-targets')
+  const input = releaseInputs()
+  input.releaseMatrix.generatedTests.entries = [{ caseId: 'OMH-002', network: 'loopback' }]
+  fs.mkdirSync(path.join(harness, 'fixtures'), { recursive: true })
+  fs.mkdirSync(prepareRoot)
+  fs.writeFileSync(path.join(harness, 'cases.json'), JSON.stringify(input.cases))
+  fs.writeFileSync(path.join(harness, 'validators.json'), JSON.stringify(input.registry))
+  fs.writeFileSync(path.join(harness, 'release-matrix.json'), JSON.stringify(input.releaseMatrix))
+  fs.copyFileSync(releaseSchema, path.join(harness, 'release-result.schema.json'))
+  fs.copyFileSync(targetValidationSchema, path.join(harness, 'target-validation-result.schema.json'))
+  fs.writeFileSync(path.join(harness, 'fixtures', 'index.json'), JSON.stringify(input.fixtures))
+  fs.writeFileSync(path.join(harness, 'fixtures', 'seeds.json'), JSON.stringify(input.seeds))
+  try {
+    const run = spawnSync(process.execPath, [
+      releaseScript, '--root', root, '--runner', 'codex', '--prepare-targets', prepareRoot, '--acknowledge-writes',
+    ], { cwd: root, encoding: 'utf8' })
+    assert.equal(run.status, 2, `${run.stdout}\n${run.stderr}`)
+    assert.match(run.stderr, /release host prerequisites are not satisfied/)
+    assert.match(run.stderr, /Linux VM\/container with Bubblewrap/)
+    assert.deepEqual(fs.readdirSync(prepareRoot), [])
+    assert.equal(fs.existsSync(path.join(root, 'node_modules')), false)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
 test('release target fingerprints bind empty directories and file or directory mode changes', { skip: process.platform === 'win32' }, () => {
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-target-fingerprint-')))
   const source = path.join(target, 'source.ts')
@@ -908,7 +1016,7 @@ test('generated Jest evidence rejects zero-exit skipped and todo tests from the 
   }
 })
 
-test('generated API Playwright tests can use isolated loopback but cannot reach an external address', { skip: !targetSandboxAvailable }, () => {
+test('generated API Playwright tests can use isolated loopback but cannot reach an external address', { skip: !isolatedLoopbackAvailable }, () => {
   const target = stageGeneratedTestTarget()
   const artifact = 'src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts'
   writeGeneratedTest(target, artifact, `
@@ -930,7 +1038,7 @@ test('loopback only', async ({ request }) => {
   } finally { fs.rmSync(target, { recursive: true, force: true }) }
 })
 
-test('generated browser Playwright tests launch the exact bounded headless runtime', { skip: !targetSandboxAvailable }, () => {
+test('generated browser Playwright tests launch the exact bounded headless runtime', { skip: !isolatedLoopbackAvailable }, () => {
   const target = stageGeneratedTestTarget()
   const artifact = 'src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts'
   writeGeneratedTest(target, artifact, `
@@ -953,7 +1061,7 @@ test('real browser', async ({ page }) => {
   } finally { fs.rmSync(target, { recursive: true, force: true }) }
 })
 
-test('generated Playwright evidence rejects skipped and expected-failure tests even when the runner exits zero', { skip: !targetSandboxAvailable }, () => {
+test('generated Playwright evidence rejects skipped and expected-failure tests even when the runner exits zero', { skip: !isolatedLoopbackAvailable }, () => {
   for (const [label, body] of [
     ['skipped', "test.skip(true, 'disabled')"],
     ['expected failure', "test.fail(); throw new Error('expected failure')"],

@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
-import { sandboxedInvocation } from './execution-sandbox.mjs'
+import { assertSandboxRuntimeAvailable, sandboxedInvocation } from './execution-sandbox.mjs'
 
 const WRITABLE_KINDS = new Set(['implementation', 'regression'])
 const RELEASE_SUPPORTED_RUNNERS = ['codex', 'claude']
@@ -762,6 +762,20 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
   }
 }
 
+export function releaseHostPrerequisiteViolations(releaseMatrix, platform = process.platform, env = process.env) {
+  const entries = Array.isArray(releaseMatrix?.generatedTests?.entries) ? releaseMatrix.generatedTests.entries : []
+  const modes = ['none', ...(entries.some((entry) => entry?.network === 'loopback') ? ['loopback'] : [])]
+  const violations = []
+  for (const mode of modes) {
+    try {
+      assertSandboxRuntimeAvailable(mode, platform, env)
+    } catch (error) {
+      violations.push(error instanceof Error ? error.message : String(error))
+    }
+  }
+  return [...new Set(violations)]
+}
+
 function percentage(numerator, denominator) {
   return denominator === 0 ? 0 : Math.round((numerator / denominator) * 10_000) / 100
 }
@@ -1204,7 +1218,7 @@ export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCo
           cwd: workspace,
           writableRoots: [workspace, tempRoot],
           readOnlyRoots,
-          networkMode: step.command === 'yarn build' ? 'loopback' : 'none',
+          networkMode: 'none',
           env,
         })
         execution = execute(invocation.command, invocation.args, invocation.cwd, timeout, invocation.env)
@@ -1460,6 +1474,12 @@ export function main(argv = process.argv.slice(2)) {
     targetValidationResultSchema = readJson(path.join(harnessDir, 'target-validation-result.schema.json'))
   } catch {
     console.error('release harness inputs are missing or invalid')
+    return 2
+  }
+  const hostPrerequisiteViolations = releaseHostPrerequisiteViolations(releaseMatrix)
+  if (hostPrerequisiteViolations.length) {
+    console.error('release host prerequisites are not satisfied:')
+    for (const violation of hostPrerequisiteViolations) console.error(`- ${violation}`)
     return 2
   }
   let targetsManifest

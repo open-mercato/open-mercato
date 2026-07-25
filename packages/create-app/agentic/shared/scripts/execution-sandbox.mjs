@@ -83,7 +83,30 @@ function sandboxLiteral(value) {
   return String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"')
 }
 
+export function assertSandboxNetworkModeSupported(networkMode, platform = process.platform) {
+  if (!['none', 'loopback', 'all'].includes(networkMode)) {
+    throw new Error(`invalid sandbox network mode: ${String(networkMode)}`)
+  }
+  if (platform === 'darwin' && networkMode === 'loopback') {
+    throw new Error('isolated loopback is unavailable with macOS sandbox-exec; run this lane in a Linux VM/container with Bubblewrap')
+  }
+}
+
+export function assertSandboxRuntimeAvailable(networkMode, platform = process.platform, env = process.env) {
+  assertSandboxNetworkModeSupported(networkMode, platform)
+  if (platform === 'darwin') {
+    if (!fs.existsSync('/usr/bin/sandbox-exec')) throw new Error('macOS target isolation requires /usr/bin/sandbox-exec')
+    return
+  }
+  if (platform === 'linux') {
+    resolveExecutable('bwrap', env)
+    return
+  }
+  throw new Error(`target isolation is unsupported on ${platform}; use a Linux VM/container with Bubblewrap`)
+}
+
 export function macSandboxProfile({ command, writableRoots, readOnlyRoots, networkMode, env }) {
+  assertSandboxNetworkModeSupported(networkMode, 'darwin')
   const writable = writableRoots.map((root, index) => regularDirectory(root, `writable sandbox root ${index + 1}`))
   const readOnly = readOnlyRoots.map((root, index) => regularDirectory(root, `read-only sandbox root ${index + 1}`))
   const readable = uniqueExistingDirectories([...writable, ...readOnly, ...runtimeReadRoots(command, env)])
@@ -101,17 +124,13 @@ export function macSandboxProfile({ command, writableRoots, readOnlyRoots, netwo
     ...readable.map((root) => `(allow file-read* (subpath "${sandboxLiteral(root)}"))`),
     ...writable.map((root) => `(allow file-write* (subpath "${sandboxLiteral(root)}"))`),
     ...(networkMode === 'all' ? ['(allow network*)'] : []),
-    ...(networkMode === 'loopback' ? [
-      '(allow network-inbound (local ip "localhost:*"))',
-      '(allow network-outbound (remote ip "localhost:*"))',
-    ] : []),
     ...readOnly.map((root) => `(deny file-write* (subpath "${sandboxLiteral(root)}"))`),
   ].join(' ')
 }
 
 function macInvocation({ command, args, cwd, writableRoots, readOnlyRoots, networkMode, env }) {
   const sandbox = '/usr/bin/sandbox-exec'
-  if (!fs.existsSync(sandbox)) throw new Error('macOS target isolation requires /usr/bin/sandbox-exec')
+  assertSandboxRuntimeAvailable(networkMode, 'darwin', env)
   const profile = macSandboxProfile({ command, writableRoots, readOnlyRoots, networkMode, env })
   return { command: sandbox, args: ['-p', profile, resolveExecutable(command, env), ...args], cwd: regularDirectory(cwd, 'sandbox cwd'), env }
 }
@@ -129,6 +148,7 @@ export function linuxNetworkReadFiles(networkMode) {
 }
 
 function linuxInvocation({ command, args, cwd, writableRoots, readOnlyRoots, networkMode, env }) {
+  assertSandboxRuntimeAvailable(networkMode, 'linux', env)
   const bubblewrap = resolveExecutable('bwrap', env)
   const writable = writableRoots.map((root, index) => regularDirectory(root, `writable sandbox root ${index + 1}`))
   const readOnly = readOnlyRoots.map((root, index) => regularDirectory(root, `read-only sandbox root ${index + 1}`))
@@ -155,7 +175,7 @@ function linuxInvocation({ command, args, cwd, writableRoots, readOnlyRoots, net
 
 export function sandboxedInvocation(options) {
   const networkMode = options.networkMode ?? (options.networkAllowed === true ? 'all' : 'none')
-  if (!['none', 'loopback', 'all'].includes(networkMode)) throw new Error(`invalid sandbox network mode: ${String(networkMode)}`)
+  assertSandboxNetworkModeSupported(networkMode)
   const invocation = {
     ...options,
     args: options.args ?? [],
