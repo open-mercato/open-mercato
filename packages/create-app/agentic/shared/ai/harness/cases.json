@@ -485,7 +485,8 @@
       ".ai/skills/om-troubleshooter/SKILL.md"
     ],
     "allowedExtra": [
-      ".ai/guides/contracts.md"
+      ".ai/guides/contracts.md",
+      ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
     ],
       "forbidden": [
         ".env*",
@@ -801,6 +802,11 @@
         ".ai/guides/contracts.md",
         ".ai/skills/om-module-scaffold/SKILL.md"
       ],
+      "allowedExtra": [
+        ".ai/guides/modules/api_docs.md",
+        ".ai/guides/modules/search.md",
+        ".ai/guides/modules/query_index.md"
+      ],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -830,7 +836,7 @@
       "oracle.artifacts",
       "oracle.module.crud"
     ],
-    "maxContextFiles": 6,
+    "maxContextFiles": 8,
     "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
@@ -4158,8 +4164,7 @@
         ".ai/guides/modules/workflows.md"
       ],
       "allowedExtra": [
-        ".ai/guides/contracts.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/contracts.md"
       ],
       "forbidden": [
         ".env*",
