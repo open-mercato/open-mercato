@@ -170,6 +170,7 @@ export async function preparePaymentOperation(
     attemptToken: claim.attemptToken,
     attemptCount: 1,
     result: null,
+    reservedAmount: null,
     leaseExpiresAt: claim.leaseExpiresAt,
     organizationId: input.scope.organizationId,
     tenantId: input.scope.tenantId,
