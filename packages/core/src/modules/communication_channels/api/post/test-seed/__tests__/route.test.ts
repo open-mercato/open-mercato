@@ -5,6 +5,7 @@ const mockCreateRequestContainer = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
 const mockEmitEvent = jest.fn()
 const mockExecute = jest.fn()
+const mockLoadAcl = jest.fn()
 
 const mockEm = {
   fork: jest.fn(),
@@ -15,7 +16,11 @@ const mockEm = {
 }
 
 const mockContainer = {
-  resolve: jest.fn((token: string) => (token === 'em' ? mockEm : undefined)),
+  resolve: jest.fn((token: string) => {
+    if (token === 'em') return mockEm
+    if (token === 'rbacService') return { loadAcl: mockLoadAcl }
+    return undefined
+  }),
 }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -42,9 +47,11 @@ jest.mock('../../../../lib/test-seed', () => ({
 
 import { POST } from '../route'
 
+const CALLER_USER = 'caller-user-id'
+const OTHER_USER = 'other-user-id'
 const CALLER_TENANT = '11111111-1111-4111-8111-111111111111'
 const CALLER_ORG = '22222222-2222-4222-8222-222222222222'
-const FOREIGN_CHANNEL = '33333333-3333-4333-8333-333333333333'
+const CHANNEL_ID = '33333333-3333-4333-8333-333333333333'
 
 function emitInboundRequest(channelId: string): Request {
   return new Request('http://localhost/api/communication_channels/test-seed', {
@@ -53,7 +60,14 @@ function emitInboundRequest(channelId: string): Request {
   })
 }
 
-describe('POST /api/communication_channels/test-seed — emit-inbound channel ownership', () => {
+function expectNothingSeeded(): void {
+  expect(mockEm.create).not.toHaveBeenCalled()
+  expect(mockEm.persist).not.toHaveBeenCalled()
+  expect(mockExecute).not.toHaveBeenCalled()
+  expect(mockEmitEvent).not.toHaveBeenCalled()
+}
+
+describe('POST /api/communication_channels/test-seed — emit-inbound channel authorization', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
@@ -66,50 +80,99 @@ describe('POST /api/communication_channels/test-seed — emit-inbound channel ow
     mockExecute.mockResolvedValue([{ id: 'seeded-message-id' }])
     mockEmitEvent.mockResolvedValue(undefined)
     mockCreateRequestContainer.mockResolvedValue(mockContainer)
+    mockLoadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['communication_channels.connect_user_channel'],
+      organizations: null,
+    })
     mockGetAuthFromRequest.mockResolvedValue({
-      sub: 'user-1',
+      sub: CALLER_USER,
       tenantId: CALLER_TENANT,
       orgId: CALLER_ORG,
     })
   })
 
-  it('rejects a channelId the caller does not own with 404 and seeds nothing', async () => {
+  it('rejects a channelId outside the caller tenant/org with 404 and seeds nothing', async () => {
     mockFindOneWithDecryption.mockResolvedValue(null)
 
-    const res = await POST(emitInboundRequest(FOREIGN_CHANNEL))
+    const res = await POST(emitInboundRequest(CHANNEL_ID))
 
     expect(res.status).toBe(404)
     await expect(res.json()).resolves.toEqual({ error: 'Channel not found' })
-    // No conversation, message, link, or mapping may reference a foreign channel.
-    expect(mockEm.create).not.toHaveBeenCalled()
-    expect(mockEm.persist).not.toHaveBeenCalled()
-    expect(mockExecute).not.toHaveBeenCalled()
-    expect(mockEmitEvent).not.toHaveBeenCalled()
+    expectNothingSeeded()
   })
 
   it('scopes the ownership lookup to the caller tenant/org and excludes soft-deleted channels', async () => {
     mockFindOneWithDecryption.mockResolvedValue(null)
 
-    await POST(emitInboundRequest(FOREIGN_CHANNEL))
+    await POST(emitInboundRequest(CHANNEL_ID))
 
     expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(1)
     expect(mockFindOneWithDecryption.mock.calls[0][2]).toEqual({
-      id: FOREIGN_CHANNEL,
+      id: CHANNEL_ID,
       tenantId: CALLER_TENANT,
       organizationId: CALLER_ORG,
       deletedAt: null,
     })
   })
 
-  it('still seeds the inbound rows and emits the hub event for an owned channel', async () => {
-    const ownedChannel = '44444444-4444-4444-8444-444444444444'
+  it('rejects a same-tenant personal mailbox owned by another user with 404 and seeds nothing', async () => {
     mockFindOneWithDecryption.mockResolvedValue({
-      id: ownedChannel,
+      id: CHANNEL_ID,
       tenantId: CALLER_TENANT,
       organizationId: CALLER_ORG,
+      userId: OTHER_USER,
     })
 
-    const res = await POST(emitInboundRequest(ownedChannel))
+    const res = await POST(emitInboundRequest(CHANNEL_ID))
+
+    expect(res.status).toBe(404)
+    await expect(res.json()).resolves.toEqual({ error: 'Channel not found' })
+    expectNothingSeeded()
+  })
+
+  it('rejects a shared channel when the caller lacks the elevated manage feature', async () => {
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: CHANNEL_ID,
+      tenantId: CALLER_TENANT,
+      organizationId: CALLER_ORG,
+      userId: null,
+    })
+
+    const res = await POST(emitInboundRequest(CHANNEL_ID))
+
+    expect(res.status).toBe(404)
+    expectNothingSeeded()
+  })
+
+  it('allows a shared channel when the caller holds communication_channels.manage', async () => {
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: CHANNEL_ID,
+      tenantId: CALLER_TENANT,
+      organizationId: CALLER_ORG,
+      userId: null,
+    })
+    mockLoadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['communication_channels.manage'],
+      organizations: null,
+    })
+
+    const res = await POST(emitInboundRequest(CHANNEL_ID))
+
+    expect(res.status).toBe(201)
+    expect(mockEmitEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('still seeds the inbound rows and emits the hub event for the mailbox owner', async () => {
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: CHANNEL_ID,
+      tenantId: CALLER_TENANT,
+      organizationId: CALLER_ORG,
+      userId: CALLER_USER,
+    })
+
+    const res = await POST(emitInboundRequest(CHANNEL_ID))
 
     expect(res.status).toBe(201)
     await expect(res.json()).resolves.toEqual({
@@ -119,7 +182,7 @@ describe('POST /api/communication_channels/test-seed — emit-inbound channel ow
     })
     expect(mockEmitEvent).toHaveBeenCalledWith(
       'communication_channels.message.received',
-      expect.objectContaining({ channelId: ownedChannel, tenantId: CALLER_TENANT }),
+      expect.objectContaining({ channelId: CHANNEL_ID, tenantId: CALLER_TENANT }),
       { persistent: true },
     )
   })
