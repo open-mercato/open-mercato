@@ -2,6 +2,7 @@ import type { Module, FrontendRouteManifestEntry, ApiRouteManifestEntry } from '
 import {
   createLazyModuleSubscriber,
   createLazyModuleWorker,
+  createTranslationsLoader,
   registerCliModules,
   getCliModules,
   getDefaultEncryptionMaps,
@@ -636,5 +637,39 @@ describe('registerFrontendRouteManifests — sorts on registration (issue #1870)
     const stored = getFrontendRouteManifests()
     expect(stored[0].pattern).toBe('/things/new')
     expect(stored[1].pattern).toBe('/things/[id]')
+  })
+})
+
+describe('createTranslationsLoader', () => {
+  it('unwraps a default-exported locale bundle', async () => {
+    const load = createTranslationsLoader(async () => ({ default: { a: 'one' } }))
+    await expect(load()).resolves.toEqual({ a: 'one' })
+  })
+
+  it('merges bundles in order so later bundles override earlier ones', async () => {
+    const load = createTranslationsLoader(
+      async () => ({ default: { a: 'core', b: 'core' } }),
+      async () => ({ default: { b: 'app' } }),
+    )
+    await expect(load()).resolves.toEqual({ a: 'core', b: 'app' })
+  })
+
+  it('keeps the fulfilled bundles when another bundle rejects', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const load = createTranslationsLoader(
+      async () => { throw new Error('boom') },
+      async () => ({ default: { a: 'app' } }),
+    )
+    await expect(load()).resolves.toEqual({ a: 'app' })
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+
+  it('rejects when every bundle fails so callers can retry later', async () => {
+    const load = createTranslationsLoader(
+      async () => { throw new Error('first') },
+      async () => { throw new Error('second') },
+    )
+    await expect(load()).rejects.toThrow('first')
   })
 })

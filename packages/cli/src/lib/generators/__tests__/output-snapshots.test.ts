@@ -200,6 +200,10 @@ export class OrderItem {
     pkgModulePath('orders', 'i18n', 'pl.json'),
     JSON.stringify({ orders: { list: { title: 'Zam\u00f3wienia' } } }),
   )
+  touchFile(
+    appModulePath('orders', 'i18n', 'en.json'),
+    JSON.stringify({ orders: { list: { title: 'Orders (app)' } } }),
+  )
 
   // -- Events --
   touchFile(
@@ -761,6 +765,33 @@ describe('generator output compatibility', () => {
     expect(modulesContent).not.toBeNull()
     expect(modulesContent).toContain('custom-app-tasks')
     expect(modulesContent).toContain('background-task')
+  })
+
+  it('emits allSettled-safe createTranslationsLoader calls for module i18n bundles', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+
+    await generateModuleRegistry({ resolver, quiet: true })
+    await generateModuleRegistryApp({ resolver, quiet: true })
+
+    const legacyContent = readGenerated('modules.generated.ts')
+    expect(legacyContent).not.toBeNull()
+    expect(legacyContent).toContain(
+      `'en': createTranslationsLoader(() => import("@open-mercato/core/modules/orders/i18n/en.json"), () => import("@/modules/orders/i18n/en.json"))`,
+    )
+    expect(legacyContent).toContain(
+      `'pl': createTranslationsLoader(() => import("@open-mercato/core/modules/orders/i18n/pl.json"))`,
+    )
+    expect(legacyContent).toContain(
+      "import { createLazyModuleSubscriber, createLazyModuleWorker, createTranslationsLoader, type Module } from '@open-mercato/shared/modules/registry'",
+    )
+
+    const i18nContent = readGenerated('modules.i18n.generated.ts')
+    expect(i18nContent).not.toBeNull()
+    expect(i18nContent).toContain(
+      `"en": createTranslationsLoader(() => import("@open-mercato/core/modules/orders/i18n/en.json"), () => import("@/modules/orders/i18n/en.json"))`,
+    )
+    expect(i18nContent).toContain('createTranslationsLoader')
   })
 
   it('writes the expected minimal inventory with zero modules enabled', async () => {
