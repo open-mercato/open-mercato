@@ -395,7 +395,8 @@
         ".ai/skills/om-implement-spec/SKILL.md"
       ],
       "allowedExtra": [
-        ".ai/guides/modules/notifications.md"
+        ".ai/guides/modules/notifications.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
         ".env*",
@@ -4157,7 +4158,8 @@
         ".ai/guides/modules/workflows.md"
       ],
       "allowedExtra": [
-        ".ai/guides/contracts.md"
+        ".ai/guides/contracts.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
         ".env*",
