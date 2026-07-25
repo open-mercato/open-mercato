@@ -48,7 +48,7 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 Match every axis; de-duplicate. Notifications = `module-data` + `backend-ui` + `umes`; custom-field round trips add `testing`; lifecycle reactions = `module-data` + `umes`; convergence bugs add `debugging`; registry drift = `architecture` + `module-data` + `debugging` (and exact-contract `framework-context`).
 
-Route only the request. `testing` needs explicit tests/coverage; routine validation does not match. Use external `om-integration-tests` only for integration/E2E/browser work. `debugging` needs failure, security, or drift. Spec decomposition selects only `spec-pr`. A plan-only business module selects `architecture` + `module-data` and only `om-module-scaffold`; load its blueprint plus architecture/contracts, but do not invoke future UI/data/workflow specialists or framework context until implementation. Do not infer areas from specs/PRs.
+Route only the request. `testing` needs explicit tests/coverage; routine validation does not match. Reindex verification and smoke validation do not select `testing`; a request to prove security or isolation behavior does. Use external `om-integration-tests` only when the request explicitly needs integration, E2E, browser, or live-app tests; round-trip coverage alone uses local unit/contract patterns. `debugging` needs failure, security, or drift. Spec decomposition selects only `spec-pr`. A plan-only business module selects `architecture` + `module-data` and only `om-module-scaffold`; load its blueprint plus architecture/contracts, but do not invoke future UI/data/workflow specialists or framework context until implementation. Custom fields/entities always select `umes` + `module-data`; editable display/save/clear round trips also select `backend-ui`, and requested coverage selects `testing`. Do not infer areas from specs/PRs.
 
 ### Axis 1 — Area and Ownership
 
@@ -87,7 +87,7 @@ Split the outcome; match every row.
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging + affected units |
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
 
-The request saying “installed contract(s)” or “installed-package contracts” is not enough to select `framework-context`. Use routed guides and facts first. Invoke it only when one named exact-version detail still cannot be resolved, never as future-phase work.
+The request saying “installed contract(s)” or “installed-package contracts” is not enough to select `framework-context`. Use routed guides and facts first. A contract value stated by the request is already resolved; do not invoke the escape hatch merely to reverify it during routing. Invoke it only when one named exact-version detail still cannot be resolved, never as future-phase work.
 | — | Add/fix recurring harness case | `om-evolve-harness` |
 
 ### Axis 3 — SDLC and Delivery

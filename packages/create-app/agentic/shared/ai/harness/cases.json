@@ -1195,7 +1195,7 @@
     ]
   },
   {
-    "id": "OMH-016",
+  "id": "OMH-016",
     "title": "Add an authenticated customer portal page and portal navigation",
     "family": "module",
     "mode": "one-shot",
@@ -1225,10 +1225,11 @@
       "om-backend-ui-design"
     ],
     "context": {
-      "required": [
-        "AGENTS.md",
-        ".ai/guides/backend-ui.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md"
+    "required": [
+      "AGENTS.md",
+      ".ai/guides/backend-ui.md",
+      ".ai/guides/modules/customer_accounts.md",
+      ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -1264,7 +1265,7 @@
     ]
   },
   {
-    "id": "OMH-017",
+  "id": "OMH-017",
     "title": "Configure full-text, token, and vector search with reindex verification",
     "family": "module",
     "mode": "one-shot",
@@ -1296,11 +1297,15 @@
       "om-module-scaffold"
     ],
     "context": {
-      "required": [
-        "AGENTS.md",
-        ".ai/guides/contracts.md",
-        ".ai/skills/om-module-scaffold/SKILL.md"
-      ],
+    "required": [
+      "AGENTS.md",
+      ".ai/guides/contracts.md",
+      ".ai/guides/modules/search.md",
+      ".ai/skills/om-module-scaffold/SKILL.md"
+    ],
+    "allowedExtra": [
+      ".ai/guides/modules/query_index.md"
+    ],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -1404,7 +1409,7 @@
     ]
   },
   {
-    "id": "OMH-019",
+  "id": "OMH-019",
     "title": "Add an explicitly tenant-wide scheduler worker without widening organization data",
     "family": "module",
     "mode": "one-shot",
@@ -1425,8 +1430,9 @@
       ]
     },
     "expectedRouter": {
-      "required": [
-        "module-data"
+    "required": [
+      "module-data",
+      "testing"
       ],
       "allowedExtra": [
         "architecture",
@@ -1438,10 +1444,13 @@
       "om-module-scaffold"
     ],
     "context": {
-      "required": [
-        "AGENTS.md",
-        ".ai/guides/contracts.md",
-        ".ai/skills/om-module-scaffold/SKILL.md"
+    "required": [
+      "AGENTS.md",
+      ".ai/guides/contracts.md",
+      ".ai/guides/testing-debugging.md",
+      ".ai/guides/modules/scheduler.md",
+      ".ai/guides/modules/progress.md",
+      ".ai/skills/om-module-scaffold/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -1479,7 +1488,7 @@
     ]
   },
   {
-    "id": "OMH-020",
+  "id": "OMH-020",
     "title": "Add notification types, renderers, and reactive browser handlers",
     "family": "module",
     "mode": "one-shot",
@@ -1515,9 +1524,10 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/guides/backend-ui.md",
-        ".ai/guides/extensions.md",
-        ".ai/skills/om-module-scaffold/SKILL.md",
+      ".ai/guides/backend-ui.md",
+      ".ai/guides/extensions.md",
+      ".ai/guides/modules/notifications.md",
+      ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md"
       ],
       "forbidden": [
@@ -1693,7 +1703,7 @@
     ]
   },
   {
-    "id": "OMH-023",
+  "id": "OMH-023",
     "title": "Add translations and reject hard-coded user-facing strings",
     "family": "module",
     "mode": "one-shot",
@@ -1724,9 +1734,10 @@
     ],
     "context": {
       "required": [
-        "AGENTS.md",
-        ".ai/guides/backend-ui.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md"
+      "AGENTS.md",
+      ".ai/guides/backend-ui.md",
+      ".ai/guides/modules/translations.md",
+      ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -1761,7 +1772,7 @@
     ]
   },
   {
-    "id": "OMH-024",
+  "id": "OMH-024",
     "title": "Add custom fields and entities with save, reload, and clear round-trip coverage",
     "family": "module",
     "mode": "one-shot",
@@ -1802,10 +1813,11 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/guides/backend-ui.md",
-        ".ai/guides/extensions.md",
-        ".ai/guides/testing-debugging.md",
-        ".ai/skills/om-data-model-design/SKILL.md",
+      ".ai/guides/backend-ui.md",
+      ".ai/guides/extensions.md",
+      ".ai/guides/testing-debugging.md",
+      ".ai/guides/modules/entities.md",
+      ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
       "forbidden": [
