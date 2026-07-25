@@ -93,6 +93,10 @@ PR: #4506
 
 - [x] 4.1 Run the validation gate
 
+### Phase 5: Keep the branch mergeable
+
+- [x] 5.1 Merge `develop` and re-apply the two upstream `AGENTS.md` rules in the new layout
+
 ## Outcome
 
 - Root `AGENTS.md`: 44,393 → 29,688 bytes (9.4% under Codex's 32,768-byte default budget, and
@@ -107,3 +111,11 @@ PR: #4506
   step; the worktree has no local `node_modules`, so the yarn wrapper was bypassed). No
   TypeScript, locale or app source changed, so the build/typecheck/i18n legs of the gate are not
   affected by this diff.
+- Phase 5 (`develop` merge): `develop` had meanwhile added two rules to the root `AGENTS.md` —
+  the automated-verification QA exemption (#4461) and the `triage`-permission caveat on the
+  self-QA exception (#4478). Both were re-applied in the new layout: verbatim in
+  `.ai/docs/pr-workflow.md`, condensed to one boundary bullet each in the root. `.github/
+  workflows/ci.yml` and `package.json` merged without conflicts, so the new `lint:check-graph`
+  step and the `postcss` bump sit alongside the budget step. Re-validated: root at 30,400 bytes
+  (320 free under the 30,720 limit), `node scripts/check-agents-md-budget.mjs` passes, 314 + 24
+  `node --test` cases pass.
