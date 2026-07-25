@@ -46,20 +46,22 @@ Goal: close the remaining half of the client-trusted payment amount report (issu
 
 ## Progress
 
+PR: #4507
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Reconciliation seam in payment_gateways
 
-- [ ] 1.1 Add the resolver contract and the reconciliation helper
-- [ ] 1.2 Enforce reconciliation in createPaymentSession before provider calls
-- [ ] 1.3 Return conflict statuses from the sessions route
+- [x] 1.1 Add the resolver contract and the reconciliation helper — 565abb198
+- [x] 1.2 Enforce reconciliation in createPaymentSession before provider calls — 565abb198
+- [x] 1.3 Return conflict statuses from the sessions route — 565abb198
 
 ### Phase 2: Authoritative sales order totals
 
-- [ ] 2.1 Implement and register the scoped sales order total resolver
-- [ ] 2.2 Wire the optional resolver into payment_gateways DI
+- [x] 2.1 Implement and register the scoped sales order total resolver — 565abb198
+- [x] 2.2 Wire the optional resolver into payment_gateways DI — 565abb198
 
 ### Phase 3: Regression coverage and documentation
 
-- [ ] 3.1 Add unit coverage for the reconciliation matrix
-- [ ] 3.2 Document the behavior in SPEC-044 and the API docs
+- [x] 3.1 Add unit coverage for the reconciliation matrix — 565abb198
+- [x] 3.2 Document the behavior in SPEC-044 and the API docs — 04fbf3032
