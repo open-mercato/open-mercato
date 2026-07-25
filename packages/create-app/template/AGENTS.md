@@ -1,6 +1,6 @@
 # Standalone Open Mercato App — Agent Rules
 
-Extend this installed Open Mercato app. Route first; load every match.
+Extend this installed Open Mercato app. Decide routes here before opening guides/skills; load every match and never probe unmatched context.
 
 ## Always
 
@@ -17,9 +17,7 @@ Extend this installed Open Mercato app. Route first; load every match.
 
 ## Ask First
 
-- Ask before reducing scope; changing architecture/contracts; adding production dependencies; ejecting modules; or replacing canonical primitives.
-- Ask before applying migrations, resets, database-target changes, live credentials, or real test providers.
-- Ask before weakening auth/scope, encryption, mutation approval, locking, retries, idempotency, or audit/undo.
+- Ask before scope/architecture/public-contract/dependency/ejection/canonical-primitive changes; migrations/resets/DB targets; live credentials/providers; or weaker security, concurrency, retries, idempotency, audit, or undo.
 
 ## Never
 
@@ -46,26 +44,30 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 ## Three-Axis Context Assembler
 
-Match every axis; de-duplicate. Notifications use `module-data` + `backend-ui` + `umes`; custom-field round trips use `module-data` + `backend-ui` + `umes` and add `testing` only for explicit tests/coverage/real API/UI verification; lifecycle reactions use `module-data` + `umes`; convergence bugs add `debugging`; registry drift uses `architecture` + `module-data` + `debugging` (plus `framework-context` only for an unresolved exact contract).
+Combine matches. In-app notifications/editable custom fields: `module-data` + `backend-ui` + `umes`; `testing` only if explicit. Lifecycle reactions: `module-data` + `umes`. Convergence bugs add `debugging`. Registry drift: `architecture` + `module-data` + `debugging`; add `framework-context` only for an unresolved contract.
 
-Each work-unit route loads its named skill; a `module-data` business vertical also loads `om-module-scaffold` and its exact blueprint.
+Each work-unit route loads its named skill; a `module-data` business vertical MUST load `om-module-scaffold` and its exact blueprint.
 
-Route only requested work. `testing` means requested tests/coverage/security proof, not routine validation, reindex, or smoke checks; an explicit real API/UI verification request selects `testing` and external `om-integration-tests` even inside a UI review. External `om-integration-tests` is only for integration/E2E/browser/live-app tests. `debugging` means failure, security, or drift; spec decomposition selects only `spec-pr`. Plan-only business modules select `architecture` + `module-data` and `om-module-scaffold`, loading its blueprint plus architecture/contracts. Custom fields/entities select `umes` + `module-data`; add `backend-ui` for editable round trips and `testing` only when requested. Never infer areas from specs/PRs.
+Only explicit work. `testing` = tests/coverage/security proof/real API-UI verification; exclude routine validation/reindex/smoke. Use external `om-integration-tests` only for integration/E2E/browser/live-app. `debugging` = failure/security/drift. Specs/staged plans = `spec-pr` only, with self-contained API/UI integration coverage. Architecture-only business plans = `architecture` + `module-data` + scaffold blueprint/contracts. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer from specs/PRs.
+
+App-owned workflow state, commands, or audit records select `module-data` + `ai-workflow`; add `umes` for installed-module mutation interception/reaction.
 
 Unified-override audits select only `umes`; add `architecture` or `framework-context` only for unresolved ownership or installed keys.
 
-Existing-module page/form/table-only work selects `backend-ui` alone. Do not load contracts or `om-module-scaffold` unless changing data, API, command, ACL, or setup.
+App-owned page/form/table-only = `backend-ui`; installed host changes add `umes`. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
+
+Every `backend-ui` reads `quality-states`; public/portal/responsive/accessibility also reads `frontend-and-design-system`. Payload wording is not UI.
 
 ### Axis 1 — Area and Ownership
 
 | Route | Match | Context |
 |---|---|---|
-| `architecture` | Capability/ownership choices, upgrades, overrides, or registry/discovery failures; routine auto-discovered files stay in their owning area | `.ai/guides/architecture.md` + named facts |
+| `architecture` | Capability/ownership choice, explicit boundary investigation, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
 | `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership or mechanism is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
 | `backend-ui` | Custom admin/public/portal/form/table/menu/i18n/component | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
-| `integration` | Email/shipping/payment/sync/webhook/storage/file interchange/provider | `.ai/guides/integrations.md`; not workflow `CALL_API`, ordinary downloads, or built-in AI attachment/artifact storage |
-| `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + target facts; queues, workers, retries, and progress alone stay `module-data` |
+| `integration` | External email/shipping/payment/sync/webhook/storage/file provider | `.ai/guides/integrations.md`; excludes installed-sender use, workflow `CALL_API`, downloads, and built-in AI storage |
+| `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/reminders/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
 App code lives in `src/modules/<id>/`; installed customization uses UMES. Reusable providers are published dependencies, never `packages/*`; ask before ejection.
@@ -94,11 +96,12 @@ Split the outcome; match every row.
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
 
-“Installed contract(s)” alone does not select `framework-context`. Use guides/facts first and treat request-supplied values as resolved. Invoke the escape hatch only for one named unresolved exact-version detail, never to reverify or plan future work.
+“Installed contract(s)” alone does not select `framework-context`. Use guides/facts and supplied values; read its skill only after selecting the route for one named unresolved exact-version detail.
 
 ### Axis 3 — SDLC and Delivery
 
 Select delivery independently from pinned `open-mercato/skills` (`yarn install-skills`).
+Read external skills at `.agents/skills/<id>/SKILL.md`; MUST apply a matching `.ai/skills/<id>/SKILL.md` standalone override too.
 
 | Route ID | Delivery need | Skill |
 |---|---|---|
@@ -123,7 +126,7 @@ If a skill is absent, run `yarn install-skills` once; never invent a substitute.
 
 ## Module-Specific Facts
 
-Facts supply exact IDs/surfaces; load only changed or named hosts. Map customer/contact/deal/pipeline to `customers`; portal to `customer_accounts`; quote/order to `sales`; other named modules to their facts. CRUD/API/OpenAPI/search/event primitives alone do not load `api_docs`, `search`, or `events`. Never preload facts.
+Facts only for changed/named hosts: customer/contact/deal/pipeline→`customers`; product/price/stock/inventory→`catalog`; cart/checkout/shopper→`checkout`; portal→`customer_accounts`; quote/order→`sales`; webhook/callback→`webhooks`. Primitives do not load `api_docs`/`search`/`events` facts.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->

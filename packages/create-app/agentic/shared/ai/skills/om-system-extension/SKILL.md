@@ -16,7 +16,7 @@ Select one smallest host contract, then implement the complete read/write/securi
 4. For editable additions, follow `references/read-write-roundtrip.md`; implement input, authenticated write, stored data, list/detail read, UI hydration, clear-to-null, and conflict behavior.
 5. Run `yarn generate`; verify host-present/absent, authorized/denied/wildcard, cache/search, and failure fallback using `references/verification.md`.
 
-For a comprehensive mechanism audit, `references/mechanism-selector.md` is the authoritative inventory. Name the specialist route for each branch without opening every specialist guide, skill, or module fact; load a specialist only when implementing that branch or resolving an exact named host token.
+For a comprehensive mechanism audit, `references/mechanism-selector.md` is the authoritative inventory. Also read `references/extension-branches.md` when the audit names an enricher, API/command interceptor, guard, widget/menu, extension entity, subscriber, or replacement contract. Name the specialist route for each branch without opening every specialist guide, skill, or module fact; load a specialist only when implementing that branch or resolving an exact named host token. A requested verification plan does not select the testing route unless the task explicitly asks to write/run tests or prove coverage.
 
 ## Rules
 
