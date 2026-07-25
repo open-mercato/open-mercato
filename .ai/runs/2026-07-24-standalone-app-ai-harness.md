@@ -89,10 +89,10 @@ Replace the AI development harness emitted by `create-mercato-app` with a standa
 - [x] 4.2 Add safe Codex/Claude live evaluation runner — 94ad42370
 - [x] 4.3 Add tests, run the original 92-case calibration, and remediate failures — 9e82bcc91
 - [x] 4.4 Double the catalog and add 39 trusted writable/test/review gates — eddcf31cd + final hardening follow-up
-- [ ] 4.5 Run the final 184-case release suite and publish sanitized evidence
+- [ ] 4.5 Run the final 184-case release suite and publish sanitized evidence — routing passed 184/184, then the 15 final compatibility-sensitive cases passed 15/15; the formal writable/browser release command is intentionally pending a Linux host with attested Bubblewrap because native macOS fails closed before provider access or writes
 
 ### Phase 5: Validation, review, and PR handoff
 
 - [x] 5.1 Run targeted and standalone scaffold validation — 31b082d3a
-- [ ] 5.2 Run the configured full validation gate
-- [ ] 5.3 Complete authoritative review/autofix and PR handoff
+- [x] 5.2 Run the configured full validation gate — full local gate green; final delta revalidated with 302/306 create-app tests (4 platform skips), typecheck, lint, and build — 4e5d7cfff
+- [x] 5.3 Complete authoritative review/autofix and PR handoff — no actionable findings; PR summary, risk labels, and hands-on test instructions published — 4e5d7cfff
