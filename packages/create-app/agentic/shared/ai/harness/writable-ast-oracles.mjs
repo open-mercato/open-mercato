@@ -433,6 +433,49 @@ function fullExpressionName(ts, expression) {
   return expressionName(ts, expression)
 }
 
+function expressionPath(ts, expression) {
+  if (ts.isIdentifier(expression)) return [expression.text]
+  if (ts.isPropertyAccessExpression(expression)) {
+    return [...expressionPath(ts, expression.expression), expression.name.text]
+  }
+  if (ts.isElementAccessExpression(expression) && expression.argumentExpression && ts.isStringLiteralLike(expression.argumentExpression)) {
+    return [...expressionPath(ts, expression.expression), expression.argumentExpression.text]
+  }
+  if (ts.isCallExpression(expression)) return expressionPath(ts, expression.expression)
+  if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isNonNullExpression(expression)) {
+    return expressionPath(ts, expression.expression)
+  }
+  return []
+}
+
+const FORBIDDEN_TEST_ALIASES = new Set(['fdescribe', 'fit', 'pending', 'xdescribe', 'xit', 'xtest'])
+const TEST_RUNNER_ROOTS = new Set(['describe', 'it', 'test'])
+const FORBIDDEN_TEST_MODIFIERS = new Set(['fail', 'failing', 'fixme', 'only', 'skip', 'todo'])
+const TEST_INFO_MODIFIERS = new Set(['fail', 'fixme', 'skip'])
+
+function forbiddenTestModifier(ts, expression) {
+  const parts = expressionPath(ts, expression)
+  if (parts.length === 1 && FORBIDDEN_TEST_ALIASES.has(parts[0])) return parts[0]
+  if (parts[0] === 'testInfo' && parts.slice(1).some((part) => TEST_INFO_MODIFIERS.has(part))) return parts.join('.')
+  if (!TEST_RUNNER_ROOTS.has(parts[0])) return undefined
+  return parts.slice(1).some((part) => FORBIDDEN_TEST_MODIFIERS.has(part)) ? parts.join('.') : undefined
+}
+
+function exactString(ts, expression, expected) {
+  return Boolean(expression && ts.isStringLiteralLike(expression) && expression.text === expected)
+}
+
+function listenBindsLoopback(ts, call) {
+  const first = call.arguments[0]
+  if (first && ts.isObjectLiteralExpression(first)) {
+    if (first.properties.some((property) => ts.isSpreadAssignment(property))) return false
+    if (first.properties.some((property) => property.name && ts.isComputedPropertyName(property.name))) return false
+    const hosts = first.properties.filter((property) => propertyName(ts, property.name) === 'host')
+    return hosts.length === 1 && ts.isPropertyAssignment(hosts[0]) && exactString(ts, hosts[0].initializer, '127.0.0.1')
+  }
+  return exactString(ts, call.arguments[1], '127.0.0.1')
+}
+
 function jsxTagName(ts, tag) {
   if (ts.isIdentifier(tag)) return tag.text
   if (ts.isPropertyAccessExpression(tag)) return tag.name.text
@@ -452,11 +495,13 @@ function newFacts() {
     finallyBlocks: 0,
     importedBindings: new Map(),
     importSources: new Set(),
+    forbiddenTestModifiers: new Set(),
     jsxLiteralAttributes: new Map(),
     jsxAttributes: new Set(),
     jsxTags: new Set(),
     jsxText: [],
     loops: 0,
+    listenBindings: [],
     newCalls: new Set(),
     nullNodes: 0,
     objectProperties: new Set(),
@@ -625,6 +670,10 @@ function collectFacts(ts, sourceFiles) {
       if (ts.isCallExpression(node)) {
         const name = expressionName(ts, node.expression)
         const fullName = fullExpressionName(ts, node.expression)
+        const forbiddenModifier = forbiddenTestModifier(ts, node.expression)
+        if (forbiddenModifier) facts.forbiddenTestModifiers.add(forbiddenModifier)
+        const callPath = expressionPath(ts, node.expression)
+        if (callPath.includes('listen')) facts.listenBindings.push(callPath.at(-1) === 'listen' && listenBindsLoopback(ts, node))
         const optionNames = node.arguments.flatMap((argument) => ts.isObjectLiteralExpression(argument)
           ? argument.properties.map((property) => propertyName(ts, property.name)).filter(Boolean)
           : [])
@@ -644,7 +693,15 @@ function collectFacts(ts, sourceFiles) {
         const name = propertyName(ts, node.name)
         if (name && ts.isIdentifier(node.initializer)) addMappedValue(facts.propertyIdentifiers, name, node.initializer.text)
       }
-      if (ts.isPropertyAccessExpression(node)) facts.propertyAccesses.add(node.name.text)
+      if (ts.isPropertyAccessExpression(node)) {
+        facts.propertyAccesses.add(node.name.text)
+        const forbiddenModifier = forbiddenTestModifier(ts, node)
+        if (forbiddenModifier) facts.forbiddenTestModifiers.add(forbiddenModifier)
+      }
+      if (ts.isElementAccessExpression(node)) {
+        const forbiddenModifier = forbiddenTestModifier(ts, node)
+        if (forbiddenModifier) facts.forbiddenTestModifiers.add(forbiddenModifier)
+      }
       if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) facts.strings.add(node.text)
       if (node.kind === ts.SyntaxKind.NullKeyword) facts.nullNodes += 1
       if (ts.isThrowStatement(node)) facts.throwStatements += 1
@@ -676,6 +733,14 @@ function collectFacts(ts, sourceFiles) {
 
 function hasCall(facts, ...names) {
   return names.some((name) => (facts.calls.get(name) ?? 0) > 0)
+}
+
+function hasOnlyEnabledTests(facts) {
+  return facts.forbiddenTestModifiers.size === 0
+}
+
+function allServersBindLoopback(facts) {
+  return facts.listenBindings.length > 0 && facts.listenBindings.every(Boolean)
 }
 
 function hasCallOptions(facts, callName, required) {
@@ -847,7 +912,7 @@ function caseChecks(ts, caseId, facts) {
   if (definition.family === 'test-authoring-unit') {
     return [
       check('business.test-unit-runner', (facts.calls.get('test') ?? 0) >= 3 && (facts.calls.get('expect') ?? 0) >= 3, 'at least three executable Jest tests with assertions'),
-      check('business.test-unit-enabled', !hasCall(facts, 'test.skip', 'test.todo', 'test.only'), 'generated Jest coverage contains no skipped, todo, or focused-only tests'),
+      check('business.test-unit-enabled', hasOnlyEnabledTests(facts), 'generated Jest coverage contains no disabled, focused-only, todo, or expected-failure tests or suites'),
       check('business.test-unit-invariants', ['already approved', 'requester', 'injected failure'].every((value) => [...facts.strings].some((entry) => entry.toLowerCase().includes(value))), 'test titles or assertions cover duplicate approval, separation of duties, and injected failure'),
       check('business.test-unit-failure', hasCall(facts, 'toThrow', 'toReject', 'rejects.toThrow') && hasCall(facts, 'toHaveBeenCalledTimes', 'toEqual', 'toBe'), 'failure and rollback outcomes are asserted'),
     ]
@@ -855,19 +920,19 @@ function caseChecks(ts, caseId, facts) {
   if (definition.family === 'test-authoring-api') {
     return [
       check('business.test-api-runner', facts.importedBindings.get('test') === '@playwright/test' && facts.importedBindings.get('expect') === '@playwright/test', 'the module-local spec uses the Playwright test runner'),
-      check('business.test-api-enabled', !hasCall(facts, 'test.skip', 'test.todo', 'test.only'), 'generated API coverage contains no skipped, todo, or focused-only tests'),
+      check('business.test-api-enabled', hasOnlyEnabledTests(facts), 'generated API coverage contains no disabled, focused-only, todo, or expected-failure tests or suites'),
       check('business.test-api-http', ['request.post', 'request.patch', 'request.delete'].every((name) => hasCall(facts, name)), 'real HTTP creation, stale update, and cleanup requests are executed'),
       check('business.test-api-scope-conflict', hasString(facts, 'x-organization-id') && hasString(facts, 'if-match') && (facts.calls.get('toBe') ?? 0) >= 4, 'organization denial and optimistic conflict statuses are asserted'),
-      check('business.test-api-lifecycle', hasString(facts, '127.0.0.1') && hasCall(facts, 'listen') && hasCall(facts, 'close') && facts.finallyBlocks > 0, 'the ephemeral server binds 127.0.0.1 and is closed in finally'),
+      check('business.test-api-lifecycle', allServersBindLoopback(facts) && hasCall(facts, 'close') && facts.finallyBlocks > 0, 'every ephemeral server listen call binds the literal host 127.0.0.1 and is closed in finally'),
     ]
   }
   if (definition.family === 'test-authoring-browser') {
     return [
       check('business.test-browser-runner', facts.importedBindings.get('test') === '@playwright/test' && facts.importedBindings.get('expect') === '@playwright/test', 'the module-local spec uses the Playwright test runner'),
-      check('business.test-browser-enabled', !hasCall(facts, 'test.skip', 'test.todo', 'test.only'), 'generated browser coverage contains no skipped, todo, or focused-only tests'),
+      check('business.test-browser-enabled', hasOnlyEnabledTests(facts), 'generated browser coverage contains no disabled, focused-only, todo, or expected-failure tests or suites'),
       check('business.test-browser-real-page', hasCall(facts, 'page.goto') && hasCall(facts, 'page.getByRole') && hasCall(facts, 'click'), 'a real browser navigates loopback HTTP and interacts through semantic roles'),
       check('business.test-browser-coverage', hasString(facts, '/portal/orders/forbidden') && hasString(facts, '/api/backend/quotes/quote-1') && hasCall(facts, 'toHaveText', 'toContainText', 'toBe'), 'direct-route denial, stale conflict, and backend state are asserted'),
-      check('business.test-browser-lifecycle', hasString(facts, '127.0.0.1') && hasCall(facts, 'listen') && hasCall(facts, 'close') && facts.finallyBlocks > 0, 'the ephemeral server binds 127.0.0.1 and is closed in finally'),
+      check('business.test-browser-lifecycle', allServersBindLoopback(facts) && hasCall(facts, 'close') && facts.finallyBlocks > 0, 'every ephemeral server listen call binds the literal host 127.0.0.1 and is closed in finally'),
     ]
   }
   switch (caseId) {

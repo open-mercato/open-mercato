@@ -671,6 +671,130 @@ test('controlled seeds fail and corrected production seams pass both trusted ora
   }
 })
 
+test('generated tests reject common disabled, focused, todo, and expected-failure modifiers', () => {
+  const scenarios = [
+    ['describe.skip', `describe.skip('disabled suite', () => {})`],
+    ['describe.only', `describe.only('focused suite', () => {})`],
+    ['test.describe.skip', `test.describe.skip('disabled Playwright suite', () => {})`],
+    ['test.describe.only', `test.describe.only('focused Playwright suite', () => {})`],
+    ['it.skip', `it.skip('disabled spec', () => {})`],
+    ['it.only', `it.only('focused spec', () => {})`],
+    ['xtest', `xtest('disabled alias', () => {})`],
+    ['xit', `xit('disabled alias', () => {})`],
+    ['xdescribe', `xdescribe('disabled alias suite', () => {})`],
+    ['fit', `fit('focused alias', () => {})`],
+    ['fdescribe', `fdescribe('focused alias suite', () => {})`],
+    ['test.each(...).skip', `test.each([[1]])('matrix setup', () => {}); test.each([[1]]).skip('disabled matrix', () => {})`],
+    ['test.each(...).only', `test.each([[1]]).only('focused matrix', () => {})`],
+    ['test.skip.each', `test.skip.each([[1]])('disabled matrix', () => {})`],
+    ['test.only.each', `test.only.each([[1]])('focused matrix', () => {})`],
+    ['describe.each(...).skip', `describe.each([[1]]).skip('disabled matrix suite', () => {})`],
+    ['describe.each(...).only', `describe.each([[1]]).only('focused matrix suite', () => {})`],
+    ['test.concurrent.only', `test.concurrent.only('focused concurrent spec', () => {})`],
+    ['test.concurrent.failing', `test.concurrent.failing('expected concurrent failure', () => {})`],
+    ['test.fixme', `test.fixme('known broken Playwright spec', () => {})`],
+    ['test.fail', `test.fail('expected Playwright failure', () => {})`],
+    ['test.failing', `test.failing('expected Jest failure', () => {})`],
+    ['test.todo', `test.todo('unfinished coverage')`],
+    ['test.only', `test.only('focused spec', () => {})`],
+    ['test.skip', `test.skip('disabled spec', () => {})`],
+    ['test.step.skip', `test.step.skip('disabled Playwright step', async () => {})`],
+    ['testInfo.fail', `testInfo.fail(true, 'expected Playwright failure')`],
+    ['testInfo.fixme', `testInfo.fixme(true, 'known broken Playwright spec')`],
+    ['testInfo.skip', `testInfo.skip(true, 'disabled at runtime')`],
+    ['static bracket modifier', `test['only']('focused bracket spec', () => {})`],
+    ['referenced modifier alias', `const disabledTest = test.skip; disabledTest('disabled alias spec', () => {})`],
+  ] as const
+
+  for (const [name, modifier] of scenarios) {
+    const root = stageTarget('OMH-163', true)
+    const target = cases['OMH-163'].file
+    writeFile(root, target, `${fs.readFileSync(path.join(root, target), 'utf8')}\n${modifier}\n`)
+    try {
+      const result = runOracle(astOracle, root, 'OMH-163', 'before')
+      assert.equal(result.status, 1, `${name} unexpectedly passed\n${result.stdout}\n${result.stderr}`)
+      assert.equal(result.parsed?.checks.find((check) => check.id === 'business.test-unit-enabled')?.passed, false, name)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('tests nested in a skipped suite are not counted as enabled coverage', () => {
+  const root = stageTarget('OMH-163', true)
+  writeFile(root, cases['OMH-163'].file, `
+describe.skip('quote approval', () => {
+  test('rejects an already approved quote', async () => { await expect(Promise.reject(new Error('already approved'))).rejects.toThrow('already approved') })
+  test('rejects the requester', async () => { await expect(Promise.reject(new Error('requester'))).rejects.toThrow('requester') })
+  test('rolls back after an injected failure', async () => {
+    const persist = jest.fn()
+    await expect(Promise.reject(new Error('injected failure'))).rejects.toThrow('injected failure')
+    expect(persist).toHaveBeenCalledTimes(0)
+  })
+})
+`)
+  try {
+    const result = runOracle(astOracle, root, 'OMH-163', 'before')
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.parsed?.checks.find((check) => check.id === 'business.test-unit-runner')?.passed, true)
+    assert.equal(result.parsed?.checks.find((check) => check.id === 'business.test-unit-enabled')?.passed, false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('server lifecycle checks require every listen call to bind an exact loopback host', () => {
+  const scenarios = [
+    ['omitted host with decoy loopback URLs', `server.listen(0, resolve)`],
+    ['wildcard host with decoy loopback URLs', `server.listen(0, '0.0.0.0', resolve)`],
+    ['loopback host through a variable', `(() => { const host = '127.0.0.1'; server.listen(0, host, resolve) })()`],
+    ['options without host', `server.listen({ port: 0 }, resolve)`],
+    ['wildcard options host', `server.listen({ port: 0, host: '0.0.0.0' }, resolve)`],
+    ['duplicate options host', `server.listen({ port: 0, host: '127.0.0.1', host: '0.0.0.0' }, resolve)`],
+    ['spread-overridable options host', `server.listen({ port: 0, host: '127.0.0.1', ...{ host: '0.0.0.0' } }, resolve)`],
+    ['computed-overridable options host', `server.listen({ port: 0, host: '127.0.0.1', ['ho' + 'st']: '0.0.0.0' }, resolve)`],
+    ['unrelated host object plus omitted listen host', `(() => { const decoy = { host: '127.0.0.1' }; void decoy; server.listen(0, resolve) })()`],
+    ['indirect listen invocation', `server.listen.call(server, 0, '127.0.0.1', resolve)`],
+    ['one valid and one unsafe listen call', `server.listen(0, '127.0.0.1', () => server.listen(0, '0.0.0.0', resolve))`],
+  ] as const
+
+  for (const caseId of ['OMH-164', 'OMH-165'] as const) {
+    for (const [name, replacement] of scenarios) {
+      const root = stageTarget(caseId, true)
+      const target = cases[caseId].file
+      writeFile(root, target, fs.readFileSync(path.join(root, target), 'utf8').replace(
+        `server.listen(0, '127.0.0.1', resolve)`,
+        replacement,
+      ))
+      try {
+        const result = runOracle(astOracle, root, caseId, 'before')
+        const checkId = caseId === 'OMH-164' ? 'business.test-api-lifecycle' : 'business.test-browser-lifecycle'
+        assert.equal(result.status, 1, `${caseId} ${name} unexpectedly passed\n${result.stdout}\n${result.stderr}`)
+        assert.equal(result.parsed?.checks.find((check) => check.id === checkId)?.passed, false, `${caseId} ${name}`)
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+      }
+    }
+  }
+})
+
+test('server lifecycle checks accept the exact loopback host in listen options', () => {
+  for (const caseId of ['OMH-164', 'OMH-165'] as const) {
+    const root = stageTarget(caseId, true)
+    const target = cases[caseId].file
+    writeFile(root, target, fs.readFileSync(path.join(root, target), 'utf8').replace(
+      `server.listen(0, '127.0.0.1', resolve)`,
+      `server.listen({ port: 0, host: '127.0.0.1' }, resolve)`,
+    ))
+    try {
+      const result = runOracle(astOracle, root, caseId, 'before')
+      assert.equal(result.status, 0, `${caseId}\n${result.stdout}\n${result.stderr}`)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
 test('business AST checks cannot be satisfied by a decoy export', () => {
   const root = stageTarget('OMH-093')
   writeFile(root, cases['OMH-093'].file, `
