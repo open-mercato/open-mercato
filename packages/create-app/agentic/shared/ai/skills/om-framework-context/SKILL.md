@@ -9,7 +9,7 @@ Use this escape hatch only after generated facts cannot answer the question. Ret
 
 ## Workflow
 
-1. Read `references/resolver-procedure.md` and identify one module or package plus an optional narrow query.
+1. Read the named generated module fact when one exists, then `references/resolver-procedure.md`; identify one module or package plus an optional narrow query.
 2. Run `yarn framework:context --module <id> [--query <text>]` or the `--package` form. Use `--json` only for a consuming tool.
 3. Verify the resolved package/version against `src/modules.ts`, dependency resolution, and the generated fact stamp.
 4. Read the reported instruction chain in precedence order and only the relevant source files. When a query was supplied, read the emitted globally capped `boundedSearch.result` / `searchResult`; do not rerun an unbounded `node_modules` search.
