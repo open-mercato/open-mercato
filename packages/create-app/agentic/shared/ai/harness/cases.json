@@ -4538,7 +4538,8 @@
     "expectedRouter": {
       "required": [
         "debugging",
-        "backend-ui"
+        "backend-ui",
+        "umes"
       ],
       "allowedExtra": [
         "architecture",
@@ -4548,7 +4549,8 @@
     },
     "requiredSkills": [
       "om-troubleshooter",
-      "om-backend-ui-design"
+      "om-backend-ui-design",
+      "om-system-extension"
     ],
     "optionalSkills": [
       {
@@ -4560,10 +4562,12 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/backend-ui.md",
+        ".ai/guides/extensions.md",
         ".ai/guides/modules/auth.md",
-      ".ai/guides/testing-debugging.md",
+        ".ai/guides/testing-debugging.md",
         ".ai/skills/om-troubleshooter/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md"
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-system-extension/SKILL.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-framework-context/SKILL.md"
@@ -4594,9 +4598,9 @@
       "patterns.forbidden",
       "safety.mandatory"
     ],
-    "maxContextFiles": 7,
-    "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 114688,
+    "maxContextFiles": 9,
+    "maxInitialContextBytes": 65536,
+    "maxTotalContextBytes": 147456,
     "relatedCases": [
       "OMH-059"
     ]
@@ -6365,7 +6369,7 @@
     "maxTotalContextBytes": 147456,
     "relatedCases": ["OMH-014", "OMH-023", "OMH-085", "OMH-090"]
   },
-{
+  {
     "id": "OMH-093",
     "title": "Merge duplicate contacts without losing customer history",
     "family": "business",
@@ -8618,7 +8622,6 @@
     "expectedRouter": {
       "required": [
         "module-data",
-        "backend-ui",
         "umes"
       ],
       "allowedExtra": [
@@ -8630,17 +8633,14 @@
     },
     "requiredSkills": [
       "om-module-scaffold",
-      "om-backend-ui-design",
       "om-system-extension"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/customers.md",
         ".ai/guides/modules/notifications.md"
