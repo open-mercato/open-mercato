@@ -5717,6 +5717,9 @@
         ".ai/skills/om-data-model-design/SKILL.md", ".ai/skills/om-backend-ui-design/SKILL.md", ".ai/skills/om-system-extension/SKILL.md", ".ai/skills/om-build-workflow/SKILL.md",
         ".ai/guides/modules/customers.md", ".ai/guides/modules/workflows.md", ".ai/guides/modules/notifications.md"
       ],
+      "allowedExtra": [
+        ".ai/guides/modules/scheduler.md"
+      ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
     "requiredDecisions": ["extension-entity", "id-link", "umes-roundtrip", "typed-events", "notification-contract", "subscriber-idempotency", "optional-host"],
@@ -5748,7 +5751,10 @@
         "AGENTS.md", ".ai/guides/contracts.md", ".ai/guides/backend-ui.md", ".ai/guides/extensions.md",
         ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/skills/om-data-model-design/SKILL.md", ".ai/skills/om-backend-ui-design/SKILL.md", ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/customers.md", ".ai/guides/modules/currencies.md"
+        ".ai/guides/modules/customers.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/currencies.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
