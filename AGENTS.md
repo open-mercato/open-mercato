@@ -19,7 +19,6 @@ Leverage the module system and follow strict naming and coding conventions to ke
 - Use the closest package/module `AGENTS.md` for local architecture, imports, and validation commands.
 - Follow `BACKWARD_COMPATIBILITY.md` before touching any contract surface.
 - Run `yarn generate` after adding or modifying module files that rely on auto-discovery.
-- Run `om-refresh-standalone-harness --from <ref> --to <ref>` whenever platform work adds or changes a module, UMES extension point, installed public contract or stable identifier, generator/discovery surface, or release. Add the failing evaluation before changing its smallest knowledge owner, and keep catalog/matrix/spec/doc counts synchronized.
 - Support optimistic locking on every NEW user-editable entity and edit/delete form (it is **default ON**): give the entity an `updated_at` column, return `updatedAt` in its list/detail API responses, and let `CrudForm` auto-derive the header from `initialValues.updatedAt` (covers update **and** delete) — or, for custom non-`CrudForm` handlers, wrap the mutating call with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and surface conflicts via `surfaceRecordConflict(err, t)`. When a form's `onSubmit` mutates OTHER entities, override the parent header per child with that child's own version (avoid false 409s). Enforced by `optimistic-lock-editable-entities.test.ts` and `optimistic-lock-ui-coverage.test.ts`. Details: the Task Router row.
 
 ## Ask First
@@ -119,7 +118,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | Migrating custom module code from MikroORM v6 to v7 (decorators, persist/flush, Knex→Kysely, ORM config, Jest setup) | `.ai/skills/om-migrate-mikro-orm/SKILL.md` |
 | **Testing** | |
 | Integration testing, Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.agents/skills/om-integration-tests/SKILL.md` |
-| Refreshing standalone-app AI harness coverage for an explicit local release range after module, UMES extension-point, installed-contract, generator/discovery, or release changes | `.ai/skills/om-refresh-standalone-harness/SKILL.md` + `packages/create-app/agentic/shared/ai/skills/om-evolve-harness/SKILL.md` |
+| Refreshing standalone-app AI harness coverage after module, extension-point, contract, generator/discovery, or release changes | `.ai/skills/om-refresh-standalone-harness/SKILL.md` + `packages/create-app/agentic/shared/ai/skills/om-evolve-harness/SKILL.md` |
 | **Spec & PR Automation** | |
 | Spec lifecycle (pre-implement → implement → write/update), code review, DS review | `.agents/skills/{om-spec-writing,om-code-review}/SKILL.md` + `.ai/skills/{om-pre-implement-spec,om-implement-spec,om-ds-guardian}/SKILL.md` + `.ai/specs/AGENTS.md` + `.ai/ds-rules.md` |
 | PR/issue automation (one-shot auto-PR, resumable loop variants, review/merge-buddy, post-merge sync, changelog, UI QA). **Default for one-off bug fixes / small features:** `om-auto-create-pr` | `.agents/skills/{om-auto-create-pr,om-auto-continue-pr,om-auto-create-pr-loop,om-auto-continue-pr-loop,om-auto-review-pr,om-auto-qa-pr,om-merge-buddy,om-review-prs,om-close-fixed-issues,om-auto-update-changelog,om-prepare-issue}/SKILL.md` |
