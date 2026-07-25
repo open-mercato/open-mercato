@@ -27,7 +27,8 @@
     "@types/node": "^26.0.1",
     "esbuild": "^0.28.1",
     "tsx": "^4.23.1",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "typescript-standalone": "npm:typescript@6.0.3"
   },
   "publishConfig": {
     "access": "public"

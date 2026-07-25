@@ -13,7 +13,7 @@ const behaviorOracle = fileURLToPath(new URL('../../agentic/shared/ai/harness/wr
 const casesPath = fileURLToPath(new URL('../../agentic/shared/ai/harness/cases.json', import.meta.url))
 const fixtureIndexPath = fileURLToPath(new URL('../../agentic/shared/ai/harness/fixtures/index.json', import.meta.url))
 const seedsPath = fileURLToPath(new URL('../../agentic/shared/ai/harness/fixtures/seeds.json', import.meta.url))
-const typescriptRoot = path.dirname(require.resolve('typescript/package.json'))
+const typescriptRoot = path.dirname(require.resolve('typescript-standalone/package.json'))
 
 type Family =
   | 'business-command'

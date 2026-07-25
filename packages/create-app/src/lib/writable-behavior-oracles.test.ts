@@ -13,7 +13,7 @@ const seedsPath = fileURLToPath(new URL('../../agentic/shared/ai/harness/fixture
 const seeds = JSON.parse(fs.readFileSync(seedsPath, 'utf8')) as {
   fixtures: Record<string, Record<string, string>>
 }
-const typescriptRoot = path.dirname(require.resolve('typescript/package.json'))
+const typescriptRoot = path.dirname(require.resolve('typescript-standalone/package.json'))
 
 type CaseDefinition = {
   fixture: string

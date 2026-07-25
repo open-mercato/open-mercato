@@ -6,6 +6,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 const packagesRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
+const repositoryRoot = join(packagesRoot, '..')
 
 function packedFiles(packageDir: string): string[] {
   const result = spawnSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
@@ -78,4 +79,22 @@ test('every package declared by the standalone template publishes its module sou
 
   const coreFiles = new Set(packedFiles(join(packagesRoot, 'core')))
   assert.equal(coreFiles.has('src/modules/customers/data/entities.ts'), true)
+})
+
+test('Docker package-build stages include release-matched upstream context sources', () => {
+  const dockerfile = readFileSync(join(repositoryRoot, 'Dockerfile'), 'utf8')
+  const copyInstruction = 'COPY AGENTS.md BACKWARD_COMPATIBILITY.md ./'
+  assert.equal(
+    dockerfile.split(copyInstruction).length - 1,
+    2,
+    'builder and dev-build must both copy the upstream context before package builds',
+  )
+
+  for (const buildCommand of ['RUN yarn build', 'RUN yarn build:packages && yarn generate && yarn build:packages']) {
+    const buildIndex = dockerfile.indexOf(buildCommand)
+    assert.notEqual(buildIndex, -1, `missing Docker build command: ${buildCommand}`)
+    const stageStart = dockerfile.lastIndexOf('FROM node:', buildIndex)
+    const copyIndex = dockerfile.lastIndexOf(copyInstruction, buildIndex)
+    assert.ok(copyIndex > stageStart, `${copyInstruction} must occur in the same stage before ${buildCommand}`)
+  }
 })

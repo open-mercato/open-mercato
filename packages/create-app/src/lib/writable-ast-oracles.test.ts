@@ -10,7 +10,9 @@ import { WRITABLE_CASE_IDS } from '../../agentic/shared/ai/harness/writable-ast-
 
 const require = createRequire(import.meta.url)
 const oracle = fileURLToPath(new URL('../../agentic/shared/ai/harness/writable-ast-oracles.mjs', import.meta.url))
-const targetTypeScript = path.dirname(require.resolve('typescript/package.json'))
+// The standalone template currently installs TypeScript 6. Keep oracle fixtures
+// on that public compiler API while the monorepo itself exercises TypeScript 7.
+const targetTypeScript = path.dirname(require.resolve('typescript-standalone/package.json'))
 const targetSandboxAvailable = process.platform === 'darwin'
   || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
 

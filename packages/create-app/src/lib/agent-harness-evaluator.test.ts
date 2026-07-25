@@ -14,7 +14,7 @@ const sourceEvaluator = path.join(sharedRoot, 'scripts', 'evaluate-agent-harness
 const sourceExecutionSandbox = path.join(sharedRoot, 'scripts', 'execution-sandbox.mjs')
 const sourceToolServer = path.join(sharedRoot, 'scripts', 'agent-harness-tool-server.mjs')
 const sourceFixturePreparer = path.join(sharedRoot, 'scripts', 'prepare-agent-harness-fixture.mjs')
-const typescriptPackageRoot = path.dirname(fileURLToPath(import.meta.resolve('typescript/package.json')))
+const typescriptPackageRoot = path.dirname(fileURLToPath(import.meta.resolve('typescript-standalone/package.json')))
 const targetSandboxAvailable = process.platform === 'darwin'
   || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
 
