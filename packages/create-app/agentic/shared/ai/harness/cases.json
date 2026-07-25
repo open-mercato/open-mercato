@@ -1695,7 +1695,8 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/skills/om-module-scaffold/SKILL.md"
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
         ".env*",
@@ -2360,11 +2361,18 @@
       "allowedExtra": [
         "architecture",
         "module-data",
-        "debugging"
+        "debugging",
+        "framework-context"
       ]
     },
     "requiredSkills": [
       "om-system-extension"
+    ],
+    "optionalSkills": [
+      {
+        "id": "om-framework-context",
+        "route": "framework-context"
+      }
     ],
     "context": {
       "required": [
@@ -2373,6 +2381,9 @@
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-framework-context/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -6323,7 +6334,8 @@
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
-        ".ai/guides/modules/customer_accounts.md"
+        ".ai/guides/modules/customer_accounts.md",
+        ".ai/guides/modules/portal.md"
       ],
       "forbidden": [
         ".env*",
@@ -7594,7 +7606,8 @@
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
-        ".ai/guides/modules/customers.md"
+        ".ai/guides/modules/customers.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
         ".env*",
@@ -12557,10 +12570,11 @@
     "prompt":"Block order cancellation after dispatch even when someone calls the API directly, while preserving the existing route, method, request, response, and error schemas.",
     "tags":["business-language","mutation-guard","orders"],
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-05","BC-08"]},
-    "expectedRouter":{"required":["umes","framework-context"],"allowedExtra":["module-data","backend-ui","debugging"]},
-    "requiredSkills":["om-system-extension","om-framework-context"],
-    "context":{"required":["AGENTS.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-framework-context/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
-    "requiredDecisions":["mutation-guard","safe-after-success","interceptor-contract","backend-consistency","status-invariant"],
+    "expectedRouter":{"required":["umes"],"allowedExtra":["module-data","backend-ui","debugging","framework-context"]},
+    "requiredSkills":["om-system-extension"],
+    "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
+    "context":{"required":["AGENTS.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"allowedExtra":[".ai/skills/om-framework-context/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "requiredDecisions":["mutation-guard","backend-consistency","status-invariant"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","UI only","(?:skip|bypass).{0,30}(?:guard|permission|lock)","rewrite.{0,30}(?:all|entire).{0,20}(?:body|query)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
     "maxContextFiles":6,"maxInitialContextBytes":65536,"maxTotalContextBytes":114688,"relatedCases":["OMH-031","OMH-032","OMH-038"]

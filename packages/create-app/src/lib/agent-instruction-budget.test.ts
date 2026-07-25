@@ -89,9 +89,18 @@ test('existing-module UI routing stays inside the backend UI context slice', () 
 test('compatibility routing covers existing public contracts without pulling in additive UI work', () => {
   for (const relativePath of ROOT_SOURCES) {
     const source = fs.readFileSync(path.join(CREATE_APP_ROOT, relativePath), 'utf8')
-    assert.match(source, /Existing API\/schema\/ID\/export\/path\/signature\/CLI changes → `BACKWARD_COMPATIBILITY\.md`/)
-    assert.match(source, /skip additive page\/form\/table\/conflict UI/)
+    assert.match(source, /Existing route\/schema\/ID\/export\/path\/function\/props-signature\/event-payload\/CLI changes MUST read `BACKWARD_COMPATIBILITY\.md`/)
+    assert.match(source, /Additive page\/form\/table\/conflict UI skips it/)
   }
+})
+
+test('live evaluation declares every progressive context read in its structured result', () => {
+  const source = fs.readFileSync(
+    path.join(CREATE_APP_ROOT, 'agentic/shared/scripts/evaluate-agent-harness.mjs'),
+    'utf8',
+  )
+  assert.match(source, /selectedContext lists every exact app-relative instruction or fact path you opened/)
+  assert.match(source, /never omit a progressive read from the final object/)
 })
 
 test('generated classic Codex root and representative initial chains fit their byte budgets', () => {

@@ -272,11 +272,11 @@ test('the catalog count and release coverage are derived from the validator regi
     validators.catalog.mandatoryCaseIds,
   )
   assert.deepEqual(validators.catalog.compatibilityRequiredCaseIds, [
-    'OMH-007', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-147', 'OMH-182',
+    'OMH-007', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-105', 'OMH-147', 'OMH-182',
   ])
   assert.deepEqual(validators.catalog.compatibilityExcludedCaseIds, [
-    'OMH-006', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-018', 'OMH-022', 'OMH-026',
-    'OMH-081', 'OMH-091', 'OMH-093', 'OMH-105', 'OMH-172', 'OMH-181',
+    'OMH-006', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-018', 'OMH-026',
+    'OMH-081', 'OMH-091', 'OMH-093', 'OMH-172', 'OMH-181',
   ])
   const compatibilityPath = '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
@@ -515,6 +515,38 @@ for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) console.log(JSON
     assert.equal(parsed.corrections, 0)
     assert.deepEqual(parsed.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
     assert.deepEqual(parsed.declaredContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live routing rejects an observed progressive context file omitted from selectedContext', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+for (const file of ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/testing-debugging.md']) {
+  console.log(JSON.stringify({ type: 'item.completed', item: {
+    type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+  }}))
+}
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.ok(
+      storedResults(root)[0].violations.includes('observed context not declared .ai/guides/testing-debugging.md'),
+      JSON.stringify(storedResults(root), null, 2),
+    )
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -774,7 +806,7 @@ if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['umes', 'framework-context'], selectedSkills: ['om-system-extension', 'om-framework-context'],
   selectedContext: ${JSON.stringify(context)},
-  decisions: ['mutation-guard', 'safe-after-success', 'interceptor-contract', 'backend-consistency', 'status-invariant'], violations: []
+  decisions: ['mutation-guard', 'backend-consistency', 'status-invariant'], violations: []
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: {
   type: 'command_execution', command: ${JSON.stringify(`cat ${context.join(' ')}`)}

@@ -12,7 +12,7 @@ Extend this app. Route first; load every match; never probe unmatched context.
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
 - Run `yarn generate` after discovery files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows change.
-- Preserve routes, schemas, IDs, exports, paths and signatures.
+- Existing route/schema/ID/export/path/function/props-signature/event-payload/CLI changes MUST read `BACKWARD_COMPATIBILITY.md`.
 - Localize strings; use shared UI/tokens and complete loading, empty, error, conflict, keyboard, and accessibility states.
 
 ## Ask First
@@ -121,12 +121,12 @@ If a skill is absent, run `yarn install-skills` once; never invent a substitute.
 - Load each matched guide once, then only needed references and facts.
 - For specs, list names and open one task match; skip README/template otherwise.
 - Inspect app call sites before bounded `framework-context`.
-- Existing API/schema/ID/export/path/signature/CLI changes → `BACKWARD_COMPATIBILITY.md`; skip additive page/form/table/conflict UI.
+- Additive page/form/table/conflict UI skips it.
 - Never bulk-read guide, skill, fact, or source trees.
 
 ## Module-Specific Facts
 
-Host facts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→customer_accounts; quote/order→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; progress→progress; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index/events unless changed.
+Host facts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→customer_accounts; quote/order/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; progress→progress; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index/events unless changed.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
