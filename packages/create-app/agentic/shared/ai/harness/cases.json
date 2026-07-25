@@ -859,7 +859,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a guarded non-CRUD action command with locking, events, and undo. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a guarded non-CRUD action command with locking, events, and undo. Event emission is an app primitive here, not a change to the installed events host. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "module",
       "module-data",
