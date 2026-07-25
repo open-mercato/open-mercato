@@ -17,6 +17,7 @@ import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@op
 import { WorkflowDefinition } from '../../../../data/entities'
 import { serializeWorkflowDefinition } from '../../serialize'
 import { getCodeWorkflow } from '../../../../lib/code-registry'
+import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -114,6 +115,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       await em.flush()
       saved = override
     }
+
+    // Materializing the override moves trigger ownership from the code registry
+    // to the new `workflow_definitions` row, so the cached snapshot the wildcard
+    // subscriber reads is stale until TRIGGER_CACHE_TTL expires (#4425).
+    if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
 
     if (guardResult?.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
