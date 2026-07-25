@@ -25,6 +25,7 @@ const COPY_EXCLUDED_PREFIXES = [
 ]
 const SAFE_ENV_TEMPLATES = new Set(['.env.example', '.env.sample', '.env.template'])
 const SENSITIVE_AUTH_FILES = new Set(['.git-credentials', '.netrc', '.npmrc', '.pypirc', '.yarnrc', '.yarnrc.yml', '.yarnrc.yaml'])
+const SENSITIVE_AUTH_DATA_FILE = /^(?:auth|credentials?|secrets?|tokens?)(?:\.(?:conf(?:ig)?|ini|json|toml|txt|ya?ml))?$/
 const SENSITIVE_ENV_KEY = /(?:^|_)(?:api_?key|auth|credential|credentials|password|passwd|private_?key|secret|token)(?:_|$)/i
 
 function usage() {
@@ -124,7 +125,8 @@ function sensitiveScaffoldPath(relative) {
   const lowerRelative = relative.toLowerCase()
   if ((basename === '.env' || basename.startsWith('.env.')) && !SAFE_ENV_TEMPLATES.has(basename)) return true
   if (SENSITIVE_AUTH_FILES.has(basename)) return true
-  if (/^(?:\.aws|\.azure|\.config\/gcloud|\.config\/gh|\.docker|\.gnupg|\.ssh)(?:\/|$)/.test(lowerRelative)) return true
+  if (/^(?:\.aws|\.azure|\.config\/gcloud|\.config\/gh|\.docker|\.gnupg|\.kube|\.oci|\.pulumi|\.ssh|\.terraform\.d)(?:\/|$)/.test(lowerRelative)) return true
+  if (SENSITIVE_AUTH_DATA_FILE.test(basename)) return true
   if (/\.(?:key|pem|p12|pfx|jks|keystore)$/.test(basename)) return true
   if (/^(?:id_rsa|id_dsa|id_ecdsa|id_ed25519)$/.test(basename)) return true
   return /(?:^|[._-])(?:credential|credentials|private[._-]?key|service[._-]?account)(?:[._-]|$)/.test(basename)

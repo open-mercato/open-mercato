@@ -184,7 +184,8 @@ test('automatic target preparation clones only fresh source inputs and safely sh
 test('automatic target preparation rejects local environment, auth-store, credential, and private-key files without copying them', { skip: process.platform === 'win32' }, () => {
   const sensitiveFiles = [
     '.env', '.env.local', '.npmrc', '.netrc', '.yarnrc.yml', '.pypirc', '.git-credentials',
-    '.docker/config.json', 'config/service-account-credentials.json', 'certs/signing.key',
+    '.docker/config.json', '.codex/auth.json', '.kube/config', 'config/secrets.json',
+    'config/service-account-credentials.json', 'certs/signing.key',
   ]
   for (const relative of sensitiveFiles) {
     const controller = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-sensitive-source-')))
