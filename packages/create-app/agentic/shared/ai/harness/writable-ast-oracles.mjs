@@ -455,7 +455,7 @@ const TEST_INFO_MODIFIERS = new Set(['fail', 'fixme', 'skip'])
 
 function forbiddenTestModifier(ts, expression) {
   const parts = expressionPath(ts, expression)
-  if (parts.length === 1 && FORBIDDEN_TEST_ALIASES.has(parts[0])) return parts[0]
+  if (FORBIDDEN_TEST_ALIASES.has(parts[0])) return parts.join('.')
   if (parts[0] === 'testInfo' && parts.slice(1).some((part) => TEST_INFO_MODIFIERS.has(part))) return parts.join('.')
   if (!TEST_RUNNER_ROOTS.has(parts[0])) return undefined
   return parts.slice(1).some((part) => FORBIDDEN_TEST_MODIFIERS.has(part)) ? parts.join('.') : undefined

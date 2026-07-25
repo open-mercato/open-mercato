@@ -680,6 +680,7 @@ test('generated tests reject common disabled, focused, todo, and expected-failur
     ['it.skip', `it.skip('disabled spec', () => {})`],
     ['it.only', `it.only('focused spec', () => {})`],
     ['xtest', `xtest('disabled alias', () => {})`],
+    ['xtest.each', `xtest.each([[1]])('disabled alias matrix', () => {})`],
     ['xit', `xit('disabled alias', () => {})`],
     ['xdescribe', `xdescribe('disabled alias suite', () => {})`],
     ['fit', `fit('focused alias', () => {})`],
