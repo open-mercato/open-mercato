@@ -1,6 +1,6 @@
 # Standalone AI Development Harness
 
-- **Status:** Implemented — deterministic and focused gates green; final dual-runner release evidence pending Claude authentication
+- **Status:** Implemented — deterministic and focused gates green; final selected-primary-runner release evidence pending
 - **Date:** 2026-07-24
 - **Scope:** OSS, standalone applications emitted by `create-mercato-app` only
 - **Tracking plan:** `.ai/runs/2026-07-24-standalone-app-ai-harness.md`
@@ -15,7 +15,7 @@ Replace the AI coding context emitted into a fresh standalone app with one compa
 1. **One delivery, independently verifiable slices:** this specification covers the standalone AI development harness as one requested delivery, but its context/router, installer/generator, and evaluation slices have separate acceptance gates and rollback boundaries. A phase may land only while the generated app remains usable and cross-phase compatibility tests stay green.
 2. **Standalone boundary:** no monorepo contributor harness or shared skills-collection procedure is rewritten. Shared automation is selected and installed; standalone domain knowledge and overrides remain in create-app assets.
 3. **Source-context boundary:** installed framework source and package/module `AGENTS.md` files are read-only reference material. The harness may locate and read them explicitly despite `node_modules` ignore rules, but never edits them.
-4. **Evaluation boundary:** deterministic schema/routing/consistency/scaffold gates are CI-authoritative. Read-only Codex/Claude runs evaluate routing only. Writable implementation/regression runs use disposable scaffolds and executable oracles. The versioned release matrix defines which live runs are required and how an unavailable external runner is reported.
+4. **Evaluation boundary:** deterministic schema/routing/consistency/scaffold gates are CI-authoritative. Read-only Codex/Claude runs evaluate routing only. Writable implementation/regression runs use disposable scaffolds and executable oracles. One explicitly selected primary runner owns every blocking live lane; a different secondary runner may be requested for the representative read-only portability lane without making secondary authentication a prerequisite for an ordinary release.
 5. **Migration boundary:** fresh scaffolds get the new layout. `mercato agentic:init` upgrades generated harness assets idempotently without deleting user-authored skills or instructions.
 
 ## 📝 Problem Statement
@@ -239,7 +239,7 @@ yarn harness:validate --runner <codex|claude> [--case/--family/--all] [--batch-s
 yarn harness:fixture --case <id> --target <absolute-disposable-app> --acknowledge-writes
 yarn harness:validate --runner <codex|claude> --case <id> --writable-root <absolute-disposable-app> --acknowledge-writes
 yarn harness:validate --runner <codex|claude> --review-writable-result <result.json> --writable-root <absolute-disposable-app> [--review-validation-result <result.json>]
-yarn harness:release --prepare-targets <absolute-empty-directory> --acknowledge-writes
+yarn harness:release --runner <codex|claude> [--portability-runner <other-runner>] --prepare-targets <absolute-empty-directory> --acknowledge-writes
 yarn mercato agentic:init [--tool <id>] [--update-harness | --force]
 ```
 
@@ -515,15 +515,15 @@ All 39 writable implementation and regression cases must pass an isolated genera
 
 Cases 163, 164, and 165 are executable test-authoring evaluations. They produce a focused Jest unit test, a Playwright API integration test over real contained loopback HTTP, and a Playwright browser integration test respectively. Their files live in canonical module-local `__tests__` or `__integration__` paths and must be executed by fixed controller-owned argv inside the writable sandbox. AST or mocked-helper inspection is not test-execution evidence. External network, Docker sockets, host test credentials, and inherited application/database environment values remain unavailable; missing test/browser containment prerequisites fail the release lane.
 
-The checked-in `releaseMatrix` pins runner, model selector, and case IDs. Acceptance for this PR is:
+The checked-in `releaseMatrix` pins supported runner model selectors plus required and portability case IDs. The release invocation pins one primary runner for the whole suite; per-case fallback or mixed writable ownership is forbidden. Acceptance for this PR is:
 
 1. deterministic validation: 184/184 pass, including 100% forbidden/safety assertions;
-2. Codex routing: 184/184 pass with one retry allowed only for invalid structured output;
-3. Claude routing: the 39-case representative release target passes with the same retry rule once its matrix expansion is complete;
-4. writable implementation/regression: all 39 target oracles, fixed target commands, declared generated tests, and mandatory generated-code reviews pass, with at least one runner per case and both runners represented in every family;
+2. selected primary-runner routing: 184/184 pass with one retry allowed only for invalid structured output;
+3. optional portability routing: when a different `--portability-runner` is explicitly requested, the exact 39-case representative target passes with the same retry rule; when omitted, the release report records `portabilityRunner: null` and does not claim cross-model evidence;
+4. writable implementation/regression: the selected primary runner owns all 39 cases, and every target oracle, fixed target command, declared generated test, and mandatory generated-code review passes;
 5. results are produced from the final commit, record CLI/model versions and prompt hashes, and are summarized without committing raw private transcripts.
 
-Runner unavailability blocks claiming live release evidence; it does not invalidate deterministic CI. Required runner, safety, forbidden-pattern, executable-oracle, validation, generated-test, and generated-code-review failures are non-waivable. No score averaging hides a failed mandatory case.
+Primary-runner unavailability blocks claiming live release evidence; it does not invalidate deterministic CI. An unrequested secondary runner is not a release prerequisite. Once the portability lane is explicitly requested, its failures or unavailability fail that extended run. Primary runner, safety, forbidden-pattern, executable-oracle, validation, generated-test, and generated-code-review failures remain non-waivable. No score averaging hides a failed mandatory case.
 
 ### Backward-compatibility semantic coverage
 
@@ -556,7 +556,7 @@ The case assertions cover every frozen/stable surface even though the harness do
 - **Framework versions differ:** resolver prints every relevant version and prevents mixing generated facts from one version with source from another without a warning.
 - **User modified generated harness file:** ownership manifest preserves it and emits a conflict/side-by-side update rather than overwriting silently.
 - **Stale `dist/agentic`:** build cleans before copy and asserts deleted paths are absent.
-- **Live evaluator unavailable/rate-limited:** deterministic gates still run; release evidence records the external blocker rather than claiming a live pass.
+- **Primary live evaluator unavailable/rate-limited:** deterministic gates still run; release evidence records the external blocker rather than claiming a live pass. An unrequested secondary runner remains `null`, not failed or passed.
 - **Live model produces invalid JSON:** schema validation fails the case and stores only sanitized output/error metadata.
 - **Prompt injection in a PR/source guide:** content remains untrusted data; evaluator and evolve skill never execute embedded instructions.
 
@@ -564,7 +564,7 @@ The case assertions cover every frozen/stable surface even though the harness do
 
 | Risk | Severity | Mitigation | Residual risk |
 |---|---|---|---|
-| Rewriting generated guidance changes agent behavior broadly. | High | 184 semantic cases, mandatory safety subset, live dual-runner evidence, draft PR and review gate. | Model behavior remains probabilistic. |
+| Rewriting generated guidance changes agent behavior broadly. | High | 184 semantic cases, mandatory safety subset, complete selected-runner release evidence, optional explicit cross-model portability evidence, draft PR, and review gate. | Model behavior remains probabilistic and secondary-runner evidence depends on optional provider access. |
 | Root instructions are silently truncated by a default agent budget. | High | 12 KiB byte cap on both root sources plus representative generated initial-chain checks against 32,768 bytes (issue #4484). | Other tools may impose smaller undocumented budgets. |
 | Context files still drift from framework contracts. | High | Generated facts, installed source/AGENTS escape hatch, semantic contradiction scan, release version stamps. | Hand-written conceptual guides still require maintenance. |
 | Installer removes user content or breaks Windows. | High | Node path-safe implementation, ownership checks, junction tests, preserve stable flags/wrapper, generated-app tests. | Windows junction semantics vary by corporate policy. |
@@ -593,9 +593,9 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 | Missing source/duplicate module/version skew fixtures | Explicit degraded/ambiguous/skew output; no guessed edit path. |
 | Deterministic harness validation | 184 schema-valid cases, existing references, no contradictory stale patterns, context budgets, dependency closure. |
 | Instruction-budget regression | Both root sources ≤12 KiB; named representative generated initial chains ≤32,768 bytes, measured as bytes. |
-| Codex live runner | Read-only structured routing/decision result for all 184 cases, one fresh session per case. |
-| Claude live runner | Plan/read-only structured routing/decision result for the 39-case release target. |
-| Writable live runner | Disposable scaffolds and executable oracles for the 39-case implementation/regression target. |
+| Selected primary live runner | Codex or Claude read-only structured routing/decision result for all 184 cases, one fresh session per case. |
+| Optional portability live runner | A different explicitly requested runner executes the exact 39-case representative read-only target; omission is recorded without blocking release. |
+| Writable live runner | The selected primary runner owns disposable scaffolds and executable oracles for all 39 implementation/regression cases. |
 | Generated test execution | Fixed-argv execution of the generated Jest unit, Playwright API, and Playwright browser cases in canonical module-local paths. |
 | Mandatory generated-code review | Post-oracle/command/test review of every writable result in a bounded source-only bundle using the pinned installed `om-code-review` skill. |
 | Generated standalone install/generate/typecheck/test/build | Real npm/Verdaccio package boundary and published-path validation. |
@@ -640,7 +640,7 @@ Add the Node installer, compatibility wrapper, recursive asset emission, ownersh
 
 ### Phase 4 — Evaluation and release proof
 
-Add all case records, deterministic/live runner, focused/generated-app/Verdaccio validation, execute the full Codex matrix and representative Claude matrix, and remediate failures.
+Add all case records, deterministic/live runner, focused/generated-app/Verdaccio validation, execute the full selected-primary-runner matrix plus an optional representative secondary portability matrix, and remediate failures.
 
 ## 📋 Implementation Plan
 
@@ -668,7 +668,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Implement deterministic, read-only Codex/Claude routing, and writable disposable-scaffold evaluation modes plus sanitized result artifacts.
 2. Generate a fresh standalone app, install local/external skills, resolve upstream context, and run deterministic validation.
-3. Run all 184 Codex routing cases, the 39-case Claude routing target, and the 39 writable implementation/regression target oracles, generated tests, target commands, and code reviews; fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
+3. Select Codex or Claude once for the release; run all 184 primary routing cases and all 39 primary-owned writable implementation/regression target oracles, generated tests, target commands, and code reviews. Optionally request the other runner for the exact 39-case read-only portability target. Fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
 4. Run create-app targeted tests, Verdaccio standalone parity where package boundaries changed, and the configured full repository gate.
 5. Complete automated code review/autofix, final compliance report, PR evidence, and rollback notes.
 
@@ -703,3 +703,4 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 - **2026-07-24** — Added an independent generated-code review lane for all 31 one-shot implementation cases, binding the pinned installed `om-code-review` skill to passing target-command attestation, controller oracle evidence, and the final post-build fingerprint inside a bounded source-only bundle with sanitized strict verdict artifacts.
 - **2026-07-24** — Doubled the catalog to 184 cases, grouped cases 93–184 by developer outcome, and set the writable release target to 39 cases with aligned fixture, oracle, real generated-test, mandatory review, evaluator, and release-matrix gates.
 - **2026-07-24** — Strengthened the release target to 39 cases (21.2%), made generated-code review mandatory for every writable implementation/regression, and added fixed-argv execution of generated Jest, Playwright API, and Playwright browser tests under fail-closed host containment.
+- **2026-07-25** — Replaced the non-waivable dual-provider release dependency with one explicit primary runner that owns all blocking live lanes, plus an optional distinct 39-case read-only portability runner recorded separately in release evidence.

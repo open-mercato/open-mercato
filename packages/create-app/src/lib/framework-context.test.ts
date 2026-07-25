@@ -127,6 +127,83 @@ test('resolves a declared installed module and materializes its exact source and
   )
 })
 
+test('materializes only regular UTF-8 source text and omits credentials, keys, binaries, and symlinks', { skip: process.platform === 'win32' }, () => {
+  const root = createFixture()
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'om-framework-context-secret-')))
+  const moduleRoot = join(root, 'node_modules', '@open-mercato', 'core', 'src', 'modules', 'customers')
+  const materializedRoot = join(root, '.ai', 'framework-context', 'open-mercato-core@0.6.6', 'source', 'customers')
+  write(join(moduleRoot, 'safe.ts'), 'export const safe = true\n')
+  write(join(moduleRoot, '.env.local'), 'API_KEY=must-not-be-materialized\n')
+  write(join(moduleRoot, 'credentials.json'), JSON.stringify({ token: 'must-not-be-materialized' }))
+  write(join(moduleRoot, 'private.pem'), '-----BEGIN PRIVATE KEY-----\nmust-not-be-materialized\n')
+  write(join(moduleRoot, 'private-key.ts'), "export const key = '-----BEGIN RSA PRIVATE KEY-----'\n")
+  write(join(moduleRoot, '.ssh', 'id_rsa'), 'must-not-be-materialized\n')
+  writeFileSync(join(moduleRoot, 'binary.ts'), Buffer.from([0x65, 0x78, 0x00, 0x70]))
+  const outsideSource = join(outside, 'outside.ts')
+  write(outsideSource, 'export const outside = true\n')
+  symlinkSync(outsideSource, join(moduleRoot, 'linked.ts'), 'file')
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/framework-context.mjs', '--module', 'customers', '--json'],
+      { cwd: root, encoding: 'utf8' },
+    )
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const parsed = JSON.parse(result.stdout) as { warnings: string[] }
+    assert.equal(readFileSync(join(materializedRoot, 'safe.ts'), 'utf8'), 'export const safe = true\n')
+    for (const denied of [
+      '.env.local',
+      'credentials.json',
+      'private.pem',
+      'private-key.ts',
+      join('.ssh', 'id_rsa'),
+      'binary.ts',
+      'linked.ts',
+    ]) assert.equal(existsSync(join(materializedRoot, denied)), false, denied)
+    assert.ok(parsed.warnings.some((warning) => /Materialized source omitted \d+ credential, key, symbolic, binary, or unsupported/.test(warning)))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(outside, { recursive: true, force: true })
+  }
+})
+
+test('fails closed when one regular text source file exceeds the materialization byte ceiling', () => {
+  const root = createFixture()
+  const moduleRoot = join(root, 'node_modules', '@open-mercato', 'core', 'src', 'modules', 'customers')
+  writeFileSync(join(moduleRoot, 'oversized.ts'), Buffer.alloc((8 * 1024 * 1024) + 1, 0x61))
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/framework-context.mjs', '--module', 'customers', '--json'],
+      { cwd: root, encoding: 'utf8' },
+    )
+    assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /context source file exceeds 8388608 byte limit: .*oversized\.ts/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('fails closed when a source tree exceeds the materialization entry ceiling', { skip: process.platform === 'win32' }, () => {
+  const root = createFixture()
+  const moduleRoot = join(root, 'node_modules', '@open-mercato', 'core', 'src', 'modules', 'customers')
+  for (let index = 0; index < 10_001; index += 1) {
+    symlinkSync('missing.ts', join(moduleRoot, `linked-${String(index).padStart(5, '0')}.ts`), 'file')
+  }
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/framework-context.mjs', '--module', 'customers', '--json'],
+      { cwd: root, encoding: 'utf8' },
+    )
+    assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /context source exceeded 10000 filesystem entries/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('reports a deterministic mixed-version cohort without combining package context', () => {
   const root = createFixture()
   write(join(root, 'package.json'), JSON.stringify({

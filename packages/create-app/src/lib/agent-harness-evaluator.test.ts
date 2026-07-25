@@ -223,18 +223,20 @@ test('the catalog count and release coverage are derived from the validator regi
     catalog: { expectedCaseCount: number; backwardCompatibilityRuleIds: string[]; mandatoryCaseIds: string[]; writableCaseIds: string[] }
   }
   const matrix = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'release-matrix.json'), 'utf8')) as {
-    routing: { codex: { caseIds: string }; claude: { caseIds: string[] } }
-    writable: Array<{ caseId: string; runner: string }>
+    routing: { required: { caseIds: string }; portability: { caseIds: string[] }; runners: Record<string, { modelSelector: string }> }
+    writable: Array<{ caseId: string }>
     generatedCodeReview: { required: boolean; skill: string; caseIds: string[] }
     generatedTests: { required: boolean; entries: Array<{ caseId: string; runner: string; artifact: string; network: string }> }
-    releaseSuite: { routingRunners: string[]; requireGeneratedCodeReview: boolean; validationCommands: string[] }
+    releaseSuite: { supportedRunners: string[]; requireGeneratedCodeReview: boolean; validationCommands: string[] }
   }
   assert.equal(cases.length, validators.catalog.expectedCaseCount)
   assert.deepEqual(cases.map((entry) => entry.id), Array.from({ length: cases.length }, (_, index) => `OMH-${String(index + 1).padStart(3, '0')}`))
   assert.deepEqual(cases.filter((entry) => entry.fixture).map((entry) => entry.id), validators.catalog.writableCaseIds)
-  assert.deepEqual(matrix.routing.claude.caseIds, validators.catalog.writableCaseIds)
-  assert.equal(matrix.routing.codex.caseIds, 'all')
+  assert.deepEqual(matrix.routing.portability.caseIds, validators.catalog.writableCaseIds)
+  assert.equal(matrix.routing.required.caseIds, 'all')
+  assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } })
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
+  assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
   assert.equal(validators.catalog.writableCaseIds.length, 39)
   assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
@@ -245,7 +247,7 @@ test('the catalog count and release coverage are derived from the validator regi
     { caseId: 'OMH-164', runner: 'playwright-api', artifact: 'src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts', network: 'loopback' },
     { caseId: 'OMH-165', runner: 'playwright-browser', artifact: 'src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts', network: 'loopback' },
   ])
-  assert.deepEqual(matrix.releaseSuite.routingRunners, ['codex', 'claude'])
+  assert.deepEqual(matrix.releaseSuite.supportedRunners, ['codex', 'claude'])
   assert.equal(matrix.releaseSuite.requireGeneratedCodeReview, true)
   assert.deepEqual(matrix.releaseSuite.validationCommands, ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'])
   assert.deepEqual(
@@ -256,6 +258,16 @@ test('the catalog count and release coverage are derived from the validator regi
     cases.filter((entry) => entry.validators.includes('safety.mandatory')).map((entry) => entry.id),
     validators.catalog.mandatoryCaseIds,
   )
+})
+
+test('runner selection distinguishes explicit primary all-cases from the default portability sample', async () => {
+  const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+    selectCases: (cases: Array<{ id: string }>, options: Record<string, unknown>, matrix: Record<string, unknown>) => Array<{ id: string }>
+  }
+  const cases = [{ id: 'OMH-001' }, { id: 'OMH-002' }, { id: 'OMH-003' }]
+  const matrix = { routing: { portability: { caseIds: ['OMH-002', 'OMH-003'] } } }
+  assert.deepEqual(evaluator.selectCases(cases, { selector: 'all', selectorExplicit: true, runner: 'claude' }, matrix).map((entry) => entry.id), ['OMH-001', 'OMH-002', 'OMH-003'])
+  assert.deepEqual(evaluator.selectCases(cases, { selector: 'all', selectorExplicit: false, runner: 'claude' }, matrix).map((entry) => entry.id), ['OMH-002', 'OMH-003'])
 })
 
 test('deterministic evaluation passes every concrete catalog case in an emitted-layout fixture', () => {
@@ -1438,13 +1450,16 @@ test('every inherited provider value and credential-file scalar is redacted for 
     const configured = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `om-${runner}-credentials-`)))
     const credential = `random-credential-${runner}-4f52a8bc910d`
     const inherited = `random-provider-${runner}-71de398ac064`
+    const proxyUserinfo = `proxy-user-${runner}:proxy-password-${runner}`
+    const normalizedProxyUserinfo = `normalized-user-${runner}:normalized-password-${runner}`
+    const proxy = `https://${proxyUserinfo}@proxy.example.test:8443`
     const credentialFile = runner === 'codex' ? path.join(configured, 'auth.json') : path.join(configured, '.credentials.json')
     fs.writeFileSync(credentialFile, JSON.stringify({ nested: { scalar: credential } }))
     const source = runner === 'codex' ? `
 const fs = require('node:fs'); const path = require('node:path'); const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const scalar = JSON.parse(fs.readFileSync(path.join(process.env.CODEX_HOME, 'auth.json'))).nested.scalar
-fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ selectedRouter: ['architecture'], selectedSkills: [], selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'], decisions: ['standalone-boundary', 'facts-first'], violations: [scalar, process.env.OPENAI_BASE_URL] }))
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ selectedRouter: ['architecture'], selectedSkills: [], selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'], decisions: ['standalone-boundary', 'facts-first'], violations: [scalar, process.env.OPENAI_BASE_URL, process.env.HTTPS_PROXY, 'https://${normalizedProxyUserinfo}@proxy.example.test:8443'] }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md .ai/guides/architecture.md' } }))
 ` : `
 const fs = require('node:fs'); const path = require('node:path'); const args = process.argv.slice(2)
@@ -1454,12 +1469,13 @@ console.log(JSON.stringify({ type: 'assistant', message: { content: [
   { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), 'AGENTS.md') } },
   { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/guides/architecture.md') } }
 ] } }))
-console.log(JSON.stringify({ type: 'result', structured_output: { selectedRouter: ['architecture'], selectedSkills: [], selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'], decisions: ['standalone-boundary', 'facts-first'], violations: [scalar, process.env.ANTHROPIC_AUTH_TOKEN] } }))
+console.log(JSON.stringify({ type: 'result', structured_output: { selectedRouter: ['architecture'], selectedSkills: [], selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'], decisions: ['standalone-boundary', 'facts-first'], violations: [scalar, process.env.ANTHROPIC_AUTH_TOKEN, process.env.HTTPS_PROXY, 'https://${normalizedProxyUserinfo}@proxy.example.test:8443'] } }))
 `
     const bin = installFakeRunner(root, runner, source)
     const env = {
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+      HTTPS_PROXY: proxy,
       ...(runner === 'codex' ? { CODEX_HOME: configured, OPENAI_BASE_URL: inherited } : { CLAUDE_CONFIG_DIR: configured, ANTHROPIC_AUTH_TOKEN: inherited }),
     }
     try {
@@ -1468,7 +1484,10 @@ console.log(JSON.stringify({ type: 'result', structured_output: { selectedRouter
       const serialized = JSON.stringify(storedResults(root))
       assert.doesNotMatch(serialized, new RegExp(credential))
       assert.doesNotMatch(serialized, new RegExp(inherited))
+      assert.doesNotMatch(serialized, new RegExp(proxyUserinfo))
+      assert.doesNotMatch(serialized, new RegExp(normalizedProxyUserinfo))
       assert.match(serialized, /<redacted-provider-value>/)
+      assert.match(serialized, /<redacted-url-credentials>/)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
       fs.rmSync(configured, { recursive: true, force: true })

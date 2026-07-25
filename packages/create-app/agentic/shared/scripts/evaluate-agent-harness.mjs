@@ -93,7 +93,7 @@ const SENSITIVE_RUNNER_ENV_KEYS = new Set([
   'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN',
   'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_REGION',
   'AWS_DEFAULT_REGION', 'GOOGLE_APPLICATION_CREDENTIALS', 'ANTHROPIC_VERTEX_PROJECT_ID',
-  'CLOUD_ML_REGION',
+  'CLOUD_ML_REGION', 'HTTP_PROXY', 'HTTPS_PROXY',
 ])
 const IN_MEMORY_SECRET_VALUES = new Set([...SENSITIVE_RUNNER_ENV_KEYS]
   .map((key) => process.env[key])
@@ -111,8 +111,9 @@ Usage:
   node scripts/evaluate-agent-harness.mjs --runner <codex|claude> --case <id> --writable-root <absolute-path> --acknowledge-writes
   node scripts/evaluate-agent-harness.mjs --runner <codex|claude> --review-writable-result <absolute-result.json> --writable-root <absolute-path> [--review-validation-result <absolute-result.json>]
 
-Default mode is deterministic and validates the complete catalog. Runner --all uses that
-runner's release-matrix selection. Writable mode accepts only catalog-declared writable cases.
+Default mode is deterministic and validates the complete catalog. An explicit runner --all
+selects the complete catalog; a runner without a selector uses the representative portability
+set. Writable mode accepts only catalog-declared writable cases.
 Generated-code review is an explicit, read-only post-oracle lane and never runs automatically.
 Exit codes: 0 pass, 1 evaluated failure, 2 invalid invocation or environment.`
 }
@@ -122,6 +123,7 @@ function parseArgs(argv) {
     root: process.cwd(),
     selector: 'all',
     selectorValue: undefined,
+    selectorExplicit: false,
     runner: undefined,
     model: undefined,
     timeout: 300_000,
@@ -141,9 +143,9 @@ function parseArgs(argv) {
     }
     if (arg === '--help' || arg === '-h') return { help: true }
     if (arg === '--root') options.root = value()
-    else if (arg === '--case') { options.selector = 'case'; options.selectorValue = value() }
-    else if (arg === '--family') { options.selector = 'family'; options.selectorValue = value() }
-    else if (arg === '--all') { options.selector = 'all'; options.selectorValue = undefined }
+    else if (arg === '--case') { options.selector = 'case'; options.selectorValue = value(); options.selectorExplicit = true }
+    else if (arg === '--family') { options.selector = 'family'; options.selectorValue = value(); options.selectorExplicit = true }
+    else if (arg === '--all') { options.selector = 'all'; options.selectorValue = undefined; options.selectorExplicit = true }
     else if (arg === '--runner') options.runner = value()
     else if (arg === '--model') options.model = value()
     else if (arg === '--timeout') options.timeout = Number(value())
@@ -427,29 +429,22 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
   }
   const writableIds = cases.filter((item) => WRITABLE_KINDS.has(item.evaluationKind)).map((item) => item.id)
   if (JSON.stringify(writableIds) !== JSON.stringify(registry.catalog.writableCaseIds)) globalErrors.push('validator registry writable case set differs from the catalog')
-  const claudeCases = releaseMatrix?.routing?.claude?.caseIds
-  if (!isUniqueStringArray(claudeCases, { min: 1 }) || JSON.stringify(claudeCases) !== JSON.stringify(writableIds)) globalErrors.push('Claude routing matrix must match the catalog writable case set in order')
-  if (releaseMatrix?.routing?.codex?.caseIds !== 'all') globalErrors.push('Codex routing matrix must cover all cases')
+  const portabilityCases = releaseMatrix?.routing?.portability?.caseIds
+  if (!isUniqueStringArray(portabilityCases, { min: 1 }) || JSON.stringify(portabilityCases) !== JSON.stringify(writableIds)) globalErrors.push('portability routing matrix must match the catalog writable case set in order')
+  if (releaseMatrix?.routing?.required?.caseIds !== 'all') globalErrors.push('primary routing matrix must cover all cases')
   if (releaseMatrix?.deterministic?.caseIds !== 'all') globalErrors.push('deterministic matrix must use the all-cases selector')
   const writableEntries = releaseMatrix?.writable ?? []
-  if (JSON.stringify(writableEntries.map((entry) => entry.caseId)) !== JSON.stringify(writableIds)) globalErrors.push('writable release matrix differs from the catalog writable set')
-  const families = new Map()
-  const runnerCounts = new Map([['codex', 0], ['claude', 0]])
+  if (JSON.stringify(writableEntries.map((entry) => entry?.caseId)) !== JSON.stringify(writableIds)) globalErrors.push('writable release matrix differs from the catalog writable set')
   for (const entry of writableEntries) {
-    const item = cases.find((candidate) => candidate.id === entry.caseId)
-    if (!item || !['codex', 'claude'].includes(entry.runner) || typeof entry.modelSelector !== 'string') globalErrors.push(`invalid writable release entry ${entry.caseId ?? '<missing>'}`)
-    if (item) {
-      if (!families.has(item.family)) families.set(item.family, [])
-      families.get(item.family).push(entry.runner)
-      runnerCounts.set(entry.runner, (runnerCounts.get(entry.runner) ?? 0) + 1)
-    }
+    if (!isPlainObject(entry) || !cases.some((candidate) => candidate.id === entry.caseId) || Object.keys(entry).length !== 1) globalErrors.push(`invalid runner-neutral writable release entry ${entry?.caseId ?? '<missing>'}`)
   }
-  for (const [family, runners] of families) {
-    if (runners.length > 1 && new Set(runners).size !== 2) globalErrors.push(`writable family ${family} must represent both runners when it has multiple cases`)
-  }
-  if (Math.abs(runnerCounts.get('codex') - runnerCounts.get('claude')) > 1) globalErrors.push('writable release matrix must balance Codex and Claude assignments')
   const releaseSuite = releaseMatrix?.releaseSuite
-  if (JSON.stringify(releaseSuite?.routingRunners) !== JSON.stringify(['codex', 'claude'])) globalErrors.push('release suite must run Codex and Claude routing')
+  const supportedRunners = ['codex', 'claude']
+  if (JSON.stringify(releaseSuite?.supportedRunners) !== JSON.stringify(supportedRunners)) globalErrors.push('release suite supported runners must be Codex and Claude')
+  if (JSON.stringify(Object.keys(releaseMatrix?.routing?.runners ?? {})) !== JSON.stringify(supportedRunners)) globalErrors.push('routing matrix must configure exactly Codex and Claude')
+  for (const runner of supportedRunners) {
+    if (typeof releaseMatrix?.routing?.runners?.[runner]?.modelSelector !== 'string') globalErrors.push(`routing matrix requires a ${runner} model selector`)
+  }
   if (releaseSuite?.requireGeneratedCodeReview !== true) globalErrors.push('release suite must require generated-code review')
   if (JSON.stringify(releaseSuite?.validationCommands) !== JSON.stringify(RELEASE_VALIDATION_COMMANDS)) globalErrors.push('release suite validation commands are invalid')
   const review = releaseMatrix?.generatedCodeReview
@@ -494,7 +489,7 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
   return { globalErrors, errorsByCase }
 }
 
-function selectCases(cases, options, releaseMatrix) {
+export function selectCases(cases, options, releaseMatrix) {
   if (options.selector === 'case') {
     const item = cases.find((candidate) => candidate.id === options.selectorValue)
     if (!item) throw new Error(`unknown case: ${options.selectorValue}`)
@@ -504,8 +499,9 @@ function selectCases(cases, options, releaseMatrix) {
     if (!FAMILIES.has(options.selectorValue)) throw new Error(`unknown family: ${options.selectorValue}`)
     return cases.filter((item) => item.family === options.selectorValue)
   }
+  if (options.selector === 'all' && options.selectorExplicit) return cases
   if (options.runner) {
-    const configured = releaseMatrix.routing[options.runner].caseIds
+    const configured = releaseMatrix.routing.portability.caseIds
     if (configured === 'all') return cases
     const ids = new Set(configured)
     return cases.filter((item) => ids.has(item.id))
@@ -525,6 +521,7 @@ function sanitize(value, root, maxLength = 4096) {
     text = text.split(inheritedValue).join('<redacted-provider-value>')
   }
   text = text
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^/\s@]+)@/gi, '$1<redacted-url-credentials>@')
     .replace(/\b(?:sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b/g, '<redacted-token>')
     .replace(/\b(?:api[_-]?key|authorization|password|secret|token)\s*[:=]\s*[^\s,;]+/gi, '$1=<redacted>')
   return text.slice(0, maxLength)
@@ -2175,7 +2172,7 @@ function deterministicRun(selected, validation) {
 function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, harnessDir, resultSchema }) {
   const schemaPath = path.join(harnessDir, 'routing-response.schema.json')
   const version = runnerVersion(options.runner, root)
-  const model = options.model ?? releaseMatrix.routing[options.runner].modelSelector
+  const model = options.model ?? releaseMatrix.routing.runners[options.runner].modelSelector
   const writableRoot = options.writableRoot ? path.resolve(options.writableRoot) : undefined
   if (writableRoot) assertFilesystemDisjoint(root, writableRoot, 'writable root')
   let failures = 0

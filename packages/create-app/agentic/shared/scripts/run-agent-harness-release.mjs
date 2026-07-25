@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url'
 import { sandboxedInvocation } from './execution-sandbox.mjs'
 
 const WRITABLE_KINDS = new Set(['implementation', 'regression'])
-const RELEASE_ROUTING_RUNNERS = ['codex', 'claude']
+const RELEASE_SUPPORTED_RUNNERS = ['codex', 'claude']
 const RELEASE_VALIDATION_COMMANDS = ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build']
 const RELEASE_VALIDATION_OUTPUT_ROOTS = new Map([
   ['yarn generate', ['.mercato/generated']],
@@ -19,7 +19,7 @@ const RELEASE_VALIDATION_OUTPUT_ROOTS = new Map([
   ['yarn lint', []],
   ['yarn build', ['.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo']],
 ])
-const RUNNERS = new Set(RELEASE_ROUTING_RUNNERS)
+const RUNNERS = new Set(RELEASE_SUPPORTED_RUNNERS)
 const ALLOWED_VALIDATION_COMMANDS = new Set(RELEASE_VALIDATION_COMMANDS)
 const GENERATED_TEST_RUNNERS = new Set(['jest', 'playwright-api', 'playwright-browser'])
 const RESULT_LIMIT = 262_144
@@ -40,11 +40,13 @@ function usage() {
   return `Run the complete standalone agent-harness release gate.
 
 Usage:
-  yarn harness:release --prepare-targets /absolute/empty-directory --acknowledge-writes
-  yarn harness:release --writable-targets /absolute/release-targets.json --acknowledge-writes
+  yarn harness:release --runner <codex|claude> --prepare-targets /absolute/empty-directory --acknowledge-writes
+  yarn harness:release --runner <codex|claude> --writable-targets /absolute/release-targets.json --acknowledge-writes
 
 Options:
   --root <absolute-app>          Controller/generated app root (default: current directory)
+  --runner <codex|claude>        Required primary runner for every blocking live lane
+  --portability-runner <runner> Optional different runner for the 39-case read-only portability lane
   --prepare-targets <absolute>   Clone this fresh scaffold once per writable case under an empty/new directory
   --writable-targets <absolute> JSON map of every writable case to a fresh disposable app
   --case-timeout <ms>           Per-model invocation timeout (default: 120000)
@@ -61,7 +63,7 @@ node_modules link to that protected tree; nested dependency copies are rejected.
 Writable execution requires sandbox-exec on
 macOS or Bubblewrap on Linux; unsupported hosts fail closed. The command preflights complete matrix,
 fixture, review, and target coverage before
-running deterministic validation, configured live routing, writable trusted-oracle
+running deterministic validation, selected primary routing, optional portability routing, writable trusted-oracle
 gates, explicit om-code-review, and the release-matrix validation commands. It stores
 only a sanitized aggregate report under .ai/harness/results/.`
 }
@@ -69,6 +71,8 @@ only a sanitized aggregate report under .ai/harness/results/.`
 function parseArgs(argv) {
   const options = {
     root: process.cwd(),
+    runner: undefined,
+    portabilityRunner: undefined,
     prepareTargets: undefined,
     writableTargets: undefined,
     caseTimeout: 120_000,
@@ -85,6 +89,8 @@ function parseArgs(argv) {
     }
     if (arg === '--help' || arg === '-h') options.help = true
     else if (arg === '--root') options.root = value()
+    else if (arg === '--runner') options.runner = value()
+    else if (arg === '--portability-runner') options.portabilityRunner = value()
     else if (arg === '--prepare-targets') options.prepareTargets = value()
     else if (arg === '--writable-targets') options.writableTargets = value()
     else if (arg === '--case-timeout') options.caseTimeout = Number(value())
@@ -94,6 +100,9 @@ function parseArgs(argv) {
   }
   if (options.help) return options
   if (!path.isAbsolute(options.root)) throw new Error('--root must be an absolute path')
+  if (!RUNNERS.has(options.runner)) throw new Error('--runner must be codex or claude')
+  if (options.portabilityRunner !== undefined && !RUNNERS.has(options.portabilityRunner)) throw new Error('--portability-runner must be codex or claude')
+  if (options.portabilityRunner === options.runner) throw new Error('--portability-runner must differ from --runner')
   if (Boolean(options.prepareTargets) === Boolean(options.writableTargets)) throw new Error('pass exactly one of --prepare-targets or --writable-targets')
   if (options.prepareTargets && !path.isAbsolute(options.prepareTargets)) throw new Error('--prepare-targets must be an absolute path')
   if (options.writableTargets && !path.isAbsolute(options.writableTargets)) throw new Error('--writable-targets must be an absolute path')
@@ -470,7 +479,7 @@ function resolveBrowserRuntime(target, isolatedCache) {
   return { browserRoot: fs.realpathSync(browserRoot), isolatedCache, executable: fs.realpathSync(executables[0]) }
 }
 
-export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest, root, targetsMayNotExist = false }) {
+export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest, root, primaryRunner, portabilityRunner, targetsMayNotExist = false }) {
   const allCaseIds = cases.map((item) => item.id)
   const writableCases = cases.filter((item) => WRITABLE_KINDS.has(item.evaluationKind))
   const writableCaseIds = writableCases.map((item) => item.id)
@@ -484,30 +493,38 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
   addCoverageViolation(violations, 'deterministic matrix contains unknown cases', deterministicUnexpectedCaseIds)
   if (releaseMatrix?.deterministic?.caseIds !== 'all') violations.push('deterministic matrix must use the exact all-cases selector')
 
+  const supportedRunners = Array.isArray(release.supportedRunners) ? release.supportedRunners : []
+  if (JSON.stringify(supportedRunners) !== JSON.stringify(RELEASE_SUPPORTED_RUNNERS)) {
+    violations.push(`release supported runners must be exactly: ${RELEASE_SUPPORTED_RUNNERS.join(', ')}`)
+  }
+  if (!RUNNERS.has(primaryRunner)) violations.push('release requires one valid primary runner')
+  if (portabilityRunner !== undefined && !RUNNERS.has(portabilityRunner)) violations.push('release portability runner is invalid')
+  if (portabilityRunner !== undefined && portabilityRunner === primaryRunner) violations.push('release portability runner must differ from the primary runner')
+  const configuredRunnerNames = Object.keys(releaseMatrix?.routing?.runners ?? {})
+  if (JSON.stringify(configuredRunnerNames) !== JSON.stringify(RELEASE_SUPPORTED_RUNNERS)) {
+    violations.push(`routing matrix must configure exactly: ${RELEASE_SUPPORTED_RUNNERS.join(', ')}`)
+  }
+  for (const runner of RELEASE_SUPPORTED_RUNNERS) {
+    if (!validModelSelector(releaseMatrix?.routing?.runners?.[runner]?.modelSelector)) violations.push(`routing matrix lacks a valid bounded ${runner} model selector`)
+  }
+  const requiredCaseIds = resolveCaseSelector(releaseMatrix?.routing?.required?.caseIds, allCaseIds)
+  const requiredUnknownCaseIds = difference(requiredCaseIds, allCaseIds)
+  addCoverageViolation(violations, 'primary routing matrix contains unknown cases', requiredUnknownCaseIds)
+  if (releaseMatrix?.routing?.required?.caseIds !== 'all') violations.push('primary routing matrix must use the exact all-cases selector')
+  const portabilityCaseIds = resolveCaseSelector(releaseMatrix?.routing?.portability?.caseIds, allCaseIds)
+  const portabilityUnknownCaseIds = difference(portabilityCaseIds, allCaseIds)
+  addCoverageViolation(violations, 'portability routing matrix contains unknown cases', portabilityUnknownCaseIds)
+  if (JSON.stringify(portabilityCaseIds) !== JSON.stringify(writableCaseIds)) {
+    violations.push('portability routing matrix must match the exact writable case set in catalog order')
+  }
   const routing = []
-  const routingRunners = Array.isArray(release.routingRunners) ? release.routingRunners : []
-  if (JSON.stringify(routingRunners) !== JSON.stringify(RELEASE_ROUTING_RUNNERS)) {
-    violations.push(`release routing runners must be exactly: ${RELEASE_ROUTING_RUNNERS.join(', ')}`)
-  }
-  for (const runner of routingRunners) {
-    const expectedCaseIds = resolveCaseSelector(releaseMatrix?.routing?.[runner]?.caseIds, allCaseIds)
-    const unknownCaseIds = difference(expectedCaseIds, allCaseIds)
-    if (!RUNNERS.has(runner)) violations.push(`release routing runner is invalid: ${String(runner)}`)
-    if (!validModelSelector(releaseMatrix?.routing?.[runner]?.modelSelector)) violations.push(`release routing runner lacks a valid bounded model selector: ${String(runner)}`)
-    addCoverageViolation(violations, `${runner} routing matrix contains unknown cases`, unknownCaseIds)
-    if (runner === 'codex' && releaseMatrix?.routing?.codex?.caseIds !== 'all') violations.push('Codex routing matrix must use the exact all-cases selector')
-    if (runner === 'claude' && JSON.stringify(expectedCaseIds) !== JSON.stringify(writableCaseIds)) {
-      violations.push('Claude routing matrix must match the exact writable case set in catalog order')
-    }
-    routing.push({ runner, expectedCaseIds, unknownCaseIds })
-  }
-  if (routingRunners.length === 0) violations.push('release suite must declare at least one routing runner')
-  if (difference(allCaseIds, sortedUnique(routing.flatMap((entry) => entry.expectedCaseIds))).length) {
-    addCoverageViolation(violations, 'live routing has no runner coverage for cases', difference(allCaseIds, sortedUnique(routing.flatMap((entry) => entry.expectedCaseIds))))
+  if (RUNNERS.has(primaryRunner)) routing.push({ lane: 'primary', runner: primaryRunner, expectedCaseIds: requiredCaseIds, unknownCaseIds: requiredUnknownCaseIds })
+  if (RUNNERS.has(portabilityRunner) && portabilityRunner !== primaryRunner) {
+    routing.push({ lane: 'portability', runner: portabilityRunner, expectedCaseIds: portabilityCaseIds, unknownCaseIds: portabilityUnknownCaseIds })
   }
 
   const writableEntries = Array.isArray(releaseMatrix?.writable) ? releaseMatrix.writable : []
-  const assignedWritableIds = writableEntries.map((entry) => entry.caseId)
+  const assignedWritableIds = writableEntries.map((entry) => entry?.caseId)
   const missingWritableMatrixCaseIds = difference(writableCaseIds, assignedWritableIds)
   const unexpectedWritableMatrixCaseIds = difference(assignedWritableIds, writableCaseIds)
   const duplicateWritableMatrixCaseIds = duplicates(assignedWritableIds)
@@ -515,7 +532,7 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
   addCoverageViolation(violations, 'writable release matrix contains non-writable cases', unexpectedWritableMatrixCaseIds)
   addCoverageViolation(violations, 'writable release matrix contains duplicate cases', duplicateWritableMatrixCaseIds)
   for (const entry of writableEntries) {
-    if (!RUNNERS.has(entry.runner) || !validModelSelector(entry.modelSelector)) violations.push(`writable release assignment lacks a valid bounded runner/model selector: ${String(entry.caseId)}`)
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry) || Object.keys(entry).length !== 1 || typeof entry.caseId !== 'string') violations.push(`writable release assignment must be runner-neutral: ${String(entry?.caseId)}`)
   }
 
   const configuredReviewIds = Array.isArray(releaseMatrix?.generatedCodeReview?.caseIds)
@@ -534,7 +551,7 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
   if (releaseMatrix?.generatedCodeReview?.skill !== 'om-code-review') violations.push('generated-code review must explicitly use om-code-review')
   if (releaseMatrix?.generatedCodeReview?.required !== true) violations.push('generated-code review must be mandatory for every writable case')
   const reviewRunners = releaseMatrix?.generatedCodeReview?.runners ?? {}
-  for (const runner of RELEASE_ROUTING_RUNNERS) {
+  for (const runner of RELEASE_SUPPORTED_RUNNERS) {
     if (!validModelSelector(reviewRunners?.[runner]?.modelSelector)) violations.push(`generated-code review lacks a valid bounded ${runner} model selector`)
   }
   for (const runner of Object.keys(reviewRunners)) {
@@ -673,13 +690,13 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
   const steps = [
     { id: 'deterministic:all', kind: 'deterministic', expectedCaseIds: deterministicIds },
     ...validationCommands.map((command) => ({ id: `validation:${command.slice('yarn '.length)}`, kind: 'validation', command })),
-    ...routing.map((entry) => ({ id: `routing:${entry.runner}`, kind: 'routing', runner: entry.runner, expectedCaseIds: entry.expectedCaseIds })),
+    ...routing.map((entry) => ({ id: `routing:${entry.lane}:${entry.runner}`, kind: 'routing', lane: entry.lane, runner: entry.runner, modelSelector: releaseMatrix.routing.runners[entry.runner].modelSelector, expectedCaseIds: entry.expectedCaseIds })),
   ]
   for (const caseId of writableCaseIds) {
-    const assignment = writableEntries.find((entry) => entry.caseId === caseId)
-    if (!assignment) continue
+    const assignment = writableEntries.find((entry) => entry?.caseId === caseId)
+    if (!assignment || !RUNNERS.has(primaryRunner)) continue
     steps.push({ id: `fixture:${caseId}`, kind: 'fixture', caseId })
-    steps.push({ id: `writable:${caseId}`, kind: 'writable', caseId, runner: assignment.runner, modelSelector: assignment.modelSelector })
+    steps.push({ id: `writable:${caseId}`, kind: 'writable', caseId, runner: primaryRunner, modelSelector: releaseMatrix.routing.runners[primaryRunner].modelSelector })
     for (const command of validationCommands) {
       steps.push({ id: `target-validation:${caseId}:${command.slice('yarn '.length)}`, kind: 'target-validation', caseId, command })
     }
@@ -697,13 +714,14 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
       })
     }
     if (configuredReviewIds.includes(caseId)) {
-      const modelSelector = releaseMatrix.generatedCodeReview?.runners?.[assignment.runner]?.modelSelector
-      if (!validModelSelector(modelSelector)) violations.push(`generated-code review lacks a valid bounded ${assignment.runner} model selector for ${caseId}`)
-      steps.push({ id: `review:${caseId}`, kind: 'review', caseId, runner: assignment.runner, modelSelector })
+      const modelSelector = releaseMatrix.generatedCodeReview?.runners?.[primaryRunner]?.modelSelector
+      if (!validModelSelector(modelSelector)) violations.push(`generated-code review lacks a valid bounded ${primaryRunner} model selector for ${caseId}`)
+      steps.push({ id: `review:${caseId}`, kind: 'review', caseId, runner: primaryRunner, modelSelector })
     }
   }
 
   return {
+    runnerPolicy: { primaryRunner: RUNNERS.has(primaryRunner) ? primaryRunner : null, portabilityRunner: RUNNERS.has(portabilityRunner) ? portabilityRunner : null },
     catalog: {
       caseCount: cases.length,
       writableCaseCount: writableCaseIds.length,
@@ -1367,6 +1385,7 @@ function initialReport(plan, startedAt) {
     startedAt,
     finishedAt: new Date().toISOString(),
     durationMs: 0,
+    runnerPolicy: plan.runnerPolicy,
     catalog: plan.catalog,
     coverage: executedCoverage(plan, [], []),
     steps: [],
@@ -1424,7 +1443,7 @@ export function main(argv = process.argv.slice(2)) {
     try { prepareRoot = resolvePreparationRoot(options.prepareTargets, root) } catch (error) { console.error(error.message); return 2 }
     const writableIds = cases.filter((item) => WRITABLE_KINDS.has(item.evaluationKind)).map((item) => item.id)
     const proposedManifest = { schemaVersion: 1, targets: Object.fromEntries(writableIds.map((id) => [id, path.join(prepareRoot, id)])) }
-    const preliminary = buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest: proposedManifest, root, targetsMayNotExist: true })
+    const preliminary = buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest: proposedManifest, root, primaryRunner: options.runner, portabilityRunner: options.portabilityRunner, targetsMayNotExist: true })
     const proposedRoots = Object.values(proposedManifest.targets)
     if (preliminary.violations.length) {
       const report = initialReport(preliminary, startedAt)
@@ -1446,7 +1465,7 @@ export function main(argv = process.argv.slice(2)) {
       return 1
     }
   }
-  const plan = buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest, root })
+  const plan = buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest, root, primaryRunner: options.runner, portabilityRunner: options.portabilityRunner })
   const targetRoots = Object.values(plan.targets).filter((entry) => typeof entry === 'string' && path.isAbsolute(entry)).map((entry) => path.resolve(entry))
   const roots = [root, ...targetRoots]
   if (plan.violations.length) {
@@ -1458,6 +1477,7 @@ export function main(argv = process.argv.slice(2)) {
     for (const violation of plan.violations) console.error(`- ${violation}`)
     return 1
   }
+  console.log(`Runner policy: primary=${plan.runnerPolicy.primaryRunner}; portability=${plan.runnerPolicy.portabilityRunner ?? 'not requested'}`)
 
   const evaluator = path.join(root, 'scripts', 'evaluate-agent-harness.mjs')
   const preparer = path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs')
@@ -1508,10 +1528,10 @@ export function main(argv = process.argv.slice(2)) {
   } else {
     for (const step of plan.steps.filter((entry) => entry.kind === 'routing')) {
       const before = resultFiles(root)
-      const execution = execute(process.execPath, [
-        evaluator, '--root', root, '--runner', step.runner, '--all', '--model', releaseMatrix.routing[step.runner].modelSelector,
-        '--timeout', String(options.caseTimeout),
-      ], root, options.caseTimeout * Math.max(1, step.expectedCaseIds.length) + 60_000)
+      const routingArgs = [evaluator, '--root', root, '--runner', step.runner]
+      if (step.lane === 'primary') routingArgs.push('--all')
+      routingArgs.push('--model', step.modelSelector, '--timeout', String(options.caseTimeout))
+      const execution = execute(process.execPath, routingArgs, root, options.caseTimeout * Math.max(1, step.expectedCaseIds.length) + 60_000)
       const artifacts = readNewResults(root, before)
       resultArtifacts.push(...artifacts)
       steps.push(stepResult(step, execution, artifacts, roots, step.expectedCaseIds.length))
@@ -1648,6 +1668,7 @@ export function main(argv = process.argv.slice(2)) {
     startedAt,
     finishedAt: new Date().toISOString(),
     durationMs: Date.now() - wallStarted,
+    runnerPolicy: plan.runnerPolicy,
     catalog: plan.catalog,
     coverage,
     steps,

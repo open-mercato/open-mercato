@@ -6,7 +6,7 @@
     "mandatoryFailuresWaivable": false
   },
   "releaseSuite": {
-    "routingRunners": ["codex", "claude"],
+    "supportedRunners": ["codex", "claude"],
     "requireGeneratedCodeReview": true,
     "validationCommands": ["yarn generate", "yarn typecheck", "yarn lint", "yarn build"]
   },
@@ -14,12 +14,10 @@
     "caseIds": "all"
   },
   "routing": {
-    "codex": {
-      "modelSelector": "default",
+    "required": {
       "caseIds": "all"
     },
-    "claude": {
-      "modelSelector": "sonnet",
+    "portability": {
       "caseIds": [
         "OMH-009", "OMH-011", "OMH-012", "OMH-014", "OMH-026", "OMH-027", "OMH-029", "OMH-031",
         "OMH-042", "OMH-045", "OMH-049", "OMH-054", "OMH-057", "OMH-060", "OMH-061", "OMH-070",
@@ -27,48 +25,52 @@
         "OMH-137", "OMH-140", "OMH-144", "OMH-146", "OMH-149", "OMH-150", "OMH-151", "OMH-153",
         "OMH-156", "OMH-163", "OMH-164", "OMH-165", "OMH-171", "OMH-172", "OMH-181"
       ]
+    },
+    "runners": {
+      "codex": { "modelSelector": "default" },
+      "claude": { "modelSelector": "sonnet" }
     }
   },
   "writable": [
-    { "caseId": "OMH-009", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-011", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-012", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-014", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-026", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-027", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-029", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-031", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-042", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-045", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-049", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-054", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-057", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-060", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-061", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-070", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-093", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-105", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-107", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-115", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-122", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-128", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-130", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-133", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-137", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-140", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-144", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-146", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-149", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-150", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-151", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-153", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-156", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-163", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-164", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-165", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-171", "runner": "codex", "modelSelector": "default" },
-    { "caseId": "OMH-172", "runner": "claude", "modelSelector": "sonnet" },
-    { "caseId": "OMH-181", "runner": "codex", "modelSelector": "default" }
+    { "caseId": "OMH-009" },
+    { "caseId": "OMH-011" },
+    { "caseId": "OMH-012" },
+    { "caseId": "OMH-014" },
+    { "caseId": "OMH-026" },
+    { "caseId": "OMH-027" },
+    { "caseId": "OMH-029" },
+    { "caseId": "OMH-031" },
+    { "caseId": "OMH-042" },
+    { "caseId": "OMH-045" },
+    { "caseId": "OMH-049" },
+    { "caseId": "OMH-054" },
+    { "caseId": "OMH-057" },
+    { "caseId": "OMH-060" },
+    { "caseId": "OMH-061" },
+    { "caseId": "OMH-070" },
+    { "caseId": "OMH-093" },
+    { "caseId": "OMH-105" },
+    { "caseId": "OMH-107" },
+    { "caseId": "OMH-115" },
+    { "caseId": "OMH-122" },
+    { "caseId": "OMH-128" },
+    { "caseId": "OMH-130" },
+    { "caseId": "OMH-133" },
+    { "caseId": "OMH-137" },
+    { "caseId": "OMH-140" },
+    { "caseId": "OMH-144" },
+    { "caseId": "OMH-146" },
+    { "caseId": "OMH-149" },
+    { "caseId": "OMH-150" },
+    { "caseId": "OMH-151" },
+    { "caseId": "OMH-153" },
+    { "caseId": "OMH-156" },
+    { "caseId": "OMH-163" },
+    { "caseId": "OMH-164" },
+    { "caseId": "OMH-165" },
+    { "caseId": "OMH-171" },
+    { "caseId": "OMH-172" },
+    { "caseId": "OMH-181" }
   ],
   "generatedCodeReview": {
     "required": true,

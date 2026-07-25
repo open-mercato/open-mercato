@@ -10,11 +10,6 @@ const installerPath = fileURLToPath(new URL('../../agentic/shared/scripts/instal
 const installer = await import(pathToFileURL(installerPath).href) as {
   assertRegularSkillTree: (root: string) => void
   assertExternalDestinationsReplaceable: (root: string, external: Record<string, unknown>) => void
-  externalCliInvocation: (
-    external: { cli: { package: string; version: string }; skills: string[] },
-    sourceDir: string,
-    platform?: string,
-  ) => { executable: string; args: string[] }
   runInstaller: (options: Record<string, unknown>) => Promise<number>
   hashSkillDirectory: (root: string) => string
 }
@@ -34,7 +29,6 @@ function fixture(overrides: Record<string, unknown> = {}): string {
     external: {
       source: 'open-mercato/skills',
       ref: 'cf42eaf277a91c3906ffa910a1cdfeb121fe8322',
-      cli: { package: 'skills', version: '1.5.20' },
       tiers: {
         core: { description: 'Daily external.', skills: ['om-code-review'] },
       },
@@ -92,21 +86,19 @@ function hashSingleFileSkill(contents = '# verified external\n'): string {
   }
 }
 
-function regularDownloadSource(): Promise<{ tempRoot: string; sourceDir: string }> {
+function regularDownloadSource(
+  skills: Record<string, string> = { 'om-code-review': '# verified external\n' },
+): Promise<{ tempRoot: string; sourceDir: string }> {
   const tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-skill-source-')))
   const sourceDir = path.join(tempRoot, 'source')
-  fs.mkdirSync(sourceDir)
+  fs.mkdirSync(path.join(sourceDir, 'skills'), { recursive: true })
   fs.writeFileSync(path.join(sourceDir, 'README.md'), '# pinned source\n')
-  return Promise.resolve({ tempRoot, sourceDir })
-}
-
-function verifiedSkillSpawn(contents = '# verified external\n') {
-  return (_executable: string, _args: string[], options: { cwd: string }) => {
-    const skillDir = path.join(options.cwd, '.agents', 'skills', 'om-code-review')
-    fs.mkdirSync(skillDir, { recursive: true })
+  for (const [skill, contents] of Object.entries(skills)) {
+    const skillDir = path.join(sourceDir, 'skills', skill)
+    fs.mkdirSync(skillDir)
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), contents)
-    return { status: 0 }
   }
+  return Promise.resolve({ tempRoot, sourceDir })
 }
 
 test('standalone installer needs only Node and creates the canonical plus Claude layout offline', () => {
@@ -165,8 +157,8 @@ test('tier selection, listing, legacy links, and ignored agents retain their fla
   try {
     const listed = run(root, '--list')
     assert.equal(listed.status, 0, listed.stderr)
-    assert.match(listed.stdout, /skills@1\.5\.20/)
     assert.match(listed.stdout, /cf42eaf277a91c3906ffa910a1cdfeb121fe8322/)
+    assert.doesNotMatch(listed.stdout, /cli:/)
     assert.equal(fs.existsSync(path.join(root, '.agents')), false)
 
     assert.equal(run(root, '--no-external', '--with', 'automation', '--legacy-links').status, 0)
@@ -228,7 +220,6 @@ test('default external selection excludes opt-in automation workflows', async ()
   writeExternalFixture(root, {
     source: 'open-mercato/skills',
     ref: 'cf42eaf277a91c3906ffa910a1cdfeb121fe8322',
-    cli: { package: 'skills', version: '1.5.20' },
     tiers: {
       core: { description: 'Daily.', skills: ['om-code-review'] },
       automation: { description: 'Advanced.', skills: ['om-auto-create-pr-loop'] },
@@ -240,24 +231,21 @@ test('default external selection excludes opt-in automation workflows', async ()
       'om-auto-create-pr-loop': hashSingleFileSkill(loopContents),
     },
   })
-  const installedSelections: string[][] = []
-  const spawn = (_executable: string, args: string[], options: { cwd: string }) => {
-    const selected = args.flatMap((argument, index) => argument === '--skill' ? [args[index + 1]] : [])
-    installedSelections.push(selected)
-    for (const skill of selected) {
-      const skillDir = path.join(options.cwd, '.agents', 'skills', skill)
-      fs.mkdirSync(skillDir, { recursive: true })
-      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), skill === 'om-code-review' ? reviewContents : loopContents)
-    }
-    return { status: 0 }
+  const downloadedSelections: string[][] = []
+  const downloadSource = (external: { skills: string[] }) => {
+    downloadedSelections.push([...external.skills])
+    return regularDownloadSource({
+      'om-code-review': reviewContents,
+      'om-auto-create-pr-loop': loopContents,
+    })
   }
   try {
-    assert.equal(await installer.runInstaller({ rootDir: root, args: [], downloadSource: regularDownloadSource, spawn }), 0)
-    assert.deepEqual(installedSelections[0], ['om-code-review'])
+    assert.equal(await installer.runInstaller({ rootDir: root, args: [], downloadSource }), 0)
+    assert.deepEqual(downloadedSelections[0], ['om-code-review'])
     assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', 'om-auto-create-pr-loop')), false)
 
-    assert.equal(await installer.runInstaller({ rootDir: root, args: ['--with', 'automation'], downloadSource: regularDownloadSource, spawn }), 0)
-    assert.deepEqual(installedSelections[1], ['om-code-review', 'om-auto-create-pr-loop'])
+    assert.equal(await installer.runInstaller({ rootDir: root, args: ['--with', 'automation'], downloadSource }), 0)
+    assert.deepEqual(downloadedSelections[1], ['om-code-review', 'om-auto-create-pr-loop'])
     assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', 'om-auto-create-pr-loop')), true)
   } finally {
     removeFixture(root)
@@ -271,7 +259,6 @@ test('external activation rolls back the whole set when a later activation step 
   writeExternalFixture(root, {
     source: 'open-mercato/skills',
     ref: 'cf42eaf277a91c3906ffa910a1cdfeb121fe8322',
-    cli: { package: 'skills', version: '1.5.20' },
     tiers: {
       core: { description: 'Daily.', skills: ['om-code-review', 'om-open-pr'] },
     },
@@ -286,15 +273,10 @@ test('external activation rolls back the whole set when a later activation step 
     const result = await installer.runInstaller({
       rootDir: root,
       args: [],
-      downloadSource: regularDownloadSource,
-      spawn: (_executable: string, _args: string[], options: { cwd: string }) => {
-        for (const [skill, contents] of [['om-code-review', firstContents], ['om-open-pr', secondContents]]) {
-          const skillDir = path.join(options.cwd, '.agents', 'skills', skill)
-          fs.mkdirSync(skillDir, { recursive: true })
-          fs.writeFileSync(path.join(skillDir, 'SKILL.md'), contents)
-        }
-        return { status: 0 }
-      },
+      downloadSource: () => regularDownloadSource({
+        'om-code-review': firstContents,
+        'om-open-pr': secondContents,
+      }),
       activationObserver: (skill: string) => {
         if (skill === 'om-code-review') throw new Error('injected activation failure')
       },
@@ -326,7 +308,6 @@ test('external activation failure restores the complete previously attested set'
   const external = {
     source: 'open-mercato/skills',
     ref: 'cf42eaf277a91c3906ffa910a1cdfeb121fe8322',
-    cli: { package: 'skills', version: '1.5.20' },
     tiers: { core: { description: 'Daily.', skills: [...contents.keys()] } },
     skills: [...contents.keys()],
     dependencies: { 'om-code-review': [], 'om-open-pr': [] },
@@ -350,14 +331,7 @@ test('external activation failure restores the complete previously attested set'
     assert.equal(await installer.runInstaller({
       rootDir: root,
       args: [],
-      downloadSource: regularDownloadSource,
-      spawn: (_executable: string, _args: string[], options: { cwd: string }) => {
-        for (const [skill, body] of contents) {
-          fs.mkdirSync(path.join(options.cwd, '.agents', 'skills', skill), { recursive: true })
-          fs.writeFileSync(path.join(options.cwd, '.agents', 'skills', skill, 'SKILL.md'), body)
-        }
-        return { status: 0 }
-      },
+      downloadSource: () => regularDownloadSource(Object.fromEntries(contents)),
       activationObserver: (skill: string) => {
         if (skill === 'om-code-review') throw new Error('injected activation failure')
       },
@@ -375,17 +349,25 @@ test('external activation failure restores the complete previously attested set'
   }
 })
 
-test('external CLI invocation is pinned, repeats --skill, and resolves the Windows executable', () => {
-  const invocation = installer.externalCliInvocation({
-    cli: { package: 'skills', version: '1.5.20' },
-    skills: ['om-one', 'om-two'],
-  }, 'C:\\Temp\\pinned-skills', 'win32')
-
-  assert.equal(invocation.executable, 'npx.cmd')
-  assert.deepEqual(invocation.args.slice(0, 4), ['-y', 'skills@1.5.20', 'add', 'C:\\Temp\\pinned-skills'])
-  assert.deepEqual(invocation.args.filter((argument) => argument === '--skill'), ['--skill', '--skill'])
-  assert.equal(invocation.args.includes('om-one,om-two'), false)
-  assert.deepEqual(invocation.args.slice(-3), ['--agent', 'universal', '-y'])
+test('external installation never imports a process runner or executes downloaded code', async () => {
+  const root = fixture()
+  const contents = '# verified external\n'
+  setExternalHash(root, hashSingleFileSkill(contents))
+  try {
+    assert.doesNotMatch(fs.readFileSync(installerPath, 'utf8'), /node:child_process|\bnpx(?:\.cmd)?\b/)
+    assert.equal(await installer.runInstaller({
+      rootDir: root,
+      args: [],
+      downloadSource: () => regularDownloadSource({ 'om-code-review': contents }),
+      spawn: () => { throw new Error('must never execute') },
+    }), 0)
+    assert.equal(
+      installer.hashSkillDirectory(path.join(root, '.agents', 'skills', 'om-code-review')),
+      hashSingleFileSkill(contents),
+    )
+  } finally {
+    removeFixture(root)
+  }
 })
 
 test('manifest dependency closure fails before any links are written', () => {
@@ -393,7 +375,6 @@ test('manifest dependency closure fails before any links are written', () => {
     external: {
       source: 'open-mercato/skills',
       ref: 'cf42eaf277a91c3906ffa910a1cdfeb121fe8322',
-      cli: { package: 'skills', version: '1.5.20' },
       tiers: {
         core: { description: 'Daily external.', skills: ['om-code-review'] },
       },
@@ -481,7 +462,6 @@ test('skill hashing rejects source symlinks without reading or changing their ou
   const outsideRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-skill-outside-')))
   const outsideFile = path.join(outsideRoot, 'secret.txt')
   fs.writeFileSync(outsideFile, 'outside sentinel\n')
-  let spawnCalled = false
   try {
     const result = await installer.runInstaller({
       rootDir: root,
@@ -494,14 +474,9 @@ test('skill hashing rejects source symlinks without reading or changing their ou
         fs.symlinkSync(outsideFile, path.join(sourceDir, 'escape'))
         return { tempRoot, sourceDir }
       },
-      spawn: () => {
-        spawnCalled = true
-        return { status: 0 }
-      },
     })
 
     assert.equal(result, 0)
-    assert.equal(spawnCalled, false)
     assert.equal(fs.readFileSync(outsideFile, 'utf8'), 'outside sentinel\n')
     assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', 'om-code-review')), false)
   } finally {
@@ -510,7 +485,7 @@ test('skill hashing rejects source symlinks without reading or changing their ou
   }
 })
 
-test('staged external symlinks fail integrity and are never copied into discovery', { skip: process.platform === 'win32' }, async () => {
+test('external skill symlinks fail integrity and are never copied into discovery', { skip: process.platform === 'win32' }, async () => {
   const root = fixture()
   const outsideRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-staged-outside-')))
   const outsideFile = path.join(outsideRoot, 'sentinel.txt')
@@ -520,13 +495,12 @@ test('staged external symlinks fail integrity and are never copied into discover
     const result = await installer.runInstaller({
       rootDir: root,
       args: [],
-      downloadSource: regularDownloadSource,
-      spawn: (_executable: string, _args: string[], options: { cwd: string }) => {
-        const skillDir = path.join(options.cwd, '.agents', 'skills', 'om-code-review')
-        fs.mkdirSync(skillDir, { recursive: true })
+      downloadSource: async () => {
+        const downloaded = await regularDownloadSource()
+        const skillDir = path.join(downloaded.sourceDir, 'skills', 'om-code-review')
         fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# verified external\n')
         fs.symlinkSync(outsideFile, path.join(skillDir, 'escape'))
-        return { status: 0 }
+        return downloaded
       },
     })
 
@@ -575,28 +549,29 @@ test('an installed nested symlink is quarantined and loses ownership attestation
   }
 })
 
-test('unsupported staged filesystem nodes fail closed when FIFOs are available', { skip: process.platform === 'win32' }, async (context) => {
+test('unsupported external filesystem nodes fail closed when FIFOs are available', { skip: process.platform === 'win32' }, async (context) => {
   const root = fixture()
   setExternalHash(root, hashSingleFileSkill())
   try {
     let fifoCreated = false
-    const result = await installer.runInstaller({
-      rootDir: root,
-      args: [],
-      downloadSource: regularDownloadSource,
-      spawn: (_executable: string, _args: string[], options: { cwd: string }) => {
-        const skillDir = path.join(options.cwd, '.agents', 'skills', 'om-code-review')
-        fs.mkdirSync(skillDir, { recursive: true })
-        fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# verified external\n')
-        const fifo = spawnSync('mkfifo', [path.join(skillDir, 'unsafe-fifo')], { encoding: 'utf8' })
-        fifoCreated = fifo.status === 0
-        return { status: fifoCreated ? 0 : 1 }
-      },
-    })
+    const downloadSource = async () => {
+      const downloaded = await regularDownloadSource()
+      const skillDir = path.join(downloaded.sourceDir, 'skills', 'om-code-review')
+      const fifo = spawnSync('mkfifo', [path.join(skillDir, 'unsafe-fifo')], { encoding: 'utf8' })
+      fifoCreated = fifo.status === 0
+      return downloaded
+    }
+    const probe = await downloadSource()
+    fs.rmSync(probe.tempRoot, { recursive: true, force: true })
     if (!fifoCreated) {
       context.skip('mkfifo is unavailable on this platform')
       return
     }
+    const result = await installer.runInstaller({
+      rootDir: root,
+      args: [],
+      downloadSource,
+    })
 
     assert.equal(result, 0)
     assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', 'om-code-review')), false)
@@ -610,22 +585,21 @@ test('verified regular external skills reinstall idempotently with matching owne
   const contents = '# verified external\n'
   const pinnedHash = hashSingleFileSkill(contents)
   setExternalHash(root, pinnedHash)
-  let spawnCount = 0
+  let downloadCount = 0
   try {
     const options = {
       rootDir: root,
       args: [],
-      downloadSource: regularDownloadSource,
-      spawn: (...args: Parameters<ReturnType<typeof verifiedSkillSpawn>>) => {
-        spawnCount += 1
-        return verifiedSkillSpawn(contents)(...args)
+      downloadSource: () => {
+        downloadCount += 1
+        return regularDownloadSource({ 'om-code-review': contents })
       },
     }
     assert.equal(await installer.runInstaller(options), 0)
     assert.equal(await installer.runInstaller(options), 0)
 
     const installed = path.join(root, '.agents', 'skills', 'om-code-review')
-    assert.equal(spawnCount, 2)
+    assert.equal(downloadCount, 2)
     assert.equal(installer.hashSkillDirectory(installed), pinnedHash)
     assert.equal(fs.lstatSync(installed).isSymbolicLink(), false)
     assert.equal(fs.readlinkSync(path.join(root, '.claude', 'skills', 'om-code-review')), '../../.agents/skills/om-code-review')
@@ -651,14 +625,14 @@ test('external source attestation accepts a real tree reached through a symlinke
     fs.symlinkSync(actualParent, linkedParent, 'dir')
     const tempRoot = path.join(linkedParent, 'download')
     const sourceDir = path.join(tempRoot, 'source')
-    fs.mkdirSync(sourceDir, { recursive: true })
+    fs.mkdirSync(path.join(sourceDir, 'skills', 'om-code-review'), { recursive: true })
     fs.writeFileSync(path.join(sourceDir, 'README.md'), '# pinned source\n')
+    fs.writeFileSync(path.join(sourceDir, 'skills', 'om-code-review', 'SKILL.md'), contents)
 
     const result = await installer.runInstaller({
       rootDir: root,
       args: [],
       downloadSource: async () => ({ tempRoot, sourceDir }),
-      spawn: verifiedSkillSpawn(contents),
     })
 
     assert.equal(result, 0)

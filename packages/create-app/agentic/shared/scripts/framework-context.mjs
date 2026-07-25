@@ -3,8 +3,8 @@
 import {
   closeSync,
   constants,
-  cpSync,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -15,8 +15,9 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { TextDecoder } from 'node:util'
 
 const workingDirectory = process.cwd()
 const workingDirectoryStat = lstatSync(workingDirectory)
@@ -29,6 +30,27 @@ const SEARCH_MATCH_LIMIT = 200
 const INSTALLED_PACKAGE_SCAN_LIMIT = 1000
 const FALLBACK_TREE_ENTRY_LIMIT = 50_000
 const FALLBACK_SEARCH_BYTE_LIMIT = 64 * 1024 * 1024
+const MATERIALIZATION_ENTRY_LIMIT = 10_000
+const MATERIALIZATION_FILE_BYTE_LIMIT = 8 * 1024 * 1024
+const MATERIALIZATION_TOTAL_BYTE_LIMIT = 64 * 1024 * 1024
+const MATERIALIZATION_TEXT_EXTENSIONS = new Set([
+  '.cjs', '.conf', '.css', '.csv', '.cts', '.graphql', '.html', '.ini', '.js', '.json',
+  '.jsx', '.less', '.md', '.mdx', '.mjs', '.mts', '.prisma', '.sass', '.scss', '.sql',
+  '.svg', '.toml', '.ts', '.tsx', '.txt', '.xml', '.yaml', '.yml',
+])
+const MATERIALIZATION_DENIED_DIRECTORIES = new Set([
+  '.aws', '.azure', '.git', '.gnupg', '.ssh', 'node_modules',
+])
+const MATERIALIZATION_DENIED_FILES = new Set([
+  '.netrc', '.npmrc', '.pypirc', '.yarnrc', '.yarnrc.yml',
+  'auth.json', 'credentials', 'credentials.json', 'id_dsa', 'id_ecdsa', 'id_ed25519',
+  'id_rsa', 'secret.json', 'secrets.json', 'secrets.yaml', 'secrets.yml',
+  'service-account.json',
+])
+const MATERIALIZATION_DENIED_EXTENSIONS = new Set([
+  '.jks', '.key', '.keystore', '.p12', '.p8', '.pem', '.pfx',
+])
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true })
 
 function fail(message) {
   console.error(`framework-context: ${message}`)
@@ -230,19 +252,101 @@ function nearestAgentsFiles(packageRoot, sourceRoot) {
   return [...new Set(files)]
 }
 
+function deniedMaterializationPath(relativePath, directory) {
+  const components = relativePath.split(sep).filter(Boolean).map((component) => component.toLowerCase())
+  if (components.some((component) => MATERIALIZATION_DENIED_DIRECTORIES.has(component))) return true
+  if (directory || components.length === 0) return false
+  const filename = components.at(-1)
+  if (filename === '.env' || filename.startsWith('.env.')) return true
+  if (MATERIALIZATION_DENIED_FILES.has(filename)) return true
+  return MATERIALIZATION_DENIED_EXTENSIONS.has(extname(filename))
+}
+
+function readMaterializationText(source, relativePath, state) {
+  let descriptor
+  try {
+    descriptor = openSync(source, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+    const stat = fstatSync(descriptor)
+    if (!stat.isFile()) throw new Error(`context source contains a non-regular file: ${relativePath}`)
+    if (stat.size > MATERIALIZATION_FILE_BYTE_LIMIT) {
+      throw new Error(`context source file exceeds ${MATERIALIZATION_FILE_BYTE_LIMIT} byte limit: ${relativePath}`)
+    }
+    if (state.copiedBytes + stat.size > MATERIALIZATION_TOTAL_BYTE_LIMIT) {
+      throw new Error(`context source exceeds ${MATERIALIZATION_TOTAL_BYTE_LIMIT} materialized bytes`)
+    }
+    const content = readFileSync(descriptor)
+    if (content.includes(0)) return null
+    try {
+      utf8Decoder.decode(content)
+    } catch {
+      return null
+    }
+    if (/-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----/.test(content.toString('utf8'))) return null
+    return content
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor)
+  }
+}
+
 function copyContextFile(source, destination) {
   ensureDirectoryChain(appRoot, dirname(destination), 'context output')
   assertStrictlyInside(appRoot, resolve(destination), 'context output')
   if (lstatIfPresent(destination)) throw new Error(`context output already exists: ${relative(appRoot, destination)}`)
-  cpSync(source, destination, {
-    recursive: true,
-    errorOnExist: true,
-    force: false,
-    filter: (candidate) => !lstatSync(candidate).isSymbolicLink(),
-  })
+
+  const sourceRoot = resolve(source)
+  const rootStat = lstatSync(sourceRoot)
+  if (rootStat.isSymbolicLink()) throw new Error('context source must not be a symbolic link')
+  const state = { entriesVisited: 0, copiedFiles: 0, copiedBytes: 0, omittedEntries: 0 }
+
+  function copyEntry(candidate, target, relativePath, root = false) {
+    state.entriesVisited += 1
+    if (state.entriesVisited > MATERIALIZATION_ENTRY_LIMIT) {
+      throw new Error(`context source exceeded ${MATERIALIZATION_ENTRY_LIMIT} filesystem entries`)
+    }
+
+    const stat = lstatSync(candidate)
+    if (stat.isSymbolicLink()) {
+      if (root) throw new Error('context source must not be a symbolic link')
+      state.omittedEntries += 1
+      return
+    }
+    if (stat.isDirectory()) {
+      if (!root && deniedMaterializationPath(relativePath, true)) {
+        state.omittedEntries += 1
+        return
+      }
+      ensureDirectoryChain(appRoot, target, 'context output')
+      for (const entry of readdirSync(candidate, { withFileTypes: true })
+        .sort((left, right) => comparePaths(left.name, right.name))) {
+        copyEntry(join(candidate, entry.name), join(target, entry.name), join(relativePath, entry.name))
+      }
+      return
+    }
+    if (!stat.isFile()) throw new Error(`context source contains a special filesystem entry: ${relativePath}`)
+    if (deniedMaterializationPath(relativePath, false)
+      || !MATERIALIZATION_TEXT_EXTENSIONS.has(extname(relativePath).toLowerCase())) {
+      state.omittedEntries += 1
+      return
+    }
+
+    const content = readMaterializationText(candidate, relativePath, state)
+    if (!content) {
+      state.omittedEntries += 1
+      return
+    }
+    writeContextFile(target, content)
+    state.copiedFiles += 1
+    state.copiedBytes += content.byteLength
+  }
+
+  copyEntry(sourceRoot, destination, basename(sourceRoot), true)
+  if (rootStat.isFile() && state.copiedFiles !== 1) {
+    throw new Error(`context source is not an allowed regular text file: ${basename(sourceRoot)}`)
+  }
   const stat = lstatSync(destination)
   if (stat.isSymbolicLink()) throw new Error('context output must not be a symbolic link')
   assertInside(appRoot, realpathSync(destination), 'context output')
+  return state
 }
 
 function runRg(args, label, maxBuffer = 4 * 1024 * 1024) {
@@ -590,8 +694,13 @@ function materialize(result, query) {
 
   if (result.sourceRoot && existsSync(result.sourceRoot)) {
     const sourceTarget = join(outputRoot, 'source', result.module ?? 'package')
-    copyContextFile(result.sourceRoot, sourceTarget)
+    const materialization = copyContextFile(result.sourceRoot, sourceTarget)
     result.materializedSource = relative(appRoot, sourceTarget)
+    if (materialization.omittedEntries > 0) {
+      result.warnings.push(
+        `Materialized source omitted ${materialization.omittedEntries} credential, key, symbolic, binary, or unsupported filesystem entries.`,
+      )
+    }
   }
 
   if (query && result.sourceRoot) {

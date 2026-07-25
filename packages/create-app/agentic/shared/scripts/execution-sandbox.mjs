@@ -36,6 +36,12 @@ function uniqueExistingDirectories(values) {
   }).map((entry) => fs.realpathSync(entry))
 }
 
+function uniqueExistingRegularFiles(values) {
+  return [...new Set(values)].filter((entry) => {
+    try { return fs.statSync(entry).isFile() } catch { return false }
+  })
+}
+
 function runtimeReadRoots(command, env) {
   const executablePath = executableCandidate(command, env)
   const executable = fs.realpathSync(executablePath)
@@ -115,11 +121,19 @@ export function linuxNamespaceArgs(networkMode) {
   return ['--unshare-all', ...(networkMode === 'all' ? ['--share-net'] : [])]
 }
 
+export function linuxNetworkReadFiles(networkMode) {
+  linuxNamespaceArgs(networkMode)
+  return networkMode === 'all'
+    ? ['/etc/resolv.conf', '/etc/hosts', '/etc/nsswitch.conf']
+    : []
+}
+
 function linuxInvocation({ command, args, cwd, writableRoots, readOnlyRoots, networkMode, env }) {
   const bubblewrap = resolveExecutable('bwrap', env)
   const writable = writableRoots.map((root, index) => regularDirectory(root, `writable sandbox root ${index + 1}`))
   const readOnly = readOnlyRoots.map((root, index) => regularDirectory(root, `read-only sandbox root ${index + 1}`))
   const readable = uniqueExistingDirectories([...readOnly, ...runtimeReadRoots(command, env)])
+  const networkReadable = uniqueExistingRegularFiles(linuxNetworkReadFiles(networkMode))
   const sandboxArgs = [
     '--die-with-parent',
     '--new-session',
@@ -133,6 +147,7 @@ function linuxInvocation({ command, args, cwd, writableRoots, readOnlyRoots, net
   // Apply read-only mounts last so a nested dependency root cannot be shadowed
   // by a later writable parent bind.
   for (const root of readable) sandboxArgs.push('--ro-bind', root, root)
+  for (const file of networkReadable) sandboxArgs.push('--ro-bind', file, file)
   const realCwd = regularDirectory(cwd, 'sandbox cwd')
   sandboxArgs.push('--chdir', realCwd, '--', resolveExecutable(command, env), ...args)
   return { command: bubblewrap, args: sandboxArgs, cwd: realCwd, env }

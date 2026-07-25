@@ -4,10 +4,6 @@
   "external": {
     "source": "open-mercato/skills",
     "ref": "cf42eaf277a91c3906ffa910a1cdfeb121fe8322",
-    "cli": {
-      "package": "skills",
-      "version": "1.5.20"
-    },
     "description": "Tier-selected delivery workflows installed at an exact tested collection commit. Same-name folders under .ai/skills are repo-local overrides and never replace these copies.",
     "tiers": {
       "core": {

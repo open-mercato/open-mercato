@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   cpSync,
@@ -316,9 +315,6 @@ function readManifest(rootDir) {
   if (!external || typeof external.source !== 'string' || !COMMIT_PATTERN.test(external.ref ?? '')) {
     fail('external.source and an exact 40-character external.ref are required')
   }
-  if (external.cli?.package !== 'skills' || typeof external.cli.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(external.cli.version)) {
-    fail('external.cli must pin the skills package to an exact version')
-  }
   if (!Array.isArray(external.skills) || external.skills.length === 0) fail('external.skills must be non-empty')
   for (const skill of external.skills) {
     if (typeof skill !== 'string' || !SKILL_NAME_PATTERN.test(skill)) fail(`external skill name '${skill}' is invalid`)
@@ -404,7 +400,6 @@ function printCatalog(manifest) {
   }
   console.log(`\nexternal     (${manifest.external.skills.length} skills available, pinned):`)
   console.log(`  source: ${manifest.external.source}@${manifest.external.ref}`)
-  console.log(`  cli: ${manifest.external.cli.package}@${manifest.external.cli.version}`)
   for (const [name, tier] of Object.entries(manifest.external.tiers).sort(([left], [right]) => left.localeCompare(right))) {
     const label = manifest.default.includes(name) ? 'default' : 'opt-in'
     console.log(`  ${name.padEnd(10)} (${tier.skills.length} entry skills, ${label}; dependencies added): ${tier.skills.join(', ')}`)
@@ -473,14 +468,6 @@ async function downloadPinnedSource(external, fetchImpl) {
     rmSync(tempRoot, { recursive: true, force: true })
     throw error
   }
-}
-
-export function externalCliInvocation(external, sourceDir, platform = process.platform) {
-  const executable = platform === 'win32' ? 'npx.cmd' : 'npx'
-  const args = ['-y', `${external.cli.package}@${external.cli.version}`, 'add', sourceDir]
-  for (const skill of external.skills) args.push('--skill', skill)
-  args.push('--agent', 'universal', '-y')
-  return { executable, args }
 }
 
 function filesystemEntryKind(entry) {
@@ -652,7 +639,7 @@ export function assertExternalDestinationsReplaceable(rootDir, external) {
   }
 }
 
-async function installExternal(rootDir, external, platform, spawn, fetchImpl, downloadSource, activationObserver) {
+async function installExternal(rootDir, external, fetchImpl, downloadSource, activationObserver) {
   let downloaded
   let downloadRoot
   try {
@@ -668,19 +655,13 @@ async function installExternal(rootDir, external, platform, spawn, fetchImpl, do
     if (!isWithin(sourceDir, downloadRoot)) fail('downloaded external source escapes its temporary root')
     assertRealDirectoryComponents(downloadRoot, sourceDir, { requireLeaf: true })
     assertRegularSkillTree(sourceDir)
-    const invocation = externalCliInvocation(external, sourceDir, platform)
-    const installRoot = join(downloadRoot, 'install')
-    ensureRealDirectory(downloadRoot, installRoot)
-    const result = spawn(invocation.executable, invocation.args, { cwd: installRoot, stdio: 'inherit' })
-    if (result.error) throw result.error
-    if (result.status !== 0) fail(`external skills CLI exited with status ${result.status}`)
-    const stagedSkillsDir = join(installRoot, '.agents', 'skills')
-    assertRealDirectoryComponents(downloadRoot, stagedSkillsDir, { requireLeaf: true })
+    const sourceSkillsDir = join(sourceDir, 'skills')
+    assertRealDirectoryComponents(downloadRoot, sourceSkillsDir, { requireLeaf: true })
     const mismatches = []
     for (const skill of external.skills) {
-      const skillDir = join(stagedSkillsDir, skill)
+      const skillDir = join(sourceSkillsDir, skill)
       const entry = lstatSync(skillDir, { throwIfNoEntry: false })
-      const actual = entry?.isDirectory() ? hashSkillDirectory(skillDir) : 'missing'
+      const actual = entry?.isDirectory() && !entry.isSymbolicLink() ? hashSkillDirectory(skillDir) : 'missing'
       if (actual !== external.contentHashes[skill]) mismatches.push(`${skill} (${actual})`)
     }
     if (mismatches.length > 0) fail(`external skill integrity check failed: ${mismatches.join(', ')}`)
@@ -705,10 +686,10 @@ async function installExternal(rootDir, external, platform, spawn, fetchImpl, do
       // Stage and attest the complete set before changing any discoverable path.
       for (const transaction of transactions) {
         const { skill, stagedDestination, backupDestination } = transaction
-        assertRealDirectoryComponents(downloadRoot, stagedSkillsDir, { requireLeaf: true })
+        assertRealDirectoryComponents(downloadRoot, sourceSkillsDir, { requireLeaf: true })
         assertOwnedPathAbsent(rootDir, stagedDestination)
         assertOwnedPathAbsent(rootDir, backupDestination)
-        cpSync(join(stagedSkillsDir, skill), stagedDestination, { recursive: true, errorOnExist: true })
+        cpSync(join(sourceSkillsDir, skill), stagedDestination, { recursive: true, errorOnExist: true })
         transaction.staged = true
         const copiedHash = hashSkillDirectory(stagedDestination)
         if (copiedHash !== external.contentHashes[skill]) {
@@ -859,7 +840,6 @@ export async function runInstaller({
   args = [],
   env = process.env,
   platform = process.platform,
-  spawn = spawnSync,
   fetchImpl = globalThis.fetch,
   downloadSource = downloadPinnedSource,
   activationObserver = undefined,
@@ -902,7 +882,7 @@ export async function runInstaller({
     externalStatus = 'skipped (no external skills selected)'
   } else if (!options.noExternal) {
     try {
-      externalStatus = await installExternal(rootDir, external, platform, spawn, fetchImpl, downloadSource, activationObserver)
+      externalStatus = await installExternal(rootDir, external, fetchImpl, downloadSource, activationObserver)
     } catch (error) {
       externalStatus = `unavailable (${error.message})`
       console.warn(`install-skills: warning: ${error.message}`)

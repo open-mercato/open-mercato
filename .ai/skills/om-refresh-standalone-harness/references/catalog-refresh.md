@@ -56,7 +56,7 @@ This is fast deterministic validation, not the per-release suite. Install the pi
 
 ```text
 yarn install-skills
-yarn harness:release --prepare-targets /absolute/empty-release-targets --acknowledge-writes
+yarn harness:release --runner codex --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-The target directory must be absolute, new or empty, and outside the controller app. The release command must run on macOS with `/usr/bin/sandbox-exec` or Linux with Bubblewrap (`bwrap`) and available user namespaces; unsupported or unavailable containment fails closed. Require the schema-valid, mode-`0600` sanitized `*-release-suite.json` artifact under `.ai/harness/results/`, verify all required live routing, writable oracle, target command, and generated-code-review lanes, and record only its status, hash, runner/model/tool versions, and sanitized unavailable reasons. Unavailable capacity blocks a complete release claim.
+The target directory must be absolute, new or empty, and outside the controller app. The release command must run on macOS with `/usr/bin/sandbox-exec` or Linux with Bubblewrap (`bwrap`) and available user namespaces; unsupported or unavailable containment fails closed. Require the schema-valid, mode-`0600` sanitized `*-release-suite.json` artifact under `.ai/harness/results/`, verify all required primary routing, writable oracle, target command, and generated-code-review lanes, and record only its status, hash, runner/model/tool versions, and sanitized unavailable reasons. A different `--portability-runner` is optional; omitted evidence is recorded as not requested, while unavailable primary or explicitly requested portability capacity blocks a complete release claim.

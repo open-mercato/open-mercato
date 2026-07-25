@@ -36,10 +36,10 @@ $om-refresh-standalone-harness --from <git-ref> --to <git-ref> [--dry-run]
 10. Run the actual one-command per-release suite from that fresh scaffold:
 
     ```text
-    yarn harness:release --prepare-targets /absolute/empty-release-targets --acknowledge-writes
+    yarn harness:release --runner codex --prepare-targets /absolute/empty-release-targets --acknowledge-writes
     ```
 
-    The target directory must be absolute, new or empty, outside the controller app, and hosted on a supported containment platform. The command owns the configured live-routing, writable, fixed-oracle, target `generate`/`typecheck`/`lint`/`build`, declared generated-test, and generated-code-review lanes in `release-matrix.json`. Every writable case requires review; test-authoring cases must execute their generated Jest or loopback-only Playwright test through fixed controller-owned commands. An unavailable runner, test runtime, browser, or containment prerequisite is a blocker, never a pass.
+    The target directory must be absolute, new or empty, outside the controller app, and hosted on a supported containment platform. The selected primary runner owns all live-routing, writable, fixed-oracle, target `generate`/`typecheck`/`lint`/`build`, declared generated-test, and generated-code-review lanes in `release-matrix.json`. Every writable case requires review; test-authoring cases must execute their generated Jest or loopback-only Playwright test through fixed controller-owned commands. A different runner may be requested explicitly for the 39-case read-only portability lane. An unavailable primary or requested portability runner, test runtime, browser, or containment prerequisite is a blocker, never a pass.
 11. Require the schema-valid, mode-`0600` sanitized `*-release-suite.json` report under the fresh scaffold's `.ai/harness/results/`. Verify its overall status and every required lane before claiming the release gate passed; record only its sanitized summary, hash, tool/model versions, and unavailable reasons in the refresh report.
 12. Publish the sanitized local report described in `references/report-template.md`. Do not publish it externally.
 
@@ -48,6 +48,6 @@ $om-refresh-standalone-harness --from <git-ref> --to <git-ref> [--dry-run]
 - Every release-range signal has a classification and deduplication disposition.
 - Every new or strengthened rule has before/after evaluation evidence and one smallest owner.
 - Catalog IDs, counts, schemas, validators, relations, fixtures, matrix, spec, and docs agree.
-- The deterministic catalog gate and the one-command `harness:release` suite pass; failures or unavailable required lanes remain blockers.
+- The deterministic catalog gate and the one-command `harness:release` suite pass with one explicit primary runner owning every blocking live lane; failures or unavailable requested lanes remain blockers. A different secondary runner is optional through `--portability-runner` and omission must be recorded without claiming cross-model evidence.
 - A sanitized, schema-valid release-suite report exists and is summarized without exposing its absolute path or raw runner output.
 - The report contains no raw diffs, private bodies/transcripts, credentials, environment values, absolute paths, remote URLs, or author identity data.

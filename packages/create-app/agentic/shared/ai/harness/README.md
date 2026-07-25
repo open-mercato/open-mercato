@@ -7,6 +7,15 @@ yarn harness:validate --runner codex --all
 yarn harness:validate --runner claude --case OMH-009
 ```
 
+A blocking release selects one primary runner for every live lane. The optional portability runner must be different and receives only the exact 39-case representative read-only set:
+
+```text
+yarn harness:release --runner codex --prepare-targets /absolute/empty-release-targets --acknowledge-writes
+yarn harness:release --runner codex --portability-runner claude --prepare-targets /absolute/empty-release-targets --acknowledge-writes
+```
+
+The primary runner owns all 184 routing cases, all 39 writable cases, and all generated-code reviews. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
+
 Writable evaluation is intentionally opt-in. The expanded catalog has a 39-case writable release target, but only cases registered in `release-matrix.json` and backed by controller-owned fixtures and oracles are executable. Copy or create a fresh standalone app for one registered case, then seed only that case and mark the target disposable:
 
 ```text

@@ -26,6 +26,7 @@ const release = await import(pathToFileURL(releaseScript).href) as {
 }
 const executionSandbox = await import(pathToFileURL(executionSandboxScript).href) as {
   linuxNamespaceArgs: (network: string) => string[]
+  linuxNetworkReadFiles: (network: string) => string[]
   macSandboxProfile: (input: { command: string; writableRoots: string[]; readOnlyRoots: string[]; networkMode: string; env: NodeJS.ProcessEnv }) => string
   sandboxedInvocation: (input: Record<string, unknown>) => { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }
 }
@@ -58,17 +59,18 @@ function releaseInputs() {
   const releaseMatrix = {
     deterministic: { caseIds: 'all' },
     releaseSuite: {
-      routingRunners: ['codex', 'claude'],
+      supportedRunners: ['codex', 'claude'],
       requireGeneratedCodeReview: true,
       validationCommands: ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'],
     },
     routing: {
-      codex: { caseIds: 'all', modelSelector: 'default' },
-      claude: { caseIds: ['OMH-002', 'OMH-003'], modelSelector: 'sonnet' },
+      required: { caseIds: 'all' },
+      portability: { caseIds: ['OMH-002', 'OMH-003'] },
+      runners: { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } },
     },
     writable: [
-      { caseId: 'OMH-002', runner: 'codex', modelSelector: 'default' },
-      { caseId: 'OMH-003', runner: 'claude', modelSelector: 'sonnet' },
+      { caseId: 'OMH-002' },
+      { caseId: 'OMH-003' },
     ],
     generatedCodeReview: {
       required: true,
@@ -81,7 +83,7 @@ function releaseInputs() {
   const fixtures = { fixtures: { module: {}, regression: {} } }
   const seeds = { fixtures: { module: {}, regression: {} } }
   const targetsManifest = { schemaVersion: 1, targets: { 'OMH-002': targetA, 'OMH-003': targetB } }
-  return { cases, registry, releaseMatrix, fixtures, seeds, targetsManifest }
+  return { cases, registry, releaseMatrix, fixtures, seeds, targetsManifest, primaryRunner: 'codex', portabilityRunner: undefined as string | undefined }
 }
 
 test('release plan derives every count and command from catalog and matrix data', () => {
@@ -89,12 +91,13 @@ test('release plan derives every count and command from catalog and matrix data'
   assert.deepEqual(plan.violations, [])
   assert.deepEqual(plan.catalog, { caseCount: 3, writableCaseCount: 2, reviewEligibleCaseCount: 2 })
   assert.deepEqual(plan.coverage.deterministic.configuredCaseIds, ['OMH-001', 'OMH-002', 'OMH-003'])
+  assert.deepEqual(plan.runnerPolicy, { primaryRunner: 'codex', portabilityRunner: null })
   assert.deepEqual(plan.coverage.writable.configuredCaseIds, ['OMH-002', 'OMH-003'])
   assert.deepEqual(plan.coverage.review.configuredCaseIds, ['OMH-002', 'OMH-003'])
   assert.deepEqual(plan.steps.map((step: { id: string }) => step.id), [
     'deterministic:all',
     'validation:generate', 'validation:typecheck', 'validation:lint', 'validation:build',
-    'routing:codex', 'routing:claude',
+    'routing:primary:codex',
     'fixture:OMH-002', 'writable:OMH-002',
     'target-validation:OMH-002:generate', 'target-validation:OMH-002:typecheck', 'target-validation:OMH-002:lint', 'target-validation:OMH-002:build',
     'review:OMH-002',
@@ -104,14 +107,41 @@ test('release plan derives every count and command from catalog and matrix data'
   ])
 })
 
-test('release preflight rejects weakened runner, review, command, and model contracts', () => {
-  const missingClaude = releaseInputs()
-  missingClaude.releaseMatrix.releaseSuite.routingRunners = ['codex']
-  assert.ok(release.buildReleasePlan(missingClaude).violations.some((entry: string) => entry.includes('routing runners must be exactly')))
+test('release preflight selects one primary runner and an optional distinct portability runner', () => {
+  const codex = release.buildReleasePlan(releaseInputs())
+  assert.deepEqual(codex.coverage.routing.map((entry: any) => [entry.lane, entry.runner, entry.expectedCaseIds]), [
+    ['primary', 'codex', ['OMH-001', 'OMH-002', 'OMH-003']],
+  ])
+  assert.ok(codex.steps.filter((entry: any) => ['writable', 'review'].includes(entry.kind)).every((entry: any) => entry.runner === 'codex'))
 
-  const missingClaudeCase = releaseInputs()
-  missingClaudeCase.releaseMatrix.routing.claude.caseIds = ['OMH-003']
-  assert.ok(release.buildReleasePlan(missingClaudeCase).violations.some((entry: string) => entry.includes('exact writable case set')))
+  const claudeInput = releaseInputs()
+  claudeInput.primaryRunner = 'claude'
+  claudeInput.portabilityRunner = 'codex'
+  const claude = release.buildReleasePlan(claudeInput)
+  assert.deepEqual(claude.runnerPolicy, { primaryRunner: 'claude', portabilityRunner: 'codex' })
+  assert.deepEqual(claude.coverage.routing.map((entry: any) => [entry.lane, entry.runner, entry.expectedCaseIds]), [
+    ['primary', 'claude', ['OMH-001', 'OMH-002', 'OMH-003']],
+    ['portability', 'codex', ['OMH-002', 'OMH-003']],
+  ])
+  assert.ok(claude.steps.filter((entry: any) => ['writable', 'review'].includes(entry.kind)).every((entry: any) => entry.runner === 'claude'))
+
+  const sameRunner = releaseInputs()
+  sameRunner.portabilityRunner = 'codex'
+  assert.ok(release.buildReleasePlan(sameRunner).violations.some((entry: string) => entry.includes('must differ')))
+})
+
+test('release preflight rejects weakened runner, review, command, and model contracts', () => {
+  const missingRunner = releaseInputs()
+  missingRunner.primaryRunner = 'other'
+  assert.ok(release.buildReleasePlan(missingRunner).violations.some((entry: string) => entry.includes('valid primary runner')))
+
+  const missingSupportedRunner = releaseInputs()
+  missingSupportedRunner.releaseMatrix.releaseSuite.supportedRunners = ['codex']
+  assert.ok(release.buildReleasePlan(missingSupportedRunner).violations.some((entry: string) => entry.includes('supported runners must be exactly')))
+
+  const missingPortabilityCase = releaseInputs()
+  missingPortabilityCase.releaseMatrix.routing.portability.caseIds = ['OMH-003']
+  assert.ok(release.buildReleasePlan(missingPortabilityCase).violations.some((entry: string) => entry.includes('exact writable case set')))
 
   const duplicateDeterministic = releaseInputs()
   duplicateDeterministic.releaseMatrix.deterministic.caseIds = ['OMH-001', 'OMH-002', 'OMH-003', 'OMH-003']
@@ -130,14 +160,17 @@ test('release preflight rejects weakened runner, review, command, and model cont
   assert.ok(release.buildReleasePlan(duplicateValidation).violations.some((entry: string) => entry.includes('exact ordered four-command gate')))
 
   for (const mutate of [
-    (input: ReturnType<typeof releaseInputs>) => { input.releaseMatrix.routing.codex.modelSelector = '' },
-    (input: ReturnType<typeof releaseInputs>) => { input.releaseMatrix.writable[0].modelSelector = '' },
+    (input: ReturnType<typeof releaseInputs>) => { input.releaseMatrix.routing.runners.codex.modelSelector = '' },
     (input: ReturnType<typeof releaseInputs>) => { input.releaseMatrix.generatedCodeReview.runners.codex.modelSelector = '' },
   ]) {
     const emptySelector = releaseInputs()
     mutate(emptySelector)
     assert.ok(release.buildReleasePlan(emptySelector).violations.some((entry: string) => entry.includes('valid bounded')), JSON.stringify(emptySelector.releaseMatrix))
   }
+
+  const mixedWritable = releaseInputs()
+  Object.assign(mixedWritable.releaseMatrix.writable[0], { runner: 'codex' })
+  assert.ok(release.buildReleasePlan(mixedWritable).violations.some((entry: string) => entry.includes('runner-neutral')))
 })
 
 test('automatic target preparation clones only fresh source inputs and safely shares installed dependencies', { skip: process.platform === 'win32' }, () => {
@@ -618,7 +651,14 @@ test('Linux sandbox namespaces are private by default and host networking is sha
   assert.deepEqual(executionSandbox.linuxNamespaceArgs('none'), ['--unshare-all'])
   assert.deepEqual(executionSandbox.linuxNamespaceArgs('loopback'), ['--unshare-all'])
   assert.deepEqual(executionSandbox.linuxNamespaceArgs('all'), ['--unshare-all', '--share-net'])
+  assert.deepEqual(executionSandbox.linuxNetworkReadFiles('none'), [])
+  assert.deepEqual(executionSandbox.linuxNetworkReadFiles('loopback'), [])
+  assert.deepEqual(
+    executionSandbox.linuxNetworkReadFiles('all'),
+    ['/etc/resolv.conf', '/etc/hosts', '/etc/nsswitch.conf'],
+  )
   assert.throws(() => executionSandbox.linuxNamespaceArgs('provider'), /invalid sandbox network mode/)
+  assert.throws(() => executionSandbox.linuxNetworkReadFiles('provider'), /invalid sandbox network mode/)
 })
 
 test('macOS sandbox policy never grants wildcard host Mach lookup or POSIX IPC', () => {
@@ -911,6 +951,21 @@ test('standalone template exposes the documented one-command release entrypoint'
   assert.equal(template.scripts['harness:release'], 'node ./scripts/run-agent-harness-release.mjs')
 })
 
+test('release command requires one explicit primary runner and rejects a duplicate portability runner', () => {
+  const missing = spawnSync(process.execPath, [
+    releaseScript, '--prepare-targets', path.join(os.tmpdir(), 'om-release-unused-targets'), '--acknowledge-writes',
+  ], { encoding: 'utf8' })
+  assert.equal(missing.status, 2)
+  assert.match(missing.stderr, /--runner must be codex or claude/)
+
+  const duplicate = spawnSync(process.execPath, [
+    releaseScript, '--runner', 'codex', '--portability-runner', 'codex',
+    '--prepare-targets', path.join(os.tmpdir(), 'om-release-unused-targets'), '--acknowledge-writes',
+  ], { encoding: 'utf8' })
+  assert.equal(duplicate.status, 2)
+  assert.match(duplicate.stderr, /must differ/)
+})
+
 test('release preflight names newly writable business coverage instead of assuming a fixed matrix size', () => {
   const input = releaseInputs()
   input.cases.push({
@@ -971,7 +1026,7 @@ test('release command fails closed before execution and stores a sanitized exact
   fs.writeFileSync(targetsPath, JSON.stringify(input.targetsManifest))
   try {
     const run = spawnSync(process.execPath, [
-      releaseScript, '--root', root, '--writable-targets', targetsPath, '--acknowledge-writes',
+      releaseScript, '--root', root, '--runner', 'codex', '--writable-targets', targetsPath, '--acknowledge-writes',
     ], { cwd: root, encoding: 'utf8' })
     assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
     assert.match(run.stderr, /Release preflight failed/)
@@ -979,6 +1034,7 @@ test('release command fails closed before execution and stores a sanitized exact
     const [file] = fs.readdirSync(resultDirectory)
     const report = JSON.parse(fs.readFileSync(path.join(resultDirectory, file), 'utf8'))
     assert.equal(report.status, 'fail')
+    assert.deepEqual(report.runnerPolicy, { primaryRunner: 'codex', portabilityRunner: null })
     assert.deepEqual(report.coverage.writable.missingTargetCaseIds, ['OMH-002', 'OMH-003'])
     assert.deepEqual(report.steps, [])
     assert.equal(report.metrics.outcomes.results, 0)
@@ -1047,7 +1103,7 @@ if (process.argv[2] === 'lint') process.exit(7)
   fs.writeFileSync(targetsPath, JSON.stringify(input.targetsManifest))
   try {
     const run = spawnSync(process.execPath, [
-      releaseScript, '--root', root, '--writable-targets', targetsPath, '--acknowledge-writes',
+      releaseScript, '--root', root, '--runner', 'codex', '--writable-targets', targetsPath, '--acknowledge-writes',
     ], {
       cwd: root,
       encoding: 'utf8',

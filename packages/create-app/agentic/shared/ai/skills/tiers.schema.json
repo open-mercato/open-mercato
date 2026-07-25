@@ -27,19 +27,10 @@
     "external": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source", "ref", "cli", "tiers", "skills", "dependencies", "contentHashes"],
+      "required": ["source", "ref", "tiers", "skills", "dependencies", "contentHashes"],
       "properties": {
         "source": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
         "ref": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
-        "cli": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["package", "version"],
-          "properties": {
-            "package": { "const": "skills" },
-            "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
-          }
-        },
         "description": { "type": "string" },
         "tiers": {
           "type": "object",

@@ -15,13 +15,22 @@
   },
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "status", "startedAt", "finishedAt", "durationMs", "catalog", "coverage", "steps", "metrics", "violations"],
+  "required": ["schemaVersion", "status", "startedAt", "finishedAt", "durationMs", "runnerPolicy", "catalog", "coverage", "steps", "metrics", "violations"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "status": { "enum": ["pass", "fail"] },
     "startedAt": { "type": "string", "format": "date-time" },
     "finishedAt": { "type": "string", "format": "date-time" },
     "durationMs": { "type": "integer", "minimum": 0 },
+    "runnerPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primaryRunner", "portabilityRunner"],
+      "properties": {
+        "primaryRunner": { "enum": ["codex", "claude"] },
+        "portabilityRunner": { "type": ["string", "null"], "enum": ["codex", "claude", null] }
+      }
+    },
     "catalog": {
       "type": "object",
       "additionalProperties": false,

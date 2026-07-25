@@ -151,8 +151,8 @@ test('tiers.json owns a pinned, hashed, dependency-closed external skill set', (
     fs.readFileSync(new URL('tiers.json', skillsDir), 'utf8'),
   ) as {
     external?: {
+      source?: string
       ref?: string
-      cli?: { package?: string; version?: string }
       tiers?: Record<string, { skills?: string[] }>
       skills?: string[]
       dependencies?: Record<string, string[]>
@@ -167,8 +167,8 @@ test('tiers.json owns a pinned, hashed, dependency-closed external skill set', (
     'om-auto-create-pr-loop',
     'om-prepare-issue',
   ]
+  assert.equal(external?.source, 'open-mercato/skills')
   assert.equal(external?.ref, 'cf42eaf277a91c3906ffa910a1cdfeb121fe8322')
-  assert.deepEqual(external?.cli, { package: 'skills', version: '1.5.20' })
   assert.ok(externalSkills.has('om-setup-agent-pipeline'), 'om-setup-agent-pipeline must be installed')
   for (const skill of backwardCompatibleSkills) {
     assert.ok(externalSkills.has(skill), `${skill} must remain installable across a harness upgrade`)
