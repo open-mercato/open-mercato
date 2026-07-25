@@ -132,11 +132,11 @@ describe('getClientIp', () => {
     expect(getClientIp(req, 2)).toBe('real-client')
   })
 
-  it('falls back to first IP when fewer entries than trust depth', () => {
+  it('returns null when the forwarded chain is shorter than the configured trust depth', () => {
     const req = new Request('http://localhost', {
       headers: { 'x-forwarded-for': '192.168.1.1' },
     })
-    expect(getClientIp(req, 3)).toBe('192.168.1.1')
+    expect(getClientIp(req, 3)).toBeNull()
   })
 
   it('trims whitespace from x-forwarded-for entries', () => {
