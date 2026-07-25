@@ -19,7 +19,7 @@ const release = await import(pathToFileURL(releaseScript).href) as {
   prepareWritableTargets: (input: { root: string; prepareRoot: string; caseIds: string[] }) => { schemaVersion: number; targets: Record<string, string> }
   resolvePreparationRoot: (requested: string, controllerRoot: string) => string
   dependencyContentFingerprint: (appRoot: string) => string
-  runTargetValidationSteps: (input: { steps: any[]; target: string; timeout: number; roots: string[]; yarnCommand: string; pathValue?: string }) => any[]
+  runTargetValidationSteps: (input: { steps: any[]; target: string; timeout: number; roots: string[]; yarnCommand: string; pathValue?: string; allowContainedDependencies?: boolean }) => any[]
   runGeneratedTestStep: (input: { steps?: never; step: any; target: string; timeout: number; roots: string[]; browserRuntimeResolver?: (target: string, cache: string) => any }) => any
   generatedTestExecutionContract: (entry: { runner: string; artifact: string }) => { executor: string; cliPackage: string; argv: string[]; command: string }
   targetContentFingerprint: (root: string) => string
@@ -532,6 +532,35 @@ if (command === 'build') {
     assert.equal(fs.existsSync(path.join(target, '.mercato')), false)
     assert.equal(fs.existsSync(path.join(target, 'tsconfig.tsbuildinfo')), false)
     assert.equal(fs.existsSync(path.join(target, 'next-env.d.ts')), false)
+    assert.equal(release.targetContentFingerprint(target), before)
+  } finally { fs.rmSync(target, { recursive: true, force: true }) }
+})
+
+test('foundation validation accepts an exact generated env copy without mutating a controller-owned dependency tree', { skip: !targetSandboxAvailable }, () => {
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-foundation-validation-')))
+  fs.mkdirSync(path.join(target, 'node_modules', 'example'), { recursive: true })
+  fs.writeFileSync(path.join(target, 'node_modules', 'example', 'sentinel.js'), 'original')
+  fs.writeFileSync(path.join(target, '.env.example'), 'SAFE_EXAMPLE=1\n')
+  const fakeYarn = path.join(target, 'fake-yarn')
+  fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
+const fs = require('node:fs')
+fs.copyFileSync('.env.example', '.env')
+`)
+  fs.chmodSync(fakeYarn, 0o755)
+  const before = release.targetContentFingerprint(target)
+  try {
+    const [result] = release.runTargetValidationSteps({
+      steps: [{ id: 'validation:generate', kind: 'validation', command: 'yarn generate' }],
+      target,
+      timeout: 10_000,
+      roots: [target],
+      yarnCommand: fakeYarn,
+      allowContainedDependencies: true,
+    })
+    assert.equal(result.status, 'pass', result.sanitizedError)
+    assert.deepEqual(result.resultPaths, ['.env'])
+    assert.equal(fs.existsSync(path.join(target, '.env')), false)
+    assert.equal(fs.readFileSync(path.join(target, 'node_modules', 'example', 'sentinel.js'), 'utf8'), 'original')
     assert.equal(release.targetContentFingerprint(target), before)
   } finally { fs.rmSync(target, { recursive: true, force: true }) }
 })

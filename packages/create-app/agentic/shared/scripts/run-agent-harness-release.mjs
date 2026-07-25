@@ -1110,12 +1110,17 @@ export function createMinimalValidationEnvironment(tempRoot, pathValue = process
 }
 
 function validationOutputRoot(relative, command, after) {
+  if (
+    relative === '.env'
+    && (command === 'yarn generate' || command === 'yarn build')
+    && after.get('.env') === after.get('.env.example')
+  ) return '.env'
   return (RELEASE_VALIDATION_OUTPUT_ROOTS.get(command) ?? []).find((root) => relative === root
     || relative.startsWith(`${root}/`)
     || (root.startsWith(`${relative}/`) && after.get(relative)?.startsWith('<directory:')))
 }
 
-function prepareValidationWorkspace(target, tempRoot) {
+function prepareValidationWorkspace(target, tempRoot, { allowContainedDependencies = false } = {}) {
   validateScaffoldCopySource(target)
   const workspace = path.join(tempRoot, 'target')
   copyFreshScaffold(target, workspace)
@@ -1123,7 +1128,7 @@ function prepareValidationWorkspace(target, tempRoot) {
   let dependencyRoot
   if (fs.existsSync(dependencyPath)) {
     dependencyRoot = fs.realpathSync(dependencyPath)
-    if (isPathInside(fs.realpathSync(target), dependencyRoot)) {
+    if (!allowContainedDependencies && isPathInside(fs.realpathSync(target), dependencyRoot)) {
       throw new Error('writable target node_modules must resolve outside the writable target')
     }
     fs.symlinkSync(dependencyRoot, path.join(workspace, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
@@ -1131,7 +1136,7 @@ function prepareValidationWorkspace(target, tempRoot) {
   return { workspace: fs.realpathSync(workspace), dependencyRoot }
 }
 
-export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCommand = process.platform === 'win32' ? 'yarn.cmd' : 'yarn', pathValue }) {
+export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCommand = process.platform === 'win32' ? 'yarn.cmd' : 'yarn', pathValue, allowContainedDependencies = false }) {
   const results = []
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-validation-'))
   const reportRoots = [...roots, tempRoot, fs.realpathSync(tempRoot)]
@@ -1141,7 +1146,7 @@ export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCo
   let dependencyRoot
   let workspaceError
   try {
-    ({ workspace, dependencyRoot } = prepareValidationWorkspace(target, tempRoot))
+    ({ workspace, dependencyRoot } = prepareValidationWorkspace(target, tempRoot, { allowContainedDependencies }))
   } catch (error) {
     workspaceError = error
   }
@@ -1507,12 +1512,13 @@ export function main(argv = process.argv.slice(2)) {
     steps.push(deterministicResult)
 
     if (deterministicResult.status === 'pass') {
-      const yarn = process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
-      for (const step of validationSteps) {
-        const script = step.command.slice('yarn '.length)
-        const execution = execute(yarn, [script], root, options.validationTimeout, foundationEnv)
-        steps.push(stepResult(step, execution, [], roots))
-      }
+      steps.push(...runTargetValidationSteps({
+        steps: validationSteps,
+        target: root,
+        timeout: options.validationTimeout,
+        roots,
+        allowContainedDependencies: true,
+      }))
     } else {
       for (const step of validationSteps) steps.push(skippedStep(step, 'deterministic gate failed'))
     }
