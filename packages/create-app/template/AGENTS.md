@@ -5,7 +5,7 @@ Extend this Open Mercato app. Decide routes here before opening guides/skills; l
 ## Always
 
 - Match every routing axis; for missing context run `yarn mercato agentic:init`.
-- Write app code in `src/modules/<id>/`; use `om-framework-context` for exact installed source.
+- App code: `src/modules/<id>/`; framework context only for a named exact-version gap.
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
 - Use commands, `makeCrudRoute`, `CrudForm`/`DataTable`, DI, events, and UMES on canonical paths.
 - Put entities in `src/modules/<id>/data/entities.ts`; API routes need per-method `metadata` + `openApi`.

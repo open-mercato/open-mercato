@@ -11,7 +11,7 @@ Create a provider-owned app module or separately published package that composes
 
 Route before reading: select the provider and any UI/module/UMES work from the brief first, then read only those route guides/skills. Generated facts and the integration references are sufficient unless one named exact-version symbol remains unresolved; do not open `om-framework-context` merely to confirm supplied facts, and only select/read it after naming the missing detail.
 
-1. Read `.ai/guides/integrations.md`; first separate transactional email from mailbox channels, then choose the provider family and exact installed host contract with `references/provider-families.md`.
+1. Read `.ai/guides/integrations.md`; first separate transactional email from mailbox channels, then choose the provider family and supplied host contract with `references/provider-families.md`.
 2. Follow `references/package-and-activation.md` to choose the standalone-local or separately published branch, then apply its discovery, DI, `integration.ts`, setup/env preset, activation, and validation contract.
 3. Follow `references/security-and-reliability.md` for encrypted credentials, per-user scope, SSRF, redaction, signature/replay, timeouts, retries, rate limits, idempotency, concurrency, and reconciliation.
 4. For sync/import/export, follow `references/sync-and-files.md`; preserve batch atomicity, external mappings, cursor commit points, progress, cleanup, and row/item errors. Queueing, retries, schedules, and progress here stay in the integration/module worker path; do not load the workflow skill unless the brief also defines durable business-process state, activities, or user tasks.
