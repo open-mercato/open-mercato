@@ -17,6 +17,9 @@ import {
 } from '../lib/actions'
 import { getMessageType } from '../lib/message-types-registry'
 import { assertOrganizationAccess, type MessageScopeInput } from './shared'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('messages').child({ component: 'actions' })
 
 const actionStateSnapshotSchema = z.object({
   actionTaken: z.string().nullable(),
@@ -371,7 +374,7 @@ const executeActionCommand: CommandHandler<
         result = (commandResult.result as Record<string, unknown>) ?? {}
         operationLogEntry = commandResult.logEntry ?? null
       } catch (err) {
-        console.error('[messages] executeActionCommand sub-command failed', err)
+        logger.error('executeActionCommand sub-command failed', { err })
         // The target command never completed — release the reservation so the
         // action stays retryable, matching the pre-claim failure semantics.
         await releaseTerminalClaim()

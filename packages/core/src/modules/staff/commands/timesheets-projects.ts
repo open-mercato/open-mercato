@@ -35,6 +35,11 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   scopeForDecryption,
+  scopedStaffSnapshotWhere,
+  staffSnapshotDecryptionScope,
+  staffSnapshotScopeFromContext,
+  staffSnapshotScopeFromSnapshot,
+  type StaffSnapshotScope,
 } from './shared'
 
 function isUniqueViolation(error: unknown): boolean {
@@ -87,8 +92,14 @@ type TimeProjectMemberUndoPayload = {
   after?: TimeProjectMemberSnapshot | null
 }
 
-async function loadTimeProjectSnapshot(em: EntityManager, id: string): Promise<TimeProjectSnapshot | null> {
-  const project = await findOneWithDecryption(em, StaffTimeProject, { id }, undefined, { tenantId: null, organizationId: null })
+async function loadTimeProjectSnapshot(em: EntityManager, id: string, scope?: StaffSnapshotScope | null): Promise<TimeProjectSnapshot | null> {
+  const project = await findOneWithDecryption(
+    em,
+    StaffTimeProject,
+    scopedStaffSnapshotWhere(id, scope),
+    undefined,
+    staffSnapshotDecryptionScope(scope),
+  )
   if (!project) return null
   return {
     id: project.id,
@@ -108,8 +119,14 @@ async function loadTimeProjectSnapshot(em: EntityManager, id: string): Promise<T
   }
 }
 
-async function loadTimeProjectMemberSnapshot(em: EntityManager, id: string): Promise<TimeProjectMemberSnapshot | null> {
-  const member = await findOneWithDecryption(em, StaffTimeProjectMember, { id }, undefined, { tenantId: null, organizationId: null })
+async function loadTimeProjectMemberSnapshot(em: EntityManager, id: string, scope?: StaffSnapshotScope | null): Promise<TimeProjectMemberSnapshot | null> {
+  const member = await findOneWithDecryption(
+    em,
+    StaffTimeProjectMember,
+    scopedStaffSnapshotWhere(id, scope),
+    undefined,
+    staffSnapshotDecryptionScope(scope),
+  )
   if (!member) return null
   return {
     id: member.id,
@@ -223,13 +240,13 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTimeProjectSnapshot(em, result.timeProjectId)
+    const snapshot = await loadTimeProjectSnapshot(em, result.timeProjectId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     return { snapshot }
   },
   buildLog: async ({ result, ctx }) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTimeProjectSnapshot(em, result.timeProjectId)
+    const snapshot = await loadTimeProjectSnapshot(em, result.timeProjectId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     const { translate } = await resolveTranslations()
     return {
@@ -251,7 +268,7 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const project = await em.findOne(StaffTimeProject, { id: after.id })
+    const project = await em.findOne(StaffTimeProject, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (project) {
       project.deletedAt = new Date()
       await em.flush()
@@ -284,7 +301,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
   async prepare(rawInput, ctx) {
     const parsed = staffTimeProjectUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadTimeProjectSnapshot(em, parsed.id)
+    const snapshot = await loadTimeProjectSnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return {}
     return { before: snapshot }
   },
@@ -346,7 +363,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     const before = snapshots.before as TimeProjectSnapshot | undefined
     if (!before) return null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const after = await loadTimeProjectSnapshot(em, before.id)
+    const after = await loadTimeProjectSnapshot(em, before.id, staffSnapshotScopeFromSnapshot(before))
     if (!after) return null
     const changes = buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
       'name',
@@ -384,7 +401,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const project = await em.findOne(StaffTimeProject, { id: before.id })
+    const project = await em.findOne(StaffTimeProject, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!project) return
     project.name = before.name
     project.customerId = before.customerId ?? null
@@ -421,7 +438,7 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Time project id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadTimeProjectSnapshot(em, id)
+    const snapshot = await loadTimeProjectSnapshot(em, id, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return {}
     return { before: snapshot }
   },
@@ -482,7 +499,7 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let project = await em.findOne(StaffTimeProject, { id: before.id })
+    let project = await em.findOne(StaffTimeProject, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!project) {
       project = em.create(StaffTimeProject, {
         id: before.id,
@@ -604,13 +621,13 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTimeProjectMemberSnapshot(em, result.timeProjectMemberId)
+    const snapshot = await loadTimeProjectMemberSnapshot(em, result.timeProjectMemberId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     return { snapshot }
   },
   buildLog: async ({ result, ctx }) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTimeProjectMemberSnapshot(em, result.timeProjectMemberId)
+    const snapshot = await loadTimeProjectMemberSnapshot(em, result.timeProjectMemberId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     const { translate } = await resolveTranslations()
     return {
@@ -632,7 +649,7 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await em.findOne(StaffTimeProjectMember, { id: after.id })
+    const member = await em.findOne(StaffTimeProjectMember, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (member) {
       member.deletedAt = new Date()
       await em.flush()
@@ -662,7 +679,7 @@ const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timePr
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Time project member id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadTimeProjectMemberSnapshot(em, id)
+    const snapshot = await loadTimeProjectMemberSnapshot(em, id, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return {}
     return { before: snapshot }
   },
@@ -720,7 +737,7 @@ const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timePr
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let member = await em.findOne(StaffTimeProjectMember, { id: before.id })
+    let member = await em.findOne(StaffTimeProjectMember, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!member) {
       member = em.create(StaffTimeProjectMember, {
         id: before.id,

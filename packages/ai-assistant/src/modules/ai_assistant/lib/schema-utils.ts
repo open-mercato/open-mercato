@@ -1,4 +1,7 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { z, type ZodType } from 'zod'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Cache for converted safe schemas to avoid repeated conversions per request.
@@ -169,7 +172,7 @@ export function toSafeZodSchema(schema: ZodType): ZodType {
 
     return safeSchema
   } catch (error) {
-    console.error('[Schema Utils] Error converting schema:', error)
+    logger.error('Schema Utils — Error converting schema', { err: error })
     // Fallback to the original schema if conversion fails
     return schema
   }

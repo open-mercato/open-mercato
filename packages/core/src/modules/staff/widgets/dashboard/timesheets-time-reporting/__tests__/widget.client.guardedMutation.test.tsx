@@ -3,6 +3,7 @@
  */
 import * as React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import TimeReportingWidget from '../widget.client'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
@@ -33,18 +34,50 @@ const mockApiCallOrThrow = apiCallOrThrow as jest.MockedFunction<typeof apiCallO
 const mockReadApiResultOrThrow = readApiResultOrThrow as jest.MockedFunction<typeof readApiResultOrThrow>
 
 function renderWidget() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false },
+    },
+  })
   render(
-    <TimeReportingWidget
-      {...({
-        mode: 'view',
-        settings: {},
-        onSettingsChange: mockOnSettingsChange,
-      } as any)}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <TimeReportingWidget
+        {...({
+          mode: 'view',
+          settings: {},
+          onSettingsChange: mockOnSettingsChange,
+        } as any)}
+      />
+    </QueryClientProvider>,
   )
 }
 
 function mockWidgetReads({ running }: { running: boolean }) {
+  mockApiCall.mockImplementation(async (path: string) => {
+    if (path === '/api/staff/team-members/self') {
+      return { ok: true, result: { member: { id: 'staff-1' } } } as any
+    }
+    if (path.startsWith('/api/staff/timesheets/time-entries?')) {
+      return {
+        ok: true,
+        result: {
+          items: running
+            ? [{
+              id: 'entry-1',
+              started_at: new Date().toISOString(),
+              ended_at: null,
+              time_project_id: 'project-1',
+            }]
+            : [],
+        },
+      } as any
+    }
+    if (path.startsWith('/api/staff/timesheets/time-projects?')) {
+      return { ok: true, result: { items: [{ id: 'project-1', name: 'Build', color: null }] } } as any
+    }
+    return { ok: true, result: { id: 'entry-1' } } as any
+  })
   mockReadApiResultOrThrow.mockImplementation(async (path: string) => {
     if (path === '/api/staff/timesheets/my-projects?pageSize=100') {
       return { items: [{ time_project_id: 'project-1' }] } as any

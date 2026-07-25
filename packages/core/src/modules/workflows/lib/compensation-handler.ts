@@ -3,6 +3,9 @@ import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance, WorkflowDefinition, WorkflowEvent } from '../data/entities'
 import { executeActivity } from './activity-executor'
 import { logWorkflowEvent } from './event-logger'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 /**
  * Compensation Handler - Implements Saga pattern for workflow rollback
@@ -100,7 +103,7 @@ export async function compensateWorkflow(
     const activityDef = findActivityInDefinition(definition, activityId)
 
     if (!activityDef) {
-      console.warn(`Activity ${activityId} not found in definition, skipping compensation`)
+      logger.warn('Activity not found in definition, skipping compensation', { activityId })
       continue
     }
 
@@ -114,7 +117,7 @@ export async function compensateWorkflow(
     const compensationDef = findActivityInDefinition(definition, compensationActivityId)
 
     if (!compensationDef) {
-      console.warn(`Compensation activity ${compensationActivityId} not found, skipping`)
+      logger.warn('Compensation activity not found, skipping', { compensationActivityId })
       result.failedCompensations.push(activityId)
       continue
     }

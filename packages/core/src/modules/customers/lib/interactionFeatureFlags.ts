@@ -1,3 +1,7 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
+
 type ContainerLike = {
   resolve: (name: string) => unknown
 }
@@ -61,7 +65,7 @@ function resolveFeatureToggleService(container: ContainerLike): FeatureToggleSer
   try {
     return container.resolve('featureTogglesService') as FeatureToggleServiceLike
   } catch (err) {
-    console.warn('[customers.interactionFeatureFlags] Feature toggle service unavailable, using defaults', err)
+    logger.warn('Feature toggle service unavailable, using defaults', { component: 'interactionFeatureFlags', err })
     return null
   }
 }

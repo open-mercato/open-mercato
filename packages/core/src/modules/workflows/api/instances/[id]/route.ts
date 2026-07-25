@@ -16,6 +16,9 @@ import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/direc
 import { WorkflowInstance } from '../../../data/entities'
 import * as workflowExecutor from '../../../lib/workflow-executor'
 import { workflowInstanceResponseSchema } from '../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -73,7 +76,7 @@ export async function GET(
 
     return NextResponse.json({ data: instance })
   } catch (error) {
-    console.error('Error getting workflow instance:', error)
+    logger.error('Error getting workflow instance', { err: error })
     return NextResponse.json(
       { error: 'Failed to get workflow instance' },
       { status: 500 }

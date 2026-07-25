@@ -14,6 +14,9 @@ import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { mapSecurityEmailUrlError, toSecurityEmailUrl } from '@open-mercato/shared/lib/url'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'reset' })
 
 const resetRateLimitConfig = readEndpointRateLimitConfig('RESET', {
   points: 3, duration: 60, blockDuration: 60, keyPrefix: 'reset',
@@ -68,7 +71,7 @@ export async function POST(req: Request) {
   try {
     await sendEmail({ to: user.email, subject, react: ResetPasswordEmail({ resetUrl, copy }) })
   } catch (err) {
-    console.error('[auth.reset] Failed to send reset email:', err)
+    logger.error('Failed to send reset email', { err })
   }
   try {
     const tenantId = user.tenantId ? String(user.tenantId) : null
@@ -88,7 +91,7 @@ export async function POST(req: Request) {
       }
     }
   } catch (err) {
-    console.error('[auth.reset] Failed to create notification:', err)
+    logger.error('Failed to create notification', { err })
   }
   return NextResponse.json({ ok: true })
 }

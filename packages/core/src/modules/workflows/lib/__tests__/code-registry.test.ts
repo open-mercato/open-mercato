@@ -1,5 +1,18 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals'
 import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'
+const mockLoggerInstance = {
+  debug: jest.fn(),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  child: jest.fn(),
+}
+mockLoggerInstance.child.mockImplementation(() => mockLoggerInstance)
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: jest.fn(() => mockLoggerInstance),
+}))
+
 import {
   registerCodeWorkflows,
   getCodeWorkflow,
@@ -81,28 +94,34 @@ describe('Code Workflow Registry', () => {
     })
 
     test('warns and skips workflows that fail Zod validation', () => {
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      mockLoggerInstance.warn.mockClear()
       const bad = invalidWorkflow('bad-workflow')
       const good = makeWorkflow('good-workflow')
 
       registerCodeWorkflows([bad, good])
 
-      expect(warnSpy).toHaveBeenCalledTimes(1)
-      expect(warnSpy.mock.calls[0][0]).toContain('"bad-workflow"')
+      expect(mockLoggerInstance.warn).toHaveBeenCalledTimes(1)
+      expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+        'Code workflow failed validation',
+        expect.objectContaining({ workflowId: 'bad-workflow' }),
+      )
       expect(getCodeWorkflow('bad-workflow')).toBeUndefined()
       expect(getCodeWorkflow('good-workflow')).toEqual(good)
     })
 
     test('warns on duplicate workflowId but overwrites with the later entry', () => {
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      mockLoggerInstance.warn.mockClear()
       const first = makeWorkflow('my-workflow', 'module-a')
       const second = makeWorkflow('my-workflow', 'module-b')
 
       registerCodeWorkflows([first])
       registerCodeWorkflows([second])
 
-      expect(warnSpy).toHaveBeenCalledTimes(1)
-      expect(warnSpy.mock.calls[0][0]).toContain('"my-workflow"')
+      expect(mockLoggerInstance.warn).toHaveBeenCalledTimes(1)
+      expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+        'Duplicate code workflow ID — overwriting',
+        expect.objectContaining({ workflowId: 'my-workflow', moduleId: 'module-b' }),
+      )
       expect(getCodeWorkflow('my-workflow')).toEqual(second)
     })
 

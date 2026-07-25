@@ -1,4 +1,7 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getWebhookEndpointAdapter } from '../lib/adapter-registry'
+
+const logger = createLogger('webhooks').child({ component: 'inbound' })
 
 export const metadata = {
   event: 'webhooks.inbound.received',
@@ -29,11 +32,7 @@ export default async function handler(payload: Record<string, unknown>) {
       organizationId: typeof payload.organizationId === 'string' ? payload.organizationId : undefined,
     })
   } catch (err) {
-    console.error('[webhooks:inbound] Processing failed:', {
-      providerKey,
-      eventType,
-      error: err instanceof Error ? err.message : String(err),
-    })
+    logger.error('Processing failed', { providerKey, eventType, err })
     throw err
   }
 }

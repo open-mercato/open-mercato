@@ -23,6 +23,7 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '#generated/entities.ids.generated'
 import { mergePersonCustomFieldValues, resolvePersonCustomFieldRouting } from '../../../lib/customFieldRouting'
+import { isOpenInteractionStatus, TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
@@ -44,6 +45,9 @@ import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
 import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { buildCollectionTags, canonicalizeResourceTag, isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -283,7 +287,7 @@ function createRouteProfiler(scope: string): RouteProfiler {
       if (tail.extra && Object.keys(tail.extra).length > 0) payload.meta = tail.extra
       else if (extra && Object.keys(extra).length > 0) payload.meta = extra
       try {
-        console.info('[route:profile]', payload)
+        logger.info('route:profile', { payload })
       } catch {
         // ignore logging failures
       }
@@ -441,7 +445,7 @@ async function resolveTodoDetails(
       profiler?.mark('todo_items_processed', { source, enriched })
     } catch (err) {
       profiler?.mark('todo_query_failed', { source, error: err instanceof Error ? err.message : String(err) })
-      console.warn(`customers.people.detail: failed to resolve todos for source ${source}`, err)
+      logger.warn('customers.people.detail: failed to resolve todos', { source, err })
     }
   }
 
@@ -660,7 +664,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     const plannedPreviewInteractions = shouldLoadCanonicalInteractions
       ? (() => {
           const sorted = [...canonicalInteractions]
-            .filter((interaction) => interaction.status === 'planned' && interaction.interactionType !== 'task')
+            .filter((interaction) => isOpenInteractionStatus(interaction.status) && interaction.interactionType !== 'task')
             .sort((left, right) => {
               const leftTime = new Date(left.scheduledAt ?? left.createdAt).getTime()
               const rightTime = new Date(right.scheduledAt ?? right.createdAt).getTime()
@@ -682,7 +686,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
               organizationId: person.organizationId,
               tenantId: person.tenantId,
               deletedAt: null,
-              status: 'planned',
+              status: { $nin: [...TERMINAL_INTERACTION_STATUS_LIST] },
               interactionType: { $ne: 'task' },
               ...emailVisibilityFilter,
             },
@@ -715,7 +719,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             profiler,
           )
         } catch (err) {
-          console.warn('customers.people.detail: failed to enrich todo links', err)
+          logger.warn('customers.people.detail: failed to enrich todo links', { err })
         }
         profiler.mark('todo_details_enriched', { count: todoDetails.size, links: todoLinks.length })
       }

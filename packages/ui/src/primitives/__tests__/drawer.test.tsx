@@ -86,7 +86,8 @@ describe('Drawer', () => {
     const content = document.querySelector('[data-slot="drawer-content"]') as HTMLElement
     expect(content.className).toContain('right-0')
     expect(content.className).toContain('inset-y-0')
-    expect(content.className).toContain('max-w-md')
+    // Figma Drawer [1.1] width contract: 400px
+    expect(content.className).toContain('max-w-[400px]')
     // Per Figma: inner edge rounded, no panel border on the seam.
     expect(content.className).toContain('rounded-l-xl')
     expect(content.className).not.toMatch(/\bborder-l\b/)

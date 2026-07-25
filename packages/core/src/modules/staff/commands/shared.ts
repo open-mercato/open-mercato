@@ -74,6 +74,44 @@ export function scopeForDecryption(scope: StaffCommandScope): { tenantId: string
   return { tenantId: scope.tenantId, organizationId: scope.organizationId }
 }
 
+export type StaffSnapshotScope = {
+  tenantId?: string | null
+  organizationId?: string | null
+}
+
+type StaffSnapshotScopeSource = {
+  tenantId?: string | null
+  organizationId?: string | null
+}
+
+const NULL_DECRYPTION_SCOPE = { tenantId: null, organizationId: null } as const
+
+export function staffSnapshotScopeFromContext(ctx: CommandRuntimeContext): StaffSnapshotScope | null {
+  const tenantId = ctx.auth?.tenantId ?? null
+  if (!tenantId) return null
+  return { tenantId }
+}
+
+export function staffSnapshotScopeFromSnapshot(source: StaffSnapshotScopeSource | null | undefined): StaffSnapshotScope | null {
+  if (!source?.tenantId || !source.organizationId) return null
+  return { tenantId: source.tenantId, organizationId: source.organizationId }
+}
+
+export function scopedStaffSnapshotWhere(id: string, scope?: StaffSnapshotScope | null) {
+  const where: { id: string; tenantId?: string; organizationId?: string } = { id }
+  if (scope?.tenantId) where.tenantId = scope.tenantId
+  if (scope?.organizationId) where.organizationId = scope.organizationId
+  return where
+}
+
+export function staffSnapshotDecryptionScope(scope?: StaffSnapshotScope | null) {
+  if (!scope) return NULL_DECRYPTION_SCOPE
+  return {
+    tenantId: scope.tenantId ?? null,
+    organizationId: scope.organizationId ?? null,
+  }
+}
+
 export async function requireTeamMember(
   em: EntityManager,
   memberId: string,

@@ -2,6 +2,26 @@
 
 import { fetchCatalogProductsForExtraction } from '../catalogLookup'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
+
 const mockFindWithDecryption = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -69,14 +89,15 @@ describe('fetchCatalogProductsForExtraction', () => {
   it('returns empty array on DB error (graceful fallback)', async () => {
     mockFindWithDecryption.mockRejectedValue(new Error('DB connection failed'))
 
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+    mockLogger.error.mockClear()
+    const consoleSpy = mockLogger.error
 
     const result = await fetchCatalogProductsForExtraction(mockEm, scope, deps)
 
     expect(result).toEqual([])
     expect(consoleSpy).toHaveBeenCalledWith(
-      '[inbox_ops:catalogLookup] Failed to fetch catalog products:',
-      expect.any(Error),
+      'Failed to fetch catalog products',
+      { err: expect.any(Error) },
     )
 
     consoleSpy.mockRestore()

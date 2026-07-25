@@ -13,6 +13,9 @@ import {
 } from '@open-mercato/ui/backend/date-range'
 import { DEFAULT_SETTINGS, hydrateSettings, type OrdersKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'orders-kpi' })
 
 async function fetchOrdersData(settings: OrdersKpiSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
@@ -62,7 +65,7 @@ const OrdersKpiWidget: React.FC<DashboardWidgetComponentProps<OrdersKpiSettings>
         setTrend(undefined)
       }
     } catch (err) {
-      console.error('Failed to load orders KPI data', err)
+      logger.error('Failed to load orders KPI data', { err })
       setError(t('dashboards.analytics.widgets.ordersKpi.error', 'Failed to load data'))
     } finally {
       setLoading(false)

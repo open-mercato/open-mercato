@@ -25,6 +25,9 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { renderDictionaryIcon } from '../../../dictionaries/components/dictionaryAppearance'
 import type { CustomerDictionaryDisplayEntry, CustomerDictionaryMap } from '../../lib/dictionaries'
 import { formatFallbackLabel } from './utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export type EnrichedCompanyData = {
   linkId: string
@@ -80,7 +83,7 @@ function copyToClipboard(text: string, t: ReturnType<typeof useT>) {
     .then(() => {
       flash(t('customers.companies.detail.copied', 'Copied to clipboard'), 'success')
     })
-    .catch((err) => console.warn('[CompanyCard] clipboard write failed', err))
+    .catch((err) => logger.warn('clipboard write failed', { component: 'CompanyCard', err }))
 }
 
 function formatRelativeTime(isoDate: string, t: ReturnType<typeof useT>): string {

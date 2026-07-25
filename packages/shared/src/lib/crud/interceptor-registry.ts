@@ -1,5 +1,8 @@
 import type { ApiInterceptor, ApiInterceptorMethod, ApiInterceptorRegistryEntry } from './api-interceptor'
 import { applyApiInterceptorOverridesToEntries } from '../../modules/overrides'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'umes' })
 
 let _interceptorEntries: ApiInterceptorRegistryEntry[] | null = null
 const GLOBAL_INTERCEPTOR_KEY = '__openMercatoApiInterceptors__'
@@ -80,9 +83,7 @@ export function getApiInterceptorsForRoute(routePath: string, method: ApiInterce
       const warningKey = `${routePath}:${method}:${prev.interceptor.id}:${current.interceptor.id}:${currentPriority}`
       if (collisionWarnings.has(warningKey)) continue
       collisionWarnings.add(warningKey)
-      console.warn(
-        `[UMES] Interceptors "${prev.interceptor.id}" and "${current.interceptor.id}" have the same priority (${currentPriority}) for route "${routePath}". Execution order is based on module registration order.`
-      )
+      logger.warn('Interceptors share the same priority for route — execution order is based on module registration order', { firstInterceptorId: prev.interceptor.id, secondInterceptorId: current.interceptor.id, priority: currentPriority, routePath })
     }
   }
 

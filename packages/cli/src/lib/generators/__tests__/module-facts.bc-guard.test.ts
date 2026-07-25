@@ -1,51 +1,64 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { extractAllModuleFacts, MODULE_FACTS_ALLOWLIST } from '../module-facts'
+import { extractAllModuleFacts } from '../module-facts'
+import { discoverPackageModuleSources } from '../module-facts-discovery'
+import { createResolver } from '../../resolver'
 
-function findCoreSrcRoot(): string {
+function findRepoRoot(): string {
   let dir = __dirname
   for (let depth = 0; depth < 10; depth += 1) {
-    const candidate = path.join(dir, 'packages', 'core', 'src', 'modules')
-    if (fs.existsSync(candidate)) return candidate
+    if (fs.existsSync(path.join(dir, 'packages', 'core', 'src', 'modules'))) return dir
     dir = path.dirname(dir)
   }
-  throw new Error('[internal] could not locate packages/core/src/modules from the test directory')
+  throw new Error('[internal] could not locate repo root from the test directory')
 }
 
 function isUnique(values: string[]): boolean {
   return values.length === new Set(values).size
 }
 
-describe('module-facts BC resolve guard (T3)', () => {
-  const coreSrcRoot = findCoreSrcRoot()
-  const { factsByModule } = extractAllModuleFacts({ coreSrcRoot })
+describe('module-facts BC resolve guard (T2)', () => {
+  const repoRoot = findRepoRoot()
+  const sources = discoverPackageModuleSources(createResolver(repoRoot))
+  const { factsByModule } = extractAllModuleFacts({ sources })
 
-  it('emits facts for every allowlisted module', () => {
-    expect(Object.keys(factsByModule).sort()).toEqual([...MODULE_FACTS_ALLOWLIST].sort())
+  it('discovers a superset of the historical core modules', () => {
+    const discovered = new Set(Object.keys(factsByModule))
+    for (const moduleId of ['auth', 'catalog', 'customers', 'sales', 'workflows']) {
+      expect(discovered.has(moduleId)).toBe(true)
+    }
+    expect(discovered.size).toBeGreaterThan(9)
   })
 
-  for (const moduleId of MODULE_FACTS_ALLOWLIST) {
+  for (const source of sources) {
+    const moduleId = source.moduleId
     describe(`${moduleId}`, () => {
-      it('namespaces entity / event / acl / notification ids under the module and keeps them unique', () => {
-        const facts = factsByModule[moduleId]
-        const entityIds = facts.entities.map((entity) => entity.id)
+      const facts = factsByModule[moduleId]
 
+      // Entity / search / host ids are colon-namespaced under the module by construction
+      // and convention; drift here means the builder or a module's data model broke.
+      it('colon-namespaces entity / search / host ids under the module and keeps ids unique', () => {
+        const entityIds = facts.entities.map((entity) => entity.id)
         expect(entityIds.every((id) => id.startsWith(`${moduleId}:`))).toBe(true)
         expect(isUnique(entityIds)).toBe(true)
-        expect(facts.events.every((event) => event.id.startsWith(`${moduleId}.`))).toBe(true)
-        expect(isUnique(facts.events.map((event) => event.id))).toBe(true)
-        expect(facts.aclFeatures.every((feature) => feature.startsWith(`${moduleId}.`))).toBe(true)
-        expect(isUnique(facts.aclFeatures)).toBe(true)
-        expect(facts.notifications.every((notification) => notification.startsWith(`${moduleId}.`))).toBe(true)
+        expect(facts.searchEntities.every((id) => id.startsWith(`${moduleId}:`))).toBe(true)
+        expect(isUnique(facts.searchEntities)).toBe(true)
+        expect(facts.hostTokens.entityIds.every((id) => id.startsWith(`${moduleId}:`))).toBe(true)
       })
 
-      it('resolves search and host-token references against the module entity set', () => {
-        const facts = factsByModule[moduleId]
-        const entityIds = new Set(facts.entities.map((entity) => entity.id))
+      // Event / ACL / notification ids must be unique, but are NOT asserted to be
+      // dot-prefixed by the module id: some modules intentionally use a different
+      // namespace (e.g. ai_assistant -> `ai.*`, dashboards -> `analytics.*`,
+      // storage_s3 -> `storage_providers.*`). The meaningful invariant is uniqueness,
+      // not folder-name prefixing (spec 2026-07-06 R1).
+      it('keeps event / acl / notification ids unique', () => {
+        expect(isUnique(facts.events.map((event) => event.id))).toBe(true)
+        expect(isUnique(facts.aclFeatures)).toBe(true)
+        expect(isUnique(facts.notifications)).toBe(true)
+      })
 
-        for (const searchEntity of facts.searchEntities) {
-          expect(entityIds.has(searchEntity)).toBe(true)
-        }
+      it('resolves host-token entity ids against the module entity set', () => {
+        const entityIds = new Set(facts.entities.map((entity) => entity.id))
         for (const hostEntityId of facts.hostTokens.entityIds) {
           expect(entityIds.has(hostEntityId)).toBe(true)
           expect(hostEntityId.endsWith('_entity')).toBe(true)

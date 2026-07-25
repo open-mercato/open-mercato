@@ -15,6 +15,19 @@ jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   loadCustomFieldValues: jest.fn(),
 }))
 
+const mockLoggerInstance = {
+  debug: jest.fn(),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  child: jest.fn(),
+}
+mockLoggerInstance.child.mockImplementation(() => mockLoggerInstance)
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: jest.fn(() => mockLoggerInstance),
+}))
+
 import aiAgents, { promptTemplate } from '../ai-agents'
 import features from '../acl'
 import customersAiTools from '../ai-tools'
@@ -186,13 +199,9 @@ function buildContainer(ctxOverrides: Record<string, unknown> = {}) {
 
 describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', () => {
   const agent = aiAgents.find((entry) => entry.id === 'customers.account_assistant')!
-  const originalWarn = console.warn
   beforeEach(() => {
     jest.resetModules()
     jest.clearAllMocks()
-  })
-  afterEach(() => {
-    console.warn = originalWarn
   })
 
   async function mockTool(toolName: string, handler: jest.Mock) {
@@ -325,8 +334,6 @@ describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', 
   })
 
   it('returns null without throwing when the tool handler throws', async () => {
-    const warn = jest.fn()
-    console.warn = warn
     const handler = jest.fn(async () => {
       throw new Error('downstream blew up')
     })
@@ -339,7 +346,7 @@ describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', 
       organizationId: 'org-1',
     })
     expect(result).toBeNull()
-    expect(warn).toHaveBeenCalled()
+    expect(mockLoggerInstance.warn).toHaveBeenCalled()
   })
 
   it('returns null for unknown entityType (no-op fall-through)', async () => {
@@ -361,8 +368,6 @@ describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', 
     // Hitting the production callback with a valid UUID but no DI tools
     // registered should not throw — the tool-lookup miss returns null
     // via the warn + swallow path.
-    const warn = jest.fn()
-    console.warn = warn
     const result = await agent.resolvePageContext!({
       entityType: 'customers.notset',
       recordId: VALID_UUID_A,

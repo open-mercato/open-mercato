@@ -3,6 +3,9 @@ import type { StorageDriver } from './types'
 import { LocalStorageDriver } from './localDriver'
 import { LegacyPublicStorageDriver } from './legacyPublicDriver'
 import { AttachmentPartition } from '../../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('attachments').child({ component: 'storage-driver-factory' })
 
 type DriverScope = { tenantId: string; organizationId: string }
 type CredentialEnhancer = (config: Record<string, unknown>, scope: DriverScope) => Promise<Record<string, unknown>>
@@ -73,7 +76,7 @@ export class StorageDriverFactory {
     if (!partition) return this.localDriver
 
     const driverKey = partition.storageDriver ?? 'local'
-    console.log(`[storageDriverFactory] resolveForPartition: partition=${partitionCode} driverKey=${driverKey} moduleDrivers=${[...moduleDriverRegistry.keys()].join(',')} instanceDrivers=${[...this.externalDrivers.keys()].join(',')}`)
+    logger.debug('Resolving storage driver for partition', { partition: partitionCode, driverKey, moduleDrivers: [...moduleDriverRegistry.keys()], instanceDrivers: [...this.externalDrivers.keys()] })
     let config: Record<string, unknown> = partition.configJson ?? {}
 
     const activeEnhancer =

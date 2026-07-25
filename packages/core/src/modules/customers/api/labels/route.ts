@@ -26,6 +26,9 @@ import {
 } from './table-errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -87,7 +90,8 @@ export async function GET(req: Request) {
       userId: actorUserId,
     } as FilterQuery<CustomerLabel>, cap !== null ? { limit: cap, orderBy: { id: 'asc' } } : {})
     if (cap !== null && candidateLabels.length >= cap) {
-      console.warn('[customers/labels.GET] encrypted sort candidate scan hit OM_ENCRYPTED_SORT_MAX_ROWS cap; results may be incomplete', {
+      logger.warn('Encrypted sort candidate scan hit OM_ENCRYPTED_SORT_MAX_ROWS cap; results may be incomplete', {
+        component: 'labels.GET',
         cap,
         tenantId: auth.tenantId,
         organizationId,
@@ -166,7 +170,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[customers/labels.GET]', err)
+    logger.error('customers/labels.GET', { err })
     return NextResponse.json({ error: translate('customers.errors.labels_load_failed', 'Failed to load labels') }, { status: 500 })
   }
 }
@@ -283,7 +287,7 @@ export async function POST(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[customers/labels.POST]', err)
+    logger.error('customers/labels.POST', { err })
     return NextResponse.json({ error: 'Failed to create label' }, { status: 500 })
   }
 }

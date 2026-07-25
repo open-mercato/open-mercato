@@ -12,6 +12,9 @@ import { ChannelMutationBlockedError, guardOutboundCreate } from './mutation-gua
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from './queue'
 import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
 import { htmlToText } from './email-mime'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels')
 
 export type SendAsUserActor = {
   userId: string
@@ -158,7 +161,7 @@ export async function sendAsUser(
       },
     )
   } catch (err) {
-    console.error('[communication_channels] send-as-user compose failed', err)
+    logger.error('communication_channels send-as-user compose failed', { err })
     return { ok: false, status: 500, error: '[internal] compose failed' }
   }
 

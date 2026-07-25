@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
-import { CrudHttpError, isCrudHttpError } from "@open-mercato/shared/lib/crud/errors";
+import { isCrudHttpError, notFound } from "@open-mercato/shared/lib/crud/errors";
 import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import { findOneWithDecryption, findWithDecryption } from "@open-mercato/shared/lib/encryption/find";
@@ -14,6 +14,9 @@ import {
 } from "../../../../data/entities";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 const paramsSchema = z.object({
   token: z.string().uuid(),
@@ -29,27 +32,18 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
     const container = await createRequestContainer();
     const em = container.resolve("em") as EntityManager;
     const hashedToken = hashAuthToken(token);
-    const quote =
-      (await findOneWithDecryption(em, SalesQuote, {
-        acceptanceToken: hashedToken,
-        deletedAt: null,
-      })) ??
-      (await findOneWithDecryption(em, SalesQuote, {
-        acceptanceToken: token,
-        deletedAt: null,
-      }));
+    const quote = await findOneWithDecryption(em, SalesQuote, {
+      acceptanceToken: hashedToken,
+      deletedAt: null,
+    });
     const { translate } = await resolveTranslations();
     if (!quote) {
-      throw new CrudHttpError(404, {
-        error: translate("sales.quotes.public.notFound", "Quote not found."),
-      });
+      throw notFound(translate("sales.quotes.public.notFound", "Quote not found."));
     }
 
     const auth = await getAuthFromRequest(req);
     if (auth?.tenantId && quote.tenantId !== auth.tenantId) {
-      throw new CrudHttpError(404, {
-        error: translate("sales.quotes.public.notFound", "Quote not found."),
-      });
+      throw notFound(translate("sales.quotes.public.notFound", "Quote not found."));
     }
 
     const now = new Date();
@@ -142,7 +136,7 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
       return NextResponse.json(err.body, { status: err.status });
     }
     const { translate } = await resolveTranslations();
-    console.error("sales.quotes.public failed", err);
+    logger.error('sales.quotes.public failed', { err });
     return NextResponse.json(
       {
         error: translate("sales.quotes.public.failed", "Failed to load quote."),

@@ -22,6 +22,9 @@ import { Plus, Save, Trash2 } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { getEntityFields } from '#generated/entity-fields-registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('entities').child({ component: 'EncryptionManager' })
 
 type EntityOption = { entityId: string; label?: string; source?: string }
 type FieldOption = { value: string; label: string }
@@ -172,7 +175,7 @@ export function EncryptionManager() {
     // Use static registry instead of dynamic import for Turbopack compatibility
     const mod = getEntityFields(entitySlug)
     if (!mod) {
-      console.warn('[encryption] No fields found for entity', entitySlug)
+      logger.warn('No fields found for entity', { entitySlug })
       setBaseFieldOptions((prev) => (prev.length ? [] : prev))
       return
     }

@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import type { AiAgentDefinition, AiAgentExtension, AiAgentSuggestion } from './ai-agent-definition'
 import {
@@ -9,6 +10,8 @@ import {
 } from './ai-overrides'
 import { TASK_PLAN_TOOL_NAME } from './task-plan-labels'
 import { findGeneratedFile, compileAndImportGenerated } from './generated-registry-loader'
+
+const logger = createLogger('ai_assistant')
 
 const agentsById = new Map<string, AiAgentDefinition>()
 let loaded = false
@@ -170,11 +173,10 @@ function validateAndNormalizeAgent(candidate: AiAgentDefinition): AiAgentDefinit
   const providerHint = rawProvider.trim()
   const registered = llmProviderRegistry.get(providerHint)
   if (!registered) {
-    console.warn(
-      `[AI Agents] Agent "${candidate.id}" declares defaultProvider "${providerHint}" which is not registered in llmProviderRegistry. ` +
-        `The agent will be registered with defaultProvider: undefined so the resolution chain still works. ` +
-        `Built-in provider ids: anthropic, google, openai, deepinfra, groq, together, fireworks, azure, litellm, ollama.`,
-    )
+    logger.warn('Agent declares a defaultProvider not registered in llmProviderRegistry; registering with defaultProvider undefined', {
+      agentId: candidate.id,
+      defaultProvider: providerHint,
+    })
     return { ...taskPlanNormalized, defaultProvider: undefined }
   }
   return taskPlanNormalized
@@ -183,7 +185,7 @@ function validateAndNormalizeAgent(candidate: AiAgentDefinition): AiAgentDefinit
 function populateFromAgents(agents: unknown[]): void {
   for (const candidate of agents) {
     if (!isAiAgentDefinition(candidate)) {
-      console.warn('[AI Agents] Skipping malformed agent entry in ai-agents.generated.ts')
+      logger.warn('AI Agents — Skipping malformed agent entry in ai-agents.generated.ts')
       continue
     }
     const existing = agentsById.get(candidate.id)
@@ -218,7 +220,7 @@ function applyOverridesToRegistry(entries: readonly AiAgentOverrideConfigEntry[]
   for (const agent of overridden) agentsById.set(agent.id, agent)
   for (const [id, value] of Object.entries(overrideMap)) {
     const verb = value === null ? 'disabled' : 'replaced'
-    console.info(`[AI Overrides] Agent "${id}" ${verb} by override.`)
+    logger.info('Agent changed by override', { agentId: id, change: verb })
   }
 }
 
@@ -242,9 +244,7 @@ function applyExtensionsToRegistry(extensions: readonly AiAgentExtension[]): voi
   for (const extension of extensions) {
     const agent = agentsById.get(extension.targetAgentId)
     if (!agent) {
-      console.warn(
-        `[AI Agents] Skipping extension for unknown agent "${extension.targetAgentId}".`,
-      )
+      logger.warn('Skipping extension for unknown agent', { agentId: extension.targetAgentId })
       continue
     }
 
@@ -284,10 +284,7 @@ export async function loadAgentRegistry(): Promise<void> {
     const agents = mod && Array.isArray(mod.allAiAgents) ? mod.allAiAgents : []
     populateFromAgents(agents)
   } catch (error) {
-    console.error(
-      '[AI Agents] Could not load ai-agents.generated.ts (agent registry empty):',
-      error
-    )
+    logger.error('AI Agents — Could not load ai-agents.generated.ts (agent registry empty)', { err: error })
   } finally {
     try {
       const overrideEntries = await loadOverrideEntries()
@@ -295,7 +292,7 @@ export async function loadAgentRegistry(): Promise<void> {
       const extensionEntries = await loadExtensionEntries()
       applyExtensionsToRegistry(extensionEntries)
     } catch (error) {
-      console.error('[AI Agents] Failed to apply agent overrides/extensions:', error)
+      logger.error('AI Agents — Failed to apply agent overrides/extensions', { err: error })
     }
     loaded = true
   }

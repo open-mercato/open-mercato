@@ -365,6 +365,13 @@ jobs:
       - name: Lint
         run: yarn turbo run lint --filter=!@open-mercato/app
 
+      - name: Guard against raw console.* logging
+        # Blocking since the application-wide migration to the structured
+        # logging facade (see .ai/specs/2026-07-02-structured-logging-facade.md).
+        # Intentional stdout (CLI output, module cli.ts) is allowlisted in
+        # scripts/logger-console-allowlist.json.
+        run: yarn logger:check-console:ci
+
   # ── Quality checks ──────────────────────────────────────────────────────────
   # Typechecking and unit tests. Runs in parallel with ephemeral-integration
   # so typecheck cost does not add to the integration wall time.

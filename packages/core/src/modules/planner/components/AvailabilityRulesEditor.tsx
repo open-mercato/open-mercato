@@ -21,6 +21,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { ComboboxInput, TimePicker } from '@open-mercato/ui/backend/inputs'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import {
@@ -40,6 +41,9 @@ import {
   requiresResetConfirmation,
   selectCustomRuleIdsToDelete,
 } from './availabilityRulesEditorState'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('planner').child({ component: 'AvailabilityRulesEditor' })
 
 type AvailabilityRepeat = 'once' | 'daily' | 'weekly'
 type AvailabilitySubjectType = 'member' | 'resource' | 'ruleset'
@@ -1189,7 +1193,7 @@ export function AvailabilityRulesEditor({
       onSuccess: () => flash(listLabels.ruleSetDeleteSuccess, 'success'),
       onError: (error) => {
         if (surfaceRecordConflict(error, t, { onRefresh: refreshAfterRuleSetConflict })) return
-        console.error('planner.availability-rule-sets.delete', error)
+        logger.error('Failed to delete availability rule set', { err: error })
         const normalized = normalizeCrudServerError(error)
         flash(normalized.message ?? listLabels.ruleSetDeleteError, 'error')
       },
@@ -1853,44 +1857,25 @@ export function AvailabilityRulesEditor({
                   <div className="rounded-lg border bg-muted/30 p-4">
                     <div className="space-y-4">
                       <div className="space-y-2">
-                        <div role="tablist" aria-label={listLabels.applyScopeLabel} className="inline-flex rounded-lg border bg-muted p-1 text-xs">
-                          <Button
-                            type="button"
-                            role="tab"
-                            aria-selected={editorScope === 'date'}
-                            variant="ghost"
-                            size="sm"
-                            className={`h-auto rounded-md px-3 py-1.5 font-medium ${
-                              editorScope === 'date'
-                                ? 'bg-background text-foreground shadow-sm'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                            onClick={() => setEditorScope('date')}
-                          >
-                            {listLabels.applyScopeDate}
-                          </Button>
-                          <Button
-                            type="button"
-                            role="tab"
-                            aria-selected={editorScope === 'weekday'}
-                            variant="ghost"
-                            size="sm"
-                            className={`h-auto rounded-md px-3 py-1.5 font-medium ${
-                              editorScope === 'weekday'
-                                ? 'bg-background text-foreground shadow-sm'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                            onClick={() => {
-                              setEditorScope('weekday')
+                        <Tabs
+                          value={editorScope}
+                          onValueChange={(value) => {
+                            const nextScope = value as 'date' | 'weekday'
+                            setEditorScope(nextScope)
+                            if (nextScope === 'weekday') {
                               setEditorUnavailable(false)
                               setEditorNote('')
                               setEditorReasonEntryId(null)
                               setEditorReasonValue('')
-                            }}
-                          >
-                            {listLabels.editAllLabel}
-                          </Button>
-                        </div>
+                            }
+                          }}
+                          variant="underline"
+                        >
+                          <TabsList aria-label={listLabels.applyScopeLabel}>
+                            <TabsTrigger value="date">{listLabels.applyScopeDate}</TabsTrigger>
+                            <TabsTrigger value="weekday">{listLabels.editAllLabel}</TabsTrigger>
+                          </TabsList>
+                        </Tabs>
                       </div>
 
                       {editorScope === 'date' ? (

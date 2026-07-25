@@ -37,6 +37,18 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   validateCrudMutationGuard: (...args: unknown[]) => validateCrudMutationGuardMock(...args),
   runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
 }))
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const carrierLoggerError = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('shipping_carriers').error as jest.Mock
 
 function createJsonRequest(path: string, body: unknown): Request {
   return new Request(`http://localhost${path}`, {
@@ -66,11 +78,8 @@ const ratePayload = {
 }
 
 describe('shipping carrier upstream errors', () => {
-  let consoleErrorSpy: jest.SpyInstance
-
   beforeEach(() => {
     jest.clearAllMocks()
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ tenantId, orgId: organizationId, sub: 'user_1' })
     ;(createRequestContainer as jest.Mock).mockResolvedValue({
       resolve: (name: string) => {
@@ -80,10 +89,6 @@ describe('shipping carrier upstream errors', () => {
     })
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: false })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
-  })
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore()
   })
 
   it.each([
@@ -143,6 +148,6 @@ describe('shipping carrier upstream errors', () => {
     expect(body.error).toBe('Carrier provider request failed. Try again later.')
     expect(body.error).not.toContain('sk_live_secret')
     expect(body.error).not.toContain('internal-carrier.local')
-    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('[shipping_carriers.'), expect.any(Error))
+    expect(carrierLoggerError).toHaveBeenCalledWith('Provider upstream error', { routeId: expect.any(String), err: expect.any(Error) })
   })
 })

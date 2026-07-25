@@ -2,6 +2,21 @@ import type { AwilixContainer } from 'awilix'
 import { registerMutationGuards } from '../mutation-guard-store'
 import type { MutationGuard } from '../mutation-guard-registry'
 import { runRouteMutationGuards, toRegistryMutationOperation } from '../route-mutation-guard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerError = createLogger('shared').error as jest.Mock
+
 
 type Registrations = Record<string, unknown>
 
@@ -146,7 +161,7 @@ describe('runRouteMutationGuards', () => {
   })
 
   it('swallows afterSuccess callback errors so a committed write still succeeds', async () => {
-    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    loggerError.mockClear()
     const guard = makeGuard({
       id: 'throwing-after-guard',
       validate: jest.fn().mockResolvedValue({ ok: true, shouldRunAfterSuccess: true }),
@@ -164,7 +179,7 @@ describe('runRouteMutationGuards', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error('expected passed result')
     await expect(result.runAfterSuccess()).resolves.toBeUndefined()
-    expect(consoleError).toHaveBeenCalled()
+    expect(loggerError).toHaveBeenCalledWith('Mutation guard afterSuccess failed', expect.objectContaining({ guardId: 'throwing-after-guard' }))
   })
 
   it('skips feature-gated guards when the caller lacks the feature', async () => {

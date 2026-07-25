@@ -1,5 +1,8 @@
 import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const packageLogger = createLogger('queue')
 
 // BullMQ interface types - we define the shape we use to maintain type safety
 // while keeping bullmq as an optional peer dependency
@@ -108,6 +111,7 @@ export function createAsyncQueue<T = unknown>(
 ): Queue<T> {
   const connection = resolveConnection(options?.connection)
   const concurrency = options?.concurrency ?? 1
+  const logger = packageLogger.child({ queue: name })
 
   let bullQueue: BullQueueInterface<QueuedJob<T>> | null = null
   let bullWorker: BullWorkerInterface | null = null
@@ -184,21 +188,21 @@ export function createAsyncQueue<T = unknown>(
     // Set up event handlers
     bullWorker.on('completed', (job) => {
       const jobWithId = job as { id?: string }
-      console.log(`[queue:${name}] Job ${jobWithId.id} completed`)
+      logger.info('Job completed', { jobId: jobWithId.id })
     })
 
     bullWorker.on('failed', (job, err) => {
       const jobWithId = job as { id?: string } | undefined
       const error = err as Error
-      console.error(`[queue:${name}] Job ${jobWithId?.id} failed:`, error.message)
+      logger.error('Job failed', { jobId: jobWithId?.id, err: error })
     })
 
     bullWorker.on('error', (err) => {
       const error = err as Error
-      console.error(`[queue:${name}] Worker error:`, error.message)
+      logger.error('Worker error', { err: error })
     })
 
-    console.log(`[queue:${name}] Worker started with concurrency ${concurrency}`)
+    logger.info('Worker started', { concurrency })
 
     // For async strategy, return a sentinel result indicating worker mode
     // processed=-1 signals that this is a continuous worker, not a batch process

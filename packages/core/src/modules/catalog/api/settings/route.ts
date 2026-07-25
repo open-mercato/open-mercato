@@ -14,6 +14,9 @@ import {
   UNIT_PRICE_DISPLAY_ENABLED_DEFAULT,
   UNIT_PRICE_DISPLAY_ENABLED_KEY,
 } from '../../lib/settings'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
@@ -75,7 +78,7 @@ async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[catalog/settings.GET] Unexpected error', err)
+    logger.error('catalog.settings.GET Unexpected error', { err })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -130,7 +133,7 @@ async function PUT(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Invalid request', details: err.issues }, { status: 400 })
     }
-    console.error('[catalog/settings.PUT] Unexpected error', err)
+    logger.error('catalog.settings.PUT Unexpected error', { err })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -5,6 +5,9 @@ import type { InjectionSpotId } from '@open-mercato/shared/modules/widgets/injec
 import { loadInjectionWidgetsForSpot, type LoadedInjectionWidget } from '@open-mercato/shared/modules/widgets/injection-loader'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { apiCall } from '../../backend/utils/apiCall'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'usePortalDashboardWidgets' })
 
 type PortalFeatureCheckResponse = {
   ok: boolean
@@ -76,7 +79,7 @@ export function usePortalDashboardWidgets(spotId: InjectionSpotId): {
         setGrantedFeatures(granted)
       } catch (loadError) {
         if (!mounted) return
-        console.error(`[usePortalDashboardWidgets] Failed to load widgets for spot ${spotId}:`, loadError)
+        logger.error('Failed to load widgets for spot', { spotId, err: loadError })
         setError(loadError instanceof Error ? loadError.message : String(loadError))
         setWidgets([])
       } finally {

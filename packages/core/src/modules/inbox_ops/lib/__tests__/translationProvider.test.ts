@@ -5,16 +5,11 @@ jest.mock('ai', () => ({
   generateText: (...args: unknown[]) => mockGenerateText(...args),
 }))
 
-jest.mock('@open-mercato/shared/lib/ai/opencode-provider', () => ({
-  resolveFirstConfiguredOpenCodeProvider: jest.fn(() => 'openai'),
-  resolveOpenCodeModel: jest.fn(() => ({ modelId: 'gpt-4o', modelWithProvider: 'openai:gpt-4o' })),
-  requireOpenCodeProviderApiKey: jest.fn(() => 'test-key'),
-  resolveOpenCodeProviderId: jest.fn((id: string) => id || 'openai'),
-}))
-
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/llmProvider', () => ({
-  createStructuredModel: jest.fn(async () => 'mock-model'),
-  resolveExtractionProviderId: jest.fn(() => 'openai'),
+  resolveConfiguredStructuredModel: jest.fn(async () => ({
+    model: 'mock-model',
+    modelWithProvider: 'openai/gpt-4o',
+  })),
   withTimeout: jest.fn(async (promise: Promise<unknown>) => promise),
 }))
 
@@ -173,9 +168,9 @@ describe('translateProposalContent', () => {
     ).rejects.toThrow('expected schema')
   })
 
-  it('throws when API key is missing', async () => {
-    const { requireOpenCodeProviderApiKey } = require('@open-mercato/shared/lib/ai/opencode-provider')
-    requireOpenCodeProviderApiKey.mockImplementationOnce(() => {
+  it('throws when model resolution fails (e.g. missing API key)', async () => {
+    const { resolveConfiguredStructuredModel } = require('@open-mercato/core/modules/inbox_ops/lib/llmProvider')
+    resolveConfiguredStructuredModel.mockImplementationOnce(async () => {
       throw new Error('Missing API key for provider "openai". Set OPENAI_API_KEY or OPENCODE_OPENAI_API_KEY in your .env file.')
     })
 

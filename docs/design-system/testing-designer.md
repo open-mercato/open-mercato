@@ -262,7 +262,7 @@ Table of tokens for manual transfer (no plugin — manual sync, once per release
 
 **Spacing:** Tailwind scale: 4px (1), 8px (2), 12px (3), 16px (4), 24px (6), 32px (8). In Figma: auto layout with these values.
 
-**Sync schedule:** After every release tagged with `[DS]` in RELEASE_NOTES.md — manual update of Figma variables. Responsibility: the person who wants Figma, not the DS lead.
+**Sync schedule:** After every release tagged with `[DS]` in CHANGELOG.md — manual update of Figma variables. Responsibility: the person who wants Figma, not the DS lead.
 
 ---
 

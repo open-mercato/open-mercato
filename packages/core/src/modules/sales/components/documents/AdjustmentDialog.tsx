@@ -26,6 +26,9 @@ import type { SalesAdjustmentKind } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { Settings } from 'lucide-react'
 import { extractCustomFieldValues, normalizeCustomFieldSubmitValue } from './customFieldHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type TaxRateOption = {
   id: string
@@ -248,7 +251,7 @@ export function AdjustmentDialog({
       setTaxRates(parsed)
       return parsed
     } catch (err) {
-      console.error('sales.tax-rates.fetch', err)
+      logger.error('sales.tax-rates.fetch', { err })
       taxRatesRef.current = []
       setTaxRates([])
       taxRatesLoadedRef.current = true

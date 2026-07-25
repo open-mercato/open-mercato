@@ -14,6 +14,9 @@ import {
   handleRouteError,
   isErrorResponse,
 } from '../../../../routeHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'action-edit' })
 
 export const metadata = {
   PATCH: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.manage'] },
@@ -87,7 +90,7 @@ export async function PATCH(req: Request) {
         organizationId: ctx.organizationId,
       })
     } catch (eventError) {
-      console.error('[inbox_ops:action:edit] Failed to emit event:', eventError)
+      logger.error('Failed to emit event', { err: eventError })
     }
 
     return NextResponse.json({ ok: true, action })

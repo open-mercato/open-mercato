@@ -6,6 +6,7 @@ import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AiActionChips } from './AiActionChips'
 import type { InteractionSummary } from './types'
+import { isOpenInteractionStatus } from '../../lib/interactionStatus'
 
 const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   call: Phone,
@@ -83,7 +84,7 @@ function TimelineEntry({
   const TypeIcon = TYPE_ICONS[activity.interactionType]
   const title = activity.title ?? activity.body ?? activity.interactionType
   const duration = activity.duration ? ` (${activity.duration} min)` : ''
-  const isPlanned = activity.status === 'planned'
+  const isOpen = isOpenInteractionStatus(activity.status)
   const [markingDone, setMarkingDone] = React.useState(false)
 
   const handleMarkDone = React.useCallback(async (event: React.MouseEvent | React.KeyboardEvent) => {
@@ -127,7 +128,7 @@ function TimelineEntry({
             <span className="block text-[12px] font-semibold leading-tight text-foreground">
               {title}{duration}
             </span>
-            {isPlanned && onMarkDone ? (
+            {isOpen && onMarkDone ? (
               <Button
                 type="button"
                 variant="default"

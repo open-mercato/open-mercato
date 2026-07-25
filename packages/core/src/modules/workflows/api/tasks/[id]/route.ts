@@ -18,6 +18,9 @@ import {
   userTaskDetailResponseSchema,
   workflowErrorSchema,
 } from '../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -70,7 +73,7 @@ export async function GET(
       data: task,
     })
   } catch (error) {
-    console.error('Error fetching user task:', error)
+    logger.error('Error fetching user task', { err: error })
     return NextResponse.json(
       {
         error: 'Failed to fetch user task',

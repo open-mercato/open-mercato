@@ -10,6 +10,9 @@ import {
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { E } from '#generated/entities.ids.generated'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('audit_logs').child({ component: 'access-log-service' })
 
 const CORE_RESOURCE_KINDS = new Set<string>(['auth.user', 'auth.role'])
 
@@ -226,8 +229,7 @@ export class AccessLogService {
       } catch (err) {
         if (!isZodRuntimeMissing(err) && !validationWarningLogged) {
           validationWarningLogged = true
-          // eslint-disable-next-line no-console
-          console.warn('[audit_logs] falling back to permissive access log payload parser', err)
+          logger.warn('Falling back to permissive access log payload parser', { err })
         }
         if (isZodRuntimeMissing(err)) runtimeValidationAvailable = false
         return this.normalizeInput(input)
@@ -409,8 +411,7 @@ export class AccessLogService {
         createdAt: { $lt: nonCoreCutoff },
       })
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn('[audit_logs] failed to rotate access logs', err)
+      logger.warn('Failed to rotate access logs', { err })
     }
   }
 }

@@ -3,7 +3,7 @@
  */
 import * as React from 'react'
 import { renderToString } from 'react-dom/server'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
@@ -20,6 +20,16 @@ const useInjectionDataWidgetsMock = jest.fn()
 const flashMock = jest.fn()
 jest.mock('../injection/useInjectionDataWidgets', () => ({
   useInjectionDataWidgets: (spotId: string) => useInjectionDataWidgetsMock(spotId),
+}))
+// InjectionSpot/useInjectionSpotEvents (rendered whenever injectionSpotId is
+// set) load spot widgets through the real async registry loader; unmocked it
+// resolves at an arbitrary point of the test run, racing waitFor() flushes
+// and firing setState outside act().
+jest.mock('@open-mercato/shared/modules/widgets/injection-loader', () => ({
+  getInjectionRegistryVersion: () => 0,
+  subscribeToInjectionRegistryChanges: () => () => {},
+  loadInjectionWidgetsForSpot: jest.fn(async () => []),
+  loadInjectionDataWidgetsForSpot: jest.fn(async () => []),
 }))
 jest.mock('../FlashMessages', () => ({
   flash: (...args: unknown[]) => flashMock(...args),
@@ -297,18 +307,25 @@ describe('DataTable extensions', () => {
     try {
       fireEvent.click(screen.getByRole('button', { name: 'Delete all filtered' }))
 
+      // onExecute being CALLED is not enough — job-1 is registered as tracked
+      // in the click handler's continuation after `await onExecute()`. The
+      // "started" flash is the observable proof that continuation ran; without
+      // it the completion event below can race the registration and be ignored.
       await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(flashMock).toHaveBeenCalledWith(expect.any(String), 'success'))
       refreshButtonMock.mockClear()
       mockRouterRefresh.mockClear()
 
-      window.dispatchEvent(new CustomEvent(APP_EVENT_DOM_NAME, {
-        detail: {
-          id: 'progress.job.completed',
-          payload: { jobId: 'job-1' },
-          timestamp: Date.now(),
-          organizationId: 'org-1',
-        },
-      }))
+      act(() => {
+        window.dispatchEvent(new CustomEvent(APP_EVENT_DOM_NAME, {
+          detail: {
+            id: 'progress.job.completed',
+            payload: { jobId: 'job-1' },
+            timestamp: Date.now(),
+            organizationId: 'org-1',
+          },
+        }))
+      })
 
       await waitFor(() => expect(refreshButtonMock).toHaveBeenCalledTimes(1))
       expect(mockRouterRefresh).not.toHaveBeenCalled()

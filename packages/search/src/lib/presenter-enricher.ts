@@ -11,17 +11,17 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { decryptIndexDocForSearch } from '@open-mercato/shared/lib/encryption/indexDoc'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { extractFallbackPresenter } from './fallback-presenter'
 import { needsSearchResultEnrichment } from './search-result-enrichment'
 
 /** Maximum number of record IDs per batch query to avoid hitting DB parameter limits */
 const BATCH_SIZE = 500
 
-/** Logger for debugging - uses console.warn to surface issues without breaking flow */
+/** Diagnostic logger - surfaces issues without breaking flow, gated by OM_LOG_LEVEL=debug */
+const enricherLogger = createLogger('search').child({ component: 'presenter-enricher' })
 const logWarning = (message: string, context?: Record<string, unknown>) => {
-  if (process.env.NODE_ENV === 'development' || process.env.DEBUG_SEARCH_ENRICHER) {
-    console.warn(`[search:presenter-enricher] ${message}`, context ?? '')
-  }
+  enricherLogger.debug(message, context)
 }
 
 /**
@@ -145,7 +145,7 @@ async function computePresenterAndLinks(
         if (source?.presenter) presenter = source.presenter
         if (source?.links) links = source.links
       } catch (err) {
-        logWarning(`buildSource failed for ${entityId}:${recordId}`, { error: String(err) })
+        logWarning('buildSource failed', { entityId, recordId, err })
       }
     }
 
@@ -153,7 +153,7 @@ async function computePresenterAndLinks(
       try {
         presenter = (await config.formatResult(buildContext)) ?? null
       } catch (err) {
-        logWarning(`formatResult failed for ${entityId}:${recordId}`, { error: String(err) })
+        logWarning('formatResult failed', { entityId, recordId, err })
       }
     }
   }
@@ -239,7 +239,7 @@ export function createPresenterEnricher(
           )
           return { ...row, doc: decryptedDoc }
         } catch (err) {
-          logWarning(`Failed to decrypt doc for ${row.entity_type}:${row.entity_id}`, { error: String(err) })
+          logWarning('Failed to decrypt doc', { entityId: row.entity_type, recordId: row.entity_id, err })
           return row // Return original doc if decryption fails
         }
       }),
@@ -257,7 +257,7 @@ export function createPresenterEnricher(
       const doc = docMap.get(key)
 
       if (!doc) {
-        logWarning(`Doc not found in entity_indexes`, { entityId: result.entityId, recordId: result.recordId })
+        logWarning('Doc not found in entity_indexes', { entityId: result.entityId, recordId: result.recordId })
         return { key, presenter: null, url: undefined, links: undefined }
       }
 

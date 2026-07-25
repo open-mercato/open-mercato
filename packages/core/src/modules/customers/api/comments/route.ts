@@ -13,6 +13,9 @@ import {
   createPagedListResponseSchema,
   defaultOkResponseSchema,
 } from '../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -177,7 +180,7 @@ const crud = makeCrudRoute({
           }
         })
       } catch (err) {
-        console.warn('[customers.comments] failed to enrich deal titles', err)
+        logger.warn('failed to enrich deal titles', { component: 'comments', err })
       }
     },
   },

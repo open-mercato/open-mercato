@@ -2,7 +2,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -287,7 +287,7 @@ const assignLabelCommand: CommandHandler<LabelAssignCommandInput, { assignmentId
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!label) {
-      throw new CrudHttpError(404, { error: 'Label not found' })
+      throw notFound('Label not found')
     }
 
     const entity = await findOneWithDecryption(
@@ -298,7 +298,7 @@ const assignLabelCommand: CommandHandler<LabelAssignCommandInput, { assignmentId
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!entity) {
-      throw new CrudHttpError(404, { error: 'Entity not found' })
+      throw notFound('Entity not found')
     }
 
     const existing = await findOneWithDecryption(
@@ -441,7 +441,7 @@ const assignLabelCommand: CommandHandler<LabelAssignCommandInput, { assignmentId
       { tenantId: after.tenantId, organizationId: after.organizationId },
     )
     if (!label) {
-      throw new CrudHttpError(404, { error: 'Label not found' })
+      throw notFound('Label not found')
     }
     const entity = await findOneWithDecryption(
       em,
@@ -451,7 +451,7 @@ const assignLabelCommand: CommandHandler<LabelAssignCommandInput, { assignmentId
       { tenantId: after.tenantId, organizationId: after.organizationId },
     )
     if (!entity) {
-      throw new CrudHttpError(404, { error: 'Entity not found' })
+      throw notFound('Entity not found')
     }
 
     let assignment = await findOneWithDecryption(
@@ -570,7 +570,7 @@ const unassignLabelCommand: CommandHandler<LabelUnassignCommandInput, { assignme
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!label) {
-      throw new CrudHttpError(404, { error: 'Label not found' })
+      throw notFound('Label not found')
     }
 
     const entity = await findOneWithDecryption(
@@ -581,7 +581,7 @@ const unassignLabelCommand: CommandHandler<LabelUnassignCommandInput, { assignme
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!entity) {
-      throw new CrudHttpError(404, { error: 'Entity not found' })
+      throw notFound('Entity not found')
     }
 
     const existing = await findOneWithDecryption(

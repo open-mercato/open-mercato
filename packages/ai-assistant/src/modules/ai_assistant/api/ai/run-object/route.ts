@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { UIMessage } from 'ai'
 import { z } from 'zod'
@@ -9,6 +10,8 @@ import { loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
 import { runAiAgentObject } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
+
+const logger = createLogger('ai_assistant')
 
 const MAX_MESSAGES = 100
 
@@ -194,7 +197,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (error instanceof AgentPolicyError) {
       return jsonError(statusForDenyCode(error.code), error.message, error.code)
     }
-    console.error('[AI Run Object] Dispatch failure:', error)
+    logger.error('AI Run Object — Dispatch failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Agent object dispatch failed.',

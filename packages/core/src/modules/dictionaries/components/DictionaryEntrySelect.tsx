@@ -27,6 +27,9 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { buildHrefWithReturnTo } from '@open-mercato/shared/lib/navigation/returnTo'
 import { DictionaryValue, renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
 import { AppearanceSelector, type AppearanceSelectorLabels, useAppearanceState } from './AppearanceSelector'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'DictionaryEntrySelect' })
 
 const DEFAULT_APPEARANCE_LABELS: AppearanceSelectorLabels = {
   colorLabel: 'Color',
@@ -131,7 +134,7 @@ export function DictionaryEntrySelect({
       const items = await fetchOptions()
       setOptions(sortOptions === 'none' ? items : items.slice().sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })))
     } catch (err) {
-      console.error('DictionaryEntrySelect.fetchOptions failed', err)
+      logger.error('Failed to fetch options', { err })
       flash(labels.errorLoad, 'error')
       setOptions([])
     } finally {
@@ -226,7 +229,7 @@ export function DictionaryEntrySelect({
         flash(labels.successCreateLabel, 'success')
       }
     } catch (err) {
-      console.error('DictionaryEntrySelect.createOption failed', err)
+      logger.error('Failed to create option', { err })
       flash(labels.errorSave, 'error')
     } finally {
       setSaving(false)

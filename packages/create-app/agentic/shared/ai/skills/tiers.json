@@ -1,0 +1,54 @@
+{
+  "$schema": "./tiers.schema.json",
+  "default": ["core"],
+  "external": {
+    "source": "open-mercato/skills",
+    "description": "Skills installed from the shared open-mercato/skills collection via `npx skills add` (see scripts/install-skills.sh). Only the subset this standalone app ships is installed. A folder under .ai/skills/ matching one of these names is a repo-local override read by the external skill, never symlinked into the harness directories.",
+    "skills": [
+      "om-apply-upgrade-notes",
+      "om-auto-continue-pr",
+      "om-auto-continue-pr-loop",
+      "om-auto-create-pr",
+      "om-auto-create-pr-loop",
+      "om-auto-fix-issue",
+      "om-auto-review-pr",
+      "om-code-review",
+      "om-fix",
+      "om-integration-tests",
+      "om-open-pr",
+      "om-prepare-issue",
+      "om-prepare-test-env",
+      "om-root-cause",
+      "om-setup-agent-pipeline",
+      "om-spec-writing",
+      "om-verify-in-repo"
+    ]
+  },
+  "tiers": {
+    "core": {
+      "description": "Daily-driver standalone skills installed by default.",
+      "skills": [
+        "om-help",
+        "om-implement-spec",
+        "om-backend-ui-design",
+        "om-module-scaffold",
+        "om-data-model-design",
+        "om-system-extension",
+        "om-troubleshooter",
+        "om-eject-and-customize"
+      ]
+    },
+    "automation": {
+      "description": "Module-management helpers. Opt-in.",
+      "skills": ["om-trim-unused-modules"]
+    },
+    "infra": {
+      "description": "Rare, special-case skills.",
+      "skills": ["om-integration-builder"]
+    },
+    "migration": {
+      "description": "One-shot, version-pinned migrations. Install only when needed.",
+      "skills": ["om-auto-upgrade-0.4.10-to-0.5.0"]
+    }
+  }
+}

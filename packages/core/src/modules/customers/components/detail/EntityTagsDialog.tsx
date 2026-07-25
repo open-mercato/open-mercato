@@ -18,6 +18,9 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import type { TagSummary } from './types'
 import { ManageTagsDialog } from './ManageTagsDialog'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type DictEntry = { id: string; value: string; label: string; color?: string | null }
 
@@ -692,7 +695,7 @@ export function EntityTagsDialog({
     if (!open) return
     setSearchValue('')
     setNewEntryInputByKind({})
-    loadData().catch((err) => console.warn('[EntityTagsDialog] loadData failed', err))
+    loadData().catch((err) => logger.warn('loadData failed', { component: 'EntityTagsDialog', err }))
   }, [loadData, open])
 
   React.useEffect(() => {

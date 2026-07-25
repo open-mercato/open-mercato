@@ -1274,6 +1274,12 @@ function shutdown(exitCode = 0) {
   clearWarmupRetryTimer()
   stopMemoryMonitor()
 
+  if (rawLogFileStream) {
+    try {
+      rawLogFileStream.end()
+    } catch {}
+  }
+
   if (rawModeEnabled && process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
     process.stdin.setRawMode(false)
     rawModeEnabled = false
@@ -1314,10 +1320,41 @@ function shutdown(exitCode = 0) {
 process.on('SIGINT', () => shutdown(130))
 process.on('SIGTERM', () => shutdown(143))
 
+let rawLogFileStream
+let rawLogFileFailed = false
+
+function resolveRawLogFileStream() {
+  if (rawLogFileStream !== undefined) return rawLogFileStream
+  if (process.env.OM_DEV_LOG_TEE === '0' || process.env.OM_DEV_LOG_TEE === 'false') {
+    rawLogFileStream = null
+    return rawLogFileStream
+  }
+  try {
+    const logDir = process.env.OM_DEV_LOG_DIR?.trim()
+      ? path.resolve(process.env.OM_DEV_LOG_DIR.trim())
+      : path.resolve('.mercato', 'logs')
+    fs.mkdirSync(logDir, { recursive: true })
+    const runId = process.env.OM_DEV_RUN_ID?.trim()
+      || `${new Date().toISOString().toLowerCase().replace(/[:.]/g, '-')}-pid${process.pid}`
+    rawLogFileStream = fs.createWriteStream(path.join(logDir, `${runId}-app-raw.log`), { flags: 'a' })
+    rawLogFileStream.on('error', () => {
+      rawLogFileFailed = true
+    })
+  } catch {
+    rawLogFileStream = null
+  }
+  return rawLogFileStream
+}
+
 function rememberRawLog(line) {
   rawLogBuffer.push(line)
   if (rawLogBuffer.length > maxBufferedLogLines) {
     rawLogBuffer.shift()
+  }
+
+  const fileStream = resolveRawLogFileStream()
+  if (fileStream && !rawLogFileFailed) {
+    fileStream.write(`${line}\n`)
   }
 
   if (logsVisible) {
@@ -1734,7 +1771,10 @@ function classifyServerLine(line) {
       progressLabel: 'Background services (lazy)',
     }
   }
-  if (line.match(/^\[lazy-supervisor\] Pending job detected(?: .*)? — starting shared worker for all queues$/)) {
+  if (
+    line.match(/^\[lazy-supervisor\] Pending job detected(?: .*)? — starting shared worker for all queues$/)
+    || line === '[lazy-supervisor] Enabled schedule detected — starting shared worker for all queues'
+  ) {
     const status = 'Starting shared worker (lazy shared)'
     return {
       type: 'status',

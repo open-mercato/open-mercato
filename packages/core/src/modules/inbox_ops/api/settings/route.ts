@@ -14,6 +14,9 @@ import {
   invalidateSettingsCache,
   SETTINGS_CACHE_TTL_MS,
 } from '../../lib/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'settings' })
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.settings.manage'] },
@@ -65,7 +68,7 @@ export async function GET(req: Request) {
           cache.set(cacheKey, responseBody, { ttl: SETTINGS_CACHE_TTL_MS, tags: [tag] }),
         )
       } catch (err) {
-        console.warn('[inbox_ops:settings] Failed to set cache', err)
+        logger.warn('Failed to set cache', { err })
       }
     }
 

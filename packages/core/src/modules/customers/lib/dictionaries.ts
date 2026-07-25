@@ -24,6 +24,7 @@ export const CUSTOMER_DICTIONARY_KINDS = [
   'temperature',
   'renewal-quarters',
   'person-company-roles',
+  'interaction-statuses',
 ] as const
 
 export type CustomerDictionaryKind = typeof CUSTOMER_DICTIONARY_KINDS[number]

@@ -10,6 +10,23 @@ import type {
 } from '../../events'
 import type { AiPendingAction } from '../../data/entities'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
+
 function makeAction(overrides: Partial<AiPendingAction> = {}): AiPendingAction {
   return {
     id: 'pa_1',
@@ -217,7 +234,8 @@ describe('executePendingActionCancel', () => {
   it('swallows emit-event errors without failing the cancel', async () => {
     const repo = makeRepoStub(makeAction())
     const emitEvent = jest.fn().mockRejectedValue(new Error('bus down'))
-    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const consoleWarnSpy = testLogger.warn
+    consoleWarnSpy.mockClear()
     const clock = new Date('2026-04-18T10:05:00.000Z')
 
     const result = await executePendingActionCancel({

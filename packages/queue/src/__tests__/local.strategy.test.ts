@@ -2,8 +2,23 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createQueue } from '../factory'
 import type { QueuedJob } from '../types'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const queueLoggerError = createLogger('queue').error as jest.Mock
 
 function readJson(p: string) { return JSON.parse(fs.readFileSync(p, 'utf8')) }
 
@@ -253,7 +268,7 @@ describe('Queue - local strategy', () => {
     const queueDir = path.join('.mercato', 'queue', 'test-queue')
     const queuePath = path.join(queueDir, 'queue.json')
     const brokenContent = '{"nope"'
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    queueLoggerError.mockClear()
 
     fs.mkdirSync(queueDir, { recursive: true })
     fs.writeFileSync(queuePath, brokenContent, 'utf8')
@@ -270,15 +285,15 @@ describe('Queue - local strategy', () => {
 
     expect(backupFiles).toHaveLength(1)
     expect(fs.readFileSync(path.join(queueDir, backupFiles[0]), 'utf8')).toBe(brokenContent)
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[queue:test-queue] Failed to read queue file:',
-      expect.any(String)
+    expect(queueLoggerError).toHaveBeenCalledWith(
+      'Failed to parse queue file',
+      { err: expect.any(Error) },
     )
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[queue:test-queue] Backed up corrupted queue file to'),
+    expect(queueLoggerError).toHaveBeenCalledWith(
+      'Backed up corrupted queue file and recreated queue.json',
+      { backupFile: expect.stringContaining('queue.corrupted.') },
     )
 
-    errorSpy.mockRestore()
     await queue.close()
   })
 
@@ -287,8 +302,6 @@ describe('Queue - local strategy', () => {
     const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
 
     await queue.enqueue({ shouldFail: true })
-
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
 
     await queue.process((job) => {
       if (job.payload.shouldFail) throw new Error('transient')
@@ -299,7 +312,6 @@ describe('Queue - local strategy', () => {
     expect(remaining[0].attemptCount).toBe(1)
     expect(remaining[0].availableAt).toBeDefined()
 
-    errorSpy.mockRestore()
     await queue.close()
   })
 
@@ -308,8 +320,6 @@ describe('Queue - local strategy', () => {
     const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
 
     await queue.enqueue({ value: 1 })
-
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
 
     // Manually set attemptCount to simulate prior failures
     const jobs = readJson(queuePath)
@@ -322,7 +332,6 @@ describe('Queue - local strategy', () => {
     const remaining = readJson(queuePath)
     expect(remaining).toHaveLength(0)
 
-    errorSpy.mockRestore()
     await queue.close()
   })
 
@@ -332,7 +341,6 @@ describe('Queue - local strategy', () => {
 
     await queue.enqueue({ value: 1 })
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     const beforeProcess = Date.now()
 
     await queue.process(() => { throw new Error('fail') }, { limit: 10 })
@@ -342,7 +350,6 @@ describe('Queue - local strategy', () => {
     const availableAt = new Date(remaining[0].availableAt).getTime()
     expect(availableAt).toBeGreaterThanOrEqual(beforeProcess + 1000)
 
-    errorSpy.mockRestore()
     await queue.close()
   })
 

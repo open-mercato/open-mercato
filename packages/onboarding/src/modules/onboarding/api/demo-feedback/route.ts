@@ -5,6 +5,9 @@ import FeedbackEmail from '@open-mercato/onboarding/modules/onboarding/emails/Fe
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('onboarding').child({ component: 'demo-feedback' })
 
 const demoFeedbackIpRateLimitConfig = readEndpointRateLimitConfig('DEMO_FEEDBACK_IP', {
   points: 5, duration: 300, blockDuration: 300, keyPrefix: 'demo-feedback-ip',
@@ -68,7 +71,7 @@ export async function POST(req: Request) {
       react: FeedbackEmail({ copy: adminCopy }),
     })
   } catch (err) {
-    console.error('[demo-feedback] admin email failed', err)
+    logger.error('Admin email failed', { err })
     return NextResponse.json({ ok: false, error: 'Failed to send feedback. Please try again.' }, { status: 502 })
   }
 
@@ -89,7 +92,7 @@ export async function POST(req: Request) {
         react: FeedbackEmail({ copy: userCopy }),
       })
     } catch (err) {
-      console.error('[demo-feedback] user copy email failed', err)
+      logger.error('User copy email failed', { err })
     }
   }
 

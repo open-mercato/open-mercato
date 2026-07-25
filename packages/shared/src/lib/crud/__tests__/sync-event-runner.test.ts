@@ -1,6 +1,21 @@
 import { matchesEventPattern, collectSyncSubscribers, runSyncBeforeEvent, runSyncAfterEvent } from '../sync-event-runner'
 import type { SyncSubscriberEntry } from '../sync-subscriber-store'
 import type { SyncCrudEventPayload } from '../sync-event-types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerError = createLogger('shared').error as jest.Mock
+
 
 describe('matchesEventPattern', () => {
   it('matches exact event ID', () => {
@@ -158,10 +173,9 @@ describe('runSyncAfterEvent', () => {
       handler: jest.fn().mockResolvedValue(undefined),
     }
 
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+    loggerError.mockClear()
     await runSyncAfterEvent([s1, s2], basePayload, ctx)
     expect(s2.handler).toHaveBeenCalled()
-    expect(consoleSpy).toHaveBeenCalled()
-    consoleSpy.mockRestore()
+    expect(loggerError).toHaveBeenCalled()
   })
 })

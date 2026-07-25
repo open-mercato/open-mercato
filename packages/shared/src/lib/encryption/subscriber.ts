@@ -5,6 +5,9 @@ import { TenantDataEncryptionService, parseDecryptedFieldValue } from './tenantD
 import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'encryption' })
 
 type Scoped = {
   tenantId?: string | null
@@ -29,8 +32,7 @@ function resolveScope(entity: Scoped): Scope {
 function debug(event: string, payload: Record<string, unknown>) {
   if (!isEncryptionDebugEnabled()) return
   try {
-    // eslint-disable-next-line no-console
-    console.debug(event, payload)
+    logger.debug(event, payload)
   } catch {
     // ignore
   }

@@ -1,7 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
+
+const packageLogger = createLogger('queue')
 
 type LocalState = {
   lastProcessedId?: string
@@ -70,6 +73,7 @@ export function createLocalQueue<T = unknown>(
   const queueDir = path.join(baseDir, name)
   const queueFile = path.join(queueDir, 'queue.json')
   const stateFile = path.join(queueDir, 'state.json')
+  const logger = packageLogger.child({ queue: name })
   // Note: concurrency is stored for logging/compatibility but jobs are processed sequentially
   const concurrency = options?.concurrency ?? 1
   const pollInterval = options?.pollInterval ?? DEFAULT_POLL_INTERVAL
@@ -139,7 +143,7 @@ export function createLocalQueue<T = unknown>(
       if (readError.code === 'ENOENT') {
         return []
       }
-      console.error(`[queue:${name}] Failed to read queue file:`, readError.message)
+      logger.error('Failed to read queue file', { err: readError })
       throw new Error(`Queue file unreadable: ${readError.message}`)
     }
 
@@ -153,9 +157,9 @@ export function createLocalQueue<T = unknown>(
       return parsed as StoredJob<T>[]
     } catch (error: unknown) {
       const parseError = error as Error
-      console.error(`[queue:${name}] Failed to read queue file:`, parseError.message)
+      logger.error('Failed to parse queue file', { err: parseError })
       const backupFile = await backupCorruptedQueueFile(content)
-      console.error(`[queue:${name}] Backed up corrupted queue file to ${backupFile} and recreated queue.json`)
+      logger.error('Backed up corrupted queue file and recreated queue.json', { backupFile })
       return []
     }
   }
@@ -252,13 +256,13 @@ export function createLocalQueue<T = unknown>(
           processed++
           lastJobId = job.id
           completedJobIds.add(job.id)
-          console.log(`[queue:${name}] Job ${job.id} completed`)
+          logger.info('Job completed', { jobId: job.id })
         } catch (error) {
-          console.error(`[queue:${name}] Job ${job.id} failed (attempt ${attemptNumber}/${DEFAULT_MAX_ATTEMPTS}):`, error)
+          logger.error('Job failed', { jobId: job.id, attemptNumber, maxAttempts: DEFAULT_MAX_ATTEMPTS, err: error })
           failed++
           lastJobId = job.id
           if (attemptNumber >= DEFAULT_MAX_ATTEMPTS) {
-            console.error(`[queue:${name}] Job ${job.id} exhausted all ${DEFAULT_MAX_ATTEMPTS} attempts, moving to dead letter`)
+            logger.error('Job exhausted all attempts, moving to dead letter', { jobId: job.id, maxAttempts: DEFAULT_MAX_ATTEMPTS })
             deadJobIds.add(job.id)
           } else {
             const backoffMs = RETRY_BACKOFF_BASE_MS * Math.pow(2, attemptNumber - 1)
@@ -309,7 +313,7 @@ export function createLocalQueue<T = unknown>(
     try {
       await processBatch(activeHandler)
     } catch (error) {
-      console.error(`[queue:${name}] Polling error:`, error)
+      logger.error('Polling error', { err: error })
     } finally {
       isProcessing = false
     }
@@ -333,11 +337,11 @@ export function createLocalQueue<T = unknown>(
     // Start polling interval for new jobs
     pollingTimer = setInterval(() => {
       pollAndProcess().catch((err) => {
-        console.error(`[queue:${name}] Poll cycle error:`, err)
+        logger.error('Poll cycle error', { err })
       })
     }, pollInterval)
 
-    console.log(`[queue:${name}] Worker started with concurrency ${concurrency}`)
+    logger.info('Worker started', { concurrency })
 
     // Return sentinel value indicating continuous worker mode (like async strategy)
     return { processed: -1, failed: -1, lastJobId: undefined }
@@ -384,7 +388,7 @@ export function createLocalQueue<T = unknown>(
 
     while (isProcessing) {
       if (Date.now() - startTime > SHUTDOWN_TIMEOUT) {
-        console.warn(`[queue:${name}] Force closing after ${SHUTDOWN_TIMEOUT}ms timeout`)
+        logger.warn('Force closing after shutdown timeout', { timeoutMs: SHUTDOWN_TIMEOUT })
         break
       }
       await new Promise((resolve) => setTimeout(resolve, 50))

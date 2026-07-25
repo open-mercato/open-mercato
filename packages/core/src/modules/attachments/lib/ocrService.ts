@@ -2,6 +2,9 @@ import { generateText } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import fs from 'fs/promises'
 import path from 'path'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('attachments').child({ component: 'ocr-service' })
 
 export type OcrServiceOptions = {
   apiKey?: string
@@ -221,7 +224,7 @@ export class OcrService {
           }
         }
       } catch (error) {
-        console.error(`[attachments.ocr] Failed to process PDF page ${page.pageNumber}`, error)
+        logger.error('Failed to process PDF page', { pageNumber: page.pageNumber, err: error })
       }
     }
 
@@ -236,16 +239,16 @@ export class OcrService {
     const { filePath, mimeType } = input
 
     if (isPdfMimeType(mimeType, filePath)) {
-      console.log('[attachments.ocr] Processing PDF attachment via pdfjs-dist')
+      logger.info('Processing PDF attachment via pdfjs-dist')
       return this.processPdf(input)
     }
 
     if (isImageMimeType(mimeType, filePath)) {
-      console.log('[attachments.ocr] Processing image attachment via LLM OCR')
+      logger.info('Processing image attachment via LLM OCR')
       return this.processImage(input)
     }
 
-    console.log(`[attachments.ocr] Unsupported file type for OCR: ${mimeType || 'unknown'}`)
+    logger.info('Unsupported file type for OCR', { mimeType: mimeType || 'unknown' })
     return null
   }
 }
