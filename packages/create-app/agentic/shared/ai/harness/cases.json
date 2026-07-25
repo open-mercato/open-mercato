@@ -10702,7 +10702,7 @@
     "mode": "review",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Review order editing on a slow or unreliable connection. Show pending, retrying, saved, failed, and conflicted states distinctly, prevent double submission, keep user input when a request fails, distinguish network errors from validation and stale-data conflicts, and provide safe retry or reload actions without claiming an uncertain save succeeded.",
+    "prompt": "Customize the installed sales order-editing experience for a slow or unreliable connection. Show pending, retrying, saved, failed, and conflicted states distinctly, prevent double submission, keep user input when a request fails, distinguish network errors from validation and stale-data conflicts, and provide safe retry or reload actions without claiming an uncertain save succeeded.",
     "tags": [
       "business-language",
       "sales",
@@ -10724,7 +10724,8 @@
     },
     "expectedRouter": {
       "required": [
-        "backend-ui"
+        "backend-ui",
+        "umes"
       ],
       "allowedExtra": [
         "debugging",
@@ -10732,13 +10733,16 @@
       ]
     },
     "requiredSkills": [
-      "om-backend-ui-design"
+      "om-backend-ui-design",
+      "om-system-extension"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/backend-ui.md",
+        ".ai/guides/extensions.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/guides/modules/sales.md"
       ],
