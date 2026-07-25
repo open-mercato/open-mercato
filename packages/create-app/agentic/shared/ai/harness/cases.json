@@ -1691,7 +1691,9 @@
         "AGENTS.md",
         ".ai/guides/contracts.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-framework-context/SKILL.md",
+        ".ai/skills/om-framework-context/SKILL.md"
+      ],
+      "allowedExtra": [
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
