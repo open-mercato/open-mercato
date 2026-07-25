@@ -113,17 +113,18 @@ mock gateway through `POST /api/payment_gateways/capture`.
 
 ### Phase 1: schema
 
-- [ ] 1.1 Entities, migration, snapshot
+- [x] 1.1 Entities, migration, snapshot — 0a35681b4
 
 ### Phase 2: ceiling enforcement
 
-- [ ] 2.1 Capture ledger helper
-- [ ] 2.2 Wire the cumulative ceiling into capturePayment
+- [x] 2.1 Capture ledger helper — 3a2af2aea
+- [x] 2.2 Wire the cumulative ceiling into capturePayment — 3a2af2aea
 
 ### Phase 3: tests
 
-- [ ] 3.1 Unit coverage for cumulative, concurrent and retried captures
-- [ ] 3.2 Integration coverage TC-PGWY-022
+- [x] 3.1 Unit coverage for cumulative, concurrent and retried captures — 3a2af2aea
+- [x] 3.2 Integration coverage TC-PGWY-022 — 467d6f0fb
+- [x] 3.3 Document the ceiling in the payment gateways API reference — 3c26b293a
 
 ### Phase 4: validation and PR
 
