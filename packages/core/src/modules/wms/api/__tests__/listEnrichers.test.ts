@@ -1,6 +1,23 @@
 /** @jest-environment node */
 
 import { E } from '#generated/entities.ids.generated'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('wms') as {
+  warn: jest.Mock
+}
+
 import {
   attachInventoryProfileCatalogLabelsToListItems,
   attachLocationLabelsToListItems,
@@ -120,14 +137,10 @@ describe('attachWarehouseLabelsToListItems', () => {
       }),
     }
     const payload = { items: [{ id: 'loc-1', warehouse_id: 'wh-1' }] }
-    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
-    try {
-      await attachWarehouseLabelsToListItems(payload, createCtx(queryEngine))
-      expect(payload.items[0]).not.toHaveProperty('warehouse_name')
-      expect(consoleSpy).toHaveBeenCalled()
-    } finally {
-      consoleSpy.mockRestore()
-    }
+    mockLogger.warn.mockClear()
+    await attachWarehouseLabelsToListItems(payload, createCtx(queryEngine))
+    expect(payload.items[0]).not.toHaveProperty('warehouse_name')
+    expect(mockLogger.warn).toHaveBeenCalled()
   })
 })
 
