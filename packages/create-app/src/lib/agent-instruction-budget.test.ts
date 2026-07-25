@@ -65,6 +65,19 @@ test('standalone root instruction sources stay well below the Codex byte budget'
   }
 })
 
+test('existing-module UI routing stays inside the backend UI context slice', () => {
+  const rootInstructions = fs.readFileSync(path.join(CREATE_APP_ROOT, 'template/AGENTS.md'), 'utf8')
+  const uiSkill = fs.readFileSync(
+    path.join(CREATE_APP_ROOT, 'agentic/shared/ai/skills/om-backend-ui-design/SKILL.md'),
+    'utf8',
+  )
+
+  for (const instructions of [rootInstructions, uiSkill]) {
+    assert.match(instructions, /page\/form\/table-only/)
+    assert.match(instructions, /do not load .*contracts.*module-scaffold/i)
+  }
+})
+
 test('generated representative initial instruction chains fit the Codex default byte budget', () => {
   const targetDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-instruction-budget-')))
   fs.mkdirSync(path.join(targetDir, 'src'), { recursive: true })

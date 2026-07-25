@@ -852,7 +852,11 @@ export async function runInstaller({
   return 0
 }
 
-const isEntryPoint = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))
+// Node canonicalizes import.meta.url through real filesystem paths, while argv
+// may retain a lexical alias (for example macOS /tmp -> /private/tmp). Compare
+// canonical paths so scaffolding through a symlinked parent still runs the
+// installer instead of returning success without installing anything.
+const isEntryPoint = process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
 if (isEntryPoint) {
   const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   runInstaller({ rootDir, args: process.argv.slice(2) }).catch((error) => {

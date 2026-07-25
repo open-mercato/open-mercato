@@ -50,6 +50,8 @@ Match every axis; de-duplicate. Notifications = `module-data` + `backend-ui` + `
 
 Route only the request. `testing` needs explicit tests/coverage; routine validation does not match. Reindex verification and smoke validation do not select `testing`; a request to prove security or isolation behavior does. Use external `om-integration-tests` only when the request explicitly needs integration, E2E, browser, or live-app tests; round-trip coverage alone uses local unit/contract patterns. `debugging` needs failure, security, or drift. Spec decomposition selects only `spec-pr`. A plan-only business module selects `architecture` + `module-data` and only `om-module-scaffold`; load its blueprint plus architecture/contracts, but do not invoke future UI/data/workflow specialists or framework context until implementation. Custom fields/entities always select `umes` + `module-data`; editable display/save/clear round trips also select `backend-ui`, and requested coverage selects `testing`. Do not infer areas from specs/PRs.
 
+An existing module's page/form/table-only task selects `backend-ui` alone. Its routed UI guide and skill already own conflict, API-helper, and host-ID rules; do not load `.ai/guides/contracts.md` or `om-module-scaffold` unless the request also changes an entity, API, command, ACL, setup, or other module-data surface.
+
 ### Axis 1 — Area and Ownership
 
 | Route | Match | Context |
