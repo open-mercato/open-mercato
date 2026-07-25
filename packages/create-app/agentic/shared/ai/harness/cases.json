@@ -135,7 +135,7 @@
     ]
   },
   {
-    "id": "OMH-003",
+  "id": "OMH-003",
     "title": "Locate installed module entities, events, ACL, APIs, DI, search, and widget host tokens",
     "family": "architecture",
     "mode": "analysis",
@@ -167,9 +167,9 @@
       "required": [
         "framework-context"
       ],
-      "allowedExtra": [
-        "architecture",
-        "debugging"
+    "allowedExtra": [
+      "architecture",
+      "debugging"
       ]
     },
     "requiredSkills": [
@@ -215,7 +215,7 @@
     ]
   },
   {
-    "id": "OMH-004",
+  "id": "OMH-004",
     "title": "Produce a canonical one-shot library management module plan",
     "family": "architecture",
     "mode": "one-shot",
@@ -240,10 +240,10 @@
       ],
       "allowedExtra": []
     },
-    "requiredSkills": [
-      "om-module-scaffold"
-    ],
-    "context": {
+  "requiredSkills": [
+    "om-module-scaffold"
+  ],
+  "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/architecture.md",
@@ -944,7 +944,7 @@
     ]
   },
   {
-    "id": "OMH-013",
+  "id": "OMH-013",
     "title": "Declare feature-based auth, invitations, default grants, and existing-tenant synchronization",
     "family": "module",
     "mode": "one-shot",
@@ -967,21 +967,31 @@
       "required": [
         "module-data"
       ],
-      "allowedExtra": [
-        "architecture",
-        "debugging"
+    "allowedExtra": [
+      "architecture",
+      "debugging",
+      "backend-ui"
       ]
     },
-    "requiredSkills": [
-      "om-module-scaffold"
-    ],
-    "context": {
+  "requiredSkills": [
+    "om-module-scaffold"
+  ],
+  "optionalSkills": [
+    {
+      "id": "om-backend-ui-design",
+      "route": "backend-ui"
+    }
+  ],
+  "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/guides/modules/auth.md"
-      ],
+      ".ai/skills/om-module-scaffold/SKILL.md",
+      ".ai/guides/modules/auth.md"
+    ],
+    "allowedExtra": [
+      ".ai/guides/backend-ui.md"
+    ],
       "forbidden": [
         ".env*",
         ".git/**",

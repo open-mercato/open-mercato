@@ -398,7 +398,7 @@ const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
-if (!prompt.includes('Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories') || !prompt.includes('an all-guides/all-skills/all-facts read is an automatic failure')) process.exit(10)
+if (!prompt.includes('Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories') || !prompt.includes('an all-guides/all-skills/all-facts read is an automatic failure') || !prompt.includes('selectedSkills names only skills you actually invoked during this evaluation after opening their SKILL.md')) process.exit(10)
 if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || args[args.indexOf('--disable') + 1] !== 'skill_search' || args[args.indexOf('--sandbox') + 1] !== 'read-only' || !args.includes('shell_environment_policy.inherit=none') || !process.env.CODEX_HOME?.includes('om-harness-result-')) process.exit(9)
 const output = args[args.indexOf('-o') + 1]
 fs.writeFileSync(output, JSON.stringify({

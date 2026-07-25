@@ -86,6 +86,8 @@ Split the outcome; match every row.
 | `testing` | Write/run tests or explicit coverage | testing/debugging; external `om-integration-tests` for integration/E2E |
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging + affected units |
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
+
+The request saying “installed contract(s)” or “installed-package contracts” is not enough to select `framework-context`. Use routed guides and facts first. Invoke it only when one named exact-version detail still cannot be resolved, never as future-phase work.
 | — | Add/fix recurring harness case | `om-evolve-harness` |
 
 ### Axis 3 — SDLC and Delivery
