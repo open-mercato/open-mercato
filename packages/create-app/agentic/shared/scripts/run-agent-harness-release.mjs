@@ -128,7 +128,7 @@ function copyPathExcluded(relative) {
   return COPY_EXCLUDED_PREFIXES.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
 }
 
-function sensitiveScaffoldPath(relative) {
+function sensitiveScaffoldPath(relative, stat) {
   const basename = path.posix.basename(relative).toLowerCase()
   const lowerRelative = relative.toLowerCase()
   if ((basename === '.env' || basename.startsWith('.env.')) && !SAFE_ENV_TEMPLATES.has(basename)) return true
@@ -137,6 +137,7 @@ function sensitiveScaffoldPath(relative) {
   if (lowerRelative === GENERATED_YARN_CONFIG_PATH) return relative !== GENERATED_YARN_CONFIG_PATH
   if (SENSITIVE_AUTH_FILES.has(basename)) return true
   if (/^(?:\.aws|\.azure|\.config\/gcloud|\.config\/gh|\.docker|\.gnupg|\.kube|\.oci|\.pulumi|\.ssh|\.terraform\.d)(?:\/|$)/.test(lowerRelative)) return true
+  if (stat?.isDirectory()) return false
   if (SENSITIVE_AUTH_DATA_FILE.test(basename)) return true
   if (/\.(?:key|pem|p12|pfx|jks|keystore)$/.test(basename)) return true
   if (/^(?:id_rsa|id_dsa|id_ecdsa|id_ed25519)$/.test(basename)) return true
@@ -219,10 +220,10 @@ function validateScaffoldCopySource(root) {
       const source = path.join(directory, name)
       const relative = normalizedRelative(realRoot, source)
       if (copyPathExcluded(relative)) continue
-      if (sensitiveScaffoldPath(relative)) {
+      const stat = fs.lstatSync(source)
+      if (sensitiveScaffoldPath(relative, stat)) {
         throw new Error('fresh controller contains a local environment, credential, or private-key file; use a sanitized fresh scaffold')
       }
-      const stat = fs.lstatSync(source)
       validateGeneratedYarnConfig(source, relative, stat)
       if (stat.isSymbolicLink()) {
         const resolved = fs.realpathSync(source)
@@ -245,12 +246,12 @@ function copyFreshScaffold(sourceRoot, targetRoot) {
       const source = path.join(sourceDirectory, name)
       const relative = normalizedRelative(realSourceRoot, source)
       if (copyPathExcluded(relative)) continue
+      const stat = fs.lstatSync(source)
       // Fail closed if a sensitive file appears between validation and copy.
-      if (sensitiveScaffoldPath(relative)) {
+      if (sensitiveScaffoldPath(relative, stat)) {
         throw new Error('fresh controller contains a local environment, credential, or private-key file; use a sanitized fresh scaffold')
       }
       const destination = path.join(targetDirectory, name)
-      const stat = fs.lstatSync(source)
       validateGeneratedYarnConfig(source, relative, stat)
       if (stat.isDirectory()) visit(source, destination)
       else if (stat.isFile()) {
