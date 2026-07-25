@@ -47,6 +47,7 @@ test('every file a template script references is shipped by the template', () =>
 
 test('lint does not use `next lint` (removed in Next 16) and a flat config ships', () => {
   const scripts = readScripts()
+  const eslintConfig = fs.readFileSync(new URL('eslint.config.mjs', TEMPLATE_DIR), 'utf8')
   assert.ok(scripts.lint, 'template must define a lint script')
   assert.ok(
     !/\bnext\s+lint\b/.test(scripts.lint),
@@ -55,6 +56,11 @@ test('lint does not use `next lint` (removed in Next 16) and a flat config ships
   assert.ok(
     fs.existsSync(new URL('eslint.config.mjs', TEMPLATE_DIR)),
     'template must ship an eslint.config.mjs so `yarn lint` works out of the box',
+  )
+  assert.match(
+    eslintConfig,
+    /['"]\.ai\/framework-context\/\*\*['"]/,
+    'materialized read-only framework source must stay outside the app lint scope',
   )
 })
 
