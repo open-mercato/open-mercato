@@ -11010,9 +11010,10 @@
     "prompt":"Replace the built-in sales assistant for one account, preserve its public identity, and let an administrator turn it off without changing installed files.",
     "tags":["business-language","ai-override","account-setting"],
     "owner":{"kind":"skill","path":".ai/skills/om-create-ai-agent/SKILL.md","ruleIds":["BC-04","BC-05","BC-11","BC-12"]},
-    "expectedRouter":{"required":["ai-workflow","umes"],"allowedExtra":["architecture"]},
+    "expectedRouter":{"required":["ai-workflow","umes"],"allowedExtra":["architecture","framework-context"]},
     "requiredSkills":["om-create-ai-agent","om-system-extension"],
-    "context":{"required":["AGENTS.md",".ai/guides/ai-workflows.md",".ai/guides/extensions.md",".ai/skills/om-create-ai-agent/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/ai_assistant.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
+    "context":{"required":["AGENTS.md",".ai/guides/ai-workflows.md",".ai/guides/extensions.md",".ai/skills/om-create-ai-agent/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/ai_assistant.md",".ai/guides/modules/sales.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["supported-ai-override","stable-agent-id","null-disable","security-preservation"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","delete.{0,40}(?:installed|built-in)","new (?:agent|tool) id"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11029,7 +11030,7 @@
     "requiredDecisions":["event-progress","widget-progress","workflow-resume-checkpoint","workflow-cancellation-boundary","subscriber-idempotency"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","poll.{0,20}(?:every|setInterval)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":7,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-035","OMH-055"]
+    "maxContextFiles":8,"maxInitialContextBytes":49152,"maxTotalContextBytes":114688,"relatedCases":["OMH-035","OMH-055"]
   },
   {
     "id": "OMH-149",
@@ -11742,7 +11743,7 @@
     "owner":{"kind":"guide","path":".ai/guides/testing-debugging.md","ruleIds":["BC-01","BC-02","BC-05","BC-10"]},
     "expectedRouter":{"required":["testing"],"allowedExtra":["module-data","debugging"]},
     "requiredSkills":["om-integration-tests"],
-    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/modules/customers.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["self-contained-fixtures","api-fixtures","finally-cleanup","scope-denial-coverage","stale-write-conflict","filtered-integration-run"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:demo|seeded) data","(?:skip|todo|only).{0,30}test"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden","writable.allowed-paths","oracle.artifacts","oracle.business.test-authoring"],
@@ -11779,24 +11780,21 @@
     },
     "expectedRouter": {
       "required": [
-        "testing",
-        "backend-ui"
+        "testing"
       ],
       "allowedExtra": [
+        "backend-ui",
         "umes",
         "debugging"
       ]
     },
     "requiredSkills": [
-      "om-integration-tests",
-      "om-backend-ui-design"
+      "om-integration-tests"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/testing-debugging.md",
-        ".ai/guides/backend-ui.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/guides/modules/customer_accounts.md",
         ".ai/guides/modules/sales.md"
       ],
@@ -11833,7 +11831,7 @@
       "oracle.artifacts",
       "oracle.business.test-authoring"
     ],
-    "maxContextFiles": 7,
+    "maxContextFiles": 5,
     "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
@@ -12318,7 +12316,7 @@
       "oracle.artifacts",
       "oracle.business.ui-surface"
     ],
-    "maxContextFiles": 7,
+    "maxContextFiles": 8,
     "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
