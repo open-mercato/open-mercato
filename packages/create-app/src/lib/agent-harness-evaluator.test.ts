@@ -697,6 +697,7 @@ test('module facts and upstream compatibility references count as progressive ra
     'AGENTS.md',
     '.ai/guides/extensions.md',
     '.ai/skills/om-system-extension/SKILL.md',
+    '.ai/skills/om-framework-context/SKILL.md',
     '.ai/guides/modules/sales.md',
     '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md',
   ]
@@ -705,7 +706,7 @@ const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
-  selectedRouter: ['umes'], selectedSkills: ['om-system-extension'],
+  selectedRouter: ['umes', 'framework-context'], selectedSkills: ['om-system-extension', 'om-framework-context'],
   selectedContext: ${JSON.stringify(context)},
   decisions: ['mutation-guard', 'safe-after-success', 'interceptor-contract', 'backend-consistency', 'status-invariant'], violations: []
 }))

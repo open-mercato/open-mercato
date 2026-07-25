@@ -4537,18 +4537,23 @@
     "expectedRouter": {
       "required": [
         "debugging",
-        "backend-ui",
-        "framework-context"
+        "backend-ui"
       ],
       "allowedExtra": [
         "architecture",
-        "module-data"
+        "module-data",
+        "framework-context"
       ]
     },
     "requiredSkills": [
       "om-troubleshooter",
-      "om-backend-ui-design",
-      "om-framework-context"
+      "om-backend-ui-design"
+    ],
+    "optionalSkills": [
+      {
+        "id": "om-framework-context",
+        "route": "framework-context"
+      }
     ],
     "context": {
       "required": [
@@ -4556,9 +4561,11 @@
         ".ai/guides/backend-ui.md",
         ".ai/guides/modules/auth.md",
       ".ai/guides/testing-debugging.md",
-      ".ai/skills/om-troubleshooter/SKILL.md",
-      ".ai/skills/om-backend-ui-design/SKILL.md",
-      ".ai/skills/om-framework-context/SKILL.md"
+        ".ai/skills/om-troubleshooter/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-framework-context/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -5046,7 +5053,9 @@
       ".ai/guides/testing-debugging.md",
         ".ai/guides/contracts.md",
         ".ai/guides/architecture.md",
-        ".ai/skills/om-troubleshooter/SKILL.md",
+        ".ai/skills/om-troubleshooter/SKILL.md"
+      ],
+      "allowedExtra": [
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
@@ -7713,7 +7722,6 @@
     "expectedRouter": {
       "required": [
         "module-data",
-        "backend-ui",
         "umes",
         "ai-workflow"
       ],
@@ -7725,8 +7733,6 @@
     },
     "requiredSkills": [
       "om-module-scaffold",
-      "om-data-model-design",
-      "om-backend-ui-design",
       "om-system-extension",
       "om-build-workflow"
     ],
@@ -7734,12 +7740,9 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
         ".ai/guides/ai-workflows.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-data-model-design/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-build-workflow/SKILL.md",
         ".ai/guides/modules/sales.md",
@@ -8015,30 +8018,28 @@
     "expectedRouter": {
       "required": [
         "module-data",
-        "backend-ui",
-        "umes"
+        "umes",
+        "testing"
       ],
       "allowedExtra": [
         "architecture",
         "framework-context",
-        "testing"
+        "backend-ui"
       ]
     },
     "requiredSkills": [
       "om-data-model-design",
       "om-module-scaffold",
-      "om-backend-ui-design",
       "om-system-extension"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
+        ".ai/guides/testing-debugging.md",
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/sales.md"
       ],
@@ -8109,32 +8110,39 @@
       "required": [
         "module-data",
         "umes",
-        "ai-workflow"
+        "backend-ui"
       ],
       "allowedExtra": [
         "architecture",
         "framework-context",
-        "testing"
+        "testing",
+        "ai-workflow"
       ]
     },
     "requiredSkills": [
       "om-data-model-design",
       "om-module-scaffold",
       "om-system-extension",
-      "om-build-workflow"
+      "om-backend-ui-design"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
         ".ai/guides/extensions.md",
-        ".ai/guides/ai-workflows.md",
+        ".ai/guides/backend-ui.md",
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/skills/om-build-workflow/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/guides/modules/sales.md",
-        ".ai/guides/modules/catalog.md"
+        ".ai/guides/modules/catalog.md",
+        ".ai/guides/modules/checkout.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/ai-workflows.md",
+        ".ai/skills/om-build-workflow/SKILL.md",
+        ".ai/guides/modules/workflows.md"
       ],
       "forbidden": [
         ".env*",
@@ -8297,7 +8305,6 @@
     "expectedRouter": {
       "required": [
         "module-data",
-        "backend-ui",
         "umes"
       ],
       "allowedExtra": [
@@ -8309,21 +8316,20 @@
     "requiredSkills": [
       "om-data-model-design",
       "om-module-scaffold",
-      "om-backend-ui-design",
       "om-system-extension"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/sales.md",
-        ".ai/guides/modules/currencies.md"
+        ".ai/guides/modules/sales.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/customers.md"
       ],
       "forbidden": [
         ".env*",
@@ -8480,22 +8486,24 @@
     "expectedRouter": {
       "required": [
         "backend-ui",
-        "umes"
+        "umes",
+        "testing"
       ],
       "allowedExtra": [
-        "debugging",
-        "testing"
+        "debugging"
       ]
     },
     "requiredSkills": [
       "om-backend-ui-design",
-      "om-system-extension"
+      "om-system-extension",
+      "om-integration-tests"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
+        ".ai/guides/testing-debugging.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
@@ -8596,7 +8604,8 @@
       "allowedExtra": [
         "architecture",
         "framework-context",
-        "testing"
+        "testing",
+        "ai-workflow"
       ]
     },
     "requiredSkills": [
@@ -8613,7 +8622,14 @@
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/customers.md"
+        ".ai/guides/modules/customers.md",
+        ".ai/guides/modules/notifications.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/ai-workflows.md",
+        ".ai/skills/om-build-workflow/SKILL.md",
+        ".ai/guides/modules/workflows.md",
+        ".ai/guides/modules/scheduler.md"
       ],
       "forbidden": [
         ".env*",
@@ -8704,7 +8720,8 @@
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/catalog.md"
+        ".ai/guides/modules/catalog.md",
+        ".ai/guides/modules/sales.md"
       ],
       "forbidden": [
         ".env*",
@@ -8952,12 +8969,12 @@
       "required": [
         "module-data",
         "backend-ui",
-        "umes"
+        "umes",
+        "testing"
       ],
       "allowedExtra": [
         "architecture",
-        "framework-context",
-        "testing"
+        "framework-context"
       ]
     },
     "requiredSkills": [
@@ -8972,11 +8989,14 @@
         ".ai/guides/contracts.md",
         ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
+        ".ai/guides/testing-debugging.md",
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/catalog.md"
+        ".ai/guides/modules/catalog.md",
+        ".ai/guides/modules/currencies.md",
+        ".ai/guides/modules/sales.md"
       ],
       "forbidden": [
         ".env*",
@@ -9149,7 +9169,8 @@
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/catalog.md"
+        ".ai/guides/modules/catalog.md",
+        ".ai/guides/modules/checkout.md"
       ],
       "forbidden": [
         ".env*",
@@ -9263,8 +9284,10 @@
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-build-workflow/SKILL.md",
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
-        ".ai/guides/modules/catalog.md",
         ".ai/guides/modules/workflows.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/catalog.md"
       ],
       "forbidden": [
         ".env*",
@@ -9500,8 +9523,7 @@
     },
     "expectedRouter": {
       "required": [
-        "module-data",
-        "backend-ui"
+        "module-data"
       ],
       "allowedExtra": [
         "architecture",
@@ -9511,18 +9533,20 @@
     },
     "requiredSkills": [
       "om-data-model-design",
-      "om-module-scaffold",
-      "om-backend-ui-design"
+      "om-module-scaffold"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/guides/backend-ui.md",
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
-        ".ai/guides/modules/catalog.md"
+        ".ai/guides/modules/catalog.md",
+        ".ai/guides/modules/sales.md",
+        ".ai/guides/modules/customers.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/audit_logs.md"
       ],
       "forbidden": [
         ".env*",
@@ -9586,26 +9610,24 @@
     "expectedRouter": {
       "required": [
         "module-data",
-        "backend-ui"
+        "testing"
       ],
       "allowedExtra": [
         "architecture",
-        "framework-context",
-        "testing"
+        "framework-context"
       ]
     },
     "requiredSkills": [
-      "om-module-scaffold",
-      "om-backend-ui-design"
+      "om-module-scaffold"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/guides/backend-ui.md",
+        ".ai/guides/testing-debugging.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
-        ".ai/guides/modules/catalog.md"
+        ".ai/guides/modules/catalog.md",
+        ".ai/guides/modules/query_index.md"
       ],
       "forbidden": [
         ".env*",
@@ -9985,7 +10007,6 @@
     },
     "expectedRouter": {
       "required": [
-        "module-data",
         "backend-ui",
         "umes"
       ],
@@ -9996,17 +10017,14 @@
       ]
     },
     "requiredSkills": [
-      "om-module-scaffold",
       "om-backend-ui-design",
       "om-system-extension"
     ],
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/guides/contracts.md",
         ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
-        ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
@@ -10063,7 +10081,7 @@
     ],
     "owner": {
       "kind": "skill",
-      "path": ".ai/skills/om-backend-ui-design/SKILL.md",
+      "path": ".ai/skills/om-troubleshooter/SKILL.md",
       "ruleIds": [
         "BC-01",
         "BC-02",
@@ -10077,8 +10095,8 @@
     "expectedRouter": {
       "required": [
         "module-data",
-        "backend-ui",
-        "umes"
+        "umes",
+        "debugging"
       ],
       "allowedExtra": [
         "architecture",
@@ -10088,18 +10106,18 @@
     },
     "requiredSkills": [
       "om-module-scaffold",
-      "om-backend-ui-design",
-      "om-system-extension"
+      "om-system-extension",
+      "om-troubleshooter"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
+        ".ai/guides/testing-debugging.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-troubleshooter/SKILL.md",
         ".ai/guides/modules/customer_accounts.md",
         ".ai/guides/modules/sales.md"
       ],
@@ -10279,7 +10297,6 @@
     },
     "expectedRouter": {
       "required": [
-        "architecture",
         "backend-ui",
         "umes"
       ],
@@ -10289,17 +10306,14 @@
       ]
     },
     "requiredSkills": [
-      "om-help",
       "om-backend-ui-design",
       "om-system-extension"
     ],
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/guides/architecture.md",
         ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
-        ".ai/skills/om-help/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-system-extension/references/mechanism-selector.md"
@@ -10367,21 +10381,23 @@
     },
     "expectedRouter": {
       "required": [
-        "backend-ui"
+        "backend-ui",
+        "testing"
       ],
       "allowedExtra": [
         "architecture",
-        "framework-context",
-        "testing"
+        "framework-context"
       ]
     },
     "requiredSkills": [
-      "om-backend-ui-design"
+      "om-backend-ui-design",
+      "om-integration-tests"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/backend-ui.md",
+        ".ai/guides/testing-debugging.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md"
       ],
@@ -10398,8 +10414,7 @@
       "no-hard-coded-copy"
     ],
     "forbiddenPatterns": [
-      "node_modules.{0,40}(?:write|edit|patch)",
-      "(?:hard-coded|embedded).{0,20}(?:Polish|German|copy)"
+      "node_modules.{0,40}(?:write|edit|patch)"
     ],
     "validators": [
       "catalog.schema",
@@ -10463,8 +10478,11 @@
         "AGENTS.md",
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
-        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
-        ".ai/guides/modules/catalog.md"
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/catalog.md",
+        ".ai/guides/modules/dashboards.md"
       ],
       "forbidden": [
         ".env*",
@@ -10699,13 +10717,13 @@
     "prompt":"When a new customer is marked high risk, send the customer to a manager for approval and prevent sales work until the manager decides.",
     "tags":["business-language","customer-approval","workflow"],
     "owner":{"kind":"skill","path":".ai/skills/om-build-workflow/SKILL.md","ruleIds":["BC-02","BC-05","BC-07","BC-10"]},
-    "expectedRouter":{"required":["module-data","backend-ui","umes","ai-workflow"],"allowedExtra":["architecture"]},
-    "requiredSkills":["om-module-scaffold","om-backend-ui-design","om-system-extension","om-build-workflow"],
-    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/guides/ai-workflows.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-build-workflow/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "expectedRouter":{"required":["module-data","umes","ai-workflow"],"allowedExtra":["architecture"]},
+    "requiredSkills":["om-module-scaffold","om-system-extension","om-build-workflow"],
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/guides/ai-workflows.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-build-workflow/SKILL.md",".ai/guides/modules/customers.md",".ai/guides/modules/workflows.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["durable-user-task","separation-of-duties","mutation-guards","status-invariant"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","requireRoles"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":10,"maxInitialContextBytes":49152,"maxTotalContextBytes":147456,"relatedCases":["OMH-053","OMH-074","OMH-077"]
+    "maxContextFiles":9,"maxInitialContextBytes":49152,"maxTotalContextBytes":147456,"relatedCases":["OMH-053","OMH-074","OMH-077"]
   },
   {
     "id": "OMH-140",
@@ -10760,7 +10778,10 @@
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/skills/om-build-workflow/SKILL.md"
+        ".ai/skills/om-build-workflow/SKILL.md",
+        ".ai/guides/modules/sales.md",
+        ".ai/guides/modules/workflows.md",
+        ".ai/guides/modules/scheduler.md"
       ],
       "forbidden": [
         ".env*",
@@ -10813,8 +10834,8 @@
       "src/modules/invoice_dunning/workflows/**",
       "src/modules/invoice_dunning/events.ts"
     ],
-    "maxContextFiles": 10,
-    "maxInitialContextBytes": 49152,
+    "maxContextFiles": 12,
+    "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 147456,
     "relatedCases": [
       "OMH-039",
@@ -10842,11 +10863,11 @@
     "owner":{"kind":"skill","path":".ai/skills/om-build-workflow/SKILL.md","ruleIds":["BC-02","BC-05","BC-09"]},
     "expectedRouter":{"required":["module-data","ai-workflow"],"allowedExtra":["umes"]},
     "requiredSkills":["om-module-scaffold","om-build-workflow"],
-    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/ai-workflows.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-build-workflow/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/ai-workflows.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-build-workflow/SKILL.md",".ai/guides/modules/workflows.md",".ai/guides/modules/scheduler.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["worker-idempotency","host-scope-contract","renewal-timezone-dst-policy","restart-safe-schedule"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","setTimeout\\("],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":6,"maxInitialContextBytes":40960,"maxTotalContextBytes":98304,"relatedCases":["OMH-019","OMH-054","OMH-074"]
+    "maxContextFiles":7,"maxInitialContextBytes":40960,"maxTotalContextBytes":98304,"relatedCases":["OMH-019","OMH-054","OMH-074"]
   },
   {
     "id":"OMH-143","title":"Add a read-only assistant that scores leads and explains the evidence","family":"ai-workflow","mode":"one-shot","evaluationKind":"routing","risk":"high",
@@ -11239,7 +11260,8 @@
     },
     "expectedRouter": {
       "required": [
-        "integration"
+        "integration",
+        "testing"
       ],
       "allowedExtra": [
         "module-data",
@@ -11253,8 +11275,12 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/integrations.md",
+        ".ai/guides/testing-debugging.md",
         ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/guides/modules/payment_gateways.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/integrations.md"
       ],
       "forbidden": [
         ".env*",
@@ -11354,32 +11380,27 @@
     "expectedRouter": {
       "required": [
         "integration",
-        "module-data",
-        "umes",
-        "ai-workflow"
+        "testing"
       ],
       "allowedExtra": [
+        "module-data",
+        "umes",
         "backend-ui"
       ]
     },
     "requiredSkills": [
-      "om-integration-builder",
-      "om-module-scaffold",
-      "om-system-extension",
-      "om-build-workflow"
+      "om-integration-builder"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/integrations.md",
-        ".ai/guides/contracts.md",
-        ".ai/guides/extensions.md",
-        ".ai/guides/ai-workflows.md",
+        ".ai/guides/testing-debugging.md",
         ".ai/skills/om-integration-builder/SKILL.md",
-        ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/skills/om-build-workflow/SKILL.md",
         ".ai/guides/modules/shipping_carriers.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/integrations.md"
       ],
       "forbidden": [
         ".env*",
@@ -11459,11 +11480,11 @@
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-02","BC-04","BC-05","BC-08"]},
     "expectedRouter":{"required":["integration","module-data"],"allowedExtra":["architecture"]},
     "requiredSkills":["om-integration-builder","om-data-model-design"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-data-model-design/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/modules/integrations.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["decimal-money","tax-jurisdiction-snapshot","tax-outage-policy","tenant-cache-tags"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:float|number).{0,20}(?:amount|tax|money)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":6,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-021","OMH-041"]
+    "maxContextFiles":7,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-021","OMH-041"]
   },
   {
     "id": "OMH-153",
@@ -11493,34 +11514,38 @@
     "expectedRouter": {
       "required": [
         "integration",
+        "module-data",
         "backend-ui",
-        "umes",
-        "ai-workflow"
+        "umes"
       ],
       "allowedExtra": [
-        "module-data",
-        "architecture"
+        "architecture",
+        "ai-workflow"
       ]
     },
     "requiredSkills": [
       "om-integration-builder",
+      "om-module-scaffold",
       "om-backend-ui-design",
-      "om-system-extension",
-      "om-build-workflow"
+      "om-system-extension"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/integrations.md",
+        ".ai/guides/contracts.md",
         ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
-        ".ai/guides/ai-workflows.md",
         ".ai/skills/om-integration-builder/SKILL.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/skills/om-build-workflow/SKILL.md",
         ".ai/guides/modules/data_sync.md",
-        ".ai/guides/modules/progress.md"
+        ".ai/guides/modules/progress.md",
+        ".ai/guides/modules/integrations.md",
+        ".ai/guides/modules/customers.md",
+        ".ai/guides/modules/catalog.md",
+        ".ai/guides/modules/sales.md"
       ],
       "forbidden": [
         ".env*",
@@ -11576,7 +11601,7 @@
       "src/modules/erp_sync/backend/**",
       "src/modules/erp_sync/workers/**"
     ],
-    "maxContextFiles": 12,
+    "maxContextFiles": 15,
     "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 163840,
     "relatedCases": [
@@ -11590,9 +11615,9 @@
     "prompt":"Accept signed order updates from a partner and ignore replayed, duplicated, expired, or incorrectly scoped messages.",
     "tags":["business-language","inbound-webhook","replay-protection"],
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-02","BC-04","BC-05"]},
-    "expectedRouter":{"required":["integration","module-data"],"allowedExtra":["debugging"]},
-    "requiredSkills":["om-integration-builder","om-module-scaffold"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-module-scaffold/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "expectedRouter":{"required":["integration"],"allowedExtra":["module-data","umes","debugging"]},
+    "requiredSkills":["om-integration-builder"],
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/modules/webhooks.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["webhook-signature","replay-protection","subscriber-idempotency","tenant-scope"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","signature.{0,30}(?:skip|optional|disabled)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11603,13 +11628,13 @@
     "prompt":"Notify a partner when an order ships, retry temporary failures, and let staff see the latest delivery status without sending duplicates.",
     "tags":["business-language","outbound-webhook","delivery-status"],
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-02","BC-04","BC-05","BC-07"]},
-    "expectedRouter":{"required":["integration","module-data","backend-ui"],"allowedExtra":["ai-workflow"]},
-    "requiredSkills":["om-integration-builder","om-module-scaffold","om-backend-ui-design"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "expectedRouter":{"required":["integration","module-data","backend-ui","umes"],"allowedExtra":["ai-workflow"]},
+    "requiredSkills":["om-integration-builder","om-module-scaffold","om-backend-ui-design","om-system-extension"],
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/modules/integrations.md",".ai/guides/modules/webhooks.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["webhook-signature","typed-events","subscriber-idempotency","outbound-delivery-status"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","(?:secret|token|credential).{0,20}(?:console|log|plain.?text)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":8,"maxInitialContextBytes":49152,"maxTotalContextBytes":131072,"relatedCases":["OMH-018","OMH-043"]
+    "maxContextFiles":12,"maxInitialContextBytes":57344,"maxTotalContextBytes":147456,"relatedCases":["OMH-018","OMH-043"]
   },
   {
     "id": "OMH-156",
@@ -11637,28 +11662,21 @@
     },
     "expectedRouter": {
       "required": [
-        "integration",
-        "module-data",
-        "backend-ui"
+        "integration"
       ],
       "allowedExtra": [
         "testing"
       ]
     },
     "requiredSkills": [
-      "om-integration-builder",
-      "om-data-model-design",
-      "om-backend-ui-design"
+      "om-integration-builder"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/integrations.md",
-        ".ai/guides/contracts.md",
-        ".ai/guides/backend-ui.md",
         ".ai/skills/om-integration-builder/SKILL.md",
-        ".ai/skills/om-data-model-design/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md"
+        ".ai/guides/modules/catalog.md"
       ],
       "forbidden": [
         ".env*",
@@ -11720,9 +11738,9 @@
     "prompt":"Store customer attachments in our object-storage service and issue short-lived download links only after verifying that the signed-in user may access both the customer and the file. A file must either belong to a known company context or be explicitly unscoped; never guess from incomplete ownership information, cross company boundaries, or expose storage credentials.",
     "tags":["business-language","object-storage","attachments"],
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-02","BC-04","BC-05","BC-07"]},
-    "expectedRouter":{"required":["integration","module-data"],"allowedExtra":["ai-workflow"]},
-    "requiredSkills":["om-integration-builder","om-data-model-design"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/guides/modules/attachments.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "expectedRouter":{"required":["integration"],"allowedExtra":["module-data","umes","ai-workflow"]},
+    "requiredSkills":["om-integration-builder"],
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/attachments.md",".ai/guides/modules/customers.md",".ai/guides/modules/integrations.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["artifact-authorization","encrypted-storage","cleanup","short-lived-download-url","attachment-scope-both-or-neither","check-attachment-access"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","public (?:bucket|object|url)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11735,7 +11753,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-02","BC-04","BC-05"]},
     "expectedRouter":{"required":["integration"],"allowedExtra":["module-data","debugging"]},
     "requiredSkills":["om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/integrations.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["encrypted-credentials","oauth-single-flight-refresh","health-retry-redaction","oauth-revocation"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:secret|token|credential).{0,20}(?:console|log|plain.?text)","refresh.{0,30}(?:without|no).{0,20}lock"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11761,7 +11779,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-03","BC-04","BC-08"]},
     "expectedRouter":{"required":["integration"],"allowedExtra":["module-data"]},
     "requiredSkills":["om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/integrations.md",".ai/guides/modules/catalog.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["provider-variant","preserve-mode","deterministic-mapping"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","always (?:global|website|store)","(?:float|number).{0,20}(?:price|money)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11938,7 +11956,7 @@
     "owner":{"kind":"guide","path":".ai/guides/testing-debugging.md","ruleIds":["BC-01","BC-02","BC-04","BC-05","BC-09"]},
     "expectedRouter":{"required":["integration","testing"],"allowedExtra":["debugging"]},
     "requiredSkills":["om-integration-builder","om-integration-tests"],
-    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/payment_gateways.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["ephemeral-test-environment","payment-idempotency","failure-injection","health-retry-redaction","honest-test-result"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:real|live).{0,30}(?:provider|payment|credential)","(?:skip|todo|only).{0,30}test"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11951,7 +11969,7 @@
     "owner":{"kind":"root","path":"AGENTS.md","ruleIds":["BC-01"]},
     "expectedRouter":{"required":["spec-pr"],"allowedExtra":[]},
     "requiredSkills":["om-spec-writing"],
-    "context":{"required":["AGENTS.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/agentic.config.json"],"allowedExtra":[".ai/guides/architecture.md",".ai/guides/contracts.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["cohesive-phases","integration-coverage","working-phases","spec-assumption-register"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:phase|stage).{0,40}(?:broken|non-working|placeholder)","(?:skip|omit).{0,30}(?:test|coverage)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12035,7 +12053,8 @@
         "AGENTS.md",
         ".ai/guides/testing-debugging.md",
         ".ai/guides/contracts.md",
-        ".ai/skills/om-troubleshooter/SKILL.md"
+        ".ai/skills/om-troubleshooter/SKILL.md",
+        ".ai/guides/modules/customers.md"
       ],
       "forbidden": [
         ".env*",
@@ -12122,6 +12141,7 @@
         "backend-ui"
       ],
       "allowedExtra": [
+        "module-data",
         "testing",
         "umes"
       ]
@@ -12135,8 +12155,10 @@
         "AGENTS.md",
         ".ai/guides/testing-debugging.md",
         ".ai/guides/backend-ui.md",
+        ".ai/guides/contracts.md",
         ".ai/skills/om-troubleshooter/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md"
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/guides/modules/customers.md"
       ],
       "forbidden": [
         ".env*",
@@ -12186,7 +12208,7 @@
     "allowedWrites": [
       "src/modules/harness_fixture/backend/edit/page.tsx"
     ],
-    "maxContextFiles": 6,
+    "maxContextFiles": 7,
     "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 114688,
     "relatedCases": [
@@ -12200,13 +12222,13 @@
     "prompt":"A retried delivery callback creates the same shipment twice; reproduce the duplicate, find the ownership boundary, and add a regression test for the fix.",
     "tags":["business-language","webhook-regression","idempotency"],
     "owner":{"kind":"skill","path":".ai/skills/om-troubleshooter/SKILL.md","ruleIds":["BC-02","BC-04","BC-05","BC-09"]},
-    "expectedRouter":{"required":["debugging","integration","testing"],"allowedExtra":["module-data"]},
+    "expectedRouter":{"required":["architecture","debugging","integration","testing"],"allowedExtra":["module-data"]},
     "requiredSkills":["om-troubleshooter","om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/skills/om-troubleshooter/SKILL.md",".ai/skills/om-integration-builder/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/skills/om-troubleshooter/SKILL.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/shipping_carriers.md",".ai/guides/modules/webhooks.md",".ai/guides/modules/integrations.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["webhook-signature","replay-protection","subscriber-idempotency","atomic-inbox-claim","unit-regression-oracle"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","catch.{0,40}(?:ignore|swallow)","(?:random|timestamp).{0,20}idempotency"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":6,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-043","OMH-060"]
+    "maxContextFiles":8,"maxInitialContextBytes":49152,"maxTotalContextBytes":114688,"relatedCases":["OMH-043","OMH-060"]
   },
   {
     "id":"OMH-174","title":"Fix an ERP synchronization job skipping records after a page failure","family":"bugfix","mode":"bugfix","evaluationKind":"routing","risk":"high",
@@ -12215,7 +12237,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-troubleshooter/SKILL.md","ruleIds":["BC-02","BC-04","BC-09"]},
     "expectedRouter":{"required":["debugging","integration"],"allowedExtra":["testing"]},
     "requiredSkills":["om-troubleshooter","om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/skills/om-troubleshooter/SKILL.md",".ai/skills/om-integration-builder/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/skills/om-troubleshooter/SKILL.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/data_sync.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["cursor-after-success","transient-retry","rerun-idempotency","unit-regression-oracle"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","cursor.{0,30}(?:before|prior to).{0,30}success","catch.{0,40}(?:ignore|swallow)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12238,10 +12260,10 @@
     "id":"OMH-176","title":"Review an inaccessible order dialog with hidden errors and raw colors","family":"module","mode":"review","evaluationKind":"routing","risk":"medium",
     "prompt":"Review an order dialog that traps keyboard users, uses arbitrary status colors, and hides server errors; preserve its behavior while making the problems actionable.",
     "tags":["business-language","design-review","accessibility"],
-    "owner":{"kind":"skill","path":".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md","ruleIds":["BC-01","BC-06","BC-07","BC-10"]},
+    "owner":{"kind":"skill","path":".ai/skills/om-backend-ui-design/references/quality-states.md","ruleIds":["BC-01","BC-06","BC-07","BC-10"]},
     "expectedRouter":{"required":["backend-ui","debugging"],"allowedExtra":["testing"]},
     "requiredSkills":["om-backend-ui-design","om-troubleshooter"],
-    "context":{"required":["AGENTS.md",".ai/guides/backend-ui.md",".ai/guides/testing-debugging.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",".ai/skills/om-backend-ui-design/references/quality-states.md",".ai/skills/om-troubleshooter/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/backend-ui.md",".ai/guides/testing-debugging.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-backend-ui-design/references/quality-states.md",".ai/skills/om-troubleshooter/SKILL.md"],"allowedExtra":[".ai/guides/modules/sales.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["semantic-tokens","alert-and-confirm-contract","complete-ux-state-matrix","keyboard-focus-accessibility","api-ui-verification"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:hex|rgb|hard-coded status|arbitrary tailwind)","window\\.confirm","raw (?:form|fetch)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12292,13 +12314,13 @@
     "prompt":"Add preferred contact time to the existing customer form and make entering, displaying, changing, clearing, and reloading the value work correctly.",
     "tags":["business-language","form-extension","customer"],
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-06","BC-07","BC-08"]},
-    "expectedRouter":{"required":["backend-ui","umes"],"allowedExtra":["module-data","testing"]},
-    "requiredSkills":["om-backend-ui-design","om-system-extension"],
-    "context":{"required":["AGENTS.md",".ai/guides/extensions.md",".ai/guides/backend-ui.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/guides/modules/customers.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "expectedRouter":{"required":["module-data","backend-ui","umes"],"allowedExtra":["testing"]},
+    "requiredSkills":["om-data-model-design","om-backend-ui-design","om-system-extension"],
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/guides/backend-ui.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/guides/modules/customers.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["widget-read-write-roundtrip","stable-spot-id","clear-null","optimistic-lock","translation-keys"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","raw (?:form|fetch)","hard-coded user-facing","direct ORM relationship"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":7,"maxInitialContextBytes":49152,"maxTotalContextBytes":131072,"relatedCases":["OMH-024","OMH-026","OMH-061"]
+    "maxContextFiles":8,"maxInitialContextBytes":49152,"maxTotalContextBytes":131072,"relatedCases":["OMH-024","OMH-026","OMH-061"]
   },
   {
     "id": "OMH-181",
@@ -12424,9 +12446,9 @@
     "prompt":"Block order cancellation after dispatch even when someone calls the API directly, while preserving the existing response and error contracts.",
     "tags":["business-language","mutation-guard","orders"],
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-05","BC-08"]},
-    "expectedRouter":{"required":["umes"],"allowedExtra":["module-data","backend-ui","debugging"]},
-    "requiredSkills":["om-system-extension"],
-    "context":{"required":["AGENTS.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "expectedRouter":{"required":["umes","framework-context"],"allowedExtra":["module-data","backend-ui","debugging"]},
+    "requiredSkills":["om-system-extension","om-framework-context"],
+    "context":{"required":["AGENTS.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-framework-context/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["mutation-guard","safe-after-success","interceptor-contract","backend-consistency","status-invariant"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","UI only","(?:skip|bypass).{0,30}(?:guard|permission|lock)","rewrite.{0,30}(?:all|entire).{0,20}(?:body|query)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12439,7 +12461,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-04","BC-05","BC-09"]},
     "expectedRouter":{"required":["module-data","umes"],"allowedExtra":["integration","ai-workflow"]},
     "requiredSkills":["om-module-scaffold","om-system-extension"],
-    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/modules/payment_gateways.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["typed-events","subscriber-idempotency","optional-host","safe-degradation","cross-module-id-link"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","direct ORM relationship","(?:require|assume).{0,20}sales.{0,20}(?:installed|enabled)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],

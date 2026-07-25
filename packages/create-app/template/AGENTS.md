@@ -46,13 +46,15 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 ## Three-Axis Context Assembler
 
-Match every axis; de-duplicate. Notifications use `module-data` + `backend-ui` + `umes`; custom-field round trips add `testing`; lifecycle reactions use `module-data` + `umes`; convergence bugs add `debugging`; registry drift uses `architecture` + `module-data` + `debugging` (plus `framework-context` only for an unresolved exact contract).
+Match every axis; de-duplicate. Notifications use `module-data` + `backend-ui` + `umes`; custom-field round trips use `module-data` + `backend-ui` + `umes` and add `testing` only for explicit tests/coverage/real API/UI verification; lifecycle reactions use `module-data` + `umes`; convergence bugs add `debugging`; registry drift uses `architecture` + `module-data` + `debugging` (plus `framework-context` only for an unresolved exact contract).
+
+Each work-unit route loads its named skill; a `module-data` business vertical also loads `om-module-scaffold` and its exact blueprint.
 
 Route only requested work. `testing` means requested tests/coverage/security proof, not routine validation, reindex, or smoke checks; an explicit real API/UI verification request selects `testing` and external `om-integration-tests` even inside a UI review. External `om-integration-tests` is only for integration/E2E/browser/live-app tests. `debugging` means failure, security, or drift; spec decomposition selects only `spec-pr`. Plan-only business modules select `architecture` + `module-data` and `om-module-scaffold`, loading its blueprint plus architecture/contracts. Custom fields/entities select `umes` + `module-data`; add `backend-ui` for editable round trips and `testing` only when requested. Never infer areas from specs/PRs.
 
 Unified-override audits select only `umes`; add `architecture` or `framework-context` only for unresolved ownership or installed keys.
 
-An existing-module page/form/table-only task selects `backend-ui` alone; its guide/skill owns conflict, API-helper, and host-ID rules. Do not load `.ai/guides/contracts.md` or `om-module-scaffold` unless the request also changes an entity, API, command, ACL, setup, or other module-data surface.
+Existing-module page/form/table-only work selects `backend-ui` alone. Do not load contracts or `om-module-scaffold` unless changing data, API, command, ACL, or setup.
 
 ### Axis 1 — Area and Ownership
 
@@ -66,7 +68,7 @@ An existing-module page/form/table-only task selects `backend-ui` alone; its gui
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + target facts; queues, workers, retries, and progress alone stay `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
-App domains/providers live in `src/modules/<id>/`; installed customization uses UMES. Reusable providers are published dependencies, never `packages/*`; ask before topology/ejection.
+App code lives in `src/modules/<id>/`; installed customization uses UMES. Reusable providers are published dependencies, never `packages/*`; ask before ejection.
 
 ### Axis 2 — Work Units and Primitives
 
