@@ -109,6 +109,8 @@ mock gateway through `POST /api/payment_gateways/capture`.
 
 ## Progress
 
+PR: #4508
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: schema
@@ -128,5 +130,5 @@ mock gateway through `POST /api/payment_gateways/capture`.
 
 ### Phase 4: validation and PR
 
-- [ ] 4.1 Validation gate
-- [ ] 4.2 PR finalization
+- [x] 4.1 Validation gate — f53e3ea04, 4ff5792fd
+- [x] 4.2 PR finalization
