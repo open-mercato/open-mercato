@@ -108,6 +108,14 @@ test('release preflight rejects weakened runner, review, command, and model cont
   missingClaude.releaseMatrix.releaseSuite.routingRunners = ['codex']
   assert.ok(release.buildReleasePlan(missingClaude).violations.some((entry: string) => entry.includes('routing runners must be exactly')))
 
+  const missingClaudeCase = releaseInputs()
+  missingClaudeCase.releaseMatrix.routing.claude.caseIds = ['OMH-003']
+  assert.ok(release.buildReleasePlan(missingClaudeCase).violations.some((entry: string) => entry.includes('exact writable case set')))
+
+  const duplicateDeterministic = releaseInputs()
+  duplicateDeterministic.releaseMatrix.deterministic.caseIds = ['OMH-001', 'OMH-002', 'OMH-003', 'OMH-003']
+  assert.ok(release.buildReleasePlan(duplicateDeterministic).violations.some((entry: string) => entry.includes('exact all-cases selector')))
+
   const duplicateReview = releaseInputs()
   duplicateReview.releaseMatrix.generatedCodeReview.caseIds.push('OMH-002')
   const duplicateReviewViolations = release.buildReleasePlan(duplicateReview).violations
@@ -173,8 +181,11 @@ test('automatic target preparation clones only fresh source inputs and safely sh
   }
 })
 
-test('automatic target preparation rejects local environment, credential, and private-key files without copying them', { skip: process.platform === 'win32' }, () => {
-  const sensitiveFiles = ['.env', '.env.local', 'config/service-account-credentials.json', 'certs/signing.key']
+test('automatic target preparation rejects local environment, auth-store, credential, and private-key files without copying them', { skip: process.platform === 'win32' }, () => {
+  const sensitiveFiles = [
+    '.env', '.env.local', '.npmrc', '.netrc', '.yarnrc.yml', '.pypirc', '.git-credentials',
+    '.docker/config.json', 'config/service-account-credentials.json', 'certs/signing.key',
+  ]
   for (const relative of sensitiveFiles) {
     const controller = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-sensitive-source-')))
     const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-sensitive-target-')))
@@ -680,7 +691,8 @@ test('release preflight names newly writable business coverage instead of assumi
   assert.deepEqual(plan.coverage.writable.missingOracleCaseIds, ['OMH-004'])
   assert.deepEqual(plan.coverage.review.missingMatrixCaseIds, ['OMH-004'])
   assert.deepEqual(plan.coverage.registry.missingWritableCaseIds, ['OMH-004'])
-  assert.ok(plan.violations.every((entry: string) => entry.includes('OMH-004') || entry.includes('live routing') || entry.includes('exactly once in catalog order')))
+  assert.ok(plan.violations.every((entry: string) => entry.includes('OMH-004') || entry.includes('live routing')
+    || entry.includes('exactly once in catalog order') || entry.includes('exact writable case set')))
 })
 
 test('release preflight requires the explicit om-code-review gate', () => {

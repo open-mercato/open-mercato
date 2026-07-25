@@ -24,6 +24,7 @@ const COPY_EXCLUDED_PREFIXES = [
   '.ai/framework-context', '.ai/harness/results', '.ai/reports',
 ]
 const SAFE_ENV_TEMPLATES = new Set(['.env.example', '.env.sample', '.env.template'])
+const SENSITIVE_AUTH_FILES = new Set(['.git-credentials', '.netrc', '.npmrc', '.pypirc', '.yarnrc', '.yarnrc.yml', '.yarnrc.yaml'])
 const SENSITIVE_ENV_KEY = /(?:^|_)(?:api_?key|auth|credential|credentials|password|passwd|private_?key|secret|token)(?:_|$)/i
 
 function usage() {
@@ -120,7 +121,10 @@ function copyPathExcluded(relative) {
 
 function sensitiveScaffoldPath(relative) {
   const basename = path.posix.basename(relative).toLowerCase()
+  const lowerRelative = relative.toLowerCase()
   if ((basename === '.env' || basename.startsWith('.env.')) && !SAFE_ENV_TEMPLATES.has(basename)) return true
+  if (SENSITIVE_AUTH_FILES.has(basename)) return true
+  if (/^(?:\.aws|\.azure|\.config\/gcloud|\.config\/gh|\.docker|\.gnupg|\.ssh)(?:\/|$)/.test(lowerRelative)) return true
   if (/\.(?:key|pem|p12|pfx|jks|keystore)$/.test(basename)) return true
   if (/^(?:id_rsa|id_dsa|id_ecdsa|id_ed25519)$/.test(basename)) return true
   return /(?:^|[._-])(?:credential|credentials|private[._-]?key|service[._-]?account)(?:[._-]|$)/.test(basename)
@@ -341,6 +345,7 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
   const deterministicUnexpectedCaseIds = difference(deterministicIds, allCaseIds)
   addCoverageViolation(violations, 'deterministic matrix is missing cases', deterministicMissingCaseIds)
   addCoverageViolation(violations, 'deterministic matrix contains unknown cases', deterministicUnexpectedCaseIds)
+  if (releaseMatrix?.deterministic?.caseIds !== 'all') violations.push('deterministic matrix must use the exact all-cases selector')
 
   const routing = []
   const routingRunners = Array.isArray(release.routingRunners) ? release.routingRunners : []
@@ -353,6 +358,10 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
     if (!RUNNERS.has(runner)) violations.push(`release routing runner is invalid: ${String(runner)}`)
     if (!validModelSelector(releaseMatrix?.routing?.[runner]?.modelSelector)) violations.push(`release routing runner lacks a valid bounded model selector: ${String(runner)}`)
     addCoverageViolation(violations, `${runner} routing matrix contains unknown cases`, unknownCaseIds)
+    if (runner === 'codex' && releaseMatrix?.routing?.codex?.caseIds !== 'all') violations.push('Codex routing matrix must use the exact all-cases selector')
+    if (runner === 'claude' && JSON.stringify(expectedCaseIds) !== JSON.stringify(writableCaseIds)) {
+      violations.push('Claude routing matrix must match the exact writable case set in catalog order')
+    }
     routing.push({ runner, expectedCaseIds, unknownCaseIds })
   }
   if (routingRunners.length === 0) violations.push('release suite must declare at least one routing runner')

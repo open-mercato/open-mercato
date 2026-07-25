@@ -379,8 +379,9 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
   const writableIds = cases.filter((item) => WRITABLE_KINDS.has(item.evaluationKind)).map((item) => item.id)
   if (JSON.stringify(writableIds) !== JSON.stringify(registry.catalog.writableCaseIds)) globalErrors.push('validator registry writable case set differs from the catalog')
   const claudeCases = releaseMatrix?.routing?.claude?.caseIds
-  if (!isUniqueStringArray(claudeCases, { min: 1 }) || claudeCases.some((id) => !idSet.has(id))) globalErrors.push('Claude routing matrix must contain unique catalog case IDs')
+  if (!isUniqueStringArray(claudeCases, { min: 1 }) || JSON.stringify(claudeCases) !== JSON.stringify(writableIds)) globalErrors.push('Claude routing matrix must match the catalog writable case set in order')
   if (releaseMatrix?.routing?.codex?.caseIds !== 'all') globalErrors.push('Codex routing matrix must cover all cases')
+  if (releaseMatrix?.deterministic?.caseIds !== 'all') globalErrors.push('deterministic matrix must use the all-cases selector')
   const writableEntries = releaseMatrix?.writable ?? []
   if (JSON.stringify(writableEntries.map((entry) => entry.caseId)) !== JSON.stringify(writableIds)) globalErrors.push('writable release matrix differs from the catalog writable set')
   const families = new Map()
