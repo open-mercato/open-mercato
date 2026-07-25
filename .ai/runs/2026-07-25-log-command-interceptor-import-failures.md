@@ -68,4 +68,19 @@ Run the configured `validation.commands` gate and fix anything it surfaces.
 
 ### Phase 3: Validation gate
 
-- [ ] 3.1 Run the full validation gate and resolve findings
+- [x] 3.1 Run the full validation gate and resolve findings
+
+Runner: local. `yarn build:packages`, `yarn generate`, `yarn build:packages`, `yarn i18n:check-sync`,
+`yarn i18n:check-usage`, `yarn typecheck`, `yarn test` (23/23 workspaces, core alone 7850 tests) and
+`yarn build:app` all pass. The first `yarn test` run hit a flake in
+`@open-mercato/scheduler` (one suite aborted mid-run under parallel load, 321/327 tests reported);
+it passes standalone (16 suites / 327 tests) and on the immediate re-run of the full gate, and no
+scheduler code is touched by this change.
+
+## Follow-up observed while working (not fixed here)
+
+`compileAndImport` does `return import(fileUrl)` inside its `try`, so the promise is not awaited and
+the `catch` that calls `recoverMikroOrmV7GeneratedCacheFromImportError` never sees an import-time
+rejection — exactly the `does not provide an export named 'Entity'` case that recovery exists for.
+Adding the missing `await` would re-arm a recovery path that deletes stale generated cache files, so
+it is a behavior change that belongs in its own issue rather than inside this diagnostics fix.
