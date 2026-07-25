@@ -5,7 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { AgentRun, AgentSpan, AgentToolCall, AgentEvalResult, AgentContextBundle, AgentGuardrailCheck, AgentProposal } from '../../../data/entities'
+import { AgentRun, AgentSpan, AgentToolCall, AgentEvalResult, AgentEvalCase, AgentContextBundle, AgentGuardrailCheck, AgentProposal } from '../../../data/entities'
 
 /**
  * Full run detail for the trace inspector: the run plus its ordered spans and
@@ -44,7 +44,7 @@ export async function GET(req: Request, ctx: RouteContext) {
   )
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
 
-  const [spans, toolCalls, evalResults, contextBundles, guardrailChecks, proposals] = await Promise.all([
+  const [spans, toolCalls, evalResults, contextBundles, guardrailChecks, proposals, goldenCase] = await Promise.all([
     em.find(AgentSpan, { agentRunId: run.id, ...scope }, { orderBy: { sequence: 'asc' } }),
     findWithDecryption(
       em,
@@ -64,6 +64,11 @@ export async function GET(req: Request, ctx: RouteContext) {
       { orderBy: { createdAt: 'asc' } },
       decryptionScope,
     ),
+    // The matched golden case's `expected` powers the trace/playground diff. Only
+    // fetched when this run matched one (online golden-match plane). `expected` is encrypted.
+    run.goldenCaseId
+      ? findOneWithDecryption(em, AgentEvalCase, { id: run.goldenCaseId, ...scope }, undefined, decryptionScope)
+      : Promise.resolve(null),
   ])
 
   return NextResponse.json({
@@ -74,6 +79,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     contextBundle: contextBundles[0] ?? null,
     guardrailChecks,
     proposals,
+    goldenCase: goldenCase ? { id: goldenCase.id, expected: goldenCase.expected ?? null } : null,
   })
 }
 

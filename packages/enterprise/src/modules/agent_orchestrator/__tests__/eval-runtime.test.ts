@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { evaluateRun } from '../lib/eval/evalRuntimeService'
-import { AgentRun, AgentEvalAssertion, AgentEvalResult } from '../data/entities'
+import { canonicalInputKey } from '../lib/eval/canonicalInputKey'
+import { AgentRun, AgentEvalAssertion, AgentEvalResult, AgentEvalCase } from '../data/entities'
 
 const SCOPE = { tenantId: 'tenant-1', organizationId: 'org-1' }
 
@@ -12,10 +13,15 @@ function matchValue(actual: unknown, expected: unknown): boolean {
 }
 
 /** Fake EM seeded with rows; supports findOne/find ($in), create/persist/flush. */
-function createFakeEm(seed: { runs?: Array<Record<string, unknown>>; assertions?: Array<Record<string, unknown>> }) {
+function createFakeEm(seed: {
+  runs?: Array<Record<string, unknown>>
+  assertions?: Array<Record<string, unknown>>
+  evalCases?: Array<Record<string, unknown>>
+}) {
   const stores = new Map<unknown, Array<Record<string, unknown>>>()
   stores.set(AgentRun, (seed.runs ?? []).map((r) => ({ ...r })))
   stores.set(AgentEvalAssertion, (seed.assertions ?? []).map((a) => ({ ...a })))
+  stores.set(AgentEvalCase, (seed.evalCases ?? []).map((c) => ({ ...c })))
   stores.set(AgentEvalResult, [])
   const pending: Array<Record<string, unknown>> = []
   let idSeq = 0
@@ -70,7 +76,7 @@ describe('evaluateRun', () => {
   it('returns null verdict when no assertions apply', async () => {
     const { em, storeFor } = createFakeEm({ runs: [run()], assertions: [] })
     const result = await evaluateRun(em, SCOPE, 'run-1')
-    expect(result).toEqual({ evaluated: 0, scored: 0, skipped: 0, evalPassed: null, evalScore: null })
+    expect(result).toEqual({ evaluated: 0, scored: 0, skipped: 0, evalPassed: null, evalScore: null, goldenCaseId: null, goldenPassed: null })
     expect(storeFor(AgentEvalResult)).toHaveLength(0)
   })
 
@@ -116,5 +122,54 @@ describe('evaluateRun', () => {
     const result = await evaluateRun(em, SCOPE, 'run-1')
     expect(result.evalPassed).toBe(true)
     expect(result.evaluated).toBe(2)
+  })
+
+  it('matches an approved golden case by input key and scores the run against it', async () => {
+    const input = { claim: 'CLM-1' }
+    const { em, storeFor } = createFakeEm({
+      runs: [run({ input, output: { ok: true } })],
+      assertions: [assertion({ key: 'output_present', severity: 'gate' })],
+      evalCases: [
+        {
+          id: 'golden-1',
+          ...SCOPE,
+          agentDefinitionId: 'a',
+          status: 'approved',
+          inputKey: canonicalInputKey(input),
+          expected: { ok: true },
+          assertions: null,
+        },
+      ],
+    })
+    const result = await evaluateRun(em, SCOPE, 'run-1')
+    expect(result.goldenCaseId).toBe('golden-1')
+    expect(result.goldenPassed).toBe(true)
+    // one online verdict (matchedEvalCaseId unset) + one golden verdict (matchedEvalCaseId set)
+    const results = storeFor(AgentEvalResult)
+    expect(results).toHaveLength(2)
+    expect(results.filter((r) => r.matchedEvalCaseId === 'golden-1')).toHaveLength(1)
+    expect(storeFor(AgentRun)[0].goldenCaseId).toBe('golden-1')
+    expect(storeFor(AgentRun)[0].goldenPassed).toBe(true)
+  })
+
+  it('does not match when the input key differs (no golden verdict)', async () => {
+    const { em, storeFor } = createFakeEm({
+      runs: [run({ input: { claim: 'CLM-2' }, output: { ok: true } })],
+      assertions: [assertion({ key: 'output_present', severity: 'gate' })],
+      evalCases: [
+        {
+          id: 'golden-1',
+          ...SCOPE,
+          agentDefinitionId: 'a',
+          status: 'approved',
+          inputKey: canonicalInputKey({ claim: 'CLM-1' }),
+          expected: { ok: true },
+          assertions: null,
+        },
+      ],
+    })
+    const result = await evaluateRun(em, SCOPE, 'run-1')
+    expect(result.goldenCaseId).toBeNull()
+    expect(storeFor(AgentEvalResult)).toHaveLength(1) // online only
   })
 })

@@ -27,6 +27,7 @@ import { mapAgent, type AgentView } from '../../components/types'
 import { toolPanelStateFromResponse, type ToolPanelState } from '../../components/playgroundToolCalls'
 import { runErrorStateFromBody } from '../../components/playgroundRunError'
 import { Chip, TYPE_ICON, RUNTIME_ICON, resolveAgentIcon } from '../../components/agentChips'
+import { PlaygroundEvalPanel } from './PlaygroundEvalPanel'
 
 type AgentsResponse = { items?: Array<Record<string, unknown>> }
 
@@ -595,6 +596,11 @@ export default function AgentPlaygroundPage() {
             </div>
           </div>
         </div>
+        {result && runId ? (
+          <div className="mt-4">
+            <PlaygroundEvalPanel runId={runId} agentId={agentId} />
+          </div>
+        ) : null}
       </PageBody>
     </Page>
   )

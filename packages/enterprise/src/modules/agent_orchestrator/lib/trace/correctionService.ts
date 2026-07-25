@@ -5,6 +5,7 @@ import {
   type AgentEvalCaseSourceType,
   type CorrectionAction,
 } from '../../data/entities'
+import { canonicalInputKey } from '../eval/canonicalInputKey'
 
 export type DraftEvalCaseInput = {
   tenantId: string
@@ -35,6 +36,9 @@ export async function draftEvalCase(
     agentDefinitionId: input.agentDefinitionId,
     processType: input.processType ?? null,
     input: input.input,
+    // Canonical-hash match key over the plaintext input (input is decrypted here;
+    // encrypted at flush). Powers the online golden-match lookup in evaluateRun.
+    inputKey: canonicalInputKey(input.input),
     expected: input.expected ?? null,
     status: 'draft',
   })
