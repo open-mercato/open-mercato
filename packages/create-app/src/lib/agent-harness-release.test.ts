@@ -157,6 +157,7 @@ test('automatic target preparation clones only fresh source inputs and safely sh
   fs.writeFileSync(path.join(controller, 'build', 'old.js'), 'build\n')
   fs.writeFileSync(path.join(controller, 'README.md'), 'fresh\n')
   fs.writeFileSync(path.join(controller, '.env.example'), 'DATABASE_URL=postgres://localhost/example\n')
+  fs.writeFileSync(path.join(controller, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
   try {
     const manifest = release.prepareWritableTargets({ root: controller, prepareRoot, caseIds: ['OMH-002', 'OMH-003'] })
     assert.deepEqual(Object.keys(manifest.targets), ['OMH-002', 'OMH-003'])
@@ -166,6 +167,7 @@ test('automatic target preparation clones only fresh source inputs and safely sh
     assert.equal(fs.existsSync(path.join(target, '.ai', 'harness', 'results')), false)
     assert.equal(fs.existsSync(path.join(target, '.ai', 'framework-context')), false)
     assert.equal(fs.readFileSync(path.join(target, '.env.example'), 'utf8'), 'DATABASE_URL=postgres://localhost/example\n')
+    assert.equal(fs.readFileSync(path.join(target, '.yarnrc.yml'), 'utf8'), 'nodeLinker: node-modules\n')
     assert.equal(fs.lstatSync(path.join(target, 'node_modules')).isSymbolicLink(), true)
     assert.equal(fs.realpathSync(path.join(target, 'node_modules')), fs.realpathSync(path.join(controller, 'node_modules')))
     fs.writeFileSync(path.join(target, 'README.md'), 'changed\n')
@@ -184,7 +186,7 @@ test('automatic target preparation clones only fresh source inputs and safely sh
 
 test('automatic target preparation rejects local environment, auth-store, credential, and private-key files without copying them', { skip: process.platform === 'win32' }, () => {
   const sensitiveFiles = [
-    '.env', '.env.local', '.npmrc', '.netrc', '.yarnrc.yml', '.pypirc', '.git-credentials',
+    '.env', '.env.local', '.npmrc', '.netrc', '.yarnrc.yaml', '.YARNRC.YML', 'config/.yarnrc.yml', '.pypirc', '.git-credentials',
     '.docker/config.json', '.codex/auth.json', '.kube/config', 'config/secrets.json',
     'config/service-account-credentials.json', 'certs/signing.key',
   ]
@@ -207,6 +209,75 @@ test('automatic target preparation rejects local environment, auth-store, creden
         relative,
       )
       assert.equal(fs.existsSync(prepareRoot), false, relative)
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true })
+      fs.rmSync(controller, { recursive: true, force: true })
+    }
+  }
+})
+
+test('automatic target preparation accepts generated credential-free custom registry config', { skip: process.platform === 'win32' }, () => {
+  const controller = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-registry-source-')))
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-registry-target-')))
+  const prepareRoot = path.join(parent, 'targets')
+  fs.mkdirSync(path.join(controller, 'node_modules', 'example'), { recursive: true })
+  fs.writeFileSync(path.join(controller, 'package.json'), '{}\n')
+  fs.writeFileSync(path.join(controller, '.yarnrc.yml'), `nodeLinker: node-modules
+unsafeHttpWhitelist:
+  - "localhost"
+  - "host.docker.internal"
+npmScopes:
+  open-mercato:
+    npmRegistryServer: "http://localhost:4873"
+    npmMinimalAgeGate: 0
+`)
+  try {
+    const manifest = release.prepareWritableTargets({ root: controller, prepareRoot, caseIds: ['OMH-002'] })
+    assert.equal(
+      fs.readFileSync(path.join(manifest.targets['OMH-002'], '.yarnrc.yml'), 'utf8'),
+      fs.readFileSync(path.join(controller, '.yarnrc.yml'), 'utf8'),
+    )
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true })
+    fs.rmSync(controller, { recursive: true, force: true })
+  }
+})
+
+test('automatic target preparation rejects auth-bearing or non-generated Yarn config', { skip: process.platform === 'win32' }, () => {
+  const unsafeConfigs = [
+    `nodeLinker: node-modules
+npmScopes:
+  open-mercato:
+    npmRegistryServer: "https://registry.example.com"
+    npmAuthToken: "secret"
+    npmMinimalAgeGate: 0
+`,
+    `nodeLinker: node-modules
+npmScopes:
+  open-mercato:
+    npmRegistryServer: "https://user:secret@registry.example.com"
+    npmMinimalAgeGate: 0
+`,
+    `nodeLinker: node-modules
+npmScopes:
+  open-mercato:
+    npmRegistryServer: "https://registry.example.com?token=secret"
+    npmMinimalAgeGate: 0
+`,
+  ]
+  for (const yarnConfig of unsafeConfigs) {
+    const controller = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-unsafe-registry-source-')))
+    const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-unsafe-registry-target-')))
+    const prepareRoot = path.join(parent, 'targets')
+    fs.mkdirSync(path.join(controller, 'node_modules', 'example'), { recursive: true })
+    fs.writeFileSync(path.join(controller, 'package.json'), '{}\n')
+    fs.writeFileSync(path.join(controller, '.yarnrc.yml'), yarnConfig)
+    try {
+      assert.throws(
+        () => release.prepareWritableTargets({ root: controller, prepareRoot, caseIds: ['OMH-002'] }),
+        /unsafe Yarn registry configuration/,
+      )
+      assert.equal(fs.existsSync(prepareRoot), false)
     } finally {
       fs.rmSync(parent, { recursive: true, force: true })
       fs.rmSync(controller, { recursive: true, force: true })

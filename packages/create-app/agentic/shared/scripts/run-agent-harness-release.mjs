@@ -33,6 +33,8 @@ const SAFE_ENV_TEMPLATES = new Set(['.env.example', '.env.sample', '.env.templat
 const SENSITIVE_AUTH_FILES = new Set(['.git-credentials', '.netrc', '.npmrc', '.pypirc', '.yarnrc', '.yarnrc.yml', '.yarnrc.yaml'])
 const SENSITIVE_AUTH_DATA_FILE = /^(?:auth|credentials?|secrets?|tokens?)(?:\.(?:conf(?:ig)?|ini|json|toml|txt|ya?ml))?$/
 const SENSITIVE_ENV_KEY = /(?:^|_)(?:api_?key|auth|credential|credentials|password|passwd|private_?key|secret|token)(?:_|$)/i
+const GENERATED_YARN_CONFIG_PATH = '.yarnrc.yml'
+const GENERATED_YARN_CONFIG_LIMIT = 16_384
 
 function usage() {
   return `Run the complete standalone agent-harness release gate.
@@ -130,12 +132,70 @@ function sensitiveScaffoldPath(relative) {
   const basename = path.posix.basename(relative).toLowerCase()
   const lowerRelative = relative.toLowerCase()
   if ((basename === '.env' || basename.startsWith('.env.')) && !SAFE_ENV_TEMPLATES.has(basename)) return true
+  // A fresh create-mercato-app scaffold always contains this generated root file.
+  // Its contents are checked separately against the exact credential-free shape.
+  if (lowerRelative === GENERATED_YARN_CONFIG_PATH) return relative !== GENERATED_YARN_CONFIG_PATH
   if (SENSITIVE_AUTH_FILES.has(basename)) return true
   if (/^(?:\.aws|\.azure|\.config\/gcloud|\.config\/gh|\.docker|\.gnupg|\.kube|\.oci|\.pulumi|\.ssh|\.terraform\.d)(?:\/|$)/.test(lowerRelative)) return true
   if (SENSITIVE_AUTH_DATA_FILE.test(basename)) return true
   if (/\.(?:key|pem|p12|pfx|jks|keystore)$/.test(basename)) return true
   if (/^(?:id_rsa|id_dsa|id_ecdsa|id_ed25519)$/.test(basename)) return true
   return /(?:^|[._-])(?:credential|credentials|private[._-]?key|service[._-]?account)(?:[._-]|$)/.test(basename)
+}
+
+function parseGeneratedQuotedValue(line, prefix) {
+  if (!line.startsWith(prefix)) return undefined
+  try {
+    const serialized = line.slice(prefix.length)
+    const value = JSON.parse(serialized)
+    return typeof value === 'string' && value.length > 0 && JSON.stringify(value) === serialized ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function validGeneratedYarnConfig(contents) {
+  if (Buffer.byteLength(contents, 'utf8') > GENERATED_YARN_CONFIG_LIMIT || contents.includes('\0')) return false
+  const lines = contents.replaceAll('\r\n', '\n').split('\n')
+  while (lines.at(-1) === '') lines.pop()
+  if (lines.shift() !== 'nodeLinker: node-modules') return false
+  if (!lines.length) return true
+
+  const unsafeHttpHosts = []
+  if (lines[0] === 'unsafeHttpWhitelist:') {
+    lines.shift()
+    while (lines[0]?.startsWith('  - ')) {
+      const host = parseGeneratedQuotedValue(lines.shift(), '  - ')
+      if (!host) return false
+      unsafeHttpHosts.push(host)
+    }
+  }
+
+  if (lines.shift() !== 'npmScopes:' || lines.shift() !== '  open-mercato:') return false
+  const registryUrl = parseGeneratedQuotedValue(lines.shift() ?? '', '    npmRegistryServer: ')
+  if (!registryUrl || lines.shift() !== '    npmMinimalAgeGate: 0' || lines.length) return false
+
+  let parsedRegistryUrl
+  try {
+    parsedRegistryUrl = new URL(registryUrl)
+  } catch {
+    return false
+  }
+  if (!['http:', 'https:'].includes(parsedRegistryUrl.protocol)) return false
+  if (parsedRegistryUrl.username || parsedRegistryUrl.password || parsedRegistryUrl.search || parsedRegistryUrl.hash) return false
+
+  const expectedUnsafeHosts = parsedRegistryUrl.protocol === 'http:' ? [parsedRegistryUrl.hostname] : []
+  if (parsedRegistryUrl.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsedRegistryUrl.hostname)) {
+    expectedUnsafeHosts.push('host.docker.internal')
+  }
+  return JSON.stringify(unsafeHttpHosts) === JSON.stringify(expectedUnsafeHosts)
+}
+
+function validateGeneratedYarnConfig(source, relative, stat) {
+  if (relative !== GENERATED_YARN_CONFIG_PATH) return
+  if (!stat.isFile() || stat.isSymbolicLink() || !validGeneratedYarnConfig(fs.readFileSync(source, 'utf8'))) {
+    throw new Error('fresh controller contains an unsafe Yarn registry configuration; use a credential-free fresh scaffold')
+  }
 }
 
 function validateScaffoldCopySource(root) {
@@ -149,6 +209,7 @@ function validateScaffoldCopySource(root) {
         throw new Error('fresh controller contains a local environment, credential, or private-key file; use a sanitized fresh scaffold')
       }
       const stat = fs.lstatSync(source)
+      validateGeneratedYarnConfig(source, relative, stat)
       if (stat.isSymbolicLink()) {
         const resolved = fs.realpathSync(source)
         const resolvedRelative = normalizedRelative(realRoot, resolved)
@@ -176,6 +237,7 @@ function copyFreshScaffold(sourceRoot, targetRoot) {
       }
       const destination = path.join(targetDirectory, name)
       const stat = fs.lstatSync(source)
+      validateGeneratedYarnConfig(source, relative, stat)
       if (stat.isDirectory()) visit(source, destination)
       else if (stat.isFile()) {
         fs.copyFileSync(source, destination, fs.constants.COPYFILE_FICLONE)
