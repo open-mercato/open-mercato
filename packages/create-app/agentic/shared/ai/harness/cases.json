@@ -10588,7 +10588,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "medium",
-    "prompt": "Create a multi-step business setup wizard that saves a durable draft and resumes at the last valid step. Guard transitions on the server, prevent skipped required steps, protect concurrent edits, make back and retry actions safe, preserve keyboard focus, announce errors, and cover loading, offline, conflict, completion, and abandonment states.",
+    "prompt": "Create a multi-step business setup wizard with app-owned persisted records and server actions; it is not a durable automation workflow. Save a durable draft and resume at the last valid step. Guard transitions on the server, prevent skipped required steps, protect concurrent edits, make back and retry actions safe, preserve keyboard focus, announce errors, and cover loading, offline, conflict, completion, and abandonment states.",
     "tags": [
       "business-language",
       "setup-wizard",
