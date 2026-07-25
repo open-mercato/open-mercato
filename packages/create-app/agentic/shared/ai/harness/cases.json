@@ -1389,7 +1389,8 @@
         ".ai/guides/contracts.md",
         ".ai/guides/extensions.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/modules/events.md"
       ],
       "allowedExtra": [
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
@@ -1512,7 +1513,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add notification types, renderers, and reactive browser handlers. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add notification types, renderers, and reactive browser UI handlers. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "module",
       "module-data",
@@ -1546,6 +1547,7 @@
         ".ai/guides/extensions.md",
         ".ai/guides/modules/notifications.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md"
       ],
       "forbidden": [
