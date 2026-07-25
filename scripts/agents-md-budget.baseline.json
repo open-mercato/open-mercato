@@ -1,0 +1,12 @@
+{
+  "$comment": "Agent instruction budget. budgetBytes = Codex's default project_doc_max_bytes; rootMaxBytes reserves 2 KiB of it for nested AGENTS.md files. chains = recorded byte size of each root-to-module instruction chain, used as a ratchet: a chain may shrink, never grow. See .ai/docs/agent-instructions.md",
+  "budgetBytes": 32768,
+  "rootMaxBytes": 30720,
+  "chains": {
+    ".": 29688,
+    "packages/ai-assistant": 133306,
+    "packages/core": 71247,
+    "packages/core/src/modules/sales": 75578,
+    "packages/ui": 65046
+  }
+}

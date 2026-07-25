@@ -14,11 +14,19 @@ Two consequences:
 2. The root file also spends the budget that nested files need. The more the root takes, the
    less of `packages/<pkg>/AGENTS.md` survives when an agent is started inside that package.
 
-`yarn agents:check-budget` enforces both: a hard limit on the root file, and a ratchet on the
-root-to-module chains recorded in `scripts/agents-md-budget.baseline.json` so an oversized chain
-cannot get worse unnoticed. It runs in the CI quality job. When a chain legitimately grows, shrink
-the file or re-record the baseline deliberately with `yarn agents:check-budget --update-baseline`
-and explain it in the PR.
+`yarn agents:check-budget` enforces both, and runs in the CI quality job:
+
+- **Root hard limit** — `AGENTS.md` must stay under `rootMaxBytes` in
+  `scripts/agents-md-budget.baseline.json` (30,720 bytes: the 32 KiB budget minus a 2 KiB reserve
+  so nested files still get some of it).
+- **Chain ratchet** — the representative root-to-module chains listed in that baseline are
+  measured root-first. A chain still inside the budget may grow freely; a chain that already
+  exceeds it may only shrink. Several package files are far over today
+  (`packages/ai-assistant/AGENTS.md` alone is ~103 KiB), so the ratchet freezes that debt instead
+  of hiding it, and the report prints exactly how many bytes each chain loses.
+
+When a chain legitimately changes, shrink the file or re-record the baseline deliberately with
+`yarn agents:check-budget --update-baseline` and explain it in the PR.
 
 **Rule of thumb when editing any `AGENTS.md`:** hard rules, boundaries and routing stay in the
 file; long-form procedure, tables of options and worked examples move into a referenced document
