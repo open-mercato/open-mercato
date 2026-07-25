@@ -55,6 +55,8 @@ Run the configured `validation.commands` gate and fix anything it surfaces.
 
 ## Progress
 
+PR: #4505
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Distinguish and log registry load failures
