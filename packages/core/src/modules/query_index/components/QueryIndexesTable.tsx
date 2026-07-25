@@ -12,6 +12,9 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('query_index').child({ component: 'indexes-table' })
 
 const MUTATION_CONTEXT_ID = 'query_index.status.list:actions'
 
@@ -291,7 +294,7 @@ export default function QueryIndexesTable() {
         // configured) — surface a flash toast, not an alert or an error-level
         // stack dump that reads like an unhandled exception.
         const message = err instanceof Error && err.message ? err.message : errorMessage
-        console.warn('[query_index] index action failed', message)
+        logger.warn('Index action failed', { message })
         flash(message, 'error')
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })
@@ -334,7 +337,7 @@ export default function QueryIndexesTable() {
         })
       } catch (err) {
         const message = err instanceof Error && err.message ? err.message : errorMessage
-        console.warn('[query_index] vector action failed', message)
+        logger.warn('Vector action failed', { message })
         flash(message, 'error')
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })
@@ -377,7 +380,7 @@ export default function QueryIndexesTable() {
         })
       } catch (err) {
         const message = err instanceof Error && err.message ? err.message : errorMessage
-        console.warn('[query_index] fulltext action failed', message)
+        logger.warn('Fulltext action failed', { message })
         flash(message, 'error')
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })

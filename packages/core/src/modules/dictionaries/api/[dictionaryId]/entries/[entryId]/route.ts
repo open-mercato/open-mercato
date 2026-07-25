@@ -21,6 +21,9 @@ import {
   dictionariesTag,
   updateDictionaryEntrySchema as updateEntryDocSchema,
 } from '../../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'entries-api' })
 const paramsSchema = z.object({
   dictionaryId: z.string().uuid(),
   entryId: z.string().uuid(),
@@ -164,7 +167,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries/:id/entries/:entryId.PATCH] Unexpected error', err)
+    logger.error('Failed to update dictionary entry', { err })
     return NextResponse.json({ error: 'Failed to update dictionary entry' }, { status: 500 })
   }
 }
@@ -238,7 +241,7 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries/:id/entries/:entryId.DELETE] Unexpected error', err)
+    logger.error('Failed to delete dictionary entry', { err })
     return NextResponse.json({ error: 'Failed to delete dictionary entry' }, { status: 500 })
   }
 }

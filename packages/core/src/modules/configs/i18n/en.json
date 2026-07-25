@@ -189,5 +189,9 @@
   "configs.systemStatus.variables.queryIndexWarmupThrottleMs.label": "Warmup throttle window",
   "configs.systemStatus.variables.scheduleAutoReindex.description": "Automatically schedule query index reindex jobs when gaps appear.",
   "configs.systemStatus.variables.scheduleAutoReindex.label": "Auto reindex",
-  "configs.systemStatus.viewDocs": "View documentation"
+  "configs.systemStatus.viewDocs": "View documentation",
+  "configs.upgrades.attachmentsOrgReconcile.cta": "Reconcile attachment organizations",
+  "configs.upgrades.attachmentsOrgReconcile.loading": "Reconciling attachment organizations…",
+  "configs.upgrades.attachmentsOrgReconcile.message": "Version {{version}} fixes attachments that were saved under the wrong organization. Run the reconciliation to move existing attachments to the organization of the record they belong to.",
+  "configs.upgrades.attachmentsOrgReconcile.success": "Attachment organizations reconciled."
 }

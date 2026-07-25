@@ -69,6 +69,13 @@ function resolveAutoSpawnMode(env, legacyName, aliasedName, lazyName) {
   return parseEnvBooleanToken(env[lazyName]) === true ? 'lazy' : 'eager'
 }
 
+function resolveLazyWorkerSpawnMode(env) {
+  const raw = env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE?.trim().toLowerCase()
+  if (raw === 'shared') return 'shared'
+  if (raw === 'per-queue') return 'per-queue'
+  return 'per-queue'
+}
+
 const {
   clampPercent,
   connectLineStream,
@@ -118,8 +125,10 @@ const CYAN_BORDER = '\u001B[46m\u001B[30m'
 const ERROR_BANNER = '\u001B[41m\u001B[97m'
 const warmupRequestTimeoutsMs = [45000, 120000]
 const maxWarmupRetryAttempts = 3
+const backgroundWorkerMode = resolveAutoSpawnMode(process.env, 'AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS_LAZY')
 const backgroundServiceModes = {
-  workers: resolveAutoSpawnMode(process.env, 'AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS_LAZY'),
+  workers: backgroundWorkerMode,
+  workerSpawnMode: backgroundWorkerMode === 'lazy' ? resolveLazyWorkerSpawnMode(process.env) : null,
   scheduler: resolveAutoSpawnMode(process.env, 'AUTO_SPAWN_SCHEDULER', 'OM_AUTO_SPAWN_SCHEDULER', 'OM_AUTO_SPAWN_SCHEDULER_LAZY'),
 }
 const shutdownNoticeOwnedByParent = process.env.OM_DEV_SHUTDOWN_NOTICE_OWNER === 'parent'
@@ -139,6 +148,7 @@ const splashState = {
   workerQueues: [],
   schedulerActive: false,
   workerMode: backgroundServiceModes.workers,
+  workerSpawnMode: backgroundServiceModes.workerSpawnMode,
   schedulerMode: backgroundServiceModes.scheduler,
   progressCurrent: runtimeProgressCurrent,
   progressTotal: runtimeProgressTotal,
@@ -163,6 +173,7 @@ const runtimeSummaryState = {
   workerQueues: [],
   schedulerActive: false,
   workerMode: backgroundServiceModes.workers,
+  workerSpawnMode: backgroundServiceModes.workerSpawnMode,
   schedulerMode: backgroundServiceModes.scheduler,
   packagesPrinted: false,
   workersPrinted: false,
@@ -218,7 +229,12 @@ function printCompactSummary(icon, title, lines) {
 
 function formatBackgroundServiceMode(modes = runtimeSummaryState) {
   const activeModes = []
-  if (modes.workerMode !== 'off') activeModes.push(['workers', modes.workerMode])
+  if (modes.workerMode !== 'off') {
+    const workerMode = modes.workerMode === 'lazy' && modes.workerSpawnMode
+      ? `${modes.workerMode} ${modes.workerSpawnMode}`
+      : modes.workerMode
+    activeModes.push(['workers', workerMode])
+  }
   if (modes.schedulerMode !== 'off') activeModes.push(['scheduler', modes.schedulerMode])
   if (activeModes.length === 0) return 'off'
 
@@ -230,6 +246,27 @@ function formatBackgroundServiceMode(modes = runtimeSummaryState) {
 
 function formatBackgroundServiceStatus(action = 'Starting background services', modes = runtimeSummaryState) {
   return `${action} (${formatBackgroundServiceMode(modes)})`
+}
+
+function formatLazyWorkerArmedStatus(line) {
+  const queueMatch = line.match(/\((\d+) queue\(s\) watched,/)
+  const watchedCount = queueMatch ? Number.parseInt(queueMatch[1], 10) : null
+  const spawnMode = line.includes('shared worker mode')
+    ? 'shared'
+    : line.includes('per-queue worker mode')
+      ? 'per-queue'
+      : runtimeSummaryState.workerSpawnMode
+  const modeLabel = spawnMode ? `lazy ${spawnMode}` : 'lazy'
+  const watchedLabel = Number.isFinite(watchedCount)
+    ? `, ${watchedCount} queue${watchedCount === 1 ? '' : 's'} watched`
+    : ''
+  const behaviorLabel = spawnMode === 'shared'
+    ? '; first job starts one shared worker'
+    : spawnMode === 'per-queue'
+      ? '; first job starts that queue worker'
+      : ''
+
+  return `Background workers armed (${modeLabel}${watchedLabel}${behaviorLabel})`
 }
 
 function loadRuntimePackageNames() {
@@ -256,6 +293,7 @@ function updateRuntimeSummaryState() {
     workerQueues: runtimeSummaryState.workerQueues,
     schedulerActive: runtimeSummaryState.schedulerActive,
     workerMode: runtimeSummaryState.workerMode,
+    workerSpawnMode: runtimeSummaryState.workerSpawnMode,
     schedulerMode: runtimeSummaryState.schedulerMode,
   })
 }
@@ -283,6 +321,7 @@ function printBackgroundServicesSummary() {
   const signature = JSON.stringify({
     schedulerActive: runtimeSummaryState.schedulerActive,
     workerMode: runtimeSummaryState.workerMode,
+    workerSpawnMode: runtimeSummaryState.workerSpawnMode,
     schedulerMode: runtimeSummaryState.schedulerMode,
     workerQueues: runtimeSummaryState.workerQueues,
   })
@@ -293,9 +332,12 @@ function printBackgroundServicesSummary() {
 
   runtimeSummaryState.lastWorkersSignature = signature
   runtimeSummaryState.workersPrinted = true
+  const activeLabel = runtimeSummaryState.workerMode === 'lazy' && runtimeSummaryState.workerSpawnMode === 'shared'
+    ? `${detailItems.length} active queue/scheduler runtimes`
+    : `${detailItems.length} active`
   printCompactSummary(
     '⚙️',
-    `Background services (${formatBackgroundServiceMode()}, ${detailItems.length} active)`,
+    `Background services (${formatBackgroundServiceMode()}, ${activeLabel})`,
     detailItems.map((item, index) => `${index === 0 ? '🕒' : '🧵'} ${item}`),
   )
 }
@@ -312,6 +354,11 @@ function captureBackgroundServiceLine(line) {
     || line.startsWith('[lazy-supervisor] Pending job detected')
   ) {
     runtimeSummaryState.workerMode = 'lazy'
+    if (line.includes('shared worker mode') || line.includes('starting shared worker for all queues')) {
+      runtimeSummaryState.workerSpawnMode = 'shared'
+    } else if (line.includes('per-queue worker mode') || line.includes('starting worker for queue')) {
+      runtimeSummaryState.workerSpawnMode = 'per-queue'
+    }
     updateRuntimeSummaryState()
     return true
   }
@@ -321,7 +368,10 @@ function captureBackgroundServiceLine(line) {
     || line === '[server] Eager worker auto-spawn enabled - starting workers for all queues...'
     || line.startsWith('🚀 Running queue:worker')
   ) {
-    runtimeSummaryState.workerMode = 'eager'
+    if (runtimeSummaryState.workerMode !== 'lazy') {
+      runtimeSummaryState.workerMode = 'eager'
+      runtimeSummaryState.workerSpawnMode = null
+    }
     updateRuntimeSummaryState()
     return true
   }
@@ -363,7 +413,9 @@ function captureBackgroundServiceLine(line) {
     || line === '[server] Eager scheduler auto-spawn enabled - starting scheduler polling engine...'
     || line.startsWith('🚀 Running scheduler:start')
   ) {
-    runtimeSummaryState.schedulerMode = 'eager'
+    if (runtimeSummaryState.schedulerMode !== 'lazy') {
+      runtimeSummaryState.schedulerMode = 'eager'
+    }
     runtimeSummaryState.schedulerActive = true
     updateRuntimeSummaryState()
     return true
@@ -450,6 +502,7 @@ function updateSplashState(patch) {
   if (Array.isArray(patch.workerQueues)) splashState.workerQueues = patch.workerQueues
   if (typeof patch.schedulerActive === 'boolean') splashState.schedulerActive = patch.schedulerActive
   if (typeof patch.workerMode === 'string') splashState.workerMode = patch.workerMode
+  if (typeof patch.workerSpawnMode === 'string' || patch.workerSpawnMode === null) splashState.workerSpawnMode = patch.workerSpawnMode
   if (typeof patch.schedulerMode === 'string') splashState.schedulerMode = patch.schedulerMode
   if (typeof patch.progressCurrent === 'number') splashState.progressCurrent = patch.progressCurrent
   if (typeof patch.progressTotal === 'number') splashState.progressTotal = patch.progressTotal
@@ -1623,14 +1676,18 @@ function classifyServerLine(line) {
     || line === '[server] Starting scheduler polling engine...'
     || line === '[server] Eager scheduler auto-spawn enabled - starting scheduler polling engine...'
     || line === '[lazy-scheduler] Enabled schedule detected - starting scheduler polling engine.'
-    || line.startsWith('🚀 Running queue:worker')
-    || line.startsWith('🚀 Running scheduler:start')
   ) {
     const isLazyTrigger = line === '[lazy-scheduler] Enabled schedule detected - starting scheduler polling engine.'
     const modes = isLazyTrigger
-      ? { workerMode: runtimeSummaryState.workerMode, schedulerMode: 'lazy' }
+      ? {
+          workerMode: runtimeSummaryState.workerMode,
+          workerSpawnMode: runtimeSummaryState.workerSpawnMode,
+          schedulerMode: 'lazy',
+        }
       : runtimeSummaryState
-    const status = formatBackgroundServiceStatus('Starting background services', modes)
+    const status = isLazyTrigger
+      ? 'Starting scheduler (lazy)'
+      : formatBackgroundServiceStatus('Starting background services', modes)
     return {
       type: 'status',
       message: `⚙️ ${status}`,
@@ -1642,7 +1699,7 @@ function classifyServerLine(line) {
     }
   }
   if (line.startsWith('[server] Lazy worker auto-spawn enabled')) {
-    const status = 'Background workers armed (lazy)'
+    const status = formatLazyWorkerArmedStatus(line)
     return {
       type: 'status',
       message: `⚙️ ${status}`,
@@ -1665,9 +1722,21 @@ function classifyServerLine(line) {
       progressLabel: 'Background services (lazy)',
     }
   }
+  if (line.match(/^\[lazy-supervisor\] Pending job detected(?: .*)? — starting shared worker for all queues$/)) {
+    const status = 'Starting shared worker (lazy shared)'
+    return {
+      type: 'status',
+      message: `⚙️ ${status}`,
+      splashPhase: startupSplashPhase,
+      splashDetail: status,
+      activity: status,
+      progressCurrent: 3,
+      progressLabel: 'Background services (lazy shared)',
+    }
+  }
   const lazyWorkerStartMatch = line.match(/^\[lazy-supervisor\] Pending job detected .+ starting worker for queue "(.+)"$/)
   if (lazyWorkerStartMatch) {
-    const status = `Starting worker "${lazyWorkerStartMatch[1]}" (lazy)`
+    const status = `Starting worker "${lazyWorkerStartMatch[1]}" (lazy per-queue)`
     return {
       type: 'status',
       message: `⚙️ ${status}`,

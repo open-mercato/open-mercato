@@ -35,13 +35,16 @@ jest.mock('../../lib/reindex-lock', () => ({
 const mockEnsureReindexProgressJob = jest.fn().mockResolvedValue('progress-1')
 const mockCompleteReindexProgress = jest.fn().mockResolvedValue(undefined)
 const mockFailReindexProgress = jest.fn().mockResolvedValue(undefined)
+const mockCancelReindexProgress = jest.fn().mockResolvedValue(undefined)
 jest.mock('../../lib/reindex-progress', () => ({
   ensureReindexProgressJob: (...args: unknown[]) => mockEnsureReindexProgressJob(...args),
   completeReindexProgress: (...args: unknown[]) => mockCompleteReindexProgress(...args),
   failReindexProgress: (...args: unknown[]) => mockFailReindexProgress(...args),
+  cancelReindexProgress: (...args: unknown[]) => mockCancelReindexProgress(...args),
 }))
 
 import { POST as fulltextReindexPost } from '../reindex/route'
+import { POST as fulltextReindexCancelPost } from '../reindex/cancel/route'
 
 function mockAuth() {
   mockGetAuthFromRequest.mockResolvedValue({
@@ -160,6 +163,90 @@ describe('POST /api/search/reindex', () => {
       }),
     )
     expect(mockClearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
+    expect(mockContainer.dispose).toHaveBeenCalled()
+  })
+
+  test('cancel removes only current tenant and organization fulltext queue jobs', async () => {
+    const mockDb = { db: true }
+    const mockEm = { getKysely: jest.fn(() => mockDb) }
+    const mockQueue = {
+      getJobCounts: jest.fn().mockResolvedValue({ waiting: 3, active: 1, completed: 0, failed: 0 }),
+      clear: jest.fn().mockResolvedValue({ removed: 4 }),
+      removeQueuedJobsByScope: jest.fn().mockResolvedValue({ removed: 2 }),
+    }
+    const mockProgressService = { progress: true }
+    const mockContainer = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'em') return mockEm
+        if (name === 'progressService') return mockProgressService
+        if (name === 'fulltextIndexQueue') return mockQueue
+        throw new Error(`Unknown service: ${name}`)
+      }),
+      dispose: jest.fn().mockResolvedValue(undefined),
+    }
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+
+    const res = await fulltextReindexCancelPost(new Request('http://localhost/api/search/reindex/cancel', {
+      method: 'POST',
+    }))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, jobsRemoved: 2 })
+    expect(mockQueue.removeQueuedJobsByScope).toHaveBeenCalledWith({
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      jobTypes: ['batch-index'],
+    })
+    expect(mockQueue.clear).not.toHaveBeenCalled()
+    expect(mockClearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
+    expect(mockCancelReindexProgress).toHaveBeenCalledWith(expect.objectContaining({
+      em: mockEm,
+      progressService: mockProgressService,
+      type: 'fulltext',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      userId: 'user-789',
+    }))
+    expect(mockRecordIndexerLog).toHaveBeenCalledWith(
+      { em: mockEm },
+      expect.objectContaining({
+        source: 'fulltext',
+        details: { jobsRemoved: 2 },
+        tenantId: 'tenant-123',
+        organizationId: 'org-456',
+      }),
+    )
+    expect(mockContainer.dispose).toHaveBeenCalled()
+  })
+
+  test('cancel fails closed when scoped fulltext queue removal is unavailable', async () => {
+    const mockDb = { db: true }
+    const mockEm = { getKysely: jest.fn(() => mockDb) }
+    const mockQueue = {
+      clear: jest.fn().mockResolvedValue({ removed: 4 }),
+    }
+    const mockContainer = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'em') return mockEm
+        if (name === 'progressService') return { progress: true }
+        if (name === 'fulltextIndexQueue') return mockQueue
+        throw new Error(`Unknown service: ${name}`)
+      }),
+      dispose: jest.fn().mockResolvedValue(undefined),
+    }
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+
+    const res = await fulltextReindexCancelPost(new Request('http://localhost/api/search/reindex/cancel', {
+      method: 'POST',
+    }))
+    const body = await res.json()
+
+    expect(res.status).toBe(503)
+    expect(body.error).toBe('Scoped queue cancellation is not available.')
+    expect(mockQueue.clear).not.toHaveBeenCalled()
+    expect(mockClearReindexLock).not.toHaveBeenCalled()
+    expect(mockCancelReindexProgress).not.toHaveBeenCalled()
     expect(mockContainer.dispose).toHaveBeenCalled()
   })
 })

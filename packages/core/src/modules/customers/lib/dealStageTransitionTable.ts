@@ -1,4 +1,7 @@
 import { TableNotFoundException } from '@mikro-orm/core'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const DEAL_STAGE_TRANSITIONS_TABLE = 'customer_deal_stage_transitions'
 
@@ -28,5 +31,5 @@ export function warnMissingDealStageTransitionTable(source: string): void {
     return
   }
   warnedAboutMissingDealStageTransitionTable = true
-  console.warn(`[${source}] missing ${DEAL_STAGE_TRANSITIONS_TABLE} table; returning without stage history. Run yarn db:migrate.`)
+  logger.warn('Missing deal stage transitions table; returning without stage history. Run yarn db:migrate.', { component: source, table: DEAL_STAGE_TRANSITIONS_TABLE })
 }

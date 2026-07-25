@@ -1,6 +1,9 @@
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import { resolveRecordLockNotificationType, resolveRecordResourceLink } from '../lib/notificationHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('record_locks').child({ subscriber: 'lock-force-released-notification' })
 
 export const metadata = {
   event: 'record_locks.lock.force_released',
@@ -46,6 +49,6 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
       organizationId: payload.organizationId ?? null,
     })
   } catch (error) {
-    console.error('[record_locks:lock-force-released-notification] Failed to create notification:', error)
+    logger.error('Failed to create notification', { err: error })
   }
 }

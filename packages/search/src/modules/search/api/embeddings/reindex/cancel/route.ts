@@ -12,6 +12,17 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { embeddingsReindexCancelOpenApi } from '../../../openapi'
 
+async function disposeContainer(container: unknown): Promise<void> {
+  try {
+    const disposable = container as { dispose?: () => Promise<void> }
+    if (typeof disposable.dispose === 'function') {
+      await disposable.dispose()
+    }
+  } catch {
+    // Ignore disposal errors
+  }
+}
+
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['search.embeddings.manage'] },
 }
@@ -37,12 +48,24 @@ export async function POST(req: Request) {
 
   let jobsRemoved = 0
   if (queue) {
+    if (typeof queue.removeQueuedJobsByScope !== 'function') {
+      await disposeContainer(container)
+      return NextResponse.json({
+        error: t('search.api.errors.scopedQueueCancelUnavailable', 'Scoped queue cancellation is not available.'),
+      }, { status: 503 })
+    }
+
     try {
-      const countsBefore = await queue.getJobCounts()
-      jobsRemoved = countsBefore.waiting + countsBefore.active
-      await queue.clear()
+      const scope = typeof auth.orgId === 'string'
+        ? { tenantId: auth.tenantId, organizationId: auth.orgId, jobTypes: ['batch-index'] }
+        : { tenantId: auth.tenantId, jobTypes: ['batch-index'] }
+      const result = await queue.removeQueuedJobsByScope(scope)
+      jobsRemoved = result.removed
     } catch {
-      // Queue clear failed - continue to clear lock
+      await disposeContainer(container)
+      return NextResponse.json({
+        error: t('search.api.errors.scopedQueueCancelFailed', 'Failed to cancel queued reindex jobs.'),
+      }, { status: 503 })
     }
   }
 
@@ -74,14 +97,7 @@ export async function POST(req: Request) {
     // Logging failure should not fail the cancel operation
   }
 
-  try {
-    const disposable = container as unknown as { dispose?: () => Promise<void> }
-    if (typeof disposable.dispose === 'function') {
-      await disposable.dispose()
-    }
-  } catch {
-    // Ignore disposal errors
-  }
+  await disposeContainer(container)
 
   return NextResponse.json({
     ok: true,

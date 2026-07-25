@@ -1,9 +1,24 @@
 import * as client from 'openid-client'
+import { createHash } from 'node:crypto'
 import type { SsoConfig } from '../data/entities'
 import type { SsoIdentityPayload, SsoProtocolProvider } from './types'
+import { createOidcFetch } from './oidc-url-safety'
+
+const OIDC_DISCOVERY_TIMEOUT_SECONDS = 10
+const OIDC_DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000
+const OIDC_DISCOVERY_CACHE_MAX_ENTRIES = 100
+
+interface CachedDiscovery {
+  expiresAt: number
+  promise: Promise<client.Configuration>
+}
+
+const sharedDiscoveryCache = new Map<string, CachedDiscovery>()
 
 export class OidcProvider implements SsoProtocolProvider {
   readonly protocol = 'oidc' as const
+  private readonly requestDiscoveryCache = new Map<string, CachedDiscovery>()
+  private readonly guardedFetch = createOidcFetch()
 
   async buildAuthUrl(
     config: SsoConfig,
@@ -112,11 +127,57 @@ export class OidcProvider implements SsoProtocolProvider {
       throw new Error('SSO config is missing client ID')
     }
 
-    return client.discovery(
+    const clientSecretFingerprint = createHash('sha256')
+      .update(clientSecret ?? '')
+      .digest('base64url')
+    const cacheKey = `${config.id}:${config.updatedAt.getTime()}:${clientSecretFingerprint}`
+    const now = Date.now()
+    const cached =
+      this.requestDiscoveryCache.get(cacheKey) ?? sharedDiscoveryCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) return cached.promise
+
+    for (const [key, entry] of sharedDiscoveryCache) {
+      if (entry.expiresAt <= now) sharedDiscoveryCache.delete(key)
+    }
+    if (sharedDiscoveryCache.size >= OIDC_DISCOVERY_CACHE_MAX_ENTRIES) {
+      const oldestKey = sharedDiscoveryCache.keys().next().value
+      if (oldestKey) sharedDiscoveryCache.delete(oldestKey)
+    }
+
+    const promise = client.discovery(
       new URL(config.issuer),
       config.clientId,
       clientSecret ?? undefined,
+      undefined,
+      {
+        [client.customFetch]: this.guardedFetch,
+        timeout: OIDC_DISCOVERY_TIMEOUT_SECONDS,
+      },
     )
+    const entry = {
+      expiresAt: now + OIDC_DISCOVERY_CACHE_TTL_MS,
+      promise,
+    }
+    this.requestDiscoveryCache.set(cacheKey, entry)
+    sharedDiscoveryCache.set(cacheKey, entry)
+    void promise
+      .then((configuration) => {
+        if (
+          typeof configuration.serverMetadata !== 'function' &&
+          sharedDiscoveryCache.get(cacheKey)?.promise === promise
+        ) {
+          sharedDiscoveryCache.delete(cacheKey)
+        }
+      })
+      .catch(() => {
+        if (this.requestDiscoveryCache.get(cacheKey)?.promise === promise) {
+          this.requestDiscoveryCache.delete(cacheKey)
+        }
+        if (sharedDiscoveryCache.get(cacheKey)?.promise === promise) {
+          sharedDiscoveryCache.delete(cacheKey)
+        }
+      })
+    return promise
   }
 }
 

@@ -12,6 +12,9 @@ import { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('translations').child({ component: 'entity-translations' })
 
 const TRANSLATION_RESOURCE_KIND = 'translations.translation'
 
@@ -95,7 +98,7 @@ export async function GET(req: Request, ctx: { params?: { entityType?: string; e
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Invalid parameters', details: err.issues }, { status: 400 })
     }
-    console.error('[translations/:entityType/:entityId.GET] Unexpected error', err)
+    logger.error('Failed to load translations', { err })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -226,7 +229,7 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 })
     }
-    console.error('[translations/:entityType/:entityId.PUT] Unexpected error', err)
+    logger.error('Failed to save translations', { err })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -331,7 +334,7 @@ export async function DELETE(req: Request, ctx: { params?: { entityType?: string
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Invalid parameters', details: err.issues }, { status: 400 })
     }
-    console.error('[translations/:entityType/:entityId.DELETE] Unexpected error', err)
+    logger.error('Failed to delete translations', { err })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

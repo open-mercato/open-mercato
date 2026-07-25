@@ -3,6 +3,7 @@ import {
   UnsafeOllamaBaseUrlError,
   getOllamaBaseUrlAllowlist,
   isAllowPrivateOllamaBaseUrlEnabled,
+  safeOllamaFetch,
 } from '../ollama-url-safety'
 
 const ORIGINAL_ENV = { ...process.env }
@@ -239,6 +240,83 @@ describe('assertSafeOllamaBaseUrl', () => {
       process.env.NODE_ENV = 'production'
       expect(() => assertSafeOllamaBaseUrl('https://ollama.example.com/')).not.toThrow()
     })
+  })
+})
+
+describe('safeOllamaFetch', () => {
+  beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV, NODE_ENV: 'production' }
+    delete process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST
+    delete process.env.OM_SEARCH_OLLAMA_ALLOW_PRIVATE
+  })
+
+  afterAll(() => {
+    process.env = ORIGINAL_ENV
+  })
+
+  it('rejects private DNS resolution before opening a connection', async () => {
+    const fetchImpl = jest.fn() as jest.MockedFunction<typeof fetch>
+
+    await expect(
+      safeOllamaFetch('https://ollama.example.com/api/embed', {}, {
+        lookupHost: async () => [{ address: '10.0.0.7', family: 4 }],
+        fetchImpl,
+      }),
+    ).rejects.toMatchObject({ reason: 'private_ip_resolved' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('rejects mixed public and private DNS answers', async () => {
+    const fetchImpl = jest.fn() as jest.MockedFunction<typeof fetch>
+
+    await expect(
+      safeOllamaFetch('https://ollama.example.com/api/embed', {}, {
+        lookupHost: async () => [
+          { address: '93.184.216.34', family: 4 },
+          { address: '127.0.0.1', family: 4 },
+        ],
+        fetchImpl,
+      }),
+    ).rejects.toMatchObject({ reason: 'private_ip_resolved' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('revalidates redirects and rejects a public-to-private hop', async () => {
+    const fetchImpl = jest
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: 'http://169.254.169.254/latest/meta-data' },
+        }),
+      ) as jest.MockedFunction<typeof fetch>
+
+    await expect(
+      safeOllamaFetch('https://ollama.example.com/api/embed', {}, {
+        lookupHost: async () => [{ address: '93.184.216.34', family: 4 }],
+        fetchImpl,
+      }),
+    ).rejects.toMatchObject({ reason: 'private_ip_literal' })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://ollama.example.com/api/embed',
+      expect.objectContaining({ redirect: 'manual' }),
+    )
+  })
+
+  it('preserves explicitly allowlisted internal Ollama hosts', async () => {
+    process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST = 'ollama.internal.example.com:11434'
+    const fetchImpl = jest
+      .fn()
+      .mockResolvedValue(new Response('{}', { status: 200 })) as jest.MockedFunction<typeof fetch>
+
+    await expect(
+      safeOllamaFetch('http://ollama.internal.example.com:11434/api/embed', {}, {
+        lookupHost: async () => [{ address: '10.0.0.7', family: 4 }],
+        fetchImpl,
+      }),
+    ).resolves.toMatchObject({ status: 200 })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 })
 

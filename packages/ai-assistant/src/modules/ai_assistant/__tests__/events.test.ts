@@ -20,6 +20,23 @@ import {
 } from '../events'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
+
 const FROZEN_EVENT_IDS: ReadonlyArray<AiAssistantEventId> = [
   'ai.action.confirmed',
   'ai.action.cancelled',
@@ -46,12 +63,13 @@ describe('ai_assistant events module', () => {
 
   describe('emitAiAssistantEvent', () => {
     const emitSpy = jest.fn().mockResolvedValue(undefined)
-    let consoleErrorSpy: jest.SpyInstance
+    let consoleErrorSpy: jest.Mock
 
     beforeEach(() => {
       emitSpy.mockClear()
       setGlobalEventBus({ emit: (id, payload, opts) => emitSpy(id, payload, opts) })
-      consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+      consoleErrorSpy = testLogger.error
+    consoleErrorSpy.mockClear()
     })
 
     afterEach(() => {
@@ -138,9 +156,9 @@ describe('ai_assistant events module', () => {
         { pendingActionId: 'pa_1' },
       )
       expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
-      const [message] = consoleErrorSpy.mock.calls[0]
-      expect(message).toContain('ai_assistant')
-      expect(message).toContain('ai.action.nope')
+      const [message, fields] = consoleErrorSpy.mock.calls[0]
+      expect(message).toContain('undeclared event')
+      expect(fields).toMatchObject({ moduleId: 'ai_assistant', eventId: 'ai.action.nope' })
     })
   })
 })

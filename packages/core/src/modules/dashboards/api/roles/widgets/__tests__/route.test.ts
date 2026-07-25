@@ -25,13 +25,14 @@ const container = {
 
 const validateCrudMutationGuardMock = jest.fn()
 const runCrudMutationGuardAfterSuccessMock = jest.fn()
+const getAuthFromRequestMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromRequest: jest.fn(async () => ({ sub: userId, tenantId, orgId: organizationId })),
+  getAuthFromRequest: (...args: unknown[]) => getAuthFromRequestMock(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
@@ -43,7 +44,10 @@ jest.mock('@open-mercato/core/modules/dashboards/lib/widgets', () => ({
   loadAllWidgets: jest.fn(async () => [{ metadata: { id: 'sales-summary' } }]),
 }))
 
-import { PUT } from '../route'
+import { GET, PUT } from '../route'
+
+const foreignTenantId = '66666666-6666-4666-8666-666666666666'
+const assignFeature = 'dashboards.admin.assign-widgets'
 
 function buildRequest(body: unknown): Request {
   return new Request('http://localhost/api/dashboards/roles/widgets', {
@@ -51,6 +55,10 @@ function buildRequest(body: unknown): Request {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+function buildGetRequest(): Request {
+  return new Request(`http://localhost/api/dashboards/roles/widgets?roleId=${roleId}`)
 }
 
 describe('dashboards role widgets route mutation guard', () => {
@@ -61,6 +69,7 @@ describe('dashboards role widgets route mutation guard', () => {
     em.create.mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({ id: 'rec', ...payload }))
     rbac.loadAcl.mockResolvedValue({ isSuperAdmin: true, features: [] })
     em.findOne.mockResolvedValue({ id: roleId, tenantId })
+    getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: organizationId })
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
   })
@@ -92,5 +101,64 @@ describe('dashboards role widgets route mutation guard', () => {
       container,
       expect.objectContaining({ resourceKind: 'dashboards.roleWidgets', resourceId: roleId, operation: 'update' }),
     )
+  })
+})
+
+describe('dashboards role widgets route tenant ownership', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    em.flush.mockResolvedValue(undefined)
+    em.remove.mockReturnValue({ flush: jest.fn().mockResolvedValue(undefined) })
+    em.create.mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({ id: 'rec', ...payload }))
+    em.find.mockResolvedValue([])
+    validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
+    runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
+  })
+
+  it('rejects a null-tenant non-superadmin write instead of writing across tenants', async () => {
+    getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId: null, orgId: null })
+    rbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: [assignFeature] })
+    em.findOne.mockResolvedValue({ id: roleId, tenantId: foreignTenantId })
+
+    const response = await PUT(buildRequest({ roleId, widgetIds: ['sales-summary'] }))
+
+    expect(response.status).toBe(403)
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('rejects a null-tenant non-superadmin read of a foreign role', async () => {
+    getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId: null, orgId: null })
+    rbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: [assignFeature] })
+    em.findOne.mockResolvedValue({ id: roleId, tenantId: foreignTenantId })
+
+    const response = await GET(buildGetRequest())
+
+    expect(response.status).toBe(403)
+    expect(em.find).not.toHaveBeenCalled()
+  })
+
+  it('keeps rejecting a tenant-scoped caller targeting a foreign role', async () => {
+    getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: organizationId })
+    rbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: [assignFeature] })
+    em.findOne.mockResolvedValue({ id: roleId, tenantId: foreignTenantId })
+
+    const response = await PUT(buildRequest({ roleId, widgetIds: ['sales-summary'] }))
+
+    expect(response.status).toBe(404)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('still lets a superadmin with no tenant scope assign widgets across tenants', async () => {
+    getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId: null, orgId: null })
+    rbac.loadAcl.mockResolvedValue({ isSuperAdmin: true, features: [] })
+    em.findOne.mockResolvedValueOnce({ id: roleId, tenantId: foreignTenantId })
+    em.findOne.mockResolvedValueOnce(null)
+
+    const response = await PUT(buildRequest({ roleId, widgetIds: ['sales-summary'] }))
+
+    expect(response.status).toBe(200)
+    expect(em.flush).toHaveBeenCalled()
   })
 })

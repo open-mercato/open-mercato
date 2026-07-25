@@ -17,6 +17,9 @@ import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@op
 import { WorkflowDefinition } from '../../../../data/entities'
 import { serializeWorkflowDefinition } from '../../serialize'
 import { getCodeWorkflow } from '../../../../lib/code-registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -145,7 +148,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         )
       }
     } catch (eventError) {
-      console.error('Failed to emit workflows.definition.customized event:', eventError)
+      logger.error('Failed to emit workflows.definition.customized event', { err: eventError })
     }
 
     return NextResponse.json({
@@ -153,7 +156,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       message: 'Workflow definition customized successfully',
     })
   } catch (error) {
-    console.error('Error customizing workflow definition:', error)
+    logger.error('Error customizing workflow definition', { err: error })
     return NextResponse.json({ error: 'Failed to customize workflow definition' }, { status: 500 })
   }
 }

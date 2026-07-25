@@ -36,6 +36,24 @@ export const WATCH_SCOPES = [
   WATCH_SCOPE_ENV,
 ]
 
+// Friendly emoji + short description for each watch scope, used when the dev
+// runtime announces the active mode in the log.
+export const WATCH_SCOPE_DESCRIPTIONS = {
+  [WATCH_SCOPE_ALL]: { emoji: '🌐', label: 'all packages' },
+  [WATCH_SCOPE_AUTO]: { emoji: '⚡', label: 'auto-optimized (recently touched)' },
+  [WATCH_SCOPE_POPULAR]: { emoji: '🔥', label: 'popular (most frequently changed)' },
+  [WATCH_SCOPE_ENV]: { emoji: '🎯', label: 'explicit selection' },
+}
+
+// Resolve an emoji-decorated description of a watch mode for log output.
+// Unknown modes fall back to the `all` description so callers always get a
+// stable `{ mode, emoji, label, text }` shape.
+export function describeWatchMode(mode) {
+  const normalized = WATCH_SCOPES.includes(mode) ? mode : WATCH_SCOPE_ALL
+  const { emoji, label } = WATCH_SCOPE_DESCRIPTIONS[normalized]
+  return { mode: normalized, emoji, label, text: `${emoji} ${normalized} — ${label}` }
+}
+
 // Re-check + expand interval for `auto-optimized`.
 export const AUTO_EXPAND_INTERVAL_MS = 120000
 

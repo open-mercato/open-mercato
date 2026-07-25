@@ -1,4 +1,19 @@
 import { withAtomicFlush } from '../flush'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerWarn = createLogger('shared').warn as jest.Mock
+
 
 type FakeEntityManager = {
   flush: jest.Mock<Promise<void>, []>
@@ -258,11 +273,10 @@ describe('withAtomicFlush', () => {
       // after its own flush). The guard must persist it instead of letting the
       // transaction commit the work-in-progress silently.
       const em = createUowEm([{ entity: 'lingering' }], { inTransaction: false })
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      loggerWarn.mockClear()
       try {
         await withAtomicFlush(em as any, [() => {}], { transaction: true, label: 'demo.command' })
       } finally {
-        warn.mockRestore()
       }
 
       // 1 per-phase flush + 1 defensive guard flush, all inside the same transaction.
@@ -275,36 +289,31 @@ describe('withAtomicFlush', () => {
       const em = createUowEm([{ a: 1 }, { b: 2 }])
       const previousEnv = process.env.NODE_ENV
       process.env.NODE_ENV = 'development'
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-      let warnCallCount = 0
-      let warnMessage = ''
+      loggerWarn.mockClear()
       try {
         await withAtomicFlush(em as any, [() => {}], { label: 'sales.update_shipment' })
-        // Capture BEFORE mockRestore — restore() resets mock.calls.
-        warnCallCount = warn.mock.calls.length
-        warnMessage = String(warn.mock.calls[0]?.[0] ?? '')
       } finally {
-        warn.mockRestore()
         process.env.NODE_ENV = previousEnv
       }
 
-      expect(warnCallCount).toBe(1)
-      expect(warnMessage).toContain('sales.update_shipment')
-      expect(warnMessage).toContain('2 pending change-set(s)')
+      expect(loggerWarn).toHaveBeenCalledTimes(1)
+      expect(loggerWarn).toHaveBeenCalledWith(
+        expect.stringContaining('flushed defensively'),
+        expect.objectContaining({ label: 'sales.update_shipment', pendingCount: 2 }),
+      )
     })
 
     it('does NOT flush again when the UnitOfWork is clean at the boundary', async () => {
       const em = createUowEm([])
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      loggerWarn.mockClear()
       try {
         await withAtomicFlush(em as any, [() => {}, () => {}])
       } finally {
-        warn.mockRestore()
       }
 
       // 2 phases → 2 per-phase flushes; the clean guard adds nothing.
       expect(em.flush).toHaveBeenCalledTimes(2)
-      expect(warn).not.toHaveBeenCalled()
+      expect(loggerWarn).not.toHaveBeenCalled()
     })
 
     it('never throws when the UnitOfWork probe itself fails', async () => {

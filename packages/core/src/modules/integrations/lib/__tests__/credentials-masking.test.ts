@@ -53,6 +53,16 @@ describe('maskSecretCredentials', () => {
     expect(credentials).toEqual({ foo: 'bar' })
     expect(secretFieldsConfigured).toEqual({})
   })
+
+  it('removes URL userinfo from legacy stored credentials', () => {
+    const { credentials } = maskSecretCredentials(schema, {
+      apiUrl: 'https://user:token@example.com/path?query=1',
+    })
+
+    expect(credentials.apiUrl).toBe('https://example.com/path?query=1')
+    expect(JSON.stringify(credentials)).not.toContain('user')
+    expect(JSON.stringify(credentials)).not.toContain('token')
+  })
 })
 
 describe('mergeMaskedSecretCredentials', () => {

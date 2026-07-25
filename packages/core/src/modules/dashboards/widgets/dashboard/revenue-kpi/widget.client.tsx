@@ -14,6 +14,9 @@ import {
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrency } from '../../../lib/formatters'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'revenue-kpi' })
 
 async function fetchRevenueData(settings: RevenueKpiSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
@@ -63,7 +66,7 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
         setTrend(undefined)
       }
     } catch (err) {
-      console.error('Failed to load revenue KPI data', err)
+      logger.error('Failed to load revenue KPI data', { err })
       setError(t('dashboards.analytics.widgets.revenueKpi.error', 'Failed to load data'))
     } finally {
       setLoading(false)

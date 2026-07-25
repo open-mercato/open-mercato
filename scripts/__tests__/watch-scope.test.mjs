@@ -11,6 +11,9 @@ import {
   WATCH_SCOPE_AUTO,
   WATCH_SCOPE_ENV,
   WATCH_SCOPE_POPULAR,
+  WATCH_SCOPE_DESCRIPTIONS,
+  WATCH_SCOPES,
+  describeWatchMode,
   detectTouchedPackages,
   mapChangedPathsToPackages,
   matchPackagesByLabels,
@@ -219,4 +222,24 @@ test('selectWatchedPackages: auto mode seeds when nothing is touched', () => {
 
 test('AUTO_EXPAND_INTERVAL_MS is two minutes', () => {
   assert.equal(AUTO_EXPAND_INTERVAL_MS, 120000)
+})
+
+test('describeWatchMode returns emoji-decorated text for every known scope', () => {
+  for (const mode of WATCH_SCOPES) {
+    const described = describeWatchMode(mode)
+    const { emoji, label } = WATCH_SCOPE_DESCRIPTIONS[mode]
+    assert.equal(described.mode, mode)
+    assert.equal(described.emoji, emoji)
+    assert.equal(described.label, label)
+    assert.equal(described.text, `${emoji} ${mode} — ${label}`)
+    assert.ok(described.text.startsWith(emoji))
+  }
+})
+
+test('describeWatchMode falls back to the all description for unknown/empty modes', () => {
+  const fallback = describeWatchMode('nonsense')
+  assert.equal(fallback.mode, WATCH_SCOPE_ALL)
+  assert.equal(fallback.emoji, WATCH_SCOPE_DESCRIPTIONS[WATCH_SCOPE_ALL].emoji)
+  assert.deepEqual(describeWatchMode(undefined), fallback)
+  assert.deepEqual(describeWatchMode(''), fallback)
 })

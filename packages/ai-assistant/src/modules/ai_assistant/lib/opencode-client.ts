@@ -4,8 +4,11 @@
  * Client for communicating with OpenCode server running in headless mode.
  * OpenCode is used as an AI agent that can execute MCP tools.
  */
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+
+const logger = createLogger('ai_assistant')
 
 const DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS = 30_000
 const DEFAULT_OPENCODE_SSE_CONNECT_TIMEOUT_MS = 15_000
@@ -411,7 +414,7 @@ export class OpenCodeClient {
 
     const body = { answers }
 
-    console.log('[OpenCode Client] Answering question', questionId, 'with body:', JSON.stringify(body))
+    logger.debug('Answering question', { questionId, answersCount: answers.length })
 
     const res = await fetchWithTimeout(`${this.baseUrl}/question/${questionId}/reply`, {
       method: 'POST',
@@ -421,7 +424,7 @@ export class OpenCodeClient {
     })
 
     const responseText = await res.text()
-    console.log('[OpenCode Client] Answer response:', res.status, responseText.substring(0, 200))
+    logger.debug('Answer response received', { status: res.status, bytes: responseText.length })
 
     if (!res.ok) {
       throw new Error(`Failed to answer question: ${res.status} - ${responseText}`)
@@ -432,7 +435,7 @@ export class OpenCodeClient {
    * Reject a pending question.
    */
   async rejectQuestion(questionId: string): Promise<void> {
-    console.log('[OpenCode Client] Rejecting question', questionId)
+    logger.info('OpenCode Client — Rejecting question', { questionId: questionId })
 
     const res = await fetchWithTimeout(`${this.baseUrl}/question/${questionId}/reject`, {
       method: 'POST',

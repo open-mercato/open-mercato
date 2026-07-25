@@ -11,7 +11,7 @@ Implements a specification (or selected phases) end-to-end using a team of coord
 
 1. **Identify the spec**: Locate the target spec file(s) in `.ai/specs/` or `.ai/specs/enterprise/`.
 2. **Load context**: Read spec fully. Read all AGENTS.md files listed in the Task Router that match the affected modules/packages.
-3. **Load code-review checklist**: Read `.ai/skills/om-code-review/references/review-checklist.md` — this is the acceptance gate for every phase.
+3. **Load code-review checklist**: Read `.agents/skills/om-code-review/references/review-checklist.md` — this is the acceptance gate for every phase.
 4. **Load lessons**: Read `.ai/lessons.md` for known pitfalls.
 5. **Scope phases**: If the user specifies phases (e.g. "phases e-h"), filter to only those. Otherwise implement all phases sequentially.
 
@@ -102,7 +102,7 @@ For every new feature/function implemented in the phase:
 ### Step 4 — Integration Tests
 
 If the spec defines integration test scenarios (or the phase adds API endpoints / UI flows):
-- Follow the `om-integration-tests` skill workflow (`.ai/skills/om-integration-tests/SKILL.md`)
+- Follow the `om-integration-tests` skill workflow (`.agents/skills/om-integration-tests/SKILL.md`)
 - Place tests in `<module>/__integration__/TC-{CATEGORY}-{XXX}.spec.ts`
 - Tests MUST be self-contained: create fixtures in setup, clean up in teardown
 - Tests MUST NOT rely on seeded/demo data

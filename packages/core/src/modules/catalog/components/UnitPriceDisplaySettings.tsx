@@ -8,6 +8,9 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 type CatalogSettingsResponse = {
   unitPriceDisplayEnabled?: boolean
@@ -30,7 +33,7 @@ export function UnitPriceDisplaySettings() {
       )
       setEnabled(payload.unitPriceDisplayEnabled !== false)
     } catch (err) {
-      console.error('catalog.settings.load failed', err)
+      logger.error('catalog.settings.load failed', { err })
       flash(loadError, 'error')
       setEnabled(true)
     }
@@ -58,7 +61,7 @@ export function UnitPriceDisplaySettings() {
       }
       flash(t('catalog.settings.messages.saved', 'Settings saved.'), 'success')
     } catch (err) {
-      console.error('catalog.settings.save failed', err)
+      logger.error('catalog.settings.save failed', { err })
       setEnabled(previous)
       const message = err instanceof Error
         ? err.message

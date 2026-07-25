@@ -1,10 +1,6 @@
 import { generateText } from 'ai'
 import { z } from 'zod'
-import {
-  resolveOpenCodeModel,
-  requireOpenCodeProviderApiKey,
-} from '@open-mercato/shared/lib/ai/opencode-provider'
-import { createStructuredModel, resolveExtractionProviderId, withTimeout } from './llmProvider'
+import { resolveConfiguredStructuredModel, withTimeout } from './llmProvider'
 
 const LANGUAGE_NAMES: Record<string, string> = { en: 'English', de: 'German', es: 'Spanish', pl: 'Polish' }
 
@@ -19,13 +15,10 @@ export async function translateProposalContent(input: {
   sourceLanguage: string
   targetLocale: string
 }): Promise<{ summary: string; actions: Record<string, string> }> {
-  const providerId = resolveExtractionProviderId()
-  const apiKey = requireOpenCodeProviderApiKey(providerId)
-
-  const modelConfig = resolveOpenCodeModel(providerId, {
-    overrideModel: process.env.INBOX_OPS_LLM_MODEL,
+  const { model } = await resolveConfiguredStructuredModel({
+    moduleId: 'inbox_ops',
+    modelOverride: process.env.INBOX_OPS_LLM_MODEL,
   })
-  const model = await createStructuredModel(providerId, apiKey, modelConfig.modelId)
 
   const sourceLang = LANGUAGE_NAMES[input.sourceLanguage] || input.sourceLanguage
   const targetLang = LANGUAGE_NAMES[input.targetLocale] || input.targetLocale

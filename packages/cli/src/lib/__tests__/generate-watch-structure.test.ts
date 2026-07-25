@@ -77,4 +77,24 @@ describe('calculateGenerateWatchStructureChecksum', () => {
 
     expect(currentChecksum()).not.toBe(before)
   })
+
+  it('changes when a discovered worker is added and removed', () => {
+    const before = currentChecksum()
+    const workerPath = path.join(pkgModule, 'workers', 'sync-customers.ts')
+
+    write(workerPath, 'export default async function syncCustomers() {}\n')
+    const afterAdd = currentChecksum()
+    expect(afterAdd).not.toBe(before)
+
+    fs.rmSync(workerPath)
+    expect(currentChecksum()).toBe(before)
+  })
+
+  it('changes when the module registry configuration changes', () => {
+    const before = currentChecksum()
+
+    write(path.join(appDir, 'src', 'modules.ts'), 'export const enabledModules = ["customers"]\n')
+
+    expect(currentChecksum()).not.toBe(before)
+  })
 })

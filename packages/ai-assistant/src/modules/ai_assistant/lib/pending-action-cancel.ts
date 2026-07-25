@@ -18,6 +18,7 @@
  * BEFORE invoking this helper so the event is emitted exactly once per
  * cancellation.
  */
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AiPendingActionRepository } from '../data/repositories/AiPendingActionRepository'
 import type { AiPendingAction } from '../data/entities'
 import { emitAiAssistantEvent } from '../events'
@@ -27,6 +28,8 @@ import type {
   AiAssistantEventId,
 } from '../events'
 import type { AiPendingActionExecutionResult } from './pending-action-types'
+
+const logger = createLogger('ai_assistant')
 
 export interface PendingActionCancelContext {
   tenantId: string
@@ -78,7 +81,7 @@ async function emitEventSafe(
   try {
     await emitter(eventId, payload)
   } catch (error) {
-    console.warn(`[AI Pending Action] Failed to emit ${eventId}:`, error)
+    logger.warn('Failed to emit pending-action event', { eventId, err: error })
   }
 }
 

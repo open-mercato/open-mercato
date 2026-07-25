@@ -90,6 +90,14 @@ test.describe('TC-INBOX-008: Permission gates', () => {
     );
     expect(edit.status()).toBe(403);
 
+    const translate = await apiRequest(
+      request,
+      'POST',
+      `/api/inbox_ops/proposals/${FAKE_ID}/translate`,
+      { token: viewerToken, data: { targetLocale: 'de' } },
+    );
+    expect(translate.status()).toBe(403);
+
     const reprocess = await apiRequest(
       request,
       'POST',

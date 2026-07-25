@@ -1,6 +1,9 @@
 import type { ImapCredentials } from './credentials'
 import { resolveSafeHostAddress } from './host-pinning'
 import { assertTransportAllowed } from './transport'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('channel_imap')
 
 /**
  * Outbound SMTP client wrapper. Same trade-offs as `imap-client.ts`: we wrap
@@ -123,10 +126,7 @@ class NodemailerClient implements SmtpClient {
           // cannot capture the RFC2822 bytes, so the caller skips the Sent-folder append.
           // Log so operators can diagnose missing Sent archival.
           raw = Buffer.alloc(0)
-          console.warn(
-            '[internal] channel_imap: failed to build RFC2822 bytes for Sent-folder append:',
-            composeError instanceof Error ? composeError.message : composeError,
-          )
+          logger.warn('failed to build RFC2822 bytes for Sent-folder append', { err: composeError })
         }
       }
 

@@ -25,6 +25,9 @@ import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/comp
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type AdjustmentKind = {
   id: string
@@ -182,7 +185,7 @@ export function AdjustmentKindSettings() {
         : []
       setItems(mapped)
     } catch (err) {
-      console.error('sales.adjustment-kinds.list failed', err)
+      logger.error('sales.adjustment-kinds.list failed', { err })
       flash(labels.loadError, 'error')
     } finally {
       setLoading(false)
@@ -265,7 +268,7 @@ export function AdjustmentKindSettings() {
       closeDialog()
       await loadItems()
     } catch (err) {
-      console.error('sales.adjustment-kinds.save failed', err)
+      logger.error('sales.adjustment-kinds.save failed', { err })
       const message = err instanceof Error ? err.message : labels.saveError
       setError(message)
     } finally {
@@ -304,7 +307,7 @@ export function AdjustmentKindSettings() {
         flash(labels.deleted, 'success')
         await loadItems()
       } catch (err) {
-        console.error('sales.adjustment-kinds.delete failed', err)
+        logger.error('sales.adjustment-kinds.delete failed', { err })
         const message = err instanceof Error ? err.message : labels.deleteError
         flash(message, 'error')
       }

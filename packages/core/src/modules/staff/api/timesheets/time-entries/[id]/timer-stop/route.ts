@@ -17,6 +17,9 @@ import {
   runStaffMutationGuards,
 } from '../../../../guards'
 import { emitStaffEvent } from '../../../../../events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 function extractEntryIdFromUrl(request?: Request): string | null {
   if (!request?.url) return null
@@ -157,7 +160,7 @@ export async function POST(req: Request) {
       stoppedAt: now.toISOString(),
       durationMinutes,
     }, { persistent: true }).catch((err) => {
-      console.error('[staff.timesheets] emit timer_stopped failed', err)
+      logger.error('staff.timesheets emit timer_stopped failed', { err })
     })
 
     if (guardResult.afterSuccessCallbacks.length) {
@@ -179,7 +182,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('staff.timesheets.time-entries.timer-stop failed', err)
+    logger.error('staff.timesheets.time-entries.timer-stop failed', { err })
     return NextResponse.json(
       { error: translate('staff.timesheets.errors.timerStop', 'Failed to stop timer.') },
       { status: 400 },

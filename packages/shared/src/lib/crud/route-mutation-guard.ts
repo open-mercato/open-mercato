@@ -5,6 +5,9 @@ import {
   type MutationGuard,
 } from './mutation-guard-registry'
 import { getAllMutationGuardInstances } from './mutation-guard-store'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'crud' })
 
 /**
  * Shared registry-based mutation-guard wrapper for custom write routes that do
@@ -173,7 +176,7 @@ export async function runRouteMutationGuards(params: {
             metadata,
           })
         } catch (error) {
-          console.error(`[mutation-guard] afterSuccess failed for guard ${guard.id}`, error)
+          logger.error('Mutation guard afterSuccess failed', { guardId: guard.id, err: error })
         }
       }
     },

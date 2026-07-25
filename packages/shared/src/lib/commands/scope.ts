@@ -3,6 +3,9 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isOrganizationAccessAllowed } from '@open-mercato/shared/lib/auth/organizationAccess'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { env } from 'process'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'scope' })
 
 function buildScopeLogContext(ctx: CommandRuntimeContext) {
   const requestInfo =
@@ -46,7 +49,7 @@ function logScopeViolation(
 ): void {
   try {
     if (env.NODE_ENV !== 'test') {
-      console.warn('[scope] Forbidden organization scope mismatch detected', {
+      logger.warn('Forbidden organization scope mismatch detected', {
         expectedId: expected,
         actualId: actual,
         ...buildScopeLogContext(ctx),
@@ -60,7 +63,7 @@ function logScopeViolation(
 function logUnscopedOrganizationAccess(ctx: CommandRuntimeContext, organizationId: string): void {
   try {
     if (env.NODE_ENV !== 'test') {
-      console.warn('[scope] Unscoped organization command executed without organization context', {
+      logger.warn('Unscoped organization command executed without organization context', {
         targetOrganizationId: organizationId,
         strictEnforcement: isStrictOrganizationScopeEnforced(),
         ...buildScopeLogContext(ctx),
@@ -78,7 +81,7 @@ function logTenantScopeViolation(
 ): void {
   try {
     if (env.NODE_ENV !== 'test') {
-      console.warn('[scope] Forbidden tenant scope mismatch detected', {
+      logger.warn('Forbidden tenant scope mismatch detected', {
         expectedTenantId,
         actualTenantId,
         ...buildScopeLogContext(ctx),
@@ -122,6 +125,12 @@ export function ensureOrganizationScope(ctx: CommandRuntimeContext, organization
     return
   }
 
+  if (!scope.tenantId && organizationId && ctx.auth && !isSuperAdmin) {
+    const currentOrg = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+    logScopeViolation(ctx, organizationId, currentOrg)
+    throw new CrudHttpError(403, { error: 'Forbidden' })
+  }
+
   if (
     isOrganizationAccessAllowed({
       isSuperAdmin,
@@ -138,8 +147,16 @@ export function ensureOrganizationScope(ctx: CommandRuntimeContext, organization
 }
 
 export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
+  const isSuperAdmin = ctx.auth?.isSuperAdmin === true
   const currentTenant = ctx.auth?.tenantId ?? null
-  if (currentTenant && currentTenant !== tenantId) {
+  if (!currentTenant) {
+    if (tenantId && ctx.auth && !isSuperAdmin) {
+      logTenantScopeViolation(ctx, tenantId, currentTenant)
+      throw new CrudHttpError(403, { error: 'Forbidden' })
+    }
+    return
+  }
+  if (currentTenant !== tenantId) {
     logTenantScopeViolation(ctx, tenantId, currentTenant)
     throw new CrudHttpError(403, { error: 'Forbidden' })
   }

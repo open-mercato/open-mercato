@@ -10,16 +10,17 @@ export class HrdService {
     if (!domain) return null
 
     const db = (this.em as any).getKysely() as Kysely<any>
-    const row = await db
+    const rows = await db
       .selectFrom('sso_configs' as any)
       .selectAll()
       .where(sql<boolean>`allowed_domains @> ${JSON.stringify([domain])}::jsonb`)
       .where('is_active' as any, '=', true)
       .where('deleted_at' as any, 'is', null as any)
-      .executeTakeFirst()
+      .limit(2)
+      .execute()
 
-    if (!row) return null
+    if (rows.length !== 1) return null
 
-    return this.em.map(SsoConfig, row as Record<string, unknown>)
+    return this.em.map(SsoConfig, rows[0] as Record<string, unknown>)
   }
 }

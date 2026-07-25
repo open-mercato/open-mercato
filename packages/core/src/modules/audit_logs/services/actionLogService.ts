@@ -20,6 +20,9 @@ import {
   parseDecryptedFieldValue,
 } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('audit_logs').child({ component: 'action-log-service' })
 
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
@@ -174,7 +177,7 @@ export class ActionLogService {
     } catch (err) {
       if (!decryptionWarningLogged) {
         decryptionWarningLogged = true
-        console.warn('[audit_logs] failed to decrypt action log entry', err)
+        logger.warn('Failed to decrypt action log entry', { err })
       }
       return entry
     }
@@ -211,7 +214,7 @@ export class ActionLogService {
       } catch (err) {
         if (!isZodRuntimeMissing(err) && !validationWarningLogged) {
           validationWarningLogged = true
-          console.warn('[audit_logs] falling back to permissive action log payload parser', err)
+          logger.warn('Falling back to permissive action log payload parser', { err })
         }
         if (isZodRuntimeMissing(err)) runtimeValidationAvailable = false
         data = this.normalizeInput(input)

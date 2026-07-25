@@ -14,6 +14,9 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import type { DictionaryEntryOption } from '@open-mercato/core/modules/dictionaries/lib/clientEntries'
 import { RoleAssignmentRow, type RoleAssignment } from './RoleAssignmentRow'
 import { AssignRoleDialog } from './AssignRoleDialog'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 interface RolesSectionProps {
   entityType: 'company' | 'person'
@@ -84,7 +87,7 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
       )
       setRoles(Array.isArray(data?.items) ? data.items : [])
     } catch (error) {
-      console.error('customers.roles.load failed', error)
+      logger.error('customers.roles.load failed', { err: error })
       flash(t('customers.roles.loadFailed', 'Failed to load role assignments.'), 'error')
       setRoles([])
     }
@@ -125,7 +128,7 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
       })
       .catch((error) => {
         if (!active) return
-        console.error('customers.roles.roleTypes failed', error)
+        logger.error('customers.roles.roleTypes failed', { err: error })
         setRoleTypes([])
       })
 

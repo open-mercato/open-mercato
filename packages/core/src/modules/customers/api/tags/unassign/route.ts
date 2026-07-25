@@ -14,6 +14,9 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const TAG_ASSIGNMENT_RESOURCE_KIND = 'customers.tagAssignment'
 
@@ -106,7 +109,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('customers.tags.unassign failed', err)
+    logger.error('customers.tags.unassign failed', { err })
     return NextResponse.json({ error: translate('customers.errors.unassign_failed', 'Failed to unassign tag') }, { status: 400 })
   }
 }

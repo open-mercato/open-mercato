@@ -1,6 +1,9 @@
 import type { CrudFormGroup, CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import type { ApiCallResult } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('currencies').child({ component: 'exchange-rate-form' })
 
 export type CurrencyOption = {
   id: string
@@ -34,7 +37,7 @@ export async function loadCurrencyOptions(
       }))
     }
   } catch (error) {
-    console.error('Failed to load currencies:', error)
+    logger.error('Failed to load currencies', { err: error })
   }
   return []
 }

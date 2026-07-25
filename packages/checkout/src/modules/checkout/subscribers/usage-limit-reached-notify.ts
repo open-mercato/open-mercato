@@ -2,6 +2,9 @@ import { resolveNotificationService } from '@open-mercato/core/modules/notificat
 import { buildFeatureNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout').child({ component: 'usage-limit-reached-notify' })
 
 export const metadata = {
   event: 'checkout.link.usageLimitReached',
@@ -39,6 +42,6 @@ export default async function handle(payload: UsageLimitPayload) {
       organizationId: payload.organizationId,
     })
   } catch (err) {
-    console.error('[checkout:usage-limit-reached-notify] notification failed:', err)
+    logger.error('notification failed', { err })
   }
 }

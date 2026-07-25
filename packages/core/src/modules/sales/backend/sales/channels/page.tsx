@@ -16,6 +16,11 @@ import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useSalesChannelsEnabled } from '../../../components/useSalesChannelsEnabled'
+import { SalesChannelsDisabledNotice } from '../../../components/SalesChannelsDisabledNotice'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type ChannelRow = {
   id: string
@@ -39,6 +44,7 @@ const SAVE_CONTEXT_ID = 'sales-channels-list'
 
 export default function SalesChannelsPage() {
   const t = useT()
+  const { enabled: channelsEnabled, isLoading: channelsEnabledLoading } = useSalesChannelsEnabled()
   const router = useRouter()
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -136,7 +142,7 @@ export default function SalesChannelsPage() {
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
     } catch (err) {
-      console.error('sales.channels.list', err)
+      logger.error('sales.channels.list', { err })
       flash(t('sales.channels.table.errors.load', 'Failed to load channels.'), 'error')
     } finally {
       setLoading(false)
@@ -183,9 +189,13 @@ export default function SalesChannelsPage() {
         handleRefresh()
         return
       }
-      console.error('sales.channels.delete', err)
+      logger.error('sales.channels.delete', { err })
     }
   }, [handleRefresh, mutationContext, runMutation, t])
+
+  if (!channelsEnabled && !channelsEnabledLoading) {
+    return <SalesChannelsDisabledNotice />
+  }
 
   return (
     <Page>

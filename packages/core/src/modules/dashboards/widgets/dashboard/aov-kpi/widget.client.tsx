@@ -14,6 +14,9 @@ import {
 import { DEFAULT_SETTINGS, hydrateSettings, type AovKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencyWithDecimals } from '../../../lib/formatters'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'aov-kpi' })
 
 async function fetchAovData(settings: AovKpiSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
@@ -63,7 +66,7 @@ const AovKpiWidget: React.FC<DashboardWidgetComponentProps<AovKpiSettings>> = ({
         setTrend(undefined)
       }
     } catch (err) {
-      console.error('Failed to load AOV KPI data', err)
+      logger.error('Failed to load AOV KPI data', { err })
       setError(t('dashboards.analytics.widgets.aovKpi.error', 'Failed to load data'))
     } finally {
       setLoading(false)

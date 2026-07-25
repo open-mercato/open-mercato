@@ -11,6 +11,7 @@ module.exports = {
   moduleNameMapper: {
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
+    '^@open-mercato/cache$': '<rootDir>/../cache/src/index.ts',
     '^@open-mercato/queue/(.*)$': '<rootDir>/../queue/src/$1',
     '^@open-mercato/events/(.*)$': '<rootDir>/../events/src/$1',
     '^@open-mercato/ui/(.*)$': '<rootDir>/../ui/src/$1',

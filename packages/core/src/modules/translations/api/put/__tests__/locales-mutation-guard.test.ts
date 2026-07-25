@@ -63,7 +63,12 @@ describe('translations locales route mutation guard', () => {
         requestMethod: 'PUT',
       }),
     )
-    expect(setValueMock).toHaveBeenCalledWith('translations', 'supported_locales', ['en', 'fr'])
+    expect(setValueMock).toHaveBeenCalledWith(
+      'translations',
+      'supported_locales',
+      ['en', 'fr'],
+      { tenantId },
+    )
     expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledWith(
       container,
       expect.objectContaining({

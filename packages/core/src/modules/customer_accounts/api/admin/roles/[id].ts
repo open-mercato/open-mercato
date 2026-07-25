@@ -36,6 +36,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const role = await em.findOne(CustomerRole, {
     id: params.id,
     tenantId: auth.tenantId,
+    organizationId: auth.orgId,
     deletedAt: null,
   })
   if (!role) {
@@ -94,6 +95,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   const role = await em.findOne(CustomerRole, {
     id: params.id,
     tenantId: auth.tenantId,
+    organizationId: auth.orgId,
     deletedAt: null,
   })
   if (!role) {
@@ -127,7 +129,11 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   if (parsed.data.isDefault !== undefined) updates.isDefault = parsed.data.isDefault
   if (parsed.data.customerAssignable !== undefined) updates.customerAssignable = parsed.data.customerAssignable
 
-  await em.nativeUpdate(CustomerRole, { id: role.id }, updates)
+  await em.nativeUpdate(CustomerRole, {
+    id: role.id,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+  }, updates)
 
   void emitCustomerAccountsEvent('customer_accounts.role.updated', {
     id: role.id,
@@ -157,6 +163,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   const role = await em.findOne(CustomerRole, {
     id: params.id,
     tenantId: auth.tenantId,
+    organizationId: auth.orgId,
     deletedAt: null,
   })
   if (!role) {
@@ -191,8 +198,15 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return NextResponse.json({ ok: false, error: `Cannot delete role with ${assignedUsersCount} assigned user(s). Reassign users first.` }, { status: 400 })
   }
 
-  await em.nativeUpdate(CustomerRole, { id: role.id }, { deletedAt: new Date() })
-  await em.nativeUpdate(CustomerRoleAcl, { role: role.id as any }, { deletedAt: new Date() })
+  await em.nativeUpdate(CustomerRole, {
+    id: role.id,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+  }, { deletedAt: new Date() })
+  await em.nativeUpdate(CustomerRoleAcl, {
+    role: role.id as any,
+    tenantId: auth.tenantId,
+  }, { deletedAt: new Date() })
 
   void emitCustomerAccountsEvent('customer_accounts.role.deleted', {
     id: role.id,

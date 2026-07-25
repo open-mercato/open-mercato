@@ -2,6 +2,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildFeatureNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 export const metadata = {
   event: 'sales.quote.expiring',
@@ -48,6 +51,6 @@ export default async function handle(payload: QuoteExpiringPayload, ctx: Resolve
       organizationId: payload.organizationId ?? null,
     })
   } catch (err) {
-    console.error('[sales:quote-expiring-notification] Failed to create notification:', err)
+    logger.error('sales.quote-expiring-notification Failed to create notification', { err })
   }
 }
