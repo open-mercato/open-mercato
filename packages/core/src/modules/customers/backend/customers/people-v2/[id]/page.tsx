@@ -91,23 +91,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const [isSaving, setIsSaving] = React.useState(false)
   const formWrapperRef = React.useRef<HTMLDivElement>(null)
 
-  const initialTab = React.useMemo(() => {
-    return resolveLegacyTab(searchParams?.get('tab'))
-  }, [searchParams])
-  const [activeTab, setActiveTab] = React.useState<PersonTabId>(initialTab)
-  const userSelectedTabRef = React.useRef(false)
-
-  const handleTabChange = React.useCallback(
-    (tab: PersonTabId) => {
-      userSelectedTabRef.current = true
-      setActiveTab(tab)
-      if (!pathname) return
-      const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
-      nextParams.set('tab', tab)
-      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
-    },
-    [pathname, router, searchParams],
-  )
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
   const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
@@ -341,15 +324,27 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
 
-  const restoredInjectedTabRef = React.useRef(false)
+  const injectedTabIds = React.useMemo(() => injectedTabs.map((tab) => tab.id), [injectedTabs])
+  const initialTab = React.useMemo(
+    () => resolveLegacyTab(searchParams?.get('tab'), injectedTabIds),
+    [injectedTabIds, searchParams],
+  )
+  const [activeTab, setActiveTab] = React.useState<PersonTabId>(initialTab)
+
   React.useEffect(() => {
-    if (restoredInjectedTabRef.current || userSelectedTabRef.current) return
-    const requestedTab = searchParams?.get('tab')
-    if (!requestedTab || requestedTab === activeTab) return
-    if (!injectedTabs.some((tab) => tab.id === requestedTab)) return
-    restoredInjectedTabRef.current = true
-    setActiveTab(requestedTab)
-  }, [activeTab, injectedTabs, searchParams])
+    setActiveTab(initialTab)
+  }, [initialTab])
+
+  const handleTabChange = React.useCallback(
+    (tab: PersonTabId) => {
+      setActiveTab(tab)
+      if (!pathname) return
+      const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
+      nextParams.set('tab', tab)
+      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams],
+  )
 
   // Tags
   const handleTagsChange = React.useCallback((nextTags: TagSummary[]) => {

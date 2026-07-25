@@ -68,14 +68,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   } = useScheduleDialog()
   const formWrapperRef = React.useRef<HTMLDivElement>(null)
 
-  const initialTab = React.useMemo(() => resolveLegacyTab(searchParams?.get('tab')), [searchParams])
-  const [activeTab, setActiveTab] = React.useState<DealTabId>(initialTab)
-  const userSelectedTabRef = React.useRef(false)
-
-  React.useEffect(() => {
-    setActiveTab(initialTab)
-  }, [initialTab])
-
   const currentDealId = data?.deal.id ?? id
   const { injectionContext, runMutationWithContext } = useDealMutationContext({
     currentDealId,
@@ -108,15 +100,16 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     setData,
   })
 
-  const restoredInjectedTabRef = React.useRef(false)
+  const injectedTabIds = React.useMemo(() => injectedTabs.map((tab) => tab.id), [injectedTabs])
+  const initialTab = React.useMemo(
+    () => resolveLegacyTab(searchParams?.get('tab'), injectedTabIds),
+    [injectedTabIds, searchParams],
+  )
+  const [activeTab, setActiveTab] = React.useState<DealTabId>(initialTab)
+
   React.useEffect(() => {
-    if (restoredInjectedTabRef.current || userSelectedTabRef.current) return
-    const requestedTab = searchParams?.get('tab')
-    if (!requestedTab || requestedTab === activeTab) return
-    if (!injectedTabs.some((tab) => tab.id === requestedTab)) return
-    restoredInjectedTabRef.current = true
-    setActiveTab(requestedTab)
-  }, [activeTab, injectedTabs, searchParams])
+    setActiveTab(initialTab)
+  }, [initialTab])
 
   const { searchPeoplePage, fetchPeopleByIds, searchCompaniesPage, fetchCompaniesByIds } = useDealAssociationLookups({
     excludeLinkedDealId: data?.deal.id ?? null,
@@ -233,7 +226,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const handleTabChange = React.useCallback(async (tab: DealTabId) => {
     if (!(await confirmDiscardIfDirty())) return
-    userSelectedTabRef.current = true
     setActiveTab(tab)
     const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
     nextParams.set('tab', tab)
