@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { sandboxedInvocation } from './execution-sandbox.mjs'
 
@@ -1546,12 +1547,24 @@ function readTargetValidationResult(root, requestedPath, schema, sourceRecord, r
   if (!expectedTest && observedTests.length) throw new Error('target validation result contains unexpected generated-test evidence')
   if (expectedTest) {
     const [observed] = observedTests
-    const expectedCommand = expectedTest.runner === 'jest'
-      ? `yarn test --runInBand --runTestsByPath ${expectedTest.artifact}`
-      : `yarn test:integration ${expectedTest.artifact} --retries=0 --workers=1`
+    const cliPackage = expectedTest.runner === 'jest' ? 'jest' : '@playwright/test'
+    const expectedArgv = expectedTest.runner === 'jest'
+      ? ['<resolved-cli>', '--config', 'jest.config.cjs', '--runInBand', '--runTestsByPath', expectedTest.artifact, '--cacheDirectory', '<isolated-temp>/jest-cache']
+      : ['<resolved-cli>', 'test', '--config', '.ai/qa/tests/playwright.config.ts', expectedTest.artifact, '--retries=0', '--workers=1', '--forbid-only', '--reporter=line', '--output', '<isolated-temp>/playwright-output', '--update-snapshots=none']
+    const expectedCommand = ['node', ...expectedArgv].join(' ')
+    const requireFromTarget = createRequire(path.join(targetRoot, 'package.json'))
+    const cli = expectedTest.runner === 'jest'
+      ? path.join(path.dirname(requireFromTarget.resolve('jest/package.json')), 'bin', 'jest.js')
+      : requireFromTarget.resolve('@playwright/test/cli')
+    const dependencyRoot = fs.realpathSync(path.join(targetRoot, 'node_modules'))
+    const realCli = fs.realpathSync(cli)
+    const cliStat = fs.lstatSync(cli)
     const artifact = path.join(targetRoot, expectedTest.artifact)
     if (observedTests.length !== 1 || observed?.runner !== expectedTest.runner || observed?.artifact !== expectedTest.artifact
-      || observed?.command !== expectedCommand || observed?.network !== expectedTest.network
+      || observed?.executor !== 'node' || observed?.cliPackage !== cliPackage
+      || JSON.stringify(observed?.argv) !== JSON.stringify(expectedArgv) || observed?.command !== expectedCommand
+      || !cliStat.isFile() || cliStat.isSymbolicLink() || !isPathInside(dependencyRoot, realCli)
+      || observed?.cliSha256 !== sha256(fs.readFileSync(realCli)) || observed?.network !== expectedTest.network
       || observed?.status !== 'pass' || observed?.exitStatus !== 0
       || !fs.existsSync(artifact) || observed?.artifactSha256 !== sha256(fs.readFileSync(artifact))) {
       throw new Error('target validation result does not contain matching passing generated-test evidence')

@@ -11,8 +11,10 @@ import { pathToFileURL } from 'node:url'
 import { sandboxedInvocation } from './execution-sandbox.mjs'
 
 const WRITABLE_KINDS = new Set(['implementation', 'regression'])
-const RUNNERS = new Set(['codex', 'claude'])
-const ALLOWED_VALIDATION_COMMANDS = new Set(['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'])
+const RELEASE_ROUTING_RUNNERS = ['codex', 'claude']
+const RELEASE_VALIDATION_COMMANDS = ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build']
+const RUNNERS = new Set(RELEASE_ROUTING_RUNNERS)
+const ALLOWED_VALIDATION_COMMANDS = new Set(RELEASE_VALIDATION_COMMANDS)
 const GENERATED_TEST_RUNNERS = new Set(['jest', 'playwright-api', 'playwright-browser'])
 const RESULT_LIMIT = 262_144
 const ERROR_LIMIT = 2_000
@@ -101,7 +103,11 @@ function sha256(value) {
 
 function isPathInside(parent, child) {
   const relative = path.relative(parent, child)
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+}
+
+function validModelSelector(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/.test(value)
 }
 
 function normalizedRelative(root, absolute) {
@@ -262,17 +268,12 @@ function validTargetsManifest(targetsManifest) {
   return targetsManifest?.schemaVersion === 1 && targetsManifest?.targets && typeof targetsManifest.targets === 'object' && !Array.isArray(targetsManifest.targets)
 }
 
-function generatedTestCommand(entry) {
-  if (entry.runner === 'jest') {
-    return {
-      command: `yarn test --runInBand --runTestsByPath ${entry.artifact}`,
-      args: ['test', '--runInBand', '--runTestsByPath', entry.artifact],
-    }
-  }
-  return {
-    command: `yarn test:integration ${entry.artifact} --retries=0 --workers=1`,
-    args: ['test:integration', entry.artifact, '--retries=0', '--workers=1'],
-  }
+export function generatedTestExecutionContract(entry) {
+  const cliPackage = entry.runner === 'jest' ? 'jest' : '@playwright/test'
+  const argv = entry.runner === 'jest'
+    ? ['<resolved-cli>', '--config', 'jest.config.cjs', '--runInBand', '--runTestsByPath', entry.artifact, '--cacheDirectory', '<isolated-temp>/jest-cache']
+    : ['<resolved-cli>', 'test', '--config', '.ai/qa/tests/playwright.config.ts', entry.artifact, '--retries=0', '--workers=1', '--forbid-only', '--reporter=line', '--output', '<isolated-temp>/playwright-output', '--update-snapshots=none']
+  return { executor: 'node', cliPackage, argv, command: ['node', ...argv].join(' ') }
 }
 
 function resolveTargetTestCli(target, runner) {
@@ -343,11 +344,14 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
 
   const routing = []
   const routingRunners = Array.isArray(release.routingRunners) ? release.routingRunners : []
+  if (JSON.stringify(routingRunners) !== JSON.stringify(RELEASE_ROUTING_RUNNERS)) {
+    violations.push(`release routing runners must be exactly: ${RELEASE_ROUTING_RUNNERS.join(', ')}`)
+  }
   for (const runner of routingRunners) {
     const expectedCaseIds = resolveCaseSelector(releaseMatrix?.routing?.[runner]?.caseIds, allCaseIds)
     const unknownCaseIds = difference(expectedCaseIds, allCaseIds)
     if (!RUNNERS.has(runner)) violations.push(`release routing runner is invalid: ${String(runner)}`)
-    if (typeof releaseMatrix?.routing?.[runner]?.modelSelector !== 'string') violations.push(`release routing runner lacks a model selector: ${String(runner)}`)
+    if (!validModelSelector(releaseMatrix?.routing?.[runner]?.modelSelector)) violations.push(`release routing runner lacks a valid bounded model selector: ${String(runner)}`)
     addCoverageViolation(violations, `${runner} routing matrix contains unknown cases`, unknownCaseIds)
     routing.push({ runner, expectedCaseIds, unknownCaseIds })
   }
@@ -365,7 +369,7 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
   addCoverageViolation(violations, 'writable release matrix contains non-writable cases', unexpectedWritableMatrixCaseIds)
   addCoverageViolation(violations, 'writable release matrix contains duplicate cases', duplicateWritableMatrixCaseIds)
   for (const entry of writableEntries) {
-    if (!RUNNERS.has(entry.runner) || typeof entry.modelSelector !== 'string') violations.push(`writable release assignment is invalid: ${String(entry.caseId)}`)
+    if (!RUNNERS.has(entry.runner) || !validModelSelector(entry.modelSelector)) violations.push(`writable release assignment lacks a valid bounded runner/model selector: ${String(entry.caseId)}`)
   }
 
   const configuredReviewIds = Array.isArray(releaseMatrix?.generatedCodeReview?.caseIds)
@@ -373,11 +377,23 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
     : []
   const missingReviewMatrixCaseIds = difference(reviewEligibleCaseIds, configuredReviewIds)
   const unexpectedReviewMatrixCaseIds = difference(configuredReviewIds, reviewEligibleCaseIds)
+  const duplicateReviewMatrixCaseIds = duplicates(configuredReviewIds)
   addCoverageViolation(violations, 'generated-code review matrix is missing eligible cases', missingReviewMatrixCaseIds)
   addCoverageViolation(violations, 'generated-code review matrix contains ineligible cases', unexpectedReviewMatrixCaseIds)
+  addCoverageViolation(violations, 'generated-code review matrix contains duplicate cases', duplicateReviewMatrixCaseIds)
+  if (JSON.stringify(configuredReviewIds) !== JSON.stringify(reviewEligibleCaseIds)) {
+    violations.push('generated-code review matrix must list every writable case exactly once in catalog order')
+  }
   if (release.requireGeneratedCodeReview !== true) violations.push('release suite must require generated-code review')
   if (releaseMatrix?.generatedCodeReview?.skill !== 'om-code-review') violations.push('generated-code review must explicitly use om-code-review')
   if (releaseMatrix?.generatedCodeReview?.required !== true) violations.push('generated-code review must be mandatory for every writable case')
+  const reviewRunners = releaseMatrix?.generatedCodeReview?.runners ?? {}
+  for (const runner of RELEASE_ROUTING_RUNNERS) {
+    if (!validModelSelector(reviewRunners?.[runner]?.modelSelector)) violations.push(`generated-code review lacks a valid bounded ${runner} model selector`)
+  }
+  for (const runner of Object.keys(reviewRunners)) {
+    if (!RUNNERS.has(runner)) violations.push(`generated-code review declares an invalid runner: ${runner}`)
+  }
   const reviewSkillFiles = [
     '.agents/skills/om-code-review/SKILL.md',
     '.agents/skills/om-code-review/references/agentic-setup.md',
@@ -476,6 +492,9 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
   }
   const missingValidationCommands = difference([...ALLOWED_VALIDATION_COMMANDS], validationCommands)
   addCoverageViolation(violations, 'release suite is missing validation commands', missingValidationCommands)
+  if (JSON.stringify(validationCommands) !== JSON.stringify(RELEASE_VALIDATION_COMMANDS)) {
+    violations.push('release validation commands must be the exact ordered four-command gate')
+  }
 
   const generatedTestCases = writableCases.filter((item) => item.tags?.some((tag) => ['unit-tests', 'api-tests', 'browser-tests'].includes(tag)))
   const expectedGeneratedTestIds = generatedTestCases.map((item) => item.id)
@@ -520,6 +539,7 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
     }
     const generatedTest = generatedTestEntries.find((entry) => entry.caseId === caseId)
     if (generatedTest) {
+      const executionContract = generatedTestExecutionContract(generatedTest)
       steps.push({
         id: `generated-test:${caseId}:${generatedTest.runner}`,
         kind: 'generated-test',
@@ -527,12 +547,12 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
         testRunner: generatedTest.runner,
         artifact: generatedTest.artifact,
         network: generatedTest.network,
-        command: generatedTestCommand(generatedTest).command,
+        ...executionContract,
       })
     }
     if (configuredReviewIds.includes(caseId)) {
       const modelSelector = releaseMatrix.generatedCodeReview?.runners?.[assignment.runner]?.modelSelector
-      if (typeof modelSelector !== 'string') violations.push(`generated-code review lacks ${assignment.runner} model selector for ${caseId}`)
+      if (!validModelSelector(modelSelector)) violations.push(`generated-code review lacks a valid bounded ${assignment.runner} model selector for ${caseId}`)
       steps.push({ id: `review:${caseId}`, kind: 'review', caseId, runner: assignment.runner, modelSelector })
     }
   }
@@ -797,9 +817,12 @@ function targetSnapshot(root) {
       try { entry = fs.lstatSync(absolute) } catch { result.set(relative, '<unreadable>'); continue }
       if (entry.isSymbolicLink()) {
         try { result.set(relative, `<symlink:${fs.readlinkSync(absolute)}>`) } catch { result.set(relative, '<symlink:unreadable>') }
-      } else if (entry.isDirectory()) visit(absolute, relative)
+      } else if (entry.isDirectory()) {
+        result.set(relative, `<directory:${entry.mode & 0o777}>`)
+        visit(absolute, relative)
+      }
       else if (entry.isFile()) {
-        try { result.set(relative, sha256(fs.readFileSync(absolute))) } catch { result.set(relative, '<unreadable>') }
+        try { result.set(relative, `<file:${entry.mode & 0o777}:${sha256(fs.readFileSync(absolute))}>`) } catch { result.set(relative, '<unreadable>') }
       } else result.set(relative, `<special:${entry.mode & 0o170000}>`)
     }
   }
@@ -834,6 +857,10 @@ function targetSnapshotFingerprint(snapshot) {
   return hash.digest('hex')
 }
 
+export function targetContentFingerprint(root) {
+  return targetSnapshotFingerprint(targetSnapshot(root))
+}
+
 function stepResult(step, execution, artifacts, roots, expectedArtifacts) {
   const artifactMismatch = Number.isInteger(expectedArtifacts) && artifacts.length !== expectedArtifacts
   const status = execution.status === 0 && !execution.error && !artifactMismatch ? 'pass' : 'fail'
@@ -850,6 +877,10 @@ function stepResult(step, execution, artifacts, roots, expectedArtifacts) {
     ...(step.testRunner ? { testRunner: step.testRunner } : {}),
     ...(step.artifact ? { artifact: step.artifact } : {}),
     ...(step.network ? { network: step.network } : {}),
+    ...(step.executor ? { executor: step.executor } : {}),
+    ...(step.cliPackage ? { cliPackage: step.cliPackage } : {}),
+    ...(step.cliSha256 ? { cliSha256: step.cliSha256 } : {}),
+    ...(step.argv ? { argv: step.argv } : {}),
     ...(step.command ? { command: step.command } : {}),
     status,
     exitStatus: execution.status,
@@ -868,6 +899,10 @@ function skippedStep(step, reason) {
     ...(step.testRunner ? { testRunner: step.testRunner } : {}),
     ...(step.artifact ? { artifact: step.artifact } : {}),
     ...(step.network ? { network: step.network } : {}),
+    ...(step.executor ? { executor: step.executor } : {}),
+    ...(step.cliPackage ? { cliPackage: step.cliPackage } : {}),
+    ...(step.cliSha256 ? { cliSha256: step.cliSha256 } : {}),
+    ...(step.argv ? { argv: step.argv } : {}),
     ...(step.command ? { command: step.command } : {}),
     status: 'skipped',
     exitStatus: null,
@@ -965,6 +1000,7 @@ export function runGeneratedTestStep({ step, target, timeout, roots, browserRunt
   const readOnlyRoots = [fs.realpathSync(target), ...(fs.existsSync(dependencyPath) ? [fs.realpathSync(dependencyPath)] : []), ...toolReadRoots]
   let execution
   let before
+  let cli
   try {
     const artifact = path.resolve(target, step.artifact)
     const artifactStat = fs.lstatSync(artifact)
@@ -976,7 +1012,7 @@ export function runGeneratedTestStep({ step, target, timeout, roots, browserRunt
     }
     if (step.testRunner === 'jest' && step.network !== 'none') throw new Error('generated Jest tests must run without network access')
     if (step.testRunner !== 'jest' && step.network !== 'loopback') throw new Error('generated Playwright tests must run with isolated loopback only')
-    const cli = resolveTargetTestCli(target, step.testRunner)
+    cli = resolveTargetTestCli(target, step.testRunner)
     if (step.testRunner === 'playwright-browser') {
       const isolatedBrowserCache = path.join(tempRoot, 'browser-cache')
       fs.mkdirSync(isolatedBrowserCache, { mode: 0o700 })
@@ -984,11 +1020,14 @@ export function runGeneratedTestStep({ step, target, timeout, roots, browserRunt
       readOnlyRoots.push(browser.browserRoot)
       env.PLAYWRIGHT_BROWSERS_PATH = browser.isolatedCache
     }
-    const fixed = generatedTestCommand({ runner: step.testRunner, artifact: step.artifact })
-    if (step.command !== fixed.command) throw new Error('generated test command differs from the fixed controller command')
-    const runnerArgs = step.testRunner === 'jest'
-      ? [cli, '--config', 'jest.config.cjs', '--runInBand', '--runTestsByPath', step.artifact, '--cacheDirectory', path.join(tempRoot, 'jest-cache')]
-      : [cli, 'test', '--config', '.ai/qa/tests/playwright.config.ts', step.artifact, '--retries=0', '--workers=1', '--forbid-only', '--reporter=line', '--output', path.join(tempRoot, 'playwright-output'), '--update-snapshots=none']
+    const contract = generatedTestExecutionContract({ runner: step.testRunner, artifact: step.artifact })
+    if (step.executor !== contract.executor || step.cliPackage !== contract.cliPackage
+      || JSON.stringify(step.argv) !== JSON.stringify(contract.argv) || step.command !== contract.command) {
+      throw new Error('generated test execution differs from the fixed direct controller contract')
+    }
+    const runnerArgs = contract.argv.map((value) => value
+      .replace('<resolved-cli>', cli)
+      .replace('<isolated-temp>', tempRoot))
     before = targetSnapshot(target)
     const invocation = sandboxedInvocation({
       command: process.execPath,
@@ -1009,7 +1048,10 @@ export function runGeneratedTestStep({ step, target, timeout, roots, browserRunt
       ? [...new Set([...before.keys(), ...after.keys()])].filter((key) => before.get(key) !== after.get(key)).sort()
       : []
     const unsafeEntries = unsafeChangedTargetEntries(after, changed)
-    const result = stepResult(step, execution, [], roots)
+    const result = {
+      ...stepResult(step, execution, [], roots),
+      ...(typeof cli === 'string' && fs.existsSync(cli) ? { cliSha256: sha256(fs.readFileSync(cli)) } : {}),
+    }
     if (unsafeEntries.length) {
       result.status = 'fail'
       result.sanitizedError = sanitizeReportText(`generated test created unsafe filesystem entries: ${unsafeEntries.join(', ')}`, roots)
@@ -1085,7 +1127,7 @@ function writeTargetValidationResult(root, target, caseId, sourceArtifact, comma
     caseId,
     sourceResult: { path: sourceArtifact.path, sha256: sha256(fs.readFileSync(sourcePath)) },
     beforeValidationFingerprint: sourceArtifact.value.writable.targetFingerprint,
-    targetFingerprint: targetSnapshotFingerprint(targetSnapshot(target)),
+    targetFingerprint: targetContentFingerprint(target),
     commands: commandSteps.map((step) => ({
       command: step.command,
       status: step.status,
@@ -1096,6 +1138,10 @@ function writeTargetValidationResult(root, target, caseId, sourceArtifact, comma
       runner: generatedTestStep.testRunner,
       artifact: generatedTestStep.artifact,
       artifactSha256: sha256(fs.readFileSync(path.join(target, generatedTestStep.artifact))),
+      executor: generatedTestStep.executor,
+      cliPackage: generatedTestStep.cliPackage,
+      cliSha256: generatedTestStep.cliSha256,
+      argv: generatedTestStep.argv,
       command: generatedTestStep.command,
       network: generatedTestStep.network,
       status: generatedTestStep.status,

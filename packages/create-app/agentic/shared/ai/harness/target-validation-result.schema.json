@@ -40,12 +40,16 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["runner", "artifact", "artifactSha256", "command", "network", "status", "exitStatus", "durationMs"],
+        "required": ["runner", "artifact", "artifactSha256", "executor", "cliPackage", "cliSha256", "argv", "command", "network", "status", "exitStatus", "durationMs"],
         "properties": {
           "runner": { "enum": ["jest", "playwright-api", "playwright-browser"] },
           "artifact": { "type": "string", "minLength": 1, "maxLength": 300 },
           "artifactSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-          "command": { "type": "string", "minLength": 1, "maxLength": 400 },
+          "executor": { "const": "node" },
+          "cliPackage": { "enum": ["jest", "@playwright/test"] },
+          "cliSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "argv": { "type": "array", "minItems": 2, "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 300 } },
+          "command": { "type": "string", "minLength": 1, "maxLength": 1000 },
           "network": { "enum": ["none", "loopback"] },
           "status": { "const": "pass" },
           "exitStatus": { "const": 0 },

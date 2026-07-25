@@ -21,6 +21,8 @@ const release = await import(pathToFileURL(releaseScript).href) as {
   dependencyContentFingerprint: (appRoot: string) => string
   runTargetValidationSteps: (input: { steps: any[]; target: string; timeout: number; roots: string[]; yarnCommand: string; pathValue?: string }) => any[]
   runGeneratedTestStep: (input: { steps?: never; step: any; target: string; timeout: number; roots: string[]; browserRuntimeResolver?: (target: string, cache: string) => any }) => any
+  generatedTestExecutionContract: (entry: { runner: string; artifact: string }) => { executor: string; cliPackage: string; argv: string[]; command: string }
+  targetContentFingerprint: (root: string) => string
 }
 const executionSandbox = await import(pathToFileURL(executionSandboxScript).href) as {
   linuxNamespaceArgs: (network: string) => string[]
@@ -101,6 +103,34 @@ test('release plan derives every count and command from catalog and matrix data'
   ])
 })
 
+test('release preflight rejects weakened runner, review, command, and model contracts', () => {
+  const missingClaude = releaseInputs()
+  missingClaude.releaseMatrix.releaseSuite.routingRunners = ['codex']
+  assert.ok(release.buildReleasePlan(missingClaude).violations.some((entry: string) => entry.includes('routing runners must be exactly')))
+
+  const duplicateReview = releaseInputs()
+  duplicateReview.releaseMatrix.generatedCodeReview.caseIds.push('OMH-002')
+  const duplicateReviewViolations = release.buildReleasePlan(duplicateReview).violations
+  assert.ok(duplicateReviewViolations.some((entry: string) => entry.includes('review matrix contains duplicate cases')))
+  assert.ok(duplicateReviewViolations.some((entry: string) => entry.includes('exactly once in catalog order')))
+
+  const duplicateValidation = releaseInputs()
+  duplicateValidation.releaseMatrix.releaseSuite.validationCommands = [
+    'yarn generate', 'yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build',
+  ]
+  assert.ok(release.buildReleasePlan(duplicateValidation).violations.some((entry: string) => entry.includes('exact ordered four-command gate')))
+
+  for (const mutate of [
+    (input: ReturnType<typeof releaseInputs>) => { input.releaseMatrix.routing.codex.modelSelector = '' },
+    (input: ReturnType<typeof releaseInputs>) => { input.releaseMatrix.writable[0].modelSelector = '' },
+    (input: ReturnType<typeof releaseInputs>) => { input.releaseMatrix.generatedCodeReview.runners.codex.modelSelector = '' },
+  ]) {
+    const emptySelector = releaseInputs()
+    mutate(emptySelector)
+    assert.ok(release.buildReleasePlan(emptySelector).violations.some((entry: string) => entry.includes('valid bounded')), JSON.stringify(emptySelector.releaseMatrix))
+  }
+})
+
 test('automatic target preparation clones only fresh source inputs and safely shares installed dependencies', { skip: process.platform === 'win32' }, () => {
   const controller = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-source-')))
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-target-parent-')))
@@ -133,6 +163,7 @@ test('automatic target preparation clones only fresh source inputs and safely sh
     assert.equal(fs.readFileSync(path.join(controller, 'README.md'), 'utf8'), 'fresh\n')
     assert.throws(() => release.resolvePreparationRoot(prepareRoot, controller), /must be empty/)
     assert.throws(() => release.resolvePreparationRoot(path.join(controller, 'unsafe-targets'), controller), /separate from the controller/)
+    assert.throws(() => release.resolvePreparationRoot(path.join(controller, '..targets'), controller), /separate from the controller/)
     const linkedRoot = path.join(parent, 'linked-targets')
     fs.symlinkSync(controller, linkedRoot, 'dir')
     assert.throws(() => release.resolvePreparationRoot(linkedRoot, controller), /regular directory/)
@@ -396,6 +427,25 @@ test('Linux sandbox namespaces are private by default and host networking is sha
   assert.throws(() => executionSandbox.linuxNamespaceArgs('provider'), /invalid sandbox network mode/)
 })
 
+test('release target fingerprints bind empty directories and file or directory mode changes', { skip: process.platform === 'win32' }, () => {
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-target-fingerprint-')))
+  const source = path.join(target, 'source.ts')
+  const directory = path.join(target, 'existing')
+  fs.writeFileSync(source, 'export const value = 1\n')
+  fs.mkdirSync(directory)
+  try {
+    const initial = release.targetContentFingerprint(target)
+    fs.chmodSync(source, 0o755)
+    const fileMode = release.targetContentFingerprint(target)
+    assert.notEqual(fileMode, initial)
+    fs.chmodSync(directory, 0o700)
+    const directoryMode = release.targetContentFingerprint(target)
+    assert.notEqual(directoryMode, fileMode)
+    fs.mkdirSync(path.join(target, 'UNDECLARED_EMPTY'))
+    assert.notEqual(release.targetContentFingerprint(target), directoryMode)
+  } finally { fs.rmSync(target, { recursive: true, force: true }) }
+})
+
 test('macOS validation resolves a lexical PATH node launcher without authorizing a broad temporary parent', { skip: process.platform !== 'darwin' }, () => {
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-xfs-target-')))
   const launcherBase = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-xfs-parent-')))
@@ -467,10 +517,8 @@ function writeGeneratedTest(target: string, relative: string, source: string): v
 }
 
 function generatedTestStep(caseId: string, testRunner: string, artifact: string, network: string): any {
-  const command = testRunner === 'jest'
-    ? `yarn test --runInBand --runTestsByPath ${artifact}`
-    : `yarn test:integration ${artifact} --retries=0 --workers=1`
-  return { id: `generated-test:${caseId}:${testRunner}`, kind: 'generated-test', caseId, testRunner, artifact, network, command }
+  const contract = release.generatedTestExecutionContract({ runner: testRunner, artifact })
+  return { id: `generated-test:${caseId}:${testRunner}`, kind: 'generated-test', caseId, testRunner, artifact, network, ...contract }
 }
 
 test('generated Jest tests run through the direct fixed runner with a read-only target and no network', { skip: !targetSandboxAvailable }, () => {
@@ -489,6 +537,14 @@ test('injected failure rolls back', () => expect(0).toBe(0))
     const result = release.runGeneratedTestStep({ step: generatedTestStep('OMH-163', 'jest', artifact, 'none'), target, timeout: 30_000, roots: [target] })
     assert.equal(result.status, 'pass', result.sanitizedError)
     assert.equal(result.exitStatus, 0)
+    assert.equal(result.executor, 'node')
+    assert.equal(result.cliPackage, 'jest')
+    assert.match(result.cliSha256, /^[a-f0-9]{64}$/)
+    assert.deepEqual(result.argv, [
+      '<resolved-cli>', '--config', 'jest.config.cjs', '--runInBand', '--runTestsByPath', artifact,
+      '--cacheDirectory', '<isolated-temp>/jest-cache',
+    ])
+    assert.equal(result.command, `node ${result.argv.join(' ')}`)
     assert.equal(fs.existsSync(path.join(target, 'TARGET_SCRIPT_RAN')), false)
   } finally { fs.rmSync(target, { recursive: true, force: true }) }
 })
@@ -505,6 +561,19 @@ test('cannot rewrite trusted target inputs', () => { fs.writeFileSync('package.j
     const result = release.runGeneratedTestStep({ step: generatedTestStep('OMH-163', 'jest', artifact, 'none'), target, timeout: 30_000, roots: [target] })
     assert.equal(result.status, 'fail')
     assert.equal(fs.readFileSync(path.join(target, 'package.json'), 'utf8'), packageBefore)
+  } finally { fs.rmSync(target, { recursive: true, force: true }) }
+})
+
+test('generated tests reject a fictional package-script command instead of attesting it', { skip: !targetSandboxAvailable }, () => {
+  const target = stageGeneratedTestTarget()
+  const artifact = 'src/modules/quote_approval/commands/__tests__/approve-quote.test.ts'
+  writeGeneratedTest(target, artifact, `test('would pass', () => expect(true).toBe(true))\n`)
+  const step = generatedTestStep('OMH-163', 'jest', artifact, 'none')
+  step.command = `yarn test --runInBand --runTestsByPath ${artifact}`
+  try {
+    const result = release.runGeneratedTestStep({ step, target, timeout: 30_000, roots: [target] })
+    assert.equal(result.status, 'fail')
+    assert.match(result.sanitizedError, /fixed direct controller contract/)
   } finally { fs.rmSync(target, { recursive: true, force: true }) }
 })
 
@@ -611,7 +680,7 @@ test('release preflight names newly writable business coverage instead of assumi
   assert.deepEqual(plan.coverage.writable.missingOracleCaseIds, ['OMH-004'])
   assert.deepEqual(plan.coverage.review.missingMatrixCaseIds, ['OMH-004'])
   assert.deepEqual(plan.coverage.registry.missingWritableCaseIds, ['OMH-004'])
-  assert.ok(plan.violations.every((entry: string) => entry.includes('OMH-004') || entry.includes('live routing')))
+  assert.ok(plan.violations.every((entry: string) => entry.includes('OMH-004') || entry.includes('live routing') || entry.includes('exactly once in catalog order')))
 })
 
 test('release preflight requires the explicit om-code-review gate', () => {
