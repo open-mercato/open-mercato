@@ -8,6 +8,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -26,6 +27,8 @@ const appRoot = realpathSync(workingDirectory)
 const requireFromApp = createRequire(join(appRoot, 'package.json'))
 const SEARCH_MATCH_LIMIT = 200
 const INSTALLED_PACKAGE_SCAN_LIMIT = 1000
+const FALLBACK_TREE_ENTRY_LIMIT = 50_000
+const FALLBACK_SEARCH_BYTE_LIMIT = 64 * 1024 * 1024
 
 function fail(message) {
   console.error(`framework-context: ${message}`)
@@ -248,12 +251,162 @@ function runRg(args, label, maxBuffer = 4 * 1024 * 1024) {
     encoding: 'utf8',
     maxBuffer,
   })
+  if (result.error?.code === 'ENOENT') return null
   if (result.error) throw new Error(`${label}: ${result.error.message}`)
   if (result.status !== 0 && result.status !== 1) {
     const detail = (result.stderr || result.stdout || '').trim()
     throw new Error(`${label} (exit ${String(result.status)}): ${detail || 'unknown rg error'}`)
   }
   return result
+}
+
+function comparePaths(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+function fallbackRegularFiles(root, label) {
+  const scanRoot = realpathSync(root)
+  assertInside(root, scanRoot, label)
+  const pending = [scanRoot]
+  const files = []
+  let entriesVisited = 0
+
+  while (pending.length > 0) {
+    const directory = pending.pop()
+    const entries = readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => comparePaths(left.name, right.name))
+    for (const entry of entries) {
+      entriesVisited += 1
+      if (entriesVisited > FALLBACK_TREE_ENTRY_LIMIT) {
+        throw new Error(`${label} exceeded ${FALLBACK_TREE_ENTRY_LIMIT} filesystem entries`)
+      }
+      const candidate = join(directory, entry.name)
+      const stat = lstatSync(candidate)
+      if (stat.isSymbolicLink()) continue
+      if (stat.isDirectory()) {
+        assertInside(scanRoot, realpathSync(candidate), label)
+        pending.push(candidate)
+      } else if (stat.isFile()) {
+        assertInside(scanRoot, realpathSync(candidate), label)
+        files.push(candidate)
+      }
+    }
+  }
+
+  return files.sort(comparePaths)
+}
+
+function fallbackInstalledPackageManifests(nodeModulesRoot) {
+  const scanRoot = realpathSync(nodeModulesRoot)
+  assertInside(nodeModulesRoot, scanRoot, 'installed package scan failed')
+  const manifests = []
+  const pendingNodeModules = [scanRoot]
+  const visitedNodeModules = new Set()
+  let entriesVisited = 0
+
+  function boundedDirectories(directory) {
+    const directories = []
+    for (const entry of readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => comparePaths(left.name, right.name))) {
+      entriesVisited += 1
+      if (entriesVisited > FALLBACK_TREE_ENTRY_LIMIT) {
+        throw new Error(`installed package scan failed exceeded ${FALLBACK_TREE_ENTRY_LIMIT} filesystem entries`)
+      }
+      const candidate = join(directory, entry.name)
+      const stat = lstatSync(candidate)
+      if (stat.isSymbolicLink() || !stat.isDirectory()) continue
+      assertInside(scanRoot, realpathSync(candidate), 'installed package scan failed')
+      directories.push(candidate)
+    }
+    return directories
+  }
+
+  function enqueueNodeModules(candidate) {
+    const stat = lstatIfPresent(candidate)
+    if (!stat || stat.isSymbolicLink() || !stat.isDirectory()) return
+    const canonical = realpathSync(candidate)
+    assertInside(scanRoot, canonical, 'installed package scan failed')
+    if (!visitedNodeModules.has(canonical)) pendingNodeModules.push(canonical)
+  }
+
+  function inspectPackageRoot(packageRoot, isOpenMercato) {
+    if (isOpenMercato) {
+      const manifest = join(packageRoot, 'package.json')
+      const stat = lstatIfPresent(manifest)
+      if (stat?.isFile() && !stat.isSymbolicLink()) {
+        assertInside(scanRoot, realpathSync(manifest), 'installed package scan failed')
+        manifests.push(manifest)
+        if (manifests.length > INSTALLED_PACKAGE_SCAN_LIMIT) {
+          throw new Error(`installed package scan exceeded ${INSTALLED_PACKAGE_SCAN_LIMIT} manifests`)
+        }
+      }
+    }
+    enqueueNodeModules(join(packageRoot, 'node_modules'))
+  }
+
+  while (pendingNodeModules.length > 0) {
+    pendingNodeModules.sort(comparePaths)
+    const directory = pendingNodeModules.shift()
+    if (visitedNodeModules.has(directory)) continue
+    visitedNodeModules.add(directory)
+
+    for (const entryPath of boundedDirectories(directory)) {
+      const entryName = basename(entryPath)
+      if (entryName === '.pnpm') {
+        for (const pnpmPackage of boundedDirectories(entryPath)) {
+          enqueueNodeModules(join(pnpmPackage, 'node_modules'))
+        }
+      } else if (entryName.startsWith('@')) {
+        for (const packageRoot of boundedDirectories(entryPath)) {
+          inspectPackageRoot(packageRoot, entryName === '@open-mercato')
+        }
+      } else if (!entryName.startsWith('.')) {
+        inspectPackageRoot(entryPath, false)
+      }
+    }
+  }
+
+  return manifests.sort(comparePaths)
+}
+
+function fallbackBoundedSearch(query, sourceRoot) {
+  let pattern
+  try {
+    pattern = new RegExp(query)
+  } catch (error) {
+    throw new Error(`bounded search failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  const matches = []
+  let bytesRead = 0
+  for (const file of fallbackRegularFiles(sourceRoot, 'bounded search failed')) {
+    const size = lstatSync(file).size
+    if (bytesRead + size > FALLBACK_SEARCH_BYTE_LIMIT) {
+      throw new Error(`bounded search failed: fallback scan exceeded ${FALLBACK_SEARCH_BYTE_LIMIT} bytes`)
+    }
+    bytesRead += size
+    const content = readFileSync(file)
+    if (content.includes(0)) continue
+
+    const lines = content.toString('utf8').split(/\r?\n/)
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index]
+      if (!pattern.test(line)) continue
+      const preview = line.length > 500 ? `${line.slice(0, 500)}…` : line
+      matches.push(`${file}:${index + 1}:${preview}`)
+      if (matches.length > SEARCH_MATCH_LIMIT) break
+    }
+    if (matches.length > SEARCH_MATCH_LIMIT) break
+  }
+
+  const truncated = matches.length > SEARCH_MATCH_LIMIT
+  const boundedMatches = matches.slice(0, SEARCH_MATCH_LIMIT)
+  return {
+    output: boundedMatches.length > 0 ? `${boundedMatches.join('\n')}\n` : '',
+    matches: boundedMatches.length,
+    truncated,
+    status: boundedMatches.length > 0 ? 'matched' : 'no-matches',
+  }
 }
 
 function packageRecord(packageName, packageRoot) {
@@ -293,7 +446,7 @@ function installedPackageDiagnostics(selectedPackage, selectedRoot) {
   for (const record of cohort) installations.set(`${record.name}\0${record.root}`, record)
   const nodeModulesRoot = join(appRoot, 'node_modules')
   if (existsSync(nodeModulesRoot)) {
-    const manifests = runRg(
+    const packageScan = runRg(
       [
         '--no-ignore',
         '--hidden',
@@ -305,7 +458,10 @@ function installedPackageDiagnostics(selectedPackage, selectedRoot) {
         nodeModulesRoot,
       ],
       'installed package scan failed',
-    ).stdout.split(/\r?\n/).filter(Boolean)
+    )
+    const manifests = packageScan
+      ? packageScan.stdout.split(/\r?\n/).filter(Boolean)
+      : fallbackInstalledPackageManifests(nodeModulesRoot)
     if (manifests.length > INSTALLED_PACKAGE_SCAN_LIMIT) {
       throw new Error(`installed package scan exceeded ${INSTALLED_PACKAGE_SCAN_LIMIT} manifests`)
     }
@@ -357,6 +513,7 @@ function runBoundedSearch(query, sourceRoot) {
     ['--no-ignore', '--hidden', '--files-with-matches', '--sort', 'path', '--', query, sourceRoot],
     'bounded search failed',
   )
+  if (!fileSearch) return fallbackBoundedSearch(query, sourceRoot)
   if (fileSearch.status === 1) {
     return { output: '', matches: 0, truncated: false, status: 'no-matches' }
   }
@@ -390,6 +547,7 @@ function runBoundedSearch(query, sourceRoot) {
       `bounded search failed for ${file}`,
       512 * 1024,
     )
+    if (!search) return fallbackBoundedSearch(query, sourceRoot)
     if (search.status === 0) {
       matches.push(...search.stdout.split(/\r?\n/).filter(Boolean))
     }

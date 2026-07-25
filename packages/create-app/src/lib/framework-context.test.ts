@@ -353,6 +353,48 @@ test('materializes deterministic search output with one global match cap', () =>
   assert.equal(lines.some((line) => line.includes(`${join(moduleRoot, 'c.ts')}:`)), false)
 })
 
+test('uses bounded filesystem fallbacks when ripgrep is not installed', () => {
+  const root = createFixture()
+  installPackage(root, '@open-mercato/core', '0.6.5', {
+    under: 'nested-dependency',
+    modules: ['customers'],
+  })
+  const result = spawnSync(
+    process.execPath,
+    ['scripts/framework-context.mjs', '--module', 'customers', '--query', 'Person', '--json'],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: '', Path: '' },
+    },
+  )
+  assert.equal(result.status, 0, result.stderr)
+  const parsed = JSON.parse(result.stdout) as {
+    searchResult: string
+    installedPackages: {
+      cohort: Array<{ name: string; version: string }>
+      duplicates: Array<{ name: string; installations: Array<{ version: string }> }>
+    }
+    boundedSearch: { status: string; matches: number; truncated: boolean }
+  }
+  assert.deepEqual(parsed.installedPackages.cohort.map(({ name, version }) => ({ name, version })), [
+    { name: '@open-mercato/core', version: '0.6.6' },
+  ])
+  assert.deepEqual(parsed.installedPackages.duplicates.map((duplicate) => ({
+    name: duplicate.name,
+    versions: duplicate.installations.map(({ version }) => version),
+  })), [{ name: '@open-mercato/core', versions: ['0.6.5', '0.6.6'] }])
+  assert.deepEqual(parsed.boundedSearch, {
+    query: 'Person',
+    maxMatches: 200,
+    matches: 1,
+    truncated: false,
+    status: 'matched',
+    result: parsed.searchResult,
+  })
+  assert.match(readFileSync(join(root, parsed.searchResult), 'utf8'), /entities\.ts:1:export class Person/)
+})
+
 test('surfaces bounded search query errors with a nonzero status', () => {
   const root = createFixture()
   const result = spawnSync(

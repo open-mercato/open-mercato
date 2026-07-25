@@ -25,7 +25,7 @@ function normalizePath(value: string): string {
   return value.split(path.sep).join('/')
 }
 
-function runCommand(command: string, args: string[], cwd: string): string {
+function runCommand(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv = {}): string {
   return execFileSync(command, args, {
     cwd,
     encoding: 'utf8',
@@ -37,6 +37,7 @@ function runCommand(command: string, args: string[], cwd: string): string {
       // whose external step (`npx skills add`) needs the network. Local tier
       // symlinks are still installed.
       OM_SKIP_EXTERNAL_SKILLS: '1',
+      ...env,
     },
   })
 }
@@ -365,6 +366,9 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
         process.execPath,
         [generatedScript, '--module', 'customers', '--query', 'Person', '--json'],
         appDir,
+        // The generated standalone helper must not depend on a globally
+        // installed ripgrep binary; process.execPath is already absolute.
+        { PATH: '', Path: '' },
       )
       const context = JSON.parse(output) as {
         module: string
