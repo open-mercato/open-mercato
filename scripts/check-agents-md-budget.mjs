@@ -10,9 +10,10 @@
  *
  * This script enforces two things:
  *   1. A hard limit on the root `AGENTS.md` (budget minus a reserve for nested files).
- *   2. A ratchet on the representative root-to-module chains recorded in the baseline: a chain
- *      that already exceeds the budget may only shrink, so existing overflow cannot get worse.
- *      Chains still inside the budget are free to grow until they hit it.
+ *   2. A ratchet on the representative root-to-module chains recorded in the baseline: when a
+ *      chain already exceeds the budget, the nested (non-root) part of it may only shrink, so
+ *      existing overflow cannot get worse. Chains still inside the budget are free to grow, and
+ *      the root file is governed by rule 1 alone so ordinary root edits never trip the ratchet.
  *
  * Usage:
  *   node scripts/check-agents-md-budget.mjs               # check (exit 1 on failure)
@@ -93,14 +94,16 @@ export function analyze(root, baseline) {
     .map((chainDir) => {
       const files = collectChainFiles(root, chainDir)
       const bytes = files.reduce((total, file) => total + file.bytes, 0)
-      const baselineBytes = baseline.chains[chainDir]
+      const nestedBytes = bytes - rootBytes
+      const baselineNestedBytes = baseline.chains[chainDir]
       return {
         chainDir,
         files,
         bytes,
-        baselineBytes,
+        nestedBytes,
+        baselineNestedBytes,
         overflowBytes: Math.max(0, bytes - baseline.budgetBytes),
-        grewBy: typeof baselineBytes === 'number' ? bytes - baselineBytes : 0,
+        grewBy: typeof baselineNestedBytes === 'number' ? nestedBytes - baselineNestedBytes : 0,
       }
     })
 
@@ -116,8 +119,9 @@ export function analyze(root, baseline) {
     if (chain.overflowBytes > 0 && chain.grewBy > 0) {
       failures.push(
         `Instruction chain for ${chain.chainDir} is already ${chain.overflowBytes} bytes over the ` +
-          `${baseline.budgetBytes}-byte agent budget and grew to ${chain.bytes} bytes ` +
-          `(baseline ${chain.baselineBytes}, +${chain.grewBy}). An over-budget chain may only shrink: ` +
+          `${baseline.budgetBytes}-byte agent budget, and its nested AGENTS.md files grew to ` +
+          `${chain.nestedBytes} bytes (baseline ${chain.baselineNestedBytes}, +${chain.grewBy}). ` +
+          'An over-budget chain may only shrink: ' +
           'move detail out of the files in the chain, or re-record deliberately with ' +
           '`yarn agents:check-budget --update-baseline` and explain it in the PR.',
       )
@@ -152,7 +156,7 @@ function formatReport(baseline, result) {
 
 function writeBaseline(baselinePath, baseline, result) {
   const chains = {}
-  for (const chain of result.chains) chains[chain.chainDir] = chain.bytes
+  for (const chain of result.chains) chains[chain.chainDir] = chain.nestedBytes
   const next = { ...baseline, chains }
   fs.writeFileSync(baselinePath, `${JSON.stringify(next, null, 2)}\n`)
 }

@@ -14,7 +14,7 @@ function runChecker(cwdRoot, extraArgs = []) {
   return spawnSync(process.execPath, [SCRIPT, '--root', cwdRoot, ...extraArgs], { encoding: 'utf8' })
 }
 
-function makeFixture({ rootBytes, nestedBytes, baselineChainBytes, budgetBytes = 200, rootMaxBytes = 100 }) {
+function makeFixture({ rootBytes, nestedBytes, baselineNestedBytes, budgetBytes = 200, rootMaxBytes = 100 }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agents-budget-'))
   fs.writeFileSync(path.join(dir, 'AGENTS.md'), 'x'.repeat(rootBytes))
   const nestedDir = path.join(dir, 'packages', 'demo')
@@ -23,13 +23,13 @@ function makeFixture({ rootBytes, nestedBytes, baselineChainBytes, budgetBytes =
   fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
   fs.writeFileSync(
     path.join(dir, 'scripts', 'agents-md-budget.baseline.json'),
-    `${JSON.stringify({ budgetBytes, rootMaxBytes, chains: { '.': rootBytes, 'packages/demo': baselineChainBytes } }, null, 2)}\n`,
+    `${JSON.stringify({ budgetBytes, rootMaxBytes, chains: { 'packages/demo': baselineNestedBytes } }, null, 2)}\n`,
   )
   return dir
 }
 
 test('passes when the root file is under its limit and no over-budget chain grew', () => {
-  const fixture = makeFixture({ rootBytes: 80, nestedBytes: 50, baselineChainBytes: 130 })
+  const fixture = makeFixture({ rootBytes: 80, nestedBytes: 50, baselineNestedBytes: 130 })
   const result = runChecker(fixture)
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /AGENTS\.md: 80 bytes \/ 100 limit/)
@@ -37,15 +37,15 @@ test('passes when the root file is under its limit and no over-budget chain grew
 })
 
 test('fails when the root AGENTS.md exceeds the root limit', () => {
-  const fixture = makeFixture({ rootBytes: 120, nestedBytes: 10, baselineChainBytes: 130 })
+  const fixture = makeFixture({ rootBytes: 120, nestedBytes: 10, baselineNestedBytes: 130 })
   const result = runChecker(fixture)
   assert.equal(result.status, 1)
   assert.match(result.stderr, /over the 100-byte root limit/)
   fs.rmSync(fixture, { recursive: true, force: true })
 })
 
-test('fails when an already over-budget chain grows beyond its baseline', () => {
-  const fixture = makeFixture({ rootBytes: 80, nestedBytes: 400, baselineChainBytes: 300 })
+test('fails when the nested part of an already over-budget chain grows beyond its baseline', () => {
+  const fixture = makeFixture({ rootBytes: 80, nestedBytes: 400, baselineNestedBytes: 300 })
   const result = runChecker(fixture)
   assert.equal(result.status, 1)
   assert.match(result.stderr, /packages\/demo is already \d+ bytes over/)
@@ -54,18 +54,25 @@ test('fails when an already over-budget chain grows beyond its baseline', () => 
 })
 
 test('allows a chain that is still inside the budget to grow', () => {
-  const fixture = makeFixture({ rootBytes: 80, nestedBytes: 100, baselineChainBytes: 120 })
+  const fixture = makeFixture({ rootBytes: 80, nestedBytes: 100, baselineNestedBytes: 50 })
   const result = runChecker(fixture)
   assert.equal(result.status, 0, result.stderr)
   fs.rmSync(fixture, { recursive: true, force: true })
 })
 
+test('growing the root file within its limit does not trip the chain ratchet', () => {
+  const fixture = makeFixture({ rootBytes: 99, nestedBytes: 400, baselineNestedBytes: 400 })
+  const result = runChecker(fixture)
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  fs.rmSync(fixture, { recursive: true, force: true })
+})
+
 test('--update-baseline re-records the measured chain sizes', () => {
-  const fixture = makeFixture({ rootBytes: 80, nestedBytes: 400, baselineChainBytes: 300 })
+  const fixture = makeFixture({ rootBytes: 80, nestedBytes: 400, baselineNestedBytes: 300 })
   const result = runChecker(fixture, ['--update-baseline'])
   assert.equal(result.status, 0, result.stderr)
   const written = JSON.parse(fs.readFileSync(path.join(fixture, 'scripts', 'agents-md-budget.baseline.json'), 'utf8'))
-  assert.equal(written.chains['packages/demo'], 480)
+  assert.equal(written.chains['packages/demo'], 400)
   assert.equal(runChecker(fixture).status, 0)
   fs.rmSync(fixture, { recursive: true, force: true })
 })

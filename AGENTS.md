@@ -84,7 +84,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | Encrypted queries (`findWithDecryption`), encryption defaults, GDPR fields | `core` → Encryption |
 | Response enrichers for other modules' API responses | `core` → Response Enrichers |
 | Filtering CRUD list APIs by multiple IDs (`?ids=uuid1,uuid2`), interceptor-driven ID narrowing | `core` → API Interceptors + `shared` |
-| Optimistic locking / concurrent-edit conflicts: `updated_at` versioning (**default ON** for every `makeCrudRoute` entity, opt out with `OM_OPTIMISTIC_LOCK=off`), the 409 body, client helpers (`buildOptimisticLockHeader`, `extractOptimisticLockConflict`), command-pattern writes (`enforceCommandOptimisticLock`, the DI-overridable `createCommandOptimisticLockGuardService`), the unified conflict bar (`surfaceRecordConflict`) | `apps/docs/docs/framework/data-integrity/concurrency-locking.mdx` (§ Protecting command/action endpoints) + `.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md` + `packages/shared/src/lib/crud/optimistic-lock{,-command}.ts` + `packages/ui/src/backend/conflicts/` |
+| Optimistic locking / concurrent-edit conflicts: `updated_at` versioning (**default ON** for every `makeCrudRoute` entity, opt out with `OM_OPTIMISTIC_LOCK=off`), the 409 body, client helpers (`buildOptimisticLockHeader`, `extractOptimisticLockConflict`), command-pattern writes (`enforceCommandOptimisticLock`, the DI-overridable `createCommandOptimisticLockGuardService`), the unified conflict bar (`surfaceRecordConflict`) | `apps/docs/docs/framework/data-integrity/concurrency-locking.mdx` (§ Protecting command/action endpoints) + `.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md` + `.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md` + `packages/shared/src/lib/crud/optimistic-lock{,-command}.ts` + `packages/ui/src/backend/conflicts/` |
 | DOM Event Bridge (SSE real-time events to browser), `useAppEvent`, `useOperationProgress` | `events` → DOM Event Bridge |
 | Customer portal pages, portal auth, portal nav injection, portal event bridge | `ui` → Portal Extension + `om-backend-ui-design` skill |
 | Widget event handlers (`onFieldChange`, `onBeforeNavigate`, transformers) | `ui` |
@@ -92,7 +92,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | AI agent loop controls + overrides (`loop.stopWhen/prepareStep/budget`, per-tenant settings, replacing/disabling agents/tools, `entry.overrides`) | `ai-assistant` → Loop controls + How to Override; in `.ai/specs/implemented/`: `2026-04-28-ai-agents-agentic-loop-controls`, `2026-04-30-ai-overrides-and-module-disable`, `2026-05-04-modules-ts-unified-overrides` |
 | **Specific Modules** | |
 | Module-specific work (customers as CRUD reference, plus sales, catalog, auth, customer_accounts, currencies, workflows, integrations, data_sync, progress) | `packages/core/src/modules/<module>/AGENTS.md` |
-| Webhooks (outbound/inbound, Standard Webhooks signing, delivery queues, admin UI) | `webhooks` (cross-refs `queue`, `events`, `integrations`, `ui`) |
+| Webhooks (outbound/inbound, Standard Webhooks signing, delivery queues, admin UI) | `webhooks` (cross-refs `queue`, `events`, `core:integrations`, `ui`) |
 | New integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `core:integrations` + `core:data_sync` |
 | **Packages** | |
 | Reusable utilities, encryption helpers, i18n (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `shared` |

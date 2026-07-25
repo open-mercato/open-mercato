@@ -20,10 +20,12 @@ Two consequences:
   `scripts/agents-md-budget.baseline.json` (30,720 bytes: the 32 KiB budget minus a 2 KiB reserve
   so nested files still get some of it).
 - **Chain ratchet** — the representative root-to-module chains listed in that baseline are
-  measured root-first. A chain still inside the budget may grow freely; a chain that already
-  exceeds it may only shrink. Several package files are far over today
-  (`packages/ai-assistant/AGENTS.md` alone is ~103 KiB), so the ratchet freezes that debt instead
-  of hiding it, and the report prints exactly how many bytes each chain loses.
+  measured root-first. A chain still inside the budget may grow freely; once a chain exceeds the
+  budget, its **nested** (non-root) files may only shrink. The root is excluded from the ratchet
+  because its own hard limit already governs it, so an ordinary root edit never trips the four
+  chains. Several package files are far over today (`packages/ai-assistant/AGENTS.md` alone is
+  ~103 KiB), so the ratchet freezes that debt instead of hiding it, and the report prints exactly
+  how many bytes each chain loses.
 
 When a chain legitimately changes, shrink the file or re-record the baseline deliberately with
 `yarn agents:check-budget --update-baseline` and explain it in the PR.
