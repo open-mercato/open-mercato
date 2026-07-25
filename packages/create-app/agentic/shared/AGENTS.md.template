@@ -118,7 +118,7 @@ If the selected skill is absent, run `yarn install-skills` once and retry; do no
 
 ## Module-Specific Facts
 
-Facts supply exact identifiers/surfaces. Load only changed, integrated, or named hosts. Customer/contact/deal/pipeline work maps to `customers`; portal work maps only to `customer_accounts` (not `auth` or a nonexistent `portal` fact); quote/order work maps to `sales`; notifications, workflows, progress, and integrations name their modules. API/search/events alone do not. Never preload facts.
+Facts supply exact identifiers/surfaces. Load only changed, integrated, or named hosts. Customer/contact/deal/pipeline work maps to `customers`; portal work maps only to `customer_accounts` (not `auth` or a nonexistent `portal` fact); quote/order work maps to `sales`; notifications, workflows, progress, and integrations name their modules. App-module CRUD/API/OpenAPI/search/event primitives do not by themselves load `api_docs`, `search`, or `events` facts. Never preload facts.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
