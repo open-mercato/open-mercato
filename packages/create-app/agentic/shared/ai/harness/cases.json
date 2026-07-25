@@ -8392,7 +8392,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Show pipeline forecasts in a chosen reporting currency while preserving the exchange rate used for each historic snapshot. Use exact decimal calculations, keep source and reporting amounts, scope every aggregate to records the viewer may access, explain missing rates, and avoid changing past forecasts when today's exchange rate moves.",
+    "prompt": "Add a back-office pipeline forecast page in a chosen reporting currency while preserving the exchange rate used for each historic snapshot. Use exact decimal calculations, keep source and reporting amounts, scope every aggregate to records the viewer may access, explain missing rates, and avoid changing past forecasts when today's exchange rate moves.",
     "tags": [
       "business-language",
       "sales",
