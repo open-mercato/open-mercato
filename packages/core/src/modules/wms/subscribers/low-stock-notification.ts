@@ -1,6 +1,9 @@
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildFeatureNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('wms')
 
 export const metadata = {
   event: 'wms.inventory.low_stock',
@@ -46,6 +49,6 @@ export default async function handle(payload: LowStockPayload, ctx: ResolverCont
       organizationId: payload.organizationId ?? null,
     })
   } catch (err) {
-    console.error('[wms:low-stock-notification] Failed to create notification:', err)
+    logger.error('Failed to create notification', { subscriber: 'low-stock-notification', err })
   }
 }

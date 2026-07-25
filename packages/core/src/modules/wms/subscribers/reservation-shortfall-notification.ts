@@ -3,6 +3,9 @@ import { E } from '#generated/entities.ids.generated'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildFeatureNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('wms')
 
 export const metadata = {
   event: 'wms.inventory.reservation_shortfall',
@@ -90,6 +93,6 @@ export default async function handle(payload: ShortfallPayload, ctx: ResolverCon
       organizationId: payload.organizationId ?? null,
     })
   } catch (error) {
-    console.error('[wms:reservation-shortfall-notification] Failed to create notification:', error)
+    logger.error('Failed to create notification', { subscriber: 'reservation-shortfall-notification', err: error })
   }
 }

@@ -28,6 +28,7 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { cn } from '@open-mercato/shared/lib/utils'
 import {
   buildInventoryMutationReferenceId,
@@ -62,6 +63,8 @@ import {
 } from './inventoryMutationLoaders'
 import type { ScopeQueueItem } from './inventoryMutationLoaders'
 import type { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
+
+const logger = createLogger('wms')
 
 type CycleCountWizardDialogProps = {
   open: boolean
@@ -457,7 +460,7 @@ export function CycleCountWizardDialog({
       .catch((error: unknown) => {
         if (cancelled) return
         setZoneSuggestions([])
-        console.error('[CycleCountWizardDialog] loadZoneOptions failed', error)
+        logger.error('loadZoneOptions failed', { component: 'CycleCountWizardDialog', err: error })
       })
 
     return () => {
@@ -577,7 +580,7 @@ export function CycleCountWizardDialog({
           )
           return
         }
-        console.error('[CycleCountWizardDialog] fetchCycleCountScopeEstimate failed', error)
+        logger.error('fetchCycleCountScopeEstimate failed', { component: 'CycleCountWizardDialog', err: error })
         setScopeEstimateError(
           t(
             'wms.backend.inventory.cycleCount.errors.scopeEstimate',
@@ -660,7 +663,7 @@ export function CycleCountWizardDialog({
           )
           return
         }
-        console.error('[CycleCountWizardDialog] fetchBalanceOnHand failed', error)
+        logger.error('fetchBalanceOnHand failed', { component: 'CycleCountWizardDialog', err: error })
         setBalanceError(
           t('wms.backend.inventory.cycleCount.errors.balance', 'Failed to load system on-hand.'),
         )
@@ -771,7 +774,7 @@ export function CycleCountWizardDialog({
               ),
             )
           } else {
-            console.error('[CycleCountWizardDialog] buildCycleCountScopeQueue failed', error)
+            logger.error('buildCycleCountScopeQueue failed', { component: 'CycleCountWizardDialog', err: error })
             setScopeQueueError(
               t(
                 'wms.backend.inventory.cycleCount.steps.counting.queueError',
@@ -836,7 +839,7 @@ export function CycleCountWizardDialog({
         void seedLotSuggestionsFromCandidates(error.candidateLotIds)
         return
       }
-      console.error('[CycleCountWizardDialog] fetchBalanceOnHand failed', error)
+      logger.error('fetchBalanceOnHand failed', { component: 'CycleCountWizardDialog', err: error })
       flash(
         t('wms.backend.inventory.cycleCount.errors.balance', 'Failed to load system on-hand.'),
         'error',

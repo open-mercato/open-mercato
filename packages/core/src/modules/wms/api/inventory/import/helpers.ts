@@ -12,12 +12,15 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/custom-route-interceptor'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseInventoryImportCsv } from '../../../lib/inventoryImportCsv'
 import { applyInventoryImport, validateInventoryImport } from '../../../lib/inventoryImportService'
 import {
   inventoryImportApplySchema,
   inventoryImportValidateSchema,
 } from '../../../data/validators'
+
+const logger = createLogger('wms')
 
 type ImportRouteOptions = {
   request: Request
@@ -211,7 +214,7 @@ export async function executeWmsInventoryImportRoute(options: ImportRouteOptions
         { status: 400 },
       )
     }
-    console.error('[wms.inventory.import] route failed', error)
+    logger.error('inventory import route failed', { routePath: options.routePath, mode: options.mode, err: error })
     return NextResponse.json(
       { error: translate('wms.errors.internalServerError', 'Internal server error') },
       { status: 500 },

@@ -29,6 +29,7 @@ import {
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { cn } from '@open-mercato/shared/lib/utils'
 import {
   countMappedColumns,
@@ -39,6 +40,8 @@ import {
   type InventoryImportRawRow,
 } from '../../lib/inventoryImportCsv'
 import type { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
+
+const logger = createLogger('wms')
 
 type ImportAccess = Pick<
   ReturnType<typeof useWmsInventoryMutationAccess>,
@@ -358,7 +361,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
       }
       return Boolean(call.result)
     } catch (error) {
-      console.error('[ImportInventoryDialog] validate failed', error)
+      logger.error('validate failed', { component: 'ImportInventoryDialog', err: error })
       flash(t('wms.backend.inventory.import.errors.validate', 'Validation failed.'), 'error')
       return false
     } finally {

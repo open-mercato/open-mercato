@@ -899,12 +899,11 @@ function emitOrderLifecycleEventsForTransition(input: {
       // subscriber) failing to register/persist their own follow-up state is
       // observable in logs instead of being silently dropped. The order
       // status transition itself is already committed at this point.
-      console.warn(
-        "[sales.commands.documents] order lifecycle event emit failed",
-        "sales.order.confirmed",
-        { orderId: input.order.id },
+      logger.warn("order lifecycle event emit failed", {
+        eventId: "sales.order.confirmed",
+        orderId: input.order.id,
         err,
-      );
+      });
     });
   }
 
@@ -914,12 +913,11 @@ function emitOrderLifecycleEventsForTransition(input: {
       order: input.order,
       previousStatus: input.previousStatus,
     }).catch((err) => {
-      console.warn(
-        "[sales.commands.documents] order lifecycle event emit failed",
-        "sales.order.cancelled",
-        { orderId: input.order.id },
+      logger.warn("order lifecycle event emit failed", {
+        eventId: "sales.order.cancelled",
+        orderId: input.order.id,
         err,
-      );
+      });
     });
   }
 }

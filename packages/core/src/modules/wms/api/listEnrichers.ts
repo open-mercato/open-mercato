@@ -11,7 +11,10 @@
 
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { E } from '#generated/entities.ids.generated'
+
+const logger = createLogger('wms')
 
 type AnyListPayload = {
   items?: Array<Record<string, unknown>>
@@ -68,7 +71,7 @@ async function batchLoadById(
         if (row?.id && typeof row.id === 'string') map.set(row.id, row)
       }
     } catch (err) {
-      console.warn(`[wms.listEnrichers] ${source} batch lookup failed`, err)
+      logger.warn('batch lookup failed', { source, entityId, err })
     }
   }
   return map

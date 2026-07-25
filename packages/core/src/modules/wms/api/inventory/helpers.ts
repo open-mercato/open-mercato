@@ -12,6 +12,9 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/custom-route-interceptor'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('wms')
 
 type ResourceDescriptor = {
   resourceKind: string
@@ -119,7 +122,7 @@ export async function executeWmsCustomPostRoute<TInput, TResult>(
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation failed', details: error.issues }, { status: 400 })
     }
-    console.error('[wms.inventory] custom route failed', error)
+    logger.error('custom route failed', { routePath: options.routePath, commandId: options.commandId, err: error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

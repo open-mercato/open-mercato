@@ -31,6 +31,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { buildInventoryMutationReferenceId, parseInventoryQuantity } from '../../lib/inventoryMutationUi'
 import {
   BalanceLookupError,
@@ -45,6 +46,8 @@ import {
   type LocationCapacitySnapshot,
 } from './inventoryMutationLoaders'
 import type { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
+
+const logger = createLogger('wms')
 
 const MOVE_REASON_CODES = ['transfer', 'replenishment', 'consolidation', 'correction', 'other'] as const
 
@@ -347,7 +350,7 @@ export function MoveInventoryDialog({
           )
           return
         }
-        console.error('[MoveInventoryDialog] fetchBalanceAvailable failed', error)
+        logger.error('fetchBalanceAvailable failed', { component: 'MoveInventoryDialog', err: error })
         setPreviewError(
           t(
             'wms.backend.inventory.move.errors.previewBalance',

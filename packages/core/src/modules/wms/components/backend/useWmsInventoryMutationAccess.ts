@@ -4,6 +4,9 @@ import * as React from 'react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('wms')
 
 type FeatureCheckResponse = {
   ok?: boolean
@@ -46,7 +49,7 @@ export function useWmsInventoryMutationAccess() {
           setUserId(typeof call.result?.userId === 'string' ? call.result.userId : null)
         }
       } catch (error) {
-        console.error('[useWmsInventoryMutationAccess] feature check failed', error)
+        logger.error('feature check failed', { component: 'useWmsInventoryMutationAccess', err: error })
         if (!cancelled) {
           setGranted([])
           setUserId(null)

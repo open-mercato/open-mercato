@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   operationalDashboardQuerySchema,
   operationalDashboardResponseSchema,
@@ -14,6 +15,8 @@ import {
   loadOperationalDashboard,
   OperationalDashboardWarehouseNotFoundError,
 } from '../../../lib/loadOperationalDashboard'
+
+const logger = createLogger('wms')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['wms.view'] },
@@ -56,7 +59,7 @@ export async function GET(request: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation failed', details: error.issues }, { status: 400 })
     }
-    console.error('[wms.dashboard] GET operational failed', error)
+    logger.error('GET operational dashboard failed', { err: error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

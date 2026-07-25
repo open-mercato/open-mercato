@@ -33,6 +33,7 @@ import {
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { buildInventoryMutationReferenceId } from '../../lib/inventoryMutationUi'
 import {
   BalanceLookupError,
@@ -51,6 +52,8 @@ import {
   resolveWarehouseLabel,
 } from './inventoryMutationLoaders'
 import type { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
+
+const logger = createLogger('wms')
 
 const ADJUST_REASON_CODES = ['damaged', 'shrinkage', 'found', 'correction', 'other'] as const
 
@@ -330,7 +333,7 @@ export function AdjustInventoryDialog({
           )
           return
         }
-        console.error('[AdjustInventoryDialog] fetchBalanceOnHand failed', error)
+        logger.error('fetchBalanceOnHand failed', { component: 'AdjustInventoryDialog', err: error })
         setPreviewError(
           t(
             'wms.backend.inventory.adjust.errors.previewBalance',

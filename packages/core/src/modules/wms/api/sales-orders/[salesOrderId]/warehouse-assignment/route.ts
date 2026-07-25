@@ -13,9 +13,12 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/custom-route-interceptor'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { salesOrderWarehouseAssignBodySchema } from '../../../../data/validators'
 import { loadSalesOrderWarehouseAssignmentView } from '../../../../lib/salesOrderWarehouseAssignment'
 import { executeWmsCustomPostRoute } from '../../../inventory/helpers'
+
+const logger = createLogger('wms')
 
 const paramsSchema = z.object({
   salesOrderId: z.string().uuid(),
@@ -103,7 +106,7 @@ export async function GET(
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation failed', details: error.issues }, { status: 400 })
     }
-    console.error('[wms.sales-orders] GET warehouse-assignment failed', error)
+    logger.error('GET warehouse-assignment failed', { err: error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -244,7 +247,7 @@ export async function DELETE(
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation failed', details: error.issues }, { status: 400 })
     }
-    console.error('[wms.sales-orders] DELETE warehouse-assignment failed', error)
+    logger.error('DELETE warehouse-assignment failed', { err: error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

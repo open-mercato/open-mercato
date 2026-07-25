@@ -1,6 +1,9 @@
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { E } from '#generated/entities.ids.generated'
+
+const logger = createLogger('wms')
 
 const SEARCH_PAGE_SIZE = 100
 
@@ -26,7 +29,7 @@ async function queryMatchingIds(
       .map((row) => (typeof row?.id === 'string' ? row.id : null))
       .filter((id): id is string => Boolean(id))
   } catch (err) {
-    console.warn(`[wms.listSearch] ${source} lookup failed`, err)
+    logger.warn('lookup failed', { source, entityId, err })
     return []
   }
 }
