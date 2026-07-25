@@ -69,3 +69,4 @@ PR: #4507
 ### Maintenance
 
 - [x] M.1 Merge `develop` into the branch and resolve the `UPGRADE_NOTES.md` conflict (both the #4488 and the #4201 entry now live side by side under 0.6.5 → 0.6.6) — efb8ccb74
+- [x] M.2 Add the integration coverage the review pass found missing: `TC-PGWY-022` plus the `Integration coverage:` line in SPEC-044 §16.5, verified against a live app and by a negative control — 6530373a7
