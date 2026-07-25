@@ -5634,8 +5634,7 @@
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/customers.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/modules/customers.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
@@ -9083,32 +9082,37 @@
     },
     "expectedRouter": {
       "required": [
-        "module-data",
-        "backend-ui"
+        "module-data"
       ],
       "allowedExtra": [
         "architecture",
         "framework-context",
-        "testing"
+        "testing",
+        "umes"
       ]
     },
     "requiredSkills": [
       "om-data-model-design",
-      "om-module-scaffold",
-      "om-backend-ui-design"
+      "om-module-scaffold"
+    ],
+    "optionalSkills": [
+      {
+        "id": "om-system-extension",
+        "route": "umes"
+      }
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/guides/backend-ui.md",
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-      ".ai/skills/om-backend-ui-design/SKILL.md",
-      ".ai/guides/modules/catalog.md"
-    ],
-    "allowedExtra": [
-      ".ai/guides/modules/sales.md"
+        ".ai/guides/modules/catalog.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/sales.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/SKILL.md"
     ],
     "forbidden": [
         ".env*",
@@ -11837,9 +11841,9 @@
     "prompt":"Publish this connector so several independently created applications can install it, while proving its compiled package works outside this repository.",
     "tags":["business-language","provider-package","published-path"],
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-01","BC-03","BC-04","BC-13"]},
-    "expectedRouter":{"required":["architecture","integration","testing"],"allowedExtra":["framework-context"]},
+    "expectedRouter":{"required":["integration","testing"],"allowedExtra":["architecture","framework-context"]},
     "requiredSkills":["om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/guides/integrations.md",".ai/guides/testing-debugging.md",".ai/skills/om-integration-builder/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/testing-debugging.md",".ai/skills/om-integration-builder/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["provider-package","published-path-test","peer-version-compatibility","compiled-package-paths"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:copy|vendor).{0,30}node_modules","(?:skip|todo|only).{0,30}test"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
