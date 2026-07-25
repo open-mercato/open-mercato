@@ -998,13 +998,21 @@ function targetSnapshot(root) {
   return result
 }
 
-function unsafeChangedTargetEntries(after, changed) {
+function containedValidationSymlink(relative, fingerprint, command, after) {
+  if (!validationOutputRoot(relative, command, after)) return false
+  const target = fingerprint.slice('<symlink:'.length, -1)
+  if (!target || path.isAbsolute(target)) return false
+  const resolved = path.normalize(path.join(path.dirname(relative), target))
+  return resolved !== '..' && !resolved.startsWith(`..${path.sep}`) && !path.isAbsolute(resolved)
+}
+
+function unsafeChangedTargetEntries(after, changed, command) {
   const protectedRoots = new Set(['.git', 'node_modules', '.next', 'dist', '.ai/harness/results'])
   return changed.flatMap((relative) => {
     if (protectedRoots.has(relative)) return []
     const fingerprint = after.get(relative)
     if (typeof fingerprint !== 'string') return []
-    if (fingerprint.startsWith('<symlink:')) return [`${relative} (symbolic link)`]
+    if (fingerprint.startsWith('<symlink:') && !containedValidationSymlink(relative, fingerprint, command, after)) return [`${relative} (symbolic link)`]
     if (fingerprint.startsWith('<special:')) return [`${relative} (special file)`]
     if (fingerprint === '<unreadable>') return [`${relative} (unreadable)`]
     return []
@@ -1121,6 +1129,30 @@ function validationOutputRoot(relative, command, after) {
     || (root.startsWith(`${relative}/`) && after.get(relative)?.startsWith('<directory:')))
 }
 
+function cloneValidationDependencies(source, destination) {
+  const sourceRoot = fs.realpathSync(source)
+  const visit = (directory) => {
+    for (const name of fs.readdirSync(directory)) {
+      const absolute = path.join(directory, name)
+      const entry = fs.lstatSync(absolute)
+      if (entry.isSymbolicLink()) {
+        const resolved = fs.realpathSync(absolute)
+        if (resolved !== sourceRoot && !isPathInside(sourceRoot, resolved)) {
+          throw new Error(`dependency tree contains an escaping symbolic link: ${path.relative(sourceRoot, absolute)}`)
+        }
+      } else if (entry.isDirectory()) visit(absolute)
+      else if (!entry.isFile()) throw new Error(`dependency tree contains an unsupported entry: ${path.relative(sourceRoot, absolute)}`)
+    }
+  }
+  visit(sourceRoot)
+  fs.cpSync(sourceRoot, destination, {
+    recursive: true,
+    dereference: false,
+    verbatimSymlinks: true,
+    mode: fs.constants.COPYFILE_FICLONE,
+  })
+}
+
 function prepareValidationWorkspace(target, tempRoot, { allowContainedDependencies = false } = {}) {
   validateScaffoldCopySource(target)
   const workspace = path.join(tempRoot, 'target')
@@ -1128,11 +1160,12 @@ function prepareValidationWorkspace(target, tempRoot, { allowContainedDependenci
   const dependencyPath = path.join(target, 'node_modules')
   let dependencyRoot
   if (fs.existsSync(dependencyPath)) {
-    dependencyRoot = fs.realpathSync(dependencyPath)
-    if (!allowContainedDependencies && isPathInside(fs.realpathSync(target), dependencyRoot)) {
+    const sourceDependencyRoot = fs.realpathSync(dependencyPath)
+    if (!allowContainedDependencies && isPathInside(fs.realpathSync(target), sourceDependencyRoot)) {
       throw new Error('writable target node_modules must resolve outside the writable target')
     }
-    fs.symlinkSync(dependencyRoot, path.join(workspace, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+    cloneValidationDependencies(sourceDependencyRoot, path.join(workspace, 'node_modules'))
+    dependencyRoot = fs.realpathSync(path.join(workspace, 'node_modules'))
   }
   return { workspace: fs.realpathSync(workspace), dependencyRoot }
 }
@@ -1171,7 +1204,7 @@ export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCo
           cwd: workspace,
           writableRoots: [workspace, tempRoot],
           readOnlyRoots,
-          networkAllowed: false,
+          networkMode: step.command === 'yarn build' ? 'loopback' : 'none',
           env,
         })
         execution = execute(invocation.command, invocation.args, invocation.cwd, timeout, invocation.env)
@@ -1180,7 +1213,7 @@ export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCo
       }
       const after = workspace ? targetSnapshot(workspace) : before
       const changed = [...new Set([...before.keys(), ...after.keys()])].filter((key) => before.get(key) !== after.get(key)).sort()
-      const unsafeEntries = unsafeChangedTargetEntries(after, changed)
+      const unsafeEntries = unsafeChangedTargetEntries(after, changed, step.command)
       const disallowedEntries = changed.filter((relative) => !validationOutputRoot(relative, step.command, after))
       const touchedOutputRoots = [...new Set(changed.map((relative) => validationOutputRoot(relative, step.command, after)).filter(Boolean))].sort()
       const result = stepResult(step, execution, [], reportRoots)

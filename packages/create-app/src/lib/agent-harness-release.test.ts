@@ -524,7 +524,9 @@ if (command === 'generate') {
 if (command === 'typecheck') fs.writeFileSync('tsconfig.tsbuildinfo', '{}')
 if (command === 'build') {
   fs.mkdirSync('.mercato/next', { recursive: true })
+  fs.mkdirSync('.mercato/next/node_modules', { recursive: true })
   fs.writeFileSync('.mercato/next/BUILD_ID', 'contained')
+  fs.symlinkSync('../../../node_modules/example', '.mercato/next/node_modules/example')
   fs.writeFileSync('next-env.d.ts', '/// <reference types="next" />\\n')
 }
 `)
@@ -543,6 +545,28 @@ if (command === 'build') {
     assert.equal(fs.existsSync(path.join(target, 'tsconfig.tsbuildinfo')), false)
     assert.equal(fs.existsSync(path.join(target, 'next-env.d.ts')), false)
     assert.equal(release.targetContentFingerprint(target), before)
+  } finally { fs.rmSync(target, { recursive: true, force: true }) }
+})
+
+test('target validation rejects an escaping symlink even inside a declared build output', { skip: !targetSandboxAvailable }, () => {
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-output-link-')))
+  const fakeYarn = path.join(target, 'fake-yarn')
+  fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
+const fs = require('node:fs')
+fs.mkdirSync('.mercato/next', { recursive: true })
+fs.symlinkSync('../../../../outside', '.mercato/next/escape')
+`)
+  fs.chmodSync(fakeYarn, 0o755)
+  try {
+    const [result] = release.runTargetValidationSteps({
+      steps: [{ id: 'target-validation:OMH-002:build', kind: 'target-validation', caseId: 'OMH-002', command: 'yarn build' }],
+      target,
+      timeout: 10_000,
+      roots: [target],
+      yarnCommand: fakeYarn,
+    })
+    assert.equal(result.status, 'fail')
+    assert.match(result.sanitizedError, /escape \(symbolic link\)/)
   } finally { fs.rmSync(target, { recursive: true, force: true }) }
 })
 
