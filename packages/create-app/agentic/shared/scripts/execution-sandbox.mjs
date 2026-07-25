@@ -77,13 +77,11 @@ function sandboxLiteral(value) {
   return String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"')
 }
 
-function macInvocation({ command, args, cwd, writableRoots, readOnlyRoots, networkMode, env }) {
-  const sandbox = '/usr/bin/sandbox-exec'
-  if (!fs.existsSync(sandbox)) throw new Error('macOS target isolation requires /usr/bin/sandbox-exec')
+export function macSandboxProfile({ command, writableRoots, readOnlyRoots, networkMode, env }) {
   const writable = writableRoots.map((root, index) => regularDirectory(root, `writable sandbox root ${index + 1}`))
   const readOnly = readOnlyRoots.map((root, index) => regularDirectory(root, `read-only sandbox root ${index + 1}`))
   const readable = uniqueExistingDirectories([...writable, ...readOnly, ...runtimeReadRoots(command, env)])
-  const profile = [
+  return [
     '(version 1)',
     '(deny default)',
     '(import "system.sb")',
@@ -91,9 +89,8 @@ function macInvocation({ command, args, cwd, writableRoots, readOnlyRoots, netwo
     '(allow signal)',
     '(allow sysctl-read)',
     '(allow file-read-metadata)',
-    '(allow mach-lookup)',
+    '(allow mach-lookup (global-name-regex #"^org\\.chromium\\.Chromium\\.MachPortRendezvousServer\\.[0-9]+$"))',
     '(allow mach-register (global-name-regex #"^org\\.chromium\\.Chromium\\.MachPortRendezvousServer\\.[0-9]+$"))',
-    '(allow ipc-posix*)',
     '(allow iokit-open-user-client (iokit-user-client-class "RootDomainUserClient"))',
     ...readable.map((root) => `(allow file-read* (subpath "${sandboxLiteral(root)}"))`),
     ...writable.map((root) => `(allow file-write* (subpath "${sandboxLiteral(root)}"))`),
@@ -104,6 +101,12 @@ function macInvocation({ command, args, cwd, writableRoots, readOnlyRoots, netwo
     ] : []),
     ...readOnly.map((root) => `(deny file-write* (subpath "${sandboxLiteral(root)}"))`),
   ].join(' ')
+}
+
+function macInvocation({ command, args, cwd, writableRoots, readOnlyRoots, networkMode, env }) {
+  const sandbox = '/usr/bin/sandbox-exec'
+  if (!fs.existsSync(sandbox)) throw new Error('macOS target isolation requires /usr/bin/sandbox-exec')
+  const profile = macSandboxProfile({ command, writableRoots, readOnlyRoots, networkMode, env })
   return { command: sandbox, args: ['-p', profile, resolveExecutable(command, env), ...args], cwd: regularDirectory(cwd, 'sandbox cwd'), env }
 }
 

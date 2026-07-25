@@ -14,6 +14,8 @@ Create the smallest working vertical slice under `src/modules/<id>/`, using inst
 
 ## Workflow
 
+Route before reading: every specialist step below is conditional. Decide from the brief and the blueprint route key first, include each applicable route in the assembled route, and only then read that route's guide or skill. Never probe a specialist guide and discard its route. For an architecture-only plan, the root router's `architecture` + `module-data` exception wins: use the blueprint to name likely UI/workflow surfaces without loading their implementation guides or skills.
+
 1. **Plan ownership.** For every business-level one-shot—including customer or deal customization—you MUST read the exact path `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md`; its route key resolves app module versus extension/provider ownership. Do not substitute a similarly named guide. Read `.ai/guides/architecture.md` and `references/planning.md` only when ownership is still unresolved. Skip the blueprint only for one narrow engineering primitive.
 2. **Model data.** Invoke `om-data-model-design` for persisted entities or sensitive fields; follow `references/data-and-migrations.md`.
 3. **Build domain writes and APIs.** Read `.ai/guides/contracts.md` and `references/api-and-domain.md`; mirror the installed `customers` module through `om-framework-context` when necessary.

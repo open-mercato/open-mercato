@@ -13,6 +13,12 @@ import { sandboxedInvocation } from './execution-sandbox.mjs'
 const WRITABLE_KINDS = new Set(['implementation', 'regression'])
 const RELEASE_ROUTING_RUNNERS = ['codex', 'claude']
 const RELEASE_VALIDATION_COMMANDS = ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build']
+const RELEASE_VALIDATION_OUTPUT_ROOTS = new Map([
+  ['yarn generate', ['.mercato/generated']],
+  ['yarn typecheck', ['tsconfig.tsbuildinfo']],
+  ['yarn lint', []],
+  ['yarn build', ['.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo']],
+])
 const RUNNERS = new Set(RELEASE_ROUTING_RUNNERS)
 const ALLOWED_VALIDATION_COMMANDS = new Set(RELEASE_VALIDATION_COMMANDS)
 const GENERATED_TEST_RUNNERS = new Set(['jest', 'playwright-api', 'playwright-browser'])
@@ -1008,29 +1014,61 @@ export function createMinimalValidationEnvironment(tempRoot, pathValue = process
   return { env, toolReadRoots: corepackHome ? [corepackHome] : [] }
 }
 
+function validationOutputRoot(relative, command, after) {
+  return (RELEASE_VALIDATION_OUTPUT_ROOTS.get(command) ?? []).find((root) => relative === root
+    || relative.startsWith(`${root}/`)
+    || (root.startsWith(`${relative}/`) && after.get(relative)?.startsWith('<directory:')))
+}
+
+function prepareValidationWorkspace(target, tempRoot) {
+  validateScaffoldCopySource(target)
+  const workspace = path.join(tempRoot, 'target')
+  copyFreshScaffold(target, workspace)
+  const dependencyPath = path.join(target, 'node_modules')
+  let dependencyRoot
+  if (fs.existsSync(dependencyPath)) {
+    dependencyRoot = fs.realpathSync(dependencyPath)
+    if (isPathInside(fs.realpathSync(target), dependencyRoot)) {
+      throw new Error('writable target node_modules must resolve outside the writable target')
+    }
+    fs.symlinkSync(dependencyRoot, path.join(workspace, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+  }
+  return { workspace: fs.realpathSync(workspace), dependencyRoot }
+}
+
 export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCommand = process.platform === 'win32' ? 'yarn.cmd' : 'yarn', pathValue }) {
   const results = []
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-validation-'))
+  const reportRoots = [...roots, tempRoot, fs.realpathSync(tempRoot)]
   const { env, toolReadRoots } = createMinimalValidationEnvironment(tempRoot, pathValue)
-  const dependencyPath = path.join(target, 'node_modules')
-  let before = targetSnapshot(target)
+  const originalFingerprint = targetContentFingerprint(target)
+  let workspace
+  let dependencyRoot
+  let workspaceError
+  try {
+    ({ workspace, dependencyRoot } = prepareValidationWorkspace(target, tempRoot))
+  } catch (error) {
+    workspaceError = error
+  }
+  let before = workspace ? targetSnapshot(workspace) : new Map()
+  let workspaceTainted = false
   try {
     for (const step of steps) {
+      if (workspaceTainted) {
+        results.push(skippedStep(step, 'validation workspace was tainted by an out-of-contract mutation'))
+        continue
+      }
       let execution
-      try {
+      if (workspaceError) {
+        execution = { status: null, error: workspaceError, stdout: '', stderr: '', durationMs: 0 }
+      } else try {
         const readOnlyRoots = [...toolReadRoots]
-        if (fs.existsSync(dependencyPath)) {
-          const dependencyRoot = fs.realpathSync(dependencyPath)
-          if (isPathInside(fs.realpathSync(target), dependencyRoot)) {
-            throw new Error('writable target node_modules must resolve outside the writable target')
-          }
-          readOnlyRoots.unshift(dependencyRoot)
-        }
+        if (dependencyRoot) readOnlyRoots.unshift(dependencyRoot)
         const invocation = sandboxedInvocation({
           command: yarnCommand,
           args: [step.command.slice('yarn '.length)],
-          cwd: target,
-          writableRoots: [target, tempRoot],
+          cwd: workspace,
+          writableRoots: [workspace, tempRoot],
           readOnlyRoots,
           networkAllowed: false,
           env,
@@ -1039,13 +1077,26 @@ export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCo
       } catch (error) {
         execution = { status: null, error, stdout: '', stderr: '', durationMs: 0 }
       }
-      const after = targetSnapshot(target)
+      const after = workspace ? targetSnapshot(workspace) : before
       const changed = [...new Set([...before.keys(), ...after.keys()])].filter((key) => before.get(key) !== after.get(key)).sort()
       const unsafeEntries = unsafeChangedTargetEntries(after, changed)
-      const result = stepResult(step, execution, [], roots)
-      if (unsafeEntries.length) {
+      const disallowedEntries = changed.filter((relative) => !validationOutputRoot(relative, step.command, after))
+      const touchedOutputRoots = [...new Set(changed.map((relative) => validationOutputRoot(relative, step.command, after)).filter(Boolean))].sort()
+      const result = stepResult(step, execution, [], reportRoots)
+      result.resultPaths = touchedOutputRoots
+      if (disallowedEntries.length || unsafeEntries.length) {
         result.status = 'fail'
-        result.sanitizedError = sanitizeReportText(`validation created unsafe filesystem entries: ${unsafeEntries.join(', ')}`, roots)
+        const diagnostics = [
+          ...(disallowedEntries.length ? [`validation mutated paths outside explicit command outputs: ${disallowedEntries.join(', ')}`] : []),
+          ...(unsafeEntries.length ? [`validation created unsafe filesystem entries: ${unsafeEntries.join(', ')}`] : []),
+        ]
+        result.sanitizedError = sanitizeReportText(diagnostics.join('; '), reportRoots)
+        workspaceTainted = true
+      }
+      if (targetContentFingerprint(target) !== originalFingerprint) {
+        result.status = 'fail'
+        result.sanitizedError = sanitizeReportText('original writable target changed during isolated validation', roots)
+        workspaceTainted = true
       }
       results.push(result)
       before = after
@@ -1189,12 +1240,16 @@ function writeReport(root, report, roots, schema) {
 
 function writeTargetValidationResult(root, target, caseId, sourceArtifact, commandSteps, generatedTestStep, schema) {
   const sourcePath = path.join(root, sourceArtifact.path)
+  const targetFingerprint = targetContentFingerprint(target)
+  if (targetFingerprint !== sourceArtifact.value.writable.targetFingerprint) {
+    throw new Error('original writable target changed after its trusted oracle; target validation must run only in the isolated copy')
+  }
   const record = {
     schemaVersion: 1,
     caseId,
     sourceResult: { path: sourceArtifact.path, sha256: sha256(fs.readFileSync(sourcePath)) },
     beforeValidationFingerprint: sourceArtifact.value.writable.targetFingerprint,
-    targetFingerprint: targetContentFingerprint(target),
+    targetFingerprint,
     commands: commandSteps.map((step) => ({
       command: step.command,
       status: step.status,

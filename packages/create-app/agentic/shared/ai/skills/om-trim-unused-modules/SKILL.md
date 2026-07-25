@@ -22,3 +22,4 @@ Propose a dependency-aware set first; edit `src/modules.ts` only after the user 
 - Never disable a module required by an enabled module, extension host, override, bootstrap, or provider.
 - Preserve user-authored app modules and behavior unless explicitly included.
 - Treat module metadata/source as read-only evidence and report uncertainty rather than guessing.
+- Disabling a registry entry does not modify a framework public contract; do not load `BACKWARD_COMPATIBILITY.md` unless the requested work also changes a stable ID, route, type, signature, or other contract surface.

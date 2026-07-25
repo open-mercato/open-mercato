@@ -1866,7 +1866,8 @@ function readTargetValidationResult(root, requestedPath, schema, sourceRecord, r
   if (value.caseId !== sourceRecord.source.caseId
     || value.sourceResult.path !== sourceRecord.relative
     || value.sourceResult.sha256 !== sourceRecord.sha256
-    || value.beforeValidationFingerprint !== sourceRecord.source.writable.targetFingerprint) {
+    || value.beforeValidationFingerprint !== sourceRecord.source.writable.targetFingerprint
+    || value.targetFingerprint !== value.beforeValidationFingerprint) {
     throw new Error('target validation result does not match the writable source result')
   }
   const expectedTest = releaseMatrix?.generatedTests?.entries?.find((entry) => entry.caseId === value.caseId)

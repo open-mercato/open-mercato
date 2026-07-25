@@ -1305,15 +1305,15 @@
       "om-module-scaffold"
     ],
     "context": {
-    "required": [
-      "AGENTS.md",
-      ".ai/guides/contracts.md",
-      ".ai/guides/modules/search.md",
-      ".ai/skills/om-module-scaffold/SKILL.md"
-    ],
-    "allowedExtra": [
-      ".ai/guides/modules/query_index.md"
-    ],
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-module-scaffold/SKILL.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/search.md",
+        ".ai/guides/modules/query_index.md"
+      ],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -1540,11 +1540,10 @@
         "AGENTS.md",
         ".ai/guides/contracts.md",
       ".ai/guides/backend-ui.md",
-      ".ai/guides/extensions.md",
-      ".ai/guides/modules/notifications.md",
-      ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/extensions.md",
+        ".ai/guides/modules/notifications.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-system-extension/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -2437,8 +2436,7 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/extensions.md",
-        ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/skills/om-system-extension/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -2775,7 +2773,7 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 6,
+    "maxContextFiles": 7,
     "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
@@ -2866,7 +2864,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, aCL-gate an injected widget, page, or menu including wildcard grants. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, ACL-gate an injected widget, page, or menu including wildcard grants. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "backend-ui",
@@ -2900,6 +2898,9 @@
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-system-extension/SKILL.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/auth.md"
       ],
       "forbidden": [
         ".env*",
@@ -3042,10 +3043,12 @@
         "AGENTS.md",
         ".ai/guides/integrations.md",
         ".ai/skills/om-integration-builder/SKILL.md",
-        ".ai/guides/modules/integrations.md",
         ".ai/guides/modules/communication_channels.md",
         ".ai/guides/modules/channel_gmail.md",
         ".ai/guides/modules/channel_imap.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/integrations.md"
       ],
       "forbidden": [
         ".env*",
@@ -3918,8 +3921,10 @@
         "AGENTS.md",
         ".ai/guides/ai-workflows.md",
         ".ai/skills/om-create-ai-agent/SKILL.md",
-        ".ai/guides/modules/ai_assistant.md",
         ".ai/guides/modules/attachments.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/ai_assistant.md"
       ],
       "forbidden": [
         ".env*",

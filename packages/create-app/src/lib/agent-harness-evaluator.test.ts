@@ -1768,6 +1768,50 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
+test('generated-code review rejects validation evidence that attests post-oracle target mutations', { skip: process.platform === 'win32' }, async () => {
+  const controller = stageApp()
+  const target = stageWritableTarget(controller)
+  try {
+    const sourceResult = preparePassingWritableCrudResult(controller, target)
+    const source = JSON.parse(fs.readFileSync(sourceResult, 'utf8'))
+    const sourceRelative = path.relative(controller, sourceResult).replaceAll(path.sep, '/')
+    const sourceHash = createHash('sha256').update(fs.readFileSync(sourceResult)).digest('hex')
+    fs.appendFileSync(path.join(target, 'src/modules/library/api/books/route.ts'), '\n// unreviewed validation mutation\n')
+    const release = await import(pathToFileURL(path.join(sharedRoot, 'scripts', 'run-agent-harness-release.mjs')).href) as {
+      targetContentFingerprint: (root: string) => string
+    }
+    const validationPath = path.join(controller, '.ai', 'harness', 'results', 'target-validation-OMH-011.json')
+    fs.writeFileSync(validationPath, `${JSON.stringify({
+      schemaVersion: 1,
+      caseId: 'OMH-011',
+      sourceResult: { path: sourceRelative, sha256: sourceHash },
+      beforeValidationFingerprint: source.writable.targetFingerprint,
+      targetFingerprint: release.targetContentFingerprint(target),
+      commands: ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'].map((command) => ({ command, status: 'pass', exitStatus: 0, durationMs: 1 })),
+      generatedTests: [],
+      status: 'pass',
+    }, null, 2)}\n`)
+    installFakeCodeReviewSkill(controller)
+    const counter = path.join(controller, 'reviewer-started')
+    const bin = installFakeRunner(controller, 'codex', `
+const fs = require('node:fs')
+if (process.argv[2] === '--version') { fs.writeFileSync(${JSON.stringify(counter)}, 'started'); process.exit(0) }
+process.exit(9)
+`)
+    const review = runEvaluator(controller, [
+      '--runner', 'codex', '--review-writable-result', sourceResult, '--writable-root', target,
+      '--review-validation-result', validationPath,
+    ], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+    assert.equal(review.status, 2, `${review.stdout}\n${review.stderr}`)
+    assert.match(review.stderr, /target validation result does not match the writable source result/)
+    assert.equal(fs.existsSync(counter), false)
+    assert.deepEqual(storedReviewResults(controller), [])
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
 test('generated-code review host sandbox blocks real out-of-bundle reads and writes before trace validation', { skip: !targetSandboxAvailable }, () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)

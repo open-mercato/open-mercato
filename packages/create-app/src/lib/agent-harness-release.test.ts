@@ -26,6 +26,7 @@ const release = await import(pathToFileURL(releaseScript).href) as {
 }
 const executionSandbox = await import(pathToFileURL(executionSandboxScript).href) as {
   linuxNamespaceArgs: (network: string) => string[]
+  macSandboxProfile: (input: { command: string; writableRoots: string[]; readOnlyRoots: string[]; networkMode: string; env: NodeJS.ProcessEnv }) => string
   sandboxedInvocation: (input: Record<string, unknown>) => { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }
 }
 const targetSandboxAvailable = process.platform === 'darwin'
@@ -270,8 +271,7 @@ test('every target validation command runs and failures retain actionable saniti
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-')))
   const fakeYarn = path.join(target, 'fake-yarn')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
-const fs = require('node:fs')
-fs.appendFileSync('calls.txt', process.argv[2] + '\\n')
+console.error('called ' + process.argv[2])
 if (process.argv[2] === 'lint') { console.error('lint rule failed in ' + process.cwd()); process.exit(7) }
 `)
   fs.chmodSync(fakeYarn, 0o755)
@@ -280,8 +280,8 @@ if (process.argv[2] === 'lint') { console.error('lint rule failed in ' + process
   }))
   try {
     const results = release.runTargetValidationSteps({ steps: commands, target, timeout: 10_000, roots: [target], yarnCommand: fakeYarn })
-    assert.deepEqual(fs.readFileSync(path.join(target, 'calls.txt'), 'utf8').trim().split('\n'), ['generate', 'typecheck', 'lint', 'build'])
     assert.deepEqual(results.map((entry) => entry.status), ['pass', 'pass', 'fail', 'pass'])
+    assert.deepEqual(results.map((entry) => entry.sanitizedError?.match(/called (generate|typecheck|lint|build)/)?.[1]), ['generate', 'typecheck', 'lint', 'build'])
     assert.equal(results[2].command, 'yarn lint')
     assert.match(results[2].sanitizedError, /lint rule failed in <redacted-path>/)
   } finally {
@@ -301,7 +301,6 @@ const fs = require('node:fs')
 if (process.env.FAKE_PROVIDER_SECRET) process.exit(21)
 try { fs.readFileSync(${JSON.stringify(secret)}, 'utf8'); process.exit(22) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT'].includes(error.code)) throw error }
 try { fs.writeFileSync(${JSON.stringify(escapedWrite)}, 'escaped'); process.exit(23) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT', 'EROFS'].includes(error.code)) throw error }
-fs.writeFileSync('contained.txt', 'ok')
 `)
   fs.chmodSync(fakeYarn, 0o755)
   const step = { id: 'target-validation:OMH-002:build', kind: 'target-validation', caseId: 'OMH-002', command: 'yarn build' }
@@ -310,7 +309,6 @@ fs.writeFileSync('contained.txt', 'ok')
   try {
     const [result] = release.runTargetValidationSteps({ steps: [step], target, timeout: 10_000, roots: [target, outside], yarnCommand: fakeYarn })
     assert.equal(result.status, 'pass', result.sanitizedError)
-    assert.equal(fs.readFileSync(path.join(target, 'contained.txt'), 'utf8'), 'ok')
     assert.equal(fs.readFileSync(secret, 'utf8'), 'do-not-read')
     assert.equal(fs.existsSync(escapedWrite), false)
   } finally {
@@ -319,6 +317,68 @@ fs.writeFileSync('contained.txt', 'ok')
     fs.rmSync(target, { recursive: true, force: true })
     fs.rmSync(outside, { recursive: true, force: true })
   }
+})
+
+test('target validation runs in an isolated copy and rejects ordinary source or config mutations', { skip: !targetSandboxAvailable }, () => {
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-source-write-')))
+  fs.mkdirSync(path.join(target, 'src'))
+  fs.writeFileSync(path.join(target, 'src', 'existing.ts'), 'export const original = true\n')
+  const fakeYarn = path.join(target, 'fake-yarn')
+  fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
+const fs = require('node:fs')
+fs.mkdirSync('.mercato', { recursive: true })
+fs.writeFileSync('.mercato/unrelated.txt', 'not a build output')
+fs.writeFileSync('src/unreviewed.ts', 'export const hidden = true\\n')
+fs.writeFileSync('package.json', '{"scripts":{"build":"true"}}\\n')
+`)
+  fs.chmodSync(fakeYarn, 0o755)
+  const before = release.targetContentFingerprint(target)
+  try {
+    const [result] = release.runTargetValidationSteps({
+      steps: [{ id: 'target-validation:OMH-002:build', kind: 'target-validation', caseId: 'OMH-002', command: 'yarn build' }],
+      target, timeout: 10_000, roots: [target], yarnCommand: fakeYarn,
+    })
+    assert.equal(result.status, 'fail')
+    assert.match(result.sanitizedError, /outside explicit command outputs: \.mercato\/unrelated\.txt, package\.json, src\/unreviewed\.ts/)
+    assert.equal(fs.existsSync(path.join(target, 'src', 'unreviewed.ts')), false)
+    assert.equal(fs.existsSync(path.join(target, 'package.json')), false)
+    assert.equal(release.targetContentFingerprint(target), before)
+  } finally { fs.rmSync(target, { recursive: true, force: true }) }
+})
+
+test('target validation permits only explicit generated and build outputs inside its isolated copy', { skip: !targetSandboxAvailable }, () => {
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-outputs-')))
+  const fakeYarn = path.join(target, 'fake-yarn')
+  fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
+const fs = require('node:fs')
+const command = process.argv[2]
+if (command === 'generate') {
+  fs.mkdirSync('.mercato/generated', { recursive: true })
+  fs.writeFileSync('.mercato/generated/modules.generated.ts', 'export default []\\n')
+}
+if (command === 'typecheck') fs.writeFileSync('tsconfig.tsbuildinfo', '{}')
+if (command === 'build') {
+  fs.mkdirSync('.mercato/next', { recursive: true })
+  fs.writeFileSync('.mercato/next/BUILD_ID', 'contained')
+  fs.writeFileSync('next-env.d.ts', '/// <reference types="next" />\\n')
+}
+`)
+  fs.chmodSync(fakeYarn, 0o755)
+  const before = release.targetContentFingerprint(target)
+  const steps = ['generate', 'typecheck', 'lint', 'build'].map((name) => ({
+    id: `target-validation:OMH-002:${name}`, kind: 'target-validation', caseId: 'OMH-002', command: `yarn ${name}`,
+  }))
+  try {
+    const results = release.runTargetValidationSteps({ steps, target, timeout: 10_000, roots: [target], yarnCommand: fakeYarn })
+    assert.deepEqual(results.map((entry) => entry.status), ['pass', 'pass', 'pass', 'pass'])
+    assert.deepEqual(results.map((entry) => entry.resultPaths), [
+      ['.mercato/generated'], ['tsconfig.tsbuildinfo'], [], ['.mercato/next', 'next-env.d.ts'],
+    ])
+    assert.equal(fs.existsSync(path.join(target, '.mercato')), false)
+    assert.equal(fs.existsSync(path.join(target, 'tsconfig.tsbuildinfo')), false)
+    assert.equal(fs.existsSync(path.join(target, 'next-env.d.ts')), false)
+    assert.equal(release.targetContentFingerprint(target), before)
+  } finally { fs.rmSync(target, { recursive: true, force: true }) }
 })
 
 test('minimal validation environment omits provider secrets and process diagnostics redact inherited scalars and URL userinfo', { skip: !targetSandboxAvailable }, () => {
@@ -439,6 +499,23 @@ test('Linux sandbox namespaces are private by default and host networking is sha
   assert.throws(() => executionSandbox.linuxNamespaceArgs('provider'), /invalid sandbox network mode/)
 })
 
+test('macOS sandbox policy never grants wildcard host Mach lookup or POSIX IPC', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-mac-policy-')))
+  try {
+    const profile = executionSandbox.macSandboxProfile({
+      command: process.execPath,
+      writableRoots: [root],
+      readOnlyRoots: [],
+      networkMode: 'none',
+      env: process.env,
+    })
+    assert.doesNotMatch(profile, /\(allow mach-lookup\)/)
+    assert.doesNotMatch(profile, /\(allow ipc-posix\*\)/)
+    assert.equal(profile.match(/\(allow mach-/g)?.length, 2)
+    assert.equal(profile.match(/MachPortRendezvousServer/g)?.length, 2)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
 test('release target fingerprints bind empty directories and file or directory mode changes', { skip: process.platform === 'win32' }, () => {
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-target-fingerprint-')))
   const source = path.join(target, 'source.ts')
@@ -467,7 +544,7 @@ test('macOS validation resolves a lexical PATH node launcher without authorizing
   const fakeYarn = path.join(target, 'fake-yarn')
   fs.writeFileSync(launcher, `#!/bin/sh\nexec ${JSON.stringify(fs.realpathSync(process.execPath))}  "$@"\n`)
   fs.chmodSync(launcher, 0o755)
-  fs.writeFileSync(fakeYarn, '#!/usr/bin/env node\nrequire("node:fs").writeFileSync("xfs-ok.txt", "ok")\n')
+  fs.writeFileSync(fakeYarn, '#!/usr/bin/env node\nconsole.error("xfs-ok")\n')
   fs.chmodSync(fakeYarn, 0o755)
   try {
     const [result] = release.runTargetValidationSteps({
@@ -476,7 +553,7 @@ test('macOS validation resolves a lexical PATH node launcher without authorizing
       pathValue: `${launcherParent}${path.delimiter}${process.env.PATH ?? ''}`,
     })
     assert.equal(result.status, 'pass', result.sanitizedError)
-    assert.equal(fs.readFileSync(path.join(target, 'xfs-ok.txt'), 'utf8'), 'ok')
+    assert.match(result.sanitizedError, /xfs-ok/)
   } finally {
     fs.rmSync(target, { recursive: true, force: true })
     fs.rmSync(launcherBase, { recursive: true, force: true })

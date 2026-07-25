@@ -1,11 +1,11 @@
 # {{PROJECT_NAME}} — Standalone App Agent Rules
 
-Extend this installed Open Mercato app. Decide routes here before opening guides/skills; load every match and never probe unmatched context.
+Extend this Open Mercato app. Decide routes here before opening guides/skills; load every match and never probe unmatched context.
 
 ## Always
 
-- Match all three routing axes; if context is missing, run `yarn mercato agentic:init` and retry.
-- Write app code in `src/modules/<id>/`; framework packages stay read-only. Use `om-framework-context` for exact installed source.
+- Match every routing axis; for missing context run `yarn mercato agentic:init`.
+- Write app code in `src/modules/<id>/`; use `om-framework-context` for exact installed source.
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
 - Use commands, `makeCrudRoute`, `CrudForm`/`DataTable`, DI, events, and UMES on canonical paths.
 - Put entities in `src/modules/<id>/data/entities.ts`; API routes need per-method `metadata` + `openApi`.
@@ -48,7 +48,7 @@ Combine matches. In-app notifications/editable custom fields: `module-data` + `b
 
 Each route loads its skill; a `module-data` business vertical MUST load `om-module-scaffold` + exact blueprint.
 
-Only explicit work. `testing` = tests/coverage/security proof/real API-UI verification, not routine validation/reindex/smoke; external `om-integration-tests` only for integration/E2E/browser/live-app. `debugging` = failure/security/drift. Specs/plans = `spec-pr` only + self-contained API/UI integration coverage. Architecture-only business plans = `architecture` + `module-data` + scaffold blueprint/contracts. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer from specs/PRs.
+Only explicit work. `testing` = requested tests/coverage/security proof/API-UI verification, not routine validation; external `om-integration-tests` only for integration/E2E/browser/live-app. `debugging` = failure/security/drift. Specs/plans = `spec-pr` + self-contained API/UI integration coverage. Architecture-only business plans = `architecture` + `module-data` + blueprint/contracts. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer from specs/PRs.
 
 App-owned durable process state, activities, or user tasks select `module-data` + `ai-workflow`; add `umes` for installed-module interception/reaction.
 
@@ -126,7 +126,7 @@ If a skill is absent, run `yarn install-skills` once; never invent a substitute.
 
 ## Module-Specific Facts
 
-Facts only for changed/named hosts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; cart/checkout/shopper→checkout; portal→customer_accounts; quote/order→sales; webhook/callback→webhooks; schedule/reminder→scheduler. Primitives do not load `api_docs`/`search`/`events` facts.
+Facts only for changed/named hosts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; cart/checkout/shopper→checkout; portal→customer_accounts; quote/order→sales; webhook/callback→webhooks; schedule/reminder→scheduler; operation progress/`ProgressJob`→progress. App primitives skip `api_docs`/`search`/`query_index`/`events` facts unless changing that host.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
