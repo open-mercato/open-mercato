@@ -1249,9 +1249,12 @@ function snapshot(root) {
       try { entry = fs.lstatSync(absolute) } catch { result.set(relative, '<unreadable>'); continue }
       if (entry.isSymbolicLink()) {
         try { result.set(relative, `<symlink:${fs.readlinkSync(absolute)}>`) } catch { result.set(relative, '<symlink:unreadable>') }
-      } else if (entry.isDirectory()) visit(absolute, relative)
+      } else if (entry.isDirectory()) {
+        result.set(relative, `<directory:${entry.mode & 0o777}>`)
+        visit(absolute, relative)
+      }
       else if (entry.isFile()) {
-        try { result.set(relative, sha256(fs.readFileSync(absolute))) } catch { result.set(relative, '<unreadable>') }
+        try { result.set(relative, `<file:${entry.mode & 0o777}:${sha256(fs.readFileSync(absolute))}>`) } catch { result.set(relative, '<unreadable>') }
       } else result.set(relative, `<special:${entry.mode & 0o170000}>`)
     }
   }
@@ -1897,8 +1900,9 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         for (const entry of finalUnsafeEntries) {
           if (!unsafeEntries.includes(entry)) violations.push(`unsafe changed filesystem entry after oracle: ${entry}`)
         }
+        const changedFiles = changed.filter((relative) => !finalSnapshot.get(relative)?.startsWith('<directory:'))
         writableResult = {
-          changedPaths: changed,
+          changedPaths: changedFiles,
           beforeOraclePassed: beforeOracle.failures.length === 0,
           afterOraclePassed: afterOracle.failures.length === 0,
           targetFingerprint: snapshotFingerprint(finalSnapshot),

@@ -1629,6 +1629,42 @@ process.exit(0)
   }
 })
 
+test('writable snapshots bind empty directories and regular-file mode changes', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const target = stageWritableTarget(root)
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.mkdirSync('UNDECLARED_EMPTY')
+fs.chmodSync('package.json', 0o777)
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['module-data'], selectedSkills: ['om-data-model-design'],
+  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+  decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md .ai/guides/contracts.md .ai/skills/om-data-model-design/SKILL.md' } }))
+`)
+  try {
+    const prepared = spawnSync(process.execPath, [
+      path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'),
+      '--case', 'OMH-009', '--target', target, '--acknowledge-writes',
+    ], { cwd: root, encoding: 'utf8' })
+    assert.equal(prepared.status, 0, `${prepared.stdout}\n${prepared.stderr}`)
+    const run = runEvaluator(root, [
+      '--runner', 'codex', '--case', 'OMH-009', '--writable-root', target, '--acknowledge-writes',
+    ], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+    assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+    const [stored] = storedResults(root)
+    assert.ok(stored.violations.some((entry) => entry.includes('writes outside allowlist: UNDECLARED_EMPTY, package.json')))
+    assert.ok(!stored.writable?.changedPaths.includes('UNDECLARED_EMPTY'))
+    assert.ok(stored.writable?.changedPaths.includes('package.json'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
 test('writable mode rejects a disposable marker prepared for another case', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
   const target = stageWritableTarget(root)
