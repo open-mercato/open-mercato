@@ -958,7 +958,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add an invitation-safe user and role flow with feature-based declarative page/API authorization, default grants, dependencies, existing-tenant synchronization, and no custom session-token handling. Use the installed auth contract, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add an invitation-safe user and role flow through app-owned ACL/setup surfaces, with feature-based declarative page/API authorization, default grants, dependencies, existing-tenant synchronization, and no custom session-token handling. Reuse rather than inject, override, or extend installed auth behavior; keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "module",
       "module-data",
