@@ -74,4 +74,44 @@ describe('sendSystemEmail', () => {
       scope: { tenantId: 'system', organizationId: 'system' },
     }))
   })
+
+  it('does not fall back to a channel from another organization', async () => {
+    const findOne = jest
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        providerKey: 'test-email',
+        channelType: 'email',
+        organizationId: 'other-org',
+        isActive: true,
+        status: 'connected',
+      })
+    const container = {
+      resolve(name: string) {
+        if (name === 'em') return { fork: () => ({ findOne }) }
+        if (name === 'channelAdapterRegistry') return { get: jest.fn() }
+        throw new Error(`[internal] unexpected dependency ${name}`)
+      },
+    }
+
+    await expect(sendSystemEmail(container as never, {
+      to: 'user@example.com',
+      subject: 'Hello',
+      from: 'from@example.com',
+      text: 'Hello',
+      tenantId: 'tenant-1',
+      organizationId: null,
+    })).rejects.toThrow('SYSTEM_EMAIL_CHANNEL_NOT_CONFIGURED')
+
+    expect(findOne).toHaveBeenCalledTimes(1)
+    expect(findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        organizationId: null,
+        userId: null,
+      }),
+      undefined,
+    )
+  })
 })

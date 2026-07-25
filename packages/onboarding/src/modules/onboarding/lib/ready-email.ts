@@ -47,7 +47,7 @@ export async function sendWorkspaceReadyEmail(args: {
     subject,
     react: WorkspaceReadyEmail({ loginUrl, copy: emailCopy }),
     tenantId: args.tenantId,
-    organizationId: null,
+    organizationId: request.organizationId ?? null,
   })
   await service.markReadyEmailSent(request, new Date())
   return true

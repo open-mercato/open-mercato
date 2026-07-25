@@ -86,27 +86,6 @@ async function resolveSystemEmailChannel(
       }
 
   const channel = await findOneWithDecryption(em, CommunicationChannel, where, undefined, dscope)
-  if (!channel && !explicitChannelId && !payload.organizationId) {
-    const fallback = await findOneWithDecryption(
-      em,
-      CommunicationChannel,
-      {
-        providerKey: resolveSystemEmailProvider(),
-        channelType: 'email',
-        tenantId: payload.tenantId,
-        userId: null,
-        deletedAt: null,
-      },
-      undefined,
-      dscope,
-    )
-    if (fallback) {
-      if (!fallback.isActive || fallback.status !== 'connected') {
-        throw new Error(`SYSTEM_EMAIL_CHANNEL_UNAVAILABLE: channel is ${fallback.status}`)
-      }
-      return fallback
-    }
-  }
   if (!channel) {
     if (
       !explicitChannelId &&
