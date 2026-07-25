@@ -60,13 +60,16 @@ function assertChainFits(
 
 test('standalone root instruction sources stay well below the Codex byte budget', () => {
   for (const relativePath of ROOT_SOURCES) {
+    const source = fs.readFileSync(path.join(CREATE_APP_ROOT, relativePath), 'utf8')
     const bytes = fs.statSync(path.join(CREATE_APP_ROOT, relativePath)).size
     assert.ok(
       bytes <= STANDALONE_ROOT_TARGET_BYTES,
       `${relativePath} uses ${bytes} bytes; keep the standalone router at or below ` +
         `${STANDALONE_ROOT_TARGET_BYTES} bytes so routed context fits within Codex's ` +
-        `${CODEX_DEFAULT_PROJECT_DOC_BYTES}-byte default`,
+      `${CODEX_DEFAULT_PROJECT_DOC_BYTES}-byte default`,
     )
+    assert.match(source, /yarn mercato agentic:init --update-harness/)
+    assert.doesNotMatch(source, /missing context[^\n]+agentic:init`/i)
   }
 })
 

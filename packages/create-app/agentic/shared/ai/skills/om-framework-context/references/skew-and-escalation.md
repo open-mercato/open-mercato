@@ -2,7 +2,7 @@
 
 Load this reference when context resolution is degraded or contradictory.
 
-- **Fact/version mismatch:** rerun generation; do not use stale facts with newer source.
+- **Fact/version mismatch:** do not use stale facts with newer source. After registry inputs change, run `yarn generate` and then `yarn mercato agentic:init --update-harness`; after a dependency-only upgrade, run only the update command. Generation alone does not refresh harness facts.
 - **Duplicate module/package versions:** require an explicit package/version selected by app-root resolution; report all candidates.
 - **No source:** use package `dist` plus declarations and state that source-level analysis is limited.
 - **Missing package/module AGENTS:** continue with available app/snapshot/package rules and exact code; report the gap.

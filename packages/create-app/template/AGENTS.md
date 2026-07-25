@@ -4,7 +4,7 @@ Extend this app. Route here first; load every match; never probe unmatched conte
 
 ## Always
 
-- Match every routing axis; for missing context run `yarn mercato agentic:init`.
+- Route all axes; missing context: `yarn mercato agentic:init --update-harness`.
 - App code: `src/modules/<id>/`; framework context only for a named version gap.
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
 - Use commands, `makeCrudRoute`, `CrudForm`/`DataTable`, DI, events, and UMES on canonical paths.

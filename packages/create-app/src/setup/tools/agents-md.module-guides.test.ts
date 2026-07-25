@@ -6,8 +6,10 @@ import test from 'node:test'
 import {
   injectModuleGuides,
   readEnabledModuleIds,
+  renderModuleGuidesBlock,
   selectModuleFactSheets,
 } from './shared.js'
+import { renderModuleGuidesBlock as renderCliModuleGuidesBlock } from '../../../../cli/src/lib/agentic-setup.js'
 
 // A fixture bundle of fact-sheets that build.mjs would have written to
 // dist/agentic/guides/modules/. Post-auto-discovery the real bundle is every
@@ -118,6 +120,12 @@ test('injectModuleGuides writes exactly the selected ID index, drops the hedge, 
   injectModuleGuides(agentsPath, ['customers', 'sales'])
   const secondPass = fs.readFileSync(agentsPath, 'utf8')
   assert.equal(secondPass, firstPass)
+})
+
+test('create-app and agentic:init render byte-identical module fact indexes', () => {
+  for (const selected of [[], ['customers', 'sales'], BUNDLED_FIXTURE]) {
+    assert.equal(renderModuleGuidesBlock(selected), renderCliModuleGuidesBlock(selected))
+  }
 })
 
 test('injectModuleGuides keeps a large enabled set compact and never embeds fact descriptions (T6)', () => {

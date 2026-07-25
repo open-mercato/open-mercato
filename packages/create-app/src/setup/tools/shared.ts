@@ -69,7 +69,7 @@ export function selectModuleFactSheets(targetDir: string, modulesSubdir: string)
 const MODULE_GUIDES_START = '<!-- om:module-guides:start -->'
 const MODULE_GUIDES_END = '<!-- om:module-guides:end -->'
 
-function renderModuleGuidesBlock(selected: string[]): string {
+export function renderModuleGuidesBlock(selected: string[]): string {
   if (selected.length === 0) return '_No module fact-sheets are bundled for this app._'
   return [
     `Enabled module facts: ${selected.map((moduleId) => `\`${moduleId}\``).join(',')}.`,

@@ -717,7 +717,7 @@ function buildResult(args) {
         ? [`Upstream snapshot ${snapshotVersion} differs from installed ${packageName}@${packageManifest.version}.`]
         : []),
       ...(!factsCurrent
-        ? [`Generated facts for ${moduleId} are stale and must not be used until yarn generate/agentic:init refreshes them.`]
+        ? [`Generated facts for ${moduleId} are stale. After registry changes run yarn generate, then yarn mercato agentic:init --update-harness; after a dependency-only upgrade run the update-harness command.`]
         : []),
       ...packageDiagnosticWarnings(installedPackages),
     ],

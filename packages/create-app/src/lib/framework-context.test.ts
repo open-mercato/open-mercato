@@ -310,7 +310,9 @@ test('marks generated facts stale when their source package differs at the same 
     sourcePackage: '@open-mercato/not-core',
     sourceVersion: '0.6.6',
   })
-  assert.ok(parsed.warnings.some((warning) => warning.includes('Generated facts for customers are stale')))
+  const staleWarning = parsed.warnings.find((warning) => warning.includes('Generated facts for customers are stale'))
+  assert.match(staleWarning ?? '', /yarn generate, then yarn mercato agentic:init --update-harness/)
+  assert.doesNotMatch(staleWarning ?? '', /until yarn generate(?:\W|$)/)
 })
 
 test('materializes deterministic search output with one global match cap', () => {

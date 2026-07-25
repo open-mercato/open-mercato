@@ -135,10 +135,10 @@ function selectModuleFactSheets(targetDir: string, modulesSubdir: string): strin
 const MODULE_GUIDES_START = '<!-- om:module-guides:start -->'
 const MODULE_GUIDES_END = '<!-- om:module-guides:end -->'
 
-function renderModuleGuidesBlock(selected: string[]): string {
+export function renderModuleGuidesBlock(selected: string[]): string {
   if (selected.length === 0) return '_No module fact-sheets are bundled for this app._'
   return [
-    `Enabled module facts: ${selected.map((moduleId) => `\`${moduleId}\``).join(', ')}.`,
+    `Enabled module facts: ${selected.map((moduleId) => `\`${moduleId}\``).join(',')}.`,
     '',
     'Load `.ai/guides/modules/<id>.md` only when `<id>` is explicitly named or is the targeted installed module/host; never preload all module facts.',
   ].join('\n')
