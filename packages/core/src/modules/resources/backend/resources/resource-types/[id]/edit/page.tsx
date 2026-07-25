@@ -11,6 +11,9 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { extractCustomFieldValues } from '@open-mercato/core/modules/sales/components/documents/customFieldHelpers'
 import { buildResourceTypePayload, ResourceTypeCrudForm, type ResourceTypeFormValues } from '@open-mercato/core/modules/resources/components/ResourceTypeCrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('resources').child({ component: 'resource-types-edit-page' })
 
 type ResourceTypesResponse = {
   items?: Array<Record<string, unknown>>
@@ -77,7 +80,7 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
               : 0)
         }
       } catch (err) {
-        console.error('resources.resource-types.load', err)
+        logger.error('Failed to load resource types', { err })
         if (!cancelled) setError(t('resources.resourceTypes.errors.load', 'Failed to load resource types.'))
       } finally {
         if (!cancelled) setLoading(false)

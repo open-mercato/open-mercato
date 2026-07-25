@@ -1,4 +1,8 @@
 import type { AwilixContainer } from 'awilix'
+import { createLogger } from '../logger'
+import { resolveCrudMutationGuardService } from './mutation-guard-service'
+
+const logger = createLogger('shared').child({ component: 'crud' })
 
 export type CrudMutationGuardValidationSuccess = {
   ok: true
@@ -40,23 +44,6 @@ export type CrudMutationGuardAfterSuccessInput = {
   metadata?: Record<string, unknown> | null
 }
 
-type CrudMutationGuardServiceLike = {
-  validateMutation: (input: CrudMutationGuardValidateInput) => Promise<CrudMutationGuardValidationResult>
-  afterMutationSuccess: (input: CrudMutationGuardAfterSuccessInput) => Promise<void>
-}
-
-function resolveCrudMutationGuardService(container: AwilixContainer): CrudMutationGuardServiceLike | null {
-  try {
-    const service = container.resolve<CrudMutationGuardServiceLike>('crudMutationGuardService')
-    if (!service) return null
-    if (typeof service.validateMutation !== 'function') return null
-    if (typeof service.afterMutationSuccess !== 'function') return null
-    return service
-  } catch {
-    return null
-  }
-}
-
 /**
  * @deprecated Resolves ONLY the single DI-registered `crudMutationGuardService`,
  * so it silently bypasses every guard in the global mutation-guard store
@@ -94,12 +81,12 @@ export async function runCrudMutationGuardAfterSuccess(
   try {
     await service.afterMutationSuccess(input)
   } catch (error) {
-    console.error('[crud-mutation-guard] after-success hook failed', {
+    logger.error('Mutation guard after-success hook failed', {
       resourceKind: input.resourceKind,
       resourceId: input.resourceId,
       operation: input.operation,
       requestMethod: input.requestMethod,
-      error: error instanceof Error ? error.message : String(error),
+      err: error,
     })
   }
 }

@@ -56,6 +56,7 @@ const moduleEntities: Record<string, string[]> = {
   feature_toggles: ['FeatureToggle'],
   workflows: ['WorkflowDefinition'],
   directory: ['Organization', 'Tenant'],
+  messages: ['Message'],
 }
 
 function readEntitySource(moduleId: string): string {

@@ -18,6 +18,9 @@ import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DEFAULT_SETTINGS, hydrateSalesNewOrdersSettings, type DatePeriodOption, type SalesNewOrdersSettings } from './config'
 import { readString, toDateInputValue, openNativeDatePicker, formatAmount } from '../shared'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type NewOrderItem = {
   id: string
@@ -115,7 +118,7 @@ const SalesNewOrdersWidget: React.FC<DashboardWidgetComponentProps<SalesNewOrder
       const data = await loadNewOrders(hydrated)
       setItems(data)
     } catch (err) {
-      console.error('Failed to load new orders widget data', err)
+      logger.error('Failed to load new orders widget data', { err })
       setError(translate('sales.widgets.newOrders.error', 'Failed to load orders'))
     } finally {
       setLoading(false)

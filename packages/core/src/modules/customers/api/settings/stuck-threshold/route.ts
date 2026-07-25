@@ -19,6 +19,9 @@ import {
 import { loadCustomerSettings } from '../../../commands/settings'
 import { withScopedPayload } from '../../utils'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const DEFAULT_THRESHOLD = 14
 
@@ -84,7 +87,7 @@ export async function GET(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('customers.settings.stuck-threshold.get failed', err)
+    logger.error('customers.settings.stuck-threshold.get failed', { err })
     return NextResponse.json(
       { error: translate('customers.errors.lookup_failed', 'Failed to load settings') },
       { status: 400 },
@@ -149,7 +152,7 @@ export async function PUT(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('customers.settings.stuck-threshold.put failed', err)
+    logger.error('customers.settings.stuck-threshold.put failed', { err })
     return NextResponse.json(
       { error: translate('customers.errors.save_failed', 'Failed to save settings') },
       { status: 400 },

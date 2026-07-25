@@ -13,6 +13,9 @@ import {
   sortTodoRows,
   type CustomerTodoRow,
 } from '../../../../lib/todoCompatibility'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const querySchema = z.object({
   limit: z.coerce.number().min(1).max(20).default(5),
@@ -130,7 +133,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.widgets.todos failed', err)
+    logger.error('customers.widgets.todos failed', { err })
     return NextResponse.json(
       { error: translate('customers.widgets.todos.error', 'Failed to load customer tasks') },
       { status: 500 }

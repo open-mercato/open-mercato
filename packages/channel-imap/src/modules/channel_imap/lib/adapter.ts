@@ -33,6 +33,9 @@ import { normalizeInboundImapMessage } from './normalize-inbound'
 import { validateImapCredentials } from './validate-credentials'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
 import { decodeCursor, encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('channel_imap')
 
 /**
  * IMAP+SMTP `ChannelAdapter`. Inbound is polling-driven (`realtimePush: false`),
@@ -117,10 +120,7 @@ class ImapChannelAdapter implements ChannelAdapter {
       // Sent mailbox name is provider-specific (localized, or "[Gmail]/Sent Mail").
       // Log so operators can diagnose missing Sent-folder archival rather than
       // failing the send.
-      console.warn(
-        '[internal] channel_imap: failed to append outbound message to Sent folder:',
-        appendError instanceof Error ? appendError.message : appendError,
-      )
+      logger.warn('failed to append outbound message to Sent folder', { err: appendError })
     }
 
     return {
@@ -184,11 +184,10 @@ class ImapChannelAdapter implements ChannelAdapter {
       folderState.uidValidity !== undefined &&
       folderState.uidValidity !== previousUidValidity
     if (uidValidityMismatch) {
-      console.warn(
-        '[channel-imap] UIDVALIDITY changed for INBOX (was %s, now %s) — discarding cursor and re-bootstrapping',
+      logger.warn('UIDVALIDITY changed for INBOX — discarding cursor and re-bootstrapping', {
         previousUidValidity,
-        folderState.uidValidity,
-      )
+        uidValidity: folderState.uidValidity,
+      })
     }
     const needsBootstrap =
       uidValidityMismatch || previousUidNext === undefined || previousUidNext === null

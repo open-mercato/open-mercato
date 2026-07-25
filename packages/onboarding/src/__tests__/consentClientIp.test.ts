@@ -33,10 +33,10 @@ describe('resolveConsentClientIp', () => {
     expect(resolveConsentClientIp(req)).toBe('edge')
   })
 
-  it('falls back to X-Real-IP when X-Forwarded-For is untrusted', () => {
+  it('ignores X-Real-IP when no proxy is trusted', () => {
     getCachedRateLimiterService.mockReturnValue({ trustProxyDepth: 0 })
     const req = makeRequest({ 'x-forwarded-for': '6.6.6.6', 'x-real-ip': '10.0.0.5' })
-    expect(resolveConsentClientIp(req)).toBe('10.0.0.5')
+    expect(resolveConsentClientIp(req)).toBeNull()
   })
 
   it('returns null when the rate limiter service is unavailable', () => {

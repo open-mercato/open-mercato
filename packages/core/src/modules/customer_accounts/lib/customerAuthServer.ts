@@ -14,6 +14,9 @@ import { tryNormalizeHostname } from '@open-mercato/core/modules/customer_accoun
 import { platformDomains } from '@open-mercato/core/modules/customer_accounts/lib/platformDomains'
 import { validateUserState } from './customerAuth'
 import type { CustomerAuthContext } from './customerAuth'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customer_accounts').child({ component: 'customer-auth-server' })
 
 export type { CustomerAuthContext }
 
@@ -114,7 +117,7 @@ export async function getCustomerAuthForHost(
     if (!resolved || resolved.status !== 'active') return null
     return getCustomerAuthFromCookies({ expectedTenantId: resolved.tenantId })
   } catch (err) {
-    console.warn('[customer_accounts] getCustomerAuthForHost: domain resolve failed; falling back to platform cookie', err)
+    logger.warn('Domain resolve failed; falling back to platform cookie', { err })
     return getCustomerAuthFromCookies()
   }
 }

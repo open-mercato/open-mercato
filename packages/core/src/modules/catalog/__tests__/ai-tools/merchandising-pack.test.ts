@@ -28,6 +28,19 @@ jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
     loadCustomFieldDefinitionIndexMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+import { createLogger as createLoggerMocked } from '@open-mercato/shared/lib/logger'
 import merchandisingAiTools from '../../ai-tools/merchandising-pack'
 import aiTools from '../../ai-tools'
 import { knownFeatureIds, makeCtx } from './shared'
@@ -278,7 +291,8 @@ describe('catalog.list_selected_products', () => {
       searchService: null,
       pricingService: { resolvePrice: jest.fn().mockResolvedValue(null) },
     })
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const warnSpy = createLoggerMocked('catalog').warn as jest.Mock
+    warnSpy.mockClear()
     try {
       const result = (await tool.handler({ productIds: [crossId, okId] }, ctx as any)) as Record<string, unknown>
       const items = result.items as Array<Record<string, unknown>>
@@ -287,7 +301,7 @@ describe('catalog.list_selected_products', () => {
       expect(missingIds).toEqual([crossId])
       expect(warnSpy).toHaveBeenCalled()
     } finally {
-      warnSpy.mockRestore()
+      warnSpy.mockClear()
     }
   })
 

@@ -3,6 +3,9 @@ import type { AttachmentAssignment } from './metadata'
 import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('attachments')
 
 type AssignmentLinkSpec = {
   labelFields?: string[]
@@ -271,7 +274,7 @@ export async function resolveAssignmentEnrichments(
         }
       }
     } catch (error) {
-      console.warn('[attachments] Failed to resolve assignment details for', entityId, error)
+      logger.warn('Failed to resolve assignment details', { entityId, err: error })
     }
   }
   return map

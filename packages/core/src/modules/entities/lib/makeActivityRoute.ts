@@ -11,6 +11,9 @@ import {
   createPagedListResponseSchema as createSharedPagedListResponseSchema,
   defaultOkResponseSchema as sharedDefaultOkResponseSchema,
 } from '@open-mercato/shared/lib/openapi/crud'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('entities').child({ component: 'activity-route' })
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- MikroORM entity class constructor
 type EntityClass = new (...args: any[]) => unknown
@@ -271,7 +274,7 @@ export function makeActivityRoute(config: ActivityRouteConfig) {
             if (!('author_email' in record)) record.author_email = meta.email
           })
         } catch (err) {
-          console.warn(`${logPrefix} failed to enrich author metadata`, err)
+          logger.warn('Failed to enrich author metadata', { logPrefix, err })
         }
       },
     },

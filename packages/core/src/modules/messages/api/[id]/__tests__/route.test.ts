@@ -1,6 +1,7 @@
-import { GET, PATCH } from '@open-mercato/core/modules/messages/api/[id]/route'
+import { GET, PATCH, DELETE } from '@open-mercato/core/modules/messages/api/[id]/route'
 import { Message, MessageObject, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 const resolveMessageContextMock = jest.fn()
 const hasOrganizationAccessMock = jest.fn(() => true)
@@ -465,5 +466,107 @@ describe('messages /api/messages/[id] PATCH', () => {
       organizationId,
       userId,
     }))
+  })
+})
+
+describe('messages /api/messages/[id] optimistic locking', () => {
+  const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+  const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const messageId = '22222222-2222-4222-8222-222222222222'
+  const currentUpdatedAt = new Date('2026-02-24T10:00:00.000Z')
+
+  function setupDraft(overrides: Record<string, unknown> = {}) {
+    const draftMessage = {
+      id: messageId,
+      tenantId,
+      organizationId,
+      senderUserId: userId,
+      isDraft: true,
+      deletedAt: null,
+      updatedAt: currentUpdatedAt,
+      ...overrides,
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockResolvedValue(draftMessage),
+    }
+    const commandBus = {
+      execute: jest.fn().mockResolvedValue({ result: { ok: true, id: messageId }, logEntry: null }),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        return null
+      },
+    }
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container, auth: null },
+      scope: { tenantId, organizationId, userId },
+    })
+    return { commandBus }
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    hasOrganizationAccessMock.mockReturnValue(true)
+  })
+
+  it('rejects a stale draft PATCH with a structured 409 and leaves the message untouched', async () => {
+    const { commandBus } = setupDraft()
+    const request = new Request(`https://example.test/api/messages/${messageId}`, {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-02-24T09:00:00.000Z',
+      },
+      body: JSON.stringify({ subject: 'Stale edit', body: 'Stale body' }),
+    })
+
+    const response = await PATCH(request, { params: { id: messageId } })
+
+    expect(response.status).toBe(409)
+    const body = await response.json()
+    expect(body).toEqual(expect.objectContaining({
+      code: 'optimistic_lock_conflict',
+      currentUpdatedAt: currentUpdatedAt.toISOString(),
+      expectedUpdatedAt: '2026-02-24T09:00:00.000Z',
+    }))
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('allows a draft PATCH whose expected version matches the current one', async () => {
+    const { commandBus } = setupDraft()
+    const request = new Request(`https://example.test/api/messages/${messageId}`, {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        [OPTIMISTIC_LOCK_HEADER_NAME]: currentUpdatedAt.toISOString(),
+      },
+      body: JSON.stringify({ subject: 'Fresh edit', body: 'Fresh body' }),
+    })
+
+    const response = await PATCH(request, { params: { id: messageId } })
+
+    expect(response.status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a stale draft DELETE with a structured 409', async () => {
+    const { commandBus } = setupDraft()
+    const request = new Request(`https://example.test/api/messages/${messageId}`, {
+      method: 'DELETE',
+      headers: {
+        [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-02-24T09:00:00.000Z',
+      },
+    })
+
+    const response = await DELETE(request, { params: { id: messageId } })
+
+    expect(response.status).toBe(409)
+    const body = await response.json()
+    expect(body).toEqual(expect.objectContaining({ code: 'optimistic_lock_conflict' }))
+    expect(commandBus.execute).not.toHaveBeenCalled()
   })
 })

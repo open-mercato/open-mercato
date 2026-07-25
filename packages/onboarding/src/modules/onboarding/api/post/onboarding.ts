@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { defaultLocale, locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
@@ -17,6 +18,8 @@ import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/sha
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+
+const logger = createLogger('onboarding').child({ component: 'start' })
 
 export const metadata = {
   path: '/onboarding/onboarding',
@@ -175,7 +178,7 @@ export async function POST(req: Request) {
     } catch (err) {
       request.lastEmailSentAt = null
       await em.flush()
-      console.error('[onboarding.start] verification email failed', err)
+      logger.error('Verification email failed', { err })
       return NextResponse.json({
         ok: false,
         error: translate(
@@ -206,12 +209,12 @@ export async function POST(req: Request) {
         react: AdminNotificationEmail({ copy: adminCopy }),
       })
     } catch (err) {
-      console.error('[onboarding.start] admin email failed', err)
+      logger.error('Admin email failed', { err })
     }
 
     return NextResponse.json({ ok: true, email: request.email })
   } catch (error) {
-    console.error('[onboarding.start] failed', error)
+    logger.error('Onboarding start failed', { err: error })
     return NextResponse.json({
       ok: false,
       error: translate('onboarding.form.genericError', 'Something went wrong. Please try again later.'),

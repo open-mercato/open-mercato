@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Add the first upstreamable `sync_excel` slice as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. The slice now includes the additive `data_sync` contract changes (`runId`, richer field mapping semantics), a provider-owned upload session entity, upload/preview/import APIs, a `customers.person` adapter with external-ID/email dedupe that is safe under encrypted customer columns, an integration-detail admin tab, tenant custom-field mapping support with typed value coercion in the import flow, flattened primary-address mapping/import for one address per CSV row, resumable upload/mapping state in the integration detail view, polling-based run/log/health refresh, duplicate-risk warnings, and automated unit/integration coverage. After production verification on split ECS web/worker tasks, the upload attachment now also stores an inline CSV copy in attachment metadata so imports do not depend on container-local attachment storage.
+Add the first upstreamable `sync_excel` slice as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. The slice now includes the additive `data_sync` contract changes (`runId`, richer field mapping semantics), a provider-owned upload session entity, upload/preview/import APIs, a `customers.person` adapter with external-ID/email dedupe that is safe under encrypted customer columns, an integration-detail admin tab, tenant custom-field mapping support with typed value coercion in the import flow, flattened primary-address mapping/import for one address per CSV row, resumable upload/mapping state in the integration detail view, polling-based run/log/health refresh, duplicate-risk warnings, and automated unit/integration coverage. Upload attachments are stored through the attachments partition path without a second inline base64 copy in attachment metadata; legacy rows that already contain `inlineCsvBase64` remain readable only as a fallback when the stored file cannot be read.
 
 ## Overview
 
@@ -24,7 +24,7 @@ Implement `sync_excel` as a first-class `data_sync` provider with these capabili
 
 1. Add optional `runId` to `StreamImportInput` and `StreamExportInput`
 2. Add optional `mappingKind` and `dedupeRole` to `FieldMapping`
-3. Introduce provider-owned `SyncExcelUpload` state backed by attachments with an inline attachment-metadata CSV fallback for worker-safe reads; persisted cursors keep only upload identity + row offset, never CSV payload bytes
+3. Introduce provider-owned `SyncExcelUpload` state backed by attachments; persisted cursors keep only upload identity + row offset, never CSV payload bytes, and legacy inline attachment-metadata CSV is read only as a fallback for pre-existing rows
 4. Expose provider APIs for upload, preview, and import start; all three require an explicitly selected concrete organization and reject the topbar “All organizations” scope with `422`
 5. Reuse `data_sync` runs, queue orchestration, and progress lifecycle for background execution
 6. Scope the first target adapter to `customers.person`
@@ -63,7 +63,7 @@ This keeps the architecture aligned with upstream `SPEC-045b` and avoids a stand
 ### Execution model
 
 1. Admin uploads a CSV file to `sync_excel`
-2. Provider stores the file via `attachments`, persists a `SyncExcelUpload` record, and keeps an inline CSV copy in attachment metadata for worker-safe reads
+2. Provider stores the file via `attachments` and persists a `SyncExcelUpload` record without duplicating the CSV bytes in attachment metadata
 2a. Provider cursors persist only `{ uploadId, offset }`; workers re-resolve upload/attachment state on resume instead of copying file contents into `sync_cursors.cursor`
 3. Provider returns headers, sample rows, row count, and suggested mapping
 4. Admin confirms mapping and starts import
@@ -175,7 +175,7 @@ No new sync-excel-specific env vars are introduced by the feature itself.
 
 CSV uploads reuse the existing global attachment upload cap (`OM_ATTACHMENT_MAX_UPLOAD_MB` / `OPENMERCATO_ATTACHMENT_MAX_UPLOAD_MB`) for both multipart content-length preflight and file-size validation before buffering.
 
-No new migration is required for the split-task fix because the worker-safe CSV copy is stored in existing `attachments.storage_metadata`.
+No new migration is required for the upload storage hardening because the attachment row keeps the same schema and new uploads no longer write duplicate CSV bytes into `attachments.storage_metadata`.
 
 ## Alternatives Considered
 
@@ -218,7 +218,7 @@ Rejected because provider-owned upload flows should remain behind provider APIs 
 | CSV mapping UI drops unmapped columns | Medium | `sync_excel` preview/import | Preview preserves all headers and distinguishes unmapped columns explicitly | Low |
 | File-backed imports create duplicate people | Medium | `customers.person` import | Prefer external ID mapping, fallback to decrypted batch-level email candidate scan, keep scope limited to one entity type in v1 | Low |
 | First PR scope grows into company/address/deals | Medium | reviewability / upstream acceptance | Current slice limits target support to `customers.person` only | Low |
-| Split web/worker deployments lose access to container-local upload files | High | release readiness | Persist inline CSV fallback in attachment metadata and verify imports on ECS | Low |
+| Split web/worker deployments lose access to container-local upload files | High | release readiness | Read persisted attachments from the partition storage path and keep legacy inline metadata only as a fallback for rows created before the hardening fix | Medium |
 | “All organizations” imports create orphan or unintended records | High | `sync_excel` provider APIs | Upload, preview, and import require an explicit selected organization and reject `__all__` with `422` | Low |
 
 ## Migration & Backward Compatibility
@@ -327,3 +327,8 @@ This branch remains additive-only because the operational fix reuses existing at
 - Added typed custom-field coercion for imported CSV values with per-row failures for invalid typed values
 - Added Health/Logs run activity refresh controls and polling independent of the injected `sync_excel` tab lifecycle
 - Added focused retest coverage for concrete scope rejection, cursor/upload hardening preservation, encrypted email dedupe, and typed custom-field coercion
+
+### 2026-07-07
+
+- Removed the inline base64 CSV copy from newly-created sync_excel upload attachment metadata to avoid permanent database bloat and duplicate at-rest PII.
+- Changed upload reads to prefer attachment partition storage and use legacy `inlineCsvBase64` metadata only as a fallback for pre-existing rows whose stored file is unavailable.

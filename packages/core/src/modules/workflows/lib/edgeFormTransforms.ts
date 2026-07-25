@@ -8,6 +8,9 @@
 import type { Edge } from '@xyflow/react'
 import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { TransitionCondition } from '../components/fields/BusinessRuleConditionsEditor'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 /**
  * Normalized condition format (object only, no string)
@@ -119,7 +122,7 @@ export function formValuesToEdgeUpdates(
       const parsed = JSON.parse(values.advancedConfig)
       Object.assign(updates, parsed)
     } catch (error) {
-      console.error('Invalid JSON in Advanced Configuration:', error)
+      logger.error('Invalid JSON in Advanced Configuration', { err: error })
       throw new Error('Invalid JSON in Advanced Configuration. Please check your syntax.')
     }
   }

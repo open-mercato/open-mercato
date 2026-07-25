@@ -69,6 +69,7 @@
   "shipping_carriers.create.summary.targetPoint": "Paketbox",
   "shipping_carriers.create.summary.to": "Nach",
   "shipping_carriers.create.title": "Sendung beim Transporteur erstellen",
+  "shipping_carriers.errors.upstreamFailed": "Anfrage an den Transporteur fehlgeschlagen. Versuchen Sie es spaeter erneut.",
   "shipping_carriers.feature.manage": "Versanddienstleister-Vorgaenge verwalten",
   "shipping_carriers.feature.view": "Sendungen der Versanddienstleister anzeigen",
   "shipping_carriers.status.cancelled": "Storniert",

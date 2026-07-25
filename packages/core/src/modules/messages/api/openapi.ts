@@ -62,6 +62,7 @@ export const messageThreadItemSchema = z.object({
 
 export const messageDetailResponseSchema = z.object({
   id: z.string().uuid(),
+  updatedAt: z.string().nullable().optional(),
   type: z.string(),
   isDraft: z.boolean(),
   canEditDraft: z.boolean(),

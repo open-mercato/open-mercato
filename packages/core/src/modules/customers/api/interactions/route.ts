@@ -29,6 +29,9 @@ import { applyEmailVisibilityFilter } from '../../lib/visibilityFilter'
 import { resolveEncryptedSortPage } from './encryptedSortPage'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -122,7 +125,7 @@ const crud = makeCrudRoute({
           } catch (err) {
             // Bridging is best-effort; downstream lookup will surface a 404
             // when neither canonical nor legacy rows exist.
-            console.warn('[customers.interactions.put] legacy bridge failed', { id: parsed.id, error: err })
+            logger.warn('Legacy interaction bridge failed', { component: 'interactions.put', id: parsed.id, err })
           }
         }
         return parsed
@@ -492,7 +495,8 @@ export async function GET(req: Request) {
       }
       const candidateRows = await candidateQuery.execute() as Array<{ id: string } & Record<string, unknown>>
       if (cap !== null && candidateRows.length >= cap) {
-        console.warn('[customers/interactions.GET] encrypted sort candidate scan hit OM_ENCRYPTED_SORT_MAX_ROWS cap; results may be incomplete', {
+        logger.warn('Encrypted sort candidate scan hit OM_ENCRYPTED_SORT_MAX_ROWS cap; results may be incomplete', {
+          component: 'interactions.GET',
           cap,
           sortField: sortConfig.column,
           tenantId: auth.tenantId,
@@ -508,7 +512,7 @@ export async function GET(req: Request) {
             const decrypted = await decryptPayload(CUSTOMER_INTERACTION_ENTITY_ID, row, auth.tenantId, selectedOrganizationId)
             return { ...row, ...decrypted }
           } catch (err) {
-            console.error('[customers/interactions.GET] error decrypting sort candidate', err)
+            logger.error('error decrypting sort candidate', { component: 'interactions.GET', err })
             return row
           }
         },
@@ -695,7 +699,7 @@ export async function GET(req: Request) {
         { status: 400 },
       )
     }
-    console.error('customers.interactions.get failed', err)
+    logger.error('customers.interactions.get failed', { err })
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('customers.interactions.load.error', 'Failed to load interactions.') },

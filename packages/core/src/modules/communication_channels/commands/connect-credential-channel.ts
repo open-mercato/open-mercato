@@ -4,6 +4,9 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { createConnectedChannelRow, MailboxAlreadyConnectedError } from '../lib/connect-channel'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'connect-credential-channel' })
 
 const connectCredentialChannelSchema = z.object({
   providerKey: z.string().min(1).max(64),
@@ -120,11 +123,7 @@ const connectCredentialChannelCommand: CommandHandler<
         )
         credentialsPersisted = true
       } catch (err) {
-        console.warn(
-          `[communication_channels:connect_credential] credentials persist failed for ${input.providerKey}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        )
+        logger.warn('credentials persist failed for provider', { providerKey: input.providerKey, err })
       }
       // Resolve the saved row id so we can link channel.credentialsRef. Best-effort.
       if (credentialsPersisted) {
@@ -225,11 +224,7 @@ const connectCredentialChannelCommand: CommandHandler<
         } catch (err) {
           // Never fail the connect on push errors — operator can manually
           // re-register via the dedicated route. Log + continue.
-          console.warn(
-            `[connect-credential-channel] best-effort pushRegister failed for ${channel.id}: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          )
+          logger.warn('best-effort pushRegister failed for channel', { channelId: channel.id, err })
         }
       }
     }

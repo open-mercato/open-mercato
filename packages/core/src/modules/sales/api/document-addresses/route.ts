@@ -1,10 +1,13 @@
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createSalesCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
 import { withScopedPayload } from '../utils'
-import { SalesDocumentAddress } from '../../data/entities'
+import { SalesDocumentAddress, SalesOrder, SalesQuote } from '../../data/entities'
 import {
   documentAddressCreateSchema,
   documentAddressDeleteSchema,
@@ -34,8 +37,131 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
+type DocumentKind = 'order' | 'quote'
+type DocumentAddressAccess = 'view' | 'manage'
+type Translate = (key: string, fallback?: string) => string
+
+const DOCUMENT_ADDRESS_FEATURES: Record<DocumentKind, Record<DocumentAddressAccess, string>> = {
+  order: { view: 'sales.orders.view', manage: 'sales.orders.manage' },
+  quote: { view: 'sales.quotes.view', manage: 'sales.quotes.manage' },
+}
+
+function toDocumentKind(value: unknown): DocumentKind | null {
+  return value === 'order' || value === 'quote' ? value : null
+}
+
+async function resolveDocumentKindForRead(query: { documentId?: string; documentKind?: DocumentKind }, ctx: CrudCtx) {
+  if (query.documentKind) return query.documentKind
+
+  const tenantId = ctx.auth?.tenantId ?? null
+  const organizationId =
+    ctx.selectedOrganizationId ??
+    ctx.auth?.orgId ??
+    (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length === 1 ? ctx.organizationIds[0] : null)
+  if (!query.documentId || !tenantId || !organizationId) return null
+
+  const em = ctx.container.resolve('em') as EntityManager
+  const scope = { tenantId, organizationId }
+  const order = await findOneWithDecryption(em, SalesOrder, { id: query.documentId, tenantId, organizationId }, {}, scope)
+  if (order) return 'order'
+  const quote = await findOneWithDecryption(em, SalesQuote, { id: query.documentId, tenantId, organizationId }, {}, scope)
+  if (quote) return 'quote'
+  return null
+}
+
+async function ensureDocumentAddressReadAccess(query: { documentId?: string; documentKind?: DocumentKind }, ctx: CrudCtx) {
+  const documentKind = await resolveDocumentKindForRead(query, ctx)
+  const requiredFeatures = documentKind
+    ? [DOCUMENT_ADDRESS_FEATURES[documentKind].view]
+    : [DOCUMENT_ADDRESS_FEATURES.order.view, DOCUMENT_ADDRESS_FEATURES.quote.view]
+  await ensureDocumentAddressAccess(ctx, requiredFeatures)
+  return documentKind
+}
+
+async function resolveExistingAddressKind(
+  ctx: CrudCtx,
+  id: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<DocumentKind | null> {
+  const em = ctx.container.resolve('em') as EntityManager
+  const address = await findOneWithDecryption(
+    em,
+    SalesDocumentAddress,
+    { id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    {},
+    scope,
+  )
+  return toDocumentKind(address?.documentKind)
+}
+
+async function ensureDocumentAddressAccess(
+  ctx: CrudCtx,
+  requiredFeatures: string[],
+  translate?: Translate,
+): Promise<void> {
+  const resolvedTranslate = translate ?? (await resolveTranslations()).translate
+  const auth = ctx.auth
+  if (!auth?.sub) {
+    throw new CrudHttpError(401, { error: resolvedTranslate('api.errors.unauthorized', 'Unauthorized') })
+  }
+
+  let rbac: RbacService | null = null
+  try {
+    rbac = ctx.container.resolve('rbacService') as RbacService
+  } catch {
+    rbac = null
+  }
+
+  const ok = rbac
+    ? await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
+        tenantId: auth.tenantId ?? null,
+        organizationId: ctx.selectedOrganizationId ?? auth.orgId ?? null,
+      })
+    : false
+  if (!ok) {
+    throw new CrudHttpError(403, {
+      error: resolvedTranslate('api.errors.forbidden', 'Forbidden'),
+      requiredFeatures,
+    })
+  }
+}
+
+async function ensureDocumentAddressKindAccess(
+  ctx: CrudCtx,
+  documentKind: DocumentKind,
+  access: DocumentAddressAccess,
+  translate?: Translate,
+): Promise<void> {
+  await ensureDocumentAddressAccess(ctx, [DOCUMENT_ADDRESS_FEATURES[documentKind][access]], translate)
+}
+
+async function ensureDocumentAddressMutationAccess(
+  ctx: CrudCtx,
+  input: { id: string; documentKind: DocumentKind; tenantId: string; organizationId: string },
+  options: { includeTargetKind: boolean; translate?: Translate },
+): Promise<void> {
+  const existingKind = await resolveExistingAddressKind(ctx, input.id, {
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
+  })
+  const featureKinds = new Set<DocumentKind>()
+  if (existingKind) featureKinds.add(existingKind)
+  if (!existingKind || options.includeTargetKind) featureKinds.add(input.documentKind)
+
+  await ensureDocumentAddressAccess(
+    ctx,
+    [...featureKinds].map((kind) => DOCUMENT_ADDRESS_FEATURES[kind].manage),
+    options.translate,
+  )
+}
+
 const crud = makeCrudRoute({
   metadata: routeMetadata,
+  hooks: {
+    beforeList: async (query, ctx) => {
+      await ensureDocumentAddressReadAccess(query, ctx)
+    },
+  },
   orm: {
     entity: SalesDocumentAddress,
     idField: 'id',
@@ -76,12 +202,13 @@ const crud = makeCrudRoute({
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
-    buildFilters: async (query: any) => {
+    buildFilters: async (query: any, ctx) => {
+      const documentKind = await resolveDocumentKindForRead(query, ctx)
       const filters: Record<string, any> = {
         document_id: { $eq: query.documentId },
       }
 
-      if (query.documentKind) filters.document_kind = { $eq: query.documentKind }
+      if (query.documentKind ?? documentKind) filters.document_kind = { $eq: query.documentKind ?? documentKind }
       return filters
     },
   },
@@ -91,7 +218,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return documentAddressCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const input = documentAddressCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        await ensureDocumentAddressKindAccess(ctx, input.documentKind, 'manage', translate)
+        return input
       },
       response: ({ result }) => ({ id: result?.id ?? null }),
       status: 201,
@@ -101,7 +230,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return documentAddressUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const input = documentAddressUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        await ensureDocumentAddressMutationAccess(ctx, input, { includeTargetKind: true, translate })
+        return input
       },
       response: () => ({ ok: true }),
     },
@@ -128,7 +259,9 @@ const crud = makeCrudRoute({
             error: translate('sales.documents.detail.error', 'Document not found or inaccessible.'),
           })
         }
-        return documentAddressDeleteSchema.parse(withScopedPayload({ id, documentId, documentKind }, ctx, translate))
+        const input = documentAddressDeleteSchema.parse(withScopedPayload({ id, documentId, documentKind }, ctx, translate))
+        await ensureDocumentAddressMutationAccess(ctx, input, { includeTargetKind: false, translate })
+        return input
       },
       response: () => ({ ok: true }),
     },

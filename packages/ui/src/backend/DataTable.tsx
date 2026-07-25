@@ -36,6 +36,7 @@ import { apiCall, withScopedApiRequestHeaders } from './utils/apiCall'
 import { buildOptimisticLockHeader } from './utils/optimisticLock'
 import { useGuardedMutation } from './injection/useGuardedMutation'
 import { raiseCrudError } from './utils/serverErrors'
+import { computeMenuViewportShiftX } from './utils/viewport'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
 import { formatWithPublicDateFormat, normalizeDateFormatPattern } from '../primitives/date-format'
@@ -92,6 +93,9 @@ import {
   useSortable,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'DataTable' })
 
 let refreshScheduled = false
 
@@ -276,7 +280,7 @@ export type DataTableProps<T> = {
    * bridge. The bridge is provided for one minor version; legacy callers SHOULD
    * migrate to the tree shape — see the spec
    * `.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md` "Migration & Backward
-   * Compatibility" section and `RELEASE_NOTES.md`.
+   * Compatibility" section and `UPGRADE_NOTES.md`.
    *
    * When the legacy flat shape is detected, DataTable converts it to a tree via
    * `flatToTree` for internal rendering and converts any user edits back via
@@ -393,7 +397,7 @@ function collectUniqueById<T extends { id: string }>(
     if (!entry.id) continue
     if (byId.has(entry.id)) {
       if (process.env.NODE_ENV !== 'production') {
-        console.warn(`[UMES] Duplicate injected ${warningScope} id "${entry.id}" detected. Keeping the first entry.`)
+        logger.warn('Duplicate injected id detected; keeping the first entry', { scope: warningScope, id: entry.id })
       }
       continue
     }
@@ -468,6 +472,12 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
 const PERSPECTIVE_COOKIE_PREFIX = 'om_table_perspective'
 const PERSPECTIVE_STORAGE_PREFIX = 'om_table_perspective_snapshot'
 
+// Bounds for user-driven column resizing (#1835). Widths outside this range are
+// clamped so a persisted/dragged value can never collapse a column to nothing or
+// blow the table out horizontally.
+const COLUMN_MIN_WIDTH = 60
+const COLUMN_MAX_WIDTH = 900
+
 function formatDurationLabel(durationMs?: number | null): string {
   if (durationMs == null) return ''
   if (!Number.isFinite(durationMs)) return ''
@@ -541,7 +551,7 @@ export function writePerspectiveSnapshot(tableId: string, snapshot: PerspectiveS
   writeVersionedPreference(key, PERSPECTIVE_SNAPSHOT_VERSION, snapshot)
 }
 
-function sanitizePerspectiveSettings(source?: PerspectiveSettings | null): PerspectiveSettings | null {
+export function sanitizePerspectiveSettings(source?: PerspectiveSettings | null): PerspectiveSettings | null {
   if (!source || typeof source !== 'object') return null
   const forbidden = new Set(['__proto__', 'prototype', 'constructor'])
   const result: PerspectiveSettings = {}
@@ -562,6 +572,17 @@ function sanitizePerspectiveSettings(source?: PerspectiveSettings | null): Persp
       entries.forEach(([key, value]) => { visibility[key] = value })
       result.columnVisibility = visibility
     }
+  }
+
+  if (source.columnSizing && typeof source.columnSizing === 'object') {
+    const sizing: Record<string, number> = {}
+    for (const [key, value] of Object.entries(source.columnSizing)) {
+      const id = typeof key === 'string' ? key.trim() : ''
+      if (!id || forbidden.has(id)) continue
+      if (typeof value !== 'number' || !Number.isFinite(value)) continue
+      sizing[id] = Math.max(COLUMN_MIN_WIDTH, Math.min(COLUMN_MAX_WIDTH, Math.round(value)))
+    }
+    if (Object.keys(sizing).length) result.columnSizing = sizing
   }
 
   if (Array.isArray(source.sorting)) {
@@ -687,8 +708,32 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
   const disabled = Boolean(config.disabled)
   const hasSections = sections.length > 0
   const [open, setOpen] = React.useState(false)
+  const [menuOffsetX, setMenuOffsetX] = React.useState(0)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
+
+  // Keep the menu inside the viewport on narrow screens: the trigger can sit
+  // near the left edge, and a `right-0` menu would otherwise render off-screen.
+  // Measure the untransformed rect and shift it back on-screen, re-measuring on
+  // resize/orientation change while the menu stays open.
+  React.useLayoutEffect(() => {
+    if (!open) {
+      setMenuOffsetX(0)
+      return
+    }
+    const measure = () => {
+      const el = menuRef.current
+      if (!el || typeof window === 'undefined') return
+      const previousTransform = el.style.transform
+      el.style.transform = 'none'
+      const rect = el.getBoundingClientRect()
+      el.style.transform = previousTransform
+      setMenuOffsetX(computeMenuViewportShiftX(rect, window.innerWidth))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [open])
 
   React.useEffect(() => {
     if (!open || !hasSections) return
@@ -770,7 +815,8 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
         <div
           ref={menuRef}
           role="menu"
-          className="absolute right-0 mt-2 w-60 rounded-md border bg-background py-2 shadow z-dropdown"
+          className="absolute right-0 mt-2 w-60 max-w-[calc(100vw-1rem)] rounded-md border bg-background py-2 shadow z-dropdown"
+          style={menuOffsetX ? { transform: `translateX(${menuOffsetX}px)` } : undefined}
         >
           {sections.map((section, idx) => (
             <div key={section.key} className={idx > 0 ? 'mt-2 border-t pt-3' : ''}>
@@ -853,7 +899,99 @@ function HeaderDndWrapper({ enabled, contextId, sensors, columnIds, onDragEnd, c
   )
 }
 
-function SortableHeaderCell({ id, children, className }: { id: string; children: React.ReactNode; className?: string }) {
+// Drag handle on a column header's right edge (#1835). Uses manual pointer
+// tracking (mirrors the deals-pipeline LaneResizeHandle) rather than TanStack's
+// built-in resize so the table keeps its auto layout — only user-resized columns
+// get an explicit width, and dragging measures the header's real current width so
+// there is no jump. `stopPropagation` on pointer/click keeps the header's
+// reorder-DnD and sort-toggle from firing while resizing.
+function ColumnResizeHandle({
+  columnId,
+  onResize,
+  onCommit,
+  onReset,
+  ariaLabel,
+}: {
+  columnId: string
+  onResize: (columnId: string, width: number) => void
+  onCommit: () => void
+  onReset: (columnId: string) => void
+  ariaLabel: string
+}) {
+  const [active, setActive] = React.useState(false)
+  // Holds the current drag's teardown so an unmount mid-drag (perspective apply,
+  // data reload, column-visibility change) still removes the document listeners
+  // and restores the body cursor/selection instead of leaking them.
+  const dragCleanupRef = React.useRef<(() => void) | null>(null)
+  React.useEffect(() => () => { dragCleanupRef.current?.() }, [])
+
+  const handlePointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const headerCell = event.currentTarget.parentElement as HTMLElement | null
+    if (!headerCell) return
+    const startX = event.clientX
+    const startWidth = headerCell.getBoundingClientRect().width
+    setActive(true)
+    let frame = 0
+    let latest = startWidth
+    const onMove = (moveEvent: PointerEvent) => {
+      latest = Math.max(COLUMN_MIN_WIDTH, Math.min(COLUMN_MAX_WIDTH, Math.round(startWidth + (moveEvent.clientX - startX))))
+      if (frame) return
+      frame = window.requestAnimationFrame(() => {
+        frame = 0
+        onResize(columnId, latest)
+      })
+    }
+    const teardown = () => {
+      if (frame) window.cancelAnimationFrame(frame)
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      dragCleanupRef.current = null
+    }
+    const onUp = () => {
+      onResize(columnId, latest)
+      teardown()
+      setActive(false)
+      onCommit()
+    }
+    dragCleanupRef.current = teardown
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [columnId, onResize, onCommit])
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={ariaLabel}
+      title={ariaLabel}
+      onPointerDown={handlePointerDown}
+      onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); onReset(columnId) }}
+      className="group/resize absolute right-0 top-0 z-10 flex h-full w-3 translate-x-1/2 cursor-col-resize touch-none select-none items-center justify-center"
+    >
+      {/* Always-visible short grip marks the column edge as resizable; it grows
+          to full height and brightens on header/handle hover and while dragging. */}
+      <span
+        aria-hidden
+        className={cn(
+          'w-0.5 rounded-full transition-all',
+          active
+            ? 'h-full bg-primary'
+            : 'h-3.5 bg-border group-hover:h-full group-hover:bg-border group-hover/resize:h-full group-hover/resize:bg-primary',
+        )}
+      />
+    </div>
+  )
+}
+
+function SortableHeaderCell({ id, children, className, width }: { id: string; children: React.ReactNode; className?: string; width?: number }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   const isSticky = typeof className === 'string' && className.includes('sticky')
   const style: React.CSSProperties = {
@@ -862,6 +1000,7 @@ function SortableHeaderCell({ id, children, className }: { id: string; children:
     opacity: isDragging ? 0.5 : 1,
     cursor: 'grab',
     position: isSticky ? 'sticky' : 'relative',
+    ...(typeof width === 'number' ? { width, minWidth: width, maxWidth: width } : {}),
   }
   return (
     <TableHead ref={setNodeRef} style={style} className={className} {...attributes} {...listeners}>
@@ -1057,12 +1196,7 @@ export function DataTable<T>({
     }
     if (!legacyAdvancedFilterWarnedRef.current && process.env.NODE_ENV !== 'production') {
       legacyAdvancedFilterWarnedRef.current = true
-      // eslint-disable-next-line no-console
-      console.warn(
-        '[DataTable] `advancedFilter.value` was passed as the legacy `AdvancedFilterState` shape. ' +
-        'This bridge will be removed in the next minor version — migrate to the tree shape ' +
-        '(`AdvancedFilterTree`, see `@open-mercato/shared/lib/query/advanced-filter-tree`).',
-      )
+      logger.warn('advancedFilter.value was passed as the legacy AdvancedFilterState shape. This bridge will be removed in the next minor version — migrate to the tree shape (AdvancedFilterTree, see @open-mercato/shared/lib/query/advanced-filter-tree).')
     }
     const legacy = advancedFilterInput as Extract<typeof advancedFilterInput, { value: AdvancedFilterState }>
     return {
@@ -1108,6 +1242,11 @@ export function DataTable<T>({
   const [activePerspectiveId, setActivePerspectiveId] = React.useState<string | null>(initialActiveId)
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(() => mergedInitialSettings?.columnVisibility ?? {})
   const [columnOrder, setColumnOrder] = React.useState<string[]>(() => mergedInitialSettings?.columnOrder ?? [])
+  const [columnSizing, setColumnSizing] = React.useState<Record<string, number>>(() => mergedInitialSettings?.columnSizing ?? {})
+  // Mirror of columnSizing so the resize commit (fired from a pointerup handler
+  // set up on drag start) always reads the latest widths without a stale closure.
+  const columnSizingRef = React.useRef(columnSizing)
+  React.useEffect(() => { columnSizingRef.current = columnSizing }, [columnSizing])
   const [deletingIds, setDeletingIds] = React.useState<string[]>([])
   const [roleClearingIds, setRoleClearingIds] = React.useState<string[]>([])
   const [perspectiveApiMissing, setPerspectiveApiMissing] = React.useState(false)
@@ -1598,12 +1737,13 @@ export function DataTable<T>({
     const candidate: PerspectiveSettings = {
       columnOrder,
       columnVisibility: visibility,
+      columnSizing,
       sorting,
       filters: filtersPayload,
       searchValue,
     }
     return sanitizePerspectiveSettings(candidate) ?? {}
-  }, [columnOrder, columnVisibility, sorting, filterValues, searchValue, advancedFilter])
+  }, [columnOrder, columnVisibility, columnSizing, sorting, filterValues, searchValue, advancedFilter])
 
   const applyPerspectiveSettings = React.useCallback((
     settings: PerspectiveSettings,
@@ -1637,6 +1777,13 @@ export function DataTable<T>({
     } else {
       setSorting([])
       onSortingChange?.([])
+    }
+    if (normalized.columnSizing) {
+      setColumnSizing(normalized.columnSizing)
+      columnSizingRef.current = normalized.columnSizing
+    } else {
+      setColumnSizing({})
+      columnSizingRef.current = {}
     }
     // Two filter shapes can live in `settings.filters`:
     //   1. Persisted advanced-filter tree: `{ v: 2, root: {...} }`
@@ -1674,12 +1821,63 @@ export function DataTable<T>({
         const snapshot: PerspectiveSnapshot = { perspectiveId: nextId, settings: normalized, updatedAt: Date.now() }
         writePerspectiveSnapshot(perspectiveTableId, snapshot)
         initialSnapshotRef.current = snapshot
+      } else if (normalized.columnSizing && Object.keys(normalized.columnSizing).length) {
+        // Preserve a "No view" snapshot that only carries user column widths so
+        // they survive refresh without an active perspective (#1835). A genuine
+        // "No view" clear passes empty settings (no columnSizing) and still clears.
+        const snapshot: PerspectiveSnapshot = {
+          perspectiveId: null,
+          settings: { columnSizing: normalized.columnSizing },
+          updatedAt: Date.now(),
+        }
+        writePerspectiveSnapshot(perspectiveTableId, snapshot)
+        initialSnapshotRef.current = snapshot
       } else {
         writePerspectiveSnapshot(perspectiveTableId, null)
         initialSnapshotRef.current = null
       }
     }
   }, [onFiltersApply, onSearchChange, onSortingChange, perspectiveTableId, table, advancedFilter])
+
+  // Persist the current column widths into the local snapshot so they survive a
+  // refresh even without saving a perspective (#1835). Widths are merged into the
+  // active perspective's other settings — resizing never disturbs the saved
+  // column order/visibility/filters.
+  const persistColumnSizingSnapshot = React.useCallback(() => {
+    if (!perspectiveTableId) return
+    const sizing = columnSizingRef.current
+    const existing = readPerspectiveSnapshot(perspectiveTableId) ?? initialSnapshotRef.current
+    const baseSettings: PerspectiveSettings = existing?.settings
+      ? { ...existing.settings }
+      : (mergedInitialSettings ? { ...mergedInitialSettings } : {})
+    if (sizing && Object.keys(sizing).length) baseSettings.columnSizing = sizing
+    else delete baseSettings.columnSizing
+    const snapshot: PerspectiveSnapshot = {
+      perspectiveId: existing?.perspectiveId ?? activePerspectiveId ?? null,
+      settings: baseSettings,
+      updatedAt: Date.now(),
+    }
+    writePerspectiveSnapshot(perspectiveTableId, snapshot)
+    initialSnapshotRef.current = snapshot
+  }, [perspectiveTableId, activePerspectiveId, mergedInitialSettings])
+
+  const handleColumnResize = React.useCallback((colId: string, width: number) => {
+    const next = { ...columnSizingRef.current, [colId]: width }
+    columnSizingRef.current = next
+    setColumnSizing(next)
+  }, [])
+
+  const commitColumnSizing = React.useCallback(() => {
+    persistColumnSizingSnapshot()
+  }, [persistColumnSizingSnapshot])
+
+  const resetColumnSize = React.useCallback((colId: string) => {
+    const next = { ...columnSizingRef.current }
+    delete next[colId]
+    columnSizingRef.current = next
+    setColumnSizing(next)
+    persistColumnSizingSnapshot()
+  }, [persistColumnSizingSnapshot])
 
   React.useLayoutEffect(() => {
     if (!perspectiveTableId) return
@@ -1775,8 +1973,7 @@ export function DataTable<T>({
           : {}),
       }
       if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
-        console.debug('[DataTable] perspective payload', payload)
+        logger.debug('Perspective payload', { payload })
       }
       const existing = input.perspectiveId
         ? perspectiveData?.perspectives.find((p) => p.id === input.perspectiveId) ?? null
@@ -2015,6 +2212,10 @@ export function DataTable<T>({
 
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const enableHeaderDnd = Boolean(columnChooser)
+  // Column resize is offered only where widths can persist (#1835): tables with a
+  // perspective config. Portal / settings / sub-tables that opt out of perspectives
+  // get no handle, so resizing never silently resets on reload for them.
+  const enableColumnResize = perspectiveEnabled
   const stableDndContextId = React.useMemo(
     () => sanitizeDndContextId(
       extensionTableId
@@ -2848,13 +3049,30 @@ export function DataTable<T>({
                       ) : null}
                     </Button>
                   )
+                  const columnId = header.column.id
+                  const sizedWidth = enableColumnResize && columnId ? columnSizing[columnId] : undefined
+                  const resizeHandle = enableColumnResize && !header.isPlaceholder && columnId ? (
+                    <ColumnResizeHandle
+                      columnId={columnId}
+                      onResize={handleColumnResize}
+                      onCommit={commitColumnSizing}
+                      onReset={resetColumnSize}
+                      ariaLabel={t('ui.dataTable.resizeColumn', 'Resize column')}
+                    />
+                  ) : null
                   return enableHeaderDnd ? (
-                    <SortableHeaderCell key={header.id} id={header.id} className={responsiveClass(priority, columnMeta?.hidden) + stickyClass}>
+                    <SortableHeaderCell key={header.id} id={header.id} width={sizedWidth} className={cn('group', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}>
                       {headerCellContent}
+                      {resizeHandle}
                     </SortableHeaderCell>
                   ) : (
-                    <TableHead key={header.id} className={responsiveClass(priority, columnMeta?.hidden) + stickyClass}>
+                    <TableHead
+                      key={header.id}
+                      className={cn('group relative', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}
+                      style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
+                    >
                       {headerCellContent}
+                      {resizeHandle}
                     </TableHead>
                   )
                 })}
@@ -2977,14 +3195,22 @@ export function DataTable<T>({
                         tooltipText = cellValue != null ? String(cellValue) : undefined
                       }
 
+                      // A user-resized width (#1835) overrides the default truncation
+                      // max-width so the cell truncates at the dragged column width.
+                      const sizedWidth = enableColumnResize && columnId ? columnSizing[columnId] : undefined
+                      const effectiveMaxWidth = typeof sizedWidth === 'number' ? `${sizedWidth}px` : maxWidth
                       const wrappedContent = shouldTruncate ? (
-                        <TruncatedCell maxWidth={maxWidth} tooltipContent={tooltipText}>
+                        <TruncatedCell maxWidth={effectiveMaxWidth} tooltipContent={tooltipText}>
                           {content}
                         </TruncatedCell>
                       ) : content
 
                       return (
-                        <TableCell key={cell.id} className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}>
+                        <TableCell
+                          key={cell.id}
+                          className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}
+                          style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
+                        >
                           {wrappedContent}
                         </TableCell>
                       )

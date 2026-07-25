@@ -1,6 +1,8 @@
 export type PerspectiveSettings = {
   columnOrder?: string[]
   columnVisibility?: Record<string, boolean>
+  /** User-resized column widths in pixels, keyed by column id (#1835). */
+  columnSizing?: Record<string, number>
   filters?: Record<string, unknown>
   sorting?: Array<{ id: string; desc?: boolean }>
   pageSize?: number

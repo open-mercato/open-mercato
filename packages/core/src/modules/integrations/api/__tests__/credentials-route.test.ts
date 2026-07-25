@@ -150,6 +150,22 @@ describe('integrations credentials route — secret masking (issue #2253)', () =
     expect(body.secretFieldsConfigured).toEqual({ clientSecret: true })
   })
 
+  it('GET never returns credentials embedded in a legacy URL', async () => {
+    resolveMock.mockResolvedValue({
+      apiUrl: 'https://user:legacy-token@akeneo.example/path',
+      clientSecret: 'top-secret-value',
+    })
+    const response = await GET(
+      new Request('http://localhost/api/integrations/sync_akeneo/credentials'),
+      { params: { id: 'sync_akeneo' } },
+    )
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.credentials.apiUrl).toBe('https://akeneo.example/path')
+    expect(JSON.stringify(body)).not.toContain('legacy-token')
+    expect(JSON.stringify(body)).not.toContain('top-secret-value')
+  })
+
   it('PUT preserves the stored secret when the masked sentinel is round-tripped', async () => {
     resolveMock.mockResolvedValue({ apiUrl: 'https://akeneo.example', clientSecret: 'stored-secret' })
     const response = await PUT(

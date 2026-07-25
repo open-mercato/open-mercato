@@ -66,15 +66,18 @@ import { applyResponseEnrichers, applyResponseEnricherToRecord, resolveListCache
 import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
-import { mergeIdFilter, parseIdsParam } from './ids'
+import { mergeIdFilter, parseIdsParam, isIdsParamProvided } from './ids'
 import { mergeAdvancedFilters } from './advanced-filter-integration'
 import { parseExtensionHeaders } from '../umes/extension-headers'
 import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
+import { createLogger } from '../logger'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
 }
+
+const logger = createLogger('shared').child({ component: 'crud' })
 
 function resolveSortParams(queryParams: Record<string, unknown>) {
   const rawSortField = queryParams.sortField ?? queryParams.sort ?? 'id'
@@ -507,6 +510,14 @@ function json(data: any, init?: ResponseInit) {
   })
 }
 
+// Name of the selected-organization cookie (mirrors the directory module's
+// OrganizationSwitcher, which writes `om_selected_org=...; path=/; samesite=lax`).
+// Kept as a local literal so shared has no import dependency on a domain package.
+const SELECTED_ORG_COOKIE = 'om_selected_org'
+// Set-Cookie value that expires the stale selection so the next request falls
+// back to the caller's home org. Attributes mirror how the switcher sets it.
+const CLEAR_SELECTED_ORG_COOKIE = `${SELECTED_ORG_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`
+
 function attachOperationHeader(res: Response, logEntry: any) {
   if (!res || !(res instanceof Response)) return res
   if (!logEntry || typeof logEntry !== 'object') return res
@@ -544,8 +555,7 @@ function handleError(err: unknown): Response {
 
   const message = err instanceof Error ? err.message : undefined
   const stack = err instanceof Error ? err.stack : undefined
-  // eslint-disable-next-line no-console
-  console.error('[crud] unexpected error', { message, stack, err })
+  logger.error('Unexpected CRUD error', { message, stack, err })
   const body: Record<string, unknown> = {
     error: 'Internal server error',
     message: 'Something went wrong. Please try again later.',
@@ -615,7 +625,7 @@ async function runGuardAfterSuccessCallbacks(
     try {
       await guard.afterSuccess!({ ...base, metadata: guardMeta })
     } catch (error) {
-      console.error(`[mutation-guard] afterSuccess failed for guard ${guard.id}`, error)
+      logger.error('Mutation guard afterSuccess failed', { guardId: guard.id, err: error })
     }
   }
 }
@@ -705,8 +715,7 @@ export async function flushPendingCrudAccessLogs(): Promise<void> {
 
 function logForbidden(details: Record<string, unknown>) {
   try {
-    // eslint-disable-next-line no-console
-    console.warn('[crud] Forbidden request', details)
+    logger.warn('Forbidden request', details)
   } catch {}
 }
 
@@ -824,7 +833,7 @@ export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogC
           payloads.map((payload) =>
             Promise.resolve(service.log(payload)).catch((err) => {
               try {
-                console.error('[crud] failed to record access log', { err, payload })
+                logger.error('Failed to record access log', { err, payload })
               } catch {}
               return undefined
             }),
@@ -833,7 +842,7 @@ export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogC
       }
     } catch (err) {
       try {
-        console.error('[crud] failed to record access logs (batch)', { err, count: payloads.length })
+        logger.error('Failed to record access logs (batch)', { err, count: payloads.length })
       } catch {}
     }
   })()
@@ -1085,7 +1094,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       })
       return decoratedItems
     } catch (err) {
-      console.warn('[crud] failed to decorate custom fields', err)
+      logger.warn('Failed to decorate custom fields', { err })
       endProfile({
         result: 'error',
         entityIds: entityIds.length,
@@ -1338,6 +1347,42 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     return { container, auth: scopedAuth, organizationScope: scope, selectedOrganizationId, organizationIds, request }
   }
 
+  // The caller explicitly selected an organization (selected-org cookie) that no
+  // longer resolves to a real, accessible org — e.g. a stale cookie after a DB
+  // reset, or after the caller lost access to that org. Rather than silently
+  // acting against a fallback org the caller did not select (writes) or showing
+  // a different org's data than the one selected (reads), fail loud on every
+  // org-scoped record operation so the client re-selects. Recovery surfaces
+  // (org switcher, nav, profile) are custom routes, not this factory, so they
+  // keep working. Returns a 422 Response when rejected, otherwise null.
+  function rejectInvalidOrgSelection(ctx: CrudCtx, action: 'list' | 'create' | 'update' | 'delete'): Response | null {
+    if (!ormCfg.orgField) return null
+    if (!(ctx.organizationScope as OrganizationScope | null | undefined)?.selectionRejected) return null
+    logForbidden({
+      resourceKind,
+      action,
+      reason: 'organization_selection_invalid',
+      userId: ctx.auth?.sub ?? null,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationIds: ctx.organizationIds,
+    })
+    // Self-heal reads: expire the stale selected-org cookie so the caller's next
+    // request falls back to their home org and the session recovers on its own
+    // (important for single-org users, who have no org switcher to re-select
+    // from). Writes intentionally do NOT clear it — a mutation must go through an
+    // explicit, valid re-selection, never silently target a fallback org.
+    const headers: Record<string, string> = action === 'list'
+      ? { 'set-cookie': CLEAR_SELECTED_ORG_COOKIE }
+      : {}
+    return json(
+      {
+        error: 'Your selected organization is no longer available. Please re-select an organization and try again.',
+        code: 'organization_selection_invalid',
+      },
+      { status: 422, headers },
+    )
+  }
+
   async function GET(request: Request) {
     const profiler = createCrudProfiler(resourceKind, 'list')
     const requestMeta: Record<string, unknown> = { method: request.method }
@@ -1364,6 +1409,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!ctx.auth) {
         finishProfile({ reason: 'unauthorized' })
         return json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      const listSelectionRejected = rejectInvalidOrgSelection(ctx, 'list')
+      if (listSelectionRejected) {
+        finishProfile({ reason: 'organization_selection_invalid' })
+        return listSelectionRejected
       }
       if (!opts.list) {
         finishProfile({ reason: 'list_not_configured' })
@@ -1395,6 +1445,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         ...(interceptorRequest.query ?? {}),
       } as Record<string, unknown>
       const parsedIds = parseIdsParam(queryParams.ids)
+      const idsParamProvided = isIdsParamProvided(queryParams.ids)
 
       await opts.hooks?.beforeList?.(validated as any, ctx)
       profiler.mark('before_list_hook')
@@ -1614,7 +1665,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const filters = exportFullRequested
           ? baseFilters
           : mergeAdvancedFilters(baseFilters as Record<string, unknown>, validated as Record<string, unknown>) as Where<any>
-        const mergedFilters = exportFullRequested ? filters : mergeIdFilter(filters, parsedIds)
+        const mergedFilters = exportFullRequested ? filters : mergeIdFilter(filters, parsedIds, { idsParamProvided })
         const withDeleted = parseBooleanToken((queryParams as any).withDeleted) === true
         profiler.mark('filters_ready', { withDeleted })
         if (
@@ -1709,7 +1760,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               }
             }
           } catch (err) {
-            console.warn('[CRUD] Translation overlay failed:', err)
+            logger.warn('Translation overlay failed', { err })
           }
           profiler.mark('translation_overlays_complete', { itemCount: transformedItems.length })
         }
@@ -1901,7 +1952,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         : mergeAdvancedFilters(fallbackBaseFilters as Record<string, unknown>, validated as Record<string, unknown>) as Where<any>
       const mergedFallbackFilters = exportFullRequested
         ? fallbackFilters
-        : mergeIdFilter(fallbackFilters, parsedIds)
+        : mergeIdFilter(fallbackFilters, parsedIds, { idsParamProvided })
       const ormFilters = translateFiltersForOrm(
         mergedFallbackFilters as Record<string, any>,
         em,
@@ -1940,7 +1991,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             }
           }
         } catch (err) {
-          console.warn('[CRUD] Translation overlay (fallback) failed:', err)
+          logger.warn('Translation overlay (fallback) failed', { err })
         }
         profiler.mark('fallback_translation_overlays_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
       }
@@ -2031,6 +2082,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!opts.create && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
+      const createSelectionRejected = rejectInvalidOrgSelection(ctx, 'create')
+      if (createSelectionRejected) return createSelectionRejected
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
         logForbidden({
           resourceKind,
@@ -2301,6 +2354,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!opts.update && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
+      const updateSelectionRejected = rejectInvalidOrgSelection(ctx, 'update')
+      if (updateSelectionRejected) return updateSelectionRejected
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
         logForbidden({
           resourceKind,
@@ -2630,6 +2685,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     try {
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
+      const deleteSelectionRejected = rejectInvalidOrgSelection(ctx, 'delete')
+      if (deleteSelectionRejected) return deleteSelectionRejected
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
         logForbidden({
           resourceKind,

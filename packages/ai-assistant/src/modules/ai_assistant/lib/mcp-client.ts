@@ -1,7 +1,10 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { McpClientInterface, ToolInfo, ToolResult } from './types'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Options for stdio transport.
@@ -95,7 +98,7 @@ export class McpClient implements McpClientInterface {
     transport.stderr?.on('data', (data) => {
       const message = data.toString().trim()
       if (message) {
-        console.error(`[MCP Client] ${message}`)
+        logger.info('MCP server stderr output', { output: message })
       }
     })
 

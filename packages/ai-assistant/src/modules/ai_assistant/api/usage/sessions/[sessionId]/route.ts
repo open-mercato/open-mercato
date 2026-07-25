@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -8,6 +9,8 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { AiTokenUsageRepository } from '../../../../data/repositories/AiTokenUsageRepository'
 import { hasRequiredFeatures } from '../../../../lib/auth'
 import { toInteger, toIsoString } from '../../../../lib/usage-serialization'
+
+const logger = createLogger('ai_assistant')
 
 const REQUIRED_FEATURE = 'ai_assistant.settings.manage'
 
@@ -124,7 +127,7 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
 
     return NextResponse.json({ events: serialized, total: serialized.length, sessionId })
   } catch (error) {
-    console.error('[AI Usage Session Detail] GET error:', error)
+    logger.error('AI Usage Session Detail — GET error', { err: error })
     return jsonError(500, 'Failed to fetch session event data.', 'internal_error')
   }
 }

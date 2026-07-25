@@ -14,7 +14,7 @@ import {
   type PipelineStageReorderInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, ensureDictionaryEntry } from './shared'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import {
   enforceCommandOptimisticLockWithGuards,
@@ -112,7 +112,7 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
     })
     if (!stage) {
       enforceRecordGoneIsConflict({ resourceKind: 'customers.pipelineStage', resourceId: parsed.id, request: ctx.request ?? null })
-      throw new CrudHttpError(404, { error: 'Pipeline stage not found' })
+      throw notFound('Pipeline stage not found')
     }
 
     ensureTenantScope(ctx, stage.tenantId)
@@ -164,7 +164,7 @@ const deletePipelineStageCommand: CommandHandler<PipelineStageDeleteInput, void>
     })
     if (!stage) {
       enforceRecordGoneIsConflict({ resourceKind: 'customers.pipelineStage', resourceId: parsed.id, request: ctx.request ?? null })
-      throw new CrudHttpError(404, { error: 'Pipeline stage not found' })
+      throw notFound('Pipeline stage not found')
     }
 
     ensureTenantScope(ctx, stage.tenantId)

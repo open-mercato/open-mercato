@@ -60,6 +60,23 @@ import { resolveAiAgentTools, AgentPolicyError } from '../../lib/agent-tools'
 import { checkAgentPolicy } from '../../lib/agent-policy'
 import { runAiAgentText } from '../../lib/agent-runtime'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
+
 function makeAgent(
   overrides: Partial<AiAgentDefinition> & Pick<AiAgentDefinition, 'id' | 'moduleId'>,
 ): AiAgentDefinition {
@@ -114,13 +131,14 @@ function fakeStreamTextResult() {
 }
 
 describe('WS-C integration — agent policy gate + tool resolution', () => {
-  let warnSpy: jest.SpyInstance
+  let warnSpy: jest.Mock
 
   beforeEach(() => {
     jest.clearAllMocks()
     resetAgentRegistryForTests()
     toolRegistry.clear()
-    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    warnSpy = testLogger.warn
+    warnSpy.mockClear()
     streamTextMock.mockImplementation(() => fakeStreamTextResult())
   })
 
@@ -245,7 +263,8 @@ describe('WS-C integration — agent policy gate + tool resolution', () => {
     })
     expect(Object.keys(resolved.tools)).toEqual(['catalog__list_products'])
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('catalog.get_product'),
+      expect.any(String),
+      expect.objectContaining({ toolName: 'catalog.get_product' }),
     )
   })
 

@@ -7,6 +7,9 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { InboxProposal, InboxEmail, InboxProposalAction, InboxDiscrepancy, type InboxProposalCategory } from '../../data/entities'
 import { proposalListQuerySchema } from '../../data/validators'
 import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'proposals' })
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -109,7 +112,7 @@ export async function GET(req: Request) {
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    console.error('[inbox_ops:proposals] Error listing proposals:', err)
+    logger.error('Failed to list proposals', { err })
     return NextResponse.json({ error: 'Failed to list proposals' }, { status: 500 })
   }
 }

@@ -14,6 +14,7 @@
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { SalesOrder, SalesOrderLine, SalesShipment, SalesShipmentItem, SalesOrderAdjustment } from '../../data/entities'
 
 jest.mock('../../services/salesDocumentNumberGenerator', () => ({
@@ -31,6 +32,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
     t: (key: string, fallback?: string) => fallback ?? key,
     translate: (key: string, fallback?: string) => fallback ?? key,
   }),
+}))
+
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  invalidateCrudCache: jest.fn(),
 }))
 
 const ORG_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -134,6 +139,7 @@ describe('sales.returns.create shipment guard (issue #3034)', () => {
 
   afterEach(() => {
     delete (globalThis as any).__returnsWorld
+    ;(invalidateCrudCache as jest.MockedFunction<typeof invalidateCrudCache>).mockClear()
   })
 
   it('rejects a return when the order has no shipments', async () => {
@@ -182,9 +188,17 @@ describe('sales.returns.create shipment guard (issue #3034)', () => {
       calculateDocumentTotals: jest.fn(async () => ({ totals: {}, lines: [{}] })),
     }
     const handler = commandRegistry.get('sales.returns.create')!
-    const result = await handler.execute(baseInput(2), makeCtx(em, calc) as never)
+    const ctx = makeCtx(em, calc)
+    const result = await handler.execute(baseInput(2), ctx as never)
     expect(result).toMatchObject({ returnId: expect.any(String) })
     expect(calc.calculateDocumentTotals).toHaveBeenCalled()
     expect(em.flush).toHaveBeenCalled()
+    expect(invalidateCrudCache).toHaveBeenCalledWith(
+      ctx.container,
+      'sales.order',
+      { id: ORDER_ID, organizationId: ORG_ID, tenantId: TENANT_ID },
+      TENANT_ID,
+      'updated',
+    )
   })
 })

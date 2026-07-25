@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId, normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -15,7 +15,7 @@ import {
 } from '../data/validators'
 import { resourcesResourceCommentCrudEvents } from '../lib/crud'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
-import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireResource } from './shared'
+import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireResource, resolveResourceAuthorUserId } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
 const commentCrudIndexer: CrudIndexerConfig<ResourcesResourceComment> = {
@@ -62,12 +62,15 @@ const createCommentCommand: CommandHandler<
     const parsed = resourcesResourceCommentCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const resource = await requireResource(em, parsed.entityId, 'Resource not found')
     ensureTenantScope(ctx, resource.tenantId)
     ensureOrganizationScope(ctx, resource.organizationId)
+    const normalizedAuthor = await resolveResourceAuthorUserId(em, parsed.authorUserId, ctx, {
+      tenantId: resource.tenantId,
+      organizationId: resource.organizationId,
+    })
 
     const comment = em.create(ResourcesResourceComment, {
       organizationId: parsed.organizationId,
@@ -177,7 +180,6 @@ const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, 
       comment.resource = resource
     }
     if (parsed.body !== undefined) comment.body = parsed.body
-    if (parsed.authorUserId !== undefined) comment.authorUserId = parsed.authorUserId ?? null
     if (parsed.appearanceIcon !== undefined) comment.appearanceIcon = parsed.appearanceIcon ?? null
     if (parsed.appearanceColor !== undefined) comment.appearanceColor = parsed.appearanceColor ?? null
 

@@ -1,5 +1,8 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createHash } from 'node:crypto'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+
+const logger = createLogger('ai_assistant')
 
 const PENDING_ACTION_CLEANUP_SCHEDULE_KEY = 'ai_assistant:pending-action-cleanup'
 const TOKEN_USAGE_PRUNE_SCHEDULE_KEY = 'ai_assistant:token-usage-prune'
@@ -52,10 +55,7 @@ async function ensurePendingActionCleanupSchedule(
       isEnabled: true,
     })
   } catch (error) {
-    console.warn(
-      '[ai_assistant] Failed to register pending-action cleanup schedule:',
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('Failed to register pending-action cleanup schedule', { err: error })
   }
 }
 
@@ -99,10 +99,7 @@ async function ensureTokenUsagePruneSchedule(
       isEnabled: true,
     })
   } catch (error) {
-    console.warn(
-      '[ai_assistant] Failed to register token-usage prune schedule:',
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('Failed to register token-usage prune schedule', { err: error })
   }
 }
 

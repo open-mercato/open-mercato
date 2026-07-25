@@ -12,6 +12,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { fetchAssignableStaffMembers } from './assignableStaff'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export interface RoleAssignment {
   id: string
@@ -71,7 +74,7 @@ export function RoleAssignmentRow({
         subtitle: member.displayName && member.email ? member.email : null,
       }))
     } catch (error) {
-      console.error('customers.roles.searchUsers failed', error)
+      logger.error('customers.roles.searchUsers failed', { err: error })
       return []
     }
   }, [])
@@ -93,7 +96,7 @@ export function RoleAssignmentRow({
       setChangingUser(false)
       onUpdated()
     } catch (error) {
-      console.error('customers.roles.update failed', error)
+      logger.error('customers.roles.update failed', { err: error })
       flash(t('customers.roles.updateFailed', 'Failed to update role assignment.'), 'error')
       setChangingUser(false)
     }
@@ -119,7 +122,7 @@ export function RoleAssignmentRow({
       )
       onRemoved()
     } catch (error) {
-      console.error('customers.roles.remove failed', error)
+      logger.error('customers.roles.remove failed', { err: error })
       flash(t('customers.roles.removeFailed', 'Failed to remove role assignment.'), 'error')
     } finally {
       setRemoving(false)

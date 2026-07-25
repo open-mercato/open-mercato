@@ -19,6 +19,9 @@ import {
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../guards'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
@@ -246,7 +249,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('staff.timesheets.time-entries.bulk failed', err)
+    logger.error('staff.timesheets.time-entries.bulk failed', { err })
     return NextResponse.json(
       { error: translate('staff.timesheets.errors.bulkSave', 'Failed to bulk save time entries.') },
       { status: 400 },

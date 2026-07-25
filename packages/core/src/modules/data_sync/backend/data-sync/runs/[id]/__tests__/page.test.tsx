@@ -143,3 +143,63 @@ describe('SyncRunDetailPage logs pagination', () => {
     expect(logsCalls().every(([url]) => String(url).includes('page=2'))).toBe(true)
   })
 })
+
+describe('SyncRunDetailPage log payload rendering', () => {
+  function mockApiResponsesWithLogs(items: Array<Record<string, unknown>>) {
+    apiCallMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/data_sync/runs/')) {
+        return { ok: true, status: 200, result: runFixture }
+      }
+      if (url.startsWith('/api/integrations/logs')) {
+        return { ok: true, status: 200, result: { items, total: items.length } }
+      }
+      return { ok: false, status: 404, result: null }
+    })
+  }
+
+  it('renders only the summary for export-item-failure payloads', async () => {
+    mockApiResponsesWithLogs([
+      {
+        id: 'log-1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        level: 'error',
+        message: 'Failed to export item SKU-1 (id: product-1)',
+        payload: { kind: 'export-item-failure', summary: 'Magento API request failed with status 400.' },
+      },
+    ])
+    renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
+
+    const trigger = (await screen.findByText('Failed to export item SKU-1 (id: product-1)')).closest('button')
+    expect(trigger).not.toBeNull()
+    fireEvent.click(trigger!)
+
+    expect(await screen.findByText('Magento API request failed with status 400.')).toBeInTheDocument()
+    expect(screen.queryByText(/"kind"/)).toBeNull()
+  })
+
+  it('keeps the full JSON payload for operational logs that also carry a summary field', async () => {
+    mockApiResponsesWithLogs([
+      {
+        id: 'log-2',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        level: 'info',
+        message: 'Sync run completed',
+        payload: {
+          operationalStatus: 'completed',
+          summary: 'Sync completed with 5 created, 2 updated, 1 failed.',
+          createdCount: 5,
+          updatedCount: 2,
+          failedCount: 1,
+        },
+      },
+    ])
+    renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
+
+    const trigger = (await screen.findByText('Sync run completed')).closest('button')
+    expect(trigger).not.toBeNull()
+    fireEvent.click(trigger!)
+
+    expect(await screen.findByText(/"operationalStatus"/)).toBeInTheDocument()
+    expect(await screen.findByText(/"createdCount"/)).toBeInTheDocument()
+  })
+})

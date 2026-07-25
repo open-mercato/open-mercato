@@ -1,6 +1,9 @@
 import type { Module } from '@open-mercato/shared/modules/registry'
 import { applyModuleOverridesToModules } from '@open-mercato/shared/modules/overrides'
 import { invalidateDictionaryCache } from '../i18n/dictionary-cache'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'modules-registry' })
 
 // Registration pattern for publishable packages.
 // Use globalThis to survive tsx/esbuild module duplication where the same
@@ -49,7 +52,7 @@ function mergeI18nModules(existing: Module[], incoming: Module[]): Module[] {
 export function registerModules(modules: Module[]) {
   const existing = getGlobalModules()
   if (existing !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Modules re-registered (this may occur during HMR)')
+    logger.debug('Modules re-registered (this may occur during HMR)')
   }
   const nextModules = applyModuleOverridesToModules(modules)
   const shouldMergeI18nOnly = existing !== null

@@ -37,6 +37,9 @@ import {
   getCheckoutCustomerFieldSemanticType,
   validateCheckoutCustomerData,
 } from '../lib/customerDataValidation'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout').child({ component: 'PayPage' })
 
 type CustomerFieldOption = {
   value: string
@@ -800,6 +803,8 @@ export function PayPageCustomerForm({
           const value = customerData[field.key]
           const containerClass = field.kind === 'multiline' ? 'space-y-2 sm:col-span-2' : 'space-y-2'
           const semanticType = getCheckoutCustomerFieldSemanticType(field)
+          const fieldId = `checkout-customer-${field.key}`
+          const fieldErrorId = `${fieldId}-error`
 
           return (
             <div key={field.key} className={containerClass}>
@@ -817,6 +822,9 @@ export function PayPageCustomerForm({
                   <Checkbox
                     checked={value === true}
                     disabled={inputsLocked}
+                    aria-required={field.required ? true : undefined}
+                    aria-invalid={fieldError ? true : undefined}
+                    aria-describedby={fieldError ? fieldErrorId : undefined}
                     onCheckedChange={(checked) => onFieldChange(field.key, checked === true)}
                   />
                   <span className="space-y-1">
@@ -833,17 +841,21 @@ export function PayPageCustomerForm({
                 </label>
               ) : (
                 <>
-                  <label className="text-sm font-medium">
+                  <label htmlFor={fieldId} className="text-sm font-medium">
                     {field.label}
                     {field.required ? ' *' : ''}
                   </label>
                   {field.kind === 'multiline' ? (
                     <Textarea
+                      id={fieldId}
                       className={READABLE_INPUT_CLASSNAME}
                       value={typeof value === 'string' ? value : ''}
                       disabled={inputsLocked}
                       onChange={(event) => onFieldChange(field.key, event.target.value)}
                       placeholder={field.placeholder ?? undefined}
+                      aria-required={field.required ? true : undefined}
+                      aria-invalid={fieldError ? true : undefined}
+                      aria-describedby={fieldError ? fieldErrorId : undefined}
                       style={buildReadableInputStyle(themeTokens, Boolean(fieldError), inputsLocked)}
                     />
                   ) : field.kind === 'select' || field.kind === 'radio' ? (
@@ -855,8 +867,11 @@ export function PayPageCustomerForm({
                       }}
                     >
                       <SelectTrigger
+                        id={fieldId}
                         className={`rounded-xl ${READABLE_INPUT_CLASSNAME}`}
+                        aria-required={field.required ? true : undefined}
                         aria-invalid={Boolean(fieldError)}
+                        aria-describedby={fieldError ? fieldErrorId : undefined}
                         style={buildReadableInputStyle(themeTokens, Boolean(fieldError), inputsLocked)}
                       >
                         <SelectValue placeholder={t('checkout.payPage.fields.selectPlaceholder', 'Select...')} />
@@ -872,6 +887,7 @@ export function PayPageCustomerForm({
                     </Select>
                   ) : (
                     <Input
+                      id={fieldId}
                       className={READABLE_INPUT_CLASSNAME}
                       type={semanticType === 'email' ? 'email' : semanticType === 'phone' ? 'tel' : 'text'}
                       value={typeof value === 'string' ? value : ''}
@@ -879,13 +895,16 @@ export function PayPageCustomerForm({
                       onChange={(event) => onFieldChange(field.key, event.target.value)}
                       placeholder={field.placeholder ?? undefined}
                       autoComplete={semanticType === 'email' ? 'email' : semanticType === 'phone' ? 'tel' : undefined}
+                      aria-required={field.required ? true : undefined}
+                      aria-invalid={fieldError ? true : undefined}
+                      aria-describedby={fieldError ? fieldErrorId : undefined}
                       style={buildReadableInputStyle(themeTokens, Boolean(fieldError), inputsLocked)}
                     />
                   )}
                 </>
               )}
               {fieldError ? (
-                <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
+                <p id={fieldErrorId} className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
                   {translateValidationMessage(fieldError, fieldPath)}
                 </p>
               ) : null}
@@ -1764,7 +1783,7 @@ export function PayPage({
         Object.entries(transformed as Record<string, unknown>).map(([fieldPath, value]) => [fieldPath, String(value)]),
       )
     } catch (error) {
-      console.error('[PayPage] Error in transformValidation:', error)
+      logger.error('Error in transformValidation', { err: error })
       return nextErrors
     }
   }, [triggerPayPageFormEvent])
@@ -1799,7 +1818,7 @@ export function PayPage({
           setFieldErrors((current) => ({ ...current, [fieldPath]: nextMessage }))
         }
       } catch (error) {
-        console.error('[PayPage] Error in onFieldChange:', error)
+        logger.error('Error in onFieldChange', { err: error })
       }
     })()
   }, [applySubmitDataToState, triggerPayPageFormEvent])
@@ -1888,7 +1907,7 @@ export function PayPage({
             }
           }
         } catch (error) {
-          console.error('[PayPage] Error in transformFormData:', error)
+          logger.error('Error in transformFormData', { err: error })
         }
       }
 

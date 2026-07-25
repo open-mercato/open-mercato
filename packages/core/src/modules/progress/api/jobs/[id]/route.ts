@@ -7,7 +7,7 @@ import { updateProgressSchema } from '../../../data/validators'
 import type { ProgressService } from '../../../lib/progressService'
 
 const routeMetadata = {
-  GET: { requireAuth: true },
+  GET: { requireAuth: true, requireFeatures: ['progress.view'] },
   PUT: { requireAuth: true, requireFeatures: ['progress.update'] },
   DELETE: { requireAuth: true, requireFeatures: ['progress.cancel'] },
 }

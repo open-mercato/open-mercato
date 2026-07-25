@@ -1,6 +1,9 @@
 import crypto from 'node:crypto'
 import type { NormalizedInboundMessage, NormalizedAttachment } from './adapter'
 import { EMAIL_MAX_ATTACHMENT_BYTES } from './email-capabilities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'email-mime' })
 
 /**
  * Aggregate ceiling for all attachments on a single inbound message. Inbound
@@ -337,15 +340,11 @@ export function normalizeAttachments(attachments: ParsedAttachment[]): Normalize
     if (!att.content) continue
     const byteLength = att.content.byteLength
     if (byteLength > EMAIL_MAX_ATTACHMENT_BYTES) {
-      console.warn(
-        `[email-mime] dropping oversized inbound attachment "${att.filename ?? 'attachment'}" (${byteLength} bytes > ${EMAIL_MAX_ATTACHMENT_BYTES} cap)`,
-      )
+      logger.warn('dropping oversized inbound attachment', { fileName: att.filename ?? 'attachment', bytes: byteLength, maxBytes: EMAIL_MAX_ATTACHMENT_BYTES })
       continue
     }
     if (totalBytes + byteLength > TOTAL_INBOUND_ATTACHMENTS_MAX_BYTES) {
-      console.warn(
-        `[email-mime] aggregate inbound attachment size exceeded ${TOTAL_INBOUND_ATTACHMENTS_MAX_BYTES} bytes; dropping remaining attachments`,
-      )
+      logger.warn('aggregate inbound attachment size exceeded; dropping remaining attachments', { maxBytes: TOTAL_INBOUND_ATTACHMENTS_MAX_BYTES })
       break
     }
     totalBytes += byteLength

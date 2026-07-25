@@ -11,6 +11,9 @@ import { Kbd } from '@open-mercato/ui/primitives/kbd'
 import { ActivityTimelineFilters } from './ActivityTimelineFilters'
 import { ActivityTimeline } from './ActivityTimeline'
 import type { ActivitySummary, InteractionSummary } from './types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type GuardedMutationRunner = <T>(
   operation: () => Promise<T>,
@@ -251,7 +254,7 @@ export function ActivitiesSection({
       setActivities(sortTimelineActivities(merged))
       setHasMore(canonicalHasMore || legacyTotalPages > loadedPages)
     } catch (error) {
-      console.error('customers.activities.history failed', error)
+      logger.error('customers.activities.history failed', { err: error })
       flash(t('customers.activities.loadFailed', 'Failed to load activities.'), 'error')
       setActivities([])
       setHasMore(false)
@@ -284,7 +287,7 @@ export function ActivitiesSection({
       flash(t('customers.activities.actions.markDoneSuccess', 'Activity marked done'), 'success')
       await loadActivities()
     } catch (err) {
-      console.warn('[customers.activitiesSection] mark done failed', activityId, err)
+      logger.warn('Mark done failed', { component: 'ActivitiesSection', activityId, err })
       flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
     }
   }, [loadActivities, runGuardedMutation, t])
@@ -295,7 +298,7 @@ export function ActivitiesSection({
   React.useEffect(() => {
     loadActivities()
       .then(() => { resolvedUserIdsRef.current = new Set() })
-      .catch((err) => console.warn('[ActivitiesSection] loadActivities failed', err))
+      .catch((err) => logger.warn('loadActivities failed', { component: 'ActivitiesSection', err }))
   }, [loadActivities])
 
   React.useEffect(() => {
@@ -337,7 +340,7 @@ export function ActivitiesSection({
           )
         }
       })
-      .catch((err) => console.warn('[ActivitiesSection] resolve author names failed', err))
+      .catch((err) => logger.warn('resolve author names failed', { component: 'ActivitiesSection', err }))
     return () => controller.abort()
   }, [activities])
 

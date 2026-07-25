@@ -25,6 +25,9 @@ import {
   attachmentDetailResponseSchema,
   attachmentErrorSchema,
 } from '../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('attachments').child({ component: 'library' })
 
 const updateSchema = z.object({
   tags: z.array(z.string()).optional(),
@@ -180,7 +183,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       }
     })
   } catch (error) {
-    console.error('[attachments] failed to persist custom attributes', error)
+    logger.error('Failed to persist custom attributes', { err: error })
     return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
   }
 

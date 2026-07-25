@@ -15,7 +15,7 @@ Performs a thorough pre-implementation analysis of a specification to catch issu
 2. Read `BACKWARD_COMPATIBILITY.md` — the 13 contract surface categories.
 3. Read `.ai/lessons.md` for known pitfalls.
 4. Using the Task Router in `AGENTS.md`, identify all relevant AGENTS.md guides for affected modules/packages.
-5. Read the code-review checklist at `.ai/skills/om-code-review/references/review-checklist.md`.
+5. Read the code-review checklist at `.agents/skills/om-code-review/references/review-checklist.md`.
 6. Identify all existing modules, entities, events, and API routes that the spec touches (use Explore subagents for large scopes).
 
 ### Phase 2 — Backward Compatibility Audit

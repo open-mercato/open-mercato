@@ -39,6 +39,21 @@ function escapeCsv(value: string): string {
   return value
 }
 
+function neutralizeSpreadsheetFormula(value: string): string {
+  if (/^[=+\-@\t\r\n]/.test(value)) {
+    return `'${value}`
+  }
+  return value
+}
+
+function normalizeCsvValue(value: unknown): string {
+  const normalized = normalizeValue(value)
+  if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
+    return normalized
+  }
+  return neutralizeSpreadsheetFormula(normalized)
+}
+
 function escapeMarkdown(value: string): string {
   const escaped = value
     .replace(/\\/g, '\\\\')
@@ -70,7 +85,7 @@ function serializeCsv(prepared: PreparedExport): SerializedExport {
   const lines = [headers.join(',')]
   for (const row of prepared.rows) {
     const values = prepared.columns.map((col) => {
-      const raw = normalizeValue(row[col.field])
+      const raw = normalizeCsvValue(row[col.field])
       return escapeCsv(raw)
     })
     lines.push(values.join(','))

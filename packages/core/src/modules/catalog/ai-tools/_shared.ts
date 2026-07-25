@@ -43,6 +43,9 @@ import {
 import type { CatalogPricingService } from '../services/catalogPricingService'
 import type { PriceRow, PricingContext } from '../lib/pricing'
 import type { CatalogToolContext } from './types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 /* -------------------------------------------------------------------------- */
 /*  Price-kind enumeration shared core                                         */
@@ -443,7 +446,7 @@ export async function buildProductBundle(
         }
       }
     } catch (error) {
-      console.warn('[catalog.get_product_bundle] resolvePrice failed, omitting best price', error)
+      logger.warn('catalog.get_product_bundle resolvePrice failed, omitting best price', { err: error })
     }
   }
 

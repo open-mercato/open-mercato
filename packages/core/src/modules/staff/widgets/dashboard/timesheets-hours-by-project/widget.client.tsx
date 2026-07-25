@@ -10,6 +10,9 @@ import {
   type DateRangePreset,
 } from '@open-mercato/ui/backend/date-range'
 import { DEFAULT_SETTINGS, hydrateSettings, type HoursByProjectSettings } from './config'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 type WidgetDataItem = { groupKey: string; groupLabel?: string; value: number | null }
 type WidgetDataResponse = {
@@ -69,7 +72,7 @@ const HoursByProjectWidget: React.FC<DashboardWidgetComponentProps<HoursByProjec
       setData(sorted)
       setTotalMinutes(sorted.reduce((sum, item) => sum + (item.value ?? 0), 0))
     } catch (err) {
-      console.error('staff.timesheets.hoursByProject', err)
+      logger.error('staff.timesheets.hoursByProject', { err })
       setError(t('staff.timesheets.widgets.hoursByProject.error', 'Failed to load data'))
     } finally {
       setLoading(false)

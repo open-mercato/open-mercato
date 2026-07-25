@@ -537,8 +537,13 @@ curl "https://your-app.com/api/search?q=john%20doe&limit=20" \
 | `QUEUE_REDIS_URL` | When using a separate Redis for queues | Alternative to `REDIS_URL` for queue-specific connections |
 | `OM_SEARCH_ENABLED` | When you need to disable the search module entirely | Default: `true`; set to `false` to disable |
 | `OM_SEARCH_DEBUG` | When debugging search behavior | Enables verbose debug logging |
+| `OM_SEARCH_MIN_LEN` | When tuning the Postgres `search_tokens` index | Default: `3`. Minimum token length + floor of prefix expansion. **Token strategy only** — no effect on fulltext/vector |
+| `OM_SEARCH_ENABLE_PARTIAL` | When trading `search_tokens` size for prefix matching | Default: `true`. Prefix/partial expansion for tokens (Meilisearch unaffected); increases `search_tokens` size ~5–6×. **Token strategy only** |
+| `OM_SEARCH_HASH_ALGO` | When choosing the token hash algorithm | Default: `sha256` (accepts `sha1`, `md5`). **Token strategy only** |
+| `OM_SEARCH_STORE_RAW_TOKENS` | Almost never — debugging tokenization only | Default: `false`. Stores plaintext token alongside the hash — **security-sensitive**, retains plaintext of otherwise-hashed values. **Token strategy only** |
+| `OM_SEARCH_FIELD_BLOCKLIST` | When extra fields must never be tokenized | Comma-separated field names, merged with built-in `password,token,secret,hash`. **Token strategy only** |
 | `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | When you need to keep encrypted fields out of fulltext | Set to `true` to exclude encrypted fields from fulltext index |
-| `DEBUG_SEARCH_ENRICHER` | When debugging presenter enrichment | Enables presenter enricher debug logs |
+| `OM_LOG_LEVEL` | When debugging presenter enrichment | Set to `debug` to surface presenter enricher diagnostics (replaces the former `DEBUG_SEARCH_ENRICHER` flag) |
 
 ## Run Queue Workers
 
@@ -716,7 +721,7 @@ buildSource: async (ctx) => {
 - [ ] Run `yarn mercato search test-meilisearch` if fulltext is not returning results
 - [ ] Check `OM_SEARCH_ENABLED` is not set to `false`
 - [ ] Enable `OM_SEARCH_DEBUG=true` for verbose logging
-- [ ] Enable `DEBUG_SEARCH_ENRICHER=true` if presenters are missing or wrong
+- [ ] Set `OM_LOG_LEVEL=debug` if presenters are missing or wrong (surfaces presenter enricher diagnostics)
 - [ ] Verify the entity has `enabled: true` (or omitted, since default is `true`)
 - [ ] Verify the CRUD route has `indexer: { entityType }` for auto-indexing
 - [ ] Check queue workers are running if using `QUEUE_STRATEGY=async`

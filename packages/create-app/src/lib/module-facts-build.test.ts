@@ -44,12 +44,12 @@ test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {
   }
 })
 
-test('build keeps the 9 legacy core.<module>.md names bundled (BC bridge, T5)', () => {
+test('build no longer emits legacy core.<module>.md redirect stubs (#3754)', () => {
   ensureBuilt()
   for (const moduleId of D5_MODULES) {
     assert.ok(
-      fs.existsSync(join(guidesDir, `core.${moduleId}.md`)),
-      `core.${moduleId}.md should be present (full guide before cleanup, redirect stub after)`,
+      !fs.existsSync(join(guidesDir, `core.${moduleId}.md`)),
+      `core.${moduleId}.md redirect stub should not be emitted`,
     )
   }
 })

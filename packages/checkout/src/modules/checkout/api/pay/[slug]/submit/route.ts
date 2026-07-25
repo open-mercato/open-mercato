@@ -6,7 +6,7 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
-import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { checkRateLimit } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { PaymentGatewayClientSession } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
@@ -22,8 +22,11 @@ import {
   validateDescriptorCurrencies,
 } from '../../../../lib/utils'
 import { validateCheckoutCustomerData } from '../../../../lib/customerDataValidation'
-import { checkoutSubmitRateLimitConfig } from '../../../../lib/rateLimiter'
+import { buildCheckoutRateLimitKey, checkoutSubmitRateLimitConfig } from '../../../../lib/rateLimiter'
 import { checkoutTag } from '../../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout')
 
 type CachedSubmitResponse = {
   transactionId: string
@@ -273,8 +276,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const container = await createRequestContainer()
     try {
       const rateLimiter = container.resolve('rateLimiterService') as RateLimiterService
-      const ip = getClientIp(req, 1) ?? 'unknown'
-      const rateLimitResponse = await checkRateLimit(rateLimiter, checkoutSubmitRateLimitConfig, `checkout-submit:${ip}`, 'Too many payment attempts. Please try again later.')
+      const key = buildCheckoutRateLimitKey(req, rateLimiter, 'checkout-submit')
+      const rateLimitResponse = await checkRateLimit(rateLimiter, checkoutSubmitRateLimitConfig, key, 'Too many payment attempts. Please try again later.')
       if (rateLimitResponse) return rateLimitResponse
     } catch {
       // Rate limiting is fail-open
@@ -473,6 +476,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         const sessionResult = await paymentGatewayService.createPaymentSession({
           providerKey: link.gatewayProviderKey,
           paymentId: transactionId,
+          idempotencyKey,
           amount: sessionAmount,
           currencyCode: sessionCurrencyCode,
           paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,
@@ -515,13 +519,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           },
           ctx,
         }).catch(() => undefined)
-        console.error('[checkout] Failed to create payment session', {
+        logger.error('Failed to create payment session', {
           linkId: link.id,
           transactionId: transaction.id,
           providerKey: link.gatewayProviderKey,
-          error: error instanceof Error ? error.message : String(error),
+          err: error,
         })
-        throw new CrudHttpError(502, { error: 'Unable to start the payment session' })
+        throw new CrudHttpError(502, { error: 'checkout.payPage.errors.sessionStart' })
       }
       const refreshedTransaction = await findOneWithDecryption(em, CheckoutTransaction, {
         id: transaction.id,

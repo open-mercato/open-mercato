@@ -8,6 +8,26 @@ import {
   type AvailabilityWriteAccess,
 } from '../api/access'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
+
 type ResolveOptions = { allowUnregistered?: boolean }
 
 type MockResolveSpec = {
@@ -46,9 +66,10 @@ function ctxWithContainer(
 const translate = (_key: string, fallback?: string) => fallback ?? 'unauthorized'
 
 describe('planner availability access — fail-soft when staff DI is absent', () => {
-  let warnSpy: jest.SpyInstance
+  let warnSpy: jest.Mock
   beforeEach(() => {
-    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    warnSpy = mockLogger.warn
   })
   afterEach(() => {
     warnSpy.mockRestore()
@@ -67,7 +88,7 @@ describe('planner availability access — fail-soft when staff DI is absent', ()
       unregistered: true,
     })
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('staff_module_not_loaded'),
+      expect.stringContaining('availabilityAccessResolver unregistered'),
     )
   })
 

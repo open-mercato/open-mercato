@@ -53,17 +53,17 @@ Options:
   unit of work. All paranoid checks, deep vectors, apply-elsewhere
   sweeps, and next-step suggestions live in that skill. This driver
   only orchestrates.
-- **Reuses** `.ai/skills/om-auto-create-pr/SKILL.md` for
+- **Reuses** `.agents/skills/om-auto-create-pr/SKILL.md` for
   branch/worktree/commit/validation/label discipline when opening the
   aggregate PR.
-- **Hands off** to `.ai/skills/om-auto-continue-pr/SKILL.md` when the run
+- **Hands off** to `.agents/skills/om-auto-continue-pr/SKILL.md` when the run
   cannot finish in one invocation.
 
 ## Workflow
 
 ### 0. Pre-flight and claim
 
-Follow `.ai/skills/om-auto-create-pr/SKILL.md` step 0 verbatim.
+Follow `.agents/skills/om-auto-create-pr/SKILL.md` step 0 verbatim.
 
 ```bash
 DATE=$(date -u +%Y-%m-%d)
@@ -95,7 +95,7 @@ target name, base branch, queue size) in the plan's Overview.
 
 ### 2. Draft the execution plan
 
-Follow `.ai/skills/om-auto-create-pr/SKILL.md` step 3 with a Progress
+Follow `.agents/skills/om-auto-create-pr/SKILL.md` step 3 with a Progress
 section shaped like this:
 
 ```markdown
@@ -129,7 +129,7 @@ the driver will run. Append commit SHA on each flip so
 
 ### 3. Isolated worktree and first commit
 
-Follow `.ai/skills/om-auto-create-pr/SKILL.md` steps 4–5 verbatim.
+Follow `.agents/skills/om-auto-create-pr/SKILL.md` steps 4–5 verbatim.
 
 ### 4. Execute the queue
 
@@ -264,12 +264,12 @@ Same as `om-auto-sec-report-pr` step 7:
 
 ### 8. Self-review and BC review
 
-Apply `.ai/skills/om-code-review/SKILL.md` to the artifact diff. Verify
+Apply `.agents/skills/om-code-review/SKILL.md` to the artifact diff. Verify
 no PII, no internal hostnames, no secrets leaked through.
 
 ### 9. Open the PR
 
-Follow `.ai/skills/om-auto-create-pr/SKILL.md` step 9 with:
+Follow `.agents/skills/om-auto-create-pr/SKILL.md` step 9 with:
 
 - Title: `docs(analysis): add auto-sec-report for {window caption}`.
 - Base: `develop`. Never merge directly.
@@ -293,13 +293,13 @@ Never `needs-qa`.
 
 ### 11. Auto-review pass
 
-Run `.ai/skills/om-auto-review-pr/SKILL.md` against the new PR in
+Run `.agents/skills/om-auto-review-pr/SKILL.md` against the new PR in
 autofix mode. Apply fixes as new commits. Never rewrite history.
 
 ### 12. Summary comment
 
 Post the comprehensive summary comment required by
-`.ai/skills/om-auto-create-pr/SKILL.md` step 12. In the "What can go
+`.agents/skills/om-auto-create-pr/SKILL.md` step 12. In the "What can go
 wrong" section, be honest about report limitations:
 
 - Findings are aggregated from per-unit heuristic analysis; confirm
@@ -311,7 +311,7 @@ wrong" section, be honest about report limitations:
 
 ### 13. Cleanup and resumability
 
-Follow `.ai/skills/om-auto-create-pr/SKILL.md` step 13.
+Follow `.agents/skills/om-auto-create-pr/SKILL.md` step 13.
 
 If the run cannot finish in a single invocation:
 

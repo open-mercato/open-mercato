@@ -7,6 +7,9 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { pushOperation } from '../operations/store'
 import { pushPartialIndexWarning } from '../indexes/store'
 import { createScopedHeaderStack } from './scopedHeaderStack'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'apiFetch' })
 
 const scopedHeaders = createScopedHeaderStack()
 
@@ -195,8 +198,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
               ? input.url
               : 'unknown'
       try {
-        // eslint-disable-next-line no-console
-        console.warn('[apiFetch] Forbidden response', {
+        logger.warn('Forbidden response', {
           url: target,
           status: res.status,
           requiredRoles: roles,

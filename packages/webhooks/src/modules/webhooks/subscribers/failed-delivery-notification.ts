@@ -2,9 +2,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import { buildFeatureNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { WebhookEntity } from '../data/entities'
 import { resolveWebhookIntegrationSettings } from '../lib/integration-settings'
 import { notificationTypes } from '../notifications'
+
+const logger = createLogger('webhooks').child({ component: 'failed-delivery-notification' })
 
 export const metadata = {
   event: 'webhooks.delivery.exhausted',
@@ -76,6 +79,6 @@ export default async function handle(payload: WebhookDeliveryExhaustedPayload, c
       organizationId,
     })
   } catch (err) {
-    console.error('[webhooks:failed-delivery-notification] Failed to create notification:', err)
+    logger.error('Failed to create notification', { err })
   }
 }

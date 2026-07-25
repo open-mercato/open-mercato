@@ -30,10 +30,10 @@ export type CalendarSettingsModalProps = {
 type ToggleKey = 'showCrmActivities' | 'aiSummaries' | 'conflictWarnings' | 'showWeekends'
 
 // An empty Activity Types list is an intentional floor meaning "surface all
-// dictionary types" (see buildEditorCategoryOptions) rather than "surface none" —
-// it keeps the editor's category picker usable. So when the stored list is empty
-// the modal seeds the dictionary types for display; curating a non-empty subset
-// persists and filters the editor as expected.
+// dictionary types" rather than "surface none". When the stored list is empty
+// the modal seeds the dictionary types for display. NOTE: since the editor's
+// Category quick-pick was removed (owner feedback, #3552) these lists no longer
+// affect the event editor — the type switcher always shows the full dictionary.
 function buildDraft(preferences: CalendarPreferences, seedActivityTypes: string[]): CalendarPreferences {
   return {
     ...preferences,
@@ -162,8 +162,8 @@ export function CalendarSettingsModal({
                     value={draft.conflictScope}
                     onChange={(conflictScope) => setDraft((current) => ({ ...current, conflictScope }))}
                     options={[
-                      { value: 'mine', label: t('customers.calendar.settings.conflictScopeMine', 'My meetings only') },
-                      { value: 'all', label: t('customers.calendar.settings.conflictScopeAll', 'All org meetings') },
+                      { value: 'mine', label: t('customers.calendar.settings.conflictScopeMine', 'My meetings') },
+                      { value: 'all', label: t('customers.calendar.settings.conflictScopeAll', 'All meetings') },
                     ]}
                   />
                 </div>

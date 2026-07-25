@@ -42,7 +42,7 @@ flowchart TD
     id["id → `cache.keys('*token*')` + delete"]
     pattern["pattern → `cache.keys(pattern)` + delete"]
     all["all → `cache.clear()`"]
-    structural["structural → pattern `nav:*`"]
+    structural["structural → `nav:*` + admin/portal nav segments"]
   end
 
   backends["storage backends<br/>memory, SQLite, Redis, jsonfile"]
@@ -65,7 +65,7 @@ The cache command delegates into `packages/core/src/modules/configs/lib/cache-cl
 | `purge --id` | `executeCachePurge({ kind: 'ids' })` | `cache.keys('*token*')` + `cache.delete()` |
 | `purge --pattern` | `executeCachePurge({ kind: 'pattern' })` | `cache.keys(pattern)` + `cache.delete()` |
 | `purge --all` | `executeCachePurge({ kind: 'all' })` | `cache.clear()` |
-| `structural` | `runStructuralCachePurge()` | `purge --pattern 'nav:*'` |
+| `structural` | `runStructuralCachePurge()` | `purge --pattern 'nav:*'` + the `admin-nav` and `portal-nav` CRUD segments |
 
 ## Scope handling
 
@@ -81,7 +81,7 @@ That is why `structural --all-tenants` is the safe default for page/module/sideb
 
 ## Structural purge behavior
 
-The structural shortcut is intentionally narrow. It targets `nav:*` keys because those are the stale entries that typically survive:
+The structural shortcut is intentionally narrow. It targets `nav:*` keys and the cached admin/portal navigation API segments because those are the stale entries that typically survive:
 
 - backend sidebar payloads
 - settings/profile section navigation
@@ -104,13 +104,14 @@ This split is deliberate:
 
 ## Generate-time structural purge
 
-`yarn generate` now performs a **best-effort structural cache purge** after successful generation by invoking `yarn mercato configs cache structural --all-tenants` when the generated app exposes the `configs` cache CLI.
+`yarn generate` performs a **best-effort, bootstrap-free structural invalidation** after successful generation when the app enables `configs`. The automatic path scans the configured stock cache backend's tenant metadata once, removes the structural navigation entries across every stored scope, and refreshes generated artifacts for Turbopack. It does not load the generated CLI registry, initialize application DI, connect to the tenant database, or create request containers.
 
 That post-step is intentionally non-fatal:
 
-- generation still succeeds if the app does not expose the `configs` cache command
-- generation still succeeds if the environment cannot reach the cache/database stack
-- operators can still rerun `yarn mercato configs cache structural --all-tenants` manually when they want an explicit purge pass
+- generation still succeeds if the app does not enable `configs`
+- generation still succeeds if the configured cache backend is unavailable
+- the generated-artifact refresh is attempted even when cache maintenance fails
+- operators can still run `yarn mercato configs cache structural --all-tenants` for the full DI-aware path, including custom cache-service overrides
 
 ## Source files
 
@@ -120,6 +121,7 @@ That post-step is intentionally non-fatal:
 | `packages/core/src/modules/configs/lib/cache-cli.ts` | Request normalization, preview mode, purge execution |
 | `packages/core/src/modules/configs/api/cache/route.ts` | Admin page HTTP API (`stats`, `purgeAll`, `purgeSegment`) |
 | `packages/shared/src/lib/crud/cache-stats.ts` | CRUD/widget segment analysis and segment purge |
-| `packages/cache/src/service.ts` | Tenant-aware cache wrapper over memory/SQLite/Redis/jsonfile strategies |
+| `packages/cache/src/service.ts` | Tenant-aware cache wrapper plus bootstrap-free cross-scope maintenance over memory/SQLite/Redis/jsonfile strategies |
+| `packages/cli/src/lib/post-generate-invalidation.ts` | Lightweight automatic structural cache purge and generated-artifact refresh |
 
 For operator usage, see [`mercato configs cache`](../cli/configs-cache).

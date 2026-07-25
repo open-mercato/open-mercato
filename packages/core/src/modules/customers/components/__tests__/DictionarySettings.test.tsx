@@ -128,6 +128,19 @@ describe('DictionarySettings', () => {
     expect(apiCallOrThrowMock).not.toHaveBeenCalled()
   })
 
+  it('renders the Interaction statuses management section', async () => {
+    renderWithProviders(<DictionarySettings />)
+
+    expect((await screen.findAllByText('Interaction statuses')).length).toBeGreaterThan(0)
+    await waitFor(() => {
+      expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
+        '/api/customers/dictionaries/interaction-statuses',
+        undefined,
+        expect.any(Object),
+      )
+    })
+  })
+
   it('scrolls the linked customer dictionary section after rendering', async () => {
     const scrollIntoView = jest.fn()
     Element.prototype.scrollIntoView = scrollIntoView

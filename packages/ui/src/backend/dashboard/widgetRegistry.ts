@@ -1,6 +1,9 @@
 import type { ModuleDashboardWidgetEntry } from '@open-mercato/shared/modules/registry'
 import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { applyDashboardWidgetOverridesToEntries } from '@open-mercato/shared/modules/overrides'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui')
 
 type Entry = ModuleDashboardWidgetEntry
 type LoadedWidgetModule = DashboardWidgetModule<any>
@@ -21,7 +24,7 @@ function resolveRegistrationWaiters(entries: Entry[]) {
 
 export function registerDashboardWidgets(entries: Entry[]) {
   if (_dashboardWidgetEntries !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Dashboard widgets re-registered (this may occur during HMR)')
+    logger.debug('Dashboard widgets re-registered (this may occur during HMR)')
   }
   _dashboardWidgetEntries = applyDashboardWidgetOverridesToEntries(entries)
   entriesPromise = Promise.resolve(_dashboardWidgetEntries)

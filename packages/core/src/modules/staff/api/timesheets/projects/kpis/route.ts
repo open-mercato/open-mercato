@@ -14,6 +14,9 @@ import {
   computeCollabProjectsKpis,
   computePmProjectsKpis,
 } from '../../../../lib/timesheets-projects/computeProjectsKpis'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 const VIEW_FEATURE = 'staff.timesheets.projects.view'
 const MANAGE_FEATURE = 'staff.timesheets.projects.manage'
@@ -118,7 +121,7 @@ export async function GET(req: Request) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('staff.timesheets.projects.kpis failed', err)
+    logger.error('staff.timesheets.projects.kpis failed', { err })
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       {

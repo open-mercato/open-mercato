@@ -14,6 +14,11 @@
 //
 // Every package's jest.config.cjs spreads this first, then overrides specifics.
 module.exports = {
+  // TEMPORARY (TypeScript 7 migration): redirect `import ts from 'typescript'`
+  // in test code to the JS-based `typescript-js` alias — native TS 7 drops the
+  // JS compiler API. Packages spread this base first and do not override
+  // `resolver`, so every suite inherits it. See scripts/jest-typescript-resolver.cjs.
+  resolver: require.resolve('./scripts/jest-typescript-resolver.cjs'),
   // Cap workers per package so the turbo fan-out stays small
   // (turbo concurrency × maxWorkers heavy workers at peak).
   maxWorkers: 2,

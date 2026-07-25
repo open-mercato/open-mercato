@@ -9,6 +9,9 @@ import {
   resolveProductDiscrepanciesInProposal,
 } from '../inbox_ops/lib/executionHelpers'
 import { CatalogPriceKind } from './data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 async function executeCreateProductAction(
   action: { id: string; proposalId: string; payload: unknown },
@@ -60,7 +63,7 @@ async function executeCreateProductAction(
     )
     variantId = variantResult.variantId ?? null
   } catch (variantErr) {
-    console.warn('[catalog:inbox-action] Failed to create default variant (non-fatal):', variantErr instanceof Error ? variantErr.message : variantErr)
+    logger.warn('catalog.inbox-action failed to create default variant (non-fatal)', { err: variantErr })
   }
 
   if (variantId && payload.unitPrice && payload.currencyCode) {
@@ -88,7 +91,7 @@ async function executeCreateProductAction(
         })
       }
     } catch (priceErr) {
-      console.warn('[catalog:inbox-action] Failed to set price on default variant (non-fatal):', priceErr)
+      logger.warn('catalog.inbox-action Failed to set price on default variant (non-fatal)', { err: priceErr })
     }
   }
 

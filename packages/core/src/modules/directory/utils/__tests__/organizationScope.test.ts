@@ -221,6 +221,111 @@ describe('resolveOrganizationScope', () => {
     })
   })
 
+  // Regression: a selected-org cookie / JWT org that no longer
+  // resolves to a real organization (e.g. after a DB reset reassigns the org a
+  // new UUID) must NOT be honored as the write target. Otherwise writes derived
+  // from `selectedId` land under a dead org while reads filter by `filterIds`,
+  // silently orphaning the record. The write target (`selectedId`) and read
+  // scope (`filterIds`) must always agree on a real, accessible org.
+  describe('stale / non-existent selected org', () => {
+    it('drops a dead selection for an unrestricted user and falls back to the account org', async () => {
+      const em = createMockEm(ALL_ORGS)
+      const rbac = createMockRbac({ isSuperAdmin: false, features: ['some.feature'], organizations: null })
+      const result = await resolveOrganizationScope({
+        em,
+        rbac,
+        auth: createAuth({ sub: 'user-1', isSuperAdmin: false, orgId: 'org-home' }),
+        selectedId: 'org-dead',
+      })
+      expect(result.selectedId).not.toBe('org-dead')
+      // read scope degrades gracefully to a real, accessible org
+      expect(result.selectedId).toBe('org-home')
+      expect(result.filterIds).toEqual(expect.arrayContaining(['org-home', 'org-home-child']))
+      expect(result.filterIds).toContain(result.selectedId)
+      expect(result.filterIds).not.toContain('org-dead')
+      // ...but the explicit selection was rejected, so writes must fail loud
+      expect(result.selectionRejected).toBe(true)
+    })
+
+    it('flags a dead selection as rejected for a superAdmin', async () => {
+      const em = createMockEm(ALL_ORGS)
+      const rbac = createMockRbac({ isSuperAdmin: true, features: ['*'], organizations: null })
+      const result = await resolveOrganizationScope({
+        em,
+        rbac,
+        auth: createAuth({ sub: 'user-1', isSuperAdmin: true, orgId: 'org-home' }),
+        selectedId: 'org-dead',
+      })
+      expect(result.selectedId).not.toBe('org-dead')
+      expect(result.selectionRejected).toBe(true)
+    })
+
+    it('flags a selection outside a restricted ACL as rejected', async () => {
+      const em = createMockEm(ALL_ORGS)
+      const rbac = createMockRbac({ isSuperAdmin: false, features: ['some.feature'], organizations: ['org-a'] })
+      const result = await resolveOrganizationScope({
+        em,
+        rbac,
+        auth: createAuth({ sub: 'user-1', isSuperAdmin: false, orgId: 'org-home' }),
+        selectedId: 'org-b',
+      })
+      expect(result.selectedId).not.toBe('org-b')
+      expect(result.selectionRejected).toBe(true)
+    })
+
+    it('does NOT flag when no organization was explicitly selected', async () => {
+      const em = createMockEm(ALL_ORGS)
+      const rbac = createMockRbac({ isSuperAdmin: false, features: ['some.feature'], organizations: null })
+      const result = await resolveOrganizationScope({
+        em,
+        rbac,
+        auth: createAuth({ sub: 'user-1', isSuperAdmin: false, orgId: 'org-home' }),
+      })
+      expect(result.selectionRejected).toBeFalsy()
+    })
+
+    it('does NOT flag a valid, resolvable selection', async () => {
+      const em = createMockEm(ALL_ORGS)
+      const rbac = createMockRbac({ isSuperAdmin: false, features: ['some.feature'], organizations: null })
+      const result = await resolveOrganizationScope({
+        em,
+        rbac,
+        auth: createAuth({ sub: 'user-1', isSuperAdmin: false, orgId: 'org-home' }),
+        selectedId: 'org-a',
+      })
+      expect(result.selectedId).toBe('org-a')
+      expect(result.selectionRejected).toBeFalsy()
+    })
+
+    it('does not scope a superAdmin to a non-existent selected org', async () => {
+      const em = createMockEm(ALL_ORGS)
+      const rbac = createMockRbac({ isSuperAdmin: true, features: ['*'], organizations: null })
+      const result = await resolveOrganizationScope({
+        em,
+        rbac,
+        auth: createAuth({ sub: 'user-1', isSuperAdmin: true, orgId: 'org-home' }),
+        selectedId: 'org-dead',
+      })
+      expect(result.selectedId).not.toBe('org-dead')
+      if (result.filterIds !== null) {
+        expect(result.filterIds).not.toContain('org-dead')
+      }
+    })
+
+    it('still honors a real selection for an unrestricted user', async () => {
+      const em = createMockEm(ALL_ORGS)
+      const rbac = createMockRbac({ isSuperAdmin: false, features: ['some.feature'], organizations: null })
+      const result = await resolveOrganizationScope({
+        em,
+        rbac,
+        auth: createAuth({ sub: 'user-1', isSuperAdmin: false, orgId: 'org-home' }),
+        selectedId: 'org-a',
+      })
+      expect(result.selectedId).toBe('org-a')
+      expect(result.filterIds).toEqual(expect.arrayContaining(['org-a']))
+    })
+  })
+
   describe('ACL-level superAdmin flag', () => {
     it('treats ACL-level isSuperAdmin same as auth-level for org scope widening', async () => {
       const em = createMockEm(ALL_ORGS)

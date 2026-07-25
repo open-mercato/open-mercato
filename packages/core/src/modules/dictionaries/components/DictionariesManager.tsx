@@ -28,6 +28,9 @@ import {
   dictionaryEntrySortModes,
   type DictionaryEntrySortMode,
 } from '../lib/entrySort'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'DictionariesManager' })
 
 export type DictionarySummary = {
   id: string
@@ -140,7 +143,7 @@ export function DictionariesManager() {
         return filtered.length ? filtered[0].id : null
       })
     } catch (err) {
-      console.error('Failed to load dictionaries', err)
+      logger.error('Failed to load dictionaries', { err })
       flash(t('dictionaries.config.error.load', 'Failed to load dictionaries.'), 'error')
     } finally {
       setLoading(false)
@@ -300,7 +303,7 @@ export function DictionariesManager() {
       if (surfaceRecordConflict(err, t)) {
         return
       }
-      console.error('Failed to save dictionary', err)
+      logger.error('Failed to save dictionary', { err })
       flash(t('dictionaries.config.error.save', 'Failed to save dictionary.'), 'error')
     } finally {
       setSubmitting(false)
@@ -357,7 +360,7 @@ export function DictionariesManager() {
         if (surfaceRecordConflict(err, t)) {
           return
         }
-        console.error('Failed to delete dictionary', err)
+        logger.error('Failed to delete dictionary', { err })
         flash(t('dictionaries.config.error.delete', 'Failed to delete dictionary.'), 'error')
       } finally {
         setDeleting(null)

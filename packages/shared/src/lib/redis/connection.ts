@@ -1,3 +1,7 @@
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'redis' })
+
 /**
  * Shared Redis connection utilities.
  *
@@ -77,7 +81,7 @@ export function parseRedisUrl(url: string): ParsedRedisConnection {
     }
   } catch {
     const safeUrl = url.replace(/\/\/[^:]*:[^@]*@/, '//<redacted>@')
-    console.warn(`[redis] Failed to parse URL "${safeUrl}", falling back to localhost:6379`)
+    logger.warn('Failed to parse Redis URL, falling back to localhost:6379', { url: safeUrl })
     return { host: 'localhost', port: 6379 }
   }
 }

@@ -18,6 +18,9 @@ import {
   cachePurgeSegmentResponseSchema,
   configErrorSchema,
 } from '../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('configs')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['configs.cache.view'] },
@@ -51,7 +54,7 @@ export async function GET(req: Request) {
     const stats = await runWithCacheTenant(auth.tenantId ?? null, () => collectCrudCacheStats(cache))
     return NextResponse.json(stats)
   } catch (error) {
-    console.error('[configs.cache] failed to resolve cache stats', error)
+    logger.error('failed to resolve cache stats', { component: 'cache', err: error })
     return NextResponse.json(
       { error: translate('configs.cache.unavailable', 'Cache service is unavailable.') },
       { status: 500 },
@@ -158,7 +161,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(responseBody)
   } catch (error) {
-    console.error('[configs.cache] failed to purge cache', error)
+    logger.error('failed to purge cache', { component: 'cache', err: error })
     return NextResponse.json(
       { error: translate('configs.cache.purgeError', 'Failed to purge cache segment.') },
       { status: 500 },

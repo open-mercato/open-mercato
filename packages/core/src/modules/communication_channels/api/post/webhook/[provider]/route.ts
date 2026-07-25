@@ -11,6 +11,9 @@ import {
 import type { InboundMessage } from '../../../../lib/adapter'
 import type { InboundProcessorPayload } from '../../../../workers/inbound-processor'
 import type { ReactionInboundJob } from '../../../../lib/reaction-processor-types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'inbound-webhook' })
 
 /**
  * Inbound webhook endpoint for the communication_channels hub.
@@ -201,9 +204,9 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Resp
   } catch (error: unknown) {
     // Do not echo adapter/verification internals to an unauthenticated caller;
     // log the detail server-side and return a fixed, minimal message.
-    console.warn(
-      '[communication_channels] inbound webhook verification failed:',
-      error instanceof Error ? error.message : error,
+    logger.warn(
+      'inbound webhook verification failed',
+      { err: error },
     )
     return NextResponse.json({ error: 'verification_failed' }, { status: 401 })
   }

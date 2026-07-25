@@ -8,6 +8,7 @@ import {
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { ShippingCarrierService } from '../../lib/shipping-service'
 import { isShipmentCancelNotAllowedError } from '../../lib/status-sync'
+import { shippingCarrierUpstreamErrorResponse } from '../../lib/upstream-error-response'
 import { cancelShipmentSchema } from '../../data/validators'
 import { shippingCarriersTag } from '../openapi'
 
@@ -81,8 +82,7 @@ export async function POST(req: Request) {
     if (isShipmentCancelNotAllowedError(error)) {
       return NextResponse.json({ error: error.message }, { status: 422 })
     }
-    const message = error instanceof Error ? error.message : 'Failed to cancel shipment'
-    return NextResponse.json({ error: message }, { status: 502 })
+    return shippingCarrierUpstreamErrorResponse('cancel.post', error)
   }
 }
 

@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
+import { TERMINAL_INTERACTION_STATUS_LIST } from './interactionStatus'
 
 export type NextInteractionProjectionResult = {
   nextInteractionId: string | null
@@ -9,7 +10,10 @@ export type NextInteractionProjectionResult = {
  * Recomputes the next-interaction projection fields on a CustomerEntity.
  *
  * Algorithm:
- * 1. Find all interactions for entityId where status = 'planned', scheduled_at IS NOT NULL, deleted_at IS NULL
+ * 1. Find all OPEN interactions for entityId (status NOT IN terminal — see lib/interactionStatus.ts),
+ *    scheduled_at IS NOT NULL, deleted_at IS NULL. A scheduled task that moves planned -> in_progress
+ *    stays the next step; this projection only tracks scheduled next-steps, so undated open tasks are
+ *    deliberately excluded (next_interaction_at must stay a real date for grid sort / search index).
  * 2. Sort by scheduled_at ASC, priority DESC NULLS LAST, created_at ASC, id ASC
  * 3. Take the first row and project its fields onto the CustomerEntity
  * 4. If no candidates, set all projection fields to NULL
@@ -32,7 +36,7 @@ export async function recomputeNextInteraction(
       'appearance_color',
     ])
     .where('entity_id', '=', entityId)
-    .where('status', '=', 'planned')
+    .where('status', 'not in', [...TERMINAL_INTERACTION_STATUS_LIST])
     .where('scheduled_at', 'is not', null)
     .where('deleted_at', 'is', null)
   if (organizationId) {

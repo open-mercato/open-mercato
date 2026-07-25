@@ -69,6 +69,7 @@
   "shipping_carriers.create.summary.targetPoint": "Paczkomat",
   "shipping_carriers.create.summary.to": "Odbiór",
   "shipping_carriers.create.title": "Utwórz przesyłkę u przewoźnika",
+  "shipping_carriers.errors.upstreamFailed": "Żądanie do przewoźnika nie powiodło się. Spróbuj ponownie później.",
   "shipping_carriers.feature.manage": "Zarzadzanie operacjami przewoznikow",
   "shipping_carriers.feature.view": "Podglad przesylek przewoznikow",
   "shipping_carriers.status.cancelled": "Anulowano",

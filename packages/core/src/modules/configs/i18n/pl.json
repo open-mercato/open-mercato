@@ -189,5 +189,9 @@
   "configs.systemStatus.variables.queryIndexWarmupThrottleMs.label": "Okno throttlingu rozgrzewki",
   "configs.systemStatus.variables.scheduleAutoReindex.description": "Automatycznie uruchamia przebudowę indeksu zapytań, gdy wykryte zostaną luki.",
   "configs.systemStatus.variables.scheduleAutoReindex.label": "Automatyczna przebudowa indeksu",
-  "configs.systemStatus.viewDocs": "Zobacz dokumentację"
+  "configs.systemStatus.viewDocs": "Zobacz dokumentację",
+  "configs.upgrades.attachmentsOrgReconcile.cta": "Uzgodnij organizacje załączników",
+  "configs.upgrades.attachmentsOrgReconcile.loading": "Uzgadnianie organizacji załączników…",
+  "configs.upgrades.attachmentsOrgReconcile.message": "Wersja {{version}} naprawia załączniki zapisane pod niewłaściwą organizacją. Uruchom uzgadnianie, aby przenieść istniejące załączniki do organizacji rekordu, do którego należą.",
+  "configs.upgrades.attachmentsOrgReconcile.success": "Organizacje załączników zostały uzgodnione."
 }

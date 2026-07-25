@@ -4,7 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
-import { readCoverageSnapshots, refreshCoverageSnapshot } from '../lib/coverage'
+import { readCoverageSnapshots, refreshCoverageSnapshot, type CoverageSnapshot } from '../lib/coverage'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
 import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
@@ -15,6 +15,33 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['query_index.status.view'] },
+}
+
+const STATUS_REFRESH_COOLDOWN_MS = 60_000
+
+function getCoverageSnapshotRefreshedAt(snapshot: Pick<CoverageSnapshot, 'refreshed_at'> | null | undefined): number | null {
+  const value = snapshot?.refreshed_at
+  if (value instanceof Date) {
+    const time = value.getTime()
+    return Number.isFinite(time) ? time : null
+  }
+  if (typeof value === 'string') {
+    const time = new Date(value).getTime()
+    return Number.isFinite(time) ? time : null
+  }
+  return null
+}
+
+function hasFreshCoverageSnapshots(
+  snapshots: Map<string, CoverageSnapshot>,
+  entityIds: string[],
+  now: number,
+): boolean {
+  for (const entityId of entityIds) {
+    const refreshedAt = getCoverageSnapshotRefreshedAt(snapshots.get(entityId))
+    if (refreshedAt === null || now - refreshedAt >= STATUS_REFRESH_COOLDOWN_MS) return false
+  }
+  return entityIds.length > 0
 }
 
 export async function GET(req: Request) {
@@ -303,9 +330,10 @@ export async function GET(req: Request) {
   // event emitted below, never inline per entity.
   const snapshotByEntity = await readCoverageSnapshots(db, { entityTypes: entityIds, ...coverageScope })
 
-  // An explicit refresh action (?refresh) is allowed to block: recompute every entity's
-  // coverage with bounded concurrency, then re-read the freshly written snapshots.
-  if (forceRefresh && entityIds.length > 0) {
+  // An explicit refresh action (?refresh) may block, but only when the durable
+  // coverage snapshots are stale. Recent persisted snapshots survive workers/restarts,
+  // so repeated refresh requests use them instead of hammering base-table counts.
+  if (forceRefresh && entityIds.length > 0 && !hasFreshCoverageSnapshots(snapshotByEntity, entityIds, Date.now())) {
     await mapWithConcurrency(entityIds, COVERAGE_REFRESH_CONCURRENCY, (entityId) =>
       refreshCoverageSnapshot(em, { entityType: entityId, ...coverageScope }).catch(() => undefined),
     )
@@ -387,10 +415,7 @@ export async function GET(req: Request) {
     errorQuery = errorQuery.where('tenant_id' as any, 'is', null as any)
   }
   if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
-    errorQuery = errorQuery.where((eb: any) => eb.or([
-      eb('organization_id' as any, 'is', null),
-      eb('organization_id' as any, 'in', organizationScopeIds),
-    ]))
+    errorQuery = errorQuery.where('organization_id' as any, 'in', organizationScopeIds)
   } else {
     errorQuery = errorQuery.where('organization_id' as any, 'is', null as any)
   }
@@ -428,10 +453,7 @@ export async function GET(req: Request) {
     logsQuery = logsQuery.where('tenant_id' as any, 'is', null as any)
   }
   if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
-    logsQuery = logsQuery.where((eb: any) => eb.or([
-      eb('organization_id' as any, 'is', null),
-      eb('organization_id' as any, 'in', organizationScopeIds),
-    ]))
+    logsQuery = logsQuery.where('organization_id' as any, 'in', organizationScopeIds)
   } else {
     logsQuery = logsQuery.where('organization_id' as any, 'is', null as any)
   }

@@ -22,6 +22,9 @@ import {
   upsertDictionarySchema,
 } from '../openapi'
 import { dictionaryKeySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'api' })
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
 // System dictionaries use namespaced keys (e.g. `sales.deal_loss_reason`,
@@ -103,7 +106,7 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries/:id.GET] Unexpected error', err)
+    logger.error('Failed to load dictionary', { err })
     return NextResponse.json({ error: 'Failed to load dictionary' }, { status: 500 })
   }
 }
@@ -225,7 +228,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.issues[0]?.message ?? 'Validation failed' }, { status: 400 })
     }
-    console.error('[dictionaries/:id.PATCH] Unexpected error', err)
+    logger.error('Failed to update dictionary', { err })
     return NextResponse.json({ error: 'Failed to update dictionary' }, { status: 500 })
   }
 }
@@ -286,7 +289,7 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries/:id.DELETE] Unexpected error', err)
+    logger.error('Failed to delete dictionary', { err })
     return NextResponse.json({ error: 'Failed to delete dictionary' }, { status: 500 })
   }
 }

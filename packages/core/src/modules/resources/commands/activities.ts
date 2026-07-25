@@ -7,7 +7,6 @@ import {
   emitCrudUndoSideEffects,
   buildChanges,
   requireId,
-  normalizeAuthorUserId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -30,7 +29,7 @@ import {
   type ResourcesResourceActivityUpdateInput,
 } from '../data/validators'
 import { resourcesResourceActivityCrudEvents } from '../lib/crud'
-import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireResource } from './shared'
+import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireResource, resolveResourceAuthorUserId } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
 const ACTIVITY_ENTITY_ID = E.resources.resources_resource_activity
@@ -117,12 +116,15 @@ const createActivityCommand: CommandHandler<ResourcesResourceActivityCreateInput
     const { parsed, custom } = parseWithCustomFields(resourcesResourceActivityCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const resource = await requireResource(em, parsed.entityId, 'Resource not found')
     ensureTenantScope(ctx, resource.tenantId)
     ensureOrganizationScope(ctx, resource.organizationId)
+    const normalizedAuthor = await resolveResourceAuthorUserId(em, parsed.authorUserId, ctx, {
+      tenantId: resource.tenantId,
+      organizationId: resource.organizationId,
+    })
 
     const activity = em.create(ResourcesResourceActivity, {
       organizationId: parsed.organizationId,
@@ -287,7 +289,6 @@ const updateActivityCommand: CommandHandler<ResourcesResourceActivityUpdateInput
     if (parsed.subject !== undefined) activity.subject = parsed.subject ?? null
     if (parsed.body !== undefined) activity.body = parsed.body ?? null
     if (parsed.occurredAt !== undefined) activity.occurredAt = parsed.occurredAt ?? null
-    if (parsed.authorUserId !== undefined) activity.authorUserId = parsed.authorUserId ?? null
     if (parsed.appearanceIcon !== undefined) activity.appearanceIcon = parsed.appearanceIcon ?? null
     if (parsed.appearanceColor !== undefined) activity.appearanceColor = parsed.appearanceColor ?? null
 

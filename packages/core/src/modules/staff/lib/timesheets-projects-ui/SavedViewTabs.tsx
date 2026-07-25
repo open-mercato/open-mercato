@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 
 export type SavedViewTab = {
   id: string
@@ -19,35 +19,18 @@ export type SavedViewTabsProps = {
 
 export function SavedViewTabs({ tabs, activeId, onSelect, className, ariaLabel }: SavedViewTabsProps) {
   return (
-    <div
-      role="tablist"
-      aria-label={ariaLabel ?? 'Saved views'}
-      className={`flex items-center gap-1 border-b border-border ${className ?? ''}`}
-    >
-      {tabs.map((tab) => {
-        const isActive = tab.id === activeId
-        return (
-          <Button
+    <Tabs value={activeId} onValueChange={onSelect} variant="underline" className={className}>
+      <TabsList className="w-full flex-wrap" aria-label={ariaLabel ?? 'Saved views'}>
+        {tabs.map((tab) => (
+          <TabsTrigger
             key={tab.id}
-            type="button"
-            variant="ghost"
-            size="sm"
-            role="tab"
-            aria-selected={isActive}
-            className={`h-auto rounded-none px-3 py-2 text-sm hover:bg-transparent ${
-              isActive
-                ? 'border-b-2 border-foreground font-medium text-foreground'
-                : 'border-b-2 border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => onSelect(tab.id)}
+            value={tab.id}
+            count={typeof tab.count === 'number' ? tab.count : undefined}
           >
             {tab.label}
-            {typeof tab.count === 'number' ? (
-              <span className="ml-1.5 text-xs text-muted-foreground/70 tabular-nums">{tab.count}</span>
-            ) : null}
-          </Button>
-        )
-      })}
-    </div>
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
   )
 }
