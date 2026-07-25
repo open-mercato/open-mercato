@@ -66,7 +66,7 @@ Every `backend-ui` loads `references/quality-states.md`; public/portal/responsiv
 | `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership or mechanism is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
 | `backend-ui` | Custom admin/public/portal/form/table/menu/i18n/component | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
-| `integration` | External email/shipping/payment/sync/webhook/storage/file provider | `.ai/guides/integrations.md`; excludes installed-sender use, workflow `CALL_API`, downloads, and built-in AI storage |
+| `integration` | External email/shipping/payment/sync/webhook/storage/file/import/export provider | `.ai/guides/integrations.md`; excludes installed-sender use, workflow `CALL_API`, downloads, and AI storage |
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/reminders/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 

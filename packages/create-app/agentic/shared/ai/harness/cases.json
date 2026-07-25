@@ -7716,7 +7716,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "When a quote discount exceeds the configured limit, prevent acceptance until a different authorized person approves it. Calculate the threshold on the server, keep requester and approver separate, create a durable approval task, record the decision, reject stale approvals after the quote changes, and make repeated requests safe.",
+    "prompt": "When a quote discount exceeds the configured limit, prevent acceptance until a different authorized person approves it. Calculate the threshold on the server, keep requester and approver separate, create a durable approval task, record the decision, reject stale approvals after the quote changes, and make repeated requests safe. Implement this domain command and task gate only; do not design its UI in this slice.",
     "tags": [
       "business-language",
       "sales",
@@ -7921,7 +7921,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "For an accepted recurring quote, create renewal orders on the agreed schedule using the prices, terms, and currency captured at acceptance. Retries or restarts must not create duplicate orders, cancellation must stop future renewals at a defined boundary, and schedule changes must never rewrite orders already created.",
+    "prompt": "For an accepted recurring quote, create renewal orders on the agreed schedule using the prices, terms, and currency captured at acceptance. Treat each recurring agreement as a durable business process with resumable renewal activity state, not only a scheduled job. Retries or restarts must not create duplicate orders, cancellation must stop future renewals at a defined boundary, and schedule changes must never rewrite orders already created.",
     "tags": [
       "business-language",
       "sales",
