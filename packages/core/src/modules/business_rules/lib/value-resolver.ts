@@ -29,7 +29,7 @@ export function resolveSpecialValue(template: string, context: EvaluationContext
 // Field paths come from rule authors, so a segment could name a prototype key.
 // Rejecting these — and requiring own-property access — keeps traversal on the
 // caller's own data instead of the prototype chain.
-const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'] as const
+const DANGEROUS_KEYS = new Set<string>(['__proto__', 'constructor', 'prototype'])
 
 /**
  * Get nested value from object using dot notation
@@ -54,7 +54,7 @@ export function getNestedValue(obj: any, path: string): any {
       return undefined
     }
 
-    if ((DANGEROUS_KEYS as readonly string[]).includes(key)) {
+    if (DANGEROUS_KEYS.has(key)) {
       return undefined
     }
 
