@@ -1180,7 +1180,7 @@ test('generated-test execution fails closed for missing runtimes and browser pre
     })
     assert.equal(browserFailure.status, 'fail')
     assert.match(browserFailure.sanitizedError, /browser runtime absent/)
-    fs.rmSync(path.join(target, 'node_modules'))
+    fs.rmSync(path.join(target, 'node_modules'), { recursive: true, force: true })
     fs.mkdirSync(path.join(target, 'node_modules'))
     const runtimeFailure = release.runGeneratedTestStep({
       step: generatedTestStep('OMH-163', 'jest', artifact, 'none'), target, timeout: 10_000, roots: [target],

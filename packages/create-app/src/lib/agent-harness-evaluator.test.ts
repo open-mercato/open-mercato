@@ -2152,7 +2152,7 @@ test('writable target preflight rejects target-owned dependencies before the mod
       '--case', 'OMH-011', '--target', target, '--acknowledge-writes',
     ], { cwd: controller, encoding: 'utf8' })
     assert.equal(prepared.status, 0, `${prepared.stdout}\n${prepared.stderr}`)
-    fs.rmSync(path.join(target, 'node_modules'))
+    fs.rmSync(path.join(target, 'node_modules'), { recursive: true, force: true })
     const targetTypeScript = path.join(target, 'node_modules', 'typescript')
     fs.mkdirSync(targetTypeScript, { recursive: true })
     fs.writeFileSync(path.join(targetTypeScript, 'package.json'), '{"name":"typescript","main":"index.js"}\n')

@@ -117,7 +117,7 @@ test('fixture preparation rejects a symlink target root', () => {
     assert.match(result.stderr, /target must be a regular directory, not a symbolic link/)
     assert.equal(fs.existsSync(path.join(target, '.ai', 'harness', 'DISPOSABLE')), false)
   } finally {
-    fs.rmSync(targetLink, { force: true })
+    fs.rmSync(targetLink, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })
     fs.rmSync(controller, { recursive: true, force: true })
   }
