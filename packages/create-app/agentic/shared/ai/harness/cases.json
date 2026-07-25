@@ -460,8 +460,9 @@
         "framework-context",
         "debugging"
       ],
-      "allowedExtra": [
-        "spec-pr"
+    "allowedExtra": [
+      "spec-pr",
+      "module-data"
       ]
     },
     "requiredSkills": [
@@ -472,9 +473,12 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/architecture.md",
-        ".ai/guides/testing-debugging.md",
-        ".ai/skills/om-troubleshooter/SKILL.md"
-      ],
+      ".ai/guides/testing-debugging.md",
+      ".ai/skills/om-troubleshooter/SKILL.md"
+    ],
+    "allowedExtra": [
+      ".ai/guides/contracts.md"
+    ],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -539,9 +543,12 @@
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/guides/architecture.md",
-        ".ai/skills/om-trim-unused-modules/SKILL.md"
-      ],
+      ".ai/guides/architecture.md",
+      ".ai/skills/om-trim-unused-modules/SKILL.md"
+    ],
+    "allowedExtra": [
+      ".ai/guides/modules/dashboards.md"
+    ],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -597,14 +604,18 @@
       "required": [
         "module-data"
       ],
-      "allowedExtra": [
-        "architecture",
-        "debugging"
+    "allowedExtra": [
+      "architecture",
+      "debugging",
+      "framework-context"
       ]
     },
-    "requiredSkills": [
-      "om-data-model-design"
-    ],
+  "requiredSkills": [
+    "om-data-model-design"
+  ],
+  "optionalSkills": [
+    "om-framework-context"
+  ],
     "context": {
       "required": [
         "AGENTS.md",

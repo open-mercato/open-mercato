@@ -916,6 +916,32 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
+test('a case may declare a bounded optional skill for an allowed extra route', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['module-data', 'framework-context'], selectedSkills: ['om-data-model-design', 'om-framework-context'],
+  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md', '.ai/skills/om-framework-context/SKILL.md'],
+  decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
+  command: 'cat AGENTS.md .ai/guides/contracts.md .ai/skills/om-data-model-design/SKILL.md .ai/skills/om-framework-context/SKILL.md'
+} }))
+`)
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-009'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('Codex login-shell wrappers preserve narrow reads without authorizing nested interpreters', { skip: process.platform === 'win32' }, () => {
   for (const command of [
     `/bin/zsh -lc "sed -n '1,120p' AGENTS.md && sed -n '1,120p' .ai/guides/architecture.md"`,
@@ -995,6 +1021,35 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
+test('newline-separated direct and login-shell traces reject a hidden interpreter', { skip: process.platform === 'win32' }, () => {
+  for (const command of [
+    "cat AGENTS.md .ai/guides/architecture.md\nnode -e 'process.cwd()'",
+    "/bin/zsh -lc \"cat AGENTS.md .ai/guides/architecture.md\r\nnode -e 'process.cwd()'\"",
+  ]) {
+    const root = stageApp()
+    const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs'); const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: ${JSON.stringify(command)} } }))
+`)
+    try {
+      const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+      })
+      assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+      assert.ok(storedResults(root)[0].violations.includes('forbidden interpreter or eval command: node'))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
 test('restricted login-shell traces reject escaped paths expansions globs braces and nested shells', { skip: process.platform === 'win32' }, () => {
   for (const command of [
     `/bin/zsh -lc "cat \\/etc\\/passwd && cat AGENTS.md .ai/guides/architecture.md"`,
@@ -1030,7 +1085,7 @@ test('routing answers come only from emitted instructions, not the controller pr
 const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
-const prompt = args.at(-1)
+const prompt = fs.readFileSync(0, 'utf8')
 const ownerStillAvailable = fs.readFileSync('AGENTS.md', 'utf8').includes('.ai/guides/architecture.md') || prompt.includes('.ai/guides/architecture.md')
 const selectedContext = ownerStillAvailable ? ['AGENTS.md', '.ai/guides/architecture.md'] : ['AGENTS.md']
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
@@ -1276,6 +1331,35 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
     assert.match(serialized, /<redacted-token>/)
     assert.ok(stored.decisions.includes('environment-isolated'))
     assert.ok(stored.violations.every((entry) => entry.length <= 300))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('secret redaction preserves legitimate skill reference names beginning with skew', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const reference = '.ai/skills/om-framework-context/references/skew-and-escalation.md'
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'customers.md'), '# customers\n')
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs'); const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['framework-context'], selectedSkills: ['om-framework-context'],
+  selectedContext: ['AGENTS.md', '.ai/guides/modules/customers.md', '.ai/skills/om-framework-context/SKILL.md', '${reference}'],
+  decisions: ['installed-version', 'bounded-source-search'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
+  command: 'cat AGENTS.md .ai/guides/modules/customers.md .ai/skills/om-framework-context/SKILL.md ${reference}'
+} }))
+`)
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-003'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    assert.ok(storedResults(root)[0].selectedContext.includes(reference))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

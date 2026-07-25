@@ -26,7 +26,7 @@ const WRITABLE_KINDS = new Set(['implementation', 'regression'])
 const BC_RULE_IDS = Array.from({ length: 14 }, (_, index) => `BC-${String(index + 1).padStart(2, '0')}`)
 const CASE_KEYS = new Set([
   'id', 'title', 'family', 'mode', 'evaluationKind', 'risk', 'prompt', 'tags', 'owner',
-  'expectedRouter', 'requiredSkills', 'context', 'requiredDecisions', 'forbiddenPatterns',
+  'expectedRouter', 'requiredSkills', 'optionalSkills', 'context', 'requiredDecisions', 'forbiddenPatterns',
   'validators', 'fixture', 'oracle', 'allowedWrites', 'maxContextFiles',
   'maxInitialContextBytes', 'maxTotalContextBytes', 'relatedCases', 'source',
 ])
@@ -319,7 +319,9 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     if (!isUniqueStringArray(allowedExtra) || allowedExtra.some((route) => !ROUTERS.has(route))) add(id, 'expectedRouter.allowedExtra is invalid')
     if ((requiredRoutes ?? []).some((route) => allowedExtra.includes(route))) add(id, 'required and allowed-extra routes overlap')
     if (!isUniqueStringArray(item.requiredSkills) || item.requiredSkills.some((skill) => !/^om-[a-z0-9-]+$/.test(skill))) add(id, 'requiredSkills must be unique om-* names')
-    for (const skill of item.requiredSkills ?? []) {
+    if (!isUniqueStringArray(item.optionalSkills ?? []) || (item.optionalSkills ?? []).some((skill) => !/^om-[a-z0-9-]+$/.test(skill))) add(id, 'optionalSkills must be unique om-* names')
+    if ((item.requiredSkills ?? []).some((skill) => (item.optionalSkills ?? []).includes(skill))) add(id, 'required and optional skills overlap')
+    for (const skill of [...(item.requiredSkills ?? []), ...(item.optionalSkills ?? [])]) {
       const local = path.join(root, '.ai', 'skills', skill, 'SKILL.md')
       const canonical = path.join(root, '.agents', 'skills', skill, 'SKILL.md')
       if (!fs.existsSync(local) && !fs.existsSync(canonical) && !externalSkills.has(skill)) add(id, `unknown skill ${skill}`)
@@ -481,7 +483,7 @@ function sanitize(value, root, maxLength = 4096) {
     text = text.split(inheritedValue).join('<redacted-provider-value>')
   }
   text = text
-    .replace(/\b(?:sk|ghp|github_pat|xox[baprs])[-_A-Za-z0-9]{8,}\b/g, '<redacted-token>')
+    .replace(/\b(?:sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b/g, '<redacted-token>')
     .replace(/\b(?:api[_-]?key|authorization|password|secret|token)\s*[:=]\s*[^\s,;]+/gi, '$1=<redacted>')
   return text.slice(0, maxLength)
 }
@@ -740,6 +742,11 @@ function parseRestrictedShell(commandText) {
         tokenStarted = true
         continue
       }
+      if (char === '\r' || char === '\n') {
+        if (tokenStarted || tokens.length) finishCommand()
+        if (char === '\r' && commandText[index + 1] === '\n') index += 1
+        continue
+      }
       if (/\s/.test(char)) { finishToken(); continue }
       if (char === "'" || char === '"') { quote = char; tokenStarted = true; continue }
       if (char === '\\') {
@@ -750,7 +757,7 @@ function parseRestrictedShell(commandText) {
         index += 1
         continue
       }
-      if (char === ';' || char === '\n') { finishCommand(); continue }
+      if (char === ';') { finishCommand(); continue }
       if (char === '&' && commandText[index + 1] === '&') { finishCommand(); index += 1; continue }
       if ('|&<>`(){}$*?[]'.includes(char)) throw new Error('unsupported shell operator or expansion')
       token += char
@@ -1033,7 +1040,7 @@ function isAllowedObservedPath(relative, caseRecord, writable) {
 }
 
 function supportingSkillPaths(caseRecord) {
-  return (caseRecord.requiredSkills ?? []).flatMap((skill) => [
+  return [...(caseRecord.requiredSkills ?? []), ...(caseRecord.optionalSkills ?? [])].flatMap((skill) => [
     `.ai/skills/${skill}/SKILL.md`,
     `.agents/skills/${skill}/SKILL.md`,
   ])
@@ -1227,7 +1234,8 @@ function evaluateRouting(caseRecord, response, stats) {
   for (const selected of selectedRoutes) if (!permitted.has(selected)) failures.push(`unexpected route ${selected}`)
   const selectedSkills = new Set(response.selectedSkills)
   for (const required of caseRecord.requiredSkills) if (!selectedSkills.has(required)) failures.push(`missing skill ${required}`)
-  for (const selected of selectedSkills) if (!caseRecord.requiredSkills.includes(selected)) failures.push(`unexpected skill ${selected}`)
+  const permittedSkills = new Set([...caseRecord.requiredSkills, ...(caseRecord.optionalSkills ?? [])])
+  for (const selected of selectedSkills) if (!permittedSkills.has(selected)) failures.push(`unexpected skill ${selected}`)
   const selectedContext = new Set(response.selectedContext)
   for (const required of caseRecord.context.required) {
     if (![...selectedContext].some((selected) => globToRegExp(required).test(selected))) failures.push(`missing context ${required}`)
@@ -1380,7 +1388,7 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
       const rawResponse = extractJsonCandidate(processResult.stdout ?? '', outputPath, runner)
       const schemaErrors = [...validateResponse(rawResponse), ...validateJsonSchema(rawResponse, readJson(schemaPath))]
       if (schemaErrors.length) return { kind: 'invalid-structured-output', durationMs, exitStatus: processResult.status, error: schemaErrors.join('; '), stdout: processResult.stdout ?? '' }
-      const response = recursivelySanitize(rawResponse, root)
+      const response = rawResponse
       for (const key of ['selectedRouter', 'selectedSkills', 'selectedContext', 'decisions', 'violations']) {
         if (Array.isArray(response[key])) response[key] = [...new Set(response[key])]
       }
@@ -1962,8 +1970,8 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
       ...(validationResult ? { validationResult } : {}),
       validationEvidence,
       verdict: response.verdict,
-      report: response.report,
-      findings: response.findings,
+      report: recursivelySanitize(response.report, bundleRoot),
+      findings: recursivelySanitize(response.findings, bundleRoot),
       violations: violations.map((entry) => sanitize(entry, bundleRoot, RESULT_VIOLATION_LIMIT)),
       attempts: 1,
       corrections: 0,
@@ -2097,10 +2105,10 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         runnerVersion: version,
         model,
         evaluationKind: writable ? caseRecord.evaluationKind : 'routing',
-        selectedRouter: response.selectedRouter,
-        selectedSkills: response.selectedSkills,
-        selectedContext: response.selectedContext,
-        decisions: response.decisions,
+        selectedRouter: recursivelySanitize(response.selectedRouter, runRoot),
+        selectedSkills: recursivelySanitize(response.selectedSkills, runRoot),
+        selectedContext: recursivelySanitize(response.selectedContext, runRoot),
+        decisions: recursivelySanitize(response.decisions, runRoot),
         violations: violations.map((entry) => sanitize(entry, runRoot, RESULT_VIOLATION_LIMIT)),
         attempts: executions.length,
         corrections: executions.length - 1,
