@@ -3,9 +3,9 @@
  */
 
 import * as React from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { DashboardScreen } from '../DashboardScreen'
+import { DashboardScreenLegacy } from '../legacy/DashboardScreenLegacy'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { getDashboardWidgets, loadDashboardWidgetModule } from '../widgetRegistry'
 
@@ -36,6 +36,15 @@ jest.mock('next/navigation', () => ({
 
 const createMockResponse = (status: number): Response => ({ status } as Response)
 
+function successfulApiCall<T>(result: T) {
+  return {
+    ok: true,
+    status: 200,
+    result,
+    response: createMockResponse(200),
+  }
+}
+
 const dict = {
   'dashboard.loadError': 'Failed to load dashboard',
   'dashboard.widget.loadError': 'Unable to load widget.',
@@ -43,6 +52,11 @@ const dict = {
   'dashboard.empty.noWidgets.description': 'Dashboard widgets will appear here after you add a module.',
   'dashboard.widgets.foo.title': 'Widget Foo',
   'dashboard.widgets.foo.description': 'Widget description',
+  'dashboard.widgets.bar.title': 'Widget Bar',
+  'dashboard.widgets.bar.description': 'Another widget description',
+  'dashboard.action.customize': 'Customize',
+  'dashboard.action.done': 'Done',
+  'dashboard.addWidget': 'Add a widget',
 }
 
 const widgetResponse = {
@@ -74,6 +88,28 @@ const widgetResponse = {
   },
 }
 
+const secondWidget = {
+  id: 'bar',
+  title: 'Widget Bar',
+  description: 'Another widget description',
+  defaultSize: 'md',
+  defaultEnabled: false,
+  defaultSettings: null,
+  features: [],
+  moduleId: 'example',
+  icon: null,
+  loaderKey: 'bar.loader',
+  supportsRefresh: false,
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve
+  })
+  return { promise, resolve }
+}
+
 function MockWidget() {
   return <div>Widget body</div>
 }
@@ -98,7 +134,7 @@ describe('DashboardScreen', () => {
       response: createMockResponse(200),
     })
 
-    renderWithProviders(<DashboardScreen />, { dict })
+    renderWithProviders(<DashboardScreenLegacy />, { dict })
 
     // Wait for the layout to load first
     expect(await screen.findByText('Widget Foo')).toBeInTheDocument()
@@ -114,17 +150,72 @@ describe('DashboardScreen', () => {
       response: createMockResponse(200),
     })
 
-    const { rerender } = renderWithProviders(<DashboardScreen />, { dict })
+    const { rerender } = renderWithProviders(<DashboardScreenLegacy />, { dict })
 
     expect(await screen.findByText('Widget body')).toBeInTheDocument()
     expect(apiCall).toHaveBeenCalledTimes(1)
 
     mockOrganizationScopeVersion = 1
-    rerender(<DashboardScreen />)
+    rerender(<DashboardScreenLegacy />)
 
     await waitFor(() => {
       expect(apiCall).toHaveBeenCalledTimes(2)
     })
+  })
+
+  it('does not replace optimistic layout changes with a reload started while saves are pending', async () => {
+    const firstSave = deferred<unknown>()
+    const staleReload = deferred<unknown>()
+    let getCount = 0
+    let putCount = 0
+    const emptyLayoutResponse = {
+      ...widgetResponse,
+      layout: { items: [] },
+      widgets: [widgetResponse.widgets[0], secondWidget],
+      allowedWidgetIds: ['foo', 'bar'],
+    }
+    const staleLayoutResponse = {
+      ...emptyLayoutResponse,
+      layout: { items: [{ id: 'server-item-1', widgetId: 'foo', order: 0, size: 'md' as const }] },
+    }
+
+    ;(getDashboardWidgets as jest.Mock).mockReturnValue([
+      { key: 'foo.loader', loader: jest.fn() },
+      { key: 'bar.loader', loader: jest.fn() },
+    ])
+    ;(apiCall as jest.Mock).mockImplementation((_url: string, options?: RequestInit) => {
+      if (options?.method === 'PUT') {
+        putCount += 1
+        return putCount === 1 ? firstSave.promise : Promise.resolve(successfulApiCall(null))
+      }
+      getCount += 1
+      return getCount === 1
+        ? Promise.resolve(successfulApiCall(emptyLayoutResponse))
+        : staleReload.promise
+    })
+
+    const { rerender } = renderWithProviders(<DashboardScreenLegacy />, { dict })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Customize' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Widget Foo' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Widget Bar' }))
+    await waitFor(() => expect(putCount).toBe(1))
+
+    mockOrganizationScopeVersion = 1
+    rerender(<DashboardScreenLegacy />)
+    await waitFor(() => expect(getCount).toBe(2))
+
+    await act(async () => {
+      staleReload.resolve(successfulApiCall(staleLayoutResponse))
+    })
+
+    expect(await screen.findByText('Widget Foo')).toBeInTheDocument()
+    expect(screen.getByText('Widget Bar')).toBeInTheDocument()
+
+    await act(async () => {
+      firstSave.resolve(successfulApiCall(null))
+    })
+    await waitFor(() => expect(putCount).toBe(2))
   })
 
   it('shows an error when the layout request fails', async () => {
@@ -136,7 +227,7 @@ describe('DashboardScreen', () => {
       response: createMockResponse(500),
     })
 
-    renderWithProviders(<DashboardScreen />, { dict })
+    renderWithProviders(<DashboardScreenLegacy />, { dict })
 
     await waitFor(() => {
       expect(screen.getByText('Failed to load dashboard')).toBeInTheDocument()
@@ -155,7 +246,7 @@ describe('DashboardScreen', () => {
       response: createMockResponse(500),
     })
 
-    renderWithProviders(<DashboardScreen />, { dict })
+    renderWithProviders(<DashboardScreenLegacy />, { dict })
 
     expect(await screen.findByText('No dashboard widgets yet')).toBeInTheDocument()
     expect(screen.getByText('Dashboard widgets will appear here after you add a module.')).toBeInTheDocument()
@@ -173,7 +264,7 @@ describe('DashboardScreen', () => {
     })
     ;(loadDashboardWidgetModule as jest.Mock).mockResolvedValue(null)
 
-    renderWithProviders(<DashboardScreen />, { dict })
+    renderWithProviders(<DashboardScreenLegacy />, { dict })
 
     expect(await screen.findByText('Widget Foo')).toBeInTheDocument()
     expect(await screen.findByText('Unable to load widget.')).toBeInTheDocument()

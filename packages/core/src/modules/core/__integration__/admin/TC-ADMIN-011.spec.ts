@@ -120,16 +120,23 @@ test.describe('TC-ADMIN-011: User Widget Override And Dashboard Enablement', () 
       expect((await saveResponse).ok()).toBe(true);
 
       await page.goto('/backend', { waitUntil: 'domcontentloaded' });
-      await expect(page.getByText('No widgets selected yet.')).toBeVisible();
+      await expect(page.getByText('Your dashboard is empty')).toBeVisible();
 
       await page.getByRole('button', { name: 'Customize', exact: true }).click();
-      await page.getByRole('button', { name: 'New Orders' }).click();
-      await page.getByRole('button', { name: 'New Quotes' }).click();
+      // Dashboard v2 adds widgets through the "Add widget" catalog dialog (one per open).
+      for (const widgetName of ['New Orders', 'New Quotes']) {
+        await page.getByRole('button', { name: /^Add widget$/i }).click();
+        const dialog = page.getByRole('dialog', { name: /^Add widget$/i });
+        await expect(dialog).toBeVisible();
+        await dialog.getByRole('button', { name: new RegExp(widgetName, 'i') }).click();
+        await dialog.getByRole('button', { name: /^Add widget$/i }).click();
+        await expect(dialog).toBeHidden();
+      }
       await expect(page.getByText('New Orders').first()).toBeVisible();
       await expect(page.getByText('New Quotes').first()).toBeVisible();
       await page.getByRole('button', { name: 'Done', exact: true }).click();
       await expect(page.getByRole('button', { name: 'Customize', exact: true })).toBeVisible();
-      await expect(page.getByText('No widgets selected yet.')).toHaveCount(0);
+      await expect(page.getByText('Your dashboard is empty')).toHaveCount(0);
       await expect(page.getByText('New Orders').first()).toBeVisible();
       await expect(page.getByText('New Quotes').first()).toBeVisible();
     } finally {

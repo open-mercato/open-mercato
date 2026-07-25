@@ -35,6 +35,8 @@ export type DateRange = {
   end: Date
 }
 
+export type DateRangeComparisonType = 'previous_period' | 'previous_year'
+
 export type DateRangeOption = {
   value: DateRangePreset
   labelKey: string
@@ -114,8 +116,32 @@ export function resolveDateRange(preset: DateRangePreset, referenceDate: Date = 
   }
 }
 
-export function getPreviousPeriod(range: DateRange, preset: DateRangePreset): DateRange {
+function getRangeBasedPreviousPeriod(range: DateRange): DateRange {
   const daysDiff = differenceInDays(range.end, range.start) + 1
+  return {
+    start: subDays(range.start, daysDiff),
+    end: subDays(range.end, daysDiff),
+  }
+}
+
+function getPreviousYearRange(range: DateRange): DateRange {
+  return {
+    start: subYears(range.start, 1),
+    end: subYears(range.end, 1),
+  }
+}
+
+export function getPreviousPeriod(range: DateRange, preset: DateRangePreset): DateRange
+export function getPreviousPeriod(range: DateRange, comparisonType: DateRangeComparisonType): DateRange
+export function getPreviousPeriod(range: DateRange, presetOrComparisonType: DateRangePreset | DateRangeComparisonType): DateRange {
+  if (presetOrComparisonType === 'previous_period') {
+    return getRangeBasedPreviousPeriod(range)
+  }
+  if (presetOrComparisonType === 'previous_year') {
+    return getPreviousYearRange(range)
+  }
+
+  const preset = presetOrComparisonType
 
   switch (preset) {
     case 'today':
@@ -157,10 +183,7 @@ export function getPreviousPeriod(range: DateRange, preset: DateRangePreset): Da
     case 'last_30_days':
     case 'last_90_days':
     default:
-      return {
-        start: subDays(range.start, daysDiff),
-        end: subDays(range.end, daysDiff),
-      }
+      return getRangeBasedPreviousPeriod(range)
   }
 }
 

@@ -137,7 +137,9 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
     if (groupExpr) {
       selectClause = `SELECT ${groupExpr} AS group_key, ${aggregateExpr} AS value`
       groupByClause = `GROUP BY ${groupExpr}`
-      orderByClause = `ORDER BY value DESC`
+      orderByClause = groupMapping?.type === 'timestamp' && options.groupBy.granularity
+        ? 'ORDER BY group_key ASC'
+        : 'ORDER BY value DESC'
 
       if (options.groupBy.limit && options.groupBy.limit > 0) {
         limitClause = `LIMIT ${Math.min(options.groupBy.limit, 100)}`

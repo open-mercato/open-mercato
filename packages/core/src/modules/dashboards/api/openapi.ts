@@ -2,6 +2,8 @@ import { z } from 'zod'
 import {
   dashboardLayoutSchema,
   dashboardLayoutItemPatchSchema,
+  dashboardLayoutPreferencesSchema,
+  dashboardWidgetSizeSchema,
   dashboardWidgetIdSchema,
   roleWidgetSettingsSchema,
   userWidgetSettingsSchema,
@@ -23,7 +25,7 @@ export const dashboardWidgetSummarySchema = z.object({
   id: dashboardWidgetIdSchema,
   title: z.string(),
   description: z.string().nullable(),
-  defaultSize: z.enum(['sm', 'md', 'lg']),
+  defaultSize: dashboardWidgetSizeSchema,
   defaultEnabled: z.boolean(),
   defaultSettings: z.unknown().nullable(),
   features: z.array(z.string()),
@@ -51,6 +53,10 @@ export const dashboardLayoutStateSchema = z.object({
 })
 
 export const dashboardLayoutItemUpdateSchema = dashboardLayoutItemPatchSchema.omit({ id: true })
+
+export const dashboardLayoutUpdateResponseSchema = dashboardsOkSchema.safeExtend({
+  preferences: dashboardLayoutPreferencesSchema.optional(),
+})
 
 export const dashboardRoleWidgetsResponseSchema = z.object({
   widgetIds: z.array(dashboardWidgetIdSchema),
@@ -88,4 +94,3 @@ export const dashboardWidgetCatalogSchema = z.object({
 })
 
 export { roleWidgetSettingsSchema as dashboardRoleWidgetSettingsSchema, userWidgetSettingsSchema as dashboardUserWidgetSettingsSchema }
-

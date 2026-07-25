@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from 'react'
+import { ArrowDown, ArrowUp, Minus } from 'lucide-react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Sparkline } from './Sparkline'
 
 export type KpiTrend = {
   value: number
@@ -11,7 +13,8 @@ export type KpiTrend = {
 export type KpiCardProps = {
   title?: string
   value: number | null
-  trend?: KpiTrend
+  trend?: KpiTrend | number[]
+  delta?: KpiTrend
   comparisonLabel?: string
   loading?: boolean
   error?: string | null
@@ -22,6 +25,7 @@ export type KpiCardProps = {
   headerAction?: React.ReactNode
   footer?: React.ReactNode
   titleClassName?: string
+  trendAriaLabel?: string
 }
 
 function defaultFormatValue(value: number): string {
@@ -58,21 +62,9 @@ function BadgeDelta({ direction, value, unit = '%', className = '', title = 'Com
   }
 
   const icons = {
-    up: (
-      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-      </svg>
-    ),
-    down: (
-      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-      </svg>
-    ),
-    unchanged: (
-      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
-      </svg>
-    ),
+    up: <ArrowUp className="h-3 w-3" aria-hidden="true" />,
+    down: <ArrowDown className="h-3 w-3" aria-hidden="true" />,
+    unchanged: <Minus className="h-3 w-3" aria-hidden="true" />,
   }
 
   return (
@@ -102,9 +94,13 @@ export function KpiCard({
   headerAction,
   footer,
   titleClassName,
+  delta,
+  trendAriaLabel,
 }: KpiCardProps) {
   const hasWrapper = !!title
   const wrapperClass = hasWrapper ? `rounded-lg border bg-card p-4 ${className}` : className
+  const sparklineValues = Array.isArray(trend) ? trend : undefined
+  const deltaTrend = delta ?? (Array.isArray(trend) ? undefined : trend)
 
   const headerRow = (title || headerAction) ? (
     <div className="flex items-center justify-between gap-2 mb-2">
@@ -150,11 +146,20 @@ export function KpiCard({
           <span>{prefix}{formatValue(value)}</span>
           {suffix ? <span className="text-sm font-medium text-muted-foreground">{suffix}</span> : null}
         </p>
-        {trend && (
-          <BadgeDelta direction={trend.direction} value={trend.value} />
+        {deltaTrend && (
+          <BadgeDelta direction={deltaTrend.direction} value={deltaTrend.value} />
         )}
       </div>
-      {trend && comparisonLabel && (
+      {sparklineValues && sparklineValues.length > 0 && (
+        <Sparkline
+          values={sparklineValues}
+          ariaLabel={trendAriaLabel ?? title ?? 'KPI trend'}
+          className="mt-3 h-8 w-full text-muted-foreground"
+          width={160}
+          height={32}
+        />
+      )}
+      {deltaTrend && comparisonLabel && (
         <p className="mt-1 text-xs text-muted-foreground">{comparisonLabel}</p>
       )}
       {footer != null && <div className="mt-3">{footer}</div>}

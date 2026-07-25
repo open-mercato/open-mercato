@@ -18,6 +18,53 @@ export const dateRangePresetSchema = z.enum([
   'last_90_days',
 ])
 
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const DAY_MS = 86_400_000
+
+function isoDateToUtcMs(value: string): number | null {
+  if (!ISO_DATE_PATTERN.test(value)) return null
+  const [yearPart, monthPart, dayPart] = value.split('-')
+  const year = Number(yearPart)
+  const month = Number(monthPart)
+  const day = Number(dayPart)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null
+  }
+  return date.getTime()
+}
+
+const isoDateSchema = z.string().regex(ISO_DATE_PATTERN).refine((value) => isoDateToUtcMs(value) !== null)
+
+const presetDateRangeSchema = z.object({
+  field: z.string().min(1),
+  preset: dateRangePresetSchema,
+})
+
+const customDateRangeSchema = z
+  .object({
+    field: z.string().min(1),
+    from: isoDateSchema,
+    to: isoDateSchema,
+  })
+  .superRefine((range, ctx) => {
+    const from = isoDateToUtcMs(range.from)
+    const to = isoDateToUtcMs(range.to)
+    if (from === null || to === null) return
+    if (from > to) {
+      ctx.addIssue({ code: 'custom', path: ['from'], message: 'Date range start must be before end' })
+      return
+    }
+    const daysInclusive = Math.floor((to - from) / DAY_MS) + 1
+    if (daysInclusive > 366) {
+      ctx.addIssue({ code: 'custom', path: ['to'], message: 'Date range must not exceed 366 days' })
+    }
+  })
+
 export const filterOperatorSchema = z.enum([
   'eq',
   'neq',
@@ -54,12 +101,7 @@ export const widgetDataRequestSchema = z.object({
       }),
     )
     .optional(),
-  dateRange: z
-    .object({
-      field: z.string().min(1),
-      preset: dateRangePresetSchema,
-    })
-    .optional(),
+  dateRange: z.union([presetDateRangeSchema, customDateRangeSchema]).optional(),
   comparison: z
     .object({
       type: z.enum(['previous_period', 'previous_year']),

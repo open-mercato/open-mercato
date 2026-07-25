@@ -217,6 +217,7 @@ describe('aggregations', () => {
       })
       expect(result?.sql).toContain("DATE_TRUNC('month', placed_at)")
       expect(result?.sql).toContain('GROUP BY')
+      expect(result?.sql).toContain('ORDER BY group_key ASC')
     })
 
     it('includes LIMIT when groupBy has limit', () => {

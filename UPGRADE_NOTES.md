@@ -24,6 +24,19 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.5 → 0.6.6 (unreleased)
 
+### Dashboard v2 is now the default backend home
+
+`DashboardScreen` from `@open-mercato/ui/backend/dashboard` now renders Dashboard v2 at `/backend`. The legacy implementation remains exported as `DashboardScreenLegacy` and is available at `/backend/dashboard/legacy`, so standalone apps can pin the old surface while they verify the new analytics home. Dashboard Views are stored in the existing per-user `layoutJson`; no database migration is required.
+
+After deploying, sync the two additive ACL features and roll the new analytics widgets onto existing tenant role allowlists:
+
+```bash
+yarn mercato auth sync-role-acls
+yarn mercato dashboards enable-analytics-widgets --tenant <tenantId> [--org <orgId>]
+```
+
+The targeted widget command is idempotent. Run it for each tenant that should receive `dashboards.analytics.customMetric` and `dashboards.analytics.aiInsights`.
+
 ### Opt-in per-entity ACL for custom-entity records (#3857)
 
 Follow-up to the #2612 records-API hardening, which deliberately left custom/EAV entities on the coarse `entities.records.view` / `entities.records.manage` path. Those two features were **entity-agnostic**: any holder could read/modify/delete records of *every* custom entity in their tenant, so sensitive custom entities (salaries, board minutes) could not be compartmentalized from ordinary ones (intra-tenant horizontal privilege; cross-tenant was already blocked).

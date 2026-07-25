@@ -15,10 +15,11 @@ const widget: DashboardWidgetModule<AovKpiSettings> = {
     category: 'analytics',
     icon: 'trending-up',
     supportsRefresh: true,
+    respectsDashboardDateRange: true,
   },
   Widget: AovKpiWidget,
   hydrateSettings,
-  dehydrateSettings: (s) => ({ dateRange: s.dateRange, showComparison: s.showComparison }),
+  dehydrateSettings: (s) => ({ dateRangeMode: s.dateRangeMode, dateRange: s.dateRange, showComparison: s.showComparison }),
 }
 
 export default widget

@@ -16,7 +16,10 @@ export const analyticsConfig: AnalyticsModuleConfig = {
         status: { dbColumn: 'status', type: 'text' },
         lifecycleStage: { dbColumn: 'lifecycle_stage', type: 'text' },
         createdAt: { dbColumn: 'created_at', type: 'timestamp' },
-        displayName: { dbColumn: 'display_name', type: 'text' },
+        displayName: { dbColumn: 'display_name', type: 'text', encrypted: true },
+      },
+      labelResolvers: {
+        id: { table: 'customer_entities', idColumn: 'id', labelColumn: 'display_name' },
       },
     },
     {
@@ -37,6 +40,7 @@ export const analyticsConfig: AnalyticsModuleConfig = {
         expectedCloseAt: { dbColumn: 'expected_close_at', type: 'timestamp' },
       },
       labelResolvers: {
+        id: { table: 'customer_deals', idColumn: 'id', labelColumn: 'title' },
         customerEntityId: { table: 'customer_entities', idColumn: 'id', labelColumn: 'display_name' },
       },
     },

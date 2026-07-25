@@ -7,6 +7,17 @@ description: Author configurable dashboard experiences with module-scoped widget
 
 The admin dashboard at `/backend` is built from small, self-contained widgets that are discovered from every enabled module. This document explains how widgets are authored, discovered, and controlled inside Open Mercato.
 
+## Dashboard v2
+
+`/backend` renders the v2 analytics home (`DashboardScreenV2`): a 12-column grid with drag-to-reorder, per-widget sizes (`sm`/`md`/`lg`/`full`), skeleton loading, and a **global date range** with period comparison (previous period or previous year) that drives every analytics widget. The previous screen remains available as `DashboardScreenLegacy` at `/backend/dashboard/legacy` and through the header's overflow menu.
+
+Two built-in widgets showcase the platform's analytics surface:
+
+* **Custom metric** (`dashboards.analytics.customMetric`) — a self-serve KPI/chart builder over any entity registered in the `AnalyticsRegistry` (catalog exposed at `GET /api/dashboards/analytics/catalog`). It supports multiple instances on one dashboard via the `supportsMultipleInstances` metadata flag.
+* **AI insights** (`dashboards.analytics.aiInsights`) — deterministic KPI deltas (revenue, orders, AOV, new customers, computed server-side) with an optional LLM-narrated digest (`GET /api/dashboards/insights`). The digest degrades gracefully to numbers-only when no AI provider is configured, and generated bullets are validated so they can only reference figures present in the computed payload.
+
+Widgets opt into the global date range by declaring `respectsDashboardDateRange: true` in their metadata and reading `context.dateRange` (a resolved `{ preset, from, to, compare }`) from their render props; the per-widget period setting then acts as a `dateRangeMode: 'custom'` override.
+
 ## Widget locations
 
 Widgets live under `packages/<module>/src/modules/<module>/widgets/dashboard/<slug>/widget.ts`. The generator looks for files named `widget.ts`, `widget.js`, `widget.tsx`, or `widget.jsx` and registers them automatically. A widget module must export a default object implementing `DashboardWidgetModule` from `@open-mercato/shared/modules/dashboard/widgets`.
@@ -56,7 +67,7 @@ The generator (`mercato generate registry` via `packages/cli/src/lib/generators/
 * `loadAllWidgets()` returns a deduplicated list (one entry per widget `metadata.id`), while `loadWidgetById()` fetches a single widget lazily.
 * The dashboard layout API (`dashboards/api/layout/route.ts`) and widget visibility APIs use the discovery helpers to present the available widgets to the UI and to enforce feature flags/upgrades.
 
-The UI dashboard (`packages/ui/src/backend/dashboard/DashboardScreen.tsx`) consumes the available widgets, renders the configured layout, and obtains per-widget components by calling the loaders exposed from the module registry.
+The UI dashboard (`DashboardScreen` exported from `@open-mercato/ui/backend/dashboard`, which resolves to `v2/DashboardScreenV2.tsx`; the previous implementation lives on as `legacy/DashboardScreenLegacy.tsx`) consumes the available widgets, renders the configured layout, and obtains per-widget components by calling the loaders exposed from the module registry. Layout state is stored per user in `DashboardLayout.layoutJson` — v2 persists an `{ items, preferences }` object (the `preferences.dateRange` carries the global range), while the legacy plain-array shape remains readable.
 
 ## Access control
 

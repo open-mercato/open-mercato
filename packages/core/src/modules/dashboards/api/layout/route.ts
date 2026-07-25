@@ -1,23 +1,27 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { DashboardLayout } from '@open-mercato/core/modules/dashboards/data/entities'
 import { dashboardLayoutSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
+import { normalizeLayoutState, serializeLayoutStateForStoredShape } from '@open-mercato/core/modules/dashboards/lib/layoutState'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { DashboardLayoutItem } from '@open-mercato/shared/modules/dashboard/widgets'
 import {
   dashboardsTag,
   dashboardsErrorSchema,
-  dashboardsOkSchema,
+  dashboardLayoutUpdateResponseSchema,
   dashboardLayoutStateSchema,
 } from '../openapi'
 
@@ -35,7 +39,7 @@ type LayoutScope = {
   organizationId: string | null
 }
 
-async function loadScopeLayout(em: any, scope: LayoutScope): Promise<DashboardLayout | null> {
+async function loadScopeLayout(em: EntityManager, scope: LayoutScope): Promise<DashboardLayout | null> {
   return await em.findOne(DashboardLayout, {
     userId: scope.userId,
     tenantId: scope.tenantId,
@@ -44,32 +48,20 @@ async function loadScopeLayout(em: any, scope: LayoutScope): Promise<DashboardLa
   })
 }
 
-function normalizeLayoutItems(items: any[]) {
-  const list = Array.isArray(items) ? items : []
-  const seenIds = new Set<string>()
-  const sanitized = list
-    .filter((item) => item && typeof item === 'object')
-    .map((item) => ({
-      id: String(item.id),
-      widgetId: String(item.widgetId),
-      order: Number.isInteger(item.order) ? Number(item.order) : undefined,
-      priority: Number.isInteger(item.priority) ? Number(item.priority) : undefined,
-      size: typeof item.size === 'string' ? item.size : undefined,
-      settings: item.settings,
-    }))
-    .filter((item) => {
-      if (!item.id || !item.widgetId) return false
-      if (seenIds.has(item.id)) return false
-      seenIds.add(item.id)
-      return true
-    })
-    .sort((a, b) => {
-      const aOrder = a.order ?? a.priority ?? 0
-      const bOrder = b.order ?? b.priority ?? 0
-      return aOrder - bOrder
-    })
-    .map((item, idx) => ({ ...item, order: idx, priority: idx }))
-  return sanitized
+function haveLayoutItemsChanged(previous: DashboardLayoutItem[], next: DashboardLayoutItem[]): boolean {
+  if (previous.length !== next.length) return true
+  return next.some((item, index) => {
+    const previousItem = previous[index]
+    if (!previousItem) return true
+    return (
+      previousItem.id !== item.id ||
+      previousItem.widgetId !== item.widgetId ||
+      previousItem.order !== item.order ||
+      previousItem.priority !== item.priority ||
+      previousItem.size !== item.size ||
+      previousItem.settings !== item.settings
+    )
+  })
 }
 
 export async function GET(req: Request) {
@@ -78,8 +70,8 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   // Use a fresh fork to avoid carrying over pending entities from other operations
-  const em = (container.resolve('em') as any).fork({ clear: true, freshEventManager: true, useContext: true })
-  const rbac = container.resolve('rbacService') as any
+  const em = (container.resolve('em') as EntityManager).fork({ clear: true, freshEventManager: true, useContext: true })
+  const rbac = container.resolve('rbacService') as RbacService
   const url = new URL(req.url)
 
   const scope: LayoutScope = {
@@ -104,7 +96,18 @@ export async function GET(req: Request) {
   const allowedWidgets = widgets.filter((w) => allowedIds.includes(w.metadata.id))
 
   let layout = await loadScopeLayout(em, scope)
-  let items = layout ? normalizeLayoutItems(layout.layoutJson) : []
+  const layoutState = layout ? normalizeLayoutState(layout.layoutJson) : { items: [] }
+  const allowedIdSet = new Set(allowedIds)
+  let items = layoutState.items
+  // Drop widgets the caller may no longer see from saved presets too (reindexed), so a
+  // preset can never resurrect a forbidden widget when switched to.
+  const presets = layoutState.presets?.map((preset) => ({
+    ...preset,
+    items: preset.items
+      .filter((item) => allowedIdSet.has(item.widgetId))
+      .map((item, index) => ({ ...item, order: index, priority: index })),
+  }))
+  const activePresetId = presets?.some((preset) => preset.id === layoutState.activePresetId) ? layoutState.activePresetId : undefined
   let hasChanged = false
 
   if (!layout) {
@@ -122,24 +125,28 @@ export async function GET(req: Request) {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       layoutJson: items,
+      createdAt: new Date(),
     })
     em.persist(layout)
     hasChanged = true
   } else {
     const existingLayout = layout
+    const originalItems = layoutState.items
     const filtered = items.filter((item) => allowedIds.includes(item.widgetId))
     if (filtered.length !== items.length) {
       hasChanged = true
       items = filtered
     }
     items = items.map((item, index) => (item.order !== index || item.priority !== index ? { ...item, order: index, priority: index } : item))
-    if (
-      existingLayout.layoutJson.length !== items.length ||
-      items.some((item, idx) => existingLayout.layoutJson[idx]?.id !== item.id)
-    ) {
+    if (haveLayoutItemsChanged(originalItems, items)) {
       hasChanged = true
     }
-    existingLayout.layoutJson = items
+    existingLayout.layoutJson = serializeLayoutStateForStoredShape(existingLayout.layoutJson, {
+      items,
+      ...(layoutState.preferences ? { preferences: layoutState.preferences } : {}),
+      ...(presets ? { presets } : {}),
+      ...(activePresetId ? { activePresetId } : {}),
+    })
     layout = existingLayout
   }
 
@@ -169,7 +176,12 @@ export async function GET(req: Request) {
   }
 
   const response = {
-    layout: { items },
+    layout: {
+      items,
+      ...(layoutState.preferences ? { preferences: layoutState.preferences } : {}),
+      ...(presets ? { presets } : {}),
+      ...(activePresetId ? { activePresetId } : {}),
+    },
     allowedWidgetIds: allowedIds,
     canConfigure,
     context: {
@@ -213,8 +225,8 @@ export async function PUT(req: Request) {
 
   const container = await createRequestContainer()
   const { resolve } = container
-  const em = (resolve('em') as any).fork({ clear: true, freshEventManager: true, useContext: true })
-  const rbac = resolve('rbacService') as any
+  const em = (resolve('em') as EntityManager).fork({ clear: true, freshEventManager: true, useContext: true })
+  const rbac = resolve('rbacService') as RbacService
 
   const scope: LayoutScope = {
     userId: String(auth.sub),
@@ -236,7 +248,7 @@ export async function PUT(req: Request) {
     operation: 'update',
     requestMethod: req.method,
     requestHeaders: req.headers,
-    mutationPayload: { items: parsed.data.items },
+    mutationPayload: { items: parsed.data.items, preferences: parsed.data.preferences },
   })
   if (guardResult && !guardResult.ok) {
     return NextResponse.json(guardResult.body, { status: guardResult.status })
@@ -264,6 +276,7 @@ export async function PUT(req: Request) {
       order: index,
       priority: index,
       size: item.size ?? DEFAULT_SIZE,
+      accent: item.accent,
       settings: item.settings,
     }))
     .filter((item) => allowedSet.has(item.widgetId))
@@ -273,17 +286,43 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Layout item IDs must be unique' }, { status: 400 })
   }
 
+  const sanitizePresetItems = (rawItems: typeof payloadItems) =>
+    rawItems
+      .map((item, index) => ({ id: item.id, widgetId: item.widgetId, order: index, priority: index, size: item.size ?? DEFAULT_SIZE, accent: item.accent, settings: item.settings }))
+      .filter((item) => allowedSet.has(item.widgetId))
+
+  const sanitizedPresets = parsed.data.presets?.map((preset) => ({
+    id: preset.id,
+    name: preset.name,
+    items: sanitizePresetItems(preset.items),
+    ...(preset.preferences ? { preferences: preset.preferences } : {}),
+  }))
+  for (const preset of sanitizedPresets ?? []) {
+    if (new Set(preset.items.map((item) => item.id)).size !== preset.items.length) {
+      return NextResponse.json({ error: 'Preset item IDs must be unique' }, { status: 400 })
+    }
+  }
+  const activePresetId = sanitizedPresets?.some((preset) => preset.id === parsed.data.activePresetId) ? parsed.data.activePresetId : undefined
+
+  const storedLayout = {
+    items: sanitized,
+    ...(parsed.data.preferences ? { preferences: parsed.data.preferences } : {}),
+    ...(sanitizedPresets && sanitizedPresets.length > 0 ? { presets: sanitizedPresets } : {}),
+    ...(activePresetId ? { activePresetId } : {}),
+  }
+
   let layout = await loadScopeLayout(em, scope)
   if (!layout) {
     layout = em.create(DashboardLayout, {
       userId: scope.userId,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      layoutJson: sanitized,
+      layoutJson: storedLayout,
+      createdAt: new Date(),
     })
     em.persist(layout)
   } else {
-    layout.layoutJson = sanitized
+    layout.layoutJson = storedLayout
   }
   await em.flush()
 
@@ -301,7 +340,12 @@ export async function PUT(req: Request) {
     })
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({
+    ok: true,
+    ...(parsed.data.preferences ? { preferences: parsed.data.preferences } : {}),
+    ...(sanitizedPresets && sanitizedPresets.length > 0 ? { presets: sanitizedPresets } : {}),
+    ...(activePresetId ? { activePresetId } : {}),
+  })
 }
 
 const layoutGetDoc: OpenApiMethodDoc = {
@@ -330,7 +374,7 @@ const layoutPutDoc: OpenApiMethodDoc = {
     description: 'List of dashboard widgets with ordering, sizing, and settings.',
   },
   responses: [
-    { status: 200, description: 'Layout updated successfully.', schema: dashboardsOkSchema },
+    { status: 200, description: 'Layout updated successfully.', schema: dashboardLayoutUpdateResponseSchema },
   ],
   errors: [
     { status: 400, description: 'Invalid layout payload', schema: dashboardsErrorSchema },
