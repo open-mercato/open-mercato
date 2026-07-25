@@ -53,16 +53,22 @@ function globToRegExp(pattern) {
 
 const rootArg = process.argv[2]
 const mode = process.argv[3]
+let allowedReads
 let allowedWrites
-try { allowedWrites = JSON.parse(process.argv[4] ?? '[]') } catch { fail('allowed write set is invalid JSON') }
+try { allowedReads = JSON.parse(process.argv[4] ?? '[]') } catch { fail('allowed read set is invalid JSON') }
+try { allowedWrites = JSON.parse(process.argv[5] ?? '[]') } catch { fail('allowed write set is invalid JSON') }
 if (!path.isAbsolute(rootArg ?? '')) fail('root must be absolute')
 if (!['read-only', 'writable'].includes(mode)) fail('mode must be read-only or writable')
+if (!Array.isArray(allowedReads) || allowedReads.some((entry) => !safeRelative(entry) || ['*', '**'].includes(entry))) fail('allowed read set is invalid')
 if (!Array.isArray(allowedWrites) || allowedWrites.some((entry) => !safeRelative(entry))) fail('allowed write set is invalid')
 const root = fs.realpathSync(rootArg)
+const readMatchers = allowedReads.map(globToRegExp)
 const writeMatchers = allowedWrites.map(globToRegExp)
 
 function resolveRead(relative) {
   if (!safeRelative(relative)) throw new Error('path is outside the allowed app context')
+  const normalized = relative.replaceAll('\\', '/')
+  if (!readMatchers.some((matcher) => matcher.test(normalized))) throw new Error('path is outside the case read allowlist')
   const lexical = path.resolve(root, relative)
   if (!isInside(root, lexical)) throw new Error('path escapes the app root')
   const real = fs.realpathSync(lexical)

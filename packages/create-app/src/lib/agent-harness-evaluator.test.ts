@@ -65,6 +65,8 @@ function stageApp(): string {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-eval-')))
   fs.cpSync(path.join(sharedRoot, 'ai'), path.join(root, '.ai'), { recursive: true })
   fs.cpSync(guidesRoot, path.join(root, '.ai', 'guides'), { recursive: true })
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'upstream'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.ai', 'guides', 'upstream', 'BACKWARD_COMPATIBILITY.md'), '# Backward compatibility\nPreserve public contracts.\n')
   fs.copyFileSync(path.join(sharedRoot, 'AGENTS.md.template'), path.join(root, 'AGENTS.md'))
   fs.mkdirSync(path.join(root, 'scripts'), { recursive: true })
   fs.copyFileSync(sourceEvaluator, path.join(root, 'scripts', 'evaluate-agent-harness.mjs'))
@@ -408,6 +410,11 @@ const prompt = fs.readFileSync(0, 'utf8')
 if (!prompt.includes('Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories') || !prompt.includes('an all-guides/all-skills/all-facts read is an automatic failure') || !prompt.includes('selectedSkills names only skills you actually invoked during this evaluation after opening their SKILL.md')) process.exit(10)
 const disabled = args.flatMap((arg, index) => arg === '--disable' ? [args[index + 1]] : [])
 if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || !['skill_search','shell_tool','unified_exec','apps','multi_agent','browser_use','computer_use','image_generation','standalone_web_search'].every((feature) => disabled.includes(feature)) || args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('sandbox_workspace_write.network_access=false') || !args.includes('shell_environment_policy.inherit=none') || !args.includes('mcp_servers.harness.required=true') || !args.includes('mcp_servers.harness.default_tools_approval_mode="approve"') || !args.some((arg) => arg.startsWith('mcp_servers.harness.command=')) || !args.some((arg) => arg.startsWith('mcp_servers.harness.args=')) || !process.env.CODEX_HOME?.includes('om-harness-result-') || !process.env.HOME?.includes('om-harness-result-')) process.exit(9)
+const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
+const allowedReads = JSON.parse(mcpArgs.at(-2))
+for (const required of ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/testing-debugging.md', '.ai/skills/om-help/SKILL.md', '.ai/skills/om-troubleshooter/SKILL.md', '.ai/skills/om-troubleshooter/references/**']) if (!allowedReads.includes(required)) process.exit(9)
+for (const forbidden of ['.ai/guides/contracts.md', '.ai/skills/om-module-scaffold/SKILL.md']) if (allowedReads.includes(forbidden)) process.exit(9)
+if (JSON.parse(mcpArgs.at(-1)).length !== 0) process.exit(9)
 const output = args[args.indexOf('-o') + 1]
 fs.writeFileSync(output, JSON.stringify({
   selectedRouter: ['architecture'], selectedSkills: [],
@@ -457,6 +464,9 @@ const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
 const mcp = JSON.parse(args[args.indexOf('--mcp-config') + 1]).mcpServers.harness
 if (!args.includes('--safe-mode') || !args.includes('--disable-slash-commands') || args[args.indexOf('--setting-sources') + 1] !== '' || !args.includes('--strict-mcp-config') || mcp.command !== '/usr/bin/env' || mcp.args[0] !== '-i' || !mcp.args.some((entry) => entry.endsWith('agent-harness-tool-server.mjs')) || args[args.indexOf('--permission-mode') + 1] !== 'plan' || args[args.indexOf('--tools') + 1] !== 'mcp__harness__read' || !args.includes('--no-session-persistence') || args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--verbose') || !args.includes('--json-schema')) process.exit(9)
+const allowedReads = JSON.parse(mcp.args.at(-2))
+for (const required of ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md', '.ai/skills/om-data-model-design/references/**', '.ai/skills/om-framework-context/references/**']) if (!allowedReads.includes(required)) process.exit(9)
+if (JSON.parse(mcp.args.at(-1)).length !== 0) process.exit(9)
 console.log(JSON.stringify({ type: 'assistant', message: { content: [
   { type: 'tool_use', name: 'mcp__harness__read', input: { path: 'AGENTS.md' } },
   { type: 'tool_use', name: 'mcp__harness__read', input: { path: '.ai/guides/contracts.md' } },
@@ -474,7 +484,7 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
-    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
     assert.match(result.stdout, /PASS OMH-009/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
@@ -1028,6 +1038,45 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
+test('canonical route skills and guides are permitted only with their selected route', { skip: process.platform === 'win32' }, () => {
+  const scenarios: Array<{ routes: string[]; context: string[]; expectedStatus: number; expectedViolation?: string }> = [
+    {
+      routes: ['architecture', 'debugging'],
+      context: ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/testing-debugging.md', '.ai/skills/om-troubleshooter/SKILL.md'],
+      expectedStatus: 0,
+    },
+    {
+      routes: ['architecture'],
+      context: ['AGENTS.md', '.ai/guides/architecture.md', '.ai/skills/om-troubleshooter/SKILL.md'],
+      expectedStatus: 1,
+      expectedViolation: 'standard skill om-troubleshooter requires route debugging',
+    },
+  ]
+  for (const scenario of scenarios) {
+    const root = stageApp()
+    const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs'); const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ${JSON.stringify(scenario.routes)}, selectedSkills: ['om-troubleshooter'],
+  selectedContext: ${JSON.stringify(scenario.context)},
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: ${JSON.stringify(`cat ${scenario.context.join(' ')}`)} } }))
+`)
+    try {
+      const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+      })
+      assert.equal(run.status, scenario.expectedStatus, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+      if (scenario.expectedViolation) assert.ok(storedResults(root)[0].violations.includes(scenario.expectedViolation))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
 test('Codex login-shell wrappers preserve narrow reads without authorizing nested interpreters', { skip: process.platform === 'win32' }, () => {
   for (const command of [
     `/bin/zsh -lc "sed -n '1,120p' AGENTS.md && sed -n '1,120p' .ai/guides/architecture.md"`,
@@ -1273,9 +1322,10 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
     assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
     const [stored] = storedResults(root)
     assert.ok(stored.violations.includes('unexpected skill om-invented'))
-    assert.ok(stored.violations.includes('unexpected context .ai/guides/testing-debugging.md'))
     assert.ok(stored.violations.includes('unexpected decision invented-decision'))
-    assert.ok(stored.violations.includes('unsafe arbitrary app-root read .ai/guides/testing-debugging.md'))
+    assert.ok(stored.violations.includes('standard context .ai/guides/testing-debugging.md requires route debugging or testing'))
+    assert.ok(!stored.violations.includes('unexpected context .ai/guides/testing-debugging.md'))
+    assert.ok(!stored.violations.includes('unsafe arbitrary app-root read .ai/guides/testing-debugging.md'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -1540,6 +1590,10 @@ if (fs.existsSync('src/modules/library/api/books/route.ts') || !fs.readFileSync(
 for (const file of ['.ai/guides/backend-ui.md', '.ai/skills/om-backend-ui-design/SKILL.md', '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md']) if (!fs.existsSync(file)) process.exit(8)
 const disabled = args.flatMap((arg, index) => arg === '--disable' ? [args[index + 1]] : [])
 if (args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('--ignore-user-config') || !disabled.includes('shell_tool') || !disabled.includes('unified_exec')) process.exit(9)
+const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
+const allowedReads = JSON.parse(mcpArgs.at(-2))
+for (const required of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.agents/skills/om-code-review/SKILL.md', 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) if (!allowedReads.includes(required)) process.exit(9)
+if (JSON.parse(mcpArgs.at(-1)).length !== 0) process.exit(9)
 const evidence = [
   { id: 'oracle:allowed-writes', status: 'pass' },
   { id: 'oracle:writable-ast-oracles.mjs', status: 'pass' },

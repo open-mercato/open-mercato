@@ -48,7 +48,9 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 Match every axis; de-duplicate. Notifications use `module-data` + `backend-ui` + `umes`; custom-field round trips add `testing`; lifecycle reactions use `module-data` + `umes`; convergence bugs add `debugging`; registry drift uses `architecture` + `module-data` + `debugging` (plus `framework-context` only for an unresolved exact contract).
 
-Route only requested work. `testing` requires explicit tests/coverage or proof of security/isolation, not routine validation, reindex, or smoke checks. Use external `om-integration-tests` only for requested integration, E2E, browser, or live-app tests; round-trip coverage uses local unit/contract patterns. `debugging` requires failure, security, or drift; spec decomposition selects only `spec-pr`. A plan-only business module selects `architecture` + `module-data` and only `om-module-scaffold`; load its blueprint and architecture/contracts, not future specialists or framework context. Custom fields/entities select `umes` + `module-data`; add `backend-ui` for editable display/save/clear and `testing` only when requested. Never infer areas from specs/PRs.
+Route only requested work. `testing` means requested tests/coverage/security proof, not routine validation, reindex, or smoke checks; external `om-integration-tests` is only for integration/E2E/browser/live-app tests. `debugging` means failure, security, or drift; spec decomposition selects only `spec-pr`. Plan-only business modules select `architecture` + `module-data` and `om-module-scaffold`, loading its blueprint plus architecture/contracts. Custom fields/entities select `umes` + `module-data`; add `backend-ui` for editable round trips and `testing` only when requested. Never infer areas from specs/PRs.
+
+Unified-override audits select only `umes`; add `architecture` or `framework-context` only for unresolved ownership or installed keys.
 
 An existing-module page/form/table-only task selects `backend-ui` alone; its guide/skill owns conflict, API-helper, and host-ID rules. Do not load `.ai/guides/contracts.md` or `om-module-scaffold` unless the request also changes an entity, API, command, ACL, setup, or other module-data surface.
 
@@ -74,7 +76,7 @@ Split the outcome; match every row.
 |---|---|---|
 | `architecture` | Explain/choose module, UMES, package, eject | architecture; use `om-help` for an unresolved choice or a comparative decision framework across these mechanisms |
 | `module-data` | Business outcome or vertical slice | `om-module-scaffold` + `business-one-shot-blueprints.md`; its route key resolves ownership and units |
-| `spec-pr` | Cohesive spec phases | Axis 3 skill; deployable phases |
+| `spec-pr` | Spec or plan in safe working stages | Axis 3 skill; deployable phases |
 | `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts` and `package.json` |
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |
 | `module-data` | Entity/link/validator/migration/encryption/lock/transaction | `om-data-model-design` + contracts |
@@ -88,7 +90,7 @@ Split the outcome; match every row.
 | `testing` | Write/run tests or explicit coverage | testing/debugging; external `om-integration-tests` for integration/E2E |
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging + affected units |
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
-| — | Add/fix recurring harness case | `om-evolve-harness` |
+| `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
 
 “Installed contract(s)” alone does not select `framework-context`. Use guides/facts first and treat request-supplied values as resolved. Invoke the escape hatch only for one named unresolved exact-version detail, never to reverify or plan future work.
 
@@ -103,7 +105,7 @@ Select delivery independently from pinned `open-mercato/skills` (`yarn install-s
 | `spec-pr` | Ship complete approved spec | `om-auto-implement-spec` |
 | `spec-pr` | One-shot ready PR | `om-auto-create-pr`; resume `om-auto-continue-pr` |
 | `spec-pr` | Tracker issue to tested PR | `om-auto-fix-issue` |
-| `spec-pr` | Review PR | `om-auto-review-pr` / `om-code-review` |
+| `spec-pr` | Review PR | `om-auto-review-pr` first; it invokes `om-code-review` |
 | `testing` | Integration/E2E/UI QA | `om-integration-tests` / `om-auto-qa-pr`; optionally prepare env |
 | — | No PR/spec workflow requested | Do not load delivery skills |
 

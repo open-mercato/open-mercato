@@ -15,6 +15,8 @@ Choose module AI versus file-agent orchestration, then implement typed inputs/ou
 4. Follow `references/attachments-and-overrides.md` for authorized attachments/artifacts, cleanup, extensions, replacements, and disable behavior.
 5. Test missing provider, denied ACL/scope, tool validation, budgets, approval/cancel/expire/stale version, artifact authorization, and generated registration.
 
+An authorized AI file upload stays on the attachment branch; add integration or data-model context only for a custom transport, storage provider, or app-owned persistence.
+
 ## Rules
 
 - Every data tool is scoped, feature-gated, schema-validated, bounded, and serializable.
