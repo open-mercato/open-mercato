@@ -168,6 +168,38 @@ test('materializes only regular UTF-8 source text and omits credentials, keys, b
   }
 })
 
+for (const withoutRipgrep of [false, true]) {
+  test(`bounded search excludes filtered credentials and keys${withoutRipgrep ? ' without ripgrep' : ''}`, () => {
+    const root = createFixture()
+    const moduleRoot = join(root, 'node_modules', '@open-mercato', 'core', 'src', 'modules', 'customers')
+    write(join(moduleRoot, 'safe.ts'), "export const safe = 'search-secret-probe-safe'\n")
+    write(join(moduleRoot, '.env.local'), 'API_KEY=search-secret-probe-env\n')
+    write(join(moduleRoot, 'credentials.json'), JSON.stringify({ token: 'search-secret-probe-credentials' }))
+    write(join(moduleRoot, 'private.pem'), '-----BEGIN PRIVATE KEY-----\nsearch-secret-probe-key\n')
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        ['scripts/framework-context.mjs', '--module', 'customers', '--query', 'search-secret-probe', '--json'],
+        {
+          cwd: root,
+          encoding: 'utf8',
+          env: withoutRipgrep ? { ...process.env, PATH: '', Path: '' } : process.env,
+        },
+      )
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+      const parsed = JSON.parse(result.stdout) as { searchResult: string; boundedSearch: { matches: number } }
+      const search = readFileSync(join(root, parsed.searchResult), 'utf8')
+      assert.equal(parsed.boundedSearch.matches, 1)
+      assert.match(search, /safe\.ts:1:export const safe = 'search-secret-probe-safe'/)
+      assert.doesNotMatch(search, /search-secret-probe-(?:env|credentials|key)/)
+      assert.doesNotMatch(search, /(?:\.env\.local|credentials\.json|private\.pem)/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+}
+
 test('fails closed when one regular text source file exceeds the materialization byte ceiling', () => {
   const root = createFixture()
   const moduleRoot = join(root, 'node_modules', '@open-mercato', 'core', 'src', 'modules', 'customers')

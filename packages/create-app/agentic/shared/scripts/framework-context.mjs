@@ -692,9 +692,11 @@ function materialize(result, query) {
     instruction.materializedPath = relative(appRoot, target)
   }
 
+  let materializedSourceRoot
   if (result.sourceRoot && existsSync(result.sourceRoot)) {
     const sourceTarget = join(outputRoot, 'source', result.module ?? 'package')
     const materialization = copyContextFile(result.sourceRoot, sourceTarget)
+    materializedSourceRoot = sourceTarget
     result.materializedSource = relative(appRoot, sourceTarget)
     if (materialization.omittedEntries > 0) {
       result.warnings.push(
@@ -703,8 +705,8 @@ function materialize(result, query) {
     }
   }
 
-  if (query && result.sourceRoot) {
-    const search = runBoundedSearch(query, result.sourceRoot)
+  if (query && materializedSourceRoot) {
+    const search = runBoundedSearch(query, materializedSourceRoot)
     const searchPath = join(outputRoot, 'search.txt')
     writeContextFile(searchPath, search.output)
     result.searchResult = relative(appRoot, searchPath)

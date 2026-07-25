@@ -48,7 +48,7 @@ Combine matches: notification/editable custom field = `module-data` + `backend-u
 
 Business verticals MUST load `om-module-scaffold` + their exact blueprint.
 
-`testing` requires requested tests/coverage/proof, not routine validation; external integration/E2E/browser/live-app uses `om-integration-tests`. `debugging` = failure/security/drift. Specs/delivery phases = `spec-pr` + integration coverage. Capability outlines without delivery phases = `architecture` + `module-data` + blueprint/contracts. Spec-only decomposition reads root + `om-spec-writing` + config; implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer work from specs/PRs.
+`testing` requires requested tests/coverage/proof, not routine validation; external integration/E2E/browser/live-app uses `om-integration-tests`. `debugging` = failure/security/drift. Specs/delivery phases = `spec-pr` + integration coverage. Capability-only = `architecture`; implementation mechanics add `module-data` + contracts. Spec-only decomposition reads root + `om-spec-writing` + config; implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer work from specs/PRs.
 
 App-owned durable process state, activities, or user tasks select `module-data` + `ai-workflow`; add `umes` for installed-module interception/reaction.
 
@@ -126,7 +126,7 @@ If a skill is absent, run `yarn install-skills` once; never invent a substitute.
 
 ## Module-Specific Facts
 
-Facts only for changed/named hosts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; cart/checkout/shopper→checkout; portal→customer_accounts; quote/order→sales; webhook/callback→webhooks; schedule/reminder→scheduler; progress→progress. Generic staff/employee = actor (not optional `staff`); audit/record-who = command/action log (not `audit_logs`) unless explicitly extended. App primitives skip `api_docs`/`search`/`query_index`/`events` facts unless changing them.
+Facts for changed/named hosts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; cart/checkout/shopper→checkout; portal→customer_accounts; quote/order→sales; webhook/callback→webhooks; schedule/reminder→scheduler; progress→progress; search convergence→search. Generic staff/employee = actor (not optional `staff`); audit/record-who = command/action log (not `audit_logs`) unless explicitly extended. App primitives skip `api_docs`/`search`/`query_index`/`events` facts unless changed.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->

@@ -292,4 +292,24 @@ describe('runAgenticSetup ownership modes', () => {
     expect(existsSync(join(appDir, '.claude', 'settings.json'))).toBe(false)
     expect(existsSync(join(appDir, '.codex', 'mcp.json.example'))).toBe(true)
   })
+
+  it('preserves the persisted tool selection on a bare harness update without prompting', async () => {
+    const initialAsk = async () => ''
+    await runAgenticSetup(appDir, initialAsk, { tool: 'claude-code,codex' })
+    const ask = jest.fn(async () => {
+      throw new Error('bare update must not prompt for a new tool selection')
+    })
+
+    await runAgenticSetup(appDir, ask, { updateHarness: true })
+
+    expect(ask).not.toHaveBeenCalled()
+    expect(existsSync(join(appDir, 'CLAUDE.md'))).toBe(true)
+    expect(existsSync(join(appDir, '.claude', 'settings.json'))).toBe(true)
+    expect(existsSync(join(appDir, '.codex', 'mcp.json.example'))).toBe(true)
+    expect(existsSync(join(appDir, '.cursor', 'hooks.json'))).toBe(false)
+    const tiers = JSON.parse(readFileSync(join(appDir, '.ai', 'skills', 'tiers.json'), 'utf8')) as {
+      agents?: { ignore?: string[] }
+    }
+    expect(tiers.agents?.ignore).toEqual(['cursor'])
+  })
 })

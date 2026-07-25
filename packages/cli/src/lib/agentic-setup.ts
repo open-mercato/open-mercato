@@ -679,6 +679,35 @@ const TOOLS = [
 
 const SELECTABLE = TOOLS.filter((t) => t.id !== 'multiple' && t.id !== 'skip')
 
+function persistedAgentSelection(targetDir: string): string[] | null {
+  const selectableIds = SELECTABLE.map((tool) => tool.id)
+  const tiersPath = join(targetDir, '.ai', 'skills', 'tiers.json')
+  try {
+    const tiers = JSON.parse(readFileSync(tiersPath, 'utf8')) as { agents?: { ignore?: unknown } }
+    if (Array.isArray(tiers.agents?.ignore)
+      && tiers.agents.ignore.every((id): id is string => typeof id === 'string')) {
+      const ignored = new Set(tiers.agents.ignore)
+      return selectableIds.filter((id) => !ignored.has(id))
+    }
+  } catch {
+    // Fall through to the ownership manifest and existing generated assets.
+  }
+
+  const manifest = readHarnessManifest(join(targetDir, '.ai', 'harness', 'manifest.json'))
+  const owned = new Set(manifest?.files.map((entry) => entry.path) ?? [])
+  const selected = SELECTABLE.filter((tool) => {
+    if (tool.id === 'claude-code') {
+      return owned.has('CLAUDE.md') || owned.has('.claude/settings.json')
+        || existsSync(join(targetDir, 'CLAUDE.md')) || existsSync(join(targetDir, '.claude', 'settings.json'))
+    }
+    if (tool.id === 'codex') {
+      return owned.has('.codex/mcp.json.example') || existsSync(join(targetDir, '.codex', 'mcp.json.example'))
+    }
+    return owned.has('.cursor/hooks.json') || existsSync(join(targetDir, '.cursor', 'hooks.json'))
+  }).map((tool) => tool.id)
+  return selected.length > 0 ? selected : null
+}
+
 async function promptSelection(ask: AskFn): Promise<string[]> {
   console.log('')
   console.log('🤖  Agentic workflow setup')
@@ -725,6 +754,8 @@ export async function runAgenticSetup(
 
   if (options?.tool) {
     selectedIds = options.tool.split(',').map((t) => t.trim())
+  } else if (options?.updateHarness) {
+    selectedIds = persistedAgentSelection(targetDir) ?? await promptSelection(ask)
   } else {
     selectedIds = await promptSelection(ask)
   }
