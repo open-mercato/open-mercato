@@ -8924,7 +8924,8 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/guides/modules/catalog.md",
-        ".ai/guides/modules/customers.md"
+        ".ai/guides/modules/customers.md",
+        ".ai/guides/modules/currencies.md"
       ],
       "forbidden": [
         ".env*",
@@ -11784,9 +11785,10 @@
     "prompt":"Store customer attachments in our object-storage service and issue short-lived download links only after verifying that the signed-in user may access both the customer and the file. A file must either belong to a known company context or be explicitly unscoped; never guess from incomplete ownership information, cross company boundaries, or expose storage credentials.",
     "tags":["business-language","object-storage","attachments"],
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-02","BC-04","BC-05","BC-07"]},
-    "expectedRouter":{"required":["integration"],"allowedExtra":["module-data","umes","ai-workflow"]},
+    "expectedRouter":{"required":["integration"],"allowedExtra":["module-data","umes","ai-workflow","framework-context"]},
     "requiredSkills":["om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/attachments.md",".ai/guides/modules/customers.md"],"allowedExtra":[".ai/guides/modules/integrations.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/attachments.md",".ai/guides/modules/customers.md"],"allowedExtra":[".ai/guides/modules/integrations.md",".ai/skills/om-framework-context/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["artifact-authorization","encrypted-storage","cleanup","short-lived-download-url","attachment-scope-both-or-neither","check-attachment-access"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","public (?:bucket|object|url)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
