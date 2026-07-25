@@ -38,8 +38,8 @@ type StoredResult = {
   attempts: number
   corrections: number
   sanitizedError?: string
-  actualContext: { paths: string[]; bytes: number; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
-  declaredContext: { paths: string[]; bytes: number; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
+  actualContext: { paths: string[]; bytes: number; initialPaths: string[]; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
+  declaredContext: { paths: string[]; bytes: number; initialPaths: string[]; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
   writable?: { changedPaths: string[]; targetFingerprint: string }
 }
 
@@ -689,6 +689,46 @@ console.log(JSON.stringify({ type: 'item.completed', item: {
   }
 })
 
+test('module facts and upstream compatibility references count as progressive rather than initial context', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'sales.md'), '# Sales\nInstalled sales module facts.\n')
+  const context = [
+    'AGENTS.md',
+    '.ai/guides/extensions.md',
+    '.ai/skills/om-system-extension/SKILL.md',
+    '.ai/guides/modules/sales.md',
+    '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md',
+  ]
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['umes'], selectedSkills: ['om-system-extension'],
+  selectedContext: ${JSON.stringify(context)},
+  decisions: ['mutation-guard', 'safe-after-success', 'interceptor-contract', 'backend-consistency', 'status-invariant'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: {
+  type: 'command_execution', command: ${JSON.stringify(`cat ${context.join(' ')}`)}
+}}))
+`)
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-182'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    const [stored] = storedResults(root)
+    assert.ok(stored.actualContext.paths.includes('.ai/guides/modules/sales.md'))
+    assert.ok(stored.actualContext.paths.includes('.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'))
+    assert.ok(!stored.actualContext.initialPaths.includes('.ai/guides/modules/sales.md'))
+    assert.ok(!stored.actualContext.initialPaths.includes('.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('a lifecycle stream without a recognized tool event fails closed', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
@@ -830,6 +870,7 @@ for (const command of [
     })
     assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
     assert.ok(!storedResults(root)[0].actualContext.paths.includes('.ai/specs'))
+    assert.ok(!storedResults(root)[0].actualContext.initialPaths.includes('.agents/skills/om-spec-writing/SKILL.md'))
     assert.deepEqual(storedResults(root)[0].actualContext.metadataPaths, ['.ai/specs'])
     assert.equal(storedResults(root)[0].actualContext.metadataEntries, 3)
     assert.ok(storedResults(root)[0].actualContext.metadataBytes > 0)

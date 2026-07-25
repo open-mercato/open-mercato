@@ -523,7 +523,7 @@ The checked-in `releaseMatrix` pins runner, model selector, and case IDs. Accept
 4. writable implementation/regression: all 39 target oracles, fixed target commands, declared generated tests, and mandatory generated-code reviews pass, with at least one runner per case and both runners represented in every family;
 5. results are produced from the final commit, record CLI/model versions and prompt hashes, and are summarized without committing raw private transcripts.
 
-Runner unavailability blocks claiming live release evidence; it does not invalidate deterministic CI. A maintainer may explicitly waive one unavailable runner in the PR with the failed command/version and reason, but may not waive a failed safety, forbidden-pattern, or executable oracle. No score averaging hides a failed mandatory case.
+Runner unavailability blocks claiming live release evidence; it does not invalidate deterministic CI. Required runner, safety, forbidden-pattern, executable-oracle, validation, generated-test, and generated-code-review failures are non-waivable. No score averaging hides a failed mandatory case.
 
 ### Backward-compatibility semantic coverage
 

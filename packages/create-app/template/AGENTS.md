@@ -48,7 +48,7 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 Match every axis; de-duplicate. Notifications use `module-data` + `backend-ui` + `umes`; custom-field round trips add `testing`; lifecycle reactions use `module-data` + `umes`; convergence bugs add `debugging`; registry drift uses `architecture` + `module-data` + `debugging` (plus `framework-context` only for an unresolved exact contract).
 
-Route only requested work. `testing` means requested tests/coverage/security proof, not routine validation, reindex, or smoke checks; external `om-integration-tests` is only for integration/E2E/browser/live-app tests. `debugging` means failure, security, or drift; spec decomposition selects only `spec-pr`. Plan-only business modules select `architecture` + `module-data` and `om-module-scaffold`, loading its blueprint plus architecture/contracts. Custom fields/entities select `umes` + `module-data`; add `backend-ui` for editable round trips and `testing` only when requested. Never infer areas from specs/PRs.
+Route only requested work. `testing` means requested tests/coverage/security proof, not routine validation, reindex, or smoke checks; an explicit real API/UI verification request selects `testing` and external `om-integration-tests` even inside a UI review. External `om-integration-tests` is only for integration/E2E/browser/live-app tests. `debugging` means failure, security, or drift; spec decomposition selects only `spec-pr`. Plan-only business modules select `architecture` + `module-data` and `om-module-scaffold`, loading its blueprint plus architecture/contracts. Custom fields/entities select `umes` + `module-data`; add `backend-ui` for editable round trips and `testing` only when requested. Never infer areas from specs/PRs.
 
 Unified-override audits select only `umes`; add `architecture` or `framework-context` only for unresolved ownership or installed keys.
 
@@ -62,8 +62,8 @@ An existing-module page/form/table-only task selects `backend-ui` alone; its gui
 | `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership or mechanism is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
 | `backend-ui` | Custom admin/public/portal/form/table/menu/i18n/component | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
-| `integration` | Email/shipping/payment/sync/webhook/storage/file interchange/provider | `.ai/guides/integrations.md`; not workflow `CALL_API` or ordinary downloads |
-| `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + target facts |
+| `integration` | Email/shipping/payment/sync/webhook/storage/file interchange/provider | `.ai/guides/integrations.md`; not workflow `CALL_API`, ordinary downloads, or built-in AI attachment/artifact storage |
+| `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + target facts; queues, workers, retries, and progress alone stay `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
 App domains/providers live in `src/modules/<id>/`; installed customization uses UMES. Reusable providers are published dependencies, never `packages/*`; ask before topology/ejection.
@@ -75,7 +75,7 @@ Split the outcome; match every row.
 | Route | Work unit | Skill/context |
 |---|---|---|
 | `architecture` | Explain/choose module, UMES, package, eject | architecture; use `om-help` for an unresolved choice or a comparative decision framework across these mechanisms |
-| `module-data` | Business outcome or vertical slice | `om-module-scaffold` + `business-one-shot-blueprints.md`; its route key resolves ownership and units |
+| `module-data` | Business outcome or vertical slice | `om-module-scaffold` + `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md`; its route key resolves ownership and units |
 | `spec-pr` | Spec or plan in safe working stages | Axis 3 skill; deployable phases |
 | `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts` and `package.json` |
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |
@@ -109,26 +109,26 @@ Select delivery independently from pinned `open-mercato/skills` (`yarn install-s
 | `testing` | Integration/E2E/UI QA | `om-integration-tests` / `om-auto-qa-pr`; optionally prepare env |
 | — | No PR/spec workflow requested | Do not load delivery skills |
 
-If the selected skill is absent, run `yarn install-skills` once and retry; do not substitute an invented workflow.
+If a skill is absent, run `yarn install-skills` once; never invent a substitute.
 
 ### Token-Efficient Assembly Policy
 
-- Load matched guides once and branch references only; facts name surfaces.
-- For specs, list names and open one task match; never README/template unless doing spec work.
+- Load each matched guide once, then only its needed references and facts.
+- For specs, list names and open one task match; skip README/template otherwise.
 - Inspect app call sites before bounded `framework-context`.
 - Read `BACKWARD_COMPATIBILITY.md` only before public-contract changes.
-- Never bulk-list/read guide, skill, fact, or source trees; each unit carries only its area, contract, facts, and delivery workflow.
+- Never bulk-read guide, skill, fact, or source trees.
 
 ## Module-Specific Facts
 
-Facts supply exact IDs/surfaces; load only changed, integrated, or named hosts. Map customer/contact/deal/pipeline to `customers`; portal only to `customer_accounts` (never `auth` or `portal`); quote/order to `sales`; notifications, workflows, progress, and integrations to their namesake facts. App CRUD/API/OpenAPI/search/event primitives alone do not load `api_docs`, `search`, or `events` facts. Never preload facts.
+Facts supply exact IDs/surfaces; load only changed or named hosts. Map customer/contact/deal/pipeline to `customers`; portal to `customer_accounts`; quote/order to `sales`; other named modules to their facts. CRUD/API/OpenAPI/search/event primitives alone do not load `api_docs`, `search`, or `events`. Never preload facts.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
 
 ## Working Sequence
 
-1. For `spec-pr`, run `find .ai/specs -maxdepth 1 -type f`, ignore README/template, and open one match. Do not list specs for plan-only work. Use specs for architectural or three-plus-step implementation.
+1. For `spec-pr`, list `.ai/specs` one level deep and open one non-template match. Do not list specs for plan-only work.
 2. Route the request and load only the matched guides/skills and relevant module facts.
 3. Inspect current app call sites; invoke `om-framework-context` only for missing exact-version details.
 4. Implement the smallest complete vertical slice through real call sites.

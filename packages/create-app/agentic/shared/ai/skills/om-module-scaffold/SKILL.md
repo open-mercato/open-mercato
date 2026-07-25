@@ -14,7 +14,7 @@ Create the smallest working vertical slice under `src/modules/<id>/`, using inst
 
 ## Workflow
 
-1. **Plan ownership.** For a business-level one-shot—including customer or deal customization—load `references/business-one-shot-blueprints.md`; its route key resolves app module versus extension/provider ownership. Read `.ai/guides/architecture.md` and `references/planning.md` only when that ownership is still unresolved. Skip the blueprint only for one narrow engineering primitive.
+1. **Plan ownership.** For every business-level one-shot—including customer or deal customization—you MUST read the exact path `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md`; its route key resolves app module versus extension/provider ownership. Do not substitute a similarly named guide. Read `.ai/guides/architecture.md` and `references/planning.md` only when ownership is still unresolved. Skip the blueprint only for one narrow engineering primitive.
 2. **Model data.** Invoke `om-data-model-design` for persisted entities or sensitive fields; follow `references/data-and-migrations.md`.
 3. **Build domain writes and APIs.** Read `.ai/guides/contracts.md` and `references/api-and-domain.md`; mirror the installed `customers` module through `om-framework-context` when necessary.
 4. **Wire module surfaces.** Follow `references/module-surfaces.md`; use `references/discovery-surface-catalog.md` when the brief spans multiple surfaces or discovery is uncertain. Add only requested surfaces.

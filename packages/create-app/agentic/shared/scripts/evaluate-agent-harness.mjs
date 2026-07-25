@@ -388,7 +388,7 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     }
     if (!isUniqueStringArray(item.validators, { min: 5 })) add(id, 'validators must contain at least five unique IDs')
     for (const validator of item.validators ?? []) if (!validatorMap[validator]) add(id, `unknown validator ${validator}`)
-    const requiredInitialContextFiles = (item.context?.required ?? []).filter((reference) => !reference.includes('/references/') && !reference.startsWith('.ai/guides/modules/')).length
+    const requiredInitialContextFiles = (item.context?.required ?? []).filter(isInitialContextPath).length
     if (!Number.isInteger(item.maxContextFiles) || item.maxContextFiles < requiredInitialContextFiles || item.maxContextFiles > registry.catalog.maxContextFiles) add(id, 'maxContextFiles is impossible or excessive')
     if (!Number.isInteger(item.maxInitialContextBytes) || item.maxInitialContextBytes < 4096 || item.maxInitialContextBytes > registry.catalog.maxInitialContextBytes) add(id, 'maxInitialContextBytes is invalid')
     if (!Number.isInteger(item.maxTotalContextBytes) || item.maxTotalContextBytes < item.maxInitialContextBytes || item.maxTotalContextBytes > registry.catalog.maxTotalContextBytes) add(id, 'maxTotalContextBytes is invalid')
@@ -983,7 +983,9 @@ function validateReviewCommand(command, root, expectedReads) {
   const violations = []
   const commandText = String(command).trim()
   if (!commandText || /[\n;&|><`$()]/.test(commandText)) return ['forbidden review command execution']
-  const tokens = commandText.match(/"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s]+/g) ?? []
+  const parsed = parseRestrictedShell(commandText)
+  if (parsed.error || parsed.commands.length !== 1) return ['forbidden review command execution']
+  const tokens = [...parsed.commands[0]]
   const executable = stripShellToken(tokens.shift(), root)
   if (!/(?:^|\/)cat$/.test(executable)) return ['forbidden review command execution']
   let operands = 0
@@ -1276,6 +1278,13 @@ function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads
   }
 }
 
+function isInitialContextPath(relative) {
+  return !relative.includes('/references/')
+    && !relative.startsWith('.ai/guides/modules/')
+    && !relative.startsWith('.ai/guides/upstream/')
+    && !relative.startsWith('.agents/skills/')
+}
+
 function contextStats(root, paths, metadata = {}) {
   let bytes = metadata.bytes ?? 0
   let files = metadata.entries ?? 0
@@ -1293,7 +1302,7 @@ function contextStats(root, paths, metadata = {}) {
       if (stat.isFile()) {
         files += 1
         bytes += stat.size
-        if (!relative.includes('/references/') && !relative.startsWith('.ai/guides/modules/')) {
+        if (isInitialContextPath(relative)) {
           initialPaths.push(relative)
           initialFiles += 1
           initialBytes += stat.size

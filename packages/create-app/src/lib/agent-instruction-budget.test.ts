@@ -17,10 +17,14 @@ const ROOT_SOURCES = [
   'agentic/shared/AGENTS.md.template',
 ] as const
 
-// Keep this aligned with evaluate-agent-harness.mjs: references and generated
-// module fact-sheets are progressive context, not part of the initial payload.
+// Keep this aligned with evaluate-agent-harness.mjs: references, generated
+// module fact-sheets, upstream snapshots, and routed external SDLC skills are
+// progressive context, not part of the initial payload.
 function isInitialContext(relativePath: string): boolean {
-  return !relativePath.includes('/references/') && !relativePath.startsWith('.ai/guides/modules/')
+  return !relativePath.includes('/references/')
+    && !relativePath.startsWith('.ai/guides/modules/')
+    && !relativePath.startsWith('.ai/guides/upstream/')
+    && !relativePath.startsWith('.agents/skills/')
 }
 
 function assertChainFits(

@@ -16,6 +16,8 @@ Select one smallest host contract, then implement the complete read/write/securi
 4. For editable additions, follow `references/read-write-roundtrip.md`; implement input, authenticated write, stored data, list/detail read, UI hydration, clear-to-null, and conflict behavior.
 5. Run `yarn generate`; verify host-present/absent, authorized/denied/wildcard, cache/search, and failure fallback using `references/verification.md`.
 
+For a comprehensive mechanism audit, `references/mechanism-selector.md` is the authoritative inventory. Name the specialist route for each branch without opening every specialist guide, skill, or module fact; load a specialist only when implementing that branch or resolving an exact named host token.
+
 ## Rules
 
 - Never edit or directly import private installed-module files into app code.

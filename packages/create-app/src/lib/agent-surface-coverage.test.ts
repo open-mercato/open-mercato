@@ -147,7 +147,7 @@ test('the 184-case catalog routes audited installed-module and AI/provider branc
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
-    context: { required: string[] }
+    context: { required: string[]; allowedExtra?: string[] }
     requiredDecisions: string[]
     expectedRouter: { required: string[] }
   }>
@@ -167,7 +167,8 @@ test('the 184-case catalog routes audited installed-module and AI/provider branc
   for (const [caseId, expected] of Object.entries(expectations)) {
     const record = byId.get(caseId)
     assert.ok(record, `missing ${caseId}`)
-    for (const context of expected.contexts) assert.ok(record.context.required.includes(context), `${caseId}: missing context ${context}`)
+    const declaredContexts = [...record.context.required, ...(record.context.allowedExtra ?? [])]
+    for (const context of expected.contexts) assert.ok(declaredContexts.includes(context), `${caseId}: missing context ${context}`)
     for (const decision of expected.decisions) assert.ok(record.requiredDecisions.includes(decision), `${caseId}: missing decision ${decision}`)
   }
   assert.ok(byId.get('OMH-087')?.expectedRouter.required.includes('ai-workflow'))

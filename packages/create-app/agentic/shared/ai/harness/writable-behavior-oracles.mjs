@@ -47,7 +47,9 @@ const CASES = {
 }
 
 const FAMILY_PROBES = {
-  'business-command': `
+  'business-command': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
     const config = __oracleConfig
     const action = module.exports[config.exportName]
     if (typeof action !== 'function') throw new Error('required business command export is missing')
@@ -96,8 +98,11 @@ const FAMILY_PROBES = {
     try { await action(validInput, effects) } catch (error) { duplicateError = error }
     checks.push({ id: 'deduplicates-retried-command', passed: !duplicateError && committed.length === 2 })
     return { checks }
-  `,
-  'ui-business-surface': `
+    })();
+  `),
+  'ui-business-surface': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
     const config = __oracleConfig
     const action = module.exports[config.exportName]
     if (typeof action !== 'function') throw new Error('required UI business export is missing')
@@ -132,8 +137,11 @@ const FAMILY_PROBES = {
     checks.push({ id: 'restores-focus-after-ui-failure', passed: failureObserved && failedEvents.includes('focus:row-1') })
     checks.push({ id: 'announces-ui-failure', passed: failedEvents.some((entry) => entry.startsWith('announce:')) })
     return { checks }
-  `,
-  'data-table-extension': `
+    })();
+  `),
+  'data-table-extension': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
     const config = __oracleConfig
     const action = module.exports[config.exportName]
     if (typeof action !== 'function') throw new Error('required DataTable bulk action export is missing')
@@ -176,8 +184,11 @@ const FAMILY_PROBES = {
     checks.push({ id: 'executes-exact-selected-orders', passed: checked.join(',') === 'one:v1,two:v2' && executedRows === rows })
     checks.push({ id: 'returns-shared-progress-job', passed: result?.ok === true && result?.progressJobId === 'job-1' })
     return { checks }
-  `,
-  'async-operation': `
+    })();
+  `),
+  'async-operation': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
     const config = __oracleConfig
     const action = module.exports[config.exportName]
     if (typeof action !== 'function') throw new Error('required async operation export is missing')
@@ -210,8 +221,11 @@ const FAMILY_PROBES = {
     })
     checks.push({ id: 'stops-at-cancellation-boundary', passed: cancellationChecks >= 2 && cancelledApplied.join(',') === 'one' })
     return { checks }
-  `,
-  'ai-safe-agent': `
+    })();
+  `),
+  'ai-safe-agent': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
     const config = __oracleConfig
     const action = module.exports[config.exportName]
     if (typeof action !== 'function') throw new Error('required AI action export is missing')
@@ -236,8 +250,11 @@ const FAMILY_PROBES = {
       checks.push({ id: 'passes-explicit-tool-allowlist', passed: delegated[0][1]?.allowedTools?.join(',') === 'catalog.read' })
     }
     return { checks }
-  `,
-  'provider-adapter': `
+    })();
+  `),
+  'provider-adapter': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
     const config = __oracleConfig
     const action = module.exports[config.exportName]
     if (typeof action !== 'function') throw new Error('required provider adapter export is missing')
@@ -276,8 +293,11 @@ const FAMILY_PROBES = {
     } catch (error) { terminalMessage = String(error?.message ?? error) }
     checks.push({ id: 'redacts-terminal-provider-error', passed: terminalMessage.length > 0 && !terminalMessage.includes('secret-token-value') })
     return { checks }
-  `,
-  'data-flow': `
+    })();
+  `),
+  'data-flow': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
     const config = __oracleConfig
     const action = module.exports[config.exportName]
     if (typeof action !== 'function') throw new Error('required data-flow export is missing')
@@ -310,11 +330,14 @@ const FAMILY_PROBES = {
     } catch { fetchRejected = true }
     checks.push({ id: 'preserves-cursor-on-page-failure', passed: fetchRejected && !failedCommit })
     return { checks }
-  `,
+    })();
+  `),
 }
 
 const PROBES = {
-  'OMH-045': `
+  'OMH-045': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
     const fetchPage = module.exports.fetchPage
     if (typeof fetchPage !== 'function') throw new Error('required export fetchPage is missing')
     const checks = []
@@ -365,8 +388,11 @@ const PROBES = {
     } catch { privateEndpointRejected = true }
     checks.push({ id: 'rejects-private-endpoint-before-fetch', passed: privateEndpointRejected && privateFetchCalls === 0 })
     return { checks }
-  `,
-  'OMH-054': `
+    })();
+  `),
+  'OMH-054': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
     const callApiActivity = module.exports.callApiActivity
     if (typeof callApiActivity !== 'function') throw new Error('required export callApiActivity is missing')
     const checks = []
@@ -413,8 +439,11 @@ const PROBES = {
     checks.push({ id: 'retry-reuses-idempotency-key', passed: !retryError && posts.length === 2 && posts.every((post) => post.key === 'activity-key') })
     checks.push({ id: 'reservation-precedes-transaction', passed: events[0] === 'reserve:activity-key' && events[1] === 'transaction:start' })
     return { checks }
-  `,
-  'OMH-057': `
+    })();
+  `),
+  'OMH-057': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
     const listRecords = module.exports.listRecords
     if (typeof listRecords !== 'function') throw new Error('required export listRecords is missing')
     const checks = []
@@ -437,8 +466,11 @@ const PROBES = {
         && filter?.tenant_id === 'tenant-1' && filter?.organization_id === 'organization-1',
     })
     return { checks }
-  `,
-  'OMH-060': `
+    })();
+  `),
+  'OMH-060': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
     const updateRecord = module.exports.updateRecord
     if (typeof updateRecord !== 'function') throw new Error('required export updateRecord is missing')
     const checks = []
@@ -475,8 +507,11 @@ const PROBES = {
         && successStore.committed[0]?.phase === 1 && successStore.committed[1]?.phase === 2,
     })
     return { checks }
-  `,
-  'OMH-061': `
+    })();
+  `),
+  'OMH-061': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
     const toInitialValues = module.exports.toInitialValues
     const toUpdatePayload = module.exports.toUpdatePayload
     if (typeof toInitialValues !== 'function' || typeof toUpdatePayload !== 'function') {
@@ -493,8 +528,11 @@ const PROBES = {
     const nonNull = toUpdatePayload(toInitialValues({ note: text }))
     checks.push({ id: 'round-trips-non-null-value', passed: nonNull?.note === text })
     return { checks }
-  `,
-  'OMH-070': `
+    })();
+  `),
+  'OMH-070': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
     const syncPage = module.exports.syncPage
     if (typeof syncPage !== 'function') throw new Error('required export syncPage is missing')
     const checks = []
@@ -535,8 +573,18 @@ const PROBES = {
     checks.push({ id: 'bounds-page-retries', passed: terminalRejected && failedAttempts === 2 })
     checks.push({ id: 'preserves-cursor-after-terminal-failure', passed: failedState.cursor === 'cursor-stable' })
     return { checks }
-  `,
+    })();
+  `),
 }
+
+const ORACLE_CONFIG_SCRIPT = new vm.Script(`
+  'use strict';
+  globalThis.__oracleConfig = Object.freeze({
+    exportName: globalThis.__oracleExportName,
+    mode: globalThis.__oracleMode,
+    requiredFlags: Object.freeze(JSON.parse(globalThis.__oracleRequiredFlagsJson)),
+  });
+`)
 
 function usage() {
   return `Usage: node .ai/harness/writable-behavior-oracles.mjs --root <absolute-app-path> --case <OMH-NNN> --phase <before|after> [--json]`
@@ -647,8 +695,8 @@ function executeWorker(caseId, compiledSource) {
 
 async function internalRun(caseId) {
   const caseRecord = CASES[caseId]
-  const probe = PROBES[caseRecord?.probeCase ?? caseId] ?? FAMILY_PROBES[caseRecord?.family]
-  if (!probe) throw new Error(`unsupported behavior-oracle case: ${caseId}`)
+  const probeScript = PROBES[caseRecord?.probeCase ?? caseId] ?? FAMILY_PROBES[caseRecord?.family]
+  if (!probeScript) throw new Error(`unsupported behavior-oracle case: ${caseId}`)
   const chunks = []
   let size = 0
   for await (const chunk of process.stdin) {
@@ -707,12 +755,13 @@ async function internalRun(caseId) {
     globalThis.exports = globalThis.module.exports
   `).runInContext(context, { timeout: 250 })
   new vm.Script(`'use strict';\n${compiledSource}`, { filename: caseRecord.file }).runInContext(context, { timeout: 1_000 })
-  const oracleConfig = JSON.stringify({
-    exportName: caseRecord.exportName,
-    mode: caseRecord.mode,
-    requiredFlags: caseRecord.requiredFlags,
+  Object.defineProperties(context, {
+    __oracleExportName: { value: caseRecord.exportName ?? null },
+    __oracleMode: { value: caseRecord.mode ?? null },
+    __oracleRequiredFlagsJson: { value: JSON.stringify(caseRecord.requiredFlags ?? []) },
   })
-  new vm.Script(`'use strict'; globalThis.__oracleResult = (async () => { const __oracleConfig = Object.freeze(${oracleConfig}); ${probe} })();`).runInContext(context, { timeout: 1_000 })
+  ORACLE_CONFIG_SCRIPT.runInContext(context, { timeout: 250 })
+  probeScript.runInContext(context, { timeout: 1_000 })
   const serialized = await new vm.Script(`(async () => JSON.stringify(await globalThis.__oracleResult))()`).runInContext(context, { timeout: 1_000 })
   process.stdout.write(`${serialized}\n`)
 }
