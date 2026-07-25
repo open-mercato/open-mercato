@@ -7149,7 +7149,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "Let staff save customer segments such as active buyers in Poland or contacts with an overdue task. Keep saved filters inside the current business scope, evaluate the same rules consistently in lists and exports, bound expensive recalculation, explain invalid fields after upgrades, and prevent one team from seeing another team's segment definitions.",
+    "prompt": "Let staff save customer segments such as customer records updated this month in Poland or contacts with an overdue task. Keep saved filters inside the current business scope, evaluate the same rules consistently in lists and exports, bound expensive recalculation, explain invalid fields after upgrades, and prevent one team from seeing another team's segment definitions.",
     "tags": [
       "business-language",
       "customers",
