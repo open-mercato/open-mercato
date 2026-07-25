@@ -4030,7 +4030,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add authorized encrypted attachment input and artifact output storage. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add authorized encrypted attachment input and artifact output storage for a typed module agent, not an MCP/OpenCode integration. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "ai-workflow",
       "umes",
@@ -4100,7 +4100,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a code workflow with stable activity outputs and secure durable user tasks. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a code workflow with stable activity outputs and secure durable user tasks. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "ai-workflow",
       "workflow-output-path"
@@ -4169,7 +4169,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a CALL_API activity whose idempotency key survives transaction rollback. Preserve the seeded callApiActivity(input, effects) seam and reserve input.idempotencyKey through effects.reserveIdempotency before entering effects.transaction; send that reserved key through effects.post on every retry. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a CALL_API activity whose idempotency key survives transaction rollback. Preserve the seeded callApiActivity(input, effects) seam and reserve input.idempotencyKey through effects.reserveIdempotency before entering effects.transaction; send that reserved key through effects.post on every retry. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "ai-workflow",
       "idempotency-outside-rollback"

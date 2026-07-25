@@ -9,7 +9,7 @@ Compose the installed workflow engine; do not bypass its executor, state machine
 
 ## Workflow
 
-Route before reading: workflow definitions, activities, durable engine state, idempotency, tasks, and outputs stay on `ai-workflow`. Do not probe module-data guides or `om-data-model-design` unless the request also adds a separate app-owned business entity.
+Route before reading: workflow definitions, activities, durable engine state, idempotency, tasks, and outputs stay on `ai-workflow`. Load `.ai/guides/modules/workflows.md`, not `.ai/guides/contracts.md`; use module-data or `om-data-model-design` only when the request also adds a separate app-owned business entity.
 
 1. Read `.ai/guides/ai-workflows.md`; inspect the installed workflows module facts and use `om-framework-context` for exact service/activity contracts.
 2. Model definition, steps, transitions, triggers, variables, tasks, compensation, and terminal states with `references/workflow-design.md`.
