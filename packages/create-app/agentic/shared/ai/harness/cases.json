@@ -394,6 +394,9 @@
         "AGENTS.md",
         ".ai/skills/om-implement-spec/SKILL.md"
       ],
+      "allowedExtra": [
+        ".ai/guides/modules/notifications.md"
+      ],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -417,7 +420,7 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 8,
+    "maxContextFiles": 10,
     "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
@@ -9480,10 +9483,10 @@
     },
     "expectedRouter": {
       "required": [
-        "module-data",
-        "backend-ui"
+        "module-data"
       ],
       "allowedExtra": [
+        "backend-ui",
         "architecture",
         "framework-context",
         "testing"
@@ -9491,18 +9494,24 @@
     },
     "requiredSkills": [
       "om-data-model-design",
-      "om-module-scaffold",
-      "om-backend-ui-design"
+      "om-module-scaffold"
+    ],
+    "optionalSkills": [
+      {
+        "id": "om-backend-ui-design",
+        "route": "backend-ui"
+      }
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/guides/backend-ui.md",
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/guides/modules/catalog.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/scheduler.md"
       ],
       "forbidden": [
         ".env*",
@@ -9678,7 +9687,8 @@
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/catalog.md",
-        ".ai/guides/modules/query_index.md"
+        ".ai/guides/modules/query_index.md",
+        ".ai/guides/modules/search.md"
       ],
       "forbidden": [
         ".env*",
@@ -9835,7 +9845,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "Create a public product catalog that loads useful content on the server, keeps filter and sort choices in the shareable address, uses only a small predictable interactive layer, states clearly which pages are public, and remains fast, readable, and keyboard accessible on phones and large screens.",
+    "prompt": "Create a public product catalog using the existing catalog data and APIs without changing their model or contract. Load useful content on the server, keep filter and sort choices in the shareable address, use only a small predictable interactive layer, state clearly which pages are public, and remain fast, readable, and keyboard accessible on phones and large screens.",
     "tags": [
       "business-language",
       "catalog",
@@ -10036,7 +10046,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Let a signed-in portal user update their own permitted contact fields and no one else's. Derive identity and business scope from the signed-in person, protect the direct address as well as the visible navigation, reject stale edits with a useful conflict, validate personal data, and show complete success and error states.",
+    "prompt": "Let a signed-in portal user update their own permitted contact fields and no one else's, including the necessary server-side update path. Derive identity and business scope from the signed-in person, protect the direct address as well as the visible navigation, reject stale edits with a useful conflict, validate personal data, and show complete success and error states.",
     "tags": [
       "business-language",
       "portal",
@@ -10070,7 +10080,8 @@
     },
     "requiredSkills": [
       "om-backend-ui-design",
-      "om-system-extension"
+      "om-system-extension",
+      "om-module-scaffold"
     ],
     "context": {
       "required": [
@@ -10080,6 +10091,7 @@
         ".ai/guides/extensions.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
         ".ai/guides/modules/customer_accounts.md",
         ".ai/guides/modules/customers.md"
