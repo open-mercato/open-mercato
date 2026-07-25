@@ -128,7 +128,7 @@ export class CustomEntity {
   labelField?: string | null
 
   // Default editor preference for multiline custom fields
-  // Allowed: 'markdown' | 'simpleMarkdown' | 'htmlRichText'
+  // Allowed: 'markdown' | 'simpleMarkdown' | 'htmlRichText' | 'plain'
   @Property({ name: 'default_editor', type: 'text', nullable: true })
   defaultEditor?: string | null
 

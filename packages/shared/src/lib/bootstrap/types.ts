@@ -1,4 +1,4 @@
-import type { DiRegistrar } from '../di/container'
+import type { AppDiRegistrar, DiRegistrar } from '../di/container'
 import type { EntityIds } from '../encryption/entityIds'
 import type { EntityFieldsRegistry } from '../encryption/entityFields'
 import type { Module, ModuleDashboardWidgetEntry, ModuleInjectionWidgetEntry } from '../../modules/registry'
@@ -70,4 +70,5 @@ export interface BootstrapData {
 export interface BootstrapOptions {
   skipSearchConfigs?: boolean
   onRegistrationComplete?: () => void
+  appDiRegistrar?: AppDiRegistrar
 }

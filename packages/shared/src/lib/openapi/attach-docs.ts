@@ -1,0 +1,63 @@
+import type {
+  ApiRouteManifestEntry,
+  Module,
+  ModuleApi,
+  ModuleApiLegacy,
+  ModuleApiRouteFile,
+} from '../../modules/registry'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from './types'
+
+function manifestKey(entry: ApiRouteManifestEntry): string {
+  return entry.kind === 'legacy' && entry.method
+    ? `${entry.moduleId}\0${entry.method}\0${entry.path}`
+    : `${entry.moduleId}\0${entry.path}`
+}
+
+async function loadOpenApiExport(entry: ApiRouteManifestEntry | undefined): Promise<unknown> {
+  if (!entry) return undefined
+  try {
+    const mod = await entry.load()
+    const openApi = (mod as { openApi?: unknown }).openApi
+    return openApi && typeof openApi === 'object' ? openApi : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The lazy runtime module registry omits each route's `docs` (the `openApi`
+ * export) so route files stay dynamically imported. Documentation endpoints
+ * that build the OpenAPI document from that registry must re-attach the docs
+ * by loading each route module through the API route manifests on demand.
+ */
+export async function attachOpenApiDocsToModules(
+  modules: Module[],
+  manifests: ApiRouteManifestEntry[],
+): Promise<Module[]> {
+  const manifestsByKey = new Map<string, ApiRouteManifestEntry>()
+  for (const entry of manifests) {
+    manifestsByKey.set(manifestKey(entry), entry)
+  }
+
+  return Promise.all(
+    modules.map(async (mod) => {
+      if (!Array.isArray(mod.apis) || !mod.apis.length) return mod
+      const apis = await Promise.all(
+        mod.apis.map(async (api): Promise<ModuleApi> => {
+          if ((api as { docs?: unknown }).docs) return api
+          if ('handlers' in api) {
+            const entry = manifestsByKey.get(`${mod.id}\0${api.path}`)
+            const docs = await loadOpenApiExport(entry)
+            if (!docs) return api
+            return { ...api, docs: docs as OpenApiRouteDoc } satisfies ModuleApiRouteFile
+          }
+          const entry = manifestsByKey.get(`${mod.id}\0${api.method}\0${api.path}`)
+          const docs = await loadOpenApiExport(entry)
+          if (!docs) return api
+          return { ...api, docs: docs as OpenApiMethodDoc } satisfies ModuleApiLegacy
+        }),
+      )
+      return { ...mod, apis }
+    }),
+  )
+}
