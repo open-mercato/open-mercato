@@ -243,7 +243,7 @@ yarn harness:release --prepare-targets <absolute-empty-directory> --acknowledge-
 yarn mercato agentic:init [--tool <id>] [--update-harness | --force]
 ```
 
-All commands default to read-only behavior. Routing evaluation invokes Codex with a read-only sandbox and schema output, or Claude with plan permission mode, read-only tools, structured output, no session persistence, and a fresh session per case (batching is orchestration only). Implementation/regression evaluation requires an explicit writable disposable scaffold and restricts writes to `allowedWrites`. Exit codes are `0` pass, `1` evaluated failure, and `2` invalid invocation/environment; timeouts/non-zero agent exits are failures with partial sanitized results. Results go under ignored `.ai/harness/results/`.
+All commands default to read-only behavior. Routing evaluation runs inside a mandatory controller-owned host sandbox with only the selected app and isolated runner/output state mounted. Codex uses schema output and a permissive inner tool sandbox because nested macOS Seatbelt profiles cannot reliably read the already-contained app; the outer sandbox is the filesystem authority. Claude additionally uses plan permission mode, read-only tools, structured output, and no session persistence. Every case receives a fresh session (batching is orchestration only). Implementation/regression evaluation requires an explicitly disposable scaffold; the outer sandbox and post-run fingerprints restrict writes to `allowedWrites`. Exit codes are `0` pass, `1` evaluated failure, and `2` invalid invocation/environment; timeouts/non-zero agent exits are failures with partial sanitized results. Results go under ignored `.ai/harness/results/`.
 
 ## 📝 UI/UX
 

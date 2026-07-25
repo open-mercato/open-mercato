@@ -62,7 +62,7 @@ function runtimeReadRoots(command, env) {
     } catch { return undefined }
   })()
   const system = process.platform === 'darwin'
-    ? ['/System', '/usr', '/bin', '/sbin', '/Library/Apple', '/Library/Fonts', '/Library/ColorSync', '/Library/Keyboard Layouts', '/private/var/db', '/etc/ssl', '/dev']
+    ? ['/System', '/usr', '/bin', '/sbin', '/Library/Apple', '/Library/Fonts', '/Library/ColorSync', '/Library/Keyboard Layouts', '/Library/Keychains', '/Library/Security/Trust Settings', '/private/var/db', '/private/etc/ssl', '/etc/ssl', '/dev']
     : ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc/ssl', '/etc/ca-certificates']
   return uniqueExistingDirectories([
     ...system,

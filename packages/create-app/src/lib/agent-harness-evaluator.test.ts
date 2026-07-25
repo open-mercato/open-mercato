@@ -393,7 +393,7 @@ test('provider fixtures preserve the scaffold module registry for activation edi
   }
 })
 
-test('live Codex adapter starts one ephemeral read-only process and stores only a sanitized structured result', { skip: process.platform === 'win32' }, () => {
+test('live Codex adapter starts one ephemeral host-contained process and stores only a sanitized structured result', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin)
@@ -404,7 +404,7 @@ const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
 if (!prompt.includes('Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories') || !prompt.includes('an all-guides/all-skills/all-facts read is an automatic failure') || !prompt.includes('selectedSkills names only skills you actually invoked during this evaluation after opening their SKILL.md')) process.exit(10)
-if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || args[args.indexOf('--disable') + 1] !== 'skill_search' || args[args.indexOf('--sandbox') + 1] !== 'read-only' || !args.includes('shell_environment_policy.inherit=none') || !process.env.CODEX_HOME?.includes('om-harness-result-')) process.exit(9)
+if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || args[args.indexOf('--disable') + 1] !== 'skill_search' || args[args.indexOf('--sandbox') + 1] !== 'danger-full-access' || !args.includes('shell_environment_policy.inherit=none') || !process.env.CODEX_HOME?.includes('om-harness-result-') || !process.env.HOME?.includes('om-harness-result-')) process.exit(9)
 const output = args[args.indexOf('-o') + 1]
 fs.writeFileSync(output, JSON.stringify({
   selectedRouter: ['architecture'], selectedSkills: [],
@@ -1504,7 +1504,7 @@ if (args[0] === '--version') { console.log('codex-review-fake 1.0'); process.exi
 if (fs.existsSync('package.json') || fs.existsSync('node_modules') || fs.existsSync('.git')) process.exit(8)
 if (fs.existsSync('src/modules/library/api/books/route.ts') || !fs.readFileSync('REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt', 'utf8').startsWith('<<<LINE 000001>>>')) process.exit(8)
 for (const file of ['.ai/guides/backend-ui.md', '.ai/skills/om-backend-ui-design/SKILL.md', '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md']) if (!fs.existsSync(file)) process.exit(8)
-if (args[args.indexOf('--sandbox') + 1] !== 'read-only' || !args.includes('--ignore-user-config')) process.exit(9)
+if (args[args.indexOf('--sandbox') + 1] !== 'danger-full-access' || !args.includes('--ignore-user-config')) process.exit(9)
 const evidence = [
   { id: 'oracle:allowed-writes', status: 'pass' },
   { id: 'oracle:writable-ast-oracles.mjs', status: 'pass' },

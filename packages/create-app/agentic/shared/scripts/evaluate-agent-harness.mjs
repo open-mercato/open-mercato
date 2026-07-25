@@ -522,6 +522,9 @@ function narrowRunnerEnv(runner) {
   for (const key of [...BASE_RUNNER_ENV_KEYS, ...(RUNNER_ENV_KEYS[runner] ?? [])]) {
     if (typeof process.env[key] === 'string') result[key] = process.env[key]
   }
+  if (process.platform === 'darwin' && !result.SSL_CERT_FILE && fs.existsSync('/etc/ssl/cert.pem')) {
+    result.SSL_CERT_FILE = '/etc/ssl/cert.pem'
+  }
   return result
 }
 
@@ -1314,7 +1317,10 @@ function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, wr
     const args = [
       'exec', '--json', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check',
       '--disable', 'skill_search',
-      '--sandbox', writable ? 'workspace-write' : 'read-only',
+      // The mandatory outer sandbox owns the exact readable/writable roots.
+      // Avoid nested macOS Seatbelt profiles: they cannot reliably issue the
+      // extensions Codex needs to read the already-contained app/bundle.
+      '--sandbox', 'danger-full-access',
       '-c', 'shell_environment_policy.inherit=none',
       '-C', root, '--output-schema', schemaPath, '-o', outputPath,
     ]
@@ -1353,7 +1359,9 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
   const runnerEnv = narrowRunnerEnv(runner)
   if (runner === 'codex') {
     const isolatedCodexHome = path.join(tempDir, 'codex-home')
+    const isolatedHome = path.join(tempDir, 'home')
     fs.mkdirSync(isolatedCodexHome, { recursive: true, mode: 0o700 })
+    fs.mkdirSync(isolatedHome, { recursive: true, mode: 0o700 })
     const configuredCodexHome = runnerEnv.CODEX_HOME || path.join(os.homedir(), '.codex')
     const authSource = path.join(configuredCodexHome, 'auth.json')
     if (fs.existsSync(authSource)) {
@@ -1363,6 +1371,7 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
       fs.chmodSync(isolatedAuth, 0o600)
     }
     runnerEnv.CODEX_HOME = isolatedCodexHome
+    runnerEnv.HOME = isolatedHome
   } else if (runner === 'claude') {
     const isolatedHome = path.join(tempDir, 'claude-home')
     const isolatedConfig = path.join(isolatedHome, '.claude')
