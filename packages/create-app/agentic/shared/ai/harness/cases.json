@@ -5873,6 +5873,7 @@
         ".ai/skills/om-data-model-design/SKILL.md", ".ai/skills/om-backend-ui-design/SKILL.md", ".ai/skills/om-system-extension/SKILL.md", ".ai/skills/om-build-workflow/SKILL.md",
         ".ai/guides/modules/sales.md", ".ai/guides/modules/catalog.md", ".ai/guides/modules/customers.md", ".ai/guides/modules/customer_accounts.md", ".ai/guides/modules/workflows.md", ".ai/guides/modules/notifications.md"
       ],
+      "allowedExtra": [".ai/guides/modules/payment_gateways.md"],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
     "requiredDecisions": ["scalar-id-snapshot", "command-state-machine", "quantity-invariant", "optimistic-lock", "idempotent-refund", "portal-scope", "durable-transition"],
@@ -5912,7 +5913,7 @@
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:float|number).{0,30}(?:amount|money)", "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 65536,
+    "maxInitialContextBytes": 69632,
     "maxTotalContextBytes": 262144,
     "relatedCases": ["OMH-041", "OMH-042", "OMH-070"]
   },
@@ -5949,7 +5950,7 @@
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "provider credentials.{0,30}(?:log|plain)", "direct ORM relationship"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 13,
-    "maxInitialContextBytes": 65536,
+    "maxInitialContextBytes": 69632,
     "maxTotalContextBytes": 262144,
     "relatedCases": ["OMH-040", "OMH-043", "OMH-055"]
   },
@@ -10922,24 +10923,25 @@
   },
   {
     "id":"OMH-141","title":"Coordinate picking packing dispatch and manual fulfilment exceptions","family":"business","mode":"one-shot","evaluationKind":"routing","risk":"high",
-    "prompt":"Coordinate picking, packing, dispatch, and manual exception approval for each order while keeping every restart and retry safe.",
+    "prompt":"Coordinate picking, packing, dispatch, and manual exception approval for each order, with operations and approver work screens, while keeping every restart and retry safe.",
     "tags":["business-language","fulfilment","workflow"],
     "owner":{"kind":"skill","path":".ai/skills/om-build-workflow/SKILL.md","ruleIds":["BC-02","BC-05","BC-07","BC-09","BC-10"]},
     "expectedRouter":{"required":["module-data","backend-ui","umes","ai-workflow"],"allowedExtra":["integration"]},
     "requiredSkills":["om-module-scaffold","om-backend-ui-design","om-system-extension","om-build-workflow"],
-    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/guides/ai-workflows.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-build-workflow/SKILL.md",".ai/guides/modules/sales.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/guides/ai-workflows.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-build-workflow/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/modules/workflows.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["command-state-machine","workflow-output-path","durable-user-task","subscriber-idempotency","quantity-invariant"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","direct ORM relationship"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":11,"maxInitialContextBytes":49152,"maxTotalContextBytes":147456,"relatedCases":["OMH-053","OMH-078","OMH-080"]
+    "maxContextFiles":11,"maxInitialContextBytes":65536,"maxTotalContextBytes":147456,"relatedCases":["OMH-053","OMH-078","OMH-080"]
   },
   {
     "id":"OMH-142","title":"Run annual renewals at each customer's local time without duplicates","family":"business","mode":"one-shot","evaluationKind":"routing","risk":"high",
     "prompt":"Run annual customer renewals at the customer's local time without duplicates after restarts, retries, or daylight-saving changes.",
     "tags":["business-language","renewals","workflow"],
     "owner":{"kind":"skill","path":".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md","ruleIds":["BC-02","BC-05","BC-09"]},
-    "expectedRouter":{"required":["module-data"],"allowedExtra":["umes"]},
+    "expectedRouter":{"required":["module-data"],"allowedExtra":["umes","framework-context"]},
     "requiredSkills":["om-module-scaffold"],
+    "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
     "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",".ai/guides/modules/scheduler.md",".ai/guides/modules/customers.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["worker-idempotency","host-scope-contract","renewal-timezone-dst-policy","restart-safe-schedule"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","setTimeout\\("],

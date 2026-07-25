@@ -220,7 +220,10 @@ process.exit(9)
 test('the catalog count and release coverage are derived from the validator registry and case records', () => {
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
   const validators = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'validators.json'), 'utf8')) as {
-    catalog: { expectedCaseCount: number; backwardCompatibilityRuleIds: string[]; mandatoryCaseIds: string[]; writableCaseIds: string[] }
+    catalog: { expectedCaseCount: number; maxInitialContextBytes: number; backwardCompatibilityRuleIds: string[]; mandatoryCaseIds: string[]; writableCaseIds: string[] }
+  }
+  const casesSchema = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.schema.json'), 'utf8')) as {
+    items: { properties: { maxInitialContextBytes: { maximum: number } } }
   }
   const matrix = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'release-matrix.json'), 'utf8')) as {
     routing: { required: { caseIds: string }; portability: { caseIds: string[] }; runners: Record<string, { modelSelector: string }> }
@@ -230,6 +233,7 @@ test('the catalog count and release coverage are derived from the validator regi
     releaseSuite: { supportedRunners: string[]; requireGeneratedCodeReview: boolean; validationCommands: string[] }
   }
   assert.equal(cases.length, validators.catalog.expectedCaseCount)
+  assert.equal(casesSchema.items.properties.maxInitialContextBytes.maximum, validators.catalog.maxInitialContextBytes)
   assert.deepEqual(cases.map((entry) => entry.id), Array.from({ length: cases.length }, (_, index) => `OMH-${String(index + 1).padStart(3, '0')}`))
   assert.deepEqual(cases.filter((entry) => entry.fixture).map((entry) => entry.id), validators.catalog.writableCaseIds)
   assert.deepEqual(matrix.routing.portability.caseIds, validators.catalog.writableCaseIds)
