@@ -16,6 +16,8 @@ import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useSalesChannelsEnabled } from '../../../components/useSalesChannelsEnabled'
+import { SalesChannelsDisabledNotice } from '../../../components/SalesChannelsDisabledNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -42,6 +44,7 @@ const SAVE_CONTEXT_ID = 'sales-channels-list'
 
 export default function SalesChannelsPage() {
   const t = useT()
+  const { enabled: channelsEnabled, isLoading: channelsEnabledLoading } = useSalesChannelsEnabled()
   const router = useRouter()
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -189,6 +192,10 @@ export default function SalesChannelsPage() {
       logger.error('sales.channels.delete', { err })
     }
   }, [handleRefresh, mutationContext, runMutation, t])
+
+  if (!channelsEnabled && !channelsEnabledLoading) {
+    return <SalesChannelsDisabledNotice />
+  }
 
   return (
     <Page>

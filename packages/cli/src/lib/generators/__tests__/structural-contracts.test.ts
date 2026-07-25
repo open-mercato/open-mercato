@@ -14,7 +14,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import ts from 'typescript'
+import ts from 'typescript-js'
 import type { PackageResolver, ModuleEntry } from '../../resolver'
 import { generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli } from '../module-registry'
 import { generateModuleDi } from '../module-di'

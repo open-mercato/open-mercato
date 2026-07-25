@@ -13,7 +13,7 @@ import { runWithCacheTenant } from '@open-mercato/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
-import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_FALLBACK_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
 import { withModuleResourceUsage } from '@open-mercato/shared/lib/modules/resource-usage'
@@ -377,6 +377,25 @@ async function handleRequest(
   const methodMetadata = extractMethodMetadata(routeMetadata, method)
   const authError = await checkAuthorization(methodMetadata, auth, req)
   if (authError) {
+    // Auth could not be verified because of a transient/unexpected failure (DB
+    // unavailable, pool exhausted, timeout). Do NOT clear the session cookies or
+    // return 401 — that would force-log-out every active user at once during a
+    // shared infrastructure blip (issue #4176). Return a retryable 503 instead
+    // and leave the cookies intact so the session survives once the DB recovers.
+    if (authResolution.status === 'error' && authError.status === 401) {
+      const response = NextResponse.json(
+        { error: t('api.errors.serviceUnavailable', 'Service temporarily unavailable') },
+        { status: 503, headers: { 'retry-after': '2' } },
+      )
+      await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
+        ...receivedPayload,
+        status: response.status,
+        userId: auth?.sub ?? null,
+        tenantId: auth?.tenantId ?? null,
+        durationMs: Date.now() - startedAt,
+      })
+      return response
+    }
     const response = authResolution.status === 'invalid' && authError.status === 401
       ? clearStaffAuthCookies(authError)
       : authError
@@ -394,24 +413,22 @@ async function handleRequest(
     const rateLimiterService = getCachedRateLimiterService()
     if (rateLimiterService) {
       const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
-      if (clientIp) {
-        const rateLimitError = await checkRateLimit(
-          rateLimiterService,
-          methodMetadata.rateLimit,
+      const rateLimitError = await checkRateLimit(
+        rateLimiterService,
+        methodMetadata.rateLimit,
+        clientIp ?? RATE_LIMIT_FALLBACK_KEY,
+        t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
+      )
+      if (rateLimitError) {
+        await emitLifecycleEvent(applicationLifecycleEvents.requestRateLimited, {
+          ...receivedPayload,
+          status: rateLimitError.status,
           clientIp,
-          t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
-        )
-        if (rateLimitError) {
-          await emitLifecycleEvent(applicationLifecycleEvents.requestRateLimited, {
-            ...receivedPayload,
-            status: rateLimitError.status,
-            clientIp,
-            userId: auth?.sub ?? null,
-            tenantId: auth?.tenantId ?? null,
-            durationMs: Date.now() - startedAt,
-          })
-          return rateLimitError
-        }
+          userId: auth?.sub ?? null,
+          tenantId: auth?.tenantId ?? null,
+          durationMs: Date.now() - startedAt,
+        })
+        return rateLimitError
       }
     }
   }

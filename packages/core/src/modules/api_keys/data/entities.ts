@@ -1,6 +1,9 @@
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 @Entity({ tableName: 'api_keys' })
+// The unique keyPrefix bounds the bcrypt candidate loop in findApiKeyBySecret to at
+// most one live row. Do not drop this constraint or widen the prefix space without
+// re-evaluating that loop's per-request cost (see #3812).
 @Unique({ properties: ['keyPrefix'] })
 @Index({
   name: 'api_keys_opencode_session_id_uq',

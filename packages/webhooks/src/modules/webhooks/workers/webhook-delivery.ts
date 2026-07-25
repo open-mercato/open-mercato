@@ -11,16 +11,16 @@ export const metadata = {
 }
 
 export default async function handler(
-  job: { data: WebhookDeliveryJob },
+  job: { payload: WebhookDeliveryJob },
   ctx: { resolve: <T = unknown>(name: string) => T },
 ) {
   const em = (ctx.resolve('em') as EntityManager).fork()
   try {
-    await processWebhookDeliveryJob(em, job.data)
+    await processWebhookDeliveryJob(em, job.payload)
   } catch (error) {
     logger.error('Job processing failed', {
-      deliveryId: job.data.deliveryId,
-      tenantId: job.data.tenantId,
+      deliveryId: job.payload?.deliveryId,
+      tenantId: job.payload?.tenantId,
       err: error,
     })
     throw error

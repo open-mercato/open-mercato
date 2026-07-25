@@ -369,6 +369,82 @@ describe('calculateDocumentTotals', () => {
     expect(positiveResult.totals.discountTotalAmount).toBeCloseTo(20, 4)
   })
 
+  it('folds custom / operator-defined adjustment kinds into the grand total so it never diverges from its itemization (issue #4052)', async () => {
+    const lines: SalesLineSnapshot[] = [
+      {
+        kind: 'product',
+        quantity: 1,
+        currencyCode: 'USD',
+        unitPriceNet: 100,
+        taxRate: 0,
+      },
+    ]
+
+    const positiveResult = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines,
+      adjustments: [
+        {
+          scope: 'order',
+          kind: 'custom',
+          label: 'Handling fee',
+          amountNet: 15,
+          amountGross: 15,
+          currencyCode: 'USD',
+        },
+      ],
+      context: { ...baseContext, metadata: {} },
+    })
+
+    // A positive custom amount adds to the total (operator-controlled sign).
+    expect(positiveResult.totals.grandTotalNetAmount).toBeCloseTo(115, 4)
+    expect(positiveResult.totals.grandTotalGrossAmount).toBeCloseTo(115, 4)
+
+    const partialCreditResult = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines,
+      adjustments: [
+        {
+          scope: 'order',
+          kind: 'custom',
+          label: 'Goodwill credit',
+          amountNet: -30,
+          amountGross: -30,
+          currencyCode: 'USD',
+        },
+      ],
+      context: { ...baseContext, metadata: {} },
+    })
+
+    // A negative custom amount reduces the total instead of being silently dropped.
+    expect(partialCreditResult.totals.grandTotalNetAmount).toBeCloseTo(70, 4)
+    expect(partialCreditResult.totals.grandTotalGrossAmount).toBeCloseTo(70, 4)
+
+    const overCreditResult = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines,
+      adjustments: [
+        {
+          scope: 'order',
+          kind: 'custom',
+          label: 'Large credit',
+          amountNet: -150,
+          amountGross: -150,
+          currencyCode: 'USD',
+        },
+      ],
+      context: { ...baseContext, metadata: {} },
+    })
+
+    // A credit larger than the order total is reflected faithfully (the grand
+    // total equals subtotal + adjustment) rather than leaving the headline
+    // unchanged while the adjustment shows in the breakdown.
+    expect(overCreditResult.totals.grandTotalNetAmount).toBeCloseTo(-50, 4)
+    expect(overCreditResult.totals.grandTotalGrossAmount).toBeCloseTo(-50, 4)
+    // Amount due can never go negative.
+    expect(overCreditResult.totals.outstandingAmount).toBeCloseTo(0, 4)
+  })
+
   it('derives line tax from the net/gross delta when the rate is missing but gross embeds tax (issue #2457)', async () => {
     const lines: SalesLineSnapshot[] = [
       {

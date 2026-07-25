@@ -22,10 +22,12 @@ import {
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
 import { parseDuration } from './duration'
+import { getWorkflowSafeCommand } from './workflow-safe-commands'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -125,6 +127,30 @@ export interface ActivityContext {
   branchInstanceId?: string | null
   transitionId?: string
   userId?: string
+}
+
+type RbacFeatureResolver = {
+  getGrantedFeatures: (
+    userId: string,
+    opts: { tenantId: string | null; organizationId: string | null }
+  ) => Promise<string[]>
+}
+
+async function resolveWorkflowUserFeatures(
+  container: AwilixContainer,
+  userId: string,
+  tenantId: string | null,
+  organizationId: string | null
+): Promise<string[]> {
+  try {
+    const rbac = container.resolve('rbacService') as RbacFeatureResolver | undefined
+    if (rbac?.getGrantedFeatures) {
+      return await rbac.getGrantedFeatures(userId, { tenantId, organizationId })
+    }
+  } catch {
+    // Fail closed below when the workflow executor cannot prove the actor's grants.
+  }
+  return []
 }
 
 export interface ActivityExecutionResult {
@@ -606,8 +632,28 @@ export async function executeUpdateEntity(
     throw new Error('UPDATE_ENTITY requires "commandId" field (e.g., "sales.documents.update")')
   }
 
+  const workflowSafeCommand = getWorkflowSafeCommand(commandId)
+  if (!workflowSafeCommand) {
+    throw new Error('UPDATE_ENTITY command is not allowed')
+  }
+
   if (!input || typeof input !== 'object') {
     throw new Error('UPDATE_ENTITY requires "input" object with entity data')
+  }
+
+  const actorUserId = typeof context.userId === 'string' ? context.userId.trim() : ''
+  if (!actorUserId) {
+    throw new Error('UPDATE_ENTITY requires an authenticated workflow user')
+  }
+
+  const userFeatures = await resolveWorkflowUserFeatures(
+    container,
+    actorUserId,
+    context.workflowInstance.tenantId,
+    context.workflowInstance.organizationId
+  )
+  if (!hasAllFeatures(userFeatures, workflowSafeCommand.requiredFeatures)) {
+    throw new Error('UPDATE_ENTITY command is not authorized')
   }
 
   // Resolve CommandBus from container
@@ -636,12 +682,10 @@ export async function executeUpdateEntity(
   }
 
   // Build synthetic CommandRuntimeContext for workflow execution
-  // Use nil UUID for system actions when no user context is available
-  const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
   const ctx = {
     container,
     auth: {
-      sub: context.userId || SYSTEM_USER_ID,
+      sub: actorUserId,
       tenantId: context.workflowInstance.tenantId,
       orgId: context.workflowInstance.organizationId,
       isSuperAdmin: false,
@@ -929,8 +973,28 @@ export async function executeCallApi(
   // 3. Import the one-time API key helper
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
 
-  // 4. Get EntityManager from container (for correct type)
-  const apiKeyEm = container.resolve<PostgreSqlEntityManager>('em')
+  // 4. Create the one-time API key on an EntityManager that is fully detached
+  //    from the surrounding request/transaction context.
+  //
+  //    CALL_API runs inside `workflowExecutor.executeWorkflow()`, which wraps
+  //    the whole execution in `em.transactional(...)`. The request EM is forked
+  //    with `useContext: true`, so while that transaction is open, EVERY
+  //    operation on the container's `em` — including this API key's
+  //    persist/flush — is transparently redirected to the uncommitted
+  //    transaction fork (MikroORM `getContext()` → `TransactionContext`). The
+  //    key would therefore stay invisible until the transaction commits, but
+  //    the commit cannot happen until this activity returns. The outbound
+  //    self-authenticated `fetch` below opens a SEPARATE DB connection that
+  //    cannot see the uncommitted row, so the internal API responds `401` and
+  //    the activity fails (issue #4202).
+  //
+  //    Forking with `useContext: false` (matching the query_index/webhooks
+  //    isolated-EM convention) gives the key its own pooled connection with
+  //    autocommit, so it is committed and visible to the internal request
+  //    immediately.
+  const apiKeyEm = container
+    .resolve<PostgreSqlEntityManager>('em')
+    .fork({ clear: true, freshEventManager: true, useContext: false }) as PostgreSqlEntityManager
 
   // 5. Resolve the roles that the one-time API key will inherit.
   //
