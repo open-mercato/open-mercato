@@ -136,12 +136,12 @@
   },
   {
   "id": "OMH-003",
-    "title": "Locate installed module entities, events, ACL, APIs, DI, search, and widget host tokens",
+    "title": "Escalate from generated module facts to exact installed source contracts",
     "family": "architecture",
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, locate the installed customers module entities, events, ACL, APIs, DI, search, and widget host tokens. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, the generated customers fact identifies the module's entities, events, ACL, APIs, DI services, search entities, and table IDs, but it does not identify the original AGENTS.md instruction chain or the source files and exported symbol names that declare the host extension tokens. Resolve those exact installed-version details with the bounded framework-source escape hatch. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "architecture",
       "framework-context",
@@ -169,8 +169,9 @@
       ],
     "allowedExtra": [
       "architecture",
+      "module-data",
       "debugging"
-      ]
+    ]
     },
     "requiredSkills": [
       "om-framework-context"
