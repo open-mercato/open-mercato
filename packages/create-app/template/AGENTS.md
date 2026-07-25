@@ -48,7 +48,7 @@ Combine matches. In-app notifications/editable custom fields: `module-data` + `b
 
 Each route loads its skill; a `module-data` business vertical MUST load `om-module-scaffold` + exact blueprint.
 
-Only explicit work. `testing` = requested tests/coverage/security proof/API-UI verification, not routine validation; external `om-integration-tests` only for integration/E2E/browser/live-app. `debugging` = failure/security/drift. Specs/plans = `spec-pr` + self-contained API/UI integration coverage. Architecture-only business plans = `architecture` + `module-data` + blueprint/contracts. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer from specs/PRs.
+Only explicit work. `testing` = requested tests/coverage/security proof/API-UI verification, not routine validation; external `om-integration-tests` only for integration/E2E/browser/live-app. `debugging` = failure/security/drift. Requested specs or delivery/implementation plans = `spec-pr` + self-contained API/UI integration coverage. Architecture-only business capability outlines (ownership, canonical primitives, vertical slice) = `architecture` + `module-data` + blueprint/contracts, without a delivery skill. For spec-only decomposition, route first with root + `om-spec-writing` + its config; defer domain guides until the task asks for implementation contracts. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer from specs/PRs.
 
 App-owned durable process state, activities, or user tasks select `module-data` + `ai-workflow`; add `umes` for installed-module interception/reaction.
 
@@ -121,7 +121,7 @@ If a skill is absent, run `yarn install-skills` once; never invent a substitute.
 - Load each matched guide once, then only its needed references and facts.
 - For specs, list names and open one task match; skip README/template otherwise.
 - Inspect app call sites before bounded `framework-context`.
-- Read `BACKWARD_COMPATIBILITY.md` only before public-contract changes.
+- Read `BACKWARD_COMPATIBILITY.md` only before changing a public contract. Preserving an existing contract through a documented extension point does not select it.
 - Never bulk-read guide, skill, fact, or source trees.
 
 ## Module-Specific Facts

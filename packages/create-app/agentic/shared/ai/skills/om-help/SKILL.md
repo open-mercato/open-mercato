@@ -9,6 +9,8 @@ Turn a request into a minimal multi-match context plan; do not implement the tas
 
 ## Workflow
 
+Route before reading: a comparison or routing request uses this skill and the architecture guide. Name candidate specialist skills without opening them; load an option-specific skill only after the user selects that branch or asks for its implementation details.
+
 1. Read root `AGENTS.md` and match every Task Router row; do not treat the rows as mutually exclusive.
 2. Classify the task by architecture, module/data, UI, UMES, integration, AI/workflow, debugging, or delivery. Load `references/task-families.md` only when the family is unclear.
 3. Choose one delivery shape using `references/delivery-workflows.md`: direct small change, one-shot PR, spec-first implementation, issue fix, review, or harness evolution.

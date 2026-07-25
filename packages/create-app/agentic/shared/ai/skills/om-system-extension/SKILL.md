@@ -9,7 +9,7 @@ Select one smallest host contract, then implement the complete read/write/securi
 
 ## Workflow
 
-Route before reading: choose routes from the request and mechanism selector, then read only those route guides/skills. Never probe architecture or backend UI and discard the route. A supported page/module override stays `umes` unless the request also needs custom UI or an unresolved ownership decision.
+Route before reading: choose routes from the request and mechanism selector, then read only those route guides/skills. Never probe architecture or backend UI and discard the route. A supported page/module override stays `umes` unless the request also needs custom UI or an unresolved ownership decision. Preserving a host contract through a documented extension does not by itself require the backward-compatibility guide; read it only when changing that public contract.
 
 1. Read `.ai/guides/extensions.md` and `references/mechanism-selector.md`; choose UMES, supported override, package, or eject.
 2. Resolve host entity/route/spot/component/event IDs from generated facts. Invoke `om-framework-context` only when facts omit the needed contract.
