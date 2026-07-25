@@ -48,6 +48,44 @@ describe('dashboard widget discovery', () => {
     expect(fetched?.metadata.title).toBe('Notes')
   })
 
+  it('honors overrides.widgets.dashboard on the server-side catalog (#4377)', async () => {
+    const keptLoader = jest.fn(async () => ({
+      default: {
+        metadata: { id: 'example.dashboard.kept', title: 'Kept' },
+        Widget: () => null,
+      } satisfies DashboardWidgetModule<any>,
+    }))
+    const removedLoader = jest.fn(async () => ({
+      default: {
+        metadata: { id: 'example.dashboard.removed', title: 'Removed' },
+        Widget: () => null,
+      } satisfies DashboardWidgetModule<any>,
+    }))
+
+    const { registerModules } = await import('@open-mercato/shared/lib/i18n/server')
+    registerModules([
+      {
+        id: 'example',
+        dashboardWidgets: [
+          { key: 'example:kept:widget', moduleId: 'example', loader: keptLoader },
+          { key: 'example:removed:widget', moduleId: 'example', loader: removedLoader },
+        ],
+      },
+    ] as any)
+
+    const { applyDashboardWidgetOverrides } = await import('@open-mercato/shared/modules/overrides')
+    applyDashboardWidgetOverrides({ 'example:removed:widget': null })
+
+    const { loadAllWidgets, loadWidgetById, invalidateWidgetCache } = await import('../lib/widgets')
+    invalidateWidgetCache()
+
+    const all = await loadAllWidgets()
+    expect(all.map((widget) => widget.metadata.id)).toEqual(['example.dashboard.kept'])
+    expect(removedLoader).not.toHaveBeenCalled()
+
+    await expect(loadWidgetById('example.dashboard.removed')).resolves.toBeNull()
+  })
+
   it('returns null for unknown widget id', async () => {
     const { registerModules } = await import('@open-mercato/shared/lib/i18n/server')
     registerModules([] as any)
