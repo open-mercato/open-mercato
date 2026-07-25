@@ -191,6 +191,25 @@ function isSafeRelative(pattern) {
   return !pattern.replaceAll('\\', '/').split('/').includes('..')
 }
 
+function canonicalizeSelectedContextAliases(root, response) {
+  const realRoot = fs.realpathSync(root)
+  const selectedContext = []
+  for (const entry of response.selectedContext) {
+    let canonical = entry
+    if (isSafeRelative(entry)) {
+      const absolute = path.resolve(root, entry)
+      if (isPathInside(root, absolute) && fs.existsSync(absolute)) {
+        try {
+          const real = fs.realpathSync(absolute)
+          if (isPathInside(realRoot, real)) canonical = path.relative(realRoot, real).replaceAll(path.sep, '/')
+        } catch { /* retain the declared spelling so normal validation fails closed */ }
+      }
+    }
+    if (!selectedContext.includes(canonical)) selectedContext.push(canonical)
+  }
+  return { ...response, selectedContext }
+}
+
 function globToRegExp(pattern) {
   const normalized = pattern.replaceAll('\\', '/')
   let expression = '^'
@@ -2068,7 +2087,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         executions.push(execution)
       }
       let response = { selectedRouter: [], selectedSkills: [], selectedContext: [], decisions: [], violations: [] }
-      if (execution.kind === 'success') response = execution.response
+      if (execution.kind === 'success') response = canonicalizeSelectedContextAliases(runRoot, execution.response)
       const trace = observedContext(
         executions.map((attempt) => attempt.stdout ?? '').join('\n'),
         runRoot,

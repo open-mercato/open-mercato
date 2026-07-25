@@ -923,6 +923,39 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
+test('selected context canonicalizes an in-root skill symlink to the observed local source', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  fs.mkdirSync(path.join(root, '.agents', 'skills'), { recursive: true })
+  fs.symlinkSync(
+    path.join(root, '.ai', 'skills', 'om-implement-spec'),
+    path.join(root, '.agents', 'skills', 'om-implement-spec'),
+    'dir',
+  )
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['spec-pr'], selectedSkills: ['om-implement-spec'],
+  selectedContext: ['AGENTS.md', '.agents/skills/om-implement-spec/SKILL.md'],
+  decisions: ['working-phases', 'smallest-validation'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
+  command: 'cat AGENTS.md .agents/skills/om-implement-spec/SKILL.md'
+} }))
+`)
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-006'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    assert.deepEqual(storedResults(root)[0].selectedContext, ['AGENTS.md', '.ai/skills/om-implement-spec/SKILL.md'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('a case may declare a bounded optional skill for an allowed extra route', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
