@@ -174,10 +174,10 @@ Runner: local (no Docker `app` container running).
   preserved, so no frozen/stable contract surface changes. `[id]` breadcrumbs + back-links repointed to the
   agent Evaluation tab (or the Agents list when the record isn't loaded).
 
-**Follow-up (pending):** the integration-coverage matrix above (Playwright) is specified but not yet
-implemented — it needs the prepared test environment (`om-prepare-test-env` → `om-integration-tests`). Run it
-as the next step to exercise the agent-scoped eval fetches, case approve/archive, assertion toggle, and
-evaluation trigger end-to-end.
+- **Integration coverage** — added
+  `TC-AGENT-WORKSPACE-001.spec.ts` for the agent-scoped assertion/case workspace, optimistic-lock assertion
+  toggle, direct Evaluation deep-link, and Overview → Cases transition. Playwright discovery succeeds; local
+  browser execution is blocked in this environment because Chromium cannot load the host `libnspr4.so`.
 
 ## Changelog
 
@@ -185,4 +185,4 @@ evaluation trigger end-to-end.
   (`backend/eval-{assertions,cases,runs}/page.*`) and their sidebar entries; restructured the agent detail page
   into a four-tab workspace (Overview / Activity / Evaluation / Configuration) with evaluation composed per
   agent via the existing agent-scoped list APIs, plus assertion/case/run/results drawers on the shared `Drawer`.
-  No data-model or API-contract changes. Integration tests remain a documented follow-up.
+  No data-model or API-contract changes. Added `TC-AGENT-WORKSPACE-001.spec.ts` for the consolidated workspace.

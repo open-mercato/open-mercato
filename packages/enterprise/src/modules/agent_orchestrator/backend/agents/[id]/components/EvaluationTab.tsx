@@ -168,6 +168,10 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
 
   const loadedRef = React.useRef(false)
 
+  React.useEffect(() => {
+    if (initialSection) setSection(initialSection)
+  }, [initialSection])
+
   const { runMutation, retryLastMutation } = useGuardedMutation<{ retryLastMutation: () => Promise<boolean> }>({
     contextId: 'agent_orchestrator.agentDetail.evaluation',
     blockedMessage: t('agent_orchestrator.evalCases.flash.actionError'),
