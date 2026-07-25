@@ -785,6 +785,37 @@ for (const command of [
   }
 })
 
+test('spec routing may inspect the bounded spec index without reading spec contents', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  fs.mkdirSync(path.join(root, '.ai', 'specs'), { recursive: true })
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['spec-pr'], selectedSkills: ['om-spec-writing'],
+  selectedContext: ['AGENTS.md', '.agents/skills/om-spec-writing/SKILL.md'],
+  decisions: ['cohesive-phases', 'integration-coverage'], violations: []
+}))
+for (const command of [
+  'cat AGENTS.md .agents/skills/om-spec-writing/SKILL.md',
+  'find .ai/specs -maxdepth 1 -type f'
+]) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command } }))
+`)
+  fs.mkdirSync(path.join(root, '.agents', 'skills', 'om-spec-writing'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.agents', 'skills', 'om-spec-writing', 'SKILL.md'), '# spec\n')
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-005'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    assert.ok(!storedResults(root)[0].actualContext.paths.includes('.ai/specs'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('Codex login-shell wrappers preserve narrow reads without authorizing nested interpreters', { skip: process.platform === 'win32' }, () => {
   for (const command of [
     `/bin/zsh -lc "sed -n '1,120p' AGENTS.md && sed -n '1,120p' .ai/guides/architecture.md"`,

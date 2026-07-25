@@ -940,6 +940,12 @@ function permittedContextPath(relative, caseRecord) {
   return skillPaths.includes(relative) || skillRoots.some((root) => relative.startsWith(`${root}references/`))
 }
 
+function permittedMetadataPath(relative, caseRecord) {
+  if (permittedContextPath(relative, caseRecord)) return true
+  const routes = [...(caseRecord.expectedRouter?.required ?? []), ...(caseRecord.expectedRouter?.allowedExtra ?? [])]
+  return routes.includes('spec-pr') && ['.ai/specs', '.ai/specs/implemented'].includes(relative)
+}
+
 function expandObservedPath(root, relative, expand) {
   if (relative.includes('*') || relative.includes('?')) {
     return walkFiles(root, { ignored: new Set(['.git', '.next', 'dist']) }).filter((file) => globToRegExp(relative).test(file))
@@ -992,7 +998,7 @@ function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads
     }
     const relative = normalized.relative
     if (candidate.metadataOnly) {
-      if (relative.includes('*') || relative.includes('?') || !permittedContextPath(relative, caseRecord)) {
+      if (relative.includes('*') || relative.includes('?') || !permittedMetadataPath(relative, caseRecord)) {
         violations.add(`unsafe metadata discovery ${relative}`)
         continue
       }

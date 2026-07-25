@@ -232,6 +232,7 @@
         "module-data"
       ],
       "allowedExtra": [
+        "architecture",
         "backend-ui",
         "ai-workflow"
       ]
