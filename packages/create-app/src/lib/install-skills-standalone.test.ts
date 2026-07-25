@@ -455,6 +455,40 @@ test('verified regular external skills reinstall idempotently with matching owne
   }
 })
 
+test('external source attestation accepts a real tree reached through a symlinked temporary parent', { skip: process.platform === 'win32' }, async () => {
+  const root = fixture()
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-skill-linked-parent-')))
+  const contents = '# verified external\n'
+  const pinnedHash = hashSingleFileSkill(contents)
+  setExternalHash(root, pinnedHash)
+  try {
+    const actualParent = path.join(parent, 'actual')
+    const linkedParent = path.join(parent, 'linked')
+    fs.mkdirSync(actualParent)
+    fs.symlinkSync(actualParent, linkedParent, 'dir')
+    const tempRoot = path.join(linkedParent, 'download')
+    const sourceDir = path.join(tempRoot, 'source')
+    fs.mkdirSync(sourceDir, { recursive: true })
+    fs.writeFileSync(path.join(sourceDir, 'README.md'), '# pinned source\n')
+
+    const result = await installer.runInstaller({
+      rootDir: root,
+      args: [],
+      downloadSource: async () => ({ tempRoot, sourceDir }),
+      spawn: verifiedSkillSpawn(contents),
+    })
+
+    assert.equal(result, 0)
+    assert.equal(
+      installer.hashSkillDirectory(path.join(root, '.agents', 'skills', 'om-code-review')),
+      pinnedHash,
+    )
+  } finally {
+    removeFixture(root)
+    removeFixture(parent)
+  }
+})
+
 test('canonical skill paths reject symlinked ancestors before any outside write', { skip: process.platform === 'win32' }, () => {
   for (const escapedPath of [['.agents'], ['.agents', 'skills']]) {
     const root = fixture()

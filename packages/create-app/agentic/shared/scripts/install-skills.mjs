@@ -609,11 +609,18 @@ async function installExternal(rootDir, external, platform, spawn, fetchImpl, do
   let downloadRoot
   try {
     downloaded = await downloadSource(external, fetchImpl)
+    const lexicalDownloadRoot = resolve(downloaded.tempRoot)
+    if (!isWithin(downloaded.sourceDir, lexicalDownloadRoot)) fail('downloaded external source escapes its temporary root')
     downloadRoot = realInstallerRoot(downloaded.tempRoot)
-    if (!isWithin(downloaded.sourceDir, downloadRoot)) fail('downloaded external source escapes its temporary root')
-    assertRealDirectoryComponents(downloadRoot, downloaded.sourceDir, { requireLeaf: true })
-    assertRegularSkillTree(downloaded.sourceDir)
-    const invocation = externalCliInvocation(external, downloaded.sourceDir, platform)
+    const sourceEntry = lstatSync(downloaded.sourceDir, { throwIfNoEntry: false })
+    if (!sourceEntry || sourceEntry.isSymbolicLink() || !sourceEntry.isDirectory()) {
+      fail('downloaded external source must be a real directory')
+    }
+    const sourceDir = realpathSync(downloaded.sourceDir)
+    if (!isWithin(sourceDir, downloadRoot)) fail('downloaded external source escapes its temporary root')
+    assertRealDirectoryComponents(downloadRoot, sourceDir, { requireLeaf: true })
+    assertRegularSkillTree(sourceDir)
+    const invocation = externalCliInvocation(external, sourceDir, platform)
     const installRoot = join(downloadRoot, 'install')
     ensureRealDirectory(downloadRoot, installRoot)
     const result = spawn(invocation.executable, invocation.args, { cwd: installRoot, stdio: 'inherit' })
