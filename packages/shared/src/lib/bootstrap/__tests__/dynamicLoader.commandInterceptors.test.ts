@@ -13,11 +13,32 @@
  * The .mjs stubs use module.exports because Jest's CJS runtime handles the
  * dynamic import() and does not transform .mjs files; the loader consumes the
  * named exports identically either way.
+ *
+ * The third case guards #4491: the compatibility fallback to an empty list must
+ * stay silent for an absent registry, but must report a registry that exists and
+ * fails to load — otherwise the #4327 condition can recur with no diagnostics.
  */
+jest.mock('../../logger', () => {
+  const logger = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: () => logger,
+  }
+  return { createLogger: () => logger }
+})
+
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createLogger } from '../../logger'
 import { loadBootstrapData } from '../dynamicLoader'
+
+const mockedLogger = createLogger('shared') as unknown as {
+  debug: jest.Mock
+  error: jest.Mock
+}
 
 const GENERATED_MODULES: Record<string, { ts: string; compiled: string }> = {
   'entities.ids.generated': { ts: 'export const E = {}', compiled: 'module.exports = { E: {} }' },
@@ -39,20 +60,35 @@ function writeGeneratedModule(generatedDir: string, baseName: string, source: { 
   fs.utimesSync(path.join(generatedDir, `${baseName}.mjs`), fresh, fresh)
 }
 
+const createdAppRoots: string[] = []
+
+function createAppRoot(overrides: Record<string, { ts: string; compiled: string }> = {}): string {
+  const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-bootstrap-4327-'))
+  const generatedDir = path.join(appRoot, '.mercato', 'generated')
+  fs.mkdirSync(generatedDir, { recursive: true })
+  for (const [baseName, source] of Object.entries({ ...GENERATED_MODULES, ...overrides })) {
+    writeGeneratedModule(generatedDir, baseName, source)
+  }
+  createdAppRoots.push(appRoot)
+  return appRoot
+}
+
 describe('loadBootstrapData — command interceptors reach worker/CLI bootstrap (#4327)', () => {
   let appRoot: string
 
   beforeAll(() => {
-    appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-bootstrap-4327-'))
-    const generatedDir = path.join(appRoot, '.mercato', 'generated')
-    fs.mkdirSync(generatedDir, { recursive: true })
-    for (const [baseName, source] of Object.entries(GENERATED_MODULES)) {
-      writeGeneratedModule(generatedDir, baseName, source)
-    }
+    appRoot = createAppRoot()
   })
 
   afterAll(() => {
-    fs.rmSync(appRoot, { recursive: true, force: true })
+    for (const root of createdAppRoots) {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  beforeEach(() => {
+    mockedLogger.debug.mockClear()
+    mockedLogger.error.mockClear()
   })
 
   it('returns commandInterceptorEntries from command-interceptors.generated', async () => {
@@ -72,5 +108,24 @@ describe('loadBootstrapData — command interceptors reach worker/CLI bootstrap 
 
     expect(data.commandInterceptorEntries).toEqual([])
     expect(data.commandLoaderEntries).toEqual([])
+    expect(mockedLogger.error).not.toHaveBeenCalled()
+  })
+
+  it('logs an error when the generated file exists but fails to import (#4491)', async () => {
+    const brokenAppRoot = createAppRoot({
+      'command-interceptors.generated': {
+        ts: 'export const commandInterceptorEntries = []',
+        compiled: "throw new Error('command-interceptors.generated is broken')",
+      },
+    })
+
+    const data = await loadBootstrapData(brokenAppRoot)
+
+    expect(data.commandInterceptorEntries).toEqual([])
+    expect(mockedLogger.error).toHaveBeenCalledTimes(1)
+    const [message, fields] = mockedLogger.error.mock.calls[0] as [string, Record<string, unknown>]
+    expect(message).toContain('Failed to load generated registry')
+    expect(fields.file).toBe('command-interceptors.generated.ts')
+    expect((fields.err as Error).message).toContain('command-interceptors.generated is broken')
   })
 })
