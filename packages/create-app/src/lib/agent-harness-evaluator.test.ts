@@ -1629,7 +1629,7 @@ process.exit(0)
   }
 })
 
-test('writable snapshots bind empty directories and regular-file mode changes', { skip: process.platform === 'win32' }, () => {
+test('writable snapshots bind empty directories plus directory and regular-file mode changes', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
   const target = stageWritableTarget(root)
   const bin = installFakeRunner(root, 'codex', `
@@ -1637,6 +1637,7 @@ const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 fs.mkdirSync('UNDECLARED_EMPTY')
+fs.chmodSync('.ai', 0o777)
 fs.chmodSync('package.json', 0o777)
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['module-data'], selectedSkills: ['om-data-model-design'],
@@ -1656,7 +1657,8 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
     ], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
     assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
     const [stored] = storedResults(root)
-    assert.ok(stored.violations.some((entry) => entry.includes('writes outside allowlist: UNDECLARED_EMPTY, package.json')))
+    assert.ok(stored.violations.some((entry) => entry.includes('writes outside allowlist: .ai, UNDECLARED_EMPTY, package.json')))
+    assert.ok(!stored.writable?.changedPaths.includes('.ai'))
     assert.ok(!stored.writable?.changedPaths.includes('UNDECLARED_EMPTY'))
     assert.ok(stored.writable?.changedPaths.includes('package.json'))
   } finally {
