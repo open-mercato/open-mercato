@@ -1,6 +1,6 @@
 # {{PROJECT_NAME}} — Standalone App Agent Rules
 
-Extend this app. Route here first; load every match; never probe unmatched context.
+Extend this app. Route first; load every match; never probe unmatched context.
 
 ## Always
 
@@ -12,7 +12,7 @@ Extend this app. Route here first; load every match; never probe unmatched conte
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
 - Run `yarn generate` after discovery files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows change.
-- Preserve public event/entity/API/ACL/DI/widget/notification/AI/CLI/generated-export IDs.
+- Preserve routes, schemas, IDs, exports, paths and signatures.
 - Localize strings; use shared UI/tokens and complete loading, empty, error, conflict, keyboard, and accessibility states.
 
 ## Ask First
@@ -121,7 +121,7 @@ If a skill is absent, run `yarn install-skills` once; never invent a substitute.
 - Load each matched guide once, then only needed references and facts.
 - For specs, list names and open one task match; skip README/template otherwise.
 - Inspect app call sites before bounded `framework-context`.
-- Existing public response/error work reads `BACKWARD_COMPATIBILITY.md`; page/conflict UI does not.
+- Existing API/schema/ID/export/path/signature/CLI changes → `BACKWARD_COMPATIBILITY.md`; skip additive page/form/table/conflict UI.
 - Never bulk-read guide, skill, fact, or source trees.
 
 ## Module-Specific Facts

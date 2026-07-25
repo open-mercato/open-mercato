@@ -86,6 +86,14 @@ test('existing-module UI routing stays inside the backend UI context slice', () 
   }
 })
 
+test('compatibility routing covers existing public contracts without pulling in additive UI work', () => {
+  for (const relativePath of ROOT_SOURCES) {
+    const source = fs.readFileSync(path.join(CREATE_APP_ROOT, relativePath), 'utf8')
+    assert.match(source, /Existing API\/schema\/ID\/export\/path\/signature\/CLI changes → `BACKWARD_COMPATIBILITY\.md`/)
+    assert.match(source, /skip additive page\/form\/table\/conflict UI/)
+  }
+})
+
 test('generated classic Codex root and representative initial chains fit their byte budgets', () => {
   const targetDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-instruction-budget-')))
   fs.mkdirSync(path.join(targetDir, 'src'), { recursive: true })

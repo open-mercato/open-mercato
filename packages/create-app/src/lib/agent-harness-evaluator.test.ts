@@ -23,6 +23,7 @@ type HarnessCase = {
   mode: string
   evaluationKind: string
   owner: { ruleIds: string[] }
+  context: { required: string[]; allowedExtra?: string[] }
   validators: string[]
   fixture?: unknown
 }
@@ -220,7 +221,15 @@ process.exit(9)
 test('the catalog count and release coverage are derived from the validator registry and case records', () => {
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
   const validators = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'validators.json'), 'utf8')) as {
-    catalog: { expectedCaseCount: number; maxInitialContextBytes: number; backwardCompatibilityRuleIds: string[]; mandatoryCaseIds: string[]; writableCaseIds: string[] }
+    catalog: {
+      expectedCaseCount: number
+      maxInitialContextBytes: number
+      backwardCompatibilityRuleIds: string[]
+      mandatoryCaseIds: string[]
+      compatibilityRequiredCaseIds: string[]
+      compatibilityExcludedCaseIds: string[]
+      writableCaseIds: string[]
+    }
   }
   const casesSchema = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.schema.json'), 'utf8')) as {
     items: { properties: { maxInitialContextBytes: { maximum: number } } }
@@ -262,6 +271,27 @@ test('the catalog count and release coverage are derived from the validator regi
     cases.filter((entry) => entry.validators.includes('safety.mandatory')).map((entry) => entry.id),
     validators.catalog.mandatoryCaseIds,
   )
+  assert.deepEqual(validators.catalog.compatibilityRequiredCaseIds, [
+    'OMH-007', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-147', 'OMH-182',
+  ])
+  assert.deepEqual(validators.catalog.compatibilityExcludedCaseIds, [
+    'OMH-006', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-018', 'OMH-022', 'OMH-026',
+    'OMH-081', 'OMH-091', 'OMH-093', 'OMH-105', 'OMH-172', 'OMH-181',
+  ])
+  const compatibilityPath = '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'
+  const byId = new Map(cases.map((entry) => [entry.id, entry]))
+  assert.deepEqual(
+    cases.filter((entry) => entry.context.required.includes(compatibilityPath)).map((entry) => entry.id),
+    validators.catalog.compatibilityRequiredCaseIds,
+  )
+  for (const id of validators.catalog.compatibilityRequiredCaseIds) {
+    assert.ok(byId.get(id)?.context.required.includes(compatibilityPath), `${id} must require compatibility context`)
+  }
+  for (const id of validators.catalog.compatibilityExcludedCaseIds) {
+    const context = byId.get(id)?.context
+    assert.ok(context, `${id} must exist`)
+    assert.ok(![...context.required, ...(context.allowedExtra ?? [])].includes(compatibilityPath), `${id} must exclude compatibility context`)
+  }
 })
 
 test('runner selection distinguishes explicit primary all-cases from the default portability sample', async () => {
@@ -341,6 +371,26 @@ test('catalog validation reports malformed optional skills without throwing', ()
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
     assert.match(result.stderr, /optionalSkills must bind unique om-\* names to routes/)
     assert.doesNotMatch(result.stderr, /TypeError|ERR_INVALID_ARG_TYPE/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('catalog validation enforces compatibility routing semantics', () => {
+  const root = stageApp()
+  try {
+    const validatorsPath = path.join(root, '.ai', 'harness', 'validators.json')
+    const validators = JSON.parse(fs.readFileSync(validatorsPath, 'utf8')) as {
+      catalog: { compatibilityRequiredCaseIds: string[]; compatibilityExcludedCaseIds: string[] }
+    }
+    validators.catalog.compatibilityRequiredCaseIds = ['OMH-006', 'OMH-999']
+    fs.writeFileSync(validatorsPath, `${JSON.stringify(validators, null, 2)}\n`)
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /compatibility-required case missing: OMH-999/)
+    assert.match(result.stderr, /compatibility case cannot be both required and excluded: OMH-006/)
+    assert.match(result.stderr, /required compatibility case must require BACKWARD_COMPATIBILITY\.md/)
+    assert.match(result.stderr, /case requires BACKWARD_COMPATIBILITY\.md but is not registered as compatibility-required/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

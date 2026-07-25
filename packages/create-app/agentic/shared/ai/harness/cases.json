@@ -363,7 +363,7 @@
     "mode": "spec",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "Given an approved standalone library-management specification with separate data/API, admin UI, and event-subscriber overdue-notification phases (not a durable workflow), explain how to implement selected phases so every completed phase leaves a working app and preserves the spec contracts.",
+    "prompt": "Given an approved additive, app-owned library-management specification with separate data/API, admin UI, and event-subscriber overdue-notification phases (not a durable workflow), explain how to implement selected phases so every completed phase leaves a working app and preserves the spec contracts.",
     "tags": [
       "architecture",
       "spec-pr",
@@ -395,8 +395,7 @@
         ".ai/skills/om-implement-spec/SKILL.md"
       ],
       "allowedExtra": [
-        ".ai/guides/modules/notifications.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/modules/notifications.md"
       ],
       "forbidden": [
         ".env*",
@@ -435,7 +434,7 @@
     "mode": "review",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, audit a framework upgrade for stale imports, payloads, facts, migrations, and generated registries. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, audit a framework upgrade and any proposed rename or removal of an existing API route or method, request/response schema, exported type or import path, function signature, event ID or payload, generated export, or CLI command or flag. Find stale imports, payloads, facts, migrations, and generated registries. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "architecture",
       "framework-context",
@@ -481,13 +480,13 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/architecture.md",
-      ".ai/guides/testing-debugging.md",
-      ".ai/skills/om-troubleshooter/SKILL.md"
-    ],
-    "allowedExtra": [
-      ".ai/guides/contracts.md",
-      ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
-    ],
+        ".ai/guides/testing-debugging.md",
+        ".ai/skills/om-troubleshooter/SKILL.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md"
+      ],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -901,9 +900,6 @@
         "AGENTS.md",
         ".ai/guides/contracts.md",
         ".ai/skills/om-module-scaffold/SKILL.md"
-      ],
-      "allowedExtra": [
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
         ".env*",
@@ -1399,9 +1395,6 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/events.md"
       ],
-      "allowedExtra": [
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
-      ],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -1703,9 +1696,6 @@
         "AGENTS.md",
         ".ai/guides/contracts.md",
         ".ai/skills/om-module-scaffold/SKILL.md"
-      ],
-      "allowedExtra": [
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
         ".env*",
@@ -2013,8 +2003,7 @@
         ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
       "allowedExtra": [
-        ".ai/skills/om-framework-context/SKILL.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/skills/om-framework-context/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -2350,7 +2339,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, replace, wrap, or transform props of an installed UI component. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, replace, wrap, or transform props of an installed UI component while preserving its existing public component ID and props signature. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "backend-ui",
@@ -2382,9 +2371,7 @@
         "AGENTS.md",
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md",
-        ".ai/skills/om-system-extension/SKILL.md"
-      ],
-      "allowedExtra": [
+        ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
@@ -4495,9 +4482,7 @@
         "AGENTS.md",
         ".ai/guides/contracts.md",
         ".ai/guides/testing-debugging.md",
-        ".ai/skills/om-troubleshooter/SKILL.md"
-      ],
-      "allowedExtra": [
+        ".ai/skills/om-troubleshooter/SKILL.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
@@ -5096,12 +5081,10 @@
     "context": {
       "required": [
         "AGENTS.md",
-      ".ai/guides/testing-debugging.md",
+        ".ai/guides/testing-debugging.md",
         ".ai/guides/contracts.md",
         ".ai/guides/architecture.md",
-        ".ai/skills/om-troubleshooter/SKILL.md"
-      ],
-      "allowedExtra": [
+        ".ai/skills/om-troubleshooter/SKILL.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
@@ -6007,7 +5990,6 @@
         ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md", ".ai/skills/om-backend-ui-design/SKILL.md", ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/customer_accounts.md", ".ai/guides/modules/sales.md", ".ai/guides/modules/notifications.md"
       ],
-      "allowedExtra": [".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
     "requiredDecisions": ["portal-principal-scope", "org-slug", "backend-acl", "aggregate-optimistic-lock", "portal-navigation", "notification-contract", "complete-ui-states"],
@@ -6343,9 +6325,6 @@
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
         ".ai/guides/modules/customer_accounts.md"
       ],
-      "allowedExtra": [
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
-      ],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -6477,9 +6456,6 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/guides/modules/customers.md"
-      ],
-      "allowedExtra": [
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
         ".env*",
@@ -7619,9 +7595,6 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/guides/modules/customers.md"
-      ],
-      "allowedExtra": [
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
         ".env*",
@@ -11237,7 +11210,7 @@
     "expectedRouter":{"required":["ai-workflow","umes"],"allowedExtra":["architecture","framework-context"]},
     "requiredSkills":["om-create-ai-agent","om-system-extension"],
     "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
-    "context":{"required":["AGENTS.md",".ai/guides/ai-workflows.md",".ai/guides/extensions.md",".ai/skills/om-create-ai-agent/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/ai_assistant.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/ai-workflows.md",".ai/guides/extensions.md",".ai/skills/om-create-ai-agent/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/ai_assistant.md",".ai/guides/modules/sales.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["supported-ai-override","stable-agent-id","null-disable","security-preservation"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","delete.{0,40}(?:installed|built-in)","new (?:agent|tool) id"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12581,7 +12554,7 @@
   },
   {
     "id":"OMH-182","title":"Block order cancellation after dispatch across every entry point","family":"umes","mode":"one-shot","evaluationKind":"routing","risk":"high",
-    "prompt":"Block order cancellation after dispatch even when someone calls the API directly, while preserving the existing response and error contracts.",
+    "prompt":"Block order cancellation after dispatch even when someone calls the API directly, while preserving the existing route, method, request, response, and error schemas.",
     "tags":["business-language","mutation-guard","orders"],
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-05","BC-08"]},
     "expectedRouter":{"required":["umes","framework-context"],"allowedExtra":["module-data","backend-ui","debugging"]},

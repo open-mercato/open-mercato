@@ -310,6 +310,19 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
   const ids = cases.map((item) => item?.id)
   if (new Set(ids).size !== ids.length) globalErrors.push('case IDs must be unique')
   const idSet = new Set(ids)
+  const compatibilityRequiredCaseIds = registry?.catalog?.compatibilityRequiredCaseIds
+  const compatibilityExcludedCaseIds = registry?.catalog?.compatibilityExcludedCaseIds
+  if (!isUniqueStringArray(compatibilityRequiredCaseIds, { min: 1 })) globalErrors.push('compatibility-required case IDs must be a non-empty unique list')
+  if (!isUniqueStringArray(compatibilityExcludedCaseIds, { min: 1 })) globalErrors.push('compatibility-excluded case IDs must be a non-empty unique list')
+  const compatibilityRequiredIds = new Set(Array.isArray(compatibilityRequiredCaseIds) ? compatibilityRequiredCaseIds : [])
+  const compatibilityExcludedIds = new Set(Array.isArray(compatibilityExcludedCaseIds) ? compatibilityExcludedCaseIds : [])
+  for (const id of compatibilityRequiredIds) {
+    if (!idSet.has(id)) globalErrors.push(`compatibility-required case missing: ${id}`)
+    if (compatibilityExcludedIds.has(id)) globalErrors.push(`compatibility case cannot be both required and excluded: ${id}`)
+  }
+  for (const id of compatibilityExcludedIds) {
+    if (!idSet.has(id)) globalErrors.push(`compatibility-excluded case missing: ${id}`)
+  }
   const validatorMap = registry?.validators ?? {}
   const externalSkills = discoverExternalSkills(root)
   const allFiles = walkFiles(root)
@@ -373,6 +386,12 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     if (!isPlainObject(item.context) || !isUniqueStringArray(item.context?.required, { min: 1 })
       || !isUniqueStringArray(item.context?.allowedExtra ?? []) || !isUniqueStringArray(item.context?.forbidden, { min: 1 })) add(id, 'context contract is invalid')
     if ((item.context?.required ?? []).some((reference) => (item.context?.allowedExtra ?? []).includes(reference))) add(id, 'required and allowed-extra context overlap')
+    const compatibilityPath = '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'
+    if (compatibilityRequiredIds.has(id) && !(item.context?.required ?? []).includes(compatibilityPath)) add(id, 'required compatibility case must require BACKWARD_COMPATIBILITY.md')
+    if ((item.context?.required ?? []).includes(compatibilityPath) && !compatibilityRequiredIds.has(id)) add(id, 'case requires BACKWARD_COMPATIBILITY.md but is not registered as compatibility-required')
+    if (compatibilityExcludedIds.has(id)
+      && [...(item.context?.required ?? []), ...(item.context?.allowedExtra ?? [])].includes(compatibilityPath)) add(id, 'excluded compatibility case must not route BACKWARD_COMPATIBILITY.md')
+    if ((item.context?.allowedExtra ?? []).includes(compatibilityPath)) add(id, 'BACKWARD_COMPATIBILITY.md must be required or excluded, not allowed-extra')
     for (const reference of [...(item.context?.required ?? []), ...(item.context?.allowedExtra ?? []), ...(item.context?.forbidden ?? [])]) {
       if (!isSafeRelative(reference)) add(id, `unsafe context path ${reference}`)
     }
