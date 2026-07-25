@@ -43,6 +43,12 @@ The queue is not short of QA work performed; it is short of QA work that manual 
 
 - Docs-only run: re-read the diff, confirm no rule contradicts the QA-approval merge gate or the `qa`-label rules, and post the summary comment with the measured numbers.
 
+### Phase 4: Tighten the exemption's contract-safety conditions
+
+- Require an exempt PR to leave the database structure and API surface unchanged.
+- Require an exempt PR not to break the repository's backward-compatibility contract.
+- Mirror the tightened eligibility rule in the pull-request template.
+
 ## Risks
 
 - **The rule could be read as "security changes skip QA."** Mitigated by stating explicitly that the criterion is the absence of an exercisable surface, that risk band does not qualify or disqualify a PR, and that a reviewer may always override back to `needs-qa` with a stated reason.
@@ -70,3 +76,9 @@ PR: #4448
 
 - [x] 3.1 Re-read the diff for contradictions with the QA-approval merge gate — 239785290
 - [x] 3.2 Post the summary comment and flip the PR to ready
+
+### Phase 4: Tighten the exemption's contract-safety conditions
+
+- [ ] 4.1 Add database, API-surface, and backward-compatibility eligibility guards
+- [ ] 4.2 Mirror the tightened exemption in the pull-request template
+- [ ] 4.3 Validate the amended policy and run the authoritative review pass
