@@ -40,6 +40,7 @@ import type {
 } from '@open-mercato/ui/backend/CrudForm'
 import {
   DictionaryEntrySelect,
+  DictionaryOptionsUnavailableError,
   type DictionarySelectLabels,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { RolesSection } from './detail/RolesSection'
@@ -51,7 +52,12 @@ import {
   ensureCustomerDictionary,
   invalidateCustomerDictionary,
 } from './detail/hooks/useCustomerDictionary'
-import type { CustomerDictionaryKind } from '../lib/dictionaries'
+import {
+  CUSTOMER_DICTIONARIES_MANAGE_HREF,
+  CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE,
+  getCustomerDictionaryManageHref,
+  type CustomerDictionaryKind,
+} from '../lib/dictionaries'
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
 import { CUSTOMER_PHONE_INVALID_MESSAGE_KEY } from '../data/validators'
 
@@ -115,6 +121,8 @@ type DictionarySelectFieldProps = {
   showLabelInput?: boolean
   showActiveAppearance?: boolean
 }
+
+export { CUSTOMER_DICTIONARIES_MANAGE_HREF, getCustomerDictionaryManageHref }
 
 const emailValidationSchema = z.string().email()
 const EMAIL_CHECK_DEBOUNCE_MS = 350
@@ -182,14 +190,30 @@ export function DictionarySelectField({
   )
 
   const fetchOptions = React.useCallback(async () => {
-    const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
-    return data.entries.map((entry) => ({
-      value: entry.value,
-      label: entry.label,
-      color: entry.color ?? null,
-      icon: entry.icon ?? null,
-    }))
-  }, [kind, queryClient, scopeVersion])
+    try {
+      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
+      return data.entries.map((entry) => ({
+        value: entry.value,
+        label: entry.label,
+        color: entry.color ?? null,
+        icon: entry.icon ?? null,
+      }))
+    } catch (err) {
+      const responseError = err as { status?: unknown; code?: unknown } | null
+      if (
+        responseError?.status === 400 &&
+        responseError.code === CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE
+      ) {
+        const serverMessage = err instanceof Error ? err.message.trim() : ''
+        throw new DictionaryOptionsUnavailableError(
+          serverMessage.length
+            ? serverMessage
+            : translate('customers.errors.organization_required', 'Organization context is required'),
+        )
+      }
+      throw err
+    }
+  }, [kind, queryClient, scopeVersion, translate])
 
   const createOption = React.useCallback(
     async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
@@ -233,7 +257,7 @@ export function DictionarySelectField({
       fetchOptions={fetchOptions}
       createOption={createOption}
       labels={labels}
-      manageHref={manageHref}
+      manageHref={manageHref ?? getCustomerDictionaryManageHref(kind)}
       selectClassName={selectClassName}
       allowInlineCreate={allowInlineCreate}
       allowAppearance={allowAppearance}
@@ -949,6 +973,7 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
             t={t}
             emptyLabel={t('customers.people.detail.empty.addresses')}
             gridClassName="grid gap-4 min-[480px]:grid-cols-1 xl:grid-cols-2"
+            showCoordinateFields
             onCreate={async (payload: CustomerAddressInput) => {
               const nextId =
                 typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -967,6 +992,8 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
                 region: payload.region ?? undefined,
                 postalCode: payload.postalCode ?? undefined,
                 country: payload.country ?? undefined,
+                latitude: payload.latitude ?? undefined,
+                longitude: payload.longitude ?? undefined,
                 isPrimary: payload.isPrimary ?? false,
               }
               const current = Array.isArray(addresses) ? addresses : []
@@ -995,6 +1022,8 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
                   region: payload.region ?? null,
                   postalCode: payload.postalCode ?? null,
                   country: payload.country ?? null,
+                  latitude: payload.latitude ?? null,
+                  longitude: payload.longitude ?? null,
                   isPrimary: payload.isPrimary ?? false,
                 }
               })
@@ -1310,6 +1339,7 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
             t={t}
             emptyLabel={t('customers.companies.detail.empty.addresses')}
             gridClassName="grid gap-4 min-[480px]:grid-cols-1 xl:grid-cols-2"
+            showCoordinateFields
             onCreate={async (payload: CustomerAddressInput) => {
               const nextId =
                 typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -1328,6 +1358,8 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
                 region: payload.region ?? undefined,
                 postalCode: payload.postalCode ?? undefined,
                 country: payload.country ?? undefined,
+                latitude: payload.latitude ?? undefined,
+                longitude: payload.longitude ?? undefined,
                 isPrimary: payload.isPrimary ?? false,
               }
               const current = Array.isArray(addresses) ? addresses : []
@@ -1356,6 +1388,8 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
                   region: payload.region ?? null,
                   postalCode: payload.postalCode ?? null,
                   country: payload.country ?? null,
+                  latitude: payload.latitude ?? null,
+                  longitude: payload.longitude ?? null,
                   isPrimary: payload.isPrimary ?? false,
                 }
               })

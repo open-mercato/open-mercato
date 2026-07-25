@@ -24,6 +24,9 @@ import type {
   CustomersAiToolDefinition,
   CustomersToolContext,
 } from './ai-tools/types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -89,7 +92,7 @@ async function hydrateWithTool(
 ): Promise<unknown | null> {
   const tool = findTool(toolName)
   if (!tool) {
-    console.warn(`[customers.account_assistant] resolvePageContext: tool "${toolName}" not registered`)
+    logger.warn('resolvePageContext: tool not registered', { component: 'account_assistant', toolName })
     return null
   }
   try {
@@ -98,10 +101,7 @@ async function hydrateWithTool(
     if ((result as { found?: boolean }).found === false) return null
     return result
   } catch (error) {
-    console.warn(
-      `[customers.account_assistant] resolvePageContext: tool "${toolName}" failed (reason="hydration_error"); skipping`,
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('resolvePageContext: tool failed; skipping', { component: 'account_assistant', toolName, err: error })
     return null
   }
 }

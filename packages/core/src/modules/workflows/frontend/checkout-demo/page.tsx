@@ -20,6 +20,9 @@ import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { deriveCurrentStep } from './deriveCurrentStep'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 interface CartItem {
   id: string // Product UUID
@@ -148,7 +151,7 @@ export default function CheckoutDemoPage() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        console.error('[UserTasks] Error response:', errorData)
+        logger.error('User tasks request failed', { component: 'UserTasks', errorData })
         throw new Error(errorData.error || `HTTP ${response.status}`)
       }
 
@@ -386,9 +389,20 @@ export default function CheckoutDemoPage() {
             currencyCode: selectedCurrency || 'USD', // Ensure currency is always set
             kind: 'product' as const,
             productId: item.id,
-            lineDescription: item.name,
+            name: item.name,
             unitPriceGross: item.price,
           })),
+          // Fold the demo's shipping and tax into order-level adjustments so the
+          // created order's grand total matches the cart total shown to the user
+          // (line items alone only cover the product subtotal).
+          orderAdjustments: [
+            ...(shipping > 0
+              ? [{ kind: 'shipping' as const, label: 'Shipping', currencyCode: selectedCurrency || 'USD', amountGross: shipping }]
+              : []),
+            ...(tax > 0
+              ? [{ kind: 'tax' as const, label: 'Tax', currencyCode: selectedCurrency || 'USD', amountGross: tax }]
+              : []),
+          ],
           itemCount: demoCart.reduce((sum, item) => sum + item.quantity, 0),
           subtotal: subtotal,
           tax: tax,
@@ -462,7 +476,7 @@ export default function CheckoutDemoPage() {
         context: data.data.instance.context,
       })
     } catch (err) {
-      console.error('Checkout error:', err)
+      logger.error('Checkout failed', { err })
       setError(err instanceof Error ? err.message : 'An error occurred during checkout')
     } finally {
       setLoading(false)
@@ -502,7 +516,7 @@ export default function CheckoutDemoPage() {
         context: data.data.instance.context,
       })
     } catch (err) {
-      console.error('Advance error:', err)
+      logger.error('Advance failed', { err })
       setError(err instanceof Error ? err.message : 'Failed to advance workflow')
     } finally {
       setAdvancing(false)
@@ -622,8 +636,7 @@ export default function CheckoutDemoPage() {
           errorData = JSON.parse(responseText)
           isJson = true
         } catch (parseError) {
-          console.error('[Signal] Response is not JSON:', parseError)
-          console.error('[Signal] Raw response:', responseText)
+          logger.error('Signal response is not JSON', { component: 'Signal', responseLength: responseText.length, err: parseError })
         }
 
         const errorMsg = isJson && errorData.error
@@ -647,7 +660,7 @@ export default function CheckoutDemoPage() {
       // Clear any previous errors
       setSignalError(null)
     } catch (err) {
-      console.error('[Signal] Error:', err)
+      logger.error('Signal failed', { component: 'Signal', err })
       const errorMessage = err instanceof Error ? err.message : 'Failed to send payment confirmation'
       setSignalError(errorMessage)
     } finally {
@@ -700,7 +713,7 @@ export default function CheckoutDemoPage() {
       await queryClient.invalidateQueries({ queryKey: ['workflow-user-tasks', result?.instanceId] })
       await queryClient.invalidateQueries({ queryKey: ['workflow-events', result?.instanceId] })
     } catch (err) {
-      console.error('Error completing task:', err)
+      logger.error('Error completing task', { err })
       setTaskError(err instanceof Error ? err.message : 'Failed to complete task')
     } finally {
       setSubmittingTask(false)

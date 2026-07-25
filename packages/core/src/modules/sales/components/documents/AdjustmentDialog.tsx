@@ -26,6 +26,9 @@ import type { SalesAdjustmentKind } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { Settings } from 'lucide-react'
 import { extractCustomFieldValues, normalizeCustomFieldSubmitValue } from './customFieldHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type TaxRateOption = {
   id: string
@@ -248,7 +251,7 @@ export function AdjustmentDialog({
       setTaxRates(parsed)
       return parsed
     } catch (err) {
-      console.error('sales.tax-rates.fetch', err)
+      logger.error('sales.tax-rates.fetch', { err })
       taxRatesRef.current = []
       setTaxRates([])
       taxRatesLoadedRef.current = true
@@ -696,6 +699,22 @@ export function AdjustmentDialog({
             t('sales.documents.adjustments.errorAmount', 'Provide at least one amount.'),
             { amountNet: t('sales.documents.adjustments.errorAmount', 'Provide at least one amount.') }
           )
+        }
+      }
+      const resolvedKind =
+        typeof values.kind === 'string' && values.kind.trim().length ? values.kind.trim() : 'custom'
+      if (resolvedKind === 'return') {
+        const hasNonZeroValue =
+          calculationMode === 'rate'
+            ? Number.isFinite(percentageRate) && percentageRate !== 0
+            : (Number.isFinite(amountNet) && amountNet !== 0) ||
+              (Number.isFinite(amountGross) && amountGross !== 0)
+        if (!hasNonZeroValue) {
+          const message = t(
+            'sales.documents.adjustments.errorReturnZero',
+            'Return adjustments must use a non-zero amount. Create the return through the Returns tab instead.'
+          )
+          throw createCrudFormError(message, { amountNet: message })
         }
       }
       const customFields = collectCustomFieldValues(values, {

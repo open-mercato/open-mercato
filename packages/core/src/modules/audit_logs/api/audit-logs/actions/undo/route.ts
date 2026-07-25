@@ -9,6 +9,9 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { AwilixContainer } from 'awilix'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('audit_logs').child({ component: 'undo' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['audit_logs.undo_self'] },
@@ -117,7 +120,7 @@ export async function POST(req: Request) {
     await commandBus.undo(undoToken, ctx)
     return NextResponse.json({ ok: true, logId: target.id })
   } catch (err) {
-    console.error('Undo failed', err)
+    logger.error('Undo failed', { err })
     return NextResponse.json({ error: 'Undo failed' }, { status: 400 })
   }
 }

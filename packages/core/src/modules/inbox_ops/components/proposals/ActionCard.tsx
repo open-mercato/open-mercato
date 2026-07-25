@@ -324,6 +324,29 @@ export function ActionCard({
     )
   }
 
+  if (action.status !== 'pending') {
+    const isProcessing = action.status === 'processing'
+    const statusLabel = action.status === 'accepted'
+      ? t('inbox_ops.status.accepted', 'Accepted')
+      : isProcessing
+        ? t('inbox_ops.status.processing', 'Processing')
+        : action.status
+    return (
+      <div className="border rounded-lg p-3 md:p-4 bg-muted/50">
+        <div className="flex items-center gap-2 mb-2">
+          {isProcessing ? (
+            <RefreshCw className="h-5 w-5 text-muted-foreground flex-shrink-0 animate-spin" />
+          ) : (
+            <CheckCircle className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+          )}
+          <span className="text-sm font-medium">{label}</span>
+          <span className="text-xs text-muted-foreground">{statusLabel}</span>
+        </div>
+        <p className="text-sm text-muted-foreground">{displayDescription}</p>
+      </div>
+    )
+  }
+
   const hasNameIssue = hasContactNameIssue(action)
 
   return (

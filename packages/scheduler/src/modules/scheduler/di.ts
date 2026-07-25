@@ -5,6 +5,9 @@ import { SchedulerService } from './services/schedulerService.js'
 import { BullMQSchedulerService } from './services/bullmqSchedulerService.js'
 import { LocalSchedulerService } from './services/localSchedulerService.js'
 import { ScheduledJobSubscriber } from './lib/scheduledJobSubscriber.js'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('scheduler')
 
 // Process-level guard: ensures BullMQ sync runs at most once per process lifetime.
 let schedulerSynced = false
@@ -41,7 +44,7 @@ export function register(container: AppContainer) {
       }
     } catch (error) {
       // Best-effort registration - don't break if EM not available yet
-      console.warn('[scheduler] Could not register subscriber:', error)
+      logger.warn('Could not register subscriber', { err: error })
     }
 
     // Cold start sync: reconcile DB schedules with BullMQ repeatable jobs.
@@ -51,8 +54,8 @@ export function register(container: AppContainer) {
       setImmediate(() => {
         const service = container.resolve('bullmqSchedulerService') as BullMQSchedulerService
         service.syncAll()
-          .then(() => console.log('[scheduler] BullMQ cold start sync complete'))
-          .catch((err: Error) => console.error('[scheduler] BullMQ cold start sync failed:', err.message))
+          .then(() => logger.info('BullMQ cold start sync complete'))
+          .catch((err: Error) => logger.error('BullMQ cold start sync failed', { err }))
       })
     }
   } else {

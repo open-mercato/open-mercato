@@ -16,6 +16,32 @@ function normalizeIsoToken(raw: string): string | null {
   return new Date(ms).toISOString()
 }
 
+/**
+ * HTTP header carrying the enterprise `record_locks` conflict resolution the
+ * client chose in the merge dialog. This guard only reads the header value off
+ * the request (no enterprise import) — it is the integration contract between
+ * the record-lock layer and this universal optimistic-lock floor.
+ */
+const RECORD_LOCK_RESOLUTION_HEADER_NAME = 'x-om-record-lock-resolution'
+
+/**
+ * Resolutions that express an explicit, privileged intent to OVERWRITE the
+ * incoming concurrent write ("Keep mine" / merged). When the request asserts
+ * one of these, the record-lock guard (which runs first, at priority 0) has
+ * already authorized the override against `canOverrideIncoming`, so the
+ * stale-`updated_at` floor MUST defer to it — otherwise it rejects exactly the
+ * overwrite the user just authorized, looping the merge dialog on a fresh 409
+ * (issue #3601). `accept_incoming` is intentionally NOT here: that path reloads
+ * with a fresh `updated_at` and must still pass through the floor normally.
+ */
+const RECORD_LOCK_OVERRIDE_RESOLUTIONS: ReadonlySet<string> = new Set(['accept_mine', 'merged'])
+
+export function isAuthorizedRecordLockOverride(headers: Headers): boolean {
+  const raw = headers.get(RECORD_LOCK_RESOLUTION_HEADER_NAME)
+  if (typeof raw !== 'string') return false
+  return RECORD_LOCK_OVERRIDE_RESOLUTIONS.has(raw.trim().toLowerCase())
+}
+
 const optimisticLockGuard: MutationGuard = {
   id: 'customers.optimistic-lock',
   targetEntity: '*',
@@ -24,6 +50,9 @@ const optimisticLockGuard: MutationGuard = {
   async validate(input) {
     const config = parseOptimisticLockEnv(process.env[OPTIMISTIC_LOCK_ENV_VAR])
     if (config.mode === 'off') return { ok: true }
+    // A privileged record-lock "Keep mine" override deliberately overwrites the
+    // concurrent write; the floor must not block it on the now-stale timestamp.
+    if (isAuthorizedRecordLockOverride(input.requestHeaders)) return { ok: true }
     const enabled = config.mode === 'all' || config.entities.has(input.resourceKind.toLowerCase())
     if (!enabled) return { ok: true }
     const readers = getAllOptimisticLockReaders()

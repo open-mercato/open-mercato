@@ -4,8 +4,8 @@ import type {
   PrepareStepFunction,
   GenerateTextOnStepFinishCallback,
   GenerateTextOnStepStartCallback,
-  GenerateTextOnToolCallStartCallback,
-  GenerateTextOnToolCallFinishCallback,
+  OnToolExecutionStartCallback,
+  OnToolExecutionEndCallback,
   ToolCallRepairFunction,
   StopCondition,
   ToolChoice,
@@ -124,12 +124,12 @@ export interface AiAgentLoopConfig {
    * Callback fired when a tool call starts. Forwarded to the AI SDK as
    * `experimental_onToolCallStart`.
    */
-  onToolCallStart?: GenerateTextOnToolCallStartCallback<ToolSet>
+  onToolCallStart?: OnToolExecutionStartCallback<ToolSet>
   /**
    * Callback fired when a tool call finishes. Forwarded to the AI SDK as
    * `experimental_onToolCallFinish`.
    */
-  onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>
+  onToolCallFinish?: OnToolExecutionEndCallback<ToolSet>
   /**
    * Tool-call repair function. Forwarded to the AI SDK as
    * `experimental_repairToolCall`.

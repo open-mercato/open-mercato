@@ -60,6 +60,12 @@ export type MessageComposerProps = {
   contextObject?: MessageComposerContextObject | null
   requiredActionConfig?: MessageComposerRequiredActionConfig | null
   contextPreview?: React.ReactNode
+  /**
+   * Expected `updated_at` of the existing draft being edited. When present, the
+   * composer attaches the OSS optimistic-lock header to the draft save/send
+   * PATCH so a stale tab cannot silently overwrite a concurrently-changed draft.
+   */
+  expectedUpdatedAt?: string | null
   defaultValues?: {
     type?: string
     recipients?: string[]

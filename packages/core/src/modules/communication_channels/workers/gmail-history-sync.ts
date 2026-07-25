@@ -13,6 +13,9 @@ import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { classifyOutboundError } from '../lib/error-classification'
 import { writeIngestDeadLetter } from '../lib/dead-letter'
 import type { ChannelAdapterRegistry } from '../lib/registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'gmail-history-sync' })
 
 /**
  * Spec C § Phase C2 — Gmail Pub/Sub push delivery worker.
@@ -82,16 +85,14 @@ export default async function handle(
     scope,
   )
   if (!channel) {
-    console.warn(`[gmail-history-sync] channel ${channelId} not found (skip)`)
+    logger.warn('channel not found (skip)', { channelId })
     return
   }
   if (!channel.isActive || channel.status !== 'connected') return
 
   const adapter = adapterRegistry?.get(channel.providerKey)
   if (!adapter || typeof adapter.applyPushNotification !== 'function') {
-    console.warn(
-      `[gmail-history-sync] adapter for '${channel.providerKey}' does not support applyPushNotification`,
-    )
+    logger.warn('adapter does not support applyPushNotification', { providerKey: channel.providerKey })
     return
   }
 
@@ -132,9 +133,7 @@ export default async function handle(
   } catch (err) {
     const classification = classifyOutboundError(err)
     if (classification.transient) throw err
-    console.warn(
-      `[gmail-history-sync] permanent failure applying push for channel ${channel.id}: ${classification.message}`,
-    )
+    logger.warn('permanent failure applying push for channel', { channelId: channel.id, reason: classification.message })
     return
   }
 
@@ -169,9 +168,7 @@ export default async function handle(
           // retry re-runs from a safe point.
           throw err
         }
-        console.warn(
-          `[gmail-history-sync] permanent ingest failure for channel ${channel.id}: ${classification.message}`,
-        )
+        logger.warn('permanent ingest failure for channel', { channelId: channel.id, reason: classification.message })
         await writeIngestDeadLetter({ em, scope, channel, message, err, errorMessage: classification.message })
       }
     }
@@ -191,11 +188,7 @@ export default async function handle(
       channel.lastPolledAt = new Date()
       await em.flush()
     } catch (err) {
-      console.warn(
-        `[gmail-history-sync] failed to persist next cursor for channel ${channel.id}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      )
+      logger.warn('failed to persist next cursor for channel', { channelId: channel.id, err })
     }
   }
 
@@ -215,9 +208,7 @@ export default async function handle(
         { delayMs: 250 },
       )
     } else {
-      console.warn(
-        `[gmail-history-sync] drain page cap (${MAX_DRAIN_PAGES}) reached for channel ${channelId}; stopping re-enqueue`,
-      )
+      logger.warn('drain page cap reached; stopping re-enqueue', { maxDrainPages: MAX_DRAIN_PAGES, channelId })
     }
   }
 }

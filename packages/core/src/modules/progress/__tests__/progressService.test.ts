@@ -516,6 +516,257 @@ describe('progress service — organization scoping (#2930)', () => {
   })
 })
 
+describe('progress service — worker lifecycle organization scoping (#3284)', () => {
+  const orgCtx = {
+    tenantId: '7f4c85ef-f8f7-4e53-9df1-42e95bd8d48e',
+    organizationId: 'b1d0c2a4-1111-4e53-9df1-42e95bd8d999',
+    userId: '2d4a4c33-9c4b-4e39-8e15-0a3cd9a7f432',
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockFindOneWithDecryption.mockReset()
+  })
+
+  it('startJob — scopes the lookup by organizationId when ctx provides one', async () => {
+    const em = buildEm()
+    const job = { id: 'job-1', status: 'pending', jobType: 'import' } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.startJob('job-1', orgCtx)
+
+    expect(em.findOneOrFail).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'job-1', tenantId: orgCtx.tenantId, organizationId: orgCtx.organizationId })
+    )
+  })
+
+  it('incrementProgress — scopes the lookup by organizationId when ctx provides one', async () => {
+    const em = buildEm()
+    const job = { id: 'job-1', status: 'running', processedCount: 0, totalCount: null, startedAt: null } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.incrementProgress('job-1', 1, orgCtx)
+
+    expect(em.findOneOrFail).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'job-1', tenantId: orgCtx.tenantId, organizationId: orgCtx.organizationId })
+    )
+  })
+
+  it('completeJob — scopes the lookup by organizationId when ctx provides one', async () => {
+    const em = buildEm()
+    const job = { id: 'job-1', status: 'running', jobType: 'import' } as unknown as ProgressJob
+    em.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.completeJob('job-1', undefined, orgCtx)
+
+    expect(em.findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'job-1', tenantId: orgCtx.tenantId, organizationId: orgCtx.organizationId })
+    )
+  })
+
+  it('failJob — scopes the lookup by organizationId when ctx provides one', async () => {
+    const em = buildEm()
+    const job = { id: 'job-1', status: 'running', jobType: 'import' } as unknown as ProgressJob
+    em.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.failJob('job-1', { errorMessage: 'boom' }, orgCtx)
+
+    expect(em.findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'job-1', tenantId: orgCtx.tenantId, organizationId: orgCtx.organizationId })
+    )
+  })
+
+  it('markCancelled — scopes the lookup by organizationId when ctx provides one', async () => {
+    const em = buildEm()
+    const job = { id: 'job-1', status: 'running', jobType: 'import' } as unknown as ProgressJob
+    em.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.markCancelled('job-1', orgCtx)
+
+    expect(em.findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'job-1', tenantId: orgCtx.tenantId, organizationId: orgCtx.organizationId })
+    )
+  })
+
+  it('lifecycle lookups omit organizationId when ctx has none (system/superadmin)', async () => {
+    const em = buildEm()
+    const job = { id: 'job-1', status: 'running', jobType: 'import' } as unknown as ProgressJob
+    em.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.completeJob('job-1', undefined, { ...orgCtx, organizationId: null })
+
+    const filter = em.findOne.mock.calls[0][1]
+    expect(filter).not.toHaveProperty('organizationId')
+    expect(filter).toMatchObject({ id: 'job-1', tenantId: orgCtx.tenantId })
+  })
+
+  it('isCancellationRequested — scopes the lookup by organizationId when provided', async () => {
+    const em = buildEm()
+    mockFindOneWithDecryption.mockResolvedValue({ id: 'job-1', cancelRequestedAt: new Date() } as unknown as ProgressJob)
+
+    const service = createProgressService(em as never, { emit: jest.fn() })
+    const result = await service.isCancellationRequested('job-1', orgCtx.tenantId, orgCtx.organizationId)
+
+    expect(result).toBe(true)
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      expect.objectContaining({ id: 'job-1', tenantId: orgCtx.tenantId, organizationId: orgCtx.organizationId })
+    )
+  })
+
+  it('isCancellationRequested — stays tenant-wide when no organizationId is provided', async () => {
+    const em = buildEm()
+    mockFindOneWithDecryption.mockResolvedValue(null)
+
+    const service = createProgressService(em as never, { emit: jest.fn() })
+    await service.isCancellationRequested('job-1', orgCtx.tenantId)
+
+    const filter = mockFindOneWithDecryption.mock.calls[0][2]
+    expect(filter).not.toHaveProperty('organizationId')
+    expect(filter).toMatchObject({ id: 'job-1', tenantId: orgCtx.tenantId })
+  })
+
+  it('markStaleJobsFailed — scopes the lookup by organizationId when provided', async () => {
+    const em = buildEm()
+    em.find.mockResolvedValue([])
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.markStaleJobsFailed(orgCtx.tenantId, 60, orgCtx.organizationId)
+
+    expect(em.find).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: orgCtx.tenantId, organizationId: orgCtx.organizationId, status: 'running' })
+    )
+  })
+
+  it('markStaleJobsFailed — stays tenant-wide when no organizationId is provided (system cleanup)', async () => {
+    const em = buildEm()
+    em.find.mockResolvedValue([])
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.markStaleJobsFailed(orgCtx.tenantId, 60)
+
+    const filter = em.find.mock.calls[0][1]
+    expect(filter).not.toHaveProperty('organizationId')
+    expect(filter).toMatchObject({ tenantId: orgCtx.tenantId, status: 'running' })
+  })
+})
+
+describe('progress service — broadcast coalescing (#2972)', () => {
+  const originalInterval = process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS
+
+  afterEach(() => {
+    if (originalInterval === undefined) {
+      delete process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS
+    } else {
+      process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = originalInterval
+    }
+  })
+
+  const buildRunningJob = (overrides: Partial<ProgressJob> = {}) =>
+    ({
+      id: 'job-1',
+      jobType: 'import',
+      status: 'running',
+      processedCount: 0,
+      totalCount: 1000,
+      progressPercent: 0,
+      startedAt: new Date(Date.now() - 10_000),
+      meta: null,
+      ...overrides,
+    }) as unknown as ProgressJob
+
+  it('coalesces rapid successive updates within the interval into a single flush + broadcast', async () => {
+    process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '1000'
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const job = buildRunningJob()
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    await service.updateProgress('job-1', { processedCount: 1 }, baseCtx)
+    await service.updateProgress('job-1', { processedCount: 2 }, baseCtx)
+    await service.updateProgress('job-1', { processedCount: 3 }, baseCtx)
+
+    // Leading edge broadcasts once; the sub-percent follow-ups stay buffered.
+    expect(eventBus.emit).toHaveBeenCalledTimes(1)
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    // The job is cached after the first load, so no repeat SELECT per record.
+    expect(em.findOneOrFail).toHaveBeenCalledTimes(1)
+    // In-memory state still reflects the latest buffered update for the return contract.
+    expect(job.processedCount).toBe(3)
+  })
+
+  it('re-broadcasts within the interval when progressPercent advances by >= 1', async () => {
+    process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '1000'
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const job = buildRunningJob({ totalCount: 100 })
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    await service.updateProgress('job-1', { processedCount: 0 }, baseCtx)
+    await service.updateProgress('job-1', { processedCount: 1 }, baseCtx)
+
+    expect(eventBus.emit).toHaveBeenCalledTimes(2)
+    expect(eventBus.emit).toHaveBeenLastCalledWith(
+      PROGRESS_EVENTS.JOB_UPDATED,
+      expect.objectContaining({ jobId: 'job-1', processedCount: 1, progressPercent: 1 })
+    )
+  })
+
+  it('restores per-update emission when OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS=0', async () => {
+    process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '0'
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const job = buildRunningJob()
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    await service.updateProgress('job-1', { processedCount: 1 }, baseCtx)
+    await service.updateProgress('job-1', { processedCount: 2 }, baseCtx)
+
+    expect(eventBus.emit).toHaveBeenCalledTimes(2)
+    expect(em.flush).toHaveBeenCalledTimes(2)
+  })
+
+  it('flushes buffered progress into the terminal completeJob event', async () => {
+    process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '1000'
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const job = buildRunningJob({ tenantId: baseCtx.tenantId })
+    em.findOneOrFail.mockResolvedValue(job)
+    em.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    await service.updateProgress('job-1', { processedCount: 5 }, baseCtx) // leading edge broadcast
+    await service.updateProgress('job-1', { processedCount: 7 }, baseCtx) // buffered, not broadcast
+
+    expect(eventBus.emit).toHaveBeenCalledTimes(1)
+
+    await service.completeJob('job-1', { resultSummary: { imported: 7 } }, baseCtx)
+
+    expect(job.processedCount).toBe(7)
+    expect(job.status).toBe('completed')
+    expect(eventBus.emit).toHaveBeenLastCalledWith(
+      PROGRESS_EVENTS.JOB_COMPLETED,
+      expect.objectContaining({ jobId: 'job-1', processedCount: 7, progressPercent: 100 })
+    )
+  })
+})
+
 describe('calculateProgressPercent', () => {
   it('returns correct percentage', () => {
     expect(calculateProgressPercent(50, 100)).toBe(50)

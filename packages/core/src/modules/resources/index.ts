@@ -1,5 +1,4 @@
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
-import './commands'
 
 export const metadata: ModuleInfo = {
   name: 'resources',

@@ -1,4 +1,7 @@
 import { type Kysely, sql } from 'kysely'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('translations').child({ component: 'cleanup' })
 
 export const metadata = { event: 'query_index.delete_one', persistent: false }
 
@@ -24,6 +27,6 @@ export default async function handle(
       .where(sql<boolean>`organization_id is not distinct from ${organizationId}`)
       .execute()
   } catch (err) {
-    console.warn('[translations/cleanup] Failed to delete translations:', err instanceof Error ? err.message : 'unknown')
+    logger.warn('Failed to delete translations', { err })
   }
 }

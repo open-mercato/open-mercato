@@ -90,4 +90,24 @@ describe('SystemStatusPanel', () => {
       expect(screen.getByText('boom')).toBeInTheDocument()
     })
   })
+
+  it('renders item status via the shared StatusBadge with semantic tokens', async () => {
+    ;(readApiResultOrThrow as jest.Mock).mockResolvedValueOnce(snapshot)
+    renderWithProviders(<SystemStatusPanel />, { dict })
+
+    const label = await screen.findByText('Enabled')
+    const badge = label.closest('[data-slot="badge"]')
+    expect(badge).not.toBeNull()
+    expect(badge?.className ?? '').toMatch(/status-success/)
+    expect(badge?.className ?? '').not.toMatch(/emerald/)
+  })
+
+  it('renders load failures through the shared ErrorMessage primitive', async () => {
+    ;(readApiResultOrThrow as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+    renderWithProviders(<SystemStatusPanel />, { dict })
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('boom')
+    expect(alert.className).not.toMatch(/red/)
+  })
 })

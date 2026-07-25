@@ -21,24 +21,26 @@ There are five GitHub Actions workflows. Each has a distinct purpose.
 **Job graph (post-refactor, current branch state):**
 
 ```
-prepare ──┐
-           ├──► test ──────────────────────────────► merge-coverage
-audit   ──┤                                              ▲
-lint    ──┘── ephemeral-integration (parallel) ──────────┘
-           └── docker-build (parallel, skipped for CI-only PRs)
+prepare ──────┐
+audit-scope ──┼── audit (dependency files only) ──┐
+lint ─────────┘                                   ├──► test ──────────────────────────────► merge-coverage
+                                                  └── ephemeral-integration (parallel) ──────────┘
+prepare ─────────────────────────────────────────────► docker-build (parallel, skipped for CI-only PRs)
 ```
 
 Key properties:
 - `docker-build` and `ephemeral-integration` both start the instant `prepare` finishes — they no longer wait for `test`.
+- `audit-scope` runs on every CI run; `audit` only runs when any `package.json` or lockfile changed. Downstream jobs accept a deliberately skipped audit, but still block on a failed audit.
 - For CI/docs/scripts-only PRs (`skip_integration == 'true'`): `ephemeral-integration`, `docker-build`, and the app build in `prepare` are all skipped. Wall time = `prepare` (no app build, ~2.5 min) + `test` (~4 min) = **~6.5 min**.
 - For module PRs: single shard runs in parallel with `test`; `docker-build` also runs in parallel.
 
 | Job | What it does | Why |
 |-----|-------------|-----|
 | `prepare` | Install deps, build all packages twice (before and after `generate`), upload `dist/` + `.mercato/generated/` artifact; also builds and uploads the Next.js app when integration tests will run | Packages must be compiled before any other job can typecheck or test them. The double build is required because `generate` produces TypeScript files that packages then import. App build is skipped for CI-only PRs since no integration shard will consume it. |
-| `audit` | Install deps, `yarn npm audit --severity high` | Security gate — run in parallel with `prepare` since it only needs `yarn.lock`, not built packages. |
+| `audit-scope` | Diffs the run against the PR base or push `before` SHA and reports whether dependency files changed | Keeps the security audit focused on changes that can alter the dependency graph: any `package.json` or supported lockfile. |
+| `audit` | Install deps, `yarn npm audit --severity high`, only when `audit-scope` detects dependency file changes | Security gate for dependency changes. It does not run for code/docs-only changes because the audited dependency graph is unchanged. |
 | `lint` | Install deps, run `yarn lint` (ESLint) | Fast static analysis — runs in parallel with `prepare`/`audit`, fails fast before heavy jobs. |
-| `test` | Download artifact, install markitdown, run dep-version check, i18n sync/usage check, `tsc --noEmit`, Jest unit tests | Validates code correctness without a live server. Must run after `prepare` (needs compiled packages), `audit` (security gate), and `lint`. |
+| `test` | Download artifact, install markitdown, run dep-version check, i18n sync/usage check, `tsc --noEmit`, Jest unit tests | Validates code correctness without a live server. Must run after `prepare` (needs compiled packages), `audit-scope`, `lint`, and either a successful or intentionally skipped `audit`. |
 | `ephemeral-integration` | Download artifacts (packages + app build), install Playwright, boot the full app in-process, run Playwright specs | End-to-end validation that modules interact correctly. Starts in parallel with `test` — does not wait for unit tests. App build is shared from `prepare`. Skipped entirely for CI/docs/scripts-only PRs. |
 | `docker-build` | Build three Dockerfiles using GitHub Actions layer cache | Validates production images build cleanly. Runs in parallel with `test` and `ephemeral-integration`. Skipped for CI/docs-only PRs to avoid 10+ min rebuilds caused by Docker layer cache busting (e.g. when `turbo.json` or `scripts/` change without app code changes). |
 
@@ -46,7 +48,7 @@ Key properties:
 
 ```
 prepare:                ~2m30s (estimated, not yet broken out)
-audit:                  ~1m20s (parallel)
+audit:                  ~1m20s when dependency files changed; otherwise skipped after audit-scope
 test:                    7m12s
   ├─ yarn install        1m03s
   ├─ typecheck           2m04s
@@ -471,7 +473,7 @@ GitHub-hosted `ubuntu-latest` runners are ephemeral — every job starts from a 
 
 ### What does NOT change
 
-- Security: audit still gates every run, npm provenance attestations still used for releases
+- Security: audit still gates dependency graph changes, npm provenance attestations still used for releases
 - Correctness: tests still run against the same ephemeral server, same test suite
 - Release process: manual dispatch with human approval gate
 - The PR still must be green before merge — only the time to get there changes
@@ -484,7 +486,8 @@ GitHub-hosted `ubuntu-latest` runners are ephemeral — every job starts from a 
 
 - [x] Extract `prepare` job with artifact upload
 - [x] Extract `audit` job running in parallel
-- [x] Yarn package caching: explicit `actions/cache` on `.yarn/cache` after `corepack enable` in all four jobs
+- [x] Add `audit-scope` so `audit` runs only when package manifests or lockfiles changed
+- [x] Yarn package caching: explicit `actions/cache` on `.yarn/cache` after `corepack enable` in dependency-installing jobs
   - **Note:** `cache: 'yarn'` on `setup-node@v4` is NOT used. `setup-node` calls `yarn config get cacheFolder` before `corepack enable` runs, which invokes the globally-installed Yarn 1 (1.22.22) instead of Yarn 4. With `"packageManager": "yarn@4.12.0"` in `package.json`, Yarn 1 aborts immediately. The correct approach is a manual `actions/cache` step placed after `corepack enable`.
 - [x] Artifact includes `packages/*/generated/` in addition to `packages/*/dist/` and `apps/mercato/.mercato/generated/`
   - **Note:** Several packages (`core`, `onboarding`, `scheduler`, `integration-cozystack`) declare `#generated/*` Node.js subpath imports whose `types` condition points to source `.ts` files in `packages/<pkg>/generated/` — not `dist/`. The `test` job's typecheck fails unless these source files are present on disk.
@@ -538,7 +541,7 @@ GitHub-hosted `ubuntu-latest` runners are ephemeral — every job starts from a 
 4. [x] Add `merge-coverage` job: downloads all `integration-test-results-*` artifacts with `merge-multiple: true`, runs `node scripts/merge-coverage.mjs`, writes step summary; only runs on push
 5. [x] `scripts/merge-coverage.mjs` written (no external dependencies, scans `coverage-shard-*/code/coverage-summary.json`); exits 0 with warning when no shard files found (graceful degradation when coverage not produced)
 6. [x] App build artifact sharing: `test` job uploads `apps/mercato/.next/` as `app-build` artifact after `yarn build:app`; `ephemeral-integration` downloads it instead of rebuilding (~96s × 5 shards = ~8 min saved)
-7. [x] Lint job: runs ESLint in parallel with `prepare`/`audit`; `test` job now needs `[prepare, audit, lint]`
+7. [x] Lint job: runs ESLint in parallel with `prepare`/`audit`; `test` job now needs `[prepare, audit-scope, audit, lint]` and treats a skipped `audit` as acceptable when `audit-scope` found no dependency file changes
 8. Validate on a full run (push to develop): confirm all 5 shards complete in ~10–12 min
 
 #### Implementation notes (completed)

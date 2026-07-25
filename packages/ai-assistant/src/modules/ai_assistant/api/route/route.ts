@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { generateObject } from '../../lib/ai-sdk'
@@ -6,12 +7,15 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { resolveOpenCodeModel } from '@open-mercato/shared/lib/ai/opencode-provider'
+import { joinProviderModel } from '@open-mercato/shared/lib/ai/model-id'
 import {
   resolveChatConfig,
   isProviderConfigured,
   type ChatProviderId,
 } from '../../lib/chat-config'
 import { createModelFactory, AiModelFactoryError } from '../../lib/model-factory'
+
+const logger = createLogger('ai_assistant')
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'AI Assistant',
@@ -57,7 +61,7 @@ function createRoutingModel(providerId: ChatProviderId, configuredModel?: string
     // model list. The explicit override (if any) wins.
     const requested = (configuredModel ?? '').trim()
     modelId = requested.length > 0 ? requested : provider.defaultModel
-    modelWithProvider = `${providerId}/${modelId}`
+    modelWithProvider = joinProviderModel(providerId, modelId)
   }
 
   const apiKey = provider.resolveApiKey()
@@ -86,8 +90,8 @@ export async function POST(req: NextRequest) {
       availableTools: Array<{ name: string; description: string }>
     }
 
-    console.log('[AI Route] Routing query:', query)
-    console.log('[AI Route] Available tools count:', availableTools?.length)
+    logger.debug('Routing query received', { queryChars: query?.length ?? 0 })
+    logger.debug('Available tools count', { count: availableTools?.length })
 
     if (!query || typeof query !== 'string') {
       return NextResponse.json({ error: 'query is required' }, { status: 400 })
@@ -126,10 +130,10 @@ export async function POST(req: NextRequest) {
         throw error
       }
 
-      console.log('[AI Route] Using provider:', factoryResolution.providerId)
+      logger.debug('Using provider', { providerId: factoryResolution.providerId })
 
-      const modelWithProvider = `${factoryResolution.providerId}/${factoryResolution.modelId}`
-      console.log('[AI Route] Calling generateObject with', modelWithProvider)
+      const modelWithProvider = joinProviderModel(factoryResolution.providerId, factoryResolution.modelId)
+      logger.debug('Calling generateObject', { model: modelWithProvider })
 
       const result = await generateObject({
         model: factoryResolution.model as Parameters<typeof generateObject>[0]['model'],
@@ -148,11 +152,11 @@ Respond with:
 - reasoning: brief explanation`,
       })
 
-      console.log('[AI Route] Result:', result.object)
+      logger.debug('Routing result', { resultKeys: Object.keys(result.object ?? {}).join(',') })
       return NextResponse.json(result.object)
     }
 
-    console.log('[AI Route] Using provider:', config.providerId)
+    logger.debug('Using provider', { providerId: config.providerId })
 
     // Verify the configured provider is still available
     if (!isProviderConfigured(config.providerId)) {
@@ -169,7 +173,7 @@ Respond with:
       .map((t) => `- ${t.name}: ${t.description}`)
       .join('\n')
 
-    console.log('[AI Route] Calling generateObject with', modelWithProvider)
+    logger.debug('Calling generateObject', { model: modelWithProvider })
 
     const result = await generateObject({
       model,
@@ -188,10 +192,10 @@ Respond with:
 - reasoning: brief explanation`,
     })
 
-    console.log('[AI Route] Result:', result.object)
+    logger.debug('Routing result', { resultKeys: Object.keys(result.object ?? {}).join(',') })
     return NextResponse.json(result.object)
   } catch (error) {
-    console.error('[AI Route] Error routing query:', error)
+    logger.error('AI Route — Error routing query', { err: error })
     return NextResponse.json(
       { error: 'Routing request failed' },
       { status: 500 }

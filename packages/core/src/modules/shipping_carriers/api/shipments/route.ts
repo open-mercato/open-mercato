@@ -7,6 +7,8 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { ShippingCarrierService } from '../../lib/shipping-service'
+import { isShipmentIdempotencyConflictError } from '../../lib/shipment-idempotency'
+import { shippingCarrierUpstreamErrorResponse } from '../../lib/upstream-error-response'
 import { createShipmentSchema } from '../../data/validators'
 import { shippingCarriersTag } from '../openapi'
 
@@ -83,8 +85,13 @@ export async function POST(req: Request) {
       labelUrl: shipment.labelUrl,
     }, { status: 201 })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to create shipment'
-    return NextResponse.json({ error: message }, { status: 502 })
+    if (isShipmentIdempotencyConflictError(error)) {
+      return NextResponse.json(
+        { error: 'Shipment idempotency conflict', code: 'idempotency_conflict' },
+        { status: 409 },
+      )
+    }
+    return shippingCarrierUpstreamErrorResponse('shipments.create', error)
   }
 }
 
@@ -97,6 +104,7 @@ export const openApi = {
       tags: [shippingCarriersTag],
       responses: [
         { status: 201, description: 'Shipment created' },
+        { status: 409, description: 'Idempotency conflict: the idempotency key was reused with a different payload' },
         { status: 422, description: 'Validation failed' },
         { status: 502, description: 'Provider upstream error' },
       ],

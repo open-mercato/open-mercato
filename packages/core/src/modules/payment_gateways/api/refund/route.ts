@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { refundSchema } from '../../data/validators'
 import type { PaymentGatewayService } from '../../lib/gateway-service'
 import { paymentGatewaysTag } from '../openapi'
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
       parsed.data.amount,
       parsed.data.reason,
       { organizationId: auth.orgId as string, tenantId: auth.tenantId },
+      parsed.data.operationId,
     )
     await runPaymentGatewayMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
       tenantId: auth.tenantId,
@@ -74,6 +76,9 @@ export async function POST(req: Request) {
     })
     return NextResponse.json(result)
   } catch (err: unknown) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
     const message = err instanceof Error ? err.message : 'Refund failed'
     return NextResponse.json({ error: message }, { status: 502 })
   }
@@ -88,6 +93,7 @@ export const openApi = {
       tags: [paymentGatewaysTag],
       responses: [
         { status: 200, description: 'Payment refunded' },
+        { status: 409, description: 'Invalid payment status transition' },
         { status: 422, description: 'Invalid payload' },
         { status: 502, description: 'Gateway provider error' },
       ],

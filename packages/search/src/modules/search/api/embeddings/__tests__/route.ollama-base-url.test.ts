@@ -15,12 +15,15 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 const mockResolveEmbeddingConfig = jest.fn()
+const mockResolveEmbeddingConfigResult = jest.fn()
 const mockSaveEmbeddingConfig = jest.fn()
 const mockGetConfiguredProviders = jest.fn()
 const mockDetectConfigChange = jest.fn()
 const mockGetEffectiveDimension = jest.fn()
+const mockCheckAvailability = jest.fn()
 jest.mock('../../../lib/embedding-config', () => ({
   resolveEmbeddingConfig: (...args: unknown[]) => mockResolveEmbeddingConfig(...args),
+  resolveEmbeddingConfigResult: (...args: unknown[]) => mockResolveEmbeddingConfigResult(...args),
   saveEmbeddingConfig: (...args: unknown[]) => mockSaveEmbeddingConfig(...args),
   getConfiguredProviders: (...args: unknown[]) => mockGetConfiguredProviders(...args),
   detectConfigChange: (...args: unknown[]) => mockDetectConfigChange(...args),
@@ -64,6 +67,9 @@ describe('POST /api/search/embeddings — Ollama baseUrl SSRF guard', () => {
     mockCreateRequestContainer.mockResolvedValue({
       resolve: jest.fn((name: string) => {
         if (name === 'moduleConfigService') return moduleConfigService
+        if (name === 'embeddingProviderProbe') {
+          return { checkAvailability: mockCheckAvailability }
+        }
         if (name === 'vectorDrivers') return []
         throw new Error(`unexpected resolve(${name})`)
       }),
@@ -71,8 +77,10 @@ describe('POST /api/search/embeddings — Ollama baseUrl SSRF guard', () => {
     })
 
     mockResolveEmbeddingConfig.mockResolvedValue(null)
+    mockResolveEmbeddingConfigResult.mockResolvedValue({ config: null, source: 'env' })
     mockGetConfiguredProviders.mockReturnValue(['ollama', 'openai'])
     mockGetEffectiveDimension.mockReturnValue(768)
+    mockCheckAvailability.mockResolvedValue({ available: true })
     mockDetectConfigChange.mockImplementation((_existing: unknown, next: unknown) => ({
       newConfig: next,
       requiresReindex: false,
@@ -121,6 +129,10 @@ describe('POST /api/search/embeddings — Ollama baseUrl SSRF guard', () => {
 
     expect(res.status).toBe(200)
     expect(mockSaveEmbeddingConfig).toHaveBeenCalledTimes(1)
+    expect(mockCheckAvailability).toHaveBeenCalledWith('ollama', {
+      force: true,
+      baseUrl: 'http://ollama.internal.example.com:11434',
+    })
     const savedConfig = mockSaveEmbeddingConfig.mock.calls[0][1] as { baseUrl?: string }
     expect(savedConfig.baseUrl).toBe('http://ollama.internal.example.com:11434')
   })

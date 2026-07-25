@@ -7,6 +7,9 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { SearchX } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type PublicQuoteResponse = {
   quote: {
@@ -65,7 +68,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
         if (!mounted) return
         setData(call.result ?? null)
       } catch (err) {
-        console.error('sales.quotes.public.load', err)
+        logger.error('sales.quotes.public.load', { err })
         if (!mounted) return
         setError(t('sales.quotes.public.failed'))
       } finally {
@@ -90,7 +93,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
       })
       setAcceptedOrder(call.result ?? null)
     } catch (err) {
-      console.error('sales.quotes.accept', err)
+      logger.error('sales.quotes.accept', { err })
       setError(t('sales.quotes.public.acceptFailed'))
     } finally {
       setAccepting(false)

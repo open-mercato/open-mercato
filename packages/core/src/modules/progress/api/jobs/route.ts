@@ -11,9 +11,12 @@ import {
   createProgressCrudOpenApi,
   createPagedListResponseSchema,
 } from '../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('progress').child({ component: 'jobs' })
 
 const routeMetadata = {
-  GET: { requireAuth: true },
+  GET: { requireAuth: true, requireFeatures: ['progress.view'] },
   POST: { requireAuth: true, requireFeatures: ['progress.create'] },
 }
 
@@ -163,7 +166,7 @@ export async function POST(req: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const stack = error instanceof Error ? error.stack : undefined
-    console.error('[progress.jobs.create] unhandled error', { message, stack })
+    logger.error('Unhandled error creating progress job', { message, stack })
     return NextResponse.json(
       { error: 'Failed to create progress job.' },
       { status: 500 },

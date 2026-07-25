@@ -4,6 +4,9 @@ import { SsoConfigError } from '../services/ssoConfigService'
 import { ScimTokenError } from '../services/scimTokenService'
 import { ScimServiceError } from '../services/scimService'
 import { scimJson, buildScimError } from '../lib/scim-response'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sso')
 
 interface SsoHttpError {
   message: string
@@ -23,7 +26,7 @@ export function handleSsoAdminApiError(err: unknown, label: string): NextRespons
   if (isSsoHttpError(err)) {
     return NextResponse.json({ error: err.message }, { status: err.statusCode })
   }
-  console.error(`[${label}] Error:`, err)
+  logger.error('SSO admin API error', { label, err })
   return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
 }
 
@@ -31,6 +34,6 @@ export function handleScimApiError(err: unknown, label: string): Response {
   if (err instanceof ScimServiceError) {
     return scimJson(buildScimError(err.statusCode, err.message), err.statusCode)
   }
-  console.error(`[${label}] Error:`, err)
+  logger.error('SCIM API error', { label, err })
   return scimJson(buildScimError(500, 'Internal server error'), 500)
 }

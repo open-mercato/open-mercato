@@ -165,7 +165,7 @@ export function computeToolsChecksum(
 ): string {
   const content = tools
     .map((t) => `${t.name}:${t.description}`)
-    .sort()
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
     .join('|')
 
   // Simple hash using string code points

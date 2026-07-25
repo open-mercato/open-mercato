@@ -19,7 +19,7 @@ import {
   enforceSalesDocumentOptimisticLock,
   SALES_RESOURCE_KIND_ORDER,
 } from '../shared'
-import { SalesOrder } from '../../data/entities'
+import { SalesOrder, SalesPayment, SalesShipment } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -56,12 +56,18 @@ function makeRequest(headerValue: string | null): Request {
 }
 
 describe('enforceSalesDocumentOptimisticLock', () => {
-  const ctxWith = (headerValue: string | null) => ({ request: makeRequest(headerValue) } as never)
+  // The wrapper now routes through the async DI-aware seam, so the ctx needs a
+  // container. With no `commandOptimisticLockGuardService` registered (OSS-only),
+  // the seam degrades to the OSS floor — exactly the legacy behavior.
+  const ctxWith = (headerValue: string | null) => {
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    return { container, request: makeRequest(headerValue) } as never
+  }
 
-  it('throws the structured 409 when the header version is stale', () => {
+  it('throws the structured 409 when the header version is stale', async () => {
     let caught: unknown
     try {
-      enforceSalesDocumentOptimisticLock(
+      await enforceSalesDocumentOptimisticLock(
         ctxWith(STALE),
         { id: ORDER_ID, updatedAt: new Date(CURRENT) },
         SALES_RESOURCE_KIND_ORDER,
@@ -78,30 +84,30 @@ describe('enforceSalesDocumentOptimisticLock', () => {
     })
   })
 
-  it('passes when the header version matches the document', () => {
-    expect(() =>
+  it('passes when the header version matches the document', async () => {
+    await expect(
       enforceSalesDocumentOptimisticLock(
         ctxWith(CURRENT),
         { id: ORDER_ID, updatedAt: new Date(CURRENT) },
         SALES_RESOURCE_KIND_ORDER,
       ),
-    ).not.toThrow()
+    ).resolves.toBeUndefined()
   })
 
-  it('is a no-op when the client sends no header (strictly additive)', () => {
-    expect(() =>
+  it('is a no-op when the client sends no header (strictly additive)', async () => {
+    await expect(
       enforceSalesDocumentOptimisticLock(
         ctxWith(null),
         { id: ORDER_ID, updatedAt: new Date(CURRENT) },
         SALES_RESOURCE_KIND_ORDER,
       ),
-    ).not.toThrow()
+    ).resolves.toBeUndefined()
   })
 
-  it('is a no-op when the document is missing', () => {
-    expect(() =>
+  it('is a no-op when the document is missing', async () => {
+    await expect(
       enforceSalesDocumentOptimisticLock(ctxWith(STALE), null, SALES_RESOURCE_KIND_ORDER),
-    ).not.toThrow()
+    ).resolves.toBeUndefined()
   })
 })
 
@@ -161,5 +167,183 @@ describe('sales.orders.lines.delete — document-aggregate optimistic lock', () 
     expect((caught as CrudHttpError).body).toMatchObject({ code: 'optimistic_lock_conflict' })
     // Proves the check fires before mutation: the shipment-count guard query never ran.
     expect(em.count).not.toHaveBeenCalled()
+  })
+})
+
+const PAYMENT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const SHIPMENT_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+
+function makeOrderForChild(updatedAt: string) {
+  return {
+    id: ORDER_ID,
+    organizationId: ORG_ID,
+    tenantId: TENANT_ID,
+    deletedAt: null,
+    updatedAt: new Date(updatedAt),
+    grandTotalGrossAmount: '0',
+    paidTotalAmount: '0',
+    refundedTotalAmount: '0',
+  }
+}
+
+describe('sales.payments.delete — parent-order aggregate optimistic lock (Gap A)', () => {
+  beforeAll(async () => {
+    // Re-register from the exported array (not a bare import) because payments.ts
+    // is already module-cached transitively via documents.ts — its registration
+    // side-effect won't re-run after the documents block cleared the registry.
+    commandRegistry.clear?.()
+    const { paymentCommands } = await import('../payments')
+    paymentCommands.forEach((cmd) => commandRegistry.register(cmd))
+  })
+
+  it('rejects a stale parent-order version with a 409 before mutating', async () => {
+    const order = makeOrderForChild(CURRENT)
+    const payment = {
+      id: PAYMENT_ID,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      order,
+    }
+    const removed: unknown[] = []
+    const em: any = {
+      findOne: jest.fn(async (entityClass: unknown) =>
+        entityClass === SalesPayment ? payment : entityClass === SalesOrder ? order : null,
+      ),
+      find: jest.fn(async () => []),
+      flush: jest.fn(async () => {}),
+      remove: jest.fn((entity: unknown) => removed.push(entity)),
+      transactional: jest.fn(async (cb: (tx: any) => Promise<unknown>) => cb(em)),
+      fork: function () { return this },
+    }
+    const ctx = makeCtx(em, makeRequest(STALE))
+    const handler = commandRegistry.get('sales.payments.delete')
+    expect(handler).toBeTruthy()
+
+    let caught: unknown
+    try {
+      await handler!.execute(
+        { id: PAYMENT_ID, orderId: ORDER_ID, organizationId: ORG_ID, tenantId: TENANT_ID },
+        ctx as never,
+      )
+    } catch (err) {
+      caught = err
+    }
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as CrudHttpError).status).toBe(409)
+    expect((caught as CrudHttpError).body).toMatchObject({ code: 'optimistic_lock_conflict' })
+    // Proves the guard fires before mutating: nothing was removed and no tx ran.
+    expect(removed).toHaveLength(0)
+    expect(em.transactional).not.toHaveBeenCalled()
+  })
+
+  it('OSS-only when locking is disabled (OM_OPTIMISTIC_LOCK=off): a stale header does not 409', async () => {
+    const previous = process.env.OM_OPTIMISTIC_LOCK
+    process.env.OM_OPTIMISTIC_LOCK = 'off'
+    try {
+      const order = makeOrderForChild(CURRENT)
+      const payment = { id: PAYMENT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, order }
+      const em: any = {
+        findOne: jest.fn(async (entityClass: unknown) =>
+          entityClass === SalesPayment ? payment : entityClass === SalesOrder ? order : null,
+        ),
+        find: jest.fn(async () => []),
+        flush: jest.fn(async () => {}),
+        remove: jest.fn(),
+        transactional: jest.fn(async (cb: (tx: any) => Promise<unknown>) => cb(em)),
+        fork: function () { return this },
+      }
+      const ctx = makeCtx(em, makeRequest(STALE))
+      const handler = commandRegistry.get('sales.payments.delete')
+      // It proceeds past the guard (the guard is a no-op when disabled). The
+      // transaction therefore runs — proving no 409 was raised by the lock.
+      await handler!.execute(
+        { id: PAYMENT_ID, orderId: ORDER_ID, organizationId: ORG_ID, tenantId: TENANT_ID },
+        ctx as never,
+      )
+      expect(em.transactional).toHaveBeenCalled()
+    } finally {
+      if (previous === undefined) delete process.env.OM_OPTIMISTIC_LOCK
+      else process.env.OM_OPTIMISTIC_LOCK = previous
+    }
+  })
+})
+
+describe('sales.shipments.delete — parent-order aggregate optimistic lock (Gap B)', () => {
+  beforeAll(async () => {
+    // Re-register from the exported array (not a bare import) — shipments.ts is
+    // already module-cached transitively via documents.ts.
+    commandRegistry.clear?.()
+    const { shipmentCommands } = await import('../shipments')
+    shipmentCommands.forEach((cmd) => commandRegistry.register(cmd))
+  })
+
+  it('rejects a stale parent-order version with a 409 before mutating', async () => {
+    const order = makeOrderForChild(CURRENT)
+    const shipment = {
+      id: SHIPMENT_ID,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      order,
+    }
+    const removed: unknown[] = []
+    const em: any = {
+      findOne: jest.fn(async (entityClass: unknown) =>
+        entityClass === SalesShipment ? shipment : entityClass === SalesOrder ? order : null,
+      ),
+      find: jest.fn(async () => []),
+      flush: jest.fn(async () => {}),
+      remove: jest.fn((entity: unknown) => removed.push(entity)),
+      transactional: jest.fn(async (cb: (tx: any) => Promise<unknown>) => cb(em)),
+      fork: function () { return this },
+    }
+    const ctx = makeCtx(em, makeRequest(STALE))
+    const handler = commandRegistry.get('sales.shipments.delete')
+    expect(handler).toBeTruthy()
+
+    let caught: unknown
+    try {
+      await handler!.execute(
+        { id: SHIPMENT_ID, orderId: ORDER_ID, organizationId: ORG_ID, tenantId: TENANT_ID },
+        ctx as never,
+      )
+    } catch (err) {
+      caught = err
+    }
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as CrudHttpError).status).toBe(409)
+    expect((caught as CrudHttpError).body).toMatchObject({ code: 'optimistic_lock_conflict' })
+    // Proves the guard fires before mutating: no shipment item or shipment removed.
+    expect(removed).toHaveLength(0)
+  })
+
+  it('OSS-only when locking is disabled (OM_OPTIMISTIC_LOCK=off): a stale header does not 409', async () => {
+    const previous = process.env.OM_OPTIMISTIC_LOCK
+    process.env.OM_OPTIMISTIC_LOCK = 'off'
+    try {
+      const order = makeOrderForChild(CURRENT)
+      const shipment = { id: SHIPMENT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, order }
+      const removed: unknown[] = []
+      const em: any = {
+        findOne: jest.fn(async (entityClass: unknown) =>
+          entityClass === SalesShipment ? shipment : entityClass === SalesOrder ? order : null,
+        ),
+        find: jest.fn(async () => []),
+        flush: jest.fn(async () => {}),
+        remove: jest.fn((entity: unknown) => removed.push(entity)),
+        transactional: jest.fn(async (cb: (tx: any) => Promise<unknown>) => cb(em)),
+        fork: function () { return this },
+      }
+      const ctx = makeCtx(em, makeRequest(STALE))
+      const handler = commandRegistry.get('sales.shipments.delete')
+      // The guard is a no-op when disabled, so the shipment is removed (no 409).
+      await handler!.execute(
+        { id: SHIPMENT_ID, orderId: ORDER_ID, organizationId: ORG_ID, tenantId: TENANT_ID },
+        ctx as never,
+      )
+      expect(removed).toContain(shipment)
+    } finally {
+      if (previous === undefined) delete process.env.OM_OPTIMISTIC_LOCK
+      else process.env.OM_OPTIMISTIC_LOCK = previous
+    }
   })
 })

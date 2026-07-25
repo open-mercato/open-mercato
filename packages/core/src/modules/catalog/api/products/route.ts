@@ -49,6 +49,9 @@ import {
 } from "../openapi";
 import { findWithDecryption } from "@open-mercato/shared/lib/encryption/find";
 import { canonicalizeUnitCode, toUnitLookupKey } from "../../lib/unitCodes";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 const rawBodySchema = z.object({}).passthrough();
 
 const UUID_REGEX =
@@ -296,7 +299,7 @@ export async function buildProductFilters(
     } catch (err) {
       // Custom field filter parsing may fail for non-existent or misconfigured fields.
       // Fall back to base filters to avoid blocking the product listing.
-      if (process.env.NODE_ENV === 'development') console.warn('[catalog:products] custom field filter error', err);
+      logger.debug('catalog.products custom field filter error', { err });
       return {};
     }
   };
@@ -582,7 +585,7 @@ async function decorateProductsAfterList(
             ],
           }
         : { product: { $in: productIds } };
-    const priceRows = await findWithDecryption(
+    const priceRows = await findWithDecryption<CatalogProductPrice>(
       em,
       CatalogProductPrice,
       { ...priceWhere, ...scope },
@@ -696,7 +699,7 @@ async function decorateProductsAfterList(
         const productConversions = conversionsByProduct.get(id);
         const factor = productConversions?.get(requestQuantityUnitKey) ?? null;
         if (!factor || !Number.isFinite(factor) || factor <= 0) {
-          if (process.env.NODE_ENV === 'development') console.warn(`[catalog.products] Invalid conversion factor for product=${id} unit=${requestQuantityUnitKey} factor=${factor}`);
+          logger.debug('catalog.products invalid conversion factor', { productId: id, unit: requestQuantityUnitKey, factor });
           return pricingContext.quantity;
         }
         const normalized = pricingContext.quantity * factor;
@@ -757,7 +760,7 @@ async function decorateProductsAfterList(
       }
     }
   } catch (error) {
-    console.error("[decorateProductsAfterList] Failed to load unit conversions", error);
+    logger.error('decorateProductsAfterList Failed to load unit conversions', { err: error });
   }
 
   const searchTerm = ctx.query.search ? sanitizeSearchTerm(ctx.query.search) : null;

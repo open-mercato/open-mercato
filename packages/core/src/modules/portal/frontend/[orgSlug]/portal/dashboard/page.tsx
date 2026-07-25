@@ -11,28 +11,13 @@ import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmpty
 import { usePortalDashboardWidgets } from '@open-mercato/ui/portal/hooks/usePortalDashboardWidgets'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
+import {
+  loadHiddenWidgets,
+  saveHiddenWidgets,
+  clearLegacyHiddenWidgetsKey,
+} from './hiddenWidgetsStorage'
 
 type Props = { params: { orgSlug: string } }
-
-const HIDDEN_WIDGETS_KEY = 'om:portal:dashboard:hidden'
-
-function loadHiddenWidgets(): Set<string> {
-  try {
-    const raw = localStorage.getItem(HIDDEN_WIDGETS_KEY)
-    if (!raw) return new Set()
-    return new Set(JSON.parse(raw))
-  } catch {
-    return new Set()
-  }
-}
-
-function saveHiddenWidgets(hidden: Set<string>) {
-  try {
-    localStorage.setItem(HIDDEN_WIDGETS_KEY, JSON.stringify(Array.from(hidden)))
-  } catch {
-    // best effort
-  }
-}
 
 function WidgetIcon({ className }: { className?: string }) {
   return (
@@ -49,9 +34,18 @@ export default function PortalDashboardPage({ params }: Props) {
   const { user, loading } = auth
 
   const [editing, setEditing] = useState(false)
-  const [hiddenWidgets, setHiddenWidgets] = useState<Set<string>>(() => loadHiddenWidgets())
+  const [hiddenWidgetsScopeKey, setHiddenWidgetsScopeKey] = useState<string | null>(null)
+  const [hiddenWidgets, setHiddenWidgets] = useState<Set<string>>(() => new Set())
 
   const { widgets: dashboardWidgets, isLoading: widgetsLoading } = usePortalDashboardWidgets('portal:dashboard:sections' as any)
+
+  // Recompute synchronously during render (not in an effect) so a freshly
+  // resolved `user` never paints a frame with the previous scope's hidden set.
+  const activeHiddenWidgetsScopeKey = user ? `${params.orgSlug}:${user.id}` : null
+  if (activeHiddenWidgetsScopeKey !== hiddenWidgetsScopeKey) {
+    setHiddenWidgetsScopeKey(activeHiddenWidgetsScopeKey)
+    setHiddenWidgets(user ? loadHiddenWidgets(params.orgSlug, user.id) : new Set())
+  }
 
   useEffect(() => {
     if (!loading && !user) {
@@ -59,7 +53,12 @@ export default function PortalDashboardPage({ params }: Props) {
     }
   }, [loading, user, router, params.orgSlug])
 
+  useEffect(() => {
+    clearLegacyHiddenWidgetsKey()
+  }, [])
+
   const toggleWidget = useCallback((widgetId: string) => {
+    if (!user) return
     setHiddenWidgets((prev) => {
       const next = new Set(prev)
       if (next.has(widgetId)) {
@@ -67,10 +66,10 @@ export default function PortalDashboardPage({ params }: Props) {
       } else {
         next.add(widgetId)
       }
-      saveHiddenWidgets(next)
+      saveHiddenWidgets(params.orgSlug, user.id, next)
       return next
     })
-  }, [])
+  }, [params.orgSlug, user?.id])
 
   const visibleWidgets = useMemo(
     () => dashboardWidgets.filter((w) => !hiddenWidgets.has(w.metadata.id)),

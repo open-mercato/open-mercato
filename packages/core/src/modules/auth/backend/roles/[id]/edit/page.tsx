@@ -1,8 +1,10 @@
 "use client"
 import * as React from 'react'
+import { usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -37,6 +39,7 @@ type RoleListResponse = {
 export default function EditRolePage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const pathname = usePathname()
   const [initial, setInitial] = React.useState<RoleRecord | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
@@ -188,6 +191,20 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
         : null),
     },
   ]), [aclData, actorIsSuperAdmin, detailFieldIds, id, initial, loading, selectedTenantId, t])
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `auth.role` + id explicitly.
+  // The resourceKind mirrors the CrudForm `versionHistory` so the held lock matches
+  // the save-time conflict surface for the same role.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'auth.role',
+      resourceId: id || null,
+      updatedAt: initial?.updatedAt ?? null,
+      data: initial as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   if (!id) return null
   return (

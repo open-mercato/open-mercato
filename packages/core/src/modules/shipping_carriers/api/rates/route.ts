@@ -3,6 +3,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { ShippingCarrierService } from '../../lib/shipping-service'
+import { shippingCarrierUpstreamErrorResponse } from '../../lib/upstream-error-response'
 import { calculateRatesSchema } from '../../data/validators'
 import { shippingCarriersTag } from '../openapi'
 
@@ -31,8 +32,7 @@ export async function POST(req: Request) {
     })
     return NextResponse.json({ rates })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to calculate rates'
-    return NextResponse.json({ error: message }, { status: 502 })
+    return shippingCarrierUpstreamErrorResponse('rates.calculate', error)
   }
 }
 

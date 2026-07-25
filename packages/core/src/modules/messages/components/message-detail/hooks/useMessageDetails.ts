@@ -51,7 +51,7 @@ export function useMessageDetails(id: string) {
     [id, queryClient],
   )
 
-  const isArchived = (queryState.detail?.recipients ?? []).some((item) => item.status === 'archived')
+  const isArchived = queryState.detail?.isArchived ?? false
 
   const actionState = useMessageDetailsActions({
     id,
@@ -61,7 +61,9 @@ export function useMessageDetails(id: string) {
     attachments: queryState.attachments,
     isArchived,
     onDeleted: () => router.push('/backend/messages'),
+    onMarkedUnread: () => router.push('/backend/messages'),
     refreshDetailWithoutAutoMarkRead: queryState.refreshDetailWithoutAutoMarkRead,
+    suppressAutoMarkRead: queryState.suppressAutoMarkRead,
   })
 
   const conversationState = useMessageDetailsConversation({

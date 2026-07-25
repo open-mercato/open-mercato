@@ -5,7 +5,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getOverrides } from '../../lib/queries'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -24,6 +24,9 @@ import {
   changeOverrideStateResponseSchema,
 } from '../openapi'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('feature_toggles').child({ component: 'overrides' })
 
 export async function GET(req: Request) {
   const { auth, ctx, scope } = await buildContext(req)
@@ -100,7 +103,7 @@ export async function PUT(req: Request) {
       toggle: { id: parsed.data.toggleId },
     })
     if (existingOverride) {
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'feature_toggles.feature_toggle_override',
         resourceId: existingOverride.id,
         current: existingOverride.updatedAt ?? null,
@@ -188,7 +191,7 @@ export async function PUT(req: Request) {
     if (message === 'INVALID_STATE' || message === 'INVALID_TOGGLE_ID' || message === 'INVALID_TENANT_ID') {
       return NextResponse.json({ error: message }, { status: 400 })
     }
-    console.error('feature_toggles.overrides.changeState failed', error)
+    logger.error('Override state change failed', { err: error })
     return NextResponse.json({ error: 'Failed to update override' }, { status: 500 })
   }
 }

@@ -17,6 +17,14 @@
       "defaultValue": "Free shipping on orders over $50"
     },
     {
+      "identifier": "sales_channels_enabled",
+      "name": "Sales Channels",
+      "description": "Show sales channel pickers, filters, and management UI. Disable for tenants that do not use sales channels.",
+      "category": "sales",
+      "type": "boolean",
+      "defaultValue": true
+    },
+    {
       "identifier": "order_review_threshold",
       "name": "Order Review Threshold",
       "description": "Routes orders above this total to manual review.",

@@ -15,6 +15,7 @@ import {
   sortRoutesBySpecificity,
   registerFrontendRouteManifests,
   getFrontendRouteManifests,
+  resolvePageRouteMetadata,
 } from '../registry'
 
 describe('CLI Modules Registry', () => {
@@ -251,6 +252,26 @@ describe('CLI Modules Registry', () => {
     it('returns undefined when static segments do not match even case-insensitively', () => {
       expect(matchRoutePattern('/login', '/sign-in')).toBeUndefined()
     })
+
+    it('captures all trailing segments after a static prefix for catch-all (issue #3622)', () => {
+      expect(matchRoutePattern('/files/[...path]', '/files/a/b/c')).toEqual({ path: ['a', 'b', 'c'] })
+    })
+
+    it('captures a single trailing segment for catch-all (issue #3622)', () => {
+      expect(matchRoutePattern('/files/[...path]', '/files/a')).toEqual({ path: ['a'] })
+    })
+
+    it('returns undefined when a catch-all has no segment to consume (issue #3622)', () => {
+      expect(matchRoutePattern('/files/[...path]', '/files')).toBeUndefined()
+    })
+
+    it('captures trailing segments for optional catch-all (issue #3622)', () => {
+      expect(matchRoutePattern('/docs/[[...slug]]', '/docs/a/b')).toEqual({ slug: ['a', 'b'] })
+    })
+
+    it('returns an empty array for optional catch-all with no trailing segments (issue #3622)', () => {
+      expect(matchRoutePattern('/docs/[[...slug]]', '/docs')).toEqual({ slug: [] })
+    })
   })
 
   describe('findBackendMatch', () => {
@@ -360,6 +381,48 @@ describe('CLI Modules Registry', () => {
       expect(result).toBeDefined()
       expect(result?.requireAuth).toBe(true)
       expect(result?.requireRoles).toEqual(['admin'])
+    })
+  })
+})
+
+describe('resolvePageRouteMetadata', () => {
+  it('normalizes page metadata aliases into route manifest fields', () => {
+    const resolved = resolvePageRouteMetadata('/backend/orders', {
+      requireAuth: true,
+      requireFeatures: ['sales.orders.view'],
+      pageTitle: 'Orders',
+      pageTitleKey: 'sales.orders.title',
+      pageGroup: 'Sales',
+      pageGroupKey: 'sales.group',
+      pageOrder: 20,
+      pagePriority: 3,
+      navHidden: false,
+      pageContext: 'main',
+      breadcrumb: [{ label: 'Orders' }],
+    })
+
+    expect('Component' in resolved).toBe(false)
+    expect(resolved).toEqual({
+      pattern: '/backend/orders',
+      requireAuth: true,
+      requireRoles: undefined,
+      requireFeatures: ['sales.orders.view'],
+      requireCustomerAuth: undefined,
+      requireCustomerFeatures: undefined,
+      nav: undefined,
+      title: 'Orders',
+      titleKey: 'sales.orders.title',
+      group: 'Sales',
+      groupKey: 'sales.group',
+      icon: undefined,
+      order: 20,
+      priority: 3,
+      navHidden: false,
+      visible: undefined,
+      enabled: undefined,
+      breadcrumb: [{ label: 'Orders' }],
+      pageContext: 'main',
+      placement: undefined,
     })
   })
 })

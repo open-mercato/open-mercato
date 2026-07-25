@@ -2,10 +2,7 @@ import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import {
-  runCrudMutationGuardAfterSuccess,
-  validateCrudMutationGuard,
-} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveNotificationService, type NotificationService } from './notificationService'
 
@@ -106,33 +103,28 @@ export async function runGuardedNotificationWrite<T>(
   options: NotificationMutationGuardOptions,
   write: () => Promise<T>,
 ): Promise<GuardedNotificationWriteResult<T>> {
-  const guardScope = {
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    userId: scope.userId ?? '',
-    resourceKind: options.resourceKind,
-    resourceId: options.resourceId ?? '',
-    operation: options.operation,
-    requestMethod: req.method,
-    requestHeaders: req.headers,
-  }
-
-  const guardResult = await validateCrudMutationGuard(container, {
-    ...guardScope,
-    mutationPayload: options.payload ?? null,
+  const guarded = await runRouteMutationGuards({
+    container,
+    req,
+    auth: {
+      userId: scope.userId ?? '',
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    input: {
+      resourceKind: options.resourceKind,
+      resourceId: options.resourceId ?? null,
+      operation: options.operation,
+      mutationPayload: options.payload ?? null,
+    },
   })
-  if (guardResult && !guardResult.ok) {
-    return { ok: false, response: Response.json(guardResult.body, { status: guardResult.status }) }
+  if (!guarded.ok) {
+    return { ok: false, response: guarded.response }
   }
 
   const result = await write()
 
-  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-    await runCrudMutationGuardAfterSuccess(container, {
-      ...guardScope,
-      metadata: guardResult.metadata ?? null,
-    })
-  }
+  await guarded.runAfterSuccess()
 
   return { ok: true, result }
 }

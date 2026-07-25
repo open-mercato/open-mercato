@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
 import { CustomerPipeline } from '../../data/entities'
@@ -23,6 +24,9 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const PIPELINE_RESOURCE_KIND = 'customers.pipeline'
 
@@ -56,15 +60,16 @@ async function buildContext(
 
 export async function GET(req: Request) {
   try {
-    const { ctx, organizationId, tenantId, translate } = await buildContext(req)
-    if (!organizationId || !tenantId) {
+    const { ctx, tenantId, translate } = await buildContext(req)
+    if (!tenantId) {
       return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
     }
+    const orgFilter = resolveOrganizationScopeFilter(ctx.organizationScope, ctx.auth)
     const url = new URL(req.url)
     const isDefaultParam = url.searchParams.get('isDefault')
 
     const em = (ctx.container.resolve('em') as EntityManager)
-    const where: Record<string, unknown> = { organizationId, tenantId }
+    const where: Record<string, unknown> = { tenantId, ...orgFilter.where }
     if (isDefaultParam === 'true') where.isDefault = true
     if (isDefaultParam === 'false') where.isDefault = false
 
@@ -83,7 +88,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipelines GET failed', err)
+    logger.error('customers.pipelines GET failed', { err })
     return NextResponse.json({ error: 'Failed to load pipelines' }, { status: 500 })
   }
 }
@@ -151,7 +156,7 @@ export async function POST(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipelines POST failed', err)
+    logger.error('customers.pipelines POST failed', { err })
     return NextResponse.json({ error: 'Failed to create pipeline' }, { status: 400 })
   }
 }
@@ -219,7 +224,7 @@ export async function PUT(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipelines PUT failed', err)
+    logger.error('customers.pipelines PUT failed', { err })
     return NextResponse.json({ error: 'Failed to update pipeline' }, { status: 400 })
   }
 }
@@ -272,7 +277,7 @@ export async function DELETE(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipelines DELETE failed', err)
+    logger.error('customers.pipelines DELETE failed', { err })
     return NextResponse.json({ error: 'Failed to delete pipeline' }, { status: 400 })
   }
 }

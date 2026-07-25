@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -59,15 +60,24 @@ export async function DELETE(req: Request, ctx: { params: { tableId: string; per
     return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
 
-  const deleted = await deleteUserPerspective(em, cache, {
-    scope: {
-      userId: auth.sub,
-      tenantId: auth.tenantId ?? null,
-      organizationId: auth.orgId ?? null,
-    },
-    tableId,
-    perspectiveId,
-  })
+  let deleted = false
+  try {
+    deleted = await deleteUserPerspective(em, cache, {
+      scope: {
+        userId: auth.sub,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+      },
+      tableId,
+      perspectiveId,
+      request: req,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    throw err
+  }
 
   if (deleted && guardResult?.ok && guardResult.shouldRunAfterSuccess) {
     await runCrudMutationGuardAfterSuccess(container, {
@@ -101,6 +111,7 @@ const perspectiveDeleteDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Invalid identifiers supplied', schema: perspectivesErrorSchema },
     { status: 401, description: 'Authentication required', schema: perspectivesErrorSchema },
+    { status: 409, description: 'Optimistic lock conflict', schema: perspectivesErrorSchema },
     { status: 404, description: 'Perspective not found', schema: perspectivesErrorSchema },
   ],
 }

@@ -207,6 +207,25 @@ describe('AppShell', () => {
     )
   })
 
+  it('hides the backend footer status bar when requested', () => {
+    renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        version="1.2.3"
+        hideFooter
+      >
+        <div>Child content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    expect(screen.getByText('Child content')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Terms' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Privacy' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('injection-spot:backend:layout:footer')).toBeInTheDocument()
+  })
+
   it('uses backend chrome brand logo when the selected organization has one', async () => {
     const previousFetch = global.fetch
     const previousWindowFetch = window.fetch

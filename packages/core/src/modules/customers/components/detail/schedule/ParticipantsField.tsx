@@ -1,12 +1,14 @@
 'use client'
 
 import * as React from 'react'
-import { Users, Search, X, Clock, CheckCircle2, XCircle } from 'lucide-react'
+import { Users, X, Clock, CheckCircle2, XCircle } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
+import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { fetchAssignableStaffMembersPage } from '../assignableStaff'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
 import { isVisible, getFieldLabel } from './fieldConfig'
@@ -84,17 +86,13 @@ function ParticipantSearchPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-2">
-        <div className="flex items-center gap-2 rounded-md border bg-background px-2 py-1.5 mb-2">
-          <Search className="size-3.5 text-muted-foreground shrink-0" />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('customers.schedule.searchParticipant', 'Search team members...')}
-            className="flex-1 bg-transparent text-sm focus:outline-none"
-            autoFocus
-          />
-        </div>
+        <SearchInput
+          value={query}
+          onChange={setQuery}
+          placeholder={t('customers.schedule.searchParticipant', 'Search team members...')}
+          className="mb-2"
+          autoFocus
+        />
         {selectableResults.length ? (
           <div className="mb-2">
             <Button
@@ -228,16 +226,16 @@ export function ParticipantsField({
       {participants.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-x-[16px] gap-y-[6px] text-xs">
           <span className="font-medium text-muted-foreground">{t('customers.schedule.guestPermissions', 'Guest permissions:')}</span>
-          <label className="flex items-center gap-1.5 cursor-pointer">
-            <input type="checkbox" checked={guestPermissions.canInviteOthers} onChange={(e) => setGuestPermissions((p) => ({ ...p, canInviteOthers: e.target.checked }))} className="rounded" />
+          <label htmlFor="guest-perm-invite" className="flex items-center gap-1.5 cursor-pointer">
+            <Checkbox id="guest-perm-invite" checked={guestPermissions.canInviteOthers} onCheckedChange={(checked) => setGuestPermissions((p) => ({ ...p, canInviteOthers: checked === true }))} />
             {t('customers.schedule.guestPerm.invite', 'Invite others')}
           </label>
-          <label className="flex items-center gap-1.5 cursor-pointer">
-            <input type="checkbox" checked={guestPermissions.canModify} onChange={(e) => setGuestPermissions((p) => ({ ...p, canModify: e.target.checked }))} className="rounded" />
+          <label htmlFor="guest-perm-modify" className="flex items-center gap-1.5 cursor-pointer">
+            <Checkbox id="guest-perm-modify" checked={guestPermissions.canModify} onCheckedChange={(checked) => setGuestPermissions((p) => ({ ...p, canModify: checked === true }))} />
             {t('customers.schedule.guestPerm.modify', 'Modify')}
           </label>
-          <label className="flex items-center gap-1.5 cursor-pointer">
-            <input type="checkbox" checked={guestPermissions.canSeeList} onChange={(e) => setGuestPermissions((p) => ({ ...p, canSeeList: e.target.checked }))} className="rounded" />
+          <label htmlFor="guest-perm-see-list" className="flex items-center gap-1.5 cursor-pointer">
+            <Checkbox id="guest-perm-see-list" checked={guestPermissions.canSeeList} onCheckedChange={(checked) => setGuestPermissions((p) => ({ ...p, canSeeList: checked === true }))} />
             {t('customers.schedule.guestPerm.seeList', 'See list')}
           </label>
         </div>

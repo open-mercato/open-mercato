@@ -1,5 +1,4 @@
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
-import './commands/index'
 
 export const metadata: ModuleInfo = {
   name: 'checkout',

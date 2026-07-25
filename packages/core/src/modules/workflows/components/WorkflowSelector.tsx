@@ -7,6 +7,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Plus, Loader2, AlertCircle, Workflow } from 'lucide-react'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export interface WorkflowDefinition {
   id: string
@@ -109,15 +112,15 @@ export function WorkflowSelector({
         } catch {
           // Use default error message
         }
-        console.error('Failed to fetch workflows:', {
+        logger.error('Failed to fetch workflows', {
           url,
           status: response.status,
-          error: errorMessage,
+          message: errorMessage,
         })
         setError(errorMessage)
       }
     } catch (err) {
-      console.error('Failed to fetch workflows:', err)
+      logger.error('Failed to fetch workflows', { err })
       const errorMessage = err instanceof Error ? err.message : 'Network error loading workflows'
       setError(errorMessage)
     } finally {

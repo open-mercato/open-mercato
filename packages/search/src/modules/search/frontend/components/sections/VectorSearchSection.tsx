@@ -44,7 +44,9 @@ type EmbeddingSettings = {
   autoIndexingLocked: boolean
   lockReason: string | null
   embeddingConfig: EmbeddingProviderConfig | null
+  embeddingConfigSource?: 'tenant' | 'instance' | 'env'
   configuredProviders: EmbeddingProviderId[]
+  providerAvailability?: { providerId: EmbeddingProviderId; available: boolean; reason?: string; models?: number }[]
   indexedDimension: number | null
   reindexRequired: boolean
   documentCount: number | null
@@ -531,11 +533,24 @@ export function VectorSearchSection({
               {/* Embedding Provider Selection */}
               <div>
                 <h3 className="text-sm font-semibold mb-2">{t('search.settings.vector.providers', 'Embedding Provider')}</h3>
-                <p className="text-xs text-muted-foreground mb-3">{t('search.settings.vector.providersHint', 'Select a provider to generate embeddings. Only providers with configured API keys can be selected.')}</p>
+                <p className="text-xs text-muted-foreground mb-1">{t('search.settings.vector.providersHint', 'Select a provider to generate embeddings. Only reachable providers can be selected.')}</p>
+                {embeddingSettings?.embeddingConfigSource && embeddingSettings.embeddingConfigSource !== 'tenant' && (
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {t('search.settings.vector.inheritingDefault', 'This tenant is inheriting the instance/environment default. Saving a provider creates an override for this tenant.')}
+                  </p>
+                )}
+                {embeddingSettings?.embeddingConfigSource === 'tenant' && (
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {t('search.settings.vector.usingTenantConfig', 'This tenant is using its own embedding settings.')}
+                  </p>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 items-start">
                   {providerOptions.map((providerId) => {
                     const info = EMBEDDING_PROVIDERS[providerId]
-                    const isConfigured = embeddingSettings?.configuredProviders?.includes(providerId)
+                    const availability = embeddingSettings?.providerAvailability?.find((entry) => entry.providerId === providerId)
+                    const isConfigured = availability
+                      ? availability.available
+                      : embeddingSettings?.configuredProviders?.includes(providerId)
                     const isSelected = displayProvider === providerId
                     const isCurrentlySaved = savedProvider === providerId
                     return (
@@ -567,6 +582,10 @@ export function VectorSearchSection({
                             {isConfigured ? (
                               <p className="text-xs text-muted-foreground mt-1">
                                 {info.models.length} {t('search.settings.vector.modelsAvailable', 'models available')}
+                              </p>
+                            ) : availability?.reason ? (
+                              <p className="text-xs text-status-warning-text mt-1">
+                                {availability.reason}
                               </p>
                             ) : (
                               <p className="text-xs text-muted-foreground mt-1">

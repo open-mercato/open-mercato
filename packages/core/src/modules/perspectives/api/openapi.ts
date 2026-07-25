@@ -29,6 +29,7 @@ export const perspectivesIndexResponseSchema = z.object({
   perspectives: z.array(perspectiveDtoSchema),
   defaultPerspectiveId: z.string().uuid().nullable(),
   rolePerspectives: z.array(rolePerspectiveDtoSchema),
+  manageableRolePerspectives: z.array(rolePerspectiveDtoSchema),
   roles: z.array(
     z.object({
       id: z.string().uuid(),
@@ -49,4 +50,3 @@ export const perspectiveSaveResponseSchema = z.object({
 export const perspectivesSuccessSchema = z.object({
   success: z.literal(true),
 })
-

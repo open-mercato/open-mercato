@@ -4,6 +4,7 @@
  * Provides factory functions for creating type-safe event configurations.
  */
 
+import { createLogger } from '../../lib/logger'
 import type {
   EventDefinition,
   EventModuleConfig,
@@ -12,6 +13,8 @@ import type {
   CreateModuleEventsOptions,
   ModuleEventEmitter,
 } from './types'
+
+const logger = createLogger('events').child({ component: 'factory' })
 
 // =============================================================================
 // Global Event Bus Reference
@@ -130,7 +133,7 @@ let _registeredEventConfigs: EventModuleConfig[] | null = null
  */
 export function registerEventModuleConfigs(configs: EventModuleConfig[]): void {
   if (_registeredEventConfigs !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Event module configs re-registered (this may occur during HMR)')
+    logger.debug('Event module configs re-registered (this may occur during HMR)')
   }
   _registeredEventConfigs = configs
   for (const config of configs) {
@@ -224,7 +227,7 @@ export function createModuleEvents<
       if (strict) {
         throw new Error(message)
       } else {
-        console.error(message)
+        logger.error('Module tried to emit undeclared event — add it to the module events.ts first', { moduleId, eventId })
         // In non-strict mode, still emit but with warning
       }
     }
@@ -232,7 +235,7 @@ export function createModuleEvents<
     // Get event bus from global reference
     const eventBus = getGlobalEventBus()
     if (!eventBus) {
-      console.warn(`[events] Event bus not available, cannot emit "${eventId}"`)
+      logger.warn('Event bus not available, cannot emit event', { eventId })
       return
     }
 

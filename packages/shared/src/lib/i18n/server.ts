@@ -1,6 +1,6 @@
 import { defaultLocale, locales, type Locale } from './config'
 import type { Dict } from './context'
-import { resolveLocaleFromAcceptLanguage } from './locale'
+import { resolveForcedLocale, resolveLocaleFromAcceptLanguage } from './locale'
 import { createFallbackTranslator, createTranslator } from './translate'
 import { getModules } from '../modules/registry'
 import { loadAppDictionary } from './app-dictionaries'
@@ -27,6 +27,9 @@ function flattenDictionary(source: unknown, prefix = ''): Dict {
 }
 
 export async function detectLocale(): Promise<Locale> {
+  // Ops-level override: pin the whole app to one locale (default: unset).
+  const forced = resolveForcedLocale(process.env)
+  if (forced) return forced
   // Dynamic import to avoid requiring Next.js in non-Next.js contexts (CLI, tests)
   try {
     const { cookies, headers } = await import('next/headers')

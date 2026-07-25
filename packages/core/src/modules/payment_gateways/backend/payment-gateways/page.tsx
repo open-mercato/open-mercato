@@ -354,7 +354,7 @@ export default function PaymentTransactionsPage() {
   }, [loadDetail, loadRows, runMutation, selectedId, t])
 
   const providerOptions = React.useMemo(() => {
-    const values = Array.from(new Set(rows.map((row) => row.providerKey).filter(Boolean))).sort()
+    const values = Array.from(new Set(rows.map((row) => row.providerKey).filter(Boolean))).sort((a, b) => a.localeCompare(b))
     return values.map((value) => ({
       label: formatTypeLabel(value),
       value,

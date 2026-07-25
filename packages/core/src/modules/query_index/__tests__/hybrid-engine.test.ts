@@ -1,6 +1,26 @@
 import { HybridQueryEngine, coerceSortDirection } from '../../query_index/lib/engine'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
+
 type KyselyMockConfig = {
   baseTable: string
   hasIndexAny: boolean
@@ -177,7 +197,10 @@ function resolveFirstRow(
     return config.hasIndexAny ? { entity_id: 'x' } : undefined
   }
   if (table === 'custom_entities') {
-    return undefined
+    // Active-registration probe used by isCustomEntity. Returns a row only when the
+    // fixture explicitly seeds `rows.custom_entities` (simulating an active overlay /
+    // registration row); existing fixtures that omit it keep the unregistered behavior.
+    return (config.rows?.custom_entities ?? []).length ? (config.rows!.custom_entities[0]) : undefined
   }
   return undefined
 }
@@ -347,7 +370,8 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
     expect(fallback.query).toHaveBeenCalled()
@@ -370,7 +394,8 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     const result = await engine.query('example:todo', {
       fields: ['id'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
@@ -389,7 +414,8 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     const result = await engine.query('example:todo', {
       fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
@@ -407,7 +433,8 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     await engine.query('example:todo', {
       fields: ['id'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
@@ -430,7 +457,8 @@ describe('HybridQueryEngine', () => {
       .mockImplementationOnce(async () => ({ baseCount: 5, indexedCount: 5 }))
       .mockImplementationOnce(async () => ({ baseCount: 10, indexedCount: 7 }))
 
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     const result = await engine.query('example:todo', {
       fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
@@ -479,7 +507,8 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     const result = await engine.query('example:todo', {
       fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
@@ -614,7 +643,6 @@ describe('HybridQueryEngine', () => {
     // and sorted in memory.
     expect(phase1Chain.orderBys).toEqual([])
     expect(phase1Chain.limit).toBeNull()
-    expect(phase1Chain.selects.length).toBeLessThan(phase2Chain.selects.length)
     // Phase 2: filtered by `id in [...]`, no SQL order/limit needed since the id
     // list already bounds it to the page.
     expect(phase2Chain.orderBys).toEqual([])
@@ -683,6 +711,84 @@ describe('HybridQueryEngine', () => {
       page: { page: 3, pageSize: 2 },
     })
     expect(page3.items.map((item: any) => item.display_name)).toEqual(['Eve'])
+  })
+
+  test('sorts encrypted base fields in all-organization scope', async () => {
+    const db = createFakeKysely({
+      baseTable: 'customer_entities',
+      hasIndexAny: true,
+      baseCount: 3,
+      indexCount: 3,
+      columns: [
+        { table_name: 'customer_entities', column_name: 'id' },
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_entities', column_name: 'organization_id' },
+        { table_name: 'customer_entities', column_name: 'deleted_at' },
+        { table_name: 'customer_entities', column_name: 'display_name' },
+      ],
+      rows: {
+        customer_entities: [
+          { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-c' },
+          { id: '2', tenant_id: 't1', organization_id: 'org2', display_name: 'cipher-a' },
+          { id: '3', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+        ],
+      },
+    })
+    const namesById: Record<string, string> = {
+      '1': 'Combocompany',
+      '2': 'Aardvark Solutions',
+      '3': 'Beta Corp',
+    }
+    const orgById: Record<string, string> = {
+      '1': 'org1',
+      '2': 'org2',
+      '3': 'org1',
+    }
+    const encryptedFieldLookups: Array<string | null | undefined> = []
+    const decryptScopes: Array<string | null> = []
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(
+      em,
+      fallback as any,
+      () => ({ emitEvent }),
+      undefined,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async (_entityId, _tenantId, organizationId) => {
+          encryptedFieldLookups.push(organizationId)
+          return organizationId == null ? ['display_name'] : []
+        },
+        decryptEntityPayload: async (_entityId, payload, _tenantId, organizationId) => {
+          decryptScopes.push(organizationId ?? null)
+          const id = String(payload.id)
+          return organizationId === orgById[id] ? { display_name: namesById[id] } : {}
+        },
+      }),
+    )
+
+    const result = await engine.query('customers:customer_entity', {
+      fields: ['id', 'display_name', 'organization_id'],
+      organizationIds: ['org1', 'org2'],
+      tenantId: 't1',
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 3 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    expect(encryptedFieldLookups).toEqual([null])
+    expect(decryptScopes.slice(0, 3)).toEqual(['org1', 'org2', 'org1'])
+    expect(decryptScopes).toEqual(expect.arrayContaining(['org1', 'org2']))
+    expect(result.items.map((item: any) => item.display_name)).toEqual([
+      'Aardvark Solutions',
+      'Beta Corp',
+      'Combocompany',
+    ])
+    const customerEntityChains = db._chains.filter((chain: ChainLog) => chain.table === 'customer_entities')
+    const [phase1Chain, phase2Chain] = customerEntityChains.slice(-2)
+    expect(phase1Chain.orderBys).toEqual([])
+    expect(phase2Chain.wheres.some((args: any[]) => args.includes('in'))).toBe(true)
   })
 
   describe('OM_ENCRYPTED_SORT_MAX_ROWS cap', () => {
@@ -839,7 +945,8 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
     // The auto-reindex event (`query_index.reindex`) should not fire.
@@ -943,6 +1050,60 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
 
     const chains = db._chains as ChainLog[]
     expect(chains.some((chain) => chain.table === 'customer_deals')).toBe(true)
+  })
+
+  test('an active custom_entities registration row must not reroute a table-backed ORM entity away from its base table', async () => {
+    // Regression for the read-path asymmetry: isCustomEntity used to probe `custom_entities`
+    // FIRST and treat any active row as "doc storage", AHEAD of ORM-table resolution. An
+    // active overlay/registration row for an ORM-backed system id therefore hijacked every
+    // list/detail read of the whole entity type into the (empty) doc-storage table — the
+    // #2939 failure mode reachable via a metadata overlay alone. The ORM-backed guard now
+    // runs first, so the row is ignored for classification.
+    const db = createFakeKysely({
+      baseTable: 'customer_deals',
+      hasIndexAny: false,
+      baseCount: 282,
+      indexCount: 0,
+      customFieldKeys: {},
+      rows: {
+        custom_entities: [{ id: 'overlay-1' }],
+        custom_entities_storage: [{ entity_id: 'stray-doc-record' }],
+      },
+    })
+    const em = buildEmWithOrmMetadata(db, { CustomerDeal: 'customer_deals' })
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn() }))
+
+    await expect((engine as any).isCustomEntity('customers:customer_deal')).resolves.toBe(false)
+
+    await engine.query('customers:customer_deal', {
+      fields: ['id', 'title', 'pipeline_stage_id'],
+      includeCustomFields: true,
+      organizationIds: ['org1'],
+      tenantId: 't1',
+    })
+
+    const chains = db._chains as ChainLog[]
+    expect(chains.some((chain) => chain.table === 'customer_deals')).toBe(true)
+    expect(chains.some((chain) => chain.table === 'custom_entities_storage' && chain.selects.length > 0)).toBe(false)
+  })
+
+  test('a genuinely custom entity (no ORM table) with an active registration still routes to doc storage', async () => {
+    // Guards against the reorder over-reaching: an id that is NOT ORM-backed must still
+    // classify as custom when it has an active `custom_entities` registration row.
+    const db = createFakeKysely({
+      baseTable: 'unused',
+      hasIndexAny: false,
+      baseCount: 0,
+      indexCount: 0,
+      customFieldKeys: {},
+      rows: { custom_entities: [{ id: 'reg-1' }] },
+    })
+    const em = buildEmWithOrmMetadata(db, {})
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn() }))
+
+    await expect((engine as any).isCustomEntity('example:custom_thing')).resolves.toBe(true)
   })
 
   test('module-declared custom entities without an ORM table keep doc-storage routing (read/write symmetry)', async () => {

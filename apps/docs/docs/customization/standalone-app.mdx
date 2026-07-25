@@ -219,6 +219,11 @@ my-store/
 - **`src/modules.ts`** — lists every enabled module and where it comes from. Core modules use `from: '@open-mercato/core'`; your custom modules use `from: '@app'`.
 - **`src/modules/`** — drop custom modules here. Each folder is a full module with the standard structure (`index.ts`, `backend/`, `api/`, `data/`, etc.).
 - **`src/di.ts`** — register app-level DI overrides that run after all module registrars.
+- **`src/i18n/`** — locale files (`en`, `pl`, `es`, `de`). At runtime the active locale is resolved server-side by the `locale` cookie, then the `Accept-Language` header, then the default (`en`).
+
+### Forcing a single locale
+
+Set the `OM_FORCE_LOCALE` env var to pin the whole app to one supported locale (e.g. `OM_FORCE_LOCALE=pl` for Polish). When set, cookie and `Accept-Language` detection are bypassed, the in-app language switcher is hidden, and the locale-change endpoint returns `409`. Leave it unset (the default) for normal per-user detection.
 
 ### Docker Compose variants
 

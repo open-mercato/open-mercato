@@ -18,6 +18,14 @@ The **System status** page surfaces a live snapshot of environment variables and
 - Categories cover profiling, logging, caching, query index, and entities. Each variable lists its current value, default, and a quick link out to the environment configuration guide.
 - Status badges flag whether a toggle is enabled, disabled, unset, or unknown, making it easy to spot misconfigurations during incident response.
 
+## Module telemetry
+
+Open **Backend → Configuration → Module telemetry** to inspect module-level resource attribution for the current instance. The page uses 5-minute buckets and separates the first bucket after telemetry starts as **Startup** from later **Running** buckets, so you can compare how a module behaves during boot versus normal operation.
+
+The overview shows calls, CPU, heap growth per hour, and RSS growth per hour for the selected range. Heap and RSS growth are allocation/memory-pressure signals, not current live memory. A module table groups rows by module and then by stage so startup and running behavior stay easy to compare.
+
+In development mode, admins can use **Clear all telemetry data** to reset in-memory telemetry and local process telemetry files.
+
 ## Purging cache safely
 
 - Users with `configs.manage` can trigger **Purge cache**. The action clears CRUD caches within the active tenant after a confirmation prompt.

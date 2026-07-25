@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { usePathname } from 'next/navigation'
 import { E } from '#generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
@@ -9,6 +10,7 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { readApiResultOrThrow, apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 
@@ -21,6 +23,7 @@ type TenantFormValues = {
 
 export default function EditTenantPage({ params }: { params?: { id?: string } }) {
   const tenantId = params?.id
+  const pathname = usePathname()
   const [initial, setInitial] = React.useState<TenantFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -83,6 +86,20 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
     load()
     return () => { cancelled = true }
   }, [tenantId, t])
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `directory.tenant` + id
+  // explicitly. The resourceKind mirrors the CrudForm `versionHistory` so the held
+  // lock matches the save-time conflict surface for the same tenant.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'directory.tenant',
+      resourceId: tenantId || null,
+      updatedAt: initial?.updatedAt ?? null,
+      data: initial as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   if (!tenantId) return null
 

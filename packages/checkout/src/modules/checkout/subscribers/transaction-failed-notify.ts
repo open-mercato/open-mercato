@@ -3,6 +3,9 @@ import { buildFeatureNotificationFromType } from '@open-mercato/core/modules/not
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { notificationTypes } from '../notifications'
 import { dispatchCheckoutEmailJob } from '../lib/emailQueue'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout').child({ component: 'transaction-failed-notify' })
 
 export const metadata = {
   event: 'checkout.transaction.failed',
@@ -46,7 +49,7 @@ export default async function handle(payload: FailedPayload) {
       })
     }
   } catch (err) {
-    console.error('[checkout:transaction-failed-notify] notification failed:', err)
+    logger.error('notification failed', { transactionId: payload.transactionId, err })
   }
 
   try {
@@ -57,6 +60,6 @@ export default async function handle(payload: FailedPayload) {
       organizationId: payload.organizationId,
     })
   } catch (err) {
-    console.error('[checkout:transaction-failed-notify] email enqueue failed:', err)
+    logger.error('email enqueue failed', { transactionId: payload.transactionId, err })
   }
 }

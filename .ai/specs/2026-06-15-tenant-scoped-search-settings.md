@@ -190,7 +190,7 @@ Contract surfaces touched (per `BACKWARD_COMPATIBILITY.md`): **DB schema** (`mod
 
 - **Schema:** new nullable columns + partial unique indexes via a `configs`-module migration; update `migrations/.snapshot-open-mercato.json` in the same change. Existing rows keep `tenant_id = NULL` and remain valid (now interpreted as the instance default). No backfill.
 - **`ModuleConfigService`:** `scope` is an optional parameter; the no-scope path is byte-for-byte the prior behavior. Cache version bump (`v1`→`v2`) avoids stale cross-version reads.
-- **Search APIs:** only add response fields and tenant scoping of writes; request shapes are unchanged. The previously-global behavior is replaced by per-tenant behavior — this is the intended bug fix, documented in RELEASE_NOTES with the cross-tenant-overwrite rationale.
+- **Search APIs:** only add response fields and tenant scoping of writes; request shapes are unchanged. The previously-global behavior is replaced by per-tenant behavior — this is the intended bug fix, documented in UPGRADE_NOTES with the cross-tenant-overwrite rationale.
 - **Provider availability:** `isProviderConfigured('ollama')` changes from always-true to probe-backed. Documented as a behavior fix; environments that relied on the false-positive must ensure Ollama is actually reachable (which was already required for it to function).
 
 No event IDs, widget spot IDs, ACL feature IDs, import paths, or CLI commands change.
@@ -204,7 +204,7 @@ No event IDs, widget spot IDs, ACL feature IDs, import paths, or CLI commands ch
 | R3 | `ModuleConfigService` change breaks existing callers | Medium | Core contract | `scope` optional; no-scope path unchanged; unit test covers default path | Low |
 | R4 | Probe latency blocks settings page / search | Medium | UX/perf | Bounded timeout, short-TTL cache, async, fail-closed | Low |
 | R5 | Stale cache after version bump or scope write | Medium | Cache | `v2` key namespace + scope-aware invalidate on write | Low |
-| R6 | Operators relying on always-available Ollama see it disabled | Low | Behavior | Documented in RELEASE_NOTES; reason string explains how to fix reachability | Low |
+| R6 | Operators relying on always-available Ollama see it disabled | Low | Behavior | Documented in UPGRADE_NOTES; reason string explains how to fix reachability | Low |
 | R7 | Env-key providers still report available with an invalid key | Low | Provider check | Out of scope here; presence-gate retained, optional deep validation noted as follow-up | Accepted |
 
 ## Phasing
@@ -227,7 +227,7 @@ No event IDs, widget spot IDs, ACL feature IDs, import paths, or CLI commands ch
 ### Phase 4 — UI + docs
 - 4.1 Provider cards reflect real availability (disable + reason); surface `source`/inheritance + Refresh; DS-compliant.
 - 4.2 Integration test: selecting an unreachable provider is blocked in UI and rejected by API.
-- 4.3 Update `packages/search/AGENTS.md` (the per-tenant claim is now accurate), `packages/core/AGENTS.md` (`ModuleConfigService` scope option), and RELEASE_NOTES.
+- 4.3 Update `packages/search/AGENTS.md` (the per-tenant claim is now accurate), `packages/core/AGENTS.md` (`ModuleConfigService` scope option), and UPGRADE_NOTES.
 
 ## Test Plan / Integration Coverage
 

@@ -3,7 +3,8 @@
  */
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import EditDefinitionsPage from '../[entityId]/page'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 
@@ -64,23 +65,35 @@ jest.mock('@open-mercato/ui/backend/utils/serverErrors', () => ({
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
   readApiResultOrThrow: jest.fn(),
+  // Real optimistic-lock header wiring flows through this scope, so record the
+  // headers each mutating call is wrapped with (issue #3152) and still run it.
+  withScopedApiRequestHeaders: jest.fn((_headers: Record<string, string>, run: () => Promise<unknown>) => run()),
+}))
+
+jest.mock('@open-mercato/ui/backend/conflicts', () => ({
+  surfaceRecordConflict: jest.fn(() => false),
 }))
 
 const apiCallMock = apiCall as jest.Mock
 const readApiResultOrThrowMock = readApiResultOrThrow as jest.Mock
+const withScopedApiRequestHeadersMock = withScopedApiRequestHeaders as jest.Mock
 
-function mockLoad(entityId: string, source: 'code' | 'custom') {
+function mockLoad(entityId: string, source: 'code' | 'custom', version?: string) {
   readApiResultOrThrowMock.mockImplementation((url: string) => {
     if (url.startsWith('/api/entities/entities')) {
       return Promise.resolve({ items: [{ entityId, label: entityId, description: '', source }] })
     }
-    return Promise.resolve({ items: [], deletedKeys: [], fieldsets: [], settings: {} })
+    return Promise.resolve({ items: [], deletedKeys: [], fieldsets: [], settings: {}, version })
   })
-  apiCallMock.mockResolvedValue({ ok: true, response: {} })
+  apiCallMock.mockResolvedValue({ ok: true, response: {}, result: { ok: true } })
 }
 
 function calledUrls(): string[] {
   return apiCallMock.mock.calls.map((call) => call[0] as string)
+}
+
+function scopedHeaderSets(): Array<Record<string, string>> {
+  return withScopedApiRequestHeadersMock.mock.calls.map((call) => call[0] as Record<string, string>)
 }
 
 describe('EditDefinitionsPage submit (#3115)', () => {
@@ -112,5 +125,22 @@ describe('EditDefinitionsPage submit (#3115)', () => {
 
     await waitFor(() => expect(calledUrls()).toContain('/api/entities/definitions.batch'))
     expect(calledUrls()).toContain('/api/entities/entities')
+  })
+
+  it('sends the loaded schema version as the optimistic-lock header on the definitions batch (#3152)', async () => {
+    const entityId = 'workflows:workflow_instance'
+    mockLoad(entityId, 'code', '2026-06-01T00:00:00.000Z')
+
+    render(<EditDefinitionsPage params={{ entityId }} />)
+    await waitFor(() => expect(screen.getByTestId('crud-form-loading')).toHaveTextContent('false'))
+
+    fireEvent.click(screen.getByTestId('submit-button'))
+
+    await waitFor(() => expect(calledUrls()).toContain('/api/entities/definitions.batch'))
+    // The batch mutation is wrapped with the expected-version header carrying the
+    // token the form loaded, so a concurrent edit is rejected server-side.
+    expect(scopedHeaderSets()).toContainEqual({
+      [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-06-01T00:00:00.000Z',
+    })
   })
 })

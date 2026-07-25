@@ -1,52 +1,38 @@
-import defaultSpawn from 'cross-spawn'
+import fs from 'node:fs'
+import { spawn as defaultSpawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+
+function resolveMemorySamplerImport() {
+  const candidates = [
+    new URL('./dev-memory-sampler.mjs', import.meta.url),
+    new URL('../../../scripts/dev-memory-sampler.mjs', import.meta.url),
+  ]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(fileURLToPath(candidate))) {
+      return candidate.href
+    }
+  }
+
+  throw new Error('Unable to resolve dev memory sampler module')
+}
+
+const {
+  parsePsOutput,
+  sampleProcessTreeMemory,
+  walkTree,
+} = await import(resolveMemorySamplerImport())
 
 export function parseProcessTreeMemoryBytes(output, rootPid) {
-  const nodes = new Map()
-
-  for (const rawLine of output.split('\n')) {
-    const line = rawLine.trim()
-    if (!line) continue
-
-    const match = line.match(/^(\d+)\s+(\d+)\s+(\d+)$/)
-    if (!match) continue
-
-    const pid = Number.parseInt(match[1], 10)
-    const ppid = Number.parseInt(match[2], 10)
-    const rssKb = Number.parseInt(match[3], 10)
-    nodes.set(pid, { ppid, rssKb })
-  }
-
-  if (!nodes.has(rootPid)) return null
-
-  let totalKb = 0
-  const pending = [rootPid]
-  const seen = new Set()
-
-  while (pending.length > 0) {
-    const pid = pending.pop()
-    if (!Number.isInteger(pid) || seen.has(pid)) continue
-    seen.add(pid)
-
-    const node = nodes.get(pid)
-    if (node) {
-      totalKb += node.rssKb
-    }
-
-    for (const [candidatePid, candidateNode] of nodes.entries()) {
-      if (candidateNode.ppid === pid && !seen.has(candidatePid)) {
-        pending.push(candidatePid)
-      }
-    }
-  }
-
+  const tree = walkTree(parsePsOutput(output), rootPid)
+  if (tree.length === 0) return null
+  const totalKb = tree.reduce((acc, node) => acc + node.rssKb, 0)
   return totalKb > 0 ? totalKb * 1024 : null
 }
 
-export async function getProcessTreeMemoryBytes(rootPid, options = {}) {
+async function getProcessTreeMemoryBytesWithSpawn(rootPid, spawn) {
   if (!Number.isInteger(rootPid) || rootPid <= 0) return null
   if (process.platform === 'win32') return null
-
-  const spawn = options.spawn ?? defaultSpawn
 
   return new Promise((resolve) => {
     let inspector
@@ -75,4 +61,32 @@ export async function getProcessTreeMemoryBytes(rootPid, options = {}) {
       resolve(parseProcessTreeMemoryBytes(output, rootPid))
     })
   })
+}
+
+export async function getProcessTreeMemorySample(rootPid, options = {}) {
+  if (!Number.isInteger(rootPid) || rootPid <= 0) return null
+  if (process.platform === 'win32') return null
+
+  if (options.spawn) {
+    const bytes = await getProcessTreeMemoryBytesWithSpawn(rootPid, options.spawn)
+    if (!bytes) return null
+    return {
+      timestamp: new Date().toISOString(),
+      totalRssBytes: bytes,
+      totalRssMb: Math.round((bytes / 1024 / 1024) * 100) / 100,
+      processCount: null,
+      processClassTotals: {},
+      dominantProcessClass: null,
+      topProcesses: [],
+      processes: [],
+      cgroup: null,
+    }
+  }
+
+  return sampleProcessTreeMemory(rootPid, options)
+}
+
+export async function getProcessTreeMemoryBytes(rootPid, options = {}) {
+  const sample = await getProcessTreeMemorySample(rootPid, options.spawn ? { spawn: options.spawn } : options)
+  return sample?.totalRssBytes ?? null
 }

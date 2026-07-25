@@ -1,4 +1,7 @@
 import type { CacheStrategy } from '@open-mercato/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'cache' })
 
 const COUNTS_CACHE_PREFIX = 'inbox_ops:counts'
 const SETTINGS_CACHE_PREFIX = 'inbox_ops:settings'
@@ -34,7 +37,7 @@ export async function invalidateCountsCache(
   try {
     await cache.deleteByTags([tag])
   } catch (err) {
-    console.warn('[inbox_ops:cache] Failed to invalidate counts cache', err)
+    logger.warn('Failed to invalidate counts cache', { err })
   }
 }
 
@@ -47,7 +50,7 @@ export async function invalidateSettingsCache(
   try {
     await cache.deleteByTags([tag])
   } catch (err) {
-    console.warn('[inbox_ops:cache] Failed to invalidate settings cache', err)
+    logger.warn('Failed to invalidate settings cache', { err })
   }
 }
 

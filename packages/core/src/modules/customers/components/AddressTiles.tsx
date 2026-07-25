@@ -8,6 +8,7 @@ import { TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { AddressView, formatAddressJson, formatAddressString, type AddressFormatStrategy } from '../utils/addressFormat'
+import { normalizeCoordinateInput, validateCoordinateInput } from '@open-mercato/shared/lib/location/coordinates'
 import AddressEditor from './AddressEditor'
 import { useAddressTypes } from './detail/hooks/useAddressTypes'
 import {
@@ -40,6 +41,8 @@ export type CustomerAddressInput = {
   region?: string
   postalCode?: string
   country?: string
+  latitude?: number | null
+  longitude?: number | null
   isPrimary?: boolean
 }
 
@@ -47,6 +50,8 @@ export type CustomerAddressValue = CustomerAddressInput & {
   id: string
   purpose?: string | null
   companyName?: string | null
+  latitude?: number | null
+  longitude?: number | null
 }
 
 type CustomerAddressTilesProps = {
@@ -62,6 +67,7 @@ type CustomerAddressTilesProps = {
   onAddActionChange?: (action: { openCreateForm: () => void; addDisabled: boolean } | null) => void
   emptyStateTitle?: string
   emptyStateActionLabel?: string
+  showCoordinateFields?: boolean
 }
 
 type DraftAddressState = {
@@ -76,6 +82,8 @@ type DraftAddressState = {
   region: string
   postalCode: string
   country: string
+  latitude: string
+  longitude: string
   isPrimary: boolean
 }
 
@@ -102,6 +110,8 @@ const defaultDraft: DraftAddressState = {
   region: '',
   postalCode: '',
   country: '',
+  latitude: '',
+  longitude: '',
   isPrimary: false,
 }
 
@@ -117,6 +127,8 @@ const serverFieldMap: Record<string, DraftFieldKey> = {
   region: 'region',
   postalCode: 'postalCode',
   country: 'country',
+  latitude: 'latitude',
+  longitude: 'longitude',
   isPrimary: 'isPrimary',
 }
 
@@ -173,6 +185,7 @@ export function CustomerAddressTiles({
   onAddActionChange,
   emptyStateTitle,
   emptyStateActionLabel,
+  showCoordinateFields = false,
 }: CustomerAddressTilesProps) {
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
@@ -201,6 +214,8 @@ export function CustomerAddressTiles({
       region: t('customers.people.detail.addresses.fields.region'),
       postalCode: t('customers.people.detail.addresses.fields.postalCode'),
       country: t('customers.people.detail.addresses.fields.country'),
+      latitude: t('customers.people.detail.addresses.fields.latitude', 'Latitude'),
+      longitude: t('customers.people.detail.addresses.fields.longitude', 'Longitude'),
       isPrimary: t('customers.people.detail.addresses.fields.primary'),
     }),
     [t]
@@ -281,6 +296,8 @@ export function CustomerAddressTiles({
         region: address.region ?? '',
         postalCode: address.postalCode ?? '',
         country: address.country ? address.country.toUpperCase() : '',
+        latitude: address.latitude != null ? String(address.latitude) : '',
+        longitude: address.longitude != null ? String(address.longitude) : '',
         isPrimary: address.isPrimary ?? false,
       })
       setFieldErrors({})
@@ -309,6 +326,29 @@ export function CustomerAddressTiles({
       return
     }
 
+    const coordinateErrors: Partial<Record<DraftFieldKey, string>> = {}
+    for (const key of ['latitude', 'longitude'] as const) {
+      const result = validateCoordinateInput(key, draft[key])
+      if (result.status === 'invalid') {
+        coordinateErrors[key] = t(
+          'customers.people.detail.addresses.validation.invalid',
+          undefined,
+          { field: fieldLabels[key] }
+        )
+      } else if (result.status === 'outOfRange') {
+        coordinateErrors[key] = t(
+          'customers.people.detail.addresses.validation.coordinateRange',
+          undefined,
+          { field: fieldLabels[key], min: result.min, max: result.max }
+        )
+      }
+    }
+    if (Object.keys(coordinateErrors).length) {
+      setFieldErrors((prev) => ({ ...prev, ...coordinateErrors }))
+      setGeneralError(Object.values(coordinateErrors)[0] ?? null)
+      return
+    }
+
     const payload: CustomerAddressInput = {
       addressLine1: trimmedLine1,
       isPrimary: draft.isPrimary,
@@ -334,6 +374,14 @@ export function CustomerAddressTiles({
     if (postal !== undefined) payload.postalCode = postal
     const country = normalizeOptional(draft.country)
     if (country !== undefined) payload.country = country.toUpperCase()
+    // On edit, an emptied coordinate must be sent as `null` to clear the stored value; omitting it
+    // makes the partial-update handler keep the old coordinate. On create there is nothing to clear.
+    const latitude = normalizeCoordinateInput(draft.latitude)
+    if (latitude !== undefined) payload.latitude = latitude
+    else if (editingId) payload.latitude = null
+    const longitude = normalizeCoordinateInput(draft.longitude)
+    if (longitude !== undefined) payload.longitude = longitude
+    else if (editingId) payload.longitude = null
 
     setSaving(true)
     setGeneralError(null)
@@ -450,7 +498,7 @@ export function CustomerAddressTiles({
           <AddressEditor
             value={draft}
             onChange={(next) => {
-              setDraft(next)
+              setDraft({ ...next, latitude: next.latitude ?? '', longitude: next.longitude ?? '' })
               if (Object.keys(fieldErrors).length) {
                 const nextErrors = { ...fieldErrors }
                 ;(Object.keys(nextErrors) as DraftFieldKey[]).forEach((key) => {
@@ -467,6 +515,7 @@ export function CustomerAddressTiles({
             disabled={disableActions}
             errors={fieldErrors}
             showFormatHint={!formatLoading}
+            showCoordinateFields={showCoordinateFields}
           />
           {generalError ? <p className="text-xs text-status-error-text">{generalError}</p> : null}
           <div className="flex flex-wrap justify-end gap-2">
@@ -502,6 +551,7 @@ export function CustomerAddressTiles({
       handleSave,
       generalError,
       saving,
+      showCoordinateFields,
       t,
     ]
   )

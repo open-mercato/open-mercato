@@ -11,7 +11,7 @@ import {
   __test__,
 } from '../profile-dev-rss.mjs'
 
-test('parsePsOutput parses linux/darwin `ps -A -o pid=,ppid=,rss=,command=` output', () => {
+test('parsePsOutput parses linux/darwin `ps -A -o pid=,ppid=,rss=,args=` output', () => {
   const sample = [
     '   1234   1233    51200 node /home/me/.yarn/lib/yarn.js dev',
     '   1235   1234    81920 node ./scripts/dev.mjs',

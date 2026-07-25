@@ -9,6 +9,9 @@ import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './job
 import { purgeOrphans } from './stale'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { isSearchDebugEnabled } from './search-tokens'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('query_index').child({ component: 'reindexer' })
 
 export type ReindexJobOptions = {
   entityType: string
@@ -153,7 +156,7 @@ export async function reindexEntity(
   const table = resolveRegisteredEntityTableName(em, entityType)
   if (!table || entityType === 'query_index:search_token' || table === 'search_tokens') {
     if (!table) {
-      console.warn('[HybridQueryEngine] Refusing to reindex unregistered entity type', {
+      logger.warn('Refusing to reindex unregistered entity type', {
         entityType,
       })
     }
@@ -319,7 +322,7 @@ export async function reindexEntity(
         }
         await purgeQuery.execute()
       } catch (error) {
-        console.warn('[HybridQueryEngine] Failed to purge index rows before force reindex', {
+        logger.warn('Failed to purge index rows before force reindex', {
           entityType,
           tenantId: tenantId ?? null,
           organizationId: organizationId ?? null,
@@ -337,7 +340,7 @@ export async function reindexEntity(
           try {
             await eventBus.emitEvent('query_index.vectorize_purge', payload)
           } catch (err) {
-            console.warn('[HybridQueryEngine] Failed to queue vector purge before force reindex', {
+            logger.warn('Failed to queue vector purge before force reindex', {
               entityType,
               tenantId: tenantId ?? null,
               organizationId: organizationId ?? null,
@@ -345,7 +348,7 @@ export async function reindexEntity(
             })
           }
         } else {
-          console.warn('[HybridQueryEngine] Skipping vector purge for force reindex without tenant scope', {
+          logger.warn('Skipping vector purge for force reindex without tenant scope', {
             entityType,
           })
         }
@@ -414,7 +417,7 @@ export async function reindexEntity(
           dekKeyCache,
         )
         if (isSearchDebugEnabled()) {
-          console.info('[reindex:decrypt]', buildReindexDecryptDebugPayload(targetEntity, result as Record<string, unknown>, scope))
+          logger.debug('Reindex decrypt', buildReindexDecryptDebugPayload(targetEntity, result as Record<string, unknown>, scope))
         }
         return result
       }
@@ -499,7 +502,7 @@ export async function reindexEntity(
           olderThan: jobStartedAt,
         })
       } catch (error) {
-        console.warn('[HybridQueryEngine] Failed to prune vector orphans after reindex', {
+        logger.warn('Failed to prune vector orphans after reindex', {
           entityType,
           tenantId: tenantId ?? null,
           organizationId: organizationId ?? null,

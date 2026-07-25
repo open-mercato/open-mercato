@@ -13,6 +13,9 @@ import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 /**
  * StartPreCondition interface matching the schema in validators.ts
@@ -180,7 +183,7 @@ export function StartPreConditionsEditor({
         })
       }
     } catch (err) {
-      console.error(`Failed to fetch rule details for ${ruleId}:`, err)
+      logger.error('Failed to fetch rule details', { ruleId, err })
       setConditionsWithDetails((prev) => {
         const updated = [...prev]
         if (updated[index]) {

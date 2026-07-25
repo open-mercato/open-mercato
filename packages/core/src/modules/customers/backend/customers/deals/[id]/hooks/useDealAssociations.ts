@@ -1,7 +1,9 @@
 import * as React from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type {
   CompanyAssociationApiRecord,
@@ -95,6 +97,8 @@ type UseDealAssociationsOptions = {
   data: DealDetailPayload | null
   setData: React.Dispatch<React.SetStateAction<DealDetailPayload | null>>
   runMutationWithContext: GuardedMutationRunner
+  /** Re-fetch the deal detail; wired into the conflict bar's refresh action on a 409. */
+  onRefresh?: (() => void) | null
 }
 
 type UseDealAssociationsResult = {
@@ -113,6 +117,7 @@ export function useDealAssociations({
   data,
   setData,
   runMutationWithContext,
+  onRefresh,
 }: UseDealAssociationsOptions): UseDealAssociationsResult {
   const t = useT()
   const [peopleEditorIds, setPeopleEditorIds] = React.useState<string[]>([])
@@ -263,7 +268,10 @@ export function useDealAssociations({
       setPeopleSaving(true)
       try {
         await runMutationWithContext(
-          () => updateCrud('customers/deals', { id: currentDealId, personIds: nextIds }),
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(data?.deal.updatedAt),
+            () => updateCrud('customers/deals', { id: currentDealId, personIds: nextIds }),
+          ),
           { id: currentDealId, personIds: nextIds, operation: 'updateDealPeople' },
         )
         const nextPeople = await loadPeopleAssociations(nextIds.slice(0, 3))
@@ -277,7 +285,7 @@ export function useDealAssociations({
               }
             : prev,
         )
-      } catch {
+      } catch (error) {
         setPeopleEditorIds(previousIds)
         setData((prev) =>
           prev
@@ -289,12 +297,16 @@ export function useDealAssociations({
               }
             : prev,
         )
-        flash(t('customers.deals.detail.peopleUpdateError', 'Failed to update linked people.'), 'error')
+        // runMutationWithContext already surfaces the conflict bar on a 409; only
+        // fall back to the generic flash when this is not a record conflict.
+        if (!surfaceRecordConflict(error, t, { onRefresh: onRefresh ?? null })) {
+          flash(t('customers.deals.detail.peopleUpdateError', 'Failed to update linked people.'), 'error')
+        }
       } finally {
         setPeopleSaving(false)
       }
     },
-    [currentDealId, data?.people, loadPeopleAssociations, peopleEditorIds, runMutationWithContext, setData, t],
+    [currentDealId, data?.deal.updatedAt, data?.people, loadPeopleAssociations, onRefresh, peopleEditorIds, runMutationWithContext, setData, t],
   )
 
   const handleCompaniesAssociationsChange = React.useCallback(
@@ -307,7 +319,10 @@ export function useDealAssociations({
       setCompaniesSaving(true)
       try {
         await runMutationWithContext(
-          () => updateCrud('customers/deals', { id: currentDealId, companyIds: nextIds }),
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(data?.deal.updatedAt),
+            () => updateCrud('customers/deals', { id: currentDealId, companyIds: nextIds }),
+          ),
           { id: currentDealId, companyIds: nextIds, operation: 'updateDealCompanies' },
         )
         const nextCompanies = await loadCompanyAssociations(nextIds.slice(0, 3))
@@ -321,7 +336,7 @@ export function useDealAssociations({
               }
             : prev,
         )
-      } catch {
+      } catch (error) {
         setCompaniesEditorIds(previousIds)
         setData((prev) =>
           prev
@@ -333,7 +348,11 @@ export function useDealAssociations({
               }
             : prev,
         )
-        flash(t('customers.deals.detail.companiesUpdateError', 'Failed to update linked companies.'), 'error')
+        // runMutationWithContext already surfaces the conflict bar on a 409; only
+        // fall back to the generic flash when this is not a record conflict.
+        if (!surfaceRecordConflict(error, t, { onRefresh: onRefresh ?? null })) {
+          flash(t('customers.deals.detail.companiesUpdateError', 'Failed to update linked companies.'), 'error')
+        }
       } finally {
         setCompaniesSaving(false)
       }
@@ -342,7 +361,9 @@ export function useDealAssociations({
       companiesEditorIds,
       currentDealId,
       data?.companies,
+      data?.deal.updatedAt,
       loadCompanyAssociations,
+      onRefresh,
       runMutationWithContext,
       setData,
       t,

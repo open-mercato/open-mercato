@@ -8,6 +8,9 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { InteractionSummary } from './types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 interface ActivitiesDayStripProps {
   entityId: string
@@ -243,7 +246,7 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
         setFetchedEvents(Array.isArray(payload?.items) ? payload.items : [])
       } catch (err) {
         if ((err as { name?: string } | null)?.name !== 'AbortError') {
-          console.warn('[ActivitiesDayStrip] failed to load interactions', err)
+          logger.warn('failed to load interactions', { component: 'ActivitiesDayStrip', err })
         }
         setFetchedEvents([])
       }

@@ -395,7 +395,7 @@ export function findTemplateFiles(dir: string, rootDir = dir): string[] {
   }
 
   const findings: string[] = []
-  const entries = readdirSync(dir).sort()
+  const entries = readdirSync(dir).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
   for (const entry of entries) {
     const entryPath = join(dir, entry)

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -25,6 +26,11 @@ const decodeParam = (value: string | string[] | undefined): string => {
   }
 }
 
+const rolePerspectiveDeleteBodySchema = z.object({
+  roleExpectedUpdatedAtByRoleId: z.record(z.string().uuid(), z.string().min(1).nullable()).optional(),
+  roleExpectedUpdatedAtByPerspectiveId: z.record(z.string().uuid(), z.string().min(1).nullable()).optional(),
+}).optional()
+
 export async function DELETE(req: Request, ctx: { params: { tableId: string; roleId: string } }) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -33,6 +39,22 @@ export async function DELETE(req: Request, ctx: { params: { tableId: string; rol
   const roleId = decodeParam(ctx.params?.roleId).trim()
   if (!tableId || !roleId) {
     return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 })
+  }
+
+  let parsedBody: z.infer<typeof rolePerspectiveDeleteBodySchema> = undefined
+  if (req.body && (req.headers.get('content-type') ?? '').includes('application/json')) {
+    try {
+      const rawBody = await req.text()
+      if (rawBody.trim().length > 0) {
+        const parsed = rolePerspectiveDeleteBodySchema.safeParse(JSON.parse(rawBody))
+        if (!parsed.success) {
+          return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
+        }
+        parsedBody = parsed.data
+      }
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+    }
   }
 
   const container = await createRequestContainer()
@@ -67,12 +89,23 @@ export async function DELETE(req: Request, ctx: { params: { tableId: string; rol
     return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
 
-  const clearedCount = await clearRolePerspectives(em, cache, {
-    tableId,
-    tenantId: auth.tenantId ?? null,
-    organizationId: auth.orgId ?? null,
-    roleIds: [roleId],
-  })
+  let clearedCount = 0
+  try {
+    clearedCount = await clearRolePerspectives(em, cache, {
+      tableId,
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
+      roleIds: [roleId],
+      expectedUpdatedAtByRoleId: parsedBody?.roleExpectedUpdatedAtByRoleId,
+      expectedUpdatedAtByPerspectiveId: parsedBody?.roleExpectedUpdatedAtByPerspectiveId,
+      request: req,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    throw err
+  }
 
   if (clearedCount > 0 && guardResult?.ok && guardResult.shouldRunAfterSuccess) {
     await runCrudMutationGuardAfterSuccess(container, {
@@ -100,6 +133,11 @@ const rolePerspectiveDeleteDoc: OpenApiMethodDoc = {
   summary: 'Clear role perspectives for a table',
   description: 'Removes all role-level perspectives associated with the provided role identifier for the table.',
   tags: [perspectivesTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: rolePerspectiveDeleteBodySchema,
+    description: 'Optional per-role or per-perspective optimistic-lock tokens.',
+  },
   responses: [
     { status: 200, description: 'Role perspectives cleared.', schema: perspectivesSuccessSchema },
   ],
@@ -107,6 +145,7 @@ const rolePerspectiveDeleteDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Invalid identifiers supplied', schema: perspectivesErrorSchema },
     { status: 401, description: 'Authentication required', schema: perspectivesErrorSchema },
     { status: 403, description: 'Missing perspectives.role_defaults feature', schema: perspectivesErrorSchema },
+    { status: 409, description: 'Optimistic lock conflict', schema: perspectivesErrorSchema },
     { status: 404, description: 'Role not found in scope', schema: perspectivesErrorSchema },
   ],
 }

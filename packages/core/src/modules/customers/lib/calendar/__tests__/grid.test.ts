@@ -1,3 +1,4 @@
+import { isSameDay } from 'date-fns/isSameDay'
 import {
   applyWeekendVisibility,
   buildDragRange,
@@ -36,6 +37,42 @@ describe('applyWeekendVisibility', () => {
   it('falls back to the original days when every day is a weekend (day view)', () => {
     const weekendOnly = [new Date(2026, 5, 13), new Date(2026, 5, 14)]
     expect(applyWeekendVisibility(weekendOnly, false)).toEqual(weekendOnly)
+  })
+
+  it('keeps today even when it is a weekend and weekends are hidden (issue #3483)', () => {
+    const sunday = new Date(2026, 5, 14, 0, 0, 0, 0)
+    const visible = applyWeekendVisibility(weekDays(), false, sunday)
+    expect(visible).toHaveLength(6)
+    expect(visible.some((day) => isSameDay(day, sunday))).toBe(true)
+    // Saturday is still hidden — only today's weekend column is restored.
+    expect(visible.some((day) => isSameDay(day, new Date(2026, 5, 13)))).toBe(false)
+  })
+
+  it('matches today by calendar day, ignoring the time of day', () => {
+    const saturdayAfternoon = new Date(2026, 5, 13, 16, 30, 0, 0)
+    const visible = applyWeekendVisibility(weekDays(), false, saturdayAfternoon)
+    expect(visible).toHaveLength(6)
+    expect(visible.some((day) => isSameDay(day, new Date(2026, 5, 13)))).toBe(true)
+    expect(visible.some((day) => isSameDay(day, new Date(2026, 5, 14)))).toBe(false)
+  })
+
+  it('does not add a weekend column when today is a weekday', () => {
+    const wednesday = new Date(2026, 5, 10, 0, 0, 0, 0)
+    const visible = applyWeekendVisibility(weekDays(), false, wednesday)
+    expect(visible).toHaveLength(5)
+    expect(visible.every((day) => !isWeekendDay(day))).toBe(true)
+  })
+
+  it('does not add a weekend column when today is outside the visible week', () => {
+    const nextWeekSunday = new Date(2026, 5, 21, 0, 0, 0, 0)
+    const visible = applyWeekendVisibility(weekDays(), false, nextWeekSunday)
+    expect(visible).toHaveLength(5)
+    expect(visible.every((day) => !isWeekendDay(day))).toBe(true)
+  })
+
+  it('still shows the full week when weekends are enabled, ignoring the keep date', () => {
+    const sunday = new Date(2026, 5, 14, 0, 0, 0, 0)
+    expect(applyWeekendVisibility(weekDays(), true, sunday)).toHaveLength(7)
   })
 })
 

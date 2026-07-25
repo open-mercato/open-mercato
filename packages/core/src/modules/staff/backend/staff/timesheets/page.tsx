@@ -19,6 +19,9 @@ import { TimerBar } from '../../../lib/timesheets-ui/TimerBar'
 import { AddRowDropdown } from '../../../lib/timesheets-ui/AddRowDropdown'
 import { CreateProjectDialog } from '../../../lib/timesheets-ui/CreateProjectDialog'
 import { ProjectColorDot } from '../../../lib/timesheets-ui/ProjectColorDot'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 // --- Types ---
 
@@ -87,7 +90,7 @@ function minutesToDecimal(minutes: number): string {
 function decimalToMinutes(value: string): number {
   const trimmed = value.trim()
   if (!trimmed) return 0
-  const num = parseFloat(trimmed)
+  const num = parseFloat(trimmed.replace(',', '.'))
   if (isNaN(num) || num < 0) return 0
   return Math.min(Math.round(num * 60), 1440)
 }
@@ -341,7 +344,7 @@ export default function MyTimesheetsPage() {
       setDirty({})
       setRawText({})
     } catch (error) {
-      console.error('staff.timesheets.my.load', error)
+      logger.error('staff.timesheets.my.load', { err: error })
       flash(t('staff.timesheets.my.errors.load', 'Failed to load timesheets.'), 'error')
     } finally {
       isInitialLoadRef.current = false
@@ -365,15 +368,15 @@ export default function MyTimesheetsPage() {
     })
   }, [])
 
-  const handleCellBlur = React.useCallback((projectId: string, dateKey: string) => {
-    const text = rawText[projectId]?.[dateKey]
+  const handleCellBlur = React.useCallback((projectId: string, dateKey: string, currentValue: string) => {
+    const editedText = rawText[projectId]?.[dateKey]
+    const text = editedText ?? currentValue
     if (text === undefined) return
     const minutes = decimalToMinutes(text)
     const cellEntries = entries[projectId]?.[dateKey] ?? []
     const existingMinutes = cellEntries.reduce((sum, e) => sum + e.minutes, 0)
 
-    // Only mark dirty if the value actually changed
-    if (minutes !== existingMinutes || cellEntries.length > 0) {
+    if (minutes !== existingMinutes || (editedText !== undefined && cellEntries.length > 0)) {
       setDirty((prev) => {
         const projectEntries: Record<string, CellEntry> = { ...(prev[projectId] ?? {}) }
         const firstId = cellEntries[0]?.id
@@ -446,7 +449,7 @@ export default function MyTimesheetsPage() {
       flash(t('staff.timesheets.my.saved', 'Timesheet saved.'), 'success')
       await loadData()
     } catch (error) {
-      console.error('staff.timesheets.my.save', error)
+      logger.error('staff.timesheets.my.save', { err: error })
       flash(t('staff.timesheets.my.errors.save', 'Failed to save timesheets.'), 'error')
     } finally {
       setIsSaving(false)
@@ -563,7 +566,7 @@ export default function MyTimesheetsPage() {
         return [...prev, project]
       })
     } catch (error) {
-      console.error('staff.timesheets.my.addRow', error)
+      logger.error('staff.timesheets.my.addRow', { err: error })
       flash(t('staff.timesheets.my.addRow.error', 'Could not add the project. Please try again.'), 'error')
     }
   }, [t, runMutation, mutationContextId, staffMemberId, retryLastMutation])
@@ -610,7 +613,7 @@ export default function MyTimesheetsPage() {
         return next
       })
     } catch (error) {
-      console.error('staff.timesheets.my.removeRow', error)
+      logger.error('staff.timesheets.my.removeRow', { err: error })
       flash(t('staff.timesheets.my.removeRow.error', 'Could not remove the project. Please try again.'), 'error')
     }
   }, [confirm, t, runMutation, mutationContextId, staffMemberId, retryLastMutation])
@@ -637,7 +640,7 @@ export default function MyTimesheetsPage() {
         mutationPayload: payload,
       })
     } catch (error) {
-      console.error('staff.timesheets.my.createProject.visibility', error)
+      logger.error('staff.timesheets.my.createProject.visibility', { err: error })
     }
     setProjects((prev) => [...prev, project])
     setCreateDialogOpen(false)
@@ -851,7 +854,7 @@ export default function MyTimesheetsPage() {
                                 hover:border-muted-foreground/40 focus:border-primary focus:bg-background focus:outline-none`}
                               value={rawText[project.id]?.[dateKey] ?? minutesToDecimal(cellMinutes)}
                               onChange={(e) => handleCellChange(project.id, dateKey, e.target.value)}
-                              onBlur={() => handleCellBlur(project.id, dateKey)}
+                              onBlur={(event) => handleCellBlur(project.id, dateKey, event.currentTarget.value)}
                               placeholder={t('staff.timesheets.my.durationPlaceholder', '0')}
                             />
                           )}

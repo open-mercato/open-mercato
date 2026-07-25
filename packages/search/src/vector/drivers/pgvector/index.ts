@@ -6,7 +6,7 @@ type PgPoolClient = {
   query<T = any>(text: string, params?: any[]): Promise<PgPoolQueryResult<T>>
   release(): void
 }
-type PgPool = {
+export type PgPool = {
   connect(): Promise<PgPoolClient>
   query<T = any>(text: string, params?: any[]): Promise<PgPoolQueryResult<T>>
   end(): Promise<void>

@@ -15,6 +15,9 @@ import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { emitCommunicationChannelsEvent } from '../events'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import type { NormalizedInboundMessage } from '../lib/adapter'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'poll-channel' })
 
 /**
  * Job payload for the `communication-channels-poll` queue.
@@ -105,9 +108,7 @@ export default async function handle(
     scope,
   )
   if (!channel) {
-    console.warn(
-      `[communication_channels:poll-channel] channel ${channelId} not found (skipping)`,
-    )
+    logger.warn('channel not found (skipping)', { channelId })
     return
   }
   if (!channel.isActive) return
@@ -119,9 +120,7 @@ export default async function handle(
 
   const adapter = adapterRegistry?.get(channel.providerKey)
   if (!adapter) {
-    console.warn(
-      `[communication_channels:poll-channel] no adapter for provider '${channel.providerKey}' (channel ${channelId})`,
-    )
+    logger.warn('no adapter for provider', { providerKey: channel.providerKey, channelId })
     return
   }
   // Adapter opted out of polling — webhook providers.
@@ -241,9 +240,7 @@ export default async function handle(
     } catch (err) {
       const classification = classifyOutboundError(err)
       if (classification.transient) {
-        console.warn(
-          `[communication_channels:poll-channel] transient ingest failure for channel ${channel.id}; aborting page so cursor is NOT advanced. Reason: ${classification.message}`,
-        )
+        logger.warn('transient ingest failure; aborting page so cursor is not advanced', { channelId: channel.id, reason: classification.message })
         transientIngestAbort = true
         break
       }
@@ -259,9 +256,7 @@ export default async function handle(
         err,
         errorMessage: classification.message,
       })
-      console.warn(
-        `[communication_channels:poll-channel] permanent ingest failure for channel ${channel.id}; recorded in dead-letter and advancing cursor past message ${message.externalMessageId}. Reason: ${classification.message}`,
-      )
+      logger.warn('permanent ingest failure; recorded in dead-letter and advancing cursor', { channelId: channel.id, externalMessageId: message.externalMessageId, reason: classification.message })
     }
   }
 
@@ -324,9 +319,7 @@ export default async function handle(
         { delayMs: 250 },
       )
     } else {
-      console.warn(
-        `[communication_channels:poll-channel] drain page cap (${MAX_DRAIN_PAGES}) reached for channel ${channel.id}; stopping re-enqueue until the next scheduled tick`,
-      )
+      logger.warn('drain page cap reached; stopping re-enqueue until the next scheduled tick', { maxDrainPages: MAX_DRAIN_PAGES, channelId: channel.id })
     }
   }
 }

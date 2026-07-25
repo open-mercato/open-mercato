@@ -23,6 +23,7 @@ import type {
 import { createProductUnitConversionDraft } from "./productForm";
 import { REFERENCE_UNIT_CODES } from "@open-mercato/shared/lib/units/unitCodes";
 import { toTrimmedOrNull } from "./productFormUtils";
+import { useUnitPriceDisplayEnabled } from "./hooks/useUnitPriceDisplayEnabled";
 
 type UnitDictionaryEntry = {
   id?: string;
@@ -134,6 +135,7 @@ export function ProductUomSection({
   embedded = false,
 }: ProductUomSectionProps) {
   const t = useT();
+  const { enabled: unitPriceDisplayEnabled } = useUnitPriceDisplayEnabled();
   const [unitOptions, setUnitOptions] = React.useState<UnitOption[]>([]);
   const [loadingUnits, setLoadingUnits] = React.useState(false);
   const [errorLoadingUnits, setErrorLoadingUnits] = React.useState(false);
@@ -473,6 +475,7 @@ export function ProductUomSection({
         </div>
       </div>
 
+      {unitPriceDisplayEnabled ? (
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Checkbox
@@ -564,6 +567,7 @@ export function ProductUomSection({
           </p>
         ) : null}
       </div>
+      ) : null}
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-2">

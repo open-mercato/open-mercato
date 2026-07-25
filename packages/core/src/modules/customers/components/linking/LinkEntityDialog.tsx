@@ -25,6 +25,9 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export type LinkEntityKind = 'company' | 'person' | 'deal'
 
@@ -331,7 +334,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
         if (cancelled) return
         setOptionCache((prev) => mergeOptionMaps(prev, entries))
       })
-      .catch((error) => console.warn('[LinkEntityDialog] fetchByIds failed', error))
+      .catch((error) => logger.warn('fetchByIds failed', { component: 'LinkEntityDialog', err: error }))
     return () => {
       cancelled = true
     }
@@ -353,7 +356,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
         if (cancelled) return
         setDetails((prev) => ({ ...prev, [focusedId]: result }))
       })
-      .catch((error) => console.warn('[LinkEntityDialog] fetchDetails failed', error))
+      .catch((error) => logger.warn('fetchDetails failed', { component: 'LinkEntityDialog', err: error }))
       .finally(() => {
         if (!cancelled) setDetailsLoadingId(null)
       })

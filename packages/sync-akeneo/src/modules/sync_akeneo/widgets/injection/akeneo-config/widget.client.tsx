@@ -1135,7 +1135,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
   }, [loadFirstImportStatus])
 
   const attributeCodes = React.useMemo(
-    () => (discovery?.attributes ?? []).map((attribute) => attribute.code).sort(),
+    () => (discovery?.attributes ?? []).map((attribute) => attribute.code).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     [discovery],
   )
   const customFieldRows = React.useMemo(

@@ -33,6 +33,9 @@ import {
   DialogDescription,
 } from '@open-mercato/ui/primitives/dialog'
 import { TranslationManager } from '@open-mercato/core/modules/translations/components/TranslationManager'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'DictionaryEntriesEditor' })
 
 type Entry = DictionaryEntryRecord
 
@@ -224,7 +227,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
       if (surfaceRecordConflict(err, t)) {
         return
       }
-      console.error('Failed to save dictionary entry', err)
+      logger.error('Failed to save dictionary entry', { err })
       flash(t('dictionaries.config.entries.error.save', 'Failed to save dictionary entry.'), 'error')
     } finally {
       setIsSaving(false)
@@ -276,10 +279,12 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         await invalidateDictionaryEntries(queryClient, dictionaryId)
         flash(t('dictionaries.config.entries.success.delete', 'Dictionary entry deleted.'), 'success')
       } catch (err) {
+        // Route a concurrent-edit 409 through the single conflict surface (matching
+        // the entry save path); fall back to a flash for any other delete failure.
         if (surfaceRecordConflict(err, t)) {
           return
         }
-        console.error('Failed to delete dictionary entry', err)
+        logger.error('Failed to delete dictionary entry', { err })
         flash(t('dictionaries.config.entries.error.delete', 'Failed to delete dictionary entry.'), 'error')
       } finally {
         setIsDeleting(false)
@@ -466,6 +471,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
             <AppearanceSelector
               icon={appearance.icon}
               color={appearance.color}
+              previewLabel={formState.label.trim() || formState.value.trim()}
               onIconChange={(next) => {
                 appearance.setIcon(next)
                 setFormState((prev) => ({ ...prev, icon: next }))

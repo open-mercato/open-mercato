@@ -1,5 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customer_accounts').child({ component: 'unlink-on-person-delete' })
 
 export const metadata = {
   event: 'customers.person.deleted',
@@ -25,6 +28,6 @@ export default async function handle(
       { personEntityId: null, updatedAt: new Date() },
     )
   } catch (err) {
-    console.error('[customer_accounts:unlink-on-person-delete] Failed to clear personEntityId on customer users:', err)
+    logger.error('Failed to clear personEntityId on customer users', { err })
   }
 }

@@ -128,25 +128,26 @@ test.describe('TC-FT-007: Check endpoints with missing/invalid toggles and autho
       expect(mismatchBody?.ok).toBe(false)
       expect(mismatchBody?.error?.code).toBe('TYPE_MISMATCH')
 
-      const superadminBypassResponse = await apiRequest(
+      const superadminResolvedResponse = await apiRequest(
         request,
         'GET',
         `/api/feature_toggles/check/boolean?identifier=${encodeURIComponent(identifiers.boolean)}`,
         { token: superadminToken },
       )
-      expect(superadminBypassResponse.status()).toBe(200)
-      const superadminBypassBody = await readJsonSafe<{
+      expect(superadminResolvedResponse.status()).toBe(200)
+      const superadminResolvedBody = await readJsonSafe<{
         ok?: boolean
         value?: boolean
-        resolution?: { source?: string; toggleId?: string; tenantId?: string }
-      }>(superadminBypassResponse)
-      expect(superadminBypassBody?.ok).toBe(true)
-      expect(superadminBypassBody?.value).toBe(true)
-      expect(superadminBypassBody?.resolution).toMatchObject({
-        source: 'override',
-        toggleId: 'superadmin',
-        tenantId: 'superadmin',
+        resolution?: { source?: string; valueType?: string; toggleId?: string; tenantId?: string }
+      }>(superadminResolvedResponse)
+      expect(superadminResolvedBody?.ok).toBe(true)
+      expect(superadminResolvedBody?.value).toBe(true)
+      expect(superadminResolvedBody?.resolution).toMatchObject({
+        source: 'default',
+        valueType: 'boolean',
+        toggleId: createdToggleIds[0],
       })
+      expect(typeof superadminResolvedBody?.resolution?.tenantId).toBe('string')
     } finally {
       for (const toggleId of createdToggleIds) {
         await deleteFeatureToggleIfExists(request, superadminToken, toggleId)

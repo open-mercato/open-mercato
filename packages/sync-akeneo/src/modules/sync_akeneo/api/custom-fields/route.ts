@@ -60,8 +60,8 @@ async function loadActiveKeys(auth: { orgId?: string | null; tenantId?: string |
   }
 
   return {
-    productKeys: Array.from(productKeys).sort(),
-    variantKeys: Array.from(variantKeys).sort(),
+    productKeys: Array.from(productKeys).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+    variantKeys: Array.from(variantKeys).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
   }
 }
 

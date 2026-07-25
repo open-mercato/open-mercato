@@ -4,6 +4,7 @@
 import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ConfirmDealLostDialog } from '../ConfirmDealLostDialog'
+import { loadDictionaryEntriesByKey } from '@open-mercato/core/modules/dictionaries/lib/clientEntries'
 
 jest.mock('@open-mercato/core/modules/dictionaries/lib/clientEntries', () => ({
   loadDictionaryEntriesByKey: jest.fn().mockResolvedValue([
@@ -43,10 +44,11 @@ jest.mock('@open-mercato/ui/primitives/alert', () => ({
 jest.mock('@open-mercato/ui/primitives/button', () => ({
   Button: ({
     children,
+    disabled,
     onClick,
     type,
   }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type={type} onClick={onClick}>
+    <button type={type} disabled={disabled} onClick={onClick}>
       {children}
     </button>
   ),
@@ -63,6 +65,7 @@ const defaultProps = {
   dealTitle: 'Acme Corp deal',
   onClose: jest.fn(),
 }
+const mockLoadDictionaryEntriesByKey = loadDictionaryEntriesByKey as jest.MockedFunction<typeof loadDictionaryEntriesByKey>
 
 function cmdEnter(element: HTMLElement) {
   fireEvent.keyDown(element, { key: 'Enter', metaKey: true })
@@ -80,19 +83,26 @@ async function selectLossReason() {
 describe('ConfirmDealLostDialog', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockLoadDictionaryEntriesByKey.mockResolvedValue([
+      { id: 'reason-price', value: 'price', label: 'Price', description: 'Too expensive' },
+    ])
   })
 
-  it('shows a validation error and does not call onConfirm when no reason is selected', async () => {
+  it('disables confirmation until a loss reason is selected', async () => {
     const onConfirm = jest.fn()
     render(<ConfirmDealLostDialog {...defaultProps} onConfirm={onConfirm} />)
 
-    // Wait for the async dictionary load to settle before asserting
     await act(async () => {})
+
+    const confirmButton = screen.getByText('Mark as Lost').closest('button')
+    expect(confirmButton).toBeDisabled()
 
     cmdEnter(screen.getByTestId('dialog-content'))
 
     expect(onConfirm).not.toHaveBeenCalled()
-    expect(screen.getByText('Please select a loss reason')).toBeInTheDocument()
+
+    await selectLossReason()
+    expect(confirmButton).not.toBeDisabled()
   })
 
   it('calls onConfirm once when Cmd+Enter is pressed with a reason selected', async () => {
@@ -106,6 +116,21 @@ describe('ConfirmDealLostDialog', () => {
 
     expect(onConfirm).toHaveBeenCalledTimes(1)
     expect(onConfirm).toHaveBeenCalledWith({ lossReasonId: 'reason-price', lossNotes: undefined })
+  })
+
+  it('shows an empty state and disables confirmation when no loss reasons are configured', async () => {
+    mockLoadDictionaryEntriesByKey.mockResolvedValueOnce([])
+    const onConfirm = jest.fn()
+    render(<ConfirmDealLostDialog {...defaultProps} onConfirm={onConfirm} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByText('No loss reasons are configured.')).toHaveLength(2)
+    })
+
+    const confirmButton = screen.getByText('Mark as Lost').closest('button')
+    expect(confirmButton).toBeDisabled()
+    cmdEnter(screen.getByTestId('dialog-content'))
+    expect(onConfirm).not.toHaveBeenCalled()
   })
 
   it('ignores a second Cmd+Enter while the first confirmation is still in-flight', async () => {

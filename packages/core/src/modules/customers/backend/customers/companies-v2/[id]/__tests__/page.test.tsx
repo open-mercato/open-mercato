@@ -14,6 +14,7 @@ let activeTabParam: string | null = 'activity-log'
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
   useSearchParams: () => ({ get: (key: string) => (key === 'tab' ? activeTabParam : null) }),
+  usePathname: () => '/backend/customers/companies-v2/test',
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({

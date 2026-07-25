@@ -90,7 +90,7 @@ export function formatVariablePlan(
   railwayToken?: string,
 ): string[] {
   return Object.keys(variables)
-    .sort()
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
     .map((key) => `+ ADD ${key}=${formatVariableValue(key, variables[key] ?? '', railwayToken)}`)
 }
 

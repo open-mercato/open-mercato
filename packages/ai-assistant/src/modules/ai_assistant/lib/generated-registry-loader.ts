@@ -14,9 +14,15 @@
  * `@open-mercato/shared/lib/bootstrap/dynamicLoader` and works in both the
  * monorepo and standalone apps.
  */
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import path from 'node:path'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+
+const logger = createLogger('ai_assistant')
+
+const requireFromHere = createRequire(import.meta.url)
 
 /**
  * Locate a generated registry file (e.g. `ai-tools.generated.ts`) without
@@ -68,7 +74,8 @@ export function findGeneratedFile(fileName: string): string | null {
  * (e.g. `next/server` package-exports map).
  */
 export async function compileAndImportGenerated(tsPath: string): Promise<Record<string, unknown>> {
-  const jsPath = tsPath.replace(/\.ts$/, '.mjs')
+  const useJestCjsArtifact = isJestRuntime()
+  const jsPath = tsPath.replace(/\.ts$/, useJestCjsArtifact ? '.jest.cjs' : '.mjs')
   // appRoot is two directories up from `.mercato/generated/<file>.ts`.
   const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
 
@@ -83,10 +90,14 @@ export async function compileAndImportGenerated(tsPath: string): Promise<Record<
   if (needsCompile) {
     const esbuild = await import('esbuild')
     const tsSource = fs.readFileSync(tsPath, 'utf-8')
-    const aliasRewritten = rewriteGeneratedAliasImports(tsSource, appRoot)
+    const aliasRewritten = rewriteGeneratedAliasImportsForRuntime(
+      tsSource,
+      appRoot,
+      useJestCjsArtifact ? 'cjs' : 'esm',
+    )
     const result = await esbuild.transform(aliasRewritten, {
       loader: 'ts',
-      format: 'esm',
+      format: useJestCjsArtifact ? 'cjs' : 'esm',
       target: 'node18',
       sourcemap: false,
       sourcefile: tsPath,
@@ -94,7 +105,14 @@ export async function compileAndImportGenerated(tsPath: string): Promise<Record<
     fs.writeFileSync(jsPath, result.code)
   }
 
+  if (useJestCjsArtifact) {
+    return requireFromHere(jsPath) as Record<string, unknown>
+  }
   return (await import(pathToFileURL(jsPath).href)) as Record<string, unknown>
+}
+
+function isJestRuntime(): boolean {
+  return typeof process.env.JEST_WORKER_ID === 'string'
 }
 
 const UNSAFE_JS_STRING_CHAR_ESCAPES: Record<number, string> = {
@@ -153,6 +171,14 @@ function toSafeJsStringLiteral(value: string): string {
  * packages, sibling `./` imports) are left untouched. Exported for unit testing.
  */
 export function rewriteGeneratedAliasImports(source: string, appRoot: string): string {
+  return rewriteGeneratedAliasImportsForRuntime(source, appRoot, 'esm')
+}
+
+function rewriteGeneratedAliasImportsForRuntime(
+  source: string,
+  appRoot: string,
+  runtime: 'esm' | 'cjs',
+): string {
   const generatedDir = path.join(appRoot, '.mercato', 'generated')
   const toResolvedLiteral = (target: string): string => {
     const candidate = fs.existsSync(target)
@@ -160,7 +186,8 @@ export function rewriteGeneratedAliasImports(source: string, appRoot: string): s
       : fs.existsSync(target + '.ts')
         ? target + '.ts'
         : target
-    return toSafeJsStringLiteral(pathToFileURL(candidate).href)
+    const specifier = runtime === 'esm' ? pathToFileURL(candidate).href : candidate
+    return toSafeJsStringLiteral(specifier)
   }
   const resolveAlias = (relativePath: string): string =>
     toResolvedLiteral(path.join(appRoot, relativePath))
@@ -212,10 +239,7 @@ export async function ensureApiRouteManifestsRegistered(): Promise<number> {
     )
     return apiRoutes.length
   } catch (error) {
-    console.warn(
-      '[MCP Tools] Could not register api-routes manifest:',
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('Could not register api-routes manifest', { err: error })
     return 0
   }
 }

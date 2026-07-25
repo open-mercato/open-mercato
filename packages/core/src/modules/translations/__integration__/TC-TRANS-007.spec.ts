@@ -82,7 +82,7 @@ test.describe('TC-TRANS-007: Dynamic Header Action Injection on Category Edit', 
       const dialog = await openTranslationsDrawer(page)
       await expect(dialog).toBeVisible()
 
-      const deTab = dialog.getByRole('button', { name: 'DE' })
+      const deTab = dialog.getByRole('tab', { name: 'DE' })
       await deTab.click()
 
       const translationField = await waitForTranslationField(dialog, categoryName)

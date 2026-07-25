@@ -40,4 +40,22 @@ describe('buildTaskSubmitPayload', () => {
       'Enter a whole-number priority between 0 and 100.',
     )
   })
+
+  it('maps a dictionary status onto base.status and keeps is_done in sync for open statuses', () => {
+    const payload = buildTaskSubmitPayload({ title: 'Wait on legal', status: 'waiting' }, t)
+    expect(payload.base.status).toBe('waiting')
+    expect(payload.base.is_done).toBe(false)
+  })
+
+  it('derives is_done=true when the chosen status is done', () => {
+    const payload = buildTaskSubmitPayload({ title: 'Close it out', status: 'done' }, t)
+    expect(payload.base.status).toBe('done')
+    expect(payload.base.is_done).toBe(true)
+  })
+
+  it('falls back to the legacy is_done flag when no status is provided', () => {
+    const payload = buildTaskSubmitPayload({ title: 'Legacy', is_done: true }, t)
+    expect(payload.base.status).toBeUndefined()
+    expect(payload.base.is_done).toBe(true)
+  })
 })

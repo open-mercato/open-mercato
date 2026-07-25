@@ -30,6 +30,9 @@ import { resolveCustomersRequestContext } from '../../lib/interactionRequestCont
 import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const listSchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -74,6 +77,12 @@ const ADAPTER_HEADERS = {
 // canonical bridge) read path. Keeps memory bounded on tenants with large
 // activity history; deep-pagination beyond this window is not supported here —
 // use /api/customers/interactions instead.
+//
+// Audited for the #3386 rollout (P2): this merged path sorts only on
+// non-encrypted system timestamps (createdAt/occurredAt, see
+// resolveActivitySortValue), so the #3278 two-phase *encrypted*-sort migration
+// is intentionally not applied here. Merge-order correctness across the page
+// boundary is covered by __tests__/merged-pagination.test.ts.
 const MERGED_ACTIVITY_FETCH_CAP = 2000
 
 type ActivityItem = {
@@ -482,7 +491,7 @@ export async function GET(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.activities.get failed', err)
+    logger.error('customers.activities.get failed', { err })
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -571,7 +580,7 @@ export async function POST(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.activities.post failed', err)
+    logger.error('customers.activities.post failed', { err })
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -654,7 +663,7 @@ export async function PUT(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.activities.put failed', err)
+    logger.error('customers.activities.put failed', { err })
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -722,7 +731,7 @@ export async function DELETE(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.activities.delete failed', err)
+    logger.error('customers.activities.delete failed', { err })
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )

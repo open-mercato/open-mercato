@@ -14,6 +14,9 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { assertAvailabilityWriteAccess, resolveAvailabilityActorId } from './access'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('planner').child({ component: 'availability' })
 
 export const metadata = {
   POST: { requireAuth: true },
@@ -99,7 +102,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('planner.availability.weekly.replace failed', err)
+    logger.error('Weekly availability replace failed', { err })
     return NextResponse.json(
       { error: translate('planner.availability.errors.updateWeekly', 'Failed to save weekly availability.') },
       { status: 400 },
@@ -123,6 +126,16 @@ export const openApi = {
         { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
+        {
+          status: 409,
+          description: 'Optimistic lock conflict',
+          schema: z.object({
+            error: z.string(),
+            code: z.literal('optimistic_lock_conflict'),
+            currentUpdatedAt: z.string(),
+            expectedUpdatedAt: z.string(),
+          }),
+        },
       ],
     },
   },

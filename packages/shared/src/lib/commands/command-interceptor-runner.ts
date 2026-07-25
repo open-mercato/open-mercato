@@ -4,6 +4,9 @@ import type {
   CommandInterceptorUndoContext,
 } from './command-interceptor'
 import { hasAllFeatures } from '../../security/features'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'commands' })
 
 // ---------------------------------------------------------------------------
 // Command pattern matching
@@ -116,7 +119,7 @@ export async function runCommandInterceptorsAfter(
         currentResult = { ...(currentResult as Record<string, unknown>), ...afterResult.modifiedResult }
       }
     } catch (error) {
-      console.error(`[command-interceptor] afterExecute failed: ${interceptor.id}`, error)
+      logger.error('Command interceptor afterExecute failed', { interceptorId: interceptor.id, err: error })
     }
   }
 
@@ -185,7 +188,7 @@ export async function runCommandInterceptorsAfterUndo(
         { ...context, commandId, metadata: metadataByInterceptor.get(interceptor.id) },
       )
     } catch (error) {
-      console.error(`[command-interceptor] afterUndo failed: ${interceptor.id}`, error)
+      logger.error('Command interceptor afterUndo failed', { interceptorId: interceptor.id, err: error })
     }
   }
 }

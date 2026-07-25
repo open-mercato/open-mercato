@@ -10,6 +10,10 @@ import { CatalogProduct } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
+// record_locks decision: this route is read-only (GET only) and projects the
+// attachment side-table for a product. It is EXEMPT from the optimistic-lock /
+// record-lock guard (Phase 4) — there is no mutating method here, and media
+// uploads/deletes are owned by the attachments module's own write paths.
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
 }

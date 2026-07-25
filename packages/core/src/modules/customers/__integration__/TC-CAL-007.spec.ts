@@ -46,6 +46,11 @@ test.describe('TC-CAL-007: Calendar settings / customization modal', () => {
     let meetingId: string | null = null;
 
     try {
+      // Freeze to a weekday so this spec verifies the settings modal default.
+      // TC-CAL-010 separately covers the intentional "today is a weekend"
+      // exception where today's weekend column remains visible.
+      await page.clock.setFixedTime(new Date(2026, 5, 24, 10, 0, 0));
+
       adminToken = await getAuthToken(request, 'admin');
       personId = await createPersonFixture(request, adminToken, {
         firstName: 'CalSettings',
@@ -98,12 +103,12 @@ test.describe('TC-CAL-007: Calendar settings / customization modal', () => {
       // ("meeting" is a seeded default → its "Meeting" label renders as a chip).
       await expect(dialog.getByText('Meeting', { exact: true })).toBeVisible();
 
-      // -- Conflict scope: nested under Conflict warnings, defaults to "My meetings only" --
+      // -- Conflict scope: nested under Conflict warnings, defaults to "My meetings" --
       const conflictWarningsSwitch = dialog.getByRole('switch', { name: 'Conflict warnings' });
       const scopeGroup = dialog.getByRole('group', { name: 'Conflict scope' });
       await expect(scopeGroup).toBeVisible();
-      await expect(scopeGroup.getByRole('button', { name: 'My meetings only' })).toHaveAttribute('aria-pressed', 'true');
-      await expect(scopeGroup.getByRole('button', { name: 'All org meetings' })).toHaveAttribute('aria-pressed', 'false');
+      await expect(scopeGroup.getByRole('button', { name: 'My meetings', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await expect(scopeGroup.getByRole('button', { name: 'All meetings', exact: true })).toHaveAttribute('aria-pressed', 'false');
       // Turning Conflict warnings off hides the scope selector; turning it back on restores it.
       await conflictWarningsSwitch.click();
       await expect(scopeGroup).toBeHidden();
@@ -141,10 +146,10 @@ test.describe('TC-CAL-007: Calendar settings / customization modal', () => {
       await expect(weekendSwitch2).not.toBeChecked();
       await weekendSwitch2.click();
       await expect(weekendSwitch2).toBeChecked();
-      // Also switch conflict scope to "All org meetings" so its persistence is covered too.
+      // Also switch conflict scope to "All meetings" so its persistence is covered too.
       const scopeGroup2 = dialog2.getByRole('group', { name: 'Conflict scope' });
-      await scopeGroup2.getByRole('button', { name: 'All org meetings' }).click();
-      await expect(scopeGroup2.getByRole('button', { name: 'All org meetings' })).toHaveAttribute('aria-pressed', 'true');
+      await scopeGroup2.getByRole('button', { name: 'All meetings', exact: true }).click();
+      await expect(scopeGroup2.getByRole('button', { name: 'All meetings', exact: true })).toHaveAttribute('aria-pressed', 'true');
       await dialog2.getByRole('button', { name: 'Save Changes', exact: true }).click();
       await expect(dialog2).toBeHidden();
 
@@ -157,12 +162,12 @@ test.describe('TC-CAL-007: Calendar settings / customization modal', () => {
       await waitForCalendarLoaded(page);
       await expect(page.getByText(/\bSAT\b/).first()).toBeVisible();
       await expect(page.getByText(/\bSUN\b/).first()).toBeVisible();
-      // Conflict scope persisted too — reopen and confirm "All org meetings" is selected.
+      // Conflict scope persisted too — reopen and confirm "All meetings" is selected.
       await page.getByRole('button', { name: 'Calendar settings' }).click();
       const dialog3 = page.getByRole('dialog');
       await expect(dialog3).toBeVisible();
       await expect(
-        dialog3.getByRole('group', { name: 'Conflict scope' }).getByRole('button', { name: 'All org meetings' }),
+        dialog3.getByRole('group', { name: 'Conflict scope' }).getByRole('button', { name: 'All meetings', exact: true }),
       ).toHaveAttribute('aria-pressed', 'true');
       await dialog3.getByRole('button', { name: 'Cancel', exact: true }).click();
       await expect(dialog3).toBeHidden();

@@ -15,6 +15,9 @@ import {
   type MutationGuardInput,
 } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import { withScopedPayload } from '../../utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 const convertSchema = z.object({
   quoteId: z.string().uuid(),
@@ -173,7 +176,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('sales.quotes.convert failed', err)
+    logger.error('sales.quotes.convert failed', { err })
     return NextResponse.json(
       { error: translate('sales.documents.detail.convertError', 'Failed to convert quote.') },
       { status: 400 }

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
   readJsonSafe,
@@ -8,6 +8,55 @@ import {
   deleteAvailabilityRuleSetIfExists,
 } from '@open-mercato/core/modules/core/__integration__/helpers/plannerFixtures'
 import { createStaffTeamMemberFixture, deleteStaffEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/staffFixtures'
+import {
+  OPTIMISTIC_LOCK_CONFLICT_CODE,
+  OPTIMISTIC_LOCK_HEADER_NAME,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+
+const BASE_URL = process.env.BASE_URL?.trim() || null
+
+function resolveUrl(path: string): string {
+  return BASE_URL ? `${BASE_URL}${path}` : path
+}
+
+async function fetchRuleSetUpdatedAt(
+  request: APIRequestContext,
+  token: string,
+  ruleSetId: string,
+): Promise<string> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/planner/availability-rule-sets?page=1&pageSize=1&ids=${encodeURIComponent(ruleSetId)}`,
+    { token },
+  )
+  expect(response.status(), 'GET /api/planner/availability-rule-sets should return 200').toBe(200)
+  const body = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(response)
+  const item = body?.items?.[0]
+  expect(item, 'Rule set response should include the requested record').toBeTruthy()
+  const raw = item?.updated_at ?? item?.updatedAt
+  expect(typeof raw, 'Rule set response should expose updated_at').toBe('string')
+  const ms = Date.parse(raw as string)
+  expect(Number.isFinite(ms), `Rule set updated_at should parse as a date, got: ${raw as string}`).toBe(true)
+  return new Date(ms).toISOString()
+}
+
+async function postWeeklyAvailability(
+  request: APIRequestContext,
+  token: string,
+  data: Record<string, unknown>,
+  lockValue: string,
+) {
+  return request.fetch(resolveUrl('/api/planner/availability-weekly'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      [OPTIMISTIC_LOCK_HEADER_NAME]: lockValue,
+    },
+    data,
+  })
+}
 
 test.describe('TC-PLAN-003: Weekly & Date-specific availability replace APIs', () => {
   test('should replace weekly availability windows for a rule set subject', async ({ request }) => {
@@ -20,31 +69,47 @@ test.describe('TC-PLAN-003: Weekly & Date-specific availability replace APIs', (
         name: `QA Weekly ${stamp}`,
         timezone: 'UTC',
       })
+      const t0 = await fetchRuleSetUpdatedAt(request, token, ruleSetId)
 
       // Replace weekly: Mon-Fri 09:00-17:00
-      const weeklyResponse = await apiRequest(
+      const weeklyResponse = await postWeeklyAvailability(
         request,
-        'POST',
-        '/api/planner/availability-weekly',
+        token,
         {
-          token,
-          data: {
-            subjectType: 'ruleset',
-            subjectId: ruleSetId,
-            timezone: 'UTC',
-            windows: [
-              { weekday: 1, start: '09:00', end: '17:00' },
-              { weekday: 2, start: '09:00', end: '17:00' },
-              { weekday: 3, start: '09:00', end: '17:00' },
-              { weekday: 4, start: '09:00', end: '17:00' },
-              { weekday: 5, start: '09:00', end: '17:00' },
-            ],
-          },
+          subjectType: 'ruleset',
+          subjectId: ruleSetId,
+          timezone: 'UTC',
+          windows: [
+            { weekday: 1, start: '09:00', end: '17:00' },
+            { weekday: 2, start: '09:00', end: '17:00' },
+            { weekday: 3, start: '09:00', end: '17:00' },
+            { weekday: 4, start: '09:00', end: '17:00' },
+            { weekday: 5, start: '09:00', end: '17:00' },
+          ],
         },
+        t0,
       )
       expect(weeklyResponse.status(), 'POST /api/planner/availability-weekly should return 200').toBe(200)
       const weeklyBody = await readJsonSafe<{ ok?: boolean }>(weeklyResponse)
       expect(weeklyBody?.ok).toBe(true)
+      const t1 = await fetchRuleSetUpdatedAt(request, token, ruleSetId)
+      expect(t1, 'Weekly replace should bump the parent rule set updated_at').not.toBe(t0)
+
+      const staleDeleteResponse = await request.fetch(
+        resolveUrl(`/api/planner/availability-rule-sets?id=${encodeURIComponent(ruleSetId)}`),
+        {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            [OPTIMISTIC_LOCK_HEADER_NAME]: t0,
+          },
+        },
+      )
+      expect(staleDeleteResponse.status(), 'Stale rule set delete should return 409').toBe(409)
+      const staleDeleteBody = await readJsonSafe<Record<string, unknown>>(staleDeleteResponse)
+      expect(staleDeleteBody?.code).toBe(OPTIMISTIC_LOCK_CONFLICT_CODE)
+      expect(staleDeleteBody?.expectedUpdatedAt).toBe(t0)
 
       // Verify rules were created by listing availability for the ruleset subject
       const listResponse = await apiRequest(
@@ -60,21 +125,18 @@ test.describe('TC-PLAN-003: Weekly & Date-specific availability replace APIs', (
       expect(rules.every((rule) => typeof rule.rrule === 'string' && (rule.rrule as string).includes('FREQ=WEEKLY'))).toBe(true)
 
       // Replace with fewer windows (overwrite)
-      const replaceResponse = await apiRequest(
+      const replaceResponse = await postWeeklyAvailability(
         request,
-        'POST',
-        '/api/planner/availability-weekly',
+        token,
         {
-          token,
-          data: {
-            subjectType: 'ruleset',
-            subjectId: ruleSetId,
-            timezone: 'UTC',
-            windows: [
-              { weekday: 1, start: '10:00', end: '14:00' },
-            ],
-          },
+          subjectType: 'ruleset',
+          subjectId: ruleSetId,
+          timezone: 'UTC',
+          windows: [
+            { weekday: 1, start: '10:00', end: '14:00' },
+          ],
         },
+        t1,
       )
       expect(replaceResponse.status(), 'Second weekly replace should return 200').toBe(200)
 

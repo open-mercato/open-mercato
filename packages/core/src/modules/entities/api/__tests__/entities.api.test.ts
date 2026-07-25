@@ -10,10 +10,16 @@ const mockEm = {
   flush: jest.fn(async () => undefined),
 }
 
+// Swappable enterprise command-guard service so a test can assert the async seam
+// (`enforceCommandOptimisticLockWithGuards`) resolves and awaits it from the
+// request container. Null (the default) exercises the OSS-only floor path.
+let mockCommandGuardService: { enforce: jest.Mock } | null = null
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (key: string) => {
       if (key === 'em') return mockEm
+      if (key === 'commandOptimisticLockGuardService') return mockCommandGuardService
       return null
     },
   }),
@@ -130,6 +136,7 @@ describe('POST /api/entities/entities — optimistic locking', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     delete process.env.OM_OPTIMISTIC_LOCK
+    mockCommandGuardService = null
     mockEm.findOne.mockResolvedValue({
       id: 'ent-1',
       entityId,
@@ -142,7 +149,7 @@ describe('POST /api/entities/entities — optimistic locking', () => {
     })
   })
 
-  it('returns 409 with the conflict code when a stale lock header is sent', async () => {
+  it('returns 409 with the conflict code when a stale lock header is sent (OSS floor)', async () => {
     const response = await POST(buildRequest('2026-06-16T07:00:00.000Z'))
     expect(response.status).toBe(409)
     const json = await response.json()
@@ -161,6 +168,58 @@ describe('POST /api/entities/entities — optimistic locking', () => {
 
   it('saves when no lock header is present (strictly additive — legacy clients)', async () => {
     const response = await POST(buildRequest())
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.ok).toBe(true)
+    expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  it('awaits the enterprise command-guard service before persisting (async seam)', async () => {
+    mockCommandGuardService = { enforce: jest.fn(async () => undefined) }
+    const response = await POST(buildRequest('2026-06-16T08:00:00.000Z'))
+    expect(response.status).toBe(200)
+    expect(mockCommandGuardService.enforce).toHaveBeenCalledTimes(1)
+    expect(mockCommandGuardService.enforce).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceKind: 'entities.entity', resourceId: 'ent-1', current: currentUpdatedAt }),
+    )
+    expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  it('a record_lock conflict from the enterprise guard aborts the write with a 409', async () => {
+    const { CrudHttpError } = await import('@open-mercato/shared/lib/crud/errors')
+    mockCommandGuardService = {
+      enforce: jest.fn(async () => {
+        throw new CrudHttpError(409, { code: 'record_lock_conflict', error: 'locked by another user' })
+      }),
+    }
+    const response = await POST(buildRequest('2026-06-16T08:00:00.000Z'))
+    expect(response.status).toBe(409)
+    const json = await response.json()
+    expect(json.code).toBe('record_lock_conflict')
+    expect(mockEm.flush).not.toHaveBeenCalled()
+  })
+
+  it('degrades to OSS-only when the enterprise guard throws a non-conflict error (fail-closed)', async () => {
+    mockCommandGuardService = {
+      enforce: jest.fn(async () => {
+        throw new Error('[internal] record_locks guard unavailable')
+      }),
+    }
+    // OSS floor already passed (matching header); the broken enterprise guard must
+    // not block the write — it degrades to OSS-only protection, never a hard 500.
+    const response = await POST(buildRequest('2026-06-16T08:00:00.000Z'))
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.ok).toBe(true)
+    expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  it('disabled env → no 409 even with a stale lock header (both layers off)', async () => {
+    process.env.OM_OPTIMISTIC_LOCK = 'off'
+    // A real record_locks guard also short-circuits when the env disables locking,
+    // so even a stale header must not block the write when locking is off.
+    mockCommandGuardService = { enforce: jest.fn(async () => undefined) }
+    const response = await POST(buildRequest('2026-06-16T07:00:00.000Z'))
     expect(response.status).toBe(200)
     const json = await response.json()
     expect(json.ok).toBe(true)

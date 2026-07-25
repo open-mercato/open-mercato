@@ -14,10 +14,18 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 type RouteModule = typeof import('../route')
 let postHandler: RouteModule['POST']
+let metadata: RouteModule['metadata']
+let activeMetadata: typeof import('../../active/route')['metadata']
+let detailMetadata: typeof import('../[id]/route')['metadata']
 
 beforeAll(async () => {
   const routeModule = await import('../route')
+  const activeRouteModule = await import('../../active/route')
+  const detailRouteModule = await import('../[id]/route')
   postHandler = routeModule.POST
+  metadata = routeModule.metadata
+  activeMetadata = activeRouteModule.metadata
+  detailMetadata = detailRouteModule.metadata
 })
 
 describe('progress jobs route', () => {
@@ -35,6 +43,18 @@ describe('progress jobs route', () => {
       },
     })
     mockCreateJob.mockResolvedValue({ id: '11111111-1111-4111-8111-111111111111' })
+  })
+
+  it('requires progress.view for progress read routes', () => {
+    expect(metadata.GET).toEqual({ requireAuth: true, requireFeatures: ['progress.view'] })
+    expect(activeMetadata.GET).toEqual({ requireAuth: true, requireFeatures: ['progress.view'] })
+    expect(detailMetadata.GET).toEqual({ requireAuth: true, requireFeatures: ['progress.view'] })
+  })
+
+  it('keeps mutating progress routes on their action-specific features', () => {
+    expect(metadata.POST).toEqual({ requireAuth: true, requireFeatures: ['progress.create'] })
+    expect(detailMetadata.PUT).toEqual({ requireAuth: true, requireFeatures: ['progress.update'] })
+    expect(detailMetadata.DELETE).toEqual({ requireAuth: true, requireFeatures: ['progress.cancel'] })
   })
 
   it('creates a progress job', async () => {

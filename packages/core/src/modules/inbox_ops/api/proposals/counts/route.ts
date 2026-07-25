@@ -11,6 +11,9 @@ import {
   createCountsCacheTag,
   COUNTS_CACHE_TTL_MS,
 } from '../../../lib/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'proposals-counts' })
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -78,7 +81,7 @@ export async function GET(req: Request) {
           cache.set(cacheKey, responseBody, { ttl: COUNTS_CACHE_TTL_MS, tags: [tag] }),
         )
       } catch (err) {
-        console.warn('[inbox_ops:proposals:counts] Failed to set cache', err)
+        logger.warn('Failed to set cache', { err })
       }
     }
 
@@ -87,7 +90,7 @@ export async function GET(req: Request) {
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    console.error('[inbox_ops:proposals:counts] Error:', err)
+    logger.error('Failed to get counts', { err })
     return NextResponse.json({ error: 'Failed to get counts' }, { status: 500 })
   }
 }

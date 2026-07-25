@@ -57,6 +57,7 @@ test('standalone template dev wrapper defaults background services to lazy mode'
 
   assert.match(source, /function applyLocalDevBackgroundServiceDefaults/)
   assert.match(source, /OM_AUTO_SPAWN_WORKERS_LAZY = 'true'/)
+  assert.match(source, /OM_AUTO_SPAWN_WORKERS_LAZY_MODE = 'shared'/)
   assert.match(source, /OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'/)
   assert.match(source, /OM_DEV_WARMUP_READY_FILE/)
   assert.match(source, /env: buildAppDevEnv\(/)

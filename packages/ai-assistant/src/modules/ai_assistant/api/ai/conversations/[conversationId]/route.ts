@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -14,6 +15,8 @@ import {
   serializeAiChatConversation,
   serializeAiChatMessage,
 } from '../../../../lib/conversation-storage'
+
+const logger = createLogger('ai_assistant')
 
 const REQUIRED_FEATURE = 'ai_assistant.view'
 const MANAGE_CONVERSATIONS_FEATURE = 'ai_assistant.conversations.manage'
@@ -225,7 +228,7 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
       nextCursor: transcript.nextCursor,
     })
   } catch (error) {
-    console.error('[AI Conversation GET] Failure:', error)
+    logger.error('AI Conversation GET — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to load conversation.',
@@ -280,7 +283,7 @@ export async function PATCH(req: NextRequest, context: RouteContext): Promise<Re
     if (error instanceof Error && error.name === 'AiChatConversationAccessError') {
       return jsonError(404, 'Conversation not found.', 'conversation_not_found')
     }
-    console.error('[AI Conversation PATCH] Failure:', error)
+    logger.error('AI Conversation PATCH — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to update conversation.',
@@ -318,7 +321,7 @@ export async function DELETE(req: NextRequest, context: RouteContext): Promise<R
     if (error instanceof Error && error.name === 'AiChatConversationAccessError') {
       return jsonError(404, 'Conversation not found.', 'conversation_not_found')
     }
-    console.error('[AI Conversation DELETE] Failure:', error)
+    logger.error('AI Conversation DELETE — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to delete conversation.',

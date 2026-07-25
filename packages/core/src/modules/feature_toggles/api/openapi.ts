@@ -28,8 +28,8 @@ export const featureToggleSchema = z
         category: z.string().nullable().optional(),
         type: toggleTypeSchema,
         defaultValue: z.any().nullable().optional(),
-        created_at: z.string().optional(),
-        updated_at: z.string().optional(),
+        createdAt: z.string().nullable().optional(),
+        updatedAt: z.string().nullable().optional(),
     })
     .passthrough()
 

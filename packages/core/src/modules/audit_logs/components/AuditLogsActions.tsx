@@ -11,6 +11,9 @@ import { Undo2, RotateCcw } from 'lucide-react'
 import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
 import { useAuditPermissions, canUndoEntry, canRedoEntry } from '@open-mercato/ui/backend/version-history'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('audit_logs').child({ component: 'AuditLogsActions' })
 
 export type ActionLogItem = {
   id: string
@@ -104,7 +107,7 @@ export function AuditLogsActions({
       markUndoSuccess(token)
       await onRefresh()
     } catch (err) {
-      console.error(t('audit_logs.actions.undo'), err)
+      logger.error('Undo action failed', { err })
       onUndoError?.()
     } finally {
       setUndoingToken(null)
@@ -123,7 +126,7 @@ export function AuditLogsActions({
       markRedoConsumed(logId)
       await onRefresh()
     } catch (err) {
-      console.error(t('audit_logs.actions.redo'), err)
+      logger.error('Redo action failed', { err })
       onRedoError?.()
     } finally {
       setRedoingId(null)

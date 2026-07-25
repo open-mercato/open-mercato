@@ -1,3 +1,5 @@
+import { isSameDay } from 'date-fns/isSameDay'
+
 export const DRAG_SNAP_MINUTES = 15
 export const MIN_DRAG_DURATION_MINUTES = 30
 const MINUTES_PER_DAY = 24 * 60
@@ -7,9 +9,15 @@ export function isWeekendDay(date: Date): boolean {
   return weekday === 0 || weekday === 6
 }
 
-export function applyWeekendVisibility(days: Date[], showWeekends: boolean): Date[] {
+export function applyWeekendVisibility(
+  days: Date[],
+  showWeekends: boolean,
+  keepWeekendDate?: Date | null,
+): Date[] {
   if (showWeekends) return days
-  const workingDays = days.filter((day) => !isWeekendDay(day))
+  const workingDays = days.filter(
+    (day) => !isWeekendDay(day) || (keepWeekendDate != null && isSameDay(day, keepWeekendDate)),
+  )
   return workingDays.length > 0 ? workingDays : days
 }
 

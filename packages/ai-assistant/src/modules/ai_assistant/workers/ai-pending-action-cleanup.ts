@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { AiPendingActionRepository } from '../data/repositories/AiPendingActionRepository'
@@ -8,6 +9,8 @@ import {
   type AiAssistantEventId,
 } from '../events'
 import { AiPendingActionStateError } from '../lib/pending-action-types'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Periodic cleanup worker for the Phase 3 WS-C mutation approval gate
@@ -177,10 +180,7 @@ export async function runPendingActionCleanup(
   try {
     tenants = await discoverTenants(options.em, clock)
   } catch (error) {
-    console.error(
-      '[ai-pending-action-cleanup] Failed to discover tenants:',
-      error,
-    )
+    logger.error('Failed to discover tenants', { err: error })
     return summary
   }
 
@@ -201,10 +201,7 @@ export async function runPendingActionCleanup(
           pageSize,
         )
       } catch (error) {
-        console.error(
-          `[ai-pending-action-cleanup] listExpired failed for tenant ${scope.tenantId}:`,
-          error,
-        )
+        logger.error('listExpired failed for tenant', { tenantId: scope.tenantId, err: error })
         break
       }
 
@@ -228,24 +225,16 @@ export async function runPendingActionCleanup(
           try {
             await emitter('ai.action.expired', payload)
           } catch (emitError) {
-            console.warn(
-              `[ai-pending-action-cleanup] Failed to emit ai.action.expired for ${row.id}:`,
-              emitError,
-            )
+            logger.warn('Failed to emit ai.action.expired', { pendingActionId: row.id, err: emitError })
           }
         } catch (error) {
           if (error instanceof AiPendingActionStateError) {
             summary.rowsSkipped += 1
-            console.info(
-              `[ai-pending-action-cleanup] Skipping ${row.id}: concurrent transition ${error.from} → ${error.to} already occurred`,
-            )
+            logger.info('Skipping pending action: concurrent transition already occurred', { pendingActionId: row.id, from: error.from, to: error.to })
             continue
           }
           summary.rowsErrored += 1
-          console.error(
-            `[ai-pending-action-cleanup] Failed to expire ${row.id}:`,
-            error,
-          )
+          logger.error('Failed to expire pending action', { pendingActionId: row.id, err: error })
         }
       }
 

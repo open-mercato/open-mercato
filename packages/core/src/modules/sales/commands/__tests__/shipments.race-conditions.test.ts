@@ -94,8 +94,8 @@ describe('createShipmentCommand — order line locking for race condition preven
     }
 
     const tx = buildMockTx()
-    // loadOrder uses raw em.findOne — need to return the order
-    tx.findOne.mockResolvedValue(mockOrder)
+    // loadOrder now reads the order through findOneWithDecryption (issue #2112)
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(mockOrder)
     const em = {
       ...buildMockTx(),
       transactional: jest.fn().mockImplementation(async (callback: (trx: any) => Promise<any>) => {
@@ -163,7 +163,8 @@ describe('createShipmentCommand — order line locking for race condition preven
     }
 
     const tx = buildMockTx()
-    tx.findOne.mockResolvedValue(mockOrder)
+    // loadOrder now reads the order through findOneWithDecryption (issue #2112)
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(mockOrder)
     const em = {
       ...buildMockTx(),
       transactional: jest.fn().mockImplementation(async (callback: (trx: any) => Promise<any>) => {

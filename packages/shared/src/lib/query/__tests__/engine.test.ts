@@ -658,6 +658,72 @@ describe('BasicQueryEngine (Kysely)', () => {
     expect(phase2Call._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'customer_entities.id' && w[1] === 'in')).toBe(true)
   })
 
+  test('sorts encrypted base fields in all-organization scope', async () => {
+    const fakeDb = createFakeKysely({
+      customer_entities: [
+        { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-c' },
+        { id: '2', tenant_id: 't1', organization_id: 'org2', display_name: 'cipher-a' },
+        { id: '3', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+      ],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'id' },
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_entities', column_name: 'organization_id' },
+        { table_name: 'customer_entities', column_name: 'deleted_at' },
+        { table_name: 'customer_entities', column_name: 'display_name' },
+      ],
+    })
+    const namesById: Record<string, string> = {
+      '1': 'Combocompany',
+      '2': 'Aardvark Solutions',
+      '3': 'Beta Corp',
+    }
+    const orgById: Record<string, string> = {
+      '1': 'org1',
+      '2': 'org2',
+      '3': 'org1',
+    }
+    const encryptedFieldLookups: Array<string | null | undefined> = []
+    const decryptScopes: Array<string | null> = []
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async (_entityId, _tenantId, organizationId) => {
+          encryptedFieldLookups.push(organizationId)
+          return organizationId == null ? ['display_name'] : []
+        },
+        decryptEntityPayload: async (_entityId, payload, _tenantId, organizationId) => {
+          decryptScopes.push(organizationId ?? null)
+          const id = String(payload.id)
+          return organizationId === orgById[id] ? { display_name: namesById[id] } : {}
+        },
+      }),
+    )
+
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationIds: ['org1', 'org2'],
+      fields: ['id', 'display_name', 'organization_id'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 3 },
+    })
+
+    expect(encryptedFieldLookups).toEqual([null])
+    expect(decryptScopes.slice(0, 3)).toEqual(['org1', 'org2', 'org1'])
+    expect(decryptScopes).toEqual(expect.arrayContaining(['org1', 'org2']))
+    expect(result.items.map((item: any) => item.display_name)).toEqual([
+      'Aardvark Solutions',
+      'Beta Corp',
+      'Combocompany',
+    ])
+    const baseCalls = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+    const [phase2Call, phase1Call] = baseCalls
+    expect(phase1Call._ops.orderBys).toEqual([])
+    expect(phase2Call._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'customer_entities.id' && w[1] === 'in')).toBe(true)
+  })
+
   test('paginates encrypted-sorted results correctly on page 1 and the tail page', async () => {
     const fakeDb = createFakeKysely({
       customer_entities: [

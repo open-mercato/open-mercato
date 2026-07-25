@@ -108,7 +108,7 @@ function main() {
     cwd: ROOT,
     ignore: ['**/node_modules/**', '**/dist/**', '**/.next/**', '**/create-app/template/**'],
     absolute: true,
-  }).sort()
+  }).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
   const locales = opts.localesFilter && opts.localesFilter.length > 0
     ? opts.localesFilter.filter((l) => l !== REFERENCE_LOCALE)

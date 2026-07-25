@@ -120,7 +120,7 @@ describe('payment_gateways status route', () => {
       expect(mockValidateGuard).toHaveBeenCalledTimes(1)
       const guardInput = mockValidateGuard.mock.calls[0][1]
       expect(guardInput).toMatchObject({
-        resourceKind: 'payment_gateways:gateway_transaction',
+        resourceKind: 'payment_gateways.gateway_transaction',
         resourceId: TRANSACTION_ID,
         operation: 'custom',
         requestMethod: 'POST',

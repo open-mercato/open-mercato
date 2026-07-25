@@ -5,7 +5,7 @@ const widget: InjectionWidgetModule<Record<string, unknown>, Record<string, unkn
   metadata: {
     id: 'customer_accounts.injection.account-status',
     title: 'Customer Account Status',
-    description: 'Shows customer portal account status on CRM person detail',
+    description: 'customer_accounts.widgets.accountStatus.description',
     features: ['customer_accounts.view'],
     priority: 100,
     enabled: true,

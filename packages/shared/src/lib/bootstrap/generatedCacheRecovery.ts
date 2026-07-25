@@ -76,7 +76,7 @@ function walkFiles(dirPath: string): string[] {
 function listGeneratedCacheFiles(appRoot: string): string[] {
   return walkFiles(getGeneratedDir(appRoot))
     .filter((filePath) => filePath.endsWith('.mjs'))
-    .sort()
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 function findStaleGeneratedCacheFiles(appRoot: string): string[] {

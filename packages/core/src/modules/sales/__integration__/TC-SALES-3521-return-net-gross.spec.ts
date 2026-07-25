@@ -4,6 +4,7 @@ import {
   canManageSalesOrders,
   createOrderLineFixture,
   createSalesOrderFixture,
+  createShipmentFixture,
   deleteSalesEntityIfExists,
 } from '@open-mercato/core/helpers/integration/salesFixtures'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -70,6 +71,11 @@ test.describe('TC-SALES-3521: order → return net/gross invariant', () => {
       const lineGross = Number(line.total_gross_amount ?? line.totalGrossAmount ?? 0)
       expect(lineGross).toBeGreaterThan(0)
       expect(lineNet).toBeGreaterThan(0)
+
+      // A return can only be created for quantities that were physically
+      // shipped (issue #3034), so ship the full line quantity before the two
+      // successive returns below.
+      await createShipmentFixture(request, token, orderId, [{ orderLineId, quantity: 2 }])
 
       const initial = await readOrderTotals()
       expect(initial.net).toBeGreaterThan(0)

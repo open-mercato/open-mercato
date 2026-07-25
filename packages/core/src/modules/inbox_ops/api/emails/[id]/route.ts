@@ -11,6 +11,10 @@ import {
   extractPathSegment,
   UnauthorizedError,
 } from '../../routeHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { canViewEmailContent, serializeInboxEmail } from '../response'
+
+const logger = createLogger('inbox_ops').child({ component: 'emails' })
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.log.view'] },
@@ -45,12 +49,13 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Email not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ email })
+    const includeContent = await canViewEmailContent(ctx)
+    return NextResponse.json({ email: serializeInboxEmail(email, includeContent) })
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    console.error('[inbox_ops:emails:detail] Error:', err)
+    logger.error('Failed to load email detail', { err })
     return NextResponse.json({ error: 'Failed to load email' }, { status: 500 })
   }
 }
@@ -114,7 +119,7 @@ export async function DELETE(req: Request) {
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    console.error('[inbox_ops:emails:delete] Error:', err)
+    logger.error('Failed to delete email', { err })
     return NextResponse.json({ error: 'Failed to delete email' }, { status: 500 })
   }
 }

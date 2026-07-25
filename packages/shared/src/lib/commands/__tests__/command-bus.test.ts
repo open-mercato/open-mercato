@@ -1,10 +1,14 @@
 import { createContainer, asValue, InjectionMode } from 'awilix'
-import { unregisterCommand, registerCommand, CommandBus } from '@open-mercato/shared/lib/commands'
+import {
+  commandRegistry,
+  registerCommand,
+  registerCommandLoaders,
+  CommandBus,
+} from '@open-mercato/shared/lib/commands'
 
 describe('CommandBus', () => {
   afterEach(() => {
-    unregisterCommand('test.command')
-    unregisterCommand('test.command.with-capture')
+    commandRegistry.clear()
   })
 
   it('executes registered command and logs action metadata', async () => {
@@ -80,5 +84,39 @@ describe('CommandBus', () => {
         },
       })
     )
+  })
+
+  it('loads a command file lazily before execution', async () => {
+    const execute = jest.fn(async () => ({ ok: true }))
+    registerCommandLoaders([
+      {
+        moduleId: 'test',
+        id: 'test.command.lazy',
+        key: 'test:commands:lazy',
+        load: async () => {
+          registerCommand({
+            id: 'test.command.lazy',
+            execute,
+          })
+        },
+      },
+    ])
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-3', tenantId: 'tenant-3', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    expect(commandRegistry.get('test.command.lazy')).toBeNull()
+
+    const { result } = await bus.execute('test.command.lazy', { input: {}, ctx })
+
+    expect(result).toEqual({ ok: true })
+    expect(execute).toHaveBeenCalledTimes(1)
   })
 })

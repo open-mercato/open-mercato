@@ -68,3 +68,39 @@ export function extractOptimisticLockConflict(
     expectedUpdatedAt,
   }
 }
+
+/**
+ * The enterprise `record_locks` 409 conflict code. Kept as a literal here so
+ * core/UI stays enterprise-free (no import from `@open-mercato/enterprise`).
+ */
+export const RECORD_LOCK_CONFLICT_CODE = 'record_lock_conflict' as const
+
+export type RecordLockConflictBody = {
+  code: typeof RECORD_LOCK_CONFLICT_CODE
+  error?: string
+  lock?: unknown
+  conflict?: unknown
+}
+
+/**
+ * Detect whether an error is an enterprise `record_locks` conflict (HTTP 409
+ * with `code: 'record_lock_conflict'`). Returns the conflict body when matched
+ * so `surfaceRecordConflict` can defer to the merge-dialog widget, or `null`.
+ */
+export function extractRecordLockConflict(err: unknown): RecordLockConflictBody | null {
+  if (!err || typeof err !== 'object') return null
+  const candidate = err as Record<string, unknown>
+  if (candidate.status !== 409) return null
+  const body = candidate.body && typeof candidate.body === 'object'
+    ? candidate.body
+    : candidate
+  if (!body || typeof body !== 'object') return null
+  const bodyRecord = body as Record<string, unknown>
+  if (bodyRecord.code !== RECORD_LOCK_CONFLICT_CODE) return null
+  return {
+    code: RECORD_LOCK_CONFLICT_CODE,
+    error: typeof bodyRecord.error === 'string' ? bodyRecord.error : undefined,
+    lock: bodyRecord.lock ?? null,
+    conflict: bodyRecord.conflict ?? null,
+  }
+}

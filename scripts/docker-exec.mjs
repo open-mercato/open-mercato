@@ -64,7 +64,7 @@ function discoverComposeFiles() {
   try {
     localOverrides = readdirSync('.')
       .filter((f) => /^docker-compose.*dev.*\.local\.yml$/.test(f))
-      .sort();
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   } catch {
     // Ignore — readdirSync can fail in restricted environments.
   }

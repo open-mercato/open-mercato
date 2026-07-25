@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { flash } from '../FlashMessages'
+import { surfaceRecordConflict } from '../conflicts'
 import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
 import { ErrorMessage } from './ErrorMessage'
 import { LoadingMessage } from './LoadingMessage'
@@ -48,6 +49,7 @@ export type CommentSummary = {
   id: string
   body: string
   createdAt: string
+  updatedAt?: string | null
   authorUserId?: string | null
   authorName?: string | null
   authorEmail?: string | null
@@ -87,8 +89,8 @@ export type NotesDataAdapter<C = unknown> = {
     totalPages: number
   }>
   create: (params: NotesCreatePayload & { context?: C }) => Promise<Partial<CommentSummary> | void>
-  update: (params: { id: string; patch: NotesUpdatePayload; context?: C }) => Promise<void>
-  delete: (params: { id: string; context?: C }) => Promise<void>
+  update: (params: { id: string; patch: NotesUpdatePayload; updatedAt?: string | null; context?: C }) => Promise<void>
+  delete: (params: { id: string; updatedAt?: string | null; context?: C }) => Promise<void>
 }
 
 type RenderIconFn = (icon: string, className?: string) => React.ReactNode
@@ -221,6 +223,12 @@ export function mapCommentSummary(input: unknown): CommentSummary {
       : typeof data.created_at === 'string'
         ? data.created_at
         : new Date().toISOString()
+  const updatedAt =
+    typeof data.updatedAt === 'string'
+      ? data.updatedAt
+      : typeof data.updated_at === 'string'
+        ? data.updated_at
+        : null
   const authorUserId =
     typeof data.authorUserId === 'string'
       ? data.authorUserId
@@ -267,6 +275,7 @@ export function mapCommentSummary(input: unknown): CommentSummary {
     id,
     body,
     createdAt,
+    updatedAt,
     authorUserId,
     authorName,
     authorEmail,
@@ -678,7 +687,7 @@ function NotesSectionImpl<C = unknown>({
         return true
       } catch (err) {
         const message = err instanceof Error ? err.message : label('error')
-        flash(message, 'error')
+        if (!surfaceRecordConflict(err, t)) flash(message, 'error')
         return false
       } finally {
         setIsSubmitting(false)
@@ -699,6 +708,7 @@ function NotesSectionImpl<C = unknown>({
             : undefined
       const sanitizedColor =
         patch.appearanceColor !== undefined ? sanitizeHexColor(patch.appearanceColor ?? null) : undefined
+      const noteUpdatedAt = notes.find((comment) => comment.id === noteId)?.updatedAt ?? null
       try {
         await dataAdapter.update({
           id: noteId,
@@ -707,6 +717,7 @@ function NotesSectionImpl<C = unknown>({
             appearanceIcon: sanitizedIcon,
             appearanceColor: sanitizedColor,
           },
+          updatedAt: noteUpdatedAt,
           context: dataContext,
         })
         setNotes((prev) => {
@@ -723,11 +734,11 @@ function NotesSectionImpl<C = unknown>({
         flash(label('updateSuccess'), 'success')
       } catch (error) {
         const message = error instanceof Error ? error.message : label('updateError')
-        flash(message, 'error')
+        if (!surfaceRecordConflict(error, t)) flash(message, 'error')
         throw error instanceof Error ? error : new Error(message)
       }
     },
-    [dataAdapter, dataContext, t],
+    [dataAdapter, dataContext, notes, t],
   )
 
   const handleDeleteNote = React.useCallback(
@@ -740,7 +751,7 @@ function NotesSectionImpl<C = unknown>({
       setDeletingNoteId(note.id)
       pushLoading()
       try {
-        await dataAdapter.delete({ id: note.id, context: dataContext })
+        await dataAdapter.delete({ id: note.id, updatedAt: note.updatedAt ?? null, context: dataContext })
         setNotes((prev) => prev.filter((existing) => existing.id !== note.id))
         if (pagedMode) {
           setVisibleCount((prev) => Math.max(0, prev - 1))
@@ -748,13 +759,13 @@ function NotesSectionImpl<C = unknown>({
         flash(label('deleteSuccess', 'Note deleted'), 'success')
       } catch (err) {
         const message = err instanceof Error ? err.message : label('deleteError', 'Failed to delete note')
-        flash(message, 'error')
+        if (!surfaceRecordConflict(err, t)) flash(message, 'error')
       } finally {
         setDeletingNoteId(null)
         popLoading()
       }
     },
-    [confirm, dataAdapter, dataContext, label, popLoading, pushLoading],
+    [confirm, dataAdapter, dataContext, label, popLoading, pushLoading, t],
   )
 
   const handleSubmit = React.useCallback(

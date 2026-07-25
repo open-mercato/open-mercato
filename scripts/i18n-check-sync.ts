@@ -59,14 +59,14 @@ function checkFormat(filePath: string): { hasNested: boolean; unsorted: boolean 
   const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<string, unknown>
   const keys = Object.keys(raw)
   const hasNested = keys.some(k => typeof raw[k] === 'object' && raw[k] !== null)
-  const unsorted = keys.join(',') !== [...keys].sort().join(',')
+  const unsorted = keys.join(',') !== [...keys].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')
   return { hasNested, unsorted }
 }
 
 /** Write a flat, alphabetically sorted JSON file. */
 function writeFlatSorted(filePath: string, flat: Record<string, string>): void {
   const sorted: Record<string, string> = {}
-  for (const k of Object.keys(flat).sort()) sorted[k] = flat[k]
+  for (const k of Object.keys(flat).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) sorted[k] = flat[k]
   fs.writeFileSync(filePath, JSON.stringify(sorted, null, 2) + '\n')
 }
 
@@ -86,7 +86,7 @@ function main() {
     cwd: ROOT,
     ignore: ['**/node_modules/**', '**/dist/**', '**/.next/**', '**/create-app/template/**'],
     absolute: true,
-  }).sort()
+  }).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
   if (enFiles.length === 0) {
     console.log(yellow('No translation files found.'))

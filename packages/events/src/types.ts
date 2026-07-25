@@ -41,6 +41,8 @@ export type SubscriberHandler = (
 export type SubscriberDescriptor = {
   /** Unique identifier for this subscriber */
   id: string
+  /** Owning module id, when the subscriber comes from module discovery */
+  moduleId?: string
   /** Event name to subscribe to */
   event: string
   /**
@@ -121,8 +123,13 @@ export interface EventBus {
    * @param handler - Handler function
    * @param options - Optional registration options. `persistent: true` marks the
    *   handler as worker-dispatched so the single-delivery path skips it inline.
+   *   `moduleId` attributes module-resource-usage telemetry for this handler to
+   *   the given module; without it, telemetry falls back to guessing a module id
+   *   from the event name, which is wrong for cross-module subscribers (e.g. a
+   *   module reacting to another module's event). Pass it whenever the
+   *   subscribing module is known.
    */
-  on(event: string, handler: SubscriberHandler, options?: { persistent?: boolean }): void
+  on(event: string, handler: SubscriberHandler, options?: { persistent?: boolean; moduleId?: string; id?: string }): void
 
   /**
    * Register multiple module subscribers at once.
