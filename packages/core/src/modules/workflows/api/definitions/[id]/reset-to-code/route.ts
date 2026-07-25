@@ -143,7 +143,9 @@ export async function POST(
 
     // Trigger ownership falls back to the code registry, so the cached snapshot
     // still holds the embedded triggers of a row that no longer exists (#4425).
-    if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
+    if (removedSnapshot.tenantId) {
+      invalidateTriggerCache(removedSnapshot.tenantId, removedSnapshot.organizationId ?? undefined)
+    }
 
     if (guardResult?.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {

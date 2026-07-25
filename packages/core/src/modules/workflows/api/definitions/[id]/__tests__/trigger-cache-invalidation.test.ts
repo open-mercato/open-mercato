@@ -128,6 +128,16 @@ describe('workflows definition customize/reset-to-code trigger cache invalidatio
     expect(mockInvalidateTriggerCache).toHaveBeenCalledWith(TENANT_ID, ORG_ID)
   })
 
+  it('invalidates for the revived row\'s own organization, not the caller\'s', async () => {
+    const siblingOrgId = '123e4567-e89b-12d3-a456-426614174003'
+    mockEm.findOne.mockResolvedValue({ ...overrideRecord, organizationId: siblingOrgId })
+    const context = { params: Promise.resolve({ id: `code:${WORKFLOW_ID}` }) }
+    const res = await customize(request(`code:${WORKFLOW_ID}/customize`) as never, context as never)
+
+    expect(res.status).toBe(200)
+    expect(mockInvalidateTriggerCache).toHaveBeenCalledWith(TENANT_ID, siblingOrgId)
+  })
+
   it('invalidates the trigger cache when reset-to-code removes the override row', async () => {
     mockEm.findOne.mockResolvedValue({ ...overrideRecord })
     const context = { params: Promise.resolve({ id: DEFINITION_ID }) }
