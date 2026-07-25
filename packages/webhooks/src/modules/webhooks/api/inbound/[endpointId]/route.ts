@@ -167,7 +167,7 @@ function isInboundWebhookTimestampFresh(headers: Record<string, string>): boolea
   const timestamps = [
     headers['webhook-timestamp'],
     headers['svix-timestamp'],
-  ].filter((timestamp): timestamp is string => typeof timestamp === 'string' && timestamp.trim().length > 0)
+  ].filter((timestamp): timestamp is string => typeof timestamp === 'string')
 
   if (timestamps.length === 0) {
     return true

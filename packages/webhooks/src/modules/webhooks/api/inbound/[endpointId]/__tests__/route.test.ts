@@ -138,6 +138,20 @@ describe('POST', () => {
     expect(mockEmitWebhooksEvent).not.toHaveBeenCalled()
   })
 
+  it.each(['', 'not-a-number'])('rejects malformed Standard Webhooks timestamps: %j', async (timestamp) => {
+    const response = await POST(createRequest('{"ok":true}', {
+      'webhook-id': 'fresh-message-id',
+      'webhook-timestamp': timestamp,
+      'webhook-signature': 'v1,mock',
+    }), routeContext)
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'Webhook timestamp is outside the allowed replay window' })
+    expect(mockRouteEm.persist).not.toHaveBeenCalled()
+    expect(mockRouteEm.flush).not.toHaveBeenCalled()
+    expect(mockEmitWebhooksEvent).not.toHaveBeenCalled()
+  })
+
   it('accepts fresh Standard Webhooks timestamps', async () => {
     mockGetWebhookEndpointAdapter.mockReturnValue(createAdapter(
       {
