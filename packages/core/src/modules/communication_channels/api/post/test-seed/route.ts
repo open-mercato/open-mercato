@@ -5,7 +5,13 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { ChannelThreadMapping, ExternalConversation, MessageChannelLink } from '../../../data/entities'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  ChannelThreadMapping,
+  CommunicationChannel,
+  ExternalConversation,
+  MessageChannelLink,
+} from '../../../data/entities'
 import {
   COMMUNICATION_CHANNELS_CONNECT_CREDENTIAL_CHANNEL_COMMAND_ID,
   type ConnectCredentialChannelInput,
@@ -164,6 +170,25 @@ export async function POST(req: Request): Promise<Response> {
   const em = (container.resolve('em') as EntityManager).fork()
   const providerKey = body.providerKey ?? TEST_SEED_PROVIDER_KEY
 
+  // `channelId` is caller-supplied, so confirm it names a channel this tenant/org
+  // actually owns before seeding rows that reference it. Mirrors the ownership
+  // lookup every other per-channel route performs (see channels/[id]/test-send).
+  const ownedChannel = await findOneWithDecryption(
+    em,
+    CommunicationChannel,
+    {
+      id: body.channelId,
+      tenantId,
+      organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId, organizationId },
+  )
+  if (!ownedChannel) {
+    return NextResponse.json({ error: 'Channel not found' }, { status: 404 })
+  }
+
   // A MessageChannelLink requires a non-null external_conversation_id (FK) and
   // message_id. Create a synthetic conversation + (optionally threaded) message
   // so the link is shaped like a real inbound row the subscriber can consume.
@@ -283,7 +308,11 @@ export const openApi = {
       responses: [
         { status: 201, description: 'Channel seeded / inbound message emitted' },
         { status: 401, description: 'Unauthorized' },
-        { status: 404, description: 'Test channel seeding disabled (production default)' },
+        {
+          status: 404,
+          description:
+            'Test channel seeding disabled (production default), or the requested channel does not belong to the caller',
+        },
         { status: 422, description: 'Invalid request body' },
         { status: 500, description: 'Seed failed' },
       ],
