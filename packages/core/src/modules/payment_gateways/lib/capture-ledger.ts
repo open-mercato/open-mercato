@@ -133,7 +133,7 @@ export async function reserveCaptureAmount(em: EntityManager, input: {
     if (reserved !== 1) {
       throw captureConflict(
         'payment_capture_reservation_conflict',
-        'Another capture changed the captured amount for this transaction; retry with the remaining amount',
+        'This transaction changed while the capture amount was being reserved; re-read it and retry with the remaining amount',
       )
     }
     const stamped = await tx.nativeUpdate(

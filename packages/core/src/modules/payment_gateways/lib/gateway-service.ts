@@ -521,6 +521,9 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             providerAmount = Number(formatAmountUnits(reservedUnits))
           }
         },
+        // Nothing was settled, so the slice goes back. A retry of this same operation id reuses the
+        // provider idempotency key, so the provider itself collapses a capture that did go through
+        // despite the error we saw.
         releaseOnFailure: async ({ transaction, operation }) => {
           if (reservedUnits === null) return
           const released = await releaseCaptureAmount(em, { transactionId, operation, reservedUnits, scope })
