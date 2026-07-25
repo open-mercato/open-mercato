@@ -121,7 +121,7 @@ If a skill is absent, run `yarn install-skills` once; never invent a substitute.
 - Load each matched guide once, then only needed references and facts.
 - For specs, list names and open one task match; skip README/template otherwise.
 - Inspect app call sites before bounded `framework-context`.
-- Public response/error work: read `BACKWARD_COMPATIBILITY.md`; page/conflict UI does not qualify.
+- Existing public response/error work reads `BACKWARD_COMPATIBILITY.md`; page/conflict UI does not.
 - Never bulk-read guide, skill, fact, or source trees.
 
 ## Module-Specific Facts
