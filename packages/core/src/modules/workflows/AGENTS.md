@@ -162,7 +162,7 @@ import { invalidateTriggerCache } from '../lib/event-trigger-service'
 if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
 ```
 
-This covers definition create/update/delete **and** `POST .../[id]/customize` (code projection → embedded row) and `POST .../[id]/reset-to-code` (embedded row → code projection). Omitting `organizationId` clears every organization under the tenant.
+This covers definition create/update/delete **and** `POST .../[id]/customize` (code projection → embedded row) and `POST .../[id]/reset-to-code` (embedded row → code projection). Invalidate for the **written row's own** tenant/organization rather than the caller's — `customize` looks an override up by `(workflowId, tenantId)`, so it can revive a row owned by a sibling organization. Omitting `organizationId` clears every organization under the tenant.
 
 ## Widget Injection
 
