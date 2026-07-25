@@ -1,11 +1,11 @@
 # {{PROJECT_NAME}} — Standalone App Agent Rules
 
-Extend this Open Mercato app. Decide routes here before opening guides/skills; load every match and never probe unmatched context.
+Extend this Open Mercato app. Route here first; load every match and never probe unmatched context.
 
 ## Always
 
 - Match every routing axis; for missing context run `yarn mercato agentic:init`.
-- App code: `src/modules/<id>/`; framework context only for a named exact-version gap.
+- App code: `src/modules/<id>/`; framework context only for a named version gap.
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
 - Use commands, `makeCrudRoute`, `CrudForm`/`DataTable`, DI, events, and UMES on canonical paths.
 - Put entities in `src/modules/<id>/data/entities.ts`; API routes need per-method `metadata` + `openApi`.
@@ -44,11 +44,11 @@ Report failures; never apply migrations for validation
 
 ## Three-Axis Context Assembler
 
-Combine matches. In-app notifications/editable custom fields: `module-data` + `backend-ui` + `umes`; `testing` only if explicit. Lifecycle reactions: `module-data` + `umes`. Convergence bugs add `debugging`. Registry drift: `module-data` + `architecture` + `debugging`; `framework-context` only for an unresolved contract.
+Combine matches: notification/editable custom field = `module-data` + `backend-ui` + `umes`; lifecycle reaction = `module-data` + `umes`; convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. Add `testing` only when explicit and `framework-context` only for an unresolved contract.
 
 Business verticals MUST load `om-module-scaffold` + their exact blueprint.
 
-Explicit work only. `testing` = requested tests/coverage/proof, not routine validation; use external `om-integration-tests` only for integration/E2E/browser/live-app. `debugging` = failure/security/drift. Specs/delivery phases = `spec-pr` + integration coverage. Capability outlines naming ownership/primitives/vertical slice (no delivery phases) = `architecture` + `module-data` + blueprint/contracts. Spec-only decomposition reads root + `om-spec-writing` + config; defer domain guides to implementation contracts. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer work from specs/PRs.
+`testing` requires requested tests/coverage/proof, not routine validation; external integration/E2E/browser/live-app uses `om-integration-tests`. `debugging` = failure/security/drift. Specs/delivery phases = `spec-pr` + integration coverage. Capability outlines without delivery phases = `architecture` + `module-data` + blueprint/contracts. Spec-only decomposition reads root + `om-spec-writing` + config; implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer work from specs/PRs.
 
 App-owned durable process state, activities, or user tasks select `module-data` + `ai-workflow`; add `umes` for installed-module interception/reaction.
 
@@ -126,7 +126,7 @@ If a skill is absent, run `yarn install-skills` once; never invent a substitute.
 
 ## Module-Specific Facts
 
-Facts only for changed/named hosts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; cart/checkout/shopper→checkout; portal→customer_accounts; quote/order→sales; webhook/callback→webhooks; schedule/reminder→scheduler; operation progress/`ProgressJob`→progress. App primitives skip `api_docs`/`search`/`query_index`/`events` facts unless changing that host.
+Facts only for changed/named hosts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; cart/checkout/shopper→checkout; portal→customer_accounts; quote/order→sales; webhook/callback→webhooks; schedule/reminder→scheduler; progress→progress. Generic staff/employee = actor (not optional `staff`); audit/record-who = command/action log (not `audit_logs`) unless explicitly extended. App primitives skip `api_docs`/`search`/`query_index`/`events` facts unless changing them.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->

@@ -1279,7 +1279,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, configure full-text, token, and vector search with reindex verification. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, configure full-text, token, and vector search with reindex verification. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation. The reindex check is routine implementation validation, not a request to write or run automated tests or expand test coverage.",
     "tags": [
       "module",
       "module-data",
