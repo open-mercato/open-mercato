@@ -19,6 +19,7 @@ Create a provider-owned app module or separately published package that composes
 ## Rules
 
 - Provider-specific code belongs to its app module or published provider package, not generic integrations/data-sync/core setup. Never create an undeclared `packages/*` workspace in a standalone app.
+- Provider credentials, mappings, external IDs, and cursors stay in this skill; do not add `om-data-model-design` unless the brief also creates a separate business-domain schema.
 - Never log/return secrets, bypass SSRF/signature checks, or advance a cursor after an uncommitted/failed page.
 - Remote mutations and callbacks must be idempotent and safe when retried or racing.
 - A mockable client seam supports behavior tests but never substitutes for `integration.ts`, DI/health registration, the installed typed adapter registry where applicable, and `src/modules.ts` activation.

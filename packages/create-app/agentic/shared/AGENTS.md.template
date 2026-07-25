@@ -44,11 +44,11 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 ## Three-Axis Context Assembler
 
-Combine matches. In-app notifications/editable custom fields: `module-data` + `backend-ui` + `umes`; `testing` only if explicit. Lifecycle reactions: `module-data` + `umes`. Convergence bugs add `debugging`. Registry drift: `architecture` + `module-data` + `debugging`; add `framework-context` only for an unresolved contract.
+Combine matches. In-app notifications/editable custom fields: `module-data` + `backend-ui` + `umes`; `testing` only if explicit. Lifecycle reactions: `module-data` + `umes`. Convergence bugs add `debugging`. Registry drift: `module-data` + `architecture` + `debugging`; `framework-context` only for an unresolved contract.
 
-Each work-unit route loads its named skill; a `module-data` business vertical MUST load `om-module-scaffold` and its exact blueprint.
+Each route loads its skill; a `module-data` business vertical MUST load `om-module-scaffold` + exact blueprint.
 
-Only explicit work. `testing` = tests/coverage/security proof/real API-UI verification; exclude routine validation/reindex/smoke. Use external `om-integration-tests` only for integration/E2E/browser/live-app. `debugging` = failure/security/drift. Specs/staged plans = `spec-pr` only, with self-contained API/UI integration coverage. Architecture-only business plans = `architecture` + `module-data` + scaffold blueprint/contracts. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer from specs/PRs.
+Only explicit work. `testing` = tests/coverage/security proof/real API-UI verification, not routine validation/reindex/smoke; external `om-integration-tests` only for integration/E2E/browser/live-app. `debugging` = failure/security/drift. Specs/plans = `spec-pr` only + self-contained API/UI integration coverage. Architecture-only business plans = `architecture` + `module-data` + scaffold blueprint/contracts. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable adds `backend-ui`. Never infer from specs/PRs.
 
 App-owned durable process state, activities, or user tasks select `module-data` + `ai-workflow`; add `umes` for installed-module interception/reaction.
 
@@ -56,7 +56,7 @@ Unified-override audits select only `umes`; add `architecture` or `framework-con
 
 App-owned page/form/table-only = `backend-ui`; installed host changes add `umes`. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
 
-Every `backend-ui` reads `quality-states`; public/portal/responsive/accessibility also reads `frontend-and-design-system`. Payload wording is not UI.
+Every `backend-ui` reads its skill's `references/quality-states.md`; public/portal/responsive/accessibility also reads `references/frontend-and-design-system.md`. Payload wording is not UI.
 
 ### Axis 1 — Area and Ownership
 
@@ -126,7 +126,7 @@ If a skill is absent, run `yarn install-skills` once; never invent a substitute.
 
 ## Module-Specific Facts
 
-Facts only for changed/named hosts: customer/contact/deal/pipeline→`customers`; product/price/stock/inventory→`catalog`; cart/checkout/shopper→`checkout`; portal→`customer_accounts`; quote/order→`sales`; webhook/callback→`webhooks`. Primitives do not load `api_docs`/`search`/`events` facts.
+Facts only for changed/named hosts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; cart/checkout/shopper→checkout; portal→customer_accounts; quote/order→sales; webhook/callback→webhooks; schedule/reminder→scheduler. Primitives do not load `api_docs`/`search`/`events` facts.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->

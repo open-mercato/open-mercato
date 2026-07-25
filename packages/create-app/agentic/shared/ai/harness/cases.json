@@ -5979,11 +5979,11 @@
       "ruleIds": ["BC-04", "BC-05", "BC-06", "BC-07", "BC-09", "BC-10", "BC-12"]
     },
     "expectedRouter": { "required": ["module-data", "backend-ui", "integration", "umes"], "allowedExtra": ["architecture", "framework-context"] },
-    "requiredSkills": ["om-module-scaffold", "om-data-model-design", "om-integration-builder", "om-backend-ui-design", "om-system-extension"],
+    "requiredSkills": ["om-module-scaffold", "om-integration-builder", "om-backend-ui-design", "om-system-extension"],
     "context": {
       "required": [
         "AGENTS.md", ".ai/guides/contracts.md", ".ai/guides/backend-ui.md", ".ai/guides/integrations.md", ".ai/guides/extensions.md",
-        ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md", ".ai/skills/om-data-model-design/SKILL.md", ".ai/skills/om-integration-builder/SKILL.md", ".ai/skills/om-backend-ui-design/SKILL.md", ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md", ".ai/skills/om-integration-builder/SKILL.md", ".ai/skills/om-backend-ui-design/SKILL.md", ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/data_sync.md", ".ai/guides/modules/customers.md", ".ai/guides/modules/catalog.md", ".ai/guides/modules/progress.md"
       ],
       "allowedExtra": [".ai/guides/modules/integrations.md"],
@@ -6155,7 +6155,13 @@
       ],
       "allowedExtra": [
         ".ai/guides/modules/notifications.md",
-        ".ai/guides/modules/integrations.md"
+        ".ai/guides/modules/integrations.md",
+        ".ai/guides/modules/payment_gateways.md",
+        ".ai/guides/modules/shipping_carriers.md",
+        ".ai/guides/modules/currencies.md",
+        ".ai/guides/modules/workflows.md",
+        ".ai/guides/modules/ai_assistant.md",
+        ".ai/guides/modules/search.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
@@ -6802,14 +6808,15 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-build-workflow/SKILL.md",
         ".ai/guides/modules/customers.md",
-        ".ai/guides/modules/workflows.md",
-        ".ai/guides/modules/onboarding.md"
+        ".ai/guides/modules/workflows.md"
       ],
     "allowedExtra": [
       ".ai/guides/modules/notifications.md",
       ".ai/guides/modules/progress.md",
       ".ai/guides/modules/messages.md",
-      ".ai/guides/modules/translations.md"
+      ".ai/guides/modules/translations.md",
+      ".ai/guides/modules/onboarding.md",
+      ".ai/guides/modules/communication_channels.md"
       ],
       "forbidden": [
         ".env*",
@@ -9367,7 +9374,8 @@
     "expectedRouter": {
       "required": [
         "module-data",
-        "backend-ui"
+        "backend-ui",
+        "umes"
       ],
       "allowedExtra": [
         "architecture",
@@ -9378,16 +9386,19 @@
     "requiredSkills": [
       "om-data-model-design",
       "om-module-scaffold",
-      "om-backend-ui-design"
+      "om-backend-ui-design",
+      "om-system-extension"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
         ".ai/guides/backend-ui.md",
+        ".ai/guides/extensions.md",
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/catalog.md"
       ],
       "allowedExtra": [
@@ -9418,8 +9429,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 8,
-    "maxInitialContextBytes": 49152,
+    "maxContextFiles": 10,
+    "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-012",
@@ -10759,7 +10770,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "On a schedule, email overdue invoice reminders through a configured external transactional-email service, advance through clear reminder stages, and stop immediately when the invoice is paid.",
+    "prompt": "On a schedule, email overdue invoice reminders through a configured external transactional-email service. Remember each invoice's reminder stage across restarts, advance through clear stages, and stop immediately when the invoice is paid.",
     "tags": [
       "business-language",
       "invoice-reminders",
@@ -11523,7 +11534,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Keep customers, products, and orders synchronized with our ERP, show progress on an admin page, let staff review preserved conflicts there, and make every rerun safe.",
+    "prompt": "Keep our existing CRM customers, product catalog, and sales orders synchronized with our ERP, show progress on an admin page, let staff review preserved conflicts there, and make every rerun safe.",
     "tags": [
       "business-language",
       "erp-sync",
