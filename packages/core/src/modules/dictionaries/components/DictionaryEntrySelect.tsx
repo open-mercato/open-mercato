@@ -31,6 +31,13 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dictionaries').child({ component: 'DictionaryEntrySelect' })
 
+export class DictionaryOptionsUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'DictionaryOptionsUnavailableError'
+  }
+}
+
 const DEFAULT_APPEARANCE_LABELS: AppearanceSelectorLabels = {
   colorLabel: 'Color',
   colorHelp: 'Pick a highlight color for this entry.',
@@ -117,6 +124,7 @@ export function DictionaryEntrySelect({
   sortOptions = 'label_asc',
   showActiveAppearance = true,
 }: DictionaryEntrySelectProps) {
+  const unavailableMessageId = React.useId()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [options, setOptions] = React.useState<DictionaryOption[]>([])
@@ -126,17 +134,24 @@ export function DictionaryEntrySelect({
   const [newValue, setNewValue] = React.useState('')
   const [newLabel, setNewLabel] = React.useState('')
   const [formError, setFormError] = React.useState<string | null>(null)
+  const [unavailableMessage, setUnavailableMessage] = React.useState<string | null>(null)
   const appearance = useAppearanceState(null, null)
 
   const loadOptions = React.useCallback(async () => {
     setLoading(true)
+    setUnavailableMessage(null)
     try {
       const items = await fetchOptions()
       setOptions(sortOptions === 'none' ? items : items.slice().sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })))
     } catch (err) {
-      logger.error('Failed to fetch options', { err })
-      flash(labels.errorLoad, 'error')
-      setOptions([])
+      if (err instanceof DictionaryOptionsUnavailableError) {
+        setUnavailableMessage(err.message)
+        setOptions([])
+      } else {
+        logger.error('Failed to fetch options', { err })
+        flash(labels.errorLoad, 'error')
+        setOptions([])
+      }
     } finally {
       setLoading(false)
     }
@@ -276,7 +291,7 @@ export function DictionaryEntrySelect({
     return '⌘/Ctrl + Enter'
   }, [labels.saveShortcutHint])
 
-  const disabled = disabledProp || loading || saving
+  const disabled = disabledProp || loading || saving || unavailableMessage !== null
   const manageLink = manageHref ?? '/backend/config/dictionaries'
   const returnTo = React.useMemo(() => {
     const query = searchParams?.toString() ?? ''
@@ -294,6 +309,11 @@ export function DictionaryEntrySelect({
 
   return (
     <div className="space-y-2">
+      {unavailableMessage ? (
+        <p id={unavailableMessageId} className="text-xs text-muted-foreground">
+          {unavailableMessage}
+        </p>
+      ) : null}
       <div className="flex items-center gap-2">
         <Select
           key={`dictionary-entry:${value ?? ''}:${optionsKey}`}
@@ -306,6 +326,7 @@ export function DictionaryEntrySelect({
         >
           <SelectTrigger
             id={id}
+            aria-describedby={unavailableMessage ? unavailableMessageId : undefined}
             className={selectClassName}
             title={activeOption?.label ?? undefined}
           >

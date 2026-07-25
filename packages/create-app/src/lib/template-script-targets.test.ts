@@ -1,11 +1,30 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import path from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
 const TEMPLATE_DIR = new URL('../../template/', import.meta.url)
 const PACKAGE_JSON_TEMPLATE = new URL('package.json.template', TEMPLATE_DIR)
+// Mirrors SKIP_DIRS in src/index.ts — directories create-mercato-app never copies.
+const SCAFFOLD_SKIPPED_DIRS = new Set(['__tests__', '__integration__'])
+
+function listScaffoldedTestFiles(dir: string): string[] {
+  const found: string[] = []
+
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (SCAFFOLD_SKIPPED_DIRS.has(entry.name)) continue
+      found.push(...listScaffoldedTestFiles(path.join(dir, entry.name)))
+    } else if (/\.(test|spec)\.[cm]?[jt]sx?$/.test(entry.name)) {
+      found.push(path.join(dir, entry.name))
+    }
+  }
+
+  return found
+}
 
 function readScripts(): Record<string, string> {
   const raw = fs.readFileSync(PACKAGE_JSON_TEMPLATE, 'utf8')
@@ -63,6 +82,24 @@ test('Jest ships the environment required by jsdom-annotated template tests', ()
   assert.ok(
     devDependencies['jest-environment-jsdom'],
     'template tests use @jest-environment jsdom, so standalone apps must install jest-environment-jsdom',
+  )
+})
+
+test('`yarn test` succeeds on a scaffold that ships no test files', () => {
+  const scaffoldedTestFiles = listScaffoldedTestFiles(fileURLToPath(new URL('src/', TEMPLATE_DIR)))
+  const jestConfig = createRequire(import.meta.url)(
+    fileURLToPath(new URL('jest.config.cjs', TEMPLATE_DIR)),
+  ) as { passWithNoTests?: boolean }
+
+  assert.equal(
+    scaffoldedTestFiles.length,
+    0,
+    'template test files live in __tests__/__integration__, which create-mercato-app skips',
+  )
+  assert.equal(
+    jestConfig.passWithNoTests,
+    true,
+    'the scaffold copies no test files, so `yarn test` needs passWithNoTests to avoid exiting 1 on a clean app',
   )
 })
 
