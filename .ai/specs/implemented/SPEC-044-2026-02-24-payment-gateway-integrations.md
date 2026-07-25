@@ -1800,6 +1800,13 @@ which scopes its lookup by tenant and organization and reports the order's
 no payment or refund recorded yet. Any other module that owns orders can register its
 own implementation; an installation with none simply skips reconciliation.
 
+Integration coverage: `TC-PGWY-022` drives the real wiring through the authenticated API —
+it seeds a sales order with a single line, then verifies that an amount above the amount
+due, an amount below it, a currency other than the order currency, and an `orderId` that
+does not resolve in the caller's scope are each rejected with `409`, while the exact amount
+due is accepted with `201`. Unit coverage mocks the resolver to pin the comparison rules and
+to prove the adapter is never reached on a rejection.
+
 ---
 
 ## 17. Integration Marketplace Alignment (SPEC-045)
