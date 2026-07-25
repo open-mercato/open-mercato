@@ -5,6 +5,20 @@ import {
   invalidateDictionaryCache,
 } from '../server'
 import type { Module } from '../../../modules/registry'
+import { createLogger } from '../../logger'
+
+jest.mock('../../logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerWarn = createLogger('shared').warn as jest.Mock
 
 describe('i18n lazy module translation loaders', () => {
   beforeEach(() => {
@@ -54,7 +68,6 @@ describe('i18n lazy module translation loaders', () => {
   })
 
   it('degrades gracefully when a loader rejects', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     registerModules([
       { id: 'broken', translationsLoaders: { en: async () => { throw new Error('boom') } } },
       { id: 'ok', translations: { en: { b: 'two' } } },
@@ -63,7 +76,6 @@ describe('i18n lazy module translation loaders', () => {
     const dict = await loadDictionary('en')
 
     expect(dict).toEqual({ b: 'two' })
-    expect(warn).toHaveBeenCalled()
-    warn.mockRestore()
+    expect(loggerWarn).toHaveBeenCalled()
   })
 })

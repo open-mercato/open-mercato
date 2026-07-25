@@ -5,6 +5,9 @@ import { createFallbackTranslator, createTranslator } from './translate'
 import { getModules } from '../modules/registry'
 import { loadAppDictionary } from './app-dictionaries'
 import { getCachedDictionary, setCachedDictionary } from './dictionary-cache'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'i18n' })
 
 // Re-export for backwards compatibility
 export { registerModules, getModules } from '../modules/registry'
@@ -73,7 +76,7 @@ export async function loadDictionary(locale: Locale): Promise<Dict> {
           // dictionary without re-importing the locale bundle.
           if (dict) m.translations = { ...(m.translations ?? {}), [locale]: dict }
         } catch (err) {
-          console.warn(`[i18n] failed to load '${locale}' translations for module '${m.id}'`, err)
+          logger.warn('Failed to load module translations', { err, locale, moduleId: m.id })
         }
       }
     }

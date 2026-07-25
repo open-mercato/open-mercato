@@ -159,7 +159,7 @@ Action item: when the `16.3.x` line is released as stable, retest before upgradi
 
 An esbuild-metafile analysis of `apps/mercato/src/bootstrap.ts` (static-import edges only) explained why lazy-loading module commands (#3703) produced no RSS change: the eager server-bootstrap closure was 9.96 MB / 1,391 files, of which command handlers contributed only ~85 KB post-#3703 — while 41% (4.1 MB) was all-locale i18n JSONs and ~1.1 MB was an `@open-mercato/ui` barrel leak via `customers/message-objects.ts`. Lazy code whose transitive closure is already eagerly resident (via `di.generated.ts` / `entities.generated.ts`) defers near-zero unique bytes.
 
-Changes landed with this entry: per-locale lazy `translationsLoaders` in generated registries (additive `Module` field; `loadDictionary()` hydrates on first use), the ui-barrel deep-import fix, dynamic seed imports in `customers/setup.ts`, Next `16.2.9 → 16.3.0-preview.5`, and dev-only `experimental.turbopackMemoryEviction: 'full'` (16.3 replaced the byte-count `turbopackMemoryLimit` knob with snapshot eviction). Eager bootstrap closure after: **4.68 MB / 1,036 files (−53%)**.
+Changes retained from this investigation: per-locale lazy `translationsLoaders` in generated registries (additive `Module` field; `loadDictionary()` hydrates on first use), the ui-barrel deep-import fix, and dynamic seed imports in `customers/setup.ts`. The branch tested Next `16.3.0-preview.5` and dev-only `experimental.turbopackMemoryEviction: 'full'`, but the final change follows `develop` on the current stable Next line rather than shipping preview-only configuration. Eager bootstrap closure after the retained graph changes: **4.68 MB / 1,036 files (−53%)**.
 
 Measured A/B (`profile-dev-rss.mjs`, 240 s cold boot, identical warm-route set /login, /backend, /api/auth/features, /backend/customers/people):
 
@@ -172,7 +172,7 @@ Findings: the cold-compile spike sets the peak in both runs and was unchanged �
 
 ## Migration & backward compatibility
 
-- **No contract surface is touched** by this PR.
+- The additive optional `Module.translationsLoaders` field preserves existing eager `translations` consumers.
 - New script paths and npm scripts (`scripts/profile-dev-rss.mjs`, `yarn dev:profile`, `yarn dev:profile:report`) are additive.
 - New report files at `.mercato/dev-rss/*.json` live under the existing gitignored `.mercato/` tree.
 - `NODE_OPTIONS=--max-old-space-size=N` is a Node-builtin env knob; no code on our side reads or writes it.

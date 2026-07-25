@@ -21,9 +21,6 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
-  // Next >=16.3 writes AGENTS.md/CLAUDE.md into the app dir on dev boot;
-  // this repo maintains its own agent guidelines, so keep that off.
-  agentRules: false,
   experimental: {
     serverMinification: false,
     turbopackMinify: false,
@@ -39,11 +36,6 @@ const nextConfig: NextConfig = {
     ...(isDevelopment
       ? {
           preloadEntriesOnStart: false,
-          // Evict Turbopack's in-memory task cache after each compilation
-          // snapshot. Replaces the byte-count `turbopackMemoryLimit` knob that
-          // existed up to Next 16.2.x. 'full' is the 16.3 default; pinned
-          // explicitly so a future default flip cannot silently regress dev RSS.
-          turbopackMemoryEviction: 'full' as const,
         }
       : {}),
   },

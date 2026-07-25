@@ -592,7 +592,7 @@ export function createTranslationsLoader(
     )
     if (!fulfilled.length && rejected.length) throw rejected[0].reason
     for (const failure of rejected) {
-      console.warn('[i18n] failed to load a module translations bundle', failure.reason)
+      logger.warn('Failed to load a module translations bundle', { err: failure.reason })
     }
     const merged: Record<string, string> = {}
     for (const result of fulfilled) {

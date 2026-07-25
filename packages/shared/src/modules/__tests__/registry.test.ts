@@ -1,4 +1,5 @@
 import type { Module, FrontendRouteManifestEntry, ApiRouteManifestEntry } from '../registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   createLazyModuleSubscriber,
   createLazyModuleWorker,
@@ -18,6 +19,19 @@ import {
   getFrontendRouteManifests,
   resolvePageRouteMetadata,
 } from '../registry'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerWarn = createLogger('shared').warn as jest.Mock
 
 describe('CLI Modules Registry', () => {
   // Clear the registry before each test
@@ -655,14 +669,12 @@ describe('createTranslationsLoader', () => {
   })
 
   it('keeps the fulfilled bundles when another bundle rejects', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     const load = createTranslationsLoader(
       async () => { throw new Error('boom') },
       async () => ({ default: { a: 'app' } }),
     )
     await expect(load()).resolves.toEqual({ a: 'app' })
-    expect(warn).toHaveBeenCalledTimes(1)
-    warn.mockRestore()
+    expect(loggerWarn).toHaveBeenCalledTimes(1)
   })
 
   it('rejects when every bundle fails so callers can retry later', async () => {
