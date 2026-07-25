@@ -90,8 +90,9 @@ export const route = { status: 'not-implemented' }
 
 test('a concrete makeCrudRoute call with the required option keys passes the AST oracle', () => {
   const root = stageTarget('src/modules/library/api/books/route.ts', `
-declare function makeCrudRoute(options: { metadata: unknown; openApi: unknown; indexer: unknown }): unknown
-export const route = makeCrudRoute({ metadata: {}, openApi: {}, indexer: {} })
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+export const route = makeCrudRoute({ metadata: {}, orm: {}, list: {}, actions: {}, indexer: {} })
+export const openApi = { methods: {} }
 `)
   try {
     const result = runOracle(root, 'before')
@@ -106,8 +107,9 @@ export const route = makeCrudRoute({ metadata: {}, openApi: {}, indexer: {} })
 
 test('after phase invokes only the fixed contained target yarn typecheck gate and reports its status', { skip: !targetSandboxAvailable }, () => {
   const root = stageTarget('src/modules/library/api/books/route.ts', `
-declare function makeCrudRoute(options: { metadata: unknown; openApi: unknown; indexer: unknown }): unknown
-export const route = makeCrudRoute({ metadata: {}, openApi: {}, indexer: {} })
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+export const route = makeCrudRoute({ metadata: {}, orm: {}, list: {}, actions: {}, indexer: {} })
+export const openApi = { methods: {} }
 `)
   const bin = installFakeYarn(root)
   const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` }
@@ -116,7 +118,9 @@ export const route = makeCrudRoute({ metadata: {}, openApi: {}, indexer: {} })
     const passing = runOracle(root, 'after', env)
     assert.equal(passing.status, 0, `${passing.stdout}\n${passing.stderr}`)
     assert.equal(passing.parsed.checks.find((entry) => entry.id === 'target.typecheck')?.passed, true)
-    assert.equal(fs.readFileSync(path.join(root, 'typecheck-invocation.txt'), 'utf8'), 'typecheck')
+    const invocation = fs.readFileSync(path.join(root, 'typecheck-invocation.txt'), 'utf8')
+    assert.match(invocation, /^typecheck --tsBuildInfoFile \/.*\/tsconfig\.tsbuildinfo$/)
+    assert.equal(fs.existsSync(path.join(root, 'tsconfig.tsbuildinfo')), false)
 
     fs.writeFileSync(path.join(root, '.oracle-typecheck-status'), '1')
     const failing = runOracle(root, 'after', env)

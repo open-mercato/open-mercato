@@ -945,7 +945,11 @@ function caseChecks(ts, caseId, facts) {
       ]
     }
     case 'OMH-011':
-      return [check('crud.route', hasCallOptions(facts, 'makeCrudRoute', ['metadata', 'openApi', 'indexer']), 'makeCrudRoute called with metadata, openApi, and indexer options')]
+      return [
+        check('crud.factory-import', facts.importedBindings.get('makeCrudRoute') === '@open-mercato/shared/lib/crud/factory', 'makeCrudRoute imported from @open-mercato/shared/lib/crud/factory'),
+        check('crud.route', hasCallOptions(facts, 'makeCrudRoute', ['metadata', 'orm', 'list', 'actions', 'indexer']), 'makeCrudRoute called with metadata, orm, list, actions, and indexer options'),
+        check('crud.openapi', facts.exportedVariables.has('openApi'), 'openApi exported separately from the CRUD factory options'),
+      ]
     case 'OMH-012':
       return [
         check('command.guards', hasCall(facts, 'runMutationGuards'), 'a runMutationGuards call'),
@@ -1050,7 +1054,7 @@ function runTargetTypecheck(root) {
     const dependencyPath = path.join(root, 'node_modules')
     const invocation = sandboxedInvocation({
       command: process.platform === 'win32' ? 'yarn.cmd' : 'yarn',
-      args: ['typecheck'],
+      args: ['typecheck', '--tsBuildInfoFile', path.join(tempRoot, 'tsconfig.tsbuildinfo')],
       cwd: root,
       writableRoots: [root, tempRoot],
       readOnlyRoots: [...(fs.existsSync(dependencyPath) ? [fs.realpathSync(dependencyPath)] : []), ...(corepackHome ? [corepackHome] : [])],

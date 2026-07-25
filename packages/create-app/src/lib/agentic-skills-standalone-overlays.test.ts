@@ -153,6 +153,7 @@ test('tiers.json owns a pinned, hashed, dependency-closed external skill set', (
     external?: {
       ref?: string
       cli?: { package?: string; version?: string }
+      tiers?: Record<string, { skills?: string[] }>
       skills?: string[]
       dependencies?: Record<string, string[]>
       contentHashes?: Record<string, string>
@@ -172,6 +173,13 @@ test('tiers.json owns a pinned, hashed, dependency-closed external skill set', (
   for (const skill of backwardCompatibleSkills) {
     assert.ok(externalSkills.has(skill), `${skill} must remain installable across a harness upgrade`)
   }
+  const defaultExternal = new Set(external?.tiers?.core?.skills ?? [])
+  const optInExternal = new Set(external?.tiers?.automation?.skills ?? [])
+  for (const skill of ['om-auto-create-pr-loop', 'om-auto-continue-pr-loop', 'om-auto-write-spec', 'om-prepare-issue', 'om-apply-upgrade-notes']) {
+    assert.equal(defaultExternal.has(skill), false, `${skill} must not be part of the default external tier`)
+    assert.equal(optInExternal.has(skill), true, `${skill} must remain available in the opt-in automation tier`)
+  }
+  assert.equal(defaultExternal.size, 15, 'the default external tier must remain the minimal daily set')
   const missing: string[] = []
   for (const skill of externalSkills) {
     const deps = external?.dependencies?.[skill]

@@ -46,11 +46,11 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 ## Three-Axis Context Assembler
 
-Match every axis; de-duplicate. Notifications = `module-data` + `backend-ui` + `umes`; custom-field round trips add `testing`; lifecycle reactions = `module-data` + `umes`; convergence bugs add `debugging`; registry drift = `architecture` + `module-data` + `debugging` (and exact-contract `framework-context`).
+Match every axis; de-duplicate. Notifications use `module-data` + `backend-ui` + `umes`; custom-field round trips add `testing`; lifecycle reactions use `module-data` + `umes`; convergence bugs add `debugging`; registry drift uses `architecture` + `module-data` + `debugging` (plus `framework-context` only for an unresolved exact contract).
 
-Route only the request. `testing` needs explicit tests/coverage; routine validation does not match. Reindex verification and smoke validation do not select `testing`; a request to prove security or isolation behavior does. Use external `om-integration-tests` only when the request explicitly needs integration, E2E, browser, or live-app tests; round-trip coverage alone uses local unit/contract patterns. `debugging` needs failure, security, or drift. Spec decomposition selects only `spec-pr`. A plan-only business module selects `architecture` + `module-data` and only `om-module-scaffold`; load its blueprint plus architecture/contracts, but do not invoke future UI/data/workflow specialists or framework context until implementation. Custom fields/entities always select `umes` + `module-data`; editable display/save/clear round trips also select `backend-ui`, and requested coverage selects `testing`. Do not infer areas from specs/PRs.
+Route only requested work. `testing` requires explicit tests/coverage or proof of security/isolation, not routine validation, reindex, or smoke checks. Use external `om-integration-tests` only for requested integration, E2E, browser, or live-app tests; round-trip coverage uses local unit/contract patterns. `debugging` requires failure, security, or drift; spec decomposition selects only `spec-pr`. A plan-only business module selects `architecture` + `module-data` and only `om-module-scaffold`; load its blueprint and architecture/contracts, not future specialists or framework context. Custom fields/entities select `umes` + `module-data`; add `backend-ui` for editable display/save/clear and `testing` only when requested. Never infer areas from specs/PRs.
 
-An existing module's page/form/table-only task selects `backend-ui` alone. Its routed UI guide and skill already own conflict, API-helper, and host-ID rules; do not load `.ai/guides/contracts.md` or `om-module-scaffold` unless the request also changes an entity, API, command, ACL, setup, or other module-data surface.
+An existing-module page/form/table-only task selects `backend-ui` alone; its guide/skill owns conflict, API-helper, and host-ID rules. Do not load `.ai/guides/contracts.md` or `om-module-scaffold` unless the request also changes an entity, API, command, ACL, setup, or other module-data surface.
 
 ### Axis 1 — Area and Ownership
 
@@ -90,7 +90,7 @@ Split the outcome; match every row.
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
 | — | Add/fix recurring harness case | `om-evolve-harness` |
 
-The request saying “installed contract(s)” or “installed-package contracts” is not enough to select `framework-context`. Use routed guides and facts first. A contract value stated by the request is already resolved; do not invoke the escape hatch merely to reverify it during routing. Invoke it only when one named exact-version detail still cannot be resolved, never as future-phase work.
+“Installed contract(s)” alone does not select `framework-context`. Use guides/facts first and treat request-supplied values as resolved. Invoke the escape hatch only for one named unresolved exact-version detail, never to reverify or plan future work.
 
 ### Axis 3 — SDLC and Delivery
 
@@ -111,23 +111,22 @@ If the selected skill is absent, run `yarn install-skills` once and retry; do no
 
 ### Token-Efficient Assembly Policy
 
-- Load each matched guide once and only branch-specific references; facts identify surfaces, not teach.
-- For specs, list names and open only the task match; never README/template unless doing spec work.
-- Inspect app call sites first; use bounded `framework-context` last.
-- Read `BACKWARD_COMPATIBILITY.md` before changing a public contract, not for preserving additive work.
-- Never bulk-list/read guide, skill, fact, or source trees. Open exact routed paths only.
-- Each unit carries only its area, contract, facts, and delivery workflow.
+- Load matched guides once and branch references only; facts name surfaces.
+- For specs, list names and open one task match; never README/template unless doing spec work.
+- Inspect app call sites before bounded `framework-context`.
+- Read `BACKWARD_COMPATIBILITY.md` only before public-contract changes.
+- Never bulk-list/read guide, skill, fact, or source trees; each unit carries only its area, contract, facts, and delivery workflow.
 
 ## Module-Specific Facts
 
-Facts supply exact identifiers/surfaces. Load only changed, integrated, or named hosts. Customer/contact/deal/pipeline work maps to `customers`; portal work maps only to `customer_accounts` (not `auth` or a nonexistent `portal` fact); quote/order work maps to `sales`; notifications, workflows, progress, and integrations name their modules. App-module CRUD/API/OpenAPI/search/event primitives do not by themselves load `api_docs`, `search`, or `events` facts. Never preload facts.
+Facts supply exact IDs/surfaces; load only changed, integrated, or named hosts. Map customer/contact/deal/pipeline to `customers`; portal only to `customer_accounts` (never `auth` or `portal`); quote/order to `sales`; notifications, workflows, progress, and integrations to their namesake facts. App CRUD/API/OpenAPI/search/event primitives alone do not load `api_docs`, `search`, or `events` facts. Never preload facts.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
 
 ## Working Sequence
 
-1. For work routed to `spec-pr`, inspect `.ai/specs/` for task-specific decisions (ignore README/template); use only `find .ai/specs -maxdepth 1 -type f` for the nonrecursive index, then open one exact task match. Do not enumerate specs for plan-only work. Use spec-first work for architectural or three-plus-step implementation requests.
+1. For `spec-pr`, run `find .ai/specs -maxdepth 1 -type f`, ignore README/template, and open one match. Do not list specs for plan-only work. Use specs for architectural or three-plus-step implementation.
 2. Route the request and load only the matched guides/skills and relevant module facts.
 3. Inspect current app call sites; invoke `om-framework-context` only for missing exact-version details.
 4. Implement the smallest complete vertical slice through real call sites.
@@ -135,8 +134,8 @@ Facts supply exact identifiers/surfaces. Load only changed, integrated, or named
 
 ## Context Precedence
 
-1. This file governs standalone safety, writable locations, and validation.
-2. `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` governs stable public identifiers when agentic context is installed.
-3. The nearest installed package/module `AGENTS.md` governs version-specific framework contracts.
-4. Generated facts govern discovered module surfaces for the installed version.
-5. If sources conflict after version/skew checks, stop and report the contradiction instead of guessing.
+1. This file governs standalone safety, writes, and validation.
+2. `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` governs stable public IDs.
+3. The nearest installed package/module `AGENTS.md` governs version-specific contracts.
+4. Generated facts govern installed module surfaces.
+5. After version/skew checks, stop on conflicts; never guess.

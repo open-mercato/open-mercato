@@ -35,6 +35,9 @@ function fixture(overrides: Record<string, unknown> = {}): string {
       source: 'open-mercato/skills',
       ref: 'cf42eaf277a91c3906ffa910a1cdfeb121fe8322',
       cli: { package: 'skills', version: '1.5.20' },
+      tiers: {
+        core: { description: 'Daily external.', skills: ['om-code-review'] },
+      },
       skills: ['om-code-review'],
       dependencies: { 'om-code-review': [] },
       contentHashes: { 'om-code-review': HASH },
@@ -69,6 +72,13 @@ function setExternalHash(root: string, hash: string): void {
     external: { contentHashes: Record<string, string> }
   }
   manifest.external.contentHashes['om-code-review'] = hash
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+}
+
+function writeExternalFixture(root: string, external: Record<string, unknown>): void {
+  const manifestPath = path.join(root, '.ai', 'skills', 'tiers.json')
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
+  manifest.external = external
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
@@ -211,6 +221,160 @@ test('network failure is non-fatal and still installs the selected local skills'
   }
 })
 
+test('default external selection excludes opt-in automation workflows', async () => {
+  const root = fixture()
+  const reviewContents = '# daily external\n'
+  const loopContents = '# opt-in external\n'
+  writeExternalFixture(root, {
+    source: 'open-mercato/skills',
+    ref: 'cf42eaf277a91c3906ffa910a1cdfeb121fe8322',
+    cli: { package: 'skills', version: '1.5.20' },
+    tiers: {
+      core: { description: 'Daily.', skills: ['om-code-review'] },
+      automation: { description: 'Advanced.', skills: ['om-auto-create-pr-loop'] },
+    },
+    skills: ['om-code-review', 'om-auto-create-pr-loop'],
+    dependencies: { 'om-code-review': [], 'om-auto-create-pr-loop': ['om-code-review'] },
+    contentHashes: {
+      'om-code-review': hashSingleFileSkill(reviewContents),
+      'om-auto-create-pr-loop': hashSingleFileSkill(loopContents),
+    },
+  })
+  const installedSelections: string[][] = []
+  const spawn = (_executable: string, args: string[], options: { cwd: string }) => {
+    const selected = args.flatMap((argument, index) => argument === '--skill' ? [args[index + 1]] : [])
+    installedSelections.push(selected)
+    for (const skill of selected) {
+      const skillDir = path.join(options.cwd, '.agents', 'skills', skill)
+      fs.mkdirSync(skillDir, { recursive: true })
+      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), skill === 'om-code-review' ? reviewContents : loopContents)
+    }
+    return { status: 0 }
+  }
+  try {
+    assert.equal(await installer.runInstaller({ rootDir: root, args: [], downloadSource: regularDownloadSource, spawn }), 0)
+    assert.deepEqual(installedSelections[0], ['om-code-review'])
+    assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', 'om-auto-create-pr-loop')), false)
+
+    assert.equal(await installer.runInstaller({ rootDir: root, args: ['--with', 'automation'], downloadSource: regularDownloadSource, spawn }), 0)
+    assert.deepEqual(installedSelections[1], ['om-code-review', 'om-auto-create-pr-loop'])
+    assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', 'om-auto-create-pr-loop')), true)
+  } finally {
+    removeFixture(root)
+  }
+})
+
+test('external activation rolls back the whole set when a later activation step fails', async () => {
+  const root = fixture()
+  const firstContents = '# first external\n'
+  const secondContents = '# second external\n'
+  writeExternalFixture(root, {
+    source: 'open-mercato/skills',
+    ref: 'cf42eaf277a91c3906ffa910a1cdfeb121fe8322',
+    cli: { package: 'skills', version: '1.5.20' },
+    tiers: {
+      core: { description: 'Daily.', skills: ['om-code-review', 'om-open-pr'] },
+    },
+    skills: ['om-code-review', 'om-open-pr'],
+    dependencies: { 'om-code-review': [], 'om-open-pr': [] },
+    contentHashes: {
+      'om-code-review': hashSingleFileSkill(firstContents),
+      'om-open-pr': hashSingleFileSkill(secondContents),
+    },
+  })
+  try {
+    const result = await installer.runInstaller({
+      rootDir: root,
+      args: [],
+      downloadSource: regularDownloadSource,
+      spawn: (_executable: string, _args: string[], options: { cwd: string }) => {
+        for (const [skill, contents] of [['om-code-review', firstContents], ['om-open-pr', secondContents]]) {
+          const skillDir = path.join(options.cwd, '.agents', 'skills', skill)
+          fs.mkdirSync(skillDir, { recursive: true })
+          fs.writeFileSync(path.join(skillDir, 'SKILL.md'), contents)
+        }
+        return { status: 0 }
+      },
+      activationObserver: (skill: string) => {
+        if (skill === 'om-code-review') throw new Error('injected activation failure')
+      },
+    })
+
+    assert.equal(result, 0)
+    assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', 'om-code-review')), false)
+    assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', 'om-open-pr')), false)
+    assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', '.om-external-ownership.json')), false)
+    assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', 'om-alpha')), true)
+    assert.deepEqual(
+      fs.readdirSync(path.join(root, '.agents', 'skills')).filter((name) => name.startsWith('.om-')),
+      [],
+    )
+  } finally {
+    removeFixture(root)
+  }
+})
+
+test('external activation failure restores the complete previously attested set', async () => {
+  const root = fixture()
+  const contents = new Map([
+    ['om-code-review', '# prior review\n'],
+    ['om-open-pr', '# prior open pr\n'],
+  ])
+  const hashes = Object.fromEntries(
+    [...contents].map(([skill, body]) => [skill, hashSingleFileSkill(body)]),
+  )
+  const external = {
+    source: 'open-mercato/skills',
+    ref: 'cf42eaf277a91c3906ffa910a1cdfeb121fe8322',
+    cli: { package: 'skills', version: '1.5.20' },
+    tiers: { core: { description: 'Daily.', skills: [...contents.keys()] } },
+    skills: [...contents.keys()],
+    dependencies: { 'om-code-review': [], 'om-open-pr': [] },
+    contentHashes: hashes,
+  }
+  writeExternalFixture(root, external)
+  const canonicalDir = path.join(root, '.agents', 'skills')
+  fs.mkdirSync(canonicalDir, { recursive: true })
+  for (const [skill, body] of contents) {
+    fs.mkdirSync(path.join(canonicalDir, skill))
+    fs.writeFileSync(path.join(canonicalDir, skill, 'SKILL.md'), body)
+  }
+  const previousLedger = `${JSON.stringify({
+    version: 1,
+    source: external.source,
+    ref: external.ref,
+    skills: hashes,
+  }, null, 2)}\n`
+  fs.writeFileSync(path.join(canonicalDir, '.om-external-ownership.json'), previousLedger)
+  try {
+    assert.equal(await installer.runInstaller({
+      rootDir: root,
+      args: [],
+      downloadSource: regularDownloadSource,
+      spawn: (_executable: string, _args: string[], options: { cwd: string }) => {
+        for (const [skill, body] of contents) {
+          fs.mkdirSync(path.join(options.cwd, '.agents', 'skills', skill), { recursive: true })
+          fs.writeFileSync(path.join(options.cwd, '.agents', 'skills', skill, 'SKILL.md'), body)
+        }
+        return { status: 0 }
+      },
+      activationObserver: (skill: string) => {
+        if (skill === 'om-code-review') throw new Error('injected activation failure')
+      },
+    }), 0)
+
+    for (const [skill, expectedHash] of Object.entries(hashes)) {
+      assert.equal(installer.hashSkillDirectory(path.join(canonicalDir, skill)), expectedHash)
+    }
+    assert.equal(fs.readFileSync(path.join(canonicalDir, '.om-external-ownership.json'), 'utf8'), previousLedger)
+    assert.deepEqual(fs.readdirSync(canonicalDir).filter((name) => name.startsWith('.om-')).sort(), [
+      '.om-external-ownership.json',
+    ])
+  } finally {
+    removeFixture(root)
+  }
+})
+
 test('external CLI invocation is pinned, repeats --skill, and resolves the Windows executable', () => {
   const invocation = installer.externalCliInvocation({
     cli: { package: 'skills', version: '1.5.20' },
@@ -230,6 +394,9 @@ test('manifest dependency closure fails before any links are written', () => {
       source: 'open-mercato/skills',
       ref: 'cf42eaf277a91c3906ffa910a1cdfeb121fe8322',
       cli: { package: 'skills', version: '1.5.20' },
+      tiers: {
+        core: { description: 'Daily external.', skills: ['om-code-review'] },
+      },
       skills: ['om-code-review'],
       dependencies: { 'om-code-review': ['om-setup-agent-pipeline'] },
       contentHashes: { 'om-code-review': HASH },

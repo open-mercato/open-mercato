@@ -24,6 +24,8 @@ Use this guide for entities, APIs, commands, scoping, compatibility, migrations,
 
 Create handlers under `api/<resource>/route.ts` and build them with the installed `makeCrudRoute` contract:
 
+- import `makeCrudRoute` from `@open-mercato/shared/lib/crud/factory`;
+
 - `metadata`: per-method `requireAuth` and `requireFeatures`;
 - `orm`: entity, id field, tenant/org fields, and explicit soft-delete field (including `null` when absent);
 - `list`: Zod query schema, stable colon-form `entityId`, fields including `updated_at`, scoped filters, stable response transform, and custom-field decoration when needed;
@@ -31,7 +33,7 @@ Create handlers under `api/<resource>/route.ts` and build them with the installe
 - `indexer: { entityType }`: query-index coverage;
 - `enrichers: { entityId }`: only when this route intentionally exposes the enricher host.
 
-Export the factory's handlers and a matching `openApi` document. Do not use the stale flat `create`/`update`/`del` factory shape, a top-level `requireAuth`, or an API file organized by HTTP-method directory.
+Export the factory's handlers and a matching `openApi` document as a separate route export. `openApi` is not a `makeCrudRoute` option. Build it with `createCrudOpenApiFactory` and `createPagedListResponseSchema` from `@open-mercato/shared/lib/openapi/crud`, or provide a typed `OpenApiRouteDoc` from `@open-mercato/shared/lib/openapi`. Do not use the stale flat `create`/`update`/`del` factory shape, a top-level `requireAuth`, or an API file organized by HTTP-method directory.
 
 Reject malformed ID lists and filters explicitly. Preserve existing response keys; normalize custom fields deliberately and test compatibility when changing prefixed keys.
 

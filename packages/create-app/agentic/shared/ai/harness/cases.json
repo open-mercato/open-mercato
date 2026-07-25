@@ -765,7 +765,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, build scoped CRUD APIs with makeCrudRoute, metadata, OpenAPI, and indexing. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, complete `src/modules/library/api/books/route.ts` for the existing `LibraryBook` entity. Inspect `src/modules/library/data/entities.ts` before writing. Build scoped CRUD APIs with makeCrudRoute, per-method metadata, a separate OpenAPI export, and indexing. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "module",
       "module-data",
@@ -826,7 +826,7 @@
       "oracle.artifacts",
       "oracle.module.crud"
     ],
-    "maxContextFiles": 5,
+    "maxContextFiles": 6,
     "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [

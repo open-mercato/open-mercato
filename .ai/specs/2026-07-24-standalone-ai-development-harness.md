@@ -123,7 +123,7 @@ The default external source remains `open-mercato/skills`, pinned to a tested co
 - issue autofix chain: `om-auto-fix-issue`, `om-verify-in-repo`, `om-root-cause`, `om-fix`, `om-open-pr`;
 - pipeline maintenance: `om-setup-agent-pipeline`.
 
-The loop engines, issue authoring/management, and upgrade-note workflow are opt-in because their full dependency closure is not required for daily delivery. The manifest MUST encode and test the hard dependency closure rather than keeping that graph only in test code. It records the tested collection commit and resolved per-skill content hashes; ordinary re-runs never update to collection HEAD. External skills never also appear in a local tier. A same-name local folder is an override and is never linked over the installed skill.
+The loop engines, issue authoring/management, and upgrade-note workflow are opt-in because their full dependency closure is not required for daily delivery. `external.tiers.core` owns the 15-skill daily set; `external.tiers.automation` owns those five advanced entry points, selected with the same `--with automation`, `--tiers automation`, or `--all` contract as local tiers. Dependency closure is computed before installation, so an exact opt-in tier still receives every prerequisite. The manifest MUST encode and test the hard dependency closure rather than keeping that graph only in test code. It records the tested collection commit and resolved per-skill content hashes; ordinary re-runs never update to collection HEAD. External skills never also appear in a local tier. A same-name local folder is an override and is never linked over the installed skill.
 
 ### Exact installed framework context escape hatch
 
@@ -148,7 +148,7 @@ Replace the generated installer's shell implementation with a Node 24 script whi
 - canonical `.agents/skills/<name>` ownership;
 - Claude compatibility links only by default; Codex/Cursor use `.agents/skills` directly;
 - safe migration/sweeping of legacy directory-level or per-agent links;
-- external install before local links, because the external CLI owns the canonical directory;
+- external install before local links, because the external CLI owns the canonical directory; stage and verify the complete selected dependency-closed set, retain every previous destination as a backup, activate all selected skills, and publish the ownership ledger only after the whole set succeeds; any failure restores the complete prior set before the non-fatal local-only continuation;
 - repeated `--skill <name>` arguments (never a comma-packed wildcard);
 - a pinned `skills` CLI version plus explicit `open-mercato/skills` commit stored in the manifest;
 - process spawning with argument arrays and Windows-aware executable resolution;
@@ -181,7 +181,7 @@ The manifest is finalized atomically only after shared emission, module-row inje
 | Missing prior owned file | Existing-file policy applies to the selected tool. | Recreate if still emitted. | Recreate. |
 | Missing/corrupt manifest | Existing-file policy applies. | Treat existing targets as unknown, preserve them, and emit `.incoming`; add missing targets. | Replace exact generated targets, never unrelated unknown files. |
 
-`agentic:init --tool` and `--force` keep their existing meaning and default no-force early-exit behavior. The additive `--update-harness` path performs the ownership-aware upgrade. Candidate generation and validation happen in staging; the manifest is renamed atomically only after file publication succeeds. External skill installation runs afterward as a separate, non-fatal phase, so an offline registry does not invalidate the emitted harness manifest.
+`agentic:init --tool` and `--force` keep their existing meaning and default no-force early-exit behavior. The additive `--update-harness` path performs the ownership-aware upgrade. Candidate generation and validation happen in staging; every managed source and destination is resolved below a canonical root and every existing ancestor is checked with `lstat`, so `.ai`/`.agents` or a deeper managed ancestor cannot redirect a write through a symlink. The manifest is renamed atomically only after file publication succeeds. External skill installation runs afterward as a separate, non-fatal phase, so an offline registry does not invalidate the emitted harness manifest.
 
 ## 📝 Data Model
 
@@ -220,7 +220,7 @@ type HarnessCase = {
 }
 ```
 
-Router matching uses required-subset semantics; `allowedExtra` caps permitted extra routes. Context paths use app-relative exact paths or explicit globs. Validators are IDs from a checked-in registry and never arbitrary shell copied from evidence. Static checks observe files directly; live routing checks record actual tool/file access separately from model-reported selections. The schema rejects unknown families/modes, duplicate IDs, missing owners/rule IDs, dangling related-case IDs, missing skill/guide files, unknown validator IDs, unsafe setup commands, and impossible context budgets. Live results record schema version, case ID and prompt hash, tool/version/model, actual selected context, decisions, violations, duration, exit status, and pass/fail. They redact environment values, credentials, tokens, home paths, and private prompt bodies.
+Router matching uses required-subset semantics; `allowedExtra` caps permitted extra routes. Context paths use app-relative exact paths or explicit globs. Validators are IDs from a checked-in registry and never arbitrary shell copied from evidence. Static checks observe files directly; live routing checks record actual tool/file access separately from model-reported selections. Both live CLIs disable general shell/process/environment/discovery/browser/network tools and expose only an evaluator-owned MCP server launched through `env -i`, with exact-path reads and case-allowlisted atomic writes. Its root/path checks keep isolated runner credentials and arbitrary outbound access outside the model tool boundary. The schema rejects unknown families/modes, duplicate IDs, missing owners/rule IDs, dangling related-case IDs, missing skill/guide files, unknown validator IDs, unsafe setup commands, and impossible context budgets. Live results record schema version, case ID and prompt hash, tool/version/model, actual selected context, decisions, violations, duration, exit status, and pass/fail. They redact environment values, credentials, tokens, home paths, and private prompt bodies.
 
 ### Generated harness ownership manifest
 
@@ -585,9 +585,9 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 |---|---|
 | Fresh `create-mercato-app --agents codex`, Claude, Cursor, and multi-agent selection | One authoritative root router; correct tool files; local/external skill layout; no unresolved placeholders. |
 | Fresh scaffold with `--agents none` / skipped setup | Safe fallback `AGENTS.md`; placeholder installer points to `agentic:init`; app scaffold remains valid. |
-| `yarn mercato agentic:init` first run and rerun | Same emitted tree as create-app; marker/ownership idempotency; user-authored files preserved. |
+| `yarn mercato agentic:init` first run and rerun | Same emitted tree as create-app; marker/ownership idempotency; user-authored files preserved; a symlinked managed ancestor fails before any outside write. |
 | `yarn install-skills --no-external` | Default local skills and correct canonical/Claude link layout without network. |
-| External install with fake/recorded skills CLI | Pinned CLI invocation, repeated skill flags, dependency-closed subset, retry semantics, external-before-local ordering. |
+| External install with fake/recorded skills CLI | Pinned CLI invocation, repeated skill flags, 15-skill default versus opt-in automation selection, dependency closure, all-set activation/rollback including prior-ledger restoration, retry semantics, external-before-local ordering. |
 | Windows simulated filesystem/command resolution | Junction/link behavior and `.cmd` spawning. |
 | `yarn framework:context --module customers` | Installed core version, root/package/module AGENTS chain, `src/modules/customers`, bounded no-ignore search. |
 | Missing source/duplicate module/version skew fixtures | Explicit degraded/ambiguous/skew output; no guessed edit path. |

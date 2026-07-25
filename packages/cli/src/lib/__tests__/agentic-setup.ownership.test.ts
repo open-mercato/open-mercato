@@ -2,10 +2,12 @@ import { createHash } from 'node:crypto'
 import {
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   existsSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -193,6 +195,28 @@ describe('applyHarnessUpdate', () => {
       'Generated harness candidate is invalid for "../escape.md".',
     )
     expect(readFileSync(oldManifestPath, 'utf8')).toBe(oldManifest)
+  })
+
+  it('rejects a symlinked managed ancestor without writing outside the app', () => {
+    if (process.platform === 'win32') return
+    const outsideDir = join(tempRoot, 'outside')
+    mkdirSync(join(outsideDir, 'harness'), { recursive: true })
+    write(join(outsideDir, 'sentinel.txt'), 'outside sentinel\n')
+    write(
+      join(outsideDir, 'harness', 'manifest.json'),
+      `${JSON.stringify({ version: 1, generator: 'outside', files: [] }, null, 2)}\n`,
+    )
+    const nextContent = 'must stay inside the app\n'
+    write(join(stagingDir, '.ai', 'owned.md'), nextContent)
+    writeManifest(stagingDir, [entry('.ai/owned.md', nextContent)])
+    symlinkSync(outsideDir, join(targetDir, '.ai'), 'dir')
+
+    expect(() => applyHarnessUpdate(targetDir, stagingDir)).toThrow(
+      'Harness-managed path contains a symbolic-link component',
+    )
+    expect(readFileSync(join(outsideDir, 'sentinel.txt'), 'utf8')).toBe('outside sentinel\n')
+    expect(existsSync(join(outsideDir, 'owned.md'))).toBe(false)
+    expect(readdirSync(outsideDir).sort()).toEqual(['harness', 'sentinel.txt'])
   })
 })
 

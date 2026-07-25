@@ -12,6 +12,7 @@ const guidesRoot = fileURLToPath(new URL('../../agentic/guides/', import.meta.ur
 const sourceHarness = path.join(sharedRoot, 'ai', 'harness')
 const sourceEvaluator = path.join(sharedRoot, 'scripts', 'evaluate-agent-harness.mjs')
 const sourceExecutionSandbox = path.join(sharedRoot, 'scripts', 'execution-sandbox.mjs')
+const sourceToolServer = path.join(sharedRoot, 'scripts', 'agent-harness-tool-server.mjs')
 const sourceFixturePreparer = path.join(sharedRoot, 'scripts', 'prepare-agent-harness-fixture.mjs')
 const typescriptPackageRoot = path.dirname(fileURLToPath(import.meta.resolve('typescript/package.json')))
 const targetSandboxAvailable = process.platform === 'darwin'
@@ -68,6 +69,7 @@ function stageApp(): string {
   fs.mkdirSync(path.join(root, 'scripts'), { recursive: true })
   fs.copyFileSync(sourceEvaluator, path.join(root, 'scripts', 'evaluate-agent-harness.mjs'))
   fs.copyFileSync(sourceExecutionSandbox, path.join(root, 'scripts', 'execution-sandbox.mjs'))
+  fs.copyFileSync(sourceToolServer, path.join(root, 'scripts', 'agent-harness-tool-server.mjs'))
   fs.copyFileSync(sourceFixturePreparer, path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'))
   fs.mkdirSync(path.join(root, 'node_modules'))
   fs.mkdirSync(path.join(root, 'src'), { recursive: true })
@@ -183,7 +185,7 @@ try { fs.writeFileSync(${JSON.stringify(sandboxProbe.writePath)}, 'escaped'); pr
 ` : ''}
 const route = path.join(process.cwd(), 'src/modules/library/api/books/route.ts')
 fs.mkdirSync(path.dirname(route), { recursive: true })
-fs.writeFileSync(route, "function makeCrudRoute(options: unknown) { return options }\\nexport const GET = makeCrudRoute({ metadata: {}, openApi: {}, indexer: {} })\\n")
+fs.writeFileSync(route, "import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'\\nexport const GET = makeCrudRoute({ metadata: {}, orm: {}, list: {}, actions: {}, indexer: {} })\\nexport const openApi = { methods: {} }\\n")
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['module-data'], selectedSkills: ['om-module-scaffold'],
   selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-module-scaffold/SKILL.md'],
@@ -404,18 +406,16 @@ const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
 if (!prompt.includes('Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories') || !prompt.includes('an all-guides/all-skills/all-facts read is an automatic failure') || !prompt.includes('selectedSkills names only skills you actually invoked during this evaluation after opening their SKILL.md')) process.exit(10)
-if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || args[args.indexOf('--disable') + 1] !== 'skill_search' || args[args.indexOf('--sandbox') + 1] !== 'danger-full-access' || !args.includes('shell_environment_policy.inherit=none') || !process.env.CODEX_HOME?.includes('om-harness-result-') || !process.env.HOME?.includes('om-harness-result-')) process.exit(9)
+const disabled = args.flatMap((arg, index) => arg === '--disable' ? [args[index + 1]] : [])
+if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || !['skill_search','shell_tool','unified_exec','apps','multi_agent','browser_use','computer_use','image_generation','standalone_web_search'].every((feature) => disabled.includes(feature)) || args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('sandbox_workspace_write.network_access=false') || !args.includes('shell_environment_policy.inherit=none') || !args.includes('mcp_servers.harness.required=true') || !args.includes('mcp_servers.harness.default_tools_approval_mode="approve"') || !args.some((arg) => arg.startsWith('mcp_servers.harness.command=')) || !args.some((arg) => arg.startsWith('mcp_servers.harness.args=')) || !process.env.CODEX_HOME?.includes('om-harness-result-') || !process.env.HOME?.includes('om-harness-result-')) process.exit(9)
 const output = args[args.indexOf('-o') + 1]
 fs.writeFileSync(output, JSON.stringify({
   selectedRouter: ['architecture'], selectedSkills: [],
   selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
   decisions: ['standalone-boundary', 'facts-first'], violations: []
 }))
-for (const command of [
-  "sed -n '1,120p' AGENTS.md",
-  "sed -n '1,120p' .ai/guides/architecture.md",
-]) console.log(JSON.stringify({ type: 'item.completed', item: {
-  type: 'command_execution', command, exit_code: 0, status: 'completed'
+for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) console.log(JSON.stringify({ type: 'item.completed', item: {
+  type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
 }}))
 `)
   fs.chmodSync(fake, 0o755)
@@ -455,11 +455,12 @@ test('live Claude adapter uses safe plan mode, a read-only tool list, structured
   fs.writeFileSync(fake, `#!/usr/bin/env node
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
-if (!args.includes('--safe-mode') || !args.includes('--disable-slash-commands') || args[args.indexOf('--setting-sources') + 1] !== '' || !args.includes('--strict-mcp-config') || args[args.indexOf('--mcp-config') + 1] !== '{"mcpServers":{}}' || args[args.indexOf('--permission-mode') + 1] !== 'plan' || args[args.indexOf('--tools') + 1] !== 'Read,Glob,Grep' || !args.includes('--no-session-persistence') || args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--verbose') || !args.includes('--json-schema')) process.exit(9)
+const mcp = JSON.parse(args[args.indexOf('--mcp-config') + 1]).mcpServers.harness
+if (!args.includes('--safe-mode') || !args.includes('--disable-slash-commands') || args[args.indexOf('--setting-sources') + 1] !== '' || !args.includes('--strict-mcp-config') || mcp.command !== '/usr/bin/env' || mcp.args[0] !== '-i' || !mcp.args.some((entry) => entry.endsWith('agent-harness-tool-server.mjs')) || args[args.indexOf('--permission-mode') + 1] !== 'plan' || args[args.indexOf('--tools') + 1] !== 'mcp__harness__read' || !args.includes('--no-session-persistence') || args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--verbose') || !args.includes('--json-schema')) process.exit(9)
 console.log(JSON.stringify({ type: 'assistant', message: { content: [
-  { type: 'tool_use', name: 'Read', input: { file_path: require('node:path').join(process.cwd(), 'AGENTS.md') } },
-  { type: 'tool_use', name: 'Read', input: { file_path: require('node:path').join(process.cwd(), '.ai/guides/contracts.md') } },
-  { type: 'tool_use', name: 'Read', input: { file_path: require('node:path').join(process.cwd(), '.ai/skills/om-data-model-design/SKILL.md') } }
+  { type: 'tool_use', name: 'mcp__harness__read', input: { path: 'AGENTS.md' } },
+  { type: 'tool_use', name: 'mcp__harness__read', input: { path: '.ai/guides/contracts.md' } },
+  { type: 'tool_use', name: 'mcp__harness__read', input: { path: '.ai/skills/om-data-model-design/SKILL.md' } }
 ] } }))
 console.log(JSON.stringify({ type: 'result', structured_output: {
   selectedRouter: ['module-data'], selectedSkills: ['om-data-model-design'],
@@ -1537,7 +1538,8 @@ if (args[0] === '--version') { console.log('codex-review-fake 1.0'); process.exi
 if (fs.existsSync('package.json') || fs.existsSync('node_modules') || fs.existsSync('.git')) process.exit(8)
 if (fs.existsSync('src/modules/library/api/books/route.ts') || !fs.readFileSync('REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt', 'utf8').startsWith('<<<LINE 000001>>>')) process.exit(8)
 for (const file of ['.ai/guides/backend-ui.md', '.ai/skills/om-backend-ui-design/SKILL.md', '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md']) if (!fs.existsSync(file)) process.exit(8)
-if (args[args.indexOf('--sandbox') + 1] !== 'danger-full-access' || !args.includes('--ignore-user-config')) process.exit(9)
+const disabled = args.flatMap((arg, index) => arg === '--disable' ? [args[index + 1]] : [])
+if (args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('--ignore-user-config') || !disabled.includes('shell_tool') || !disabled.includes('unified_exec')) process.exit(9)
 const evidence = [
   { id: 'oracle:allowed-writes', status: 'pass' },
   { id: 'oracle:writable-ast-oracles.mjs', status: 'pass' },
@@ -1563,7 +1565,7 @@ const report = [
   'The trusted AST and target typecheck evidence cover the generated route shape; this supplemental review ran no target scripts.'
 ].join('\\n')
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ schemaVersion: 1, verdict: 'approve', report, validationEvidence: evidence, findings: [] }))
-console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md REVIEW_POLICY.md REVIEW_EVIDENCE.json .agents/skills/om-code-review/SKILL.md .agents/skills/om-code-review/references/agentic-setup.md .agents/skills/om-code-review/references/output-format.md .agents/skills/om-code-review/references/review-checklist.md .agents/skills/om-code-review/references/rules.md .ai/guides/backend-ui.md .ai/skills/om-backend-ui-design/SKILL.md .ai/skills/om-backend-ui-design/references/crud-surfaces.md .ai/skills/om-backend-ui-design/references/frontend-and-design-system.md .ai/skills/om-backend-ui-design/references/page-and-navigation.md .ai/skills/om-backend-ui-design/references/quality-states.md REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt' } }))
+for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.agents/skills/om-code-review/SKILL.md', '.agents/skills/om-code-review/references/agentic-setup.md', '.agents/skills/om-code-review/references/output-format.md', '.agents/skills/om-code-review/references/review-checklist.md', '.agents/skills/om-code-review/references/rules.md', '.ai/guides/backend-ui.md', '.ai/skills/om-backend-ui-design/SKILL.md', '.ai/skills/om-backend-ui-design/references/crud-surfaces.md', '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md', '.ai/skills/om-backend-ui-design/references/page-and-navigation.md', '.ai/skills/om-backend-ui-design/references/quality-states.md', 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' } }))
 `)
     const review = runEvaluator(controller, [
       '--runner', 'codex', '--review-writable-result', sourceResult, '--writable-root', target,

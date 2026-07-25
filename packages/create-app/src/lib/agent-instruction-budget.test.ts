@@ -4,12 +4,13 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { generateShared } from '../setup/tools/shared.js'
+import { generateCodex } from '../setup/tools/codex.js'
+import { generateShared, injectModuleGuides, readEnabledModuleIds } from '../setup/tools/shared.js'
 
 const CREATE_APP_ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const CODEX_DEFAULT_PROJECT_DOC_BYTES = 32 * 1024
 const STANDALONE_ROOT_TARGET_BYTES = 12 * 1024
-const CODEX_ENFORCEMENT_SOURCE = 'agentic/codex/enforcement-rules.md'
+const CLASSIC_APP_ONLY_MODULES = new Set(['example', 'ratelimit_probe'])
 
 const ROOT_SOURCES = [
   'template/AGENTS.md',
@@ -78,21 +79,43 @@ test('existing-module UI routing stays inside the backend UI context slice', () 
   }
 })
 
-test('generated representative initial instruction chains fit the Codex default byte budget', () => {
+test('generated classic Codex root and representative initial chains fit their byte budgets', () => {
   const targetDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-instruction-budget-')))
   fs.mkdirSync(path.join(targetDir, 'src'), { recursive: true })
-  fs.writeFileSync(path.join(targetDir, 'src', 'modules.ts'), 'export const enabledModules = []\n')
+  fs.copyFileSync(
+    path.join(CREATE_APP_ROOT, 'template/src/modules.ts'),
+    path.join(targetDir, 'src', 'modules.ts'),
+  )
 
   try {
-    const config = { projectName: 'instruction-budget-fixture', targetDir }
+    const config = {
+      projectName: `instruction-budget-fixture-${'x'.repeat(96)}`,
+      targetDir,
+    }
     generateShared(config)
 
-    // A freshly generated Codex root prepends this block plus two separator
-    // newlines. Account for it without depending on a pre-built dist/ tree.
-    const codexEnforcementBytes =
-      fs.statSync(path.join(CREATE_APP_ROOT, CODEX_ENFORCEMENT_SOURCE)).size + 2
+    // Source-tree tests do not run build.mjs, which materializes package module
+    // fact-sheets under dist/. Reproduce its classic enabled-package intersection
+    // before applying the real Codex root patch.
+    const classicFactModules = readEnabledModuleIds(path.join(targetDir, 'src', 'modules.ts'))
+      .filter((moduleId) => !CLASSIC_APP_ONLY_MODULES.has(moduleId))
+      .sort()
+    assert.equal(classicFactModules.length, 47, 'classic scaffold fact index changed; review its root budget')
+    injectModuleGuides(path.join(targetDir, 'AGENTS.md'), classicFactModules)
+    generateCodex(config)
 
     const rootInstructions = fs.readFileSync(path.join(targetDir, 'AGENTS.md'), 'utf8')
+    assert.match(rootInstructions, /<!-- CODEX_ENFORCEMENT_RULES_START -->/)
+    const moduleIndex = rootInstructions.match(/Enabled module facts: ([^\n]+)\./)
+    assert.ok(moduleIndex, 'generated classic root must contain the compact module-fact index')
+    assert.deepEqual(
+      [...moduleIndex[1].matchAll(/`([^`]+)`/g)].map((match) => match[1]),
+      classicFactModules,
+    )
+    assert.ok(
+      Buffer.byteLength(rootInstructions) <= STANDALONE_ROOT_TARGET_BYTES,
+      `generated classic Codex AGENTS.md uses ${Buffer.byteLength(rootInstructions)} bytes; keep the final root at or below ${STANDALONE_ROOT_TARGET_BYTES} bytes`,
+    )
     const chains = [
       {
         name: 'root only',
@@ -152,9 +175,7 @@ test('generated representative initial instruction chains fit the Codex default 
           `Instruction chain "${chain.name}" is no longer routed by generated AGENTS.md: ${marker}`,
         )
       }
-      assertChainFits(targetDir, chain.name, chain.paths, [
-        { label: 'Codex enforcement block', bytes: codexEnforcementBytes },
-      ])
+      assertChainFits(targetDir, chain.name, chain.paths)
     }
   } finally {
     fs.rmSync(targetDir, { recursive: true, force: true })

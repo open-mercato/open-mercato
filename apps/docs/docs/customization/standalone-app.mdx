@@ -72,9 +72,10 @@ The setup attempts to install the selected skill set. Re-run the integrity-check
 ```bash
 yarn install-skills --list
 yarn install-skills
+yarn install-skills --with automation # opt in to loop/issue/release-maintenance workflows
 ```
 
-Skills are discovered from `.agents/skills/`; Claude Code receives the compatibility links it needs. The installer verifies the pinned external commit and file hashes, preserves unknown user-owned skills, and quarantines stale or modified installer-owned copies instead of silently trusting them.
+The default installs the local core tier and the 15-skill dependency-closed daily external tier. Advanced loop engines, issue authoring, and upgrade-note maintenance stay opt-in through `--with automation` (or `--all`). Skills are discovered from `.agents/skills/`; Claude Code receives the compatibility links it needs. The installer verifies the pinned external commit and file hashes and activates the selected external set as one transaction, restoring the complete previous set on failure before local installation continues. It preserves unknown user-owned skills and quarantines stale or modified installer-owned copies instead of silently trusting them.
 
 ### Upgrade an existing generated harness
 
@@ -84,7 +85,7 @@ After upgrading Open Mercato, refresh generated harness files through the owners
 yarn mercato agentic:init --update-harness
 ```
 
-Unmodified generated files are replaced, missing owned files are recreated, and the manifest is refreshed atomically. User-modified or unknown files are preserved; an exact generated-path conflict is written beside the file as `.incoming` for review. Use `--force` only when you intentionally want to replace known generated targets. Skill installation runs afterward as a separate retryable step, so an offline registry does not invalidate the refreshed harness.
+Unmodified generated files are replaced, missing owned files are recreated, and the manifest is refreshed atomically. User-modified or unknown files are preserved; an exact generated-path conflict is written beside the file as `.incoming` for review. Managed paths are resolved below the canonical app root and a symlinked ancestor is rejected before publication. Use `--force` only when you intentionally want to replace known generated targets. Skill installation runs afterward as a separate retryable step, so an offline registry does not invalidate the refreshed harness.
 
 ### Load exact framework context only when needed
 
@@ -108,7 +109,7 @@ yarn harness:validate --family testing
 yarn harness:validate --all
 ```
 
-`harness:validate --all` checks the complete catalog deterministically. Authenticated live routing can be sampled with `--runner codex` or `--runner claude`. The controller adds host filesystem containment on macOS (`sandbox-exec`) and Linux (Bubblewrap), but the selected app itself remains readable for routing, so use a freshly generated or otherwise non-sensitive app. Native Windows must use a contained Linux VM/container for live lanes.
+`harness:validate --all` checks the complete catalog deterministically. Authenticated live routing can be sampled with `--runner codex` or `--runner claude`. The controller adds host filesystem containment on macOS (`sandbox-exec`) and Linux (Bubblewrap). The model gets no shell, process, environment, discovery, browser, or network tool; both CLIs receive only an evaluator-owned, `env -i` MCP server for exact-path reads and case-allowlisted writes. The selected app is intentionally readable through that narrow tool, so use a freshly generated or otherwise non-sensitive app. Native Windows must use a contained Linux VM/container for live lanes.
 
 Once per Open Mercato release, install the pinned skills and run the full matrix from a fresh controller scaffold:
 

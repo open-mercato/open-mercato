@@ -10,10 +10,12 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -200,6 +202,73 @@ function hashFile(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
+function canonicalHarnessRoot(root: string): string {
+  const resolved = resolve(root)
+  if (!existsSync(resolved)) {
+    throw new Error(`Harness root must be an existing directory: ${resolved}`)
+  }
+  const canonical = realpathSync(resolved)
+  const entry = lstatSync(canonical, { throwIfNoEntry: false })
+  if (!entry || !entry.isDirectory()) {
+    throw new Error(`Harness root must be an existing directory: ${resolved}`)
+  }
+  return canonical
+}
+
+/**
+ * Validate a managed path without following any link below the canonical app
+ * root. A lexical containment check alone is insufficient: `app/.ai -> /tmp`
+ * would otherwise make an apparently safe update write outside the app.
+ */
+function assertManagedPath(root: string, path: string, options: { leaf?: 'file' | 'any' } = {}): void {
+  const absolutePath = resolve(path)
+  const normalizedRelative = relative(root, absolutePath)
+  if (
+    normalizedRelative === '..' ||
+    normalizedRelative.startsWith(`..${sep}`)
+  ) {
+    throw new Error(`Harness-managed path escapes its root: ${absolutePath}`)
+  }
+  if (normalizedRelative === '') return
+
+  const components = normalizedRelative.split(sep).filter(Boolean)
+  let current = root
+  for (let index = 0; index < components.length; index += 1) {
+    current = join(current, components[index])
+    const entry = lstatSync(current, { throwIfNoEntry: false })
+    if (!entry) return
+    if (entry.isSymbolicLink()) {
+      throw new Error(`Harness-managed path contains a symbolic-link component: ${current}`)
+    }
+    const isLeaf = index === components.length - 1
+    if (!isLeaf && !entry.isDirectory()) {
+      throw new Error(`Harness-managed path component is not a directory: ${current}`)
+    }
+    if (isLeaf && options.leaf === 'file' && !entry.isFile()) {
+      throw new Error(`Harness-managed file is not a regular file: ${current}`)
+    }
+  }
+}
+
+function ensureManagedParent(root: string, filePath: string): void {
+  const parent = dirname(filePath)
+  const normalizedRelative = relative(root, parent)
+  if (normalizedRelative === '..' || normalizedRelative.startsWith(`..${sep}`)) {
+    throw new Error(`Harness-managed path escapes its root: ${filePath}`)
+  }
+  let current = root
+  for (const component of normalizedRelative.split(sep).filter(Boolean)) {
+    assertManagedPath(root, current)
+    current = join(current, component)
+    const entry = lstatSync(current, { throwIfNoEntry: false })
+    if (!entry) mkdirSync(current)
+    const created = lstatSync(current, { throwIfNoEntry: false })
+    if (!created || created.isSymbolicLink() || !created.isDirectory()) {
+      throw new Error(`Harness-managed path component is not a real directory: ${current}`)
+    }
+  }
+}
+
 function harnessGeneratorId(): string {
   try {
     const upstream = JSON.parse(readFileSync(join(GUIDES_DIR, 'upstream', 'manifest.json'), 'utf8')) as {
@@ -225,26 +294,52 @@ function externalSkillNames(targetDir: string): Set<string> {
   }
 }
 
-function atomicCopyFile(sourcePath: string, destinationPath: string): void {
-  ensureDir(destinationPath)
+function atomicCopyFile(sourcePath: string, destinationPath: string, managedRoot?: string): void {
+  if (managedRoot) {
+    assertManagedPath(managedRoot, destinationPath, { leaf: 'file' })
+    ensureManagedParent(managedRoot, destinationPath)
+  } else {
+    ensureDir(destinationPath)
+  }
   const temporaryPath = `${destinationPath}.tmp-${process.pid}-${Date.now()}`
   try {
+    if (managedRoot) assertManagedPath(managedRoot, temporaryPath, { leaf: 'file' })
     copyFileSync(sourcePath, temporaryPath)
     if (process.platform !== 'win32') chmodSync(temporaryPath, statSync(sourcePath).mode & 0o777)
+    if (managedRoot) {
+      assertManagedPath(managedRoot, dirname(destinationPath))
+      assertManagedPath(managedRoot, destinationPath, { leaf: 'file' })
+      assertManagedPath(managedRoot, temporaryPath, { leaf: 'file' })
+    }
     renameSync(temporaryPath, destinationPath)
   } finally {
-    rmSync(temporaryPath, { force: true })
+    if (!managedRoot || !lstatSync(temporaryPath, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      rmSync(temporaryPath, { force: true })
+    }
   }
 }
 
-function atomicWriteFile(destinationPath: string, content: string): void {
-  ensureDir(destinationPath)
+function atomicWriteFile(destinationPath: string, content: string, managedRoot?: string): void {
+  if (managedRoot) {
+    assertManagedPath(managedRoot, destinationPath, { leaf: 'file' })
+    ensureManagedParent(managedRoot, destinationPath)
+  } else {
+    ensureDir(destinationPath)
+  }
   const temporaryPath = `${destinationPath}.tmp-${process.pid}-${Date.now()}`
   try {
+    if (managedRoot) assertManagedPath(managedRoot, temporaryPath, { leaf: 'file' })
     writeFileSync(temporaryPath, content)
+    if (managedRoot) {
+      assertManagedPath(managedRoot, dirname(destinationPath))
+      assertManagedPath(managedRoot, destinationPath, { leaf: 'file' })
+      assertManagedPath(managedRoot, temporaryPath, { leaf: 'file' })
+    }
     renameSync(temporaryPath, destinationPath)
   } finally {
-    rmSync(temporaryPath, { force: true })
+    if (!managedRoot || !lstatSync(temporaryPath, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      rmSync(temporaryPath, { force: true })
+    }
   }
 }
 
@@ -361,6 +456,7 @@ function finalizeHarnessManifest(config: AgenticConfig, selectedTools: string[])
 export type HarnessUpdateConflict = { path: string; candidate: string | null }
 
 function preserveIncomingCandidate(
+  targetRoot: string,
   destinationPath: string,
   sourcePath: string,
   relativePath: string,
@@ -368,8 +464,9 @@ function preserveIncomingCandidate(
   for (let suffix = 1; ; suffix += 1) {
     const label = suffix === 1 ? '.incoming' : `.incoming.${suffix}`
     const candidatePath = `${destinationPath}${label}`
+    assertManagedPath(targetRoot, candidatePath, { leaf: 'file' })
     if (!existsSync(candidatePath)) {
-      atomicCopyFile(sourcePath, candidatePath)
+      atomicCopyFile(sourcePath, candidatePath, targetRoot)
       return `${relativePath}${label}`
     }
     if (hashFile(candidatePath) === hashFile(sourcePath)) return `${relativePath}${label}`
@@ -377,8 +474,12 @@ function preserveIncomingCandidate(
 }
 
 export function applyHarnessUpdate(targetDir: string, stagingDir: string): HarnessUpdateConflict[] {
-  const targetManifestPath = join(targetDir, '.ai', 'harness', 'manifest.json')
-  const stagingManifestPath = join(stagingDir, '.ai', 'harness', 'manifest.json')
+  const targetRoot = canonicalHarnessRoot(targetDir)
+  const stagingRoot = canonicalHarnessRoot(stagingDir)
+  const targetManifestPath = join(targetRoot, '.ai', 'harness', 'manifest.json')
+  const stagingManifestPath = join(stagingRoot, '.ai', 'harness', 'manifest.json')
+  assertManagedPath(targetRoot, targetManifestPath, { leaf: 'file' })
+  assertManagedPath(stagingRoot, stagingManifestPath, { leaf: 'file' })
   const candidateManifest = readHarnessManifest(stagingManifestPath)
   if (!candidateManifest) {
     throw new Error('Generated harness candidate has a missing or invalid ownership manifest.')
@@ -395,8 +496,10 @@ export function applyHarnessUpdate(targetDir: string, stagingDir: string): Harne
 
   // Validate the complete candidate before writing anything into the app.
   for (const entry of candidateManifest.files) {
-    const sourcePath = resolveManifestPath(stagingDir, entry.path)
-    const destinationPath = resolveManifestPath(targetDir, entry.path)
+    const sourcePath = resolveManifestPath(stagingRoot, entry.path)
+    const destinationPath = resolveManifestPath(targetRoot, entry.path)
+    if (sourcePath) assertManagedPath(stagingRoot, sourcePath, { leaf: 'file' })
+    if (destinationPath) assertManagedPath(targetRoot, destinationPath, { leaf: 'file' })
     if (!sourcePath || !destinationPath || !existsSync(sourcePath) || hashFile(sourcePath) !== entry.sha256) {
       throw new Error(`Generated harness candidate is invalid for ${JSON.stringify(entry.path)}.`)
     }
@@ -406,26 +509,27 @@ export function applyHarnessUpdate(targetDir: string, stagingDir: string): Harne
   const conflicts: HarnessUpdateConflict[] = []
   for (const { entry, sourcePath, destinationPath } of candidates) {
     if (!existsSync(destinationPath)) {
-      atomicCopyFile(sourcePath, destinationPath)
+      atomicCopyFile(sourcePath, destinationPath, targetRoot)
       continue
     }
 
     const currentHash = hashFile(destinationPath)
     const previousEntry = previousFiles.get(entry.path)
     if (currentHash === entry.sha256 || (previousEntry && currentHash === previousEntry.sha256)) {
-      atomicCopyFile(sourcePath, destinationPath)
+      atomicCopyFile(sourcePath, destinationPath, targetRoot)
       continue
     }
 
-    const candidate = preserveIncomingCandidate(destinationPath, sourcePath, entry.path)
+    const candidate = preserveIncomingCandidate(targetRoot, destinationPath, sourcePath, entry.path)
     conflicts.push({ path: entry.path, candidate })
   }
 
   const retainedRetiredEntries: HarnessManifestFile[] = []
   for (const previousEntry of previousManifest?.files ?? []) {
     if (candidatePaths.has(previousEntry.path)) continue
-    const destinationPath = resolveManifestPath(targetDir, previousEntry.path)
+    const destinationPath = resolveManifestPath(targetRoot, previousEntry.path)
     if (!destinationPath || !existsSync(destinationPath)) continue
+    assertManagedPath(targetRoot, destinationPath, { leaf: 'file' })
     let unchanged = false
     try {
       unchanged = hashFile(destinationPath) === previousEntry.sha256
@@ -434,6 +538,8 @@ export function applyHarnessUpdate(targetDir: string, stagingDir: string): Harne
       // Preserve it and retain the ownership tombstone for a later review.
     }
     if (unchanged) {
+      assertManagedPath(targetRoot, dirname(destinationPath))
+      assertManagedPath(targetRoot, destinationPath, { leaf: 'file' })
       rmSync(destinationPath, { force: true })
     } else {
       retainedRetiredEntries.push(previousEntry)
@@ -448,7 +554,7 @@ export function applyHarnessUpdate(targetDir: string, stagingDir: string): Harne
     ...candidateManifest,
     files: [...candidateManifest.files, ...retainedRetiredEntries],
   }
-  atomicWriteFile(targetManifestPath, `${JSON.stringify(finalManifest, null, 2)}\n`)
+  atomicWriteFile(targetManifestPath, `${JSON.stringify(finalManifest, null, 2)}\n`, targetRoot)
   return conflicts
 }
 

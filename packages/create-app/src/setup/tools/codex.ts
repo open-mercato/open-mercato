@@ -4,7 +4,11 @@ import { fileURLToPath } from 'node:url'
 import type { AgenticConfig } from '../wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const AGENTIC_DIR = join(__dirname, 'agentic', 'codex')
+const bundledAgenticRoot = join(__dirname, 'agentic')
+const AGENTIC_ROOT = existsSync(bundledAgenticRoot)
+  ? bundledAgenticRoot
+  : join(__dirname, '..', '..', '..', 'agentic')
+const AGENTIC_DIR = join(AGENTIC_ROOT, 'codex')
 
 const MARKER_START = '<!-- CODEX_ENFORCEMENT_RULES_START -->'
 const MARKER_END = '<!-- CODEX_ENFORCEMENT_RULES_END -->'

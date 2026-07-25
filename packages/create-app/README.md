@@ -98,9 +98,10 @@ Agentic setup attempts installation automatically. Re-run it after cloning, afte
 ```bash
 yarn install-skills --list
 yarn install-skills
+yarn install-skills --with automation # opt in to loop/issue/release-maintenance workflows
 ```
 
-`.agents/skills/` is canonical; Claude Code receives compatibility links. The installer validates pinned hashes, preserves unknown user-owned skills, and quarantines stale or modified installer-owned content.
+The default is the 13 local core skills plus the 15-skill dependency-closed daily external tier. Advanced loop engines, issue authoring, and upgrade-note maintenance stay opt-in through `--with automation` (or `--all`). `.agents/skills/` is canonical; Claude Code receives compatibility links. The installer validates pinned hashes and activates the selected external set as one transaction: any failure restores the complete previous set before local installation continues. It preserves unknown user-owned skills and quarantines stale or modified installer-owned content.
 
 ### Upgrade an existing generated harness
 
@@ -110,7 +111,7 @@ After upgrading Open Mercato, refresh generated harness assets without overwriti
 yarn mercato agentic:init --update-harness
 ```
 
-The ownership-aware update replaces unchanged generated files, recreates missing owned files, and refreshes the manifest atomically. Modified or unknown files remain in place; exact generated-path conflicts get an adjacent `.incoming` candidate. Use `--force` only when intentionally replacing known generated targets. External skill installation is a separate retryable phase, so offline installation does not roll back the harness update.
+The ownership-aware update replaces unchanged generated files, recreates missing owned files, and refreshes the manifest atomically. Modified or unknown files remain in place; exact generated-path conflicts get an adjacent `.incoming` candidate. Managed paths are resolved below the canonical app root and a symlinked ancestor is rejected before publication. Use `--force` only when intentionally replacing known generated targets. External skill installation is a separate retryable phase, so offline installation does not roll back the harness update.
 
 ### Resolve installed framework context
 
@@ -134,7 +135,7 @@ yarn harness:validate --family testing
 yarn harness:validate --all
 ```
 
-`harness:validate --all` is the deterministic catalog gate, not the full release suite. Authenticated `--runner codex` / `--runner claude` live routing uses host filesystem containment on macOS (`sandbox-exec`) and Linux (Bubblewrap), but the selected app itself remains readable for routing; use a fresh or otherwise non-sensitive generated app. Native Windows must use a contained Linux VM/container for live lanes.
+`harness:validate --all` is the deterministic catalog gate, not the full release suite. Authenticated `--runner codex` / `--runner claude` live routing uses host filesystem containment on macOS (`sandbox-exec`) and Linux (Bubblewrap). The model gets no shell, process, environment, discovery, browser, or network tool: both CLIs receive only an evaluator-owned, `env -i` MCP server for exact-path reads and case-allowlisted writes. The selected app is intentionally readable through that narrow tool, so use a fresh or otherwise non-sensitive generated app. Native Windows must use a contained Linux VM/container for live lanes.
 
 Run the full matrix once per Open Mercato release from a fresh scaffold:
 

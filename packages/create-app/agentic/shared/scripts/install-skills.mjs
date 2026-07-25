@@ -40,10 +40,10 @@ const EXTERNAL_OWNERSHIP_FILE = '.om-external-ownership.json'
 const USAGE = `Usage: install-skills.mjs [options]
 
 Options:
-  (no options)        Install the default local tiers plus the pinned external set.
-  --with <csv>        Install default tiers plus the named tiers.
-  --tiers <csv>       Install exactly the named tiers.
-  --all               Install every local tier.
+  (no options)        Install the default local and external tiers.
+  --with <csv>        Install default local/external tiers plus the named tiers.
+  --tiers <csv>       Install exactly the named local/external tiers.
+  --all               Install every local and external tier.
   --legacy-links      Also expose skills through .claude/skills and .codex/skills.
   --ignore-agents <csv>
                       Never write the named agent directories.
@@ -135,6 +135,14 @@ function assertRegularOwnedFile(rootDir, filePath, { optional = true } = {}) {
 function assertOwnedPathAbsent(rootDir, targetPath) {
   assertRealDirectoryComponents(rootDir, dirname(targetPath), { requireLeaf: true })
   if (lstatSync(targetPath, { throwIfNoEntry: false })) fail(`installer temporary path already exists: ${targetPath}`)
+}
+
+function removeInstallerTransactionPath(rootDir, targetPath) {
+  assertRealDirectoryComponents(rootDir, dirname(targetPath), { requireLeaf: true })
+  const entry = lstatSync(targetPath, { throwIfNoEntry: false })
+  if (!entry) return
+  if (entry.isDirectory() && !entry.isSymbolicLink()) rmSync(targetPath, { recursive: true, force: true })
+  else unlinkSync(targetPath)
 }
 
 function assertInstallerPathPreflight(rootDir) {
@@ -318,6 +326,24 @@ function readManifest(rootDir) {
   const externalNames = new Set(external.skills)
   if (externalNames.size !== external.skills.length) fail('external.skills contains duplicates')
   for (const skill of externalNames) if (assigned.has(skill)) fail(`skill '${skill}' is both local and external`)
+  if (!external.tiers || typeof external.tiers !== 'object' || Object.keys(external.tiers).length === 0) {
+    fail('external.tiers must define at least one explicit tier')
+  }
+  const tierAssigned = new Set()
+  for (const [tierName, tier] of Object.entries(external.tiers)) {
+    if (!manifest.tiers[tierName]) fail(`external tier '${tierName}' has no matching local tier selector`)
+    if (!tier || typeof tier.description !== 'string' || !Array.isArray(tier.skills) || tier.skills.length === 0) {
+      fail(`external tier '${tierName}' requires a description and non-empty skills list`)
+    }
+    for (const skill of tier.skills) {
+      if (!externalNames.has(skill)) fail(`external tier '${tierName}' names unknown skill '${skill}'`)
+      if (tierAssigned.has(skill)) fail(`external skill '${skill}' belongs to more than one tier`)
+      tierAssigned.add(skill)
+    }
+  }
+  for (const skill of externalNames) {
+    if (!tierAssigned.has(skill)) fail(`external skill '${skill}' is not assigned to an external tier`)
+  }
   if (!external.dependencies || typeof external.dependencies !== 'object') fail('external.dependencies is required')
   if (!external.contentHashes || typeof external.contentHashes !== 'object') fail('external.contentHashes is required')
   for (const skill of external.skills) {
@@ -351,16 +377,38 @@ function selectedLocalSkills(manifest, tiers) {
   return unique(tiers.flatMap((tier) => manifest.tiers[tier].skills))
 }
 
+function selectedExternalSkills(manifest, tiers) {
+  const selected = new Set(tiers.flatMap((tier) => manifest.external.tiers[tier]?.skills ?? []))
+  const visited = new Set()
+  const visit = (skill) => {
+    if (visited.has(skill)) return
+    visited.add(skill)
+    for (const dependency of manifest.external.dependencies[skill]) {
+      selected.add(dependency)
+      visit(dependency)
+    }
+  }
+  for (const skill of [...selected]) visit(skill)
+  return manifest.external.skills.filter((skill) => selected.has(skill))
+}
+
+function selectedExternalConfig(manifest, tiers) {
+  return { ...manifest.external, skills: selectedExternalSkills(manifest, tiers) }
+}
+
 function printCatalog(manifest) {
   for (const [name, tier] of Object.entries(manifest.tiers).sort(([left], [right]) => left.localeCompare(right))) {
     const label = manifest.default.includes(name) ? 'default' : 'opt-in'
     console.log(`${name.padEnd(12)} (${tier.skills.length} skills, ${label}):`)
     console.log(`  ${tier.skills.join(', ')}`)
   }
-  console.log(`\nexternal     (${manifest.external.skills.length} skills, pinned):`)
+  console.log(`\nexternal     (${manifest.external.skills.length} skills available, pinned):`)
   console.log(`  source: ${manifest.external.source}@${manifest.external.ref}`)
   console.log(`  cli: ${manifest.external.cli.package}@${manifest.external.cli.version}`)
-  console.log(`  ${manifest.external.skills.join(', ')}`)
+  for (const [name, tier] of Object.entries(manifest.external.tiers).sort(([left], [right]) => left.localeCompare(right))) {
+    const label = manifest.default.includes(name) ? 'default' : 'opt-in'
+    console.log(`  ${name.padEnd(10)} (${tier.skills.length} entry skills, ${label}; dependencies added): ${tier.skills.join(', ')}`)
+  }
 }
 
 function readTarString(buffer, start, length) {
@@ -604,7 +652,7 @@ export function assertExternalDestinationsReplaceable(rootDir, external) {
   }
 }
 
-async function installExternal(rootDir, external, platform, spawn, fetchImpl, downloadSource) {
+async function installExternal(rootDir, external, platform, spawn, fetchImpl, downloadSource, activationObserver) {
   let downloaded
   let downloadRoot
   try {
@@ -642,65 +690,92 @@ async function installExternal(rootDir, external, platform, spawn, fetchImpl, do
     prepareLinkDirectory(rootDir, canonicalDir, aiSkillsDir, canonicalDir)
     assertExternalDestinationsReplaceable(rootDir, external)
     const nonce = randomUUID()
-    for (const skill of external.skills) {
-      const destination = join(canonicalDir, skill)
-      const existing = lstatSync(destination, { throwIfNoEntry: false })
-      const stagedDestination = join(canonicalDir, `.om-install-${skill}-${nonce}`)
-      const backupDestination = join(canonicalDir, `.om-backup-${skill}-${nonce}`)
-      let backedUp = false
-      let activated = false
-      try {
+    const transactions = external.skills.map((skill) => ({
+      skill,
+      destination: join(canonicalDir, skill),
+      stagedDestination: join(canonicalDir, `.om-install-${skill}-${nonce}`),
+      backupDestination: join(canonicalDir, `.om-backup-${skill}-${nonce}`),
+      existed: Boolean(lstatSync(join(canonicalDir, skill), { throwIfNoEntry: false })),
+      staged: false,
+      backedUp: false,
+      activated: false,
+    }))
+    let committed = false
+    try {
+      // Stage and attest the complete set before changing any discoverable path.
+      for (const transaction of transactions) {
+        const { skill, stagedDestination, backupDestination } = transaction
         assertRealDirectoryComponents(downloadRoot, stagedSkillsDir, { requireLeaf: true })
         assertOwnedPathAbsent(rootDir, stagedDestination)
         assertOwnedPathAbsent(rootDir, backupDestination)
         cpSync(join(stagedSkillsDir, skill), stagedDestination, { recursive: true, errorOnExist: true })
+        transaction.staged = true
         const copiedHash = hashSkillDirectory(stagedDestination)
         if (copiedHash !== external.contentHashes[skill]) {
           fail(`external skill changed while copying '${skill}' (${copiedHash})`)
         }
-        if (existing) {
+      }
+
+      // Keep every previous destination as a backup until every new skill and
+      // the ownership ledger have committed. Any failure restores the full old
+      // set, so the non-fatal caller can safely continue with local skills.
+      for (const transaction of transactions) {
+        const { skill, destination, stagedDestination, backupDestination } = transaction
+        if (transaction.existed) {
           assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
           renameSync(destination, backupDestination)
-          backedUp = true
+          transaction.backedUp = true
         }
         assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
         renameSync(stagedDestination, destination)
-        activated = true
+        transaction.staged = false
+        transaction.activated = true
         const installedHash = hashSkillDirectory(destination)
         if (installedHash !== external.contentHashes[skill]) {
           fail(`external skill changed while activating '${skill}' (${installedHash})`)
         }
-        if (backedUp) {
-          assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
-          rmSync(backupDestination, { recursive: true, force: true })
-          backedUp = false
+        activationObserver?.(skill)
+      }
+
+      const verified = {}
+      for (const skill of external.skills) {
+        const actual = hashSkillDirectory(join(canonicalDir, skill))
+        if (actual !== external.contentHashes[skill]) fail(`installed external skill integrity check failed: ${skill} (${actual})`)
+        verified[skill] = actual
+      }
+      writeExternalOwnership(rootDir, external, verified)
+      committed = true
+    } catch (error) {
+      const rollbackErrors = []
+      for (const transaction of [...transactions].reverse()) {
+        try {
+          if (transaction.activated) removeInstallerTransactionPath(rootDir, transaction.destination)
+          if (transaction.backedUp && lstatSync(transaction.backupDestination, { throwIfNoEntry: false })) {
+            assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
+            renameSync(transaction.backupDestination, transaction.destination)
+            transaction.backedUp = false
+          }
+        } catch (rollbackError) {
+          rollbackErrors.push(`${transaction.skill}: ${rollbackError.message}`)
         }
-      } catch (error) {
-        if (activated && lstatSync(destination, { throwIfNoEntry: false })) {
-          assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
-          rmSync(destination, { recursive: true, force: true })
-        }
-        if (backedUp && lstatSync(backupDestination, { throwIfNoEntry: false })) {
-          assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
-          renameSync(backupDestination, destination)
-        }
-        throw error
-      } finally {
-        assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
-        const stagedEntry = lstatSync(stagedDestination, { throwIfNoEntry: false })
-        if (stagedEntry) {
-          if (stagedEntry.isDirectory() && !stagedEntry.isSymbolicLink()) rmSync(stagedDestination, { recursive: true, force: true })
-          else unlinkSync(stagedDestination)
+      }
+      if (rollbackErrors.length > 0) {
+        fail(`${error.message}; external skill rollback failed (${rollbackErrors.join('; ')})`)
+      }
+      throw error
+    } finally {
+      for (const transaction of transactions) {
+        if (transaction.staged) removeInstallerTransactionPath(rootDir, transaction.stagedDestination)
+        if (committed && transaction.backedUp) {
+          try {
+            removeInstallerTransactionPath(rootDir, transaction.backupDestination)
+            transaction.backedUp = false
+          } catch (error) {
+            console.warn(`install-skills: warning: committed '${transaction.skill}' but could not remove its hidden backup (${error.message})`)
+          }
         }
       }
     }
-    const verified = {}
-    for (const skill of external.skills) {
-      const actual = hashSkillDirectory(join(canonicalDir, skill))
-      if (actual !== external.contentHashes[skill]) fail(`installed external skill integrity check failed: ${skill} (${actual})`)
-      verified[skill] = actual
-    }
-    writeExternalOwnership(rootDir, external, verified)
     return `installed ${external.source}@${external.ref}`
   } finally {
     if (downloadRoot) {
@@ -787,6 +862,7 @@ export async function runInstaller({
   spawn = spawnSync,
   fetchImpl = globalThis.fetch,
   downloadSource = downloadPinnedSource,
+  activationObserver = undefined,
 } = {}) {
   const options = parseArgs(args, env)
   if (options.help) {
@@ -809,21 +885,24 @@ export async function runInstaller({
   for (const agent of ignoredAgents) if (!KNOWN_AGENTS.includes(agent)) fail(`unknown agent '${agent}'; valid agents: ${KNOWN_AGENTS.join(', ')}`)
   const tiers = selectedTiers(manifest, options)
   const localSkills = selectedLocalSkills(manifest, tiers)
+  const external = selectedExternalConfig(manifest, tiers)
   for (const skill of localSkills) {
     const localSkillDir = join(rootDir, '.ai', 'skills', skill)
     assertRealDirectoryComponents(rootDir, localSkillDir, { requireLeaf: true })
     assertRegularSkillTree(localSkillDir)
   }
   prepareLinkDirectory(rootDir, join(rootDir, '.agents', 'skills'), join(rootDir, '.ai', 'skills'), join(rootDir, '.agents', 'skills'))
-  const quarantined = reconcileExternalSkillVisibility(rootDir, manifest.external)
+  const quarantined = reconcileExternalSkillVisibility(rootDir, external)
   for (const item of quarantined) {
     const ownership = item.previouslyOwned ? 'stale or modified managed' : 'unverified pre-ledger'
     console.warn(`install-skills: quarantined ${ownership} skill '${item.skill}' outside agent discovery: ${item.path}`)
   }
   let externalStatus = 'skipped (--no-external)'
-  if (!options.noExternal) {
+  if (external.skills.length === 0) {
+    externalStatus = 'skipped (no external skills selected)'
+  } else if (!options.noExternal) {
     try {
-      externalStatus = await installExternal(rootDir, manifest.external, platform, spawn, fetchImpl, downloadSource)
+      externalStatus = await installExternal(rootDir, external, platform, spawn, fetchImpl, downloadSource, activationObserver)
     } catch (error) {
       externalStatus = `unavailable (${error.message})`
       console.warn(`install-skills: warning: ${error.message}`)
@@ -831,7 +910,7 @@ export async function runInstaller({
     }
   }
   installLocalLinks(rootDir, localSkills, platform)
-  const externalInstalled = installedExternalSkills(rootDir, manifest.external)
+  const externalInstalled = installedExternalSkills(rootDir, external)
   const allInstalled = unique([...localSkills, ...externalInstalled])
   const linkAgents = options.legacyLinks ? LEGACY_AGENTS : ['claude-code']
   for (const agent of KNOWN_AGENTS) {
