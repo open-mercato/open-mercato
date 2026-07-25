@@ -49,6 +49,7 @@
         "required": ["required", "forbidden"],
         "properties": {
           "required": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
+          "allowedExtra": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
           "forbidden": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } }
         }
       },

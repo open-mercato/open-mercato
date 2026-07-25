@@ -35,8 +35,8 @@ type StoredResult = {
   attempts: number
   corrections: number
   sanitizedError?: string
-  actualContext: { paths: string[]; bytes: number; initialBytes: number }
-  declaredContext: { paths: string[]; bytes: number; initialBytes: number }
+  actualContext: { paths: string[]; bytes: number; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
+  declaredContext: { paths: string[]; bytes: number; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
   writable?: { changedPaths: string[]; targetFingerprint: string }
 }
 
@@ -788,6 +788,7 @@ for (const command of [
 test('spec routing may inspect the bounded spec index without reading spec contents', { skip: process.platform === 'win32' }, () => {
   const root = stageApp()
   fs.mkdirSync(path.join(root, '.ai', 'specs'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.ai', 'specs', 'example.md'), '# example\n')
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
 const args = process.argv.slice(2)
@@ -811,6 +812,105 @@ for (const command of [
     })
     assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
     assert.ok(!storedResults(root)[0].actualContext.paths.includes('.ai/specs'))
+    assert.deepEqual(storedResults(root)[0].actualContext.metadataPaths, ['.ai/specs'])
+    assert.equal(storedResults(root)[0].actualContext.metadataEntries, 3)
+    assert.ok(storedResults(root)[0].actualContext.metadataBytes > 0)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('bounded spec metadata requires the route actually selected by the agent', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  fs.mkdirSync(path.join(root, '.ai', 'specs'), { recursive: true })
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: ['om-spec-writing'],
+  selectedContext: ['AGENTS.md', '.agents/skills/om-spec-writing/SKILL.md'],
+  decisions: ['cohesive-phases', 'integration-coverage'], violations: []
+}))
+for (const command of [
+  'cat AGENTS.md .agents/skills/om-spec-writing/SKILL.md',
+  'find .ai/specs -maxdepth 1 -type f'
+]) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command } }))
+`)
+  fs.mkdirSync(path.join(root, '.agents', 'skills', 'om-spec-writing'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.agents', 'skills', 'om-spec-writing', 'SKILL.md'), '# spec\n')
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-005'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+    assert.ok(storedResults(root)[0].violations.includes('unsafe metadata discovery .ai/specs'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('spec metadata discovery rejects recursive or excessive traversal forms', { skip: process.platform === 'win32' }, () => {
+  for (const command of [
+    'find .ai/specs -type f',
+    'find .ai/specs -maxdepth 2 -type f',
+    'rg --files .ai/specs',
+  ]) {
+    const root = stageApp()
+    fs.mkdirSync(path.join(root, '.ai', 'specs'), { recursive: true })
+    const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['spec-pr'], selectedSkills: ['om-spec-writing'],
+  selectedContext: ['AGENTS.md', '.agents/skills/om-spec-writing/SKILL.md'],
+  decisions: ['cohesive-phases', 'integration-coverage'], violations: []
+}))
+for (const command of ['cat AGENTS.md .agents/skills/om-spec-writing/SKILL.md', ${JSON.stringify(command)}]) {
+  console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command } }))
+}
+`)
+    fs.mkdirSync(path.join(root, '.agents', 'skills', 'om-spec-writing'), { recursive: true })
+    fs.writeFileSync(path.join(root, '.agents', 'skills', 'om-spec-writing', 'SKILL.md'), '# spec\n')
+    try {
+      const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-005'], {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+      })
+      assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+      assert.ok(storedResults(root)[0].violations.some((entry) => entry.includes('metadata discovery')))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('a case may bound optional context for an explicitly allowed extra route', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'customers.md'), '# customers\n')
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture', 'framework-context'], selectedSkills: ['om-framework-context'],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/modules/customers.md', '.ai/skills/om-framework-context/SKILL.md'],
+  decisions: ['installed-version', 'bounded-source-search'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
+  command: 'cat AGENTS.md .ai/guides/architecture.md .ai/guides/modules/customers.md .ai/skills/om-framework-context/SKILL.md'
+} }))
+`)
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-003'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    assert.ok(storedResults(root)[0].actualContext.paths.includes('.ai/guides/architecture.md'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -820,6 +920,7 @@ test('Codex login-shell wrappers preserve narrow reads without authorizing neste
   for (const command of [
     `/bin/zsh -lc "sed -n '1,120p' AGENTS.md && sed -n '1,120p' .ai/guides/architecture.md"`,
     `/bin/bash -lc "cat AGENTS.md .ai/guides/architecture.md"`,
+    `/bin/zsh -lc "rg 'root|router' AGENTS.md && sed -n '1,120p' .ai/guides/architecture.md"`,
   ]) {
     const root = stageApp()
     const bin = installFakeRunner(root, 'codex', `
@@ -855,6 +956,94 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
     const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
     assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
     assert.ok(storedResults(root)[0].violations.includes('forbidden interpreter or eval command: node'))
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('trace containment accepts a canonical absolute path beneath a symlinked app root', { skip: process.platform === 'win32' }, () => {
+  const realRoot = stageApp()
+  const aliasParent = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-alias-'))
+  const aliasRoot = path.join(aliasParent, 'app')
+  fs.symlinkSync(realRoot, aliasRoot, 'dir')
+  const bin = installFakeRunner(realRoot, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
+  command: 'cat ${realRoot}/AGENTS.md ${realRoot}/.ai/guides/architecture.md'
+} }))
+`)
+  try {
+    const run = spawnSync(process.execPath, [path.join(realRoot, 'scripts', 'evaluate-agent-harness.mjs'), '--root', aliasRoot, '--runner', 'codex', '--case', 'OMH-001'], {
+      cwd: realRoot,
+      env: {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+      encoding: 'utf8',
+      timeout: 30_000,
+    })
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(realRoot), null, 2)}`)
+    assert.deepEqual(storedResults(realRoot)[0].actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+  } finally {
+    fs.rmSync(aliasParent, { recursive: true, force: true })
+    fs.rmSync(realRoot, { recursive: true, force: true })
+  }
+})
+
+test('restricted login-shell traces reject escaped paths expansions globs braces and nested shells', { skip: process.platform === 'win32' }, () => {
+  for (const command of [
+    `/bin/zsh -lc "cat \\/etc\\/passwd && cat AGENTS.md .ai/guides/architecture.md"`,
+    `/bin/zsh -lc "cat $'/etc/passwd' && cat AGENTS.md .ai/guides/architecture.md"`,
+    `/bin/zsh -lc "cat /etc/{passwd,hosts} && cat AGENTS.md .ai/guides/architecture.md"`,
+    `/bin/zsh -lc "cat /etc/pass* && cat AGENTS.md .ai/guides/architecture.md"`,
+    `/bin/zsh -lc "bash -lc 'cat /etc/passwd' && cat AGENTS.md .ai/guides/architecture.md"`,
+  ]) {
+    const root = stageApp()
+    const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs'); const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: ${JSON.stringify(command)} } }))
+`)
+    try {
+      const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+      assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+      assert.ok(storedResults(root)[0].violations.some((entry) => /shell|interpreter|out-of-root/.test(entry)), JSON.stringify(storedResults(root), null, 2))
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  }
+})
+
+test('routing answers come only from emitted instructions, not the controller prompt', { skip: process.platform === 'win32' }, () => {
+  const root = stageApp()
+  const agentsPath = path.join(root, 'AGENTS.md')
+  fs.writeFileSync(agentsPath, fs.readFileSync(agentsPath, 'utf8').replaceAll('.ai/guides/architecture.md', '.ai/guides/damaged.md'))
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const prompt = args.at(-1)
+const ownerStillAvailable = fs.readFileSync('AGENTS.md', 'utf8').includes('.ai/guides/architecture.md') || prompt.includes('.ai/guides/architecture.md')
+const selectedContext = ownerStillAvailable ? ['AGENTS.md', '.ai/guides/architecture.md'] : ['AGENTS.md']
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [], selectedContext,
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: ownerStillAvailable
+  ? 'cat AGENTS.md .ai/guides/architecture.md' : 'cat AGENTS.md' } }))
+`)
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+    assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+    assert.ok(storedResults(root)[0].violations.includes('missing context .ai/guides/architecture.md'))
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
@@ -915,8 +1104,7 @@ for (const command of [
     assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
     const [stored] = storedResults(root)
     assert.ok(stored.violations.includes('forbidden executable or mutating file discovery'))
-    assert.ok(stored.violations.some((entry) => entry.startsWith('unsafe out-of-root context read: /tmp')))
-    assert.ok(stored.violations.includes('unsafe metadata discovery .ai/skills'))
+    assert.ok(stored.violations.includes('forbidden non-bounded find metadata discovery'))
     assert.ok(stored.violations.includes('unsafe metadata discovery .ai/guides'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })

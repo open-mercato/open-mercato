@@ -48,7 +48,7 @@ Record failures honestly. Do not apply a database migration merely to make valid
 
 Match every axis; de-duplicate. Notifications = `module-data` + `backend-ui` + `umes`; custom-field round trips add `testing`; lifecycle reactions = `module-data` + `umes`; convergence bugs add `debugging`; registry drift = `architecture` + `module-data` + `debugging` (and exact-contract `framework-context`).
 
-Route only the request. `testing` needs explicit tests/coverage; routine validation does not match. Use external `om-integration-tests` only for integration/E2E/browser work. `debugging` needs failure, security, or drift. Spec decomposition selects only `spec-pr`. Plan-only module work loads scaffold + architecture/contracts. Do not infer areas from specs/PRs.
+Route only the request. `testing` needs explicit tests/coverage; routine validation does not match. Use external `om-integration-tests` only for integration/E2E/browser work. `debugging` needs failure, security, or drift. Spec decomposition selects only `spec-pr`. A plan-only business module selects `architecture` + `module-data` and only `om-module-scaffold`; load its blueprint plus architecture/contracts, but do not invoke future UI/data/workflow specialists or framework context until implementation. Do not infer areas from specs/PRs.
 
 ### Axis 1 — Area and Ownership
 
@@ -123,7 +123,7 @@ Facts supply exact identifiers/surfaces. Load only changed, integrated, or named
 
 ## Working Sequence
 
-1. Inspect `.ai/specs/` for task-specific decisions (ignore README/template); use spec-first work for architectural or three-plus-step requests.
+1. For work routed to `spec-pr`, inspect `.ai/specs/` for task-specific decisions (ignore README/template); use only `find .ai/specs -maxdepth 1 -type f` for the nonrecursive index, then open one exact task match. Do not enumerate specs for plan-only work. Use spec-first work for architectural or three-plus-step implementation requests.
 2. Route the request and load only the matched guides/skills and relevant module facts.
 3. Inspect current app call sites; invoke `om-framework-context` only for missing exact-version details.
 4. Implement the smallest complete vertical slice through real call sites.

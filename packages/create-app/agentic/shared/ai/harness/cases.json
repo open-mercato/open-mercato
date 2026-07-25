@@ -84,24 +84,26 @@
         "BC-01"
       ]
     },
-    "expectedRouter": {
-      "required": [
-        "architecture"
-      ],
-      "allowedExtra": [
-        "umes",
-        "framework-context"
-      ]
+  "expectedRouter": {
+    "required": [
+      "architecture"
+    ],
+    "allowedExtra": [
+      "umes"
+    ]
     },
     "requiredSkills": [
       "om-help"
     ],
     "context": {
-      "required": [
-        "AGENTS.md",
-        ".ai/guides/architecture.md",
-        ".ai/skills/om-help/SKILL.md"
-      ],
+    "required": [
+      "AGENTS.md",
+      ".ai/guides/architecture.md",
+      ".ai/skills/om-help/SKILL.md"
+    ],
+    "allowedExtra": [
+      ".ai/guides/extensions.md"
+    ],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -179,6 +181,10 @@
         ".ai/guides/modules/customers.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
+      "allowedExtra": [
+        ".ai/guides/architecture.md",
+        ".ai/guides/contracts.md"
+      ],
       "forbidden": [
         ".env*",
         ".git/**"
@@ -229,13 +235,10 @@
     },
     "expectedRouter": {
       "required": [
+        "architecture",
         "module-data"
       ],
-      "allowedExtra": [
-        "architecture",
-        "backend-ui",
-        "ai-workflow"
-      ]
+      "allowedExtra": []
     },
     "requiredSkills": [
       "om-module-scaffold"
@@ -245,7 +248,8 @@
         "AGENTS.md",
         ".ai/guides/architecture.md",
         ".ai/guides/contracts.md",
-        ".ai/skills/om-module-scaffold/SKILL.md"
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md"
       ],
       "forbidden": [
         ".env*",

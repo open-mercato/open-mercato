@@ -90,7 +90,7 @@
     "actualContext": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["paths", "files", "bytes", "estimatedTokens", "initialPaths", "initialFiles", "initialBytes", "estimatedInitialTokens"],
+      "required": ["paths", "files", "bytes", "estimatedTokens", "initialPaths", "initialFiles", "initialBytes", "estimatedInitialTokens", "metadataPaths", "metadataEntries", "metadataBytes"],
       "properties": {
         "paths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
         "files": { "type": "integer", "minimum": 0 },
@@ -99,7 +99,10 @@
         "initialPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
         "initialFiles": { "type": "integer", "minimum": 0 },
         "initialBytes": { "type": "integer", "minimum": 0 },
-        "estimatedInitialTokens": { "type": "integer", "minimum": 0 }
+        "estimatedInitialTokens": { "type": "integer", "minimum": 0 },
+        "metadataPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "metadataEntries": { "type": "integer", "minimum": 0 },
+        "metadataBytes": { "type": "integer", "minimum": 0 }
       }
     }
   }
