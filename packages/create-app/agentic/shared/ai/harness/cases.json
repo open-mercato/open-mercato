@@ -5204,7 +5204,8 @@
         "AGENTS.md",
         ".ai/guides/testing-debugging.md",
         ".ai/guides/contracts.md",
-        ".ai/skills/om-troubleshooter/SKILL.md"
+        ".ai/skills/om-troubleshooter/SKILL.md",
+        ".ai/guides/modules/search.md"
       ],
       "forbidden": [
         ".env*",
