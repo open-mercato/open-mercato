@@ -216,13 +216,9 @@ test('automatic target preparation rejects local environment, auth-store, creden
   }
 })
 
-test('automatic target preparation accepts generated credential-free custom registry config', { skip: process.platform === 'win32' }, () => {
-  const controller = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-registry-source-')))
-  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-registry-target-')))
-  const prepareRoot = path.join(parent, 'targets')
-  fs.mkdirSync(path.join(controller, 'node_modules', 'example'), { recursive: true })
-  fs.writeFileSync(path.join(controller, 'package.json'), '{}\n')
-  fs.writeFileSync(path.join(controller, '.yarnrc.yml'), `nodeLinker: node-modules
+test('automatic target preparation accepts generated and Yarn-migrated credential-free config', { skip: process.platform === 'win32' }, () => {
+  const safeConfigs = [
+    `nodeLinker: node-modules
 unsafeHttpWhitelist:
   - "localhost"
   - "host.docker.internal"
@@ -230,16 +226,66 @@ npmScopes:
   open-mercato:
     npmRegistryServer: "http://localhost:4873"
     npmMinimalAgeGate: 0
-`)
-  try {
-    const manifest = release.prepareWritableTargets({ root: controller, prepareRoot, caseIds: ['OMH-002'] })
-    assert.equal(
-      fs.readFileSync(path.join(manifest.targets['OMH-002'], '.yarnrc.yml'), 'utf8'),
-      fs.readFileSync(path.join(controller, '.yarnrc.yml'), 'utf8'),
-    )
-  } finally {
-    fs.rmSync(parent, { recursive: true, force: true })
-    fs.rmSync(controller, { recursive: true, force: true })
+`,
+    `approvedGitRepositories:
+  - "**"
+
+enableScripts: true
+
+nodeLinker: node-modules
+
+npmMinimalAgeGate: 0
+`,
+    `approvedGitRepositories:
+  - "**"
+
+enableScripts: true
+
+nodeLinker: node-modules
+
+npmMinimalAgeGate: 0
+
+npmScopes:
+  open-mercato:
+    npmMinimalAgeGate: 0
+    npmRegistryServer: "https://registry.example.com/npm"
+`,
+    `approvedGitRepositories:
+  - "**"
+
+enableScripts: true
+
+nodeLinker: node-modules
+
+npmMinimalAgeGate: 0
+
+npmScopes:
+  open-mercato:
+    npmMinimalAgeGate: 0
+    npmRegistryServer: "http://localhost:4873"
+
+unsafeHttpWhitelist:
+  - "localhost"
+  - "host.docker.internal"
+`,
+  ]
+  for (const yarnConfig of safeConfigs) {
+    const controller = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-registry-source-')))
+    const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-registry-target-')))
+    const prepareRoot = path.join(parent, 'targets')
+    fs.mkdirSync(path.join(controller, 'node_modules', 'example'), { recursive: true })
+    fs.writeFileSync(path.join(controller, 'package.json'), '{}\n')
+    fs.writeFileSync(path.join(controller, '.yarnrc.yml'), yarnConfig)
+    try {
+      const manifest = release.prepareWritableTargets({ root: controller, prepareRoot, caseIds: ['OMH-002'] })
+      assert.equal(
+        fs.readFileSync(path.join(manifest.targets['OMH-002'], '.yarnrc.yml'), 'utf8'),
+        fs.readFileSync(path.join(controller, '.yarnrc.yml'), 'utf8'),
+      )
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true })
+      fs.rmSync(controller, { recursive: true, force: true })
+    }
   }
 })
 

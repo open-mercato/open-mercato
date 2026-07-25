@@ -156,24 +156,38 @@ function parseGeneratedQuotedValue(line, prefix) {
 
 function validGeneratedYarnConfig(contents) {
   if (Buffer.byteLength(contents, 'utf8') > GENERATED_YARN_CONFIG_LIMIT || contents.includes('\0')) return false
-  const lines = contents.replaceAll('\r\n', '\n').split('\n')
-  while (lines.at(-1) === '') lines.pop()
+  const lines = contents.replaceAll('\r\n', '\n').split('\n').filter((line) => line !== '')
+  const migrated = lines[0] === 'approvedGitRepositories:'
+  if (migrated) {
+    if (
+      lines.shift() !== 'approvedGitRepositories:'
+      || lines.shift() !== '  - "**"'
+      || lines.shift() !== 'enableScripts: true'
+    ) return false
+  }
   if (lines.shift() !== 'nodeLinker: node-modules') return false
+  if (migrated && lines.shift() !== 'npmMinimalAgeGate: 0') return false
   if (!lines.length) return true
 
   const unsafeHttpHosts = []
-  if (lines[0] === 'unsafeHttpWhitelist:') {
+  const readUnsafeHttpHosts = () => {
+    if (lines[0] !== 'unsafeHttpWhitelist:') return true
     lines.shift()
     while (lines[0]?.startsWith('  - ')) {
       const host = parseGeneratedQuotedValue(lines.shift(), '  - ')
       if (!host) return false
       unsafeHttpHosts.push(host)
     }
+    return unsafeHttpHosts.length > 0
   }
+  if (!migrated && !readUnsafeHttpHosts()) return false
 
   if (lines.shift() !== 'npmScopes:' || lines.shift() !== '  open-mercato:') return false
+  if (migrated && lines.shift() !== '    npmMinimalAgeGate: 0') return false
   const registryUrl = parseGeneratedQuotedValue(lines.shift() ?? '', '    npmRegistryServer: ')
-  if (!registryUrl || lines.shift() !== '    npmMinimalAgeGate: 0' || lines.length) return false
+  if (!registryUrl || (!migrated && lines.shift() !== '    npmMinimalAgeGate: 0')) return false
+  if (migrated && !readUnsafeHttpHosts()) return false
+  if (lines.length) return false
 
   let parsedRegistryUrl
   try {
