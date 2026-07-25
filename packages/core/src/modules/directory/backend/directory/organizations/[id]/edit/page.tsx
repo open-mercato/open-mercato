@@ -204,7 +204,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           <div>
             <p className="text-sm">{tenantName ?? '—'}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {t('directory.organizations.form.field.tenant.readonly', 'Tenant cannot be changed for an existing organization.')}
+              {t('directory.organizations.form.field.tenantReadonlyDescription', 'Tenant cannot be changed for an existing organization.')}
             </p>
           </div>
         ),

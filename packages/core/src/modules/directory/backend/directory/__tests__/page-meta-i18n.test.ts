@@ -32,6 +32,17 @@ const pages: Array<[string, PageMeta]> = [
 ]
 
 describe('directory backend page metadata i18n', () => {
+  it('resolves the read-only tenant helper in every shipped locale', () => {
+    const key = 'directory.organizations.form.field.tenantReadonlyDescription'
+
+    for (const [locale, dict] of Object.entries(dicts)) {
+      expect(`${locale}:${dict[key] ?? ''}`).not.toBe(`${locale}:`)
+    }
+    expect(dicts.pl[key]).not.toBe(dicts.en[key])
+    expect(dicts.de[key]).not.toBe(dicts.en[key])
+    expect(dicts.es[key]).not.toBe(dicts.en[key])
+  })
+
   describe.each(pages)('%s', (_route, meta) => {
     it('declares a translation key for the page title', () => {
       expect(meta.pageTitle).toBeTruthy()
