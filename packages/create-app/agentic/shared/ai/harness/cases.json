@@ -1674,24 +1674,28 @@
     },
     "expectedRouter": {
       "required": [
-        "module-data",
-        "framework-context"
+        "module-data"
       ],
       "allowedExtra": [
         "architecture",
-        "debugging"
+        "debugging",
+        "framework-context"
       ]
     },
     "requiredSkills": [
-      "om-module-scaffold",
-      "om-framework-context"
+      "om-module-scaffold"
+    ],
+    "optionalSkills": [
+      {
+        "id": "om-framework-context",
+        "route": "framework-context"
+      }
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-framework-context/SKILL.md"
+        ".ai/skills/om-module-scaffold/SKILL.md"
       ],
       "allowedExtra": [
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
