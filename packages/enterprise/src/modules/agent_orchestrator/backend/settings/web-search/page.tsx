@@ -4,6 +4,10 @@
  * Per-tenant web-search policy: which adapters run, in what order, and under
  * what deadlines. Env supplies the deployment default; saving here writes a
  * tenant override, so a fresh tenant inherits until someone deliberately diverges.
+ *
+ * optimistic-lock-exempt — the target is a single ModuleConfigService value, not
+ * a versioned entity: there is no `updatedAt` to send, and the surface is a
+ * single-admin settings screen rather than a collaborative-edit record.
  */
 
 import * as React from 'react'

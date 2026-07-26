@@ -23,7 +23,7 @@ export function buildCacheKey(request: SearchRequest, adapterIds: readonly strin
     locale: request.locale ?? null,
     freshness: request.freshness ?? null,
     site: request.site ?? null,
-    adapters: [...adapterIds].sort(),
+    adapters: [...adapterIds].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)),
   })
   return createHash('sha256').update(payload).digest('hex')
 }
