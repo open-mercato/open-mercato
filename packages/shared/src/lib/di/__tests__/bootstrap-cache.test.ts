@@ -8,6 +8,7 @@
 // `OM_BOOTSTRAP_CACHE` gates the whole behavior; default OFF.
 
 import { asValue } from 'awilix'
+import type { AwilixContainer } from 'awilix'
 
 // Mock the deep ORM/engine imports BEFORE importing container.ts so we can
 // exercise the bootstrap once-guard without pulling in MikroORM decorators.
@@ -64,11 +65,14 @@ jest.mock(
   () => ({
     __esModule: true,
     applyDiOverridesToContainer: () => {},
+    applyModuleOverridesToModules: (modules: unknown[]) => modules,
+    applyComponentOverridesToEntries: (entries: unknown[]) => entries,
   }),
   { virtual: false },
 )
 
 const {
+  registerAppDiRegistrar,
   registerDiRegistrars,
   resetBootstrapCache,
 } = require('@open-mercato/shared/lib/di/container')
@@ -105,6 +109,7 @@ const ORIGINAL_FLAG = process.env.OM_BOOTSTRAP_CACHE
 describe('bootstrap once-guard cache', () => {
   beforeEach(() => {
     resetBootstrapCache()
+    registerAppDiRegistrar(null)
     bootstrapMock.mockClear()
     subscriberRegistered.mockClear()
     registerDiRegistrars([])
@@ -144,6 +149,55 @@ describe('bootstrap once-guard cache', () => {
     await createRequestContainer()
     await createRequestContainer()
     expect(bootstrapMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('resolves the default optimistic-lock guard in CLASSIC injection mode', async () => {
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    const container = await createRequestContainer()
+
+    expect(container.resolve('crudMutationGuardService')).toEqual(expect.objectContaining({
+      validateMutation: expect.any(Function),
+      afterMutationSuccess: expect.any(Function),
+    }))
+  })
+
+  it('runs the explicitly registered app DI registrar for each request container', async () => {
+    const appDiRegistrar = jest.fn(async (container: AwilixContainer) => {
+      container.register({ appLevelService: asValue('app-level') })
+    })
+    registerAppDiRegistrar(appDiRegistrar)
+
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    const container = await createRequestContainer()
+
+    expect(appDiRegistrar).toHaveBeenCalledTimes(1)
+    expect(appDiRegistrar).toHaveBeenCalledWith(container)
+    expect(container.resolve('appLevelService')).toBe('app-level')
+  })
+
+  it('preserves the app DI registrar when a CLI-style bootstrap omits the option', async () => {
+    const appDiRegistrar = jest.fn((container: AwilixContainer) => {
+      container.register({ appLevelService: asValue('preserved') })
+    })
+    registerAppDiRegistrar(appDiRegistrar)
+
+    const { createBootstrap, resetBootstrapState } = await import('@open-mercato/shared/lib/bootstrap/factory')
+    resetBootstrapState()
+    createBootstrap({
+      modules: [],
+      entities: [],
+      diRegistrars: [],
+      entityIds: {},
+      dashboardWidgetEntries: [],
+      injectionWidgetEntries: [],
+      injectionTables: [],
+    })()
+
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    const container = await createRequestContainer()
+
+    expect(appDiRegistrar).toHaveBeenCalledTimes(1)
+    expect(container.resolve('appLevelService')).toBe('preserved')
   })
 
   it('registerDiRegistrars clears the cache so HMR re-runs bootstrap on the next request', async () => {

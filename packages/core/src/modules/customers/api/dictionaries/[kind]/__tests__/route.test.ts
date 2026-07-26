@@ -36,6 +36,7 @@ jest.mock('../../../../commands/settings', () => ({
 
 import { GET } from '../route'
 import { resolveDictionaryRouteContext } from '../../context'
+import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../../../lib/dictionaries'
 
 describe('customer dictionary route', () => {
   beforeEach(() => {
@@ -129,6 +130,28 @@ describe('customer dictionary route', () => {
       expect.any(Request),
       expect.objectContaining({ selectedId: organizationId }),
     )
+  })
+
+  it('returns a stable error code when organization context is unavailable', async () => {
+    jest.mocked(resolveDictionaryRouteContext).mockResolvedValueOnce({
+      translate: (_key: string, fallback?: string) => fallback ?? 'error',
+      em,
+      organizationId: null,
+      tenantId,
+      readableOrganizationIds: [],
+      cache: undefined,
+    } as never)
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/statuses'),
+      { params: { kind: 'statuses' } },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Organization context is required',
+      code: CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE,
+    })
   })
 
   it('does not seed/persist pipeline_stage entries for stages lacking one (read-only GET, #2735)', async () => {
