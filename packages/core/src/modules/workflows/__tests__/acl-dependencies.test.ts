@@ -6,6 +6,7 @@ import {
   type FeatureDescriptor,
 } from '@open-mercato/shared/security/aclDependencies'
 import { features as workflowsFeatures } from '../acl'
+import { setup as workflowsSetup } from '../setup'
 
 // All workflows dependencies are intra-module (spec §6.10), so the resolver
 // catalog is just the module's own feature set.
@@ -66,6 +67,32 @@ describe('workflows ACL dependency declarations', () => {
       (entry) => entry.feature === 'workflows.definitions.edit',
     )
     expect(definitionsEdit?.missing).toEqual(['workflows.definitions.view'])
+  })
+
+  test('defaultRoleFeatures grants are dependency-closed for every seeded role', () => {
+    const roleGrants = workflowsSetup.defaultRoleFeatures ?? {}
+    expect(Object.keys(roleGrants).length).toBeGreaterThan(0)
+    for (const [roleName, granted] of Object.entries(roleGrants)) {
+      const diagnostics = resolveAclDependencyDiagnostics(granted, workflowsCatalog)
+      expect({ role: roleName, missing: diagnostics.missingDependencies }).toEqual({
+        role: roleName,
+        missing: [],
+      })
+    }
+  })
+
+  test('employee defaults grant the task-inbox surface (#4231)', () => {
+    const employeeGrants = workflowsSetup.defaultRoleFeatures?.employee ?? []
+    expect(employeeGrants).toEqual(
+      expect.arrayContaining([
+        'workflows.view',
+        'workflows.view_tasks',
+        'workflows.tasks.view',
+        'workflows.tasks.claim',
+        'workflows.tasks.complete',
+        'workflows.instances.view',
+      ]),
+    )
   })
 
   test('keeps every dependency target within the workflows feature set', () => {
