@@ -12640,8 +12640,7 @@
         ".ai/skills/om-data-model-design/references/sensitive-data.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
-        ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/skills/om-system-extension/references/read-write-roundtrip.md"
+        ".ai/skills/om-system-extension/SKILL.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
@@ -12649,6 +12648,7 @@
         ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
         ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-system-extension/references/read-write-roundtrip.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**", ".mercato/generated/**"]

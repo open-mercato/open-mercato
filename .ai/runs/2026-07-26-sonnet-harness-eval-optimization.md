@@ -228,6 +228,12 @@ Compare the current branch with `origin/develop` and trace the generated app fro
 - Add concise progressive guidance for durable queued work: registered queue/job ownership, validated serializable payloads containing tenant/org context rather than ambient request state, enqueue-after-commit semantics, idempotency/deduplication, bounded retries/backoff, observable terminal failure, and command/service reuse in workers.
 - Add failing-first generative cases with exact route/skill/context expectations and semantic decisions for cache invalidation and queued jobs. Exercise them with both `sonnet` and Codex, and fold applicable cache/queue checks into the complete-module review checklist without making every module use infrastructure it does not need.
 
+### Expanded-case first live proof (2026-07-26T20:25Z)
+
+- OMH-186 cache invalidation: Codex pass, Sonnet pass.
+- OMH-187 durable queue/worker: Codex pass, Sonnet pass.
+- OMH-185 complete library: Codex pass. Sonnet selected every required route, skill, and semantic decision, but correctly skipped `om-system-extension/references/read-write-roundtrip.md`; that reference explicitly owns an app field/action added to an installed host, while OMH-185 creates an app-owned API/UI host for future extensions. Reclassified only this path from required to allowed-extra. The required `umes` route, `om-system-extension` skill, extension guide, stable host decisions, and writable oracle remain unchanged.
+
 
 ## Progress
 
