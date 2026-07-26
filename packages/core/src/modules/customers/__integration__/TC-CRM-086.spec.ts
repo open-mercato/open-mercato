@@ -34,6 +34,8 @@ test.describe('TC-CRM-086: DataTable column resize + persistence', () => {
     const resizeHandle = () => targetHeader().getByRole('separator');
     const targetColumnWidth = () =>
       targetHeader().evaluate((el) => Math.round((el as HTMLElement).getBoundingClientRect().width));
+    const targetColumnInlineWidth = () =>
+      targetHeader().evaluate((el) => (el as HTMLElement).style.width);
 
     try {
       token = await getAuthToken(request);
@@ -69,18 +71,21 @@ test.describe('TC-CRM-086: DataTable column resize + persistence', () => {
 
       const after = await targetColumnWidth();
       expect(after, 'dragging the handle should widen the column').toBeGreaterThan(before + 80);
+      const resizedInlineWidth = await targetColumnInlineWidth();
+      expect(resizedInlineWidth).toMatch(/^\d+px$/);
 
       // -- The width survives a full reload (persisted, not saved as a view) -----
       await page.reload({ waitUntil: 'domcontentloaded' });
       await waitForTableReady();
-      const afterReload = await targetColumnWidth();
-      expect(afterReload, 'the resized width should survive a page reload').toBeGreaterThan(before + 80);
+      await expect
+        .poll(targetColumnInlineWidth, { timeout: 5_000 })
+        .toBe(resizedInlineWidth);
 
       // -- Double-click resets the column back to its auto width ------------------
       await resizeHandle().dblclick();
       await expect
-        .poll(targetColumnWidth, { timeout: 5_000 })
-        .toBeLessThan(afterReload - 60);
+        .poll(targetColumnInlineWidth, { timeout: 5_000 })
+        .toBe('');
     } finally {
       for (const id of companyIds) {
         await deleteEntityIfExists(request, token, '/api/customers/companies', id);
