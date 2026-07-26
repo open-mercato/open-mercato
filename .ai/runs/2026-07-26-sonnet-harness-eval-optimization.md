@@ -77,16 +77,18 @@ Sibling follow-up: #4528 (`feat/kimi-cli-runner-harness-evals`) adds a third run
 - The full writable/browser release gate needs trusted Bubblewrap and private loopback. Mitigation: do not weaken preflight; run every safely supported lane and report the exact remaining operator command for anything blocked.
 - Provider cost/time for repeated 184-case sweeps is significant. Mitigation: batch execution, target reruns to affected plus mandatory cases, and keep full sweeps for baseline and final proof.
 
-## Current Handoff (2026-07-26T21:25Z)
+## Current Handoff (2026-07-26T18:41Z)
 
-- Worktree: `/home/pkarw/Projects/mercato-development/.ai/tmp/om-auto-continue-pr/pr-4529-20260726-160846`; branch `feat/sonnet-harness-eval-optimization`; the latest pushed implementation checkpoint is `865fea060`.
+- Worktree: `/home/pkarw/Projects/mercato-development/.ai/tmp/om-auto-continue-pr/pr-4529-20260726-160846`; branch `feat/sonnet-harness-eval-optimization`; the latest pushed implementation checkpoint is `9020f78a6`.
 - Do not reuse or reinterpret the earlier concurrent-sweep numbers retracted below. The first clean immutable post-resume controller measurement is the **184-case pre-expanded-guidance baseline** recorded in the next section.
 - The current catalog is **187 cases / 40 writable-review cases**. OMH-185 is the complete book-library writable/review case; OMH-186 and OMH-187 are the cache-invalidation and durable-queue generative routing cases.
 - Shared skill refresh is implemented in `4e9ed542c`: setup deliberately refreshes current `open-mercato/skills` with verified hashes and an atomic rollback, while plain install reproduces the reviewed pin. Cache/queue contracts and cases are implemented in `4ab32d393`.
 - Expanded live routing proof is complete: OMH-185, OMH-186, and OMH-187 pass on both Sonnet and Codex. The targeted Codex residual set is fully clean after `865fea060`. The deterministic catalog is 187/187, and the complete create-app suite is 323 pass / 4 platform skips / 0 failures.
 - Sonnet capacity is exhausted until the provider's stated 10:00 UTC reset. Its targeted run attempted all 50 historical failures: 23 pass, 20 actionable results now remediated through shared contracts/catalog, six quota terminations (OMH-173/176/177/178/181/184), and one independent timeout (OMH-043). No Codex result substitutes for these seven missing Sonnet verdicts or the pending final Sonnet matrix.
-- One immutable complete Codex matrix is running from `865fea060`; every result reported through OMH-033 is passing. A fresh writable OMH-185 target is prepared at `/tmp/omh185-writable-6m5FMa`; invoke the emitted Node scripts directly because the temporary controller lives beneath another Yarn project and is intentionally absent from that enclosing lockfile.
-- Next: finish and record the complete Codex matrix; run OMH-185 writable generation, target generation/typecheck/lint/build, and generated-code review; run the configured repository gate and local/Docker probe; then resume the seven missing Sonnet verdicts plus the complete Sonnet matrix after reset before final `om-code-review` and `om-auto-review-pr` acceptance.
+- The first immutable complete Codex matrix from `865fea060` is **163/187**, report `/tmp/om-sweep-GpriKo/final187-codex.json`. Its exact 24-case failure set and the remediation mapping are recorded below. The result is a calibration pass, not final evidence, because source changed afterward.
+- Four follow-up commits are pushed: `7f7965a16` tightens customers-level full-CRUD/AI review, `4a865a431` aligns route-key binding and narrow budgets/facts, `004d9a110` aligns security/fact routes and refused-read output discipline, and `9020f78a6` completes provider/workflow routing. No global safety, write, oracle, review, or total-context ceiling was weakened.
+- A fresh writable OMH-185 target is prepared at `/tmp/omh185-writable-6m5FMa`; recreate it after the next immutable controller emission, then invoke the emitted Node scripts directly because the temporary controller lives beneath another Yarn project and is intentionally absent from that enclosing lockfile.
+- Next: re-emit from `9020f78a6`; run the 24-case Codex failure set and then the complete 187-case Codex matrix; run OMH-185 writable generation, target generation/typecheck/lint/build, and generated-code review; run the configured repository gate and local/Docker probe; then resume the seven missing Sonnet verdicts plus the complete Sonnet matrix after reset before final `om-code-review` and `om-auto-review-pr` acceptance.
 
 ## Clean Immutable Pre-Expansion Baseline (184 cases)
 
@@ -260,6 +262,15 @@ Compare the current branch with `origin/develop` and trace the generated app fro
 - Added measured headroom for OMH-154 (`53248→55296` bytes), OMH-160 (`5/40960→9/53248`), and the comprehensive OMH-087 audit (`81920→90112`). The catalog-wide initial-context ceiling moved by 10% (`81920→90112`) solely to admit OMH-087's observed 83753-byte multi-surface audit; total-context/safety/write/oracle/review ceilings are unchanged.
 - Focused evaluator/review/catalog and instruction-budget suite: 75/75 pass; deterministic catalog remains 187/187.
 
+### Complete Codex calibration matrix (2026-07-26T18:41Z)
+
+- One immutable `865fea060` controller completed **163/187** in 2450 seconds. Sanitized aggregate: `/tmp/om-sweep-GpriKo/final187-codex.json`.
+- Exact failures: OMH-043, 058, 074, 078, 082, 086, 087, 088, 089, 090, 102, 104, 110, 117, 127, 132, 139, 140, 148, 150, 154, 167, 178, 184.
+- Case-local quota calibration, with global total/safety/write/oracle/review limits unchanged: OMH-043 initial bytes `49152→53248`; OMH-086/090 initial files `6→7`; OMH-088 initial bytes `65536→73728`; OMH-148 `8/49152→10/61440`; OMH-178 initial files `5→6`. OMH-150 was intentionally expanded from a narrow adapter case to the complete requested payment surface—backend UI, UMES, checkout/webhook/BC facts, and corresponding case-local `12/73728/163840` bounds.
+- Corrected expectation gaps: session-bootstrap UI design is optional when no rendered surface is authored (058); facts/BC paths explicitly required by the root contract are admitted (074/082/088/089/104/132); explicit security/invariant/convergence work may add debugging (102/110/127); matched one-shot route keys are binding so installed-module scalar links cannot drop UMES (078); multi-stage state that survives restarts is distinguished from a one-step schedule (140); the mechanism-choice helper is optional for installed customization analysis (178).
+- Strengthened output discipline so `selectedContext` is exactly the successful-read intersection; refused paths cannot be copied into final context (104/117/139). OMH-154 and OMH-167 remain clean missed-decision rerun candidates. OMH-087 and OMH-184 are isolated runner/tool-discovery failures with no trace and must rerun; no containment rule changed for them.
+- Customers-derived review was tightened in `7f7965a16`: connected list/create/view-or-edit/delete, server filter/search, guarded table actions, and conditional installed-AI-framework contracts are now explicit while upstream `om-code-review` output/verdict behavior remains authoritative. Focused surface/guidance tests pass 20/20 after the full-matrix remediation batch.
+
 
 ## Progress
 
@@ -300,12 +311,12 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [ ] 3.6 Enforce the complete-module and design-system checklist through om-code-review, om-auto-review-pr, and generated-code review — checklist/config/policy tests landed in `0dff12ef3`; live review proof pending
 - [x] 3.7 Default new editable module surfaces to linked/filterable full CRUD while preserving upstream review-skill behavior — `0dff12ef3`
 - [x] 3.8 Verify and, if needed, restore shared `open-mercato/skills` install/update parity for generated apps — `4e9ed542c`
-- [ ] 3.9 Add progressive cache/invalidation and queue guidance plus two-model generative evaluation coverage — contracts/cases/tests landed in `4ab32d393`; live two-model proof pending
+- [x] 3.9 Add progressive cache/invalidation and queue guidance plus two-model generative evaluation coverage — `4ab32d393`; OMH-186/187 pass on both models
 
 ### Phase 4: Compatibility baseline
 
 - [ ] 4.1 Prove the complete Codex routing baseline remains green
-- [x] 4.2 Exercise host-supported writable/review lanes and report blocked lanes — the three Linux-lane failures #4483 left red are resolved: a real sandbox-composition defect (writable root re-mounted read-only), a platform-coupled preflight assertion, and a Chromium host prerequisite now behind a capability guard. create-app suite: 314 pass / 4 skipped / 0 failed
+- [x] 4.2 Exercise host-supported writable/review lanes and report blocked lanes — the three Linux-lane failures #4483 left red are resolved: a real sandbox-composition defect (writable root re-mounted read-only), a platform-coupled preflight assertion, and a Chromium host prerequisite now behind a capability guard. Latest create-app suite: 323 pass / 4 platform skips / 0 failed
 
 ### Phase 5: Delivery gates
 
