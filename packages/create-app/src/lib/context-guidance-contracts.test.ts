@@ -177,3 +177,12 @@ test('backend UI defaults new editable entities to linked and filterable full CR
     'linked row action',
   ]) assert.ok(`${guide}\n${crud}`.includes(required), `missing full-CRUD default ${required}`)
 })
+
+test('business one-shot route keys remain binding for installed-module links', () => {
+  const blueprints = readAgentic(
+    'shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md',
+  )
+  assert.match(blueprints, /route key is binding/)
+  assert.match(blueprints, /do not remove `U`/)
+  assert.match(blueprints, /every unparenthesized route letter and its skill/)
+})

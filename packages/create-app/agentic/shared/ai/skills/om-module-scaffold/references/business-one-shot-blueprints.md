@@ -13,6 +13,8 @@ Load this reference when the user describes a business outcome rather than files
 
 `App module` owns app-specific records and behavior under `src/modules/`. `UMES` augments an installed module without copying it. `Provider` is a dedicated package/module for a reusable external system. A mixed choice names the owner of each leg.
 
+Once a row matches, its route key is binding: invoke every unparenthesized route letter and its skill before implementation. Scalar IDs or snapshots keep modules independent, but they do not remove `U` when the slice still links to, enriches, guards, or renders installed-module behavior. A parenthesized route remains conditional on the parenthesized reason.
+
 ## Customers and CRM
 
 | One-shot business brief | Mechanism | Routes | Smallest complete vertical slice | Key invariants |

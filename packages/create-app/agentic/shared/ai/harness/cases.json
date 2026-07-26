@@ -3429,7 +3429,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 8,
-    "maxInitialContextBytes": 49152,
+    "maxInitialContextBytes": 53248,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-044"
@@ -4589,10 +4589,13 @@
     },
     "requiredSkills": [
       "om-troubleshooter",
-      "om-backend-ui-design",
       "om-system-extension"
     ],
     "optionalSkills": [
+      {
+        "id": "om-backend-ui-design",
+        "route": "backend-ui"
+      },
       {
         "id": "om-framework-context",
         "route": "framework-context"
@@ -4606,10 +4609,10 @@
         ".ai/guides/modules/auth.md",
         ".ai/guides/testing-debugging.md",
         ".ai/skills/om-troubleshooter/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md"
       ],
       "allowedExtra": [
+        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
       "forbidden": [
@@ -5758,7 +5761,9 @@
         ".ai/guides/modules/customers.md", ".ai/guides/modules/workflows.md", ".ai/guides/modules/notifications.md"
       ],
       "allowedExtra": [
-        ".ai/guides/modules/scheduler.md"
+        ".ai/guides/modules/scheduler.md",
+        ".ai/guides/modules/events.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
@@ -6037,7 +6042,10 @@
         ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md", ".ai/skills/om-integration-builder/SKILL.md", ".ai/skills/om-backend-ui-design/SKILL.md", ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/data_sync.md", ".ai/guides/modules/customers.md", ".ai/guides/modules/catalog.md", ".ai/guides/modules/progress.md"
       ],
-      "allowedExtra": [".ai/guides/modules/integrations.md"],
+      "allowedExtra": [
+        ".ai/guides/modules/integrations.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+      ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
     "requiredDecisions": ["data-sync-adapter", "stable-external-id", "scoped-cursor", "cursor-after-success", "rerun-idempotency", "deterministic-conflict-owner", "operation-progress"],
@@ -6139,7 +6147,7 @@
     "requiredDecisions": ["generate-first", "affected-unit-tests", "filtered-integration-tests", "full-validation-tail", "rerun-dependent-gates", "honest-test-result"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:skip|ignore|assume).{0,30}(?:failing|failed|test|gate)", "migration.{0,30}(?:apply|run locally)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 6,
+    "maxContextFiles": 7,
     "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 114688,
     "relatedCases": ["OMH-007", "OMH-083", "OMH-084", "OMH-085"]
@@ -6215,7 +6223,10 @@
         ".ai/guides/modules/currencies.md",
         ".ai/guides/modules/workflows.md",
         ".ai/guides/modules/ai_assistant.md",
-        ".ai/guides/modules/search.md"
+        ".ai/guides/modules/search.md",
+        ".ai/guides/modules/events.md",
+        ".ai/guides/modules/query_index.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
@@ -6223,7 +6234,7 @@
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "(?:guess|invent).{0,30}(?:spot|handle|route|entity)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 15,
-    "maxInitialContextBytes": 65536,
+    "maxInitialContextBytes": 73728,
     "maxTotalContextBytes": 147456,
     "relatedCases": ["OMH-025", "OMH-026", "OMH-038", "OMH-089"]
   },
@@ -6247,6 +6258,13 @@
       "required": [
         "AGENTS.md", ".ai/guides/extensions.md", ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-system-extension/references/unified-overrides.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/ai_assistant.md",
+        ".ai/guides/modules/dashboards.md",
+        ".ai/guides/modules/events.md",
+        ".ai/guides/modules/notifications.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
@@ -6284,7 +6302,7 @@
     "requiredDecisions": ["frontend-page-route", "explicit-auth-posture", "server-first-client-boundary", "shared-design-system", "mobile-first-responsive", "localized-state-matrix", "accessible-interaction", "browser-integration-coverage"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:hex|rgb|arbitrary).{0,30}(?:color|tailwind)", "raw fetch", "private module (?:file|import)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 6,
+    "maxContextFiles": 7,
     "maxInitialContextBytes": 53248,
     "maxTotalContextBytes": 147456,
     "relatedCases": ["OMH-015", "OMH-023", "OMH-085", "OMH-092"]
