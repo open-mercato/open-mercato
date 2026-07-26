@@ -5,7 +5,7 @@ import { hasRequiredFeatures } from '@open-mercato/ai-assistant/modules/ai_assis
 import { ingestTrace } from '../lib/trace/traceIngestionService'
 import { AgentToolCall } from '../data/entities'
 import { runSandboxedScript } from '../lib/runtime/sandboxedScript'
-import { webSearchTool, webFetchTool, WEB_SEARCH_TOOL_ID, WEB_FETCH_TOOL_ID } from '../lib/webSearch/webSearchTools'
+import { webSearchTool, webFetchTool, WEB_SEARCH_TOOL_ID, WEB_FETCH_TOOL_ID } from '../lib/webSearch/tools'
 
 /**
  * Phase 4 integration coverage for web egress (spec 2026-07-11-agent-web-search-tool).
@@ -17,6 +17,7 @@ import { webSearchTool, webFetchTool, WEB_SEARCH_TOOL_ID, WEB_FETCH_TOOL_ID } fr
  */
 
 const WEB_FEATURE = 'agent_orchestrator.web_search'
+const FETCH_FEATURE = 'agent_orchestrator.web_fetch'
 
 describe('web egress — ACL gate (the gate the MCP server enforces per call)', () => {
   it('DENIES a caller that lacks the web_search feature', () => {
@@ -31,13 +32,23 @@ describe('web egress — ACL gate (the gate the MCP server enforces per call)', 
     expect(hasRequiredFeatures([WEB_FEATURE], [], true)).toBe(true)
   })
 
-  it('binds both tools to that feature and to propose-only (isMutation:false)', () => {
+  it('keeps both tools propose-only and on their stable ids', () => {
     for (const tool of [webSearchTool, webFetchTool]) {
-      expect(tool.requiredFeatures).toEqual([WEB_FEATURE])
       expect(tool.isMutation).toBe(false)
     }
     expect(webSearchTool.name).toBe(WEB_SEARCH_TOOL_ID)
     expect(webFetchTool.name).toBe(WEB_FETCH_TOOL_ID)
+  })
+
+  it('gates arbitrary-URL retrieval behind a second feature the search grant does not imply', () => {
+    expect(webSearchTool.requiredFeatures).toEqual([WEB_FEATURE])
+    expect(webFetchTool.requiredFeatures).toEqual([WEB_FEATURE, FETCH_FEATURE])
+    // A tenant granted search only can discover but not fetch.
+    expect(hasRequiredFeatures(webSearchTool.requiredFeatures ?? [], [WEB_FEATURE], false)).toBe(true)
+    expect(hasRequiredFeatures(webFetchTool.requiredFeatures ?? [], [WEB_FEATURE], false)).toBe(false)
+    expect(hasRequiredFeatures(webFetchTool.requiredFeatures ?? [], [WEB_FEATURE, FETCH_FEATURE], false)).toBe(
+      true,
+    )
   })
 })
 
@@ -119,8 +130,16 @@ describe('web egress — trace capture', () => {
 
 describe('web egress — invariants preserved', () => {
   it('keeps OpenCode native web tools disabled in opencode.jsonc', () => {
-    const configPath = path.resolve(__dirname, '../../../../../../docker/opencode/opencode.jsonc')
-    const text = fs.readFileSync(configPath, 'utf8')
+    // `opencode.jsonc` is generated at container start from the committed
+    // `.example`, so a clean checkout only has the latter. Assert against
+    // whichever exists rather than throwing on a fresh clone.
+    const configDir = path.resolve(__dirname, '../../../../../../docker/opencode')
+    const configPath = [
+      path.join(configDir, 'opencode.jsonc'),
+      path.join(configDir, 'opencode.jsonc.example'),
+    ].find((candidate) => fs.existsSync(candidate))
+    expect(configPath).toBeDefined()
+    const text = fs.readFileSync(configPath as string, 'utf8')
     // Native websearch/webfetch must never be enabled — egress goes through our MCP tools only.
     expect(text).not.toMatch(/"websearch"\s*:\s*true/i)
     expect(text).not.toMatch(/"webfetch"\s*:\s*true/i)
