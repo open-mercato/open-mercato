@@ -1,6 +1,6 @@
 # {{PROJECT_NAME}} — Standalone App Agent Rules
 
-Extend this app. Route first; load every match; never probe unmatched context.
+Extend this app. Route first; never probe unmatched context.
 
 ## Always
 
@@ -42,7 +42,7 @@ Report failures; never apply migrations for validation
 
 Routes are additive, never exclusive: ownership says WHOSE code changes, the rest say WHAT changes. Select every match, then stop.
 
-Combine matches: notification/editable custom field = `module-data` + `umes` + `backend-ui`; lifecycle reaction = `module-data` + `umes` (UMES owns it); convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. Add `framework-context` only for an unresolved contract.
+Combine matches: lifecycle reaction = `module-data` + `umes` (UMES owns it); convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. Add `framework-context` only for an unresolved contract.
 
 `testing` is not the implicit gate after ordinary implementation; see its work-unit row. `debugging` = failure/security/drift. Specs/delivery phases = `spec-pr` + integration coverage; spec-only decomposition reads root + `om-spec-writing` + config, while implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`. Never infer work from specs/PRs.
 
@@ -61,12 +61,12 @@ Authoring or restyling a rendered surface adds `backend-ui`; hiding, gating, tog
 | `architecture` | Capability/ownership choice, explicit boundary investigation, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
 | `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership or mechanism is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
-| `backend-ui` | Any authored/restyled rendered surface, per the additive rule above | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
+| `backend-ui` | Any authored or restyled rendered surface | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
 | `integration` | External email/shipping/payment/sync/webhook/storage/file/import/export provider | `.ai/guides/integrations.md`; excludes installed-sender use, workflow `CALL_API`, downloads, and AI storage |
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/reminders/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
-App: `src/modules/<id>/`; installed: UMES. Reusable providers are published dependencies, never `packages/*`.
+Location never decides the route: app code that changes an installed module's records, commands, events, or pages is `module-data` + `umes`. Reading its facts alone is not. Reusable providers are published dependencies, never `packages/*`.
 
 ### Axis 2 — Work Units
 
@@ -77,7 +77,7 @@ Match every work-unit row.
 | `architecture` | Explain/choose module, UMES, package, eject | architecture; `om-help` for an unresolved choice or a comparative framework across these mechanisms |
 | `module-data` | Business outcome or vertical slice | MUST load `om-module-scaffold` + its exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key, which resolves units inside the slice, not ownership — an ownership/capability outline adds `architecture` |
 | `spec-pr` | Spec or plan in safe working stages | Axis 3 skill; deployable phases |
-| `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts` and `package.json` |
+| `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts`/`package.json` |
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |
 | `module-data` | Entity/link/validator/migration/encryption/lock/transaction | `om-data-model-design` + contracts |
 | `module-data` | CRUD/API/command/OpenAPI/ACL/setup/mutation | `om-module-scaffold` + contracts |
