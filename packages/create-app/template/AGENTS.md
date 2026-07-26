@@ -42,13 +42,13 @@ Report failures; never apply migrations for validation
 
 Routes are additive, never exclusive: ownership says WHOSE code changes, the rest say WHAT changes. Select every match, then stop.
 
-Combine matches: notification/editable custom field = `module-data` + `umes` + `backend-ui`; lifecycle reaction = `module-data` + `umes` (UMES owns it); convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. Add `testing` only when explicit, `framework-context` only for an unresolved contract.
+Combine matches: notification/editable custom field = `module-data` + `umes` + `backend-ui`; lifecycle reaction = `module-data` + `umes` (UMES owns it); convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. Add `framework-context` only for an unresolved contract.
 
-`testing` requires requested tests/coverage/proof, not routine validation; external integration/E2E/browser/live-app uses `om-integration-tests`. `debugging` = failure/security/drift. Specs/delivery phases = `spec-pr` + integration coverage; spec-only decomposition reads root + `om-spec-writing` + config, while implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`. Never infer work from specs/PRs.
+`testing` is not the implicit gate after ordinary implementation; see its work-unit row. `debugging` = failure/security/drift. Specs/delivery phases = `spec-pr` + integration coverage; spec-only decomposition reads root + `om-spec-writing` + config, while implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`. Never infer work from specs/PRs.
 
-App-owned durable process state, activities, or user tasks select `module-data` + `ai-workflow`; add `umes` for installed-module interception/reaction.
+App-owned durable process/activity/user task = `module-data` + `ai-workflow`; add `umes` for installed-module interception.
 
-Unified-override audits select only `umes`; add `architecture` or `framework-context` only for unresolved ownership or installed keys.
+Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys.
 
 Authoring or restyling a rendered surface adds `backend-ui`; hiding, gating, toggling, or rewiring an existing one does not. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
 
@@ -87,7 +87,7 @@ Match every work-unit row.
 | `integration` | Provider/credentials/health/webhook/files/client/reconciliation/package | `om-integration-builder` + integrations |
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `surface-selector` + `ai_assistant` facts |
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
-| `testing` | Write/run tests or explicit coverage | testing/debugging; external `om-integration-tests` for integration/E2E |
+| `testing` | Run or author tests, or verify behavior by exercising the app (API/browser/screen sizes/keyboard/screen-reader) — including a requested affected-test run; not a review/audit/config check that never exercises the app | testing/debugging; external `om-integration-tests` for integration/E2E |
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging + affected units |
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
@@ -103,10 +103,10 @@ Select delivery independently from pinned `open-mercato/skills` (`yarn install-s
 | `spec-pr` | Write/revise spec | `om-spec-writing` (OMH-005) + exact `.ai/agentic.config.json` for its specs-directory setting |
 | `spec-pr` | Implement approved phases locally | `om-implement-spec` (OMH-006) |
 | `spec-pr` | Ship whole spec / one-shot PR / tracker issue / review | `om-auto-implement-spec` / `om-auto-create-pr` (resume `om-auto-continue-pr`) / `om-auto-fix-issue` / `om-auto-review-pr`, which invokes `om-code-review` |
-| `testing` | Integration/E2E/UI QA | `om-integration-tests` / `om-auto-qa-pr`; optionally prepare env |
+| `testing` | Integration/E2E/UI QA | `om-integration-tests` / `om-auto-qa-pr` |
 | — | No PR/spec workflow requested | Do not load delivery skills |
 
-If a skill is absent, run `yarn install-skills` once; never invent a substitute.
+Absent skill: run `yarn install-skills` once; never substitute.
 
 ### Token-Efficient Assembly Policy
 
