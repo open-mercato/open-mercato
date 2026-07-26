@@ -14,6 +14,7 @@ import { FormFieldArrayEditor } from './fields/FormFieldArrayEditor'
 import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
 import { MappingArrayEditor } from './fields/MappingArrayEditor'
 import { WorkflowSelectorField } from './fields/WorkflowSelectorField'
+import { RolesMultiSelect } from './fields/RolesMultiSelect'
 import { StartPreConditionsEditor } from './fields/StartPreConditionsEditor'
 import { nodeToFormValues, formValuesToNodeUpdates, isJsonSchemaFormat, type NodeFormValues } from '../lib/nodeFormTransforms'
 import { sanitizeId } from '../lib/graph-utils'
@@ -39,6 +40,24 @@ export function DurationCrudField({ id, value, setValue, disabled }: CrudCustomF
     <DurationInput
       id={id}
       value={typeof value === 'string' ? value : ''}
+      onChange={setValue}
+      disabled={disabled}
+    />
+  )
+}
+
+/**
+ * RolesCrudField - Custom field wrapper for RolesMultiSelect
+ */
+export function RolesCrudField({ id, value, setValue, disabled }: CrudCustomFieldRenderProps) {
+  const roles = useMemo(
+    () => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []),
+    [value],
+  )
+  return (
+    <RolesMultiSelect
+      id={id}
+      value={roles}
       onChange={setValue}
       disabled={disabled}
     />
@@ -325,9 +344,9 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     {
       id: 'assignedToRoles',
       label: 'Assigned To Roles',
-      type: 'text',
-      placeholder: 'admin, manager',
-      description: 'Comma-separated list of roles that can claim this task',
+      type: 'custom',
+      description: 'Roles that can claim this task',
+      component: (props) => <RolesCrudField {...props} />,
     },
     {
       id: 'formKey',

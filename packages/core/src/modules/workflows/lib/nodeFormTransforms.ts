@@ -26,7 +26,7 @@ export interface NodeFormValues {
 
   // UserTask fields
   assignedTo?: string
-  assignedToRoles?: string // Comma-separated in form
+  assignedToRoles?: string[] | string // Array from RolesMultiSelect; legacy comma-separated string still accepted
   formKey?: string
   formFields?: FormField[]
   assignmentRule?: string
@@ -53,6 +53,18 @@ export interface NodeFormValues {
 
   // Advanced configuration (JSON)
   advancedConfig?: string
+}
+
+function normalizeAssignedToRoles(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((role) => (typeof role === 'string' ? role.trim() : ''))
+      .filter(Boolean)
+  }
+  if (typeof value === 'string') {
+    return value.split(',').map((role) => role.trim()).filter(Boolean)
+  }
+  return []
 }
 
 /**
@@ -133,7 +145,7 @@ export function nodeToFormValues(node: Node): NodeFormValues {
   // UserTask fields
   if (node.type === 'userTask') {
     values.assignedTo = nodeData?.assignedTo || ''
-    values.assignedToRoles = nodeData?.assignedToRoles?.join(', ') || ''
+    values.assignedToRoles = normalizeAssignedToRoles(nodeData?.assignedToRoles)
     values.formKey = nodeData?.formKey || ''
 
     // Advanced userTaskConfig fields
@@ -242,10 +254,9 @@ export function formValuesToNodeUpdates(
 
   // UserTask specific fields
   if (node.type === 'userTask') {
+    const assignedToRoles = normalizeAssignedToRoles(values.assignedToRoles)
     updates.assignedTo = values.assignedTo || undefined
-    updates.assignedToRoles = values.assignedToRoles
-      ? values.assignedToRoles.split(',').map((r) => r.trim()).filter(Boolean)
-      : []
+    updates.assignedToRoles = assignedToRoles
     updates.formKey = values.formKey || undefined
 
     // Build userTaskConfig with all fields
@@ -256,9 +267,7 @@ export function formValuesToNodeUpdates(
         },
       }),
       ...(values.assignedTo && { assignedTo: values.assignedTo }),
-      ...(values.assignedToRoles && {
-        assignedToRoles: values.assignedToRoles.split(',').map((r) => r.trim()).filter(Boolean)
-      }),
+      ...(assignedToRoles.length > 0 && { assignedToRoles }),
       // Preserve advanced fields
       ...(values.assignmentRule && { assignmentRule: values.assignmentRule }),
       ...(values.slaDuration && { slaDuration: values.slaDuration }),

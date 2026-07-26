@@ -21,6 +21,7 @@ import {sanitizeId} from '../lib/graph-utils'
 import {WorkflowDefinition, WorkflowSelector} from './WorkflowSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 import {StartPreConditionsEditor, type StartPreCondition} from './fields/StartPreConditionsEditor'
+import {RolesMultiSelect} from './fields/RolesMultiSelect'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
 import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
@@ -52,6 +53,10 @@ interface FormField {
   placeholder?: string
   options?: string[] // For select/radio fields
   defaultValue?: string
+}
+
+function splitRolesText(raw: string): string[] {
+  return raw.split(',').map((role) => role.trim()).filter(Boolean)
 }
 
 export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: NodeEditDialogProps) {
@@ -642,11 +647,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <label className="block text-sm font-medium text-foreground mb-1">
                       {t('workflows.form.assignedToRoles')}
                     </label>
-                    <Input
-                      type="text"
-                      value={assignedToRoles}
-                      onChange={(e) => setAssignedToRoles(e.target.value)}
-                      placeholder={t('workflows.form.placeholders.roles')}
+                    <RolesMultiSelect
+                      value={splitRolesText(assignedToRoles)}
+                      onChange={(next) => setAssignedToRoles(next.join(', '))}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                       {t('workflows.form.descriptions.assignedToRoles')}
