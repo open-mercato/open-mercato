@@ -47,8 +47,8 @@ MFA enforcement and authorization failures can lock users out. Regression tests 
 
 ### Phase 2: MFA mutation authorization
 
-- [ ] 2.1 Require `security.mfa.manage` on each self-service MFA mutation route
-- [ ] 2.2 Preserve employee self-service access, document the existing-tenant ACL-sync action, and add route metadata coverage
+- [x] 2.1 Require `security.mfa.manage` on each self-service MFA mutation route — c5d45ce5b
+- [x] 2.2 Preserve employee self-service access, document the existing-tenant ACL-sync action, and add route metadata coverage — c5d45ce5b
 
 ### Phase 3: Verification and delivery
 
