@@ -23,8 +23,9 @@ interface Activity {
   async?: boolean
   retryPolicy?: {
     maxAttempts?: number
-    retryDelay?: number
-    backoffMultiplier?: number
+    initialIntervalMs?: number
+    backoffCoefficient?: number
+    maxIntervalMs?: number
   }
   timeout?: number
   compensation?: Record<string, any>
@@ -58,8 +59,9 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
       async: false,
       retryPolicy: {
         maxAttempts: 3,
-        retryDelay: 1000,
-        backoffMultiplier: 2,
+        initialIntervalMs: 1000,
+        backoffCoefficient: 2,
+        maxIntervalMs: 10000,
       },
     }
     onChange([...value, newActivity])
@@ -233,7 +235,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor={`activity-${index}-retry-attempts`} className="text-xs">
                     {t('workflows.form.maxRetryAttempts')}
@@ -241,33 +243,51 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                   <Input
                     id={`activity-${index}-retry-attempts`}
                     type="number"
+                    min="1"
+                    max="10"
                     value={activity.retryPolicy?.maxAttempts || 3}
                     onChange={(e) => updateRetryPolicy(index, 'maxAttempts', parseInt(e.target.value))}
                     className="mt-1"
                   />
                 </div>
                 <div>
-                  <Label htmlFor={`activity-${index}-retry-delay`} className="text-xs">
-                    {t('workflows.form.retryDelay')} (ms)
+                  <Label htmlFor={`activity-${index}-initial-interval`} className="text-xs">
+                    {t('workflows.fieldEditors.activities.initialInterval')}
                   </Label>
                   <Input
-                    id={`activity-${index}-retry-delay`}
+                    id={`activity-${index}-initial-interval`}
                     type="number"
-                    value={activity.retryPolicy?.retryDelay || 1000}
-                    onChange={(e) => updateRetryPolicy(index, 'retryDelay', parseInt(e.target.value))}
+                    min="0"
+                    value={activity.retryPolicy?.initialIntervalMs || 1000}
+                    onChange={(e) => updateRetryPolicy(index, 'initialIntervalMs', parseInt(e.target.value))}
                     className="mt-1"
                   />
                 </div>
                 <div>
                   <Label htmlFor={`activity-${index}-backoff`} className="text-xs">
-                    {t('workflows.form.backoffMultiplier')}
+                    {t('workflows.fieldEditors.activities.backoffCoefficient')}
                   </Label>
                   <Input
                     id={`activity-${index}-backoff`}
                     type="number"
                     step="0.1"
-                    value={activity.retryPolicy?.backoffMultiplier || 2}
-                    onChange={(e) => updateRetryPolicy(index, 'backoffMultiplier', parseFloat(e.target.value))}
+                    min="1"
+                    max="10"
+                    value={activity.retryPolicy?.backoffCoefficient || 2}
+                    onChange={(e) => updateRetryPolicy(index, 'backoffCoefficient', parseFloat(e.target.value))}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor={`activity-${index}-max-interval`} className="text-xs">
+                    {t('workflows.fieldEditors.activities.maxInterval')}
+                  </Label>
+                  <Input
+                    id={`activity-${index}-max-interval`}
+                    type="number"
+                    min="0"
+                    value={activity.retryPolicy?.maxIntervalMs || 10000}
+                    onChange={(e) => updateRetryPolicy(index, 'maxIntervalMs', parseInt(e.target.value))}
                     className="mt-1"
                   />
                 </div>
