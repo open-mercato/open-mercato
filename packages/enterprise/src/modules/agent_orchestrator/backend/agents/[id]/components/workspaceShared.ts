@@ -137,6 +137,42 @@ export function computeAgentMetrics(
   return { overrideRate, pending, status, lastActive, runCount: runs.length, errorCount, recent: rows.slice(0, 6) }
 }
 
+export type RuntimeTokenUsage = {
+  count: number
+  inputTotal: number
+  outputTotal: number
+  inputAvg: number
+  outputAvg: number
+}
+
+function toTokenNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) return Number(value)
+  return null
+}
+
+/**
+ * Actual token consumption across the agent's fetched runs (input/output token
+ * columns the runtime records per run). Works for every runtime — unlike the
+ * baked construction-file estimate, which only file-defined (OpenCode) agents
+ * carry. Returns null when no run reported tokens.
+ */
+export function computeRuntimeTokens(runs: Array<Record<string, unknown>>): RuntimeTokenUsage | null {
+  let inputTotal = 0
+  let outputTotal = 0
+  let count = 0
+  for (const run of runs) {
+    const input = toTokenNumber(run.input_tokens ?? run.inputTokens)
+    const output = toTokenNumber(run.output_tokens ?? run.outputTokens)
+    if (input == null && output == null) continue
+    inputTotal += input ?? 0
+    outputTotal += output ?? 0
+    count += 1
+  }
+  if (count === 0) return null
+  return { count, inputTotal, outputTotal, inputAvg: Math.round(inputTotal / count), outputAvg: Math.round(outputTotal / count) }
+}
+
 /**
  * Buckets runs into per-day counts for the Overview sparkline (oldest→newest).
  * Locale-neutral: uses day-resolution epoch buckets, not formatted dates.

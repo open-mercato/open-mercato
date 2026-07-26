@@ -27,7 +27,7 @@ import { OverviewTab } from './components/OverviewTab'
 import { ActivityTab } from './components/ActivityTab'
 import { ConfigurationTab } from './components/ConfigurationTab'
 import EvaluationTab from './components/EvaluationTab'
-import { computeAgentMetrics, type Autonomy, type WorkspaceTab } from './components/workspaceShared'
+import { computeAgentMetrics, computeRuntimeTokens, type Autonomy, type WorkspaceTab } from './components/workspaceShared'
 
 type PageState = 'loading' | 'notFound' | 'forbidden' | 'error' | 'ready'
 type EvalSection = 'assertions' | 'cases' | 'runs'
@@ -161,6 +161,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
   )
 
   const metrics = React.useMemo(() => computeAgentMetrics(runs, proposals), [runs, proposals])
+  const runtimeTokens = React.useMemo(() => computeRuntimeTokens(runs), [runs])
 
   const selectTab = React.useCallback((tab: WorkspaceTab, section?: EvalSection) => {
     setActiveTab(tab)
@@ -234,7 +235,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
             <EvaluationTab agentId={agent.id} agentLabel={agent.label || agent.id} active={activeTab === 'evaluation'} initialSection={evalSection} />
           </TabsContent>
           <TabsContent value="configuration" className="pt-4">
-            <ConfigurationTab agent={agent} onSkillClick={setActiveSkill} />
+            <ConfigurationTab agent={agent} runtimeTokens={runtimeTokens} onSkillClick={setActiveSkill} />
           </TabsContent>
         </Tabs>
 

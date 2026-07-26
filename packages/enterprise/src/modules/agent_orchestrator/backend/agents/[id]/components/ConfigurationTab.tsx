@@ -7,17 +7,20 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { AgentDetailView, SkillDetailView } from '../../../../components/types'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatNumber, type AgentDetailView, type SkillDetailView } from '../../../../components/types'
 import { TokenUsageCard } from './workspacePrimitives'
+import type { RuntimeTokenUsage } from './workspaceShared'
 
 type ConfigurationTabProps = {
   agent: AgentDetailView
+  runtimeTokens: RuntimeTokenUsage | null
   onSkillClick: (skill: SkillDetailView) => void
 }
 
-export function ConfigurationTab({ agent, onSkillClick }: ConfigurationTabProps) {
+export function ConfigurationTab({ agent, runtimeTokens, onSkillClick }: ConfigurationTabProps) {
   const t = useT()
+  const locale = useLocale()
   const defaultValue = t('agent_orchestrator.agentDetail.defaultValue', 'Default')
 
   const copyInstructions = () => {
@@ -71,6 +74,24 @@ export function ConfigurationTab({ agent, onSkillClick }: ConfigurationTabProps)
             <dt className="text-muted-foreground">{t('agent_orchestrator.agentDetail.config.resultKind', 'Result kind')}</dt>
             <dd className="text-foreground">{agent.resultKind}</dd>
           </dl>
+        </section>
+
+        <section className="space-y-2">
+          <SectionHeader title={t('agent_orchestrator.agentDetail.tokens.runtimeTitle', 'Token usage')} />
+          {runtimeTokens ? (
+            <dl className="grid grid-cols-[140px_1fr] gap-x-4 gap-y-2 rounded-xl border border-border bg-card p-4 text-sm">
+              <dt className="text-muted-foreground">{t('agent_orchestrator.agentDetail.tokens.perRun', 'Per run (avg)')}</dt>
+              <dd className="tabular-nums text-foreground">
+                {formatNumber(runtimeTokens.inputAvg, locale)} {t('agent_orchestrator.agentDetail.tokens.in', 'in')} · {formatNumber(runtimeTokens.outputAvg, locale)} {t('agent_orchestrator.agentDetail.tokens.out', 'out')}
+              </dd>
+              <dt className="text-muted-foreground">{t('agent_orchestrator.agentDetail.tokens.recentTotal', 'Recent {count} runs', { count: runtimeTokens.count })}</dt>
+              <dd className="tabular-nums text-foreground">
+                {formatNumber(runtimeTokens.inputTotal, locale)} {t('agent_orchestrator.agentDetail.tokens.in', 'in')} · {formatNumber(runtimeTokens.outputTotal, locale)} {t('agent_orchestrator.agentDetail.tokens.out', 'out')}
+              </dd>
+            </dl>
+          ) : (
+            <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">{t('agent_orchestrator.agentDetail.tokens.none', 'No runs have reported token usage yet.')}</p>
+          )}
         </section>
 
         <section className="space-y-2">
