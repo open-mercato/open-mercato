@@ -51,6 +51,7 @@
     ]
   },
   "qaGate": false,
+  "reviewChecklist": ".ai/review-checklist.md",
   "paths": {
     "runs": ".ai/runs",
     "analysis": ".ai/analysis",

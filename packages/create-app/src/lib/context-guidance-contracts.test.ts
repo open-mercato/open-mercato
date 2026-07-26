@@ -105,3 +105,47 @@ test('progressive AI reference pins generated registration and approval-gated co
   assert.match(moduleAi, /No write occurs before approval/)
   assert.match(moduleAi, /Run `yarn generate`/)
 })
+
+test('standalone review flow enforces the customers-derived module and design-system checklist', () => {
+  const config = JSON.parse(readAgentic('shared/ai/agentic.config.json')) as { reviewChecklist?: string }
+  assert.equal(config.reviewChecklist, '.ai/review-checklist.md')
+
+  const checklist = readAgentic('shared/ai/review-checklist.md')
+  for (const required of [
+    'main sidebar',
+    'pageTitleKey',
+    'makeCrudRoute',
+    'withAtomicFlush',
+    'extractUndoPayload',
+    'findWithDecryption',
+    'DataTable',
+    'CrudForm',
+    'collectCustomFieldValues',
+    'defaultEncryptionMaps',
+    'fieldPolicy',
+    'extensionTableId',
+    'design system',
+  ]) assert.ok(checklist.includes(required), `missing module review rule ${required}`)
+
+  const autoReview = readAgentic('shared/ai/skills/om-auto-review-pr/SKILL.md')
+  assert.match(autoReview, /\.ai\/review-checklist\.md/)
+  assert.match(autoReview, /module elements/)
+  assert.match(autoReview, /design-system/)
+
+  const generatedPolicy = readAgentic('shared/ai/harness/generated-code-review-policy.md')
+  assert.match(generatedPolicy, /\.ai\/review-checklist\.md/)
+  assert.match(generatedPolicy, /module elements/)
+  assert.match(generatedPolicy, /design-system/)
+})
+
+test('backend UI defaults new editable entities to linked and filterable full CRUD', () => {
+  const guide = readAgentic('guides/backend-ui.md')
+  const crud = readAgentic('shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md')
+  for (const required of [
+    'unless the brief explicitly excludes an operation',
+    'list, create, view/edit, and delete',
+    'filter/search',
+    'localized add action',
+    'linked row action',
+  ]) assert.ok(`${guide}\n${crud}`.includes(required), `missing full-CRUD default ${required}`)
+})

@@ -6,6 +6,7 @@
     "module-crud-routes": { "purpose": "Library entity without CRUD route coverage.", "seededArtifacts": ["src/modules/library/data/entities.ts"] },
     "module-command-action": { "purpose": "Library checkout action missing command/mutation safety.", "seededArtifacts": ["src/modules/library/api/books/checkout/route.ts"] },
     "module-backend-ui": { "purpose": "Library module without backend list/edit/detail pages.", "seededArtifacts": ["src/modules/library/index.ts"] },
+    "module-complete-library": { "purpose": "New library module stub missing the customers-level complete vertical slice, sidebar navigation, extension hosts, and safety contracts.", "seededArtifacts": ["src/modules/library/index.ts"], "precondition": "oracle.module.complete must fail" },
     "umes-form-field": { "purpose": "App customization module with a missing core CrudForm field round trip.", "seededArtifacts": ["src/modules/app_customizations/index.ts"] },
     "umes-data-table": { "purpose": "App customization module with a missing DataTable injection.", "seededArtifacts": ["src/modules/app_customizations/index.ts"] },
     "umes-page-override": { "purpose": "App customization module with an installed page still visible.", "seededArtifacts": ["src/modules/app_customizations/index.ts"] },

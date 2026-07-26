@@ -251,7 +251,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } })
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
   assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
-  assert.equal(validators.catalog.writableCaseIds.length, 39)
+  assert.equal(validators.catalog.writableCaseIds.length, 40)
   assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
   assert.deepEqual(matrix.generatedCodeReview.caseIds, validators.catalog.writableCaseIds)
@@ -1988,7 +1988,7 @@ const disabled = args.flatMap((arg, index) => arg === '--disable' ? [args[index 
 if (args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('--ignore-user-config') || !disabled.includes('shell_tool') || !disabled.includes('unified_exec')) process.exit(9)
 const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
 const allowedReads = JSON.parse(mcpArgs.at(-2))
-for (const required of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.agents/skills/om-code-review/SKILL.md', 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) if (!allowedReads.includes(required)) process.exit(9)
+for (const required of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', '.agents/skills/om-code-review/SKILL.md', 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) if (!allowedReads.includes(required)) process.exit(9)
 if (JSON.parse(mcpArgs.at(-1)).length !== 0) process.exit(9)
 const evidence = [
   { id: 'oracle:allowed-writes', status: 'pass' },
@@ -2015,7 +2015,7 @@ const report = [
   'The trusted AST and target typecheck evidence cover the generated route shape; this supplemental review ran no target scripts.'
 ].join('\\n')
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ schemaVersion: 1, verdict: 'approve', report, validationEvidence: evidence, findings: [] }))
-for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.agents/skills/om-code-review/SKILL.md', '.agents/skills/om-code-review/references/agentic-setup.md', '.agents/skills/om-code-review/references/output-format.md', '.agents/skills/om-code-review/references/review-checklist.md', '.agents/skills/om-code-review/references/rules.md', '.ai/guides/backend-ui.md', '.ai/skills/om-backend-ui-design/SKILL.md', '.ai/skills/om-backend-ui-design/references/crud-surfaces.md', '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md', '.ai/skills/om-backend-ui-design/references/page-and-navigation.md', '.ai/skills/om-backend-ui-design/references/quality-states.md', 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' } }))
+for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', '.agents/skills/om-code-review/SKILL.md', '.agents/skills/om-code-review/references/agentic-setup.md', '.agents/skills/om-code-review/references/output-format.md', '.agents/skills/om-code-review/references/review-checklist.md', '.agents/skills/om-code-review/references/rules.md', '.ai/guides/backend-ui.md', '.ai/skills/om-backend-ui-design/SKILL.md', '.ai/skills/om-backend-ui-design/references/crud-surfaces.md', '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md', '.ai/skills/om-backend-ui-design/references/page-and-navigation.md', '.ai/skills/om-backend-ui-design/references/quality-states.md', 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' } }))
 `)
     const review = runEvaluator(controller, [
       '--runner', 'codex', '--review-writable-result', sourceResult, '--writable-root', target,
@@ -2040,6 +2040,7 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
     assert.match(stored.skill.bundleHash, /^[a-f0-9]{64}$/)
     assert.match(stored.sourceResult.path, /^\.ai\/harness\/results\//)
     assert.ok(stored.actualContext.paths.includes('.agents/skills/om-code-review/references/review-checklist.md'))
+    assert.ok(stored.actualContext.paths.includes('.ai/review-checklist.md'))
     assert.deepEqual(stored.reviewReferences, [
       '.ai/guides/backend-ui.md',
       '.ai/skills/om-backend-ui-design/SKILL.md',
@@ -2101,7 +2102,7 @@ const report = [
   '## 🧪 Test Coverage', 'The complete target validation matrix passed.'
 ].join('\\n')
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ schemaVersion: 1, verdict: 'approve', report, validationEvidence: evidence, findings: [] }))
-console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md REVIEW_POLICY.md REVIEW_EVIDENCE.json .agents/skills/om-code-review/SKILL.md .agents/skills/om-code-review/references/agentic-setup.md .agents/skills/om-code-review/references/output-format.md .agents/skills/om-code-review/references/review-checklist.md .agents/skills/om-code-review/references/rules.md REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt' } }))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md REVIEW_POLICY.md REVIEW_EVIDENCE.json .ai/review-checklist.md .agents/skills/om-code-review/SKILL.md .agents/skills/om-code-review/references/agentic-setup.md .agents/skills/om-code-review/references/output-format.md .agents/skills/om-code-review/references/review-checklist.md .agents/skills/om-code-review/references/rules.md REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt' } }))
 `)
     const review = runEvaluator(controller, [
       '--runner', 'codex', '--review-writable-result', sourceResult, '--writable-root', target,
@@ -2191,7 +2192,7 @@ const evidence = [
 const report = '# 🔍 Code Review: Isolated review\\n## 🎯 Summary\\nThe review response is intentionally long enough for schema validation and exercises fail-closed trace handling.\\n## Verdict\\n✅ approve — The structured response itself contains no blocking finding.\\n## 🧪 Validation Gate\\n| Command | Status |\\n|---|---|\\n| oracle:allowed-writes | ✅ PASS |\\n| oracle:writable-ast-oracles.mjs | ✅ PASS |\\n| oracle:target-fingerprint | ✅ PASS |\\n## Findings\\nNo findings.\\n## 💥 Breaking Changes\\n- [x] No break identified.\\n## 🧪 Test Coverage\\nController evidence was supplied.'
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ schemaVersion: 1, verdict: 'approve', report, validationEvidence: evidence, findings: [] }))
 for (const command of [
-  'cat AGENTS.md REVIEW_POLICY.md REVIEW_EVIDENCE.json .agents/skills/om-code-review/SKILL.md .agents/skills/om-code-review/references/agentic-setup.md .agents/skills/om-code-review/references/output-format.md .agents/skills/om-code-review/references/review-checklist.md .agents/skills/om-code-review/references/rules.md REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt',
+  'cat AGENTS.md REVIEW_POLICY.md REVIEW_EVIDENCE.json .ai/review-checklist.md .agents/skills/om-code-review/SKILL.md .agents/skills/om-code-review/references/agentic-setup.md .agents/skills/om-code-review/references/output-format.md .agents/skills/om-code-review/references/review-checklist.md .agents/skills/om-code-review/references/rules.md REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt',
   'cat ${target.replaceAll("'", "'\\''")}/package.json',
   'node REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt',
   '/bin/zsh -lc "ps -ef"'
@@ -2237,7 +2238,7 @@ const evidence = [
 const finding = { severity: 'major', path: 'src/modules/library/api/books/route.ts', line: 2, rationale: 'The generated route omits a realistic failure-path assertion required by the review checklist.', fix: 'Add focused coverage for the route failure path before accepting the generated implementation.' }
 const report = '# 🔍 Code Review: Generated CRUD route\\n## 🎯 Summary\\nThe isolated source has one blocking-quality test gap that must be resolved before acceptance.\\n## Verdict\\n❌ request changes — The major test-coverage finding blocks approval.\\n## 🧪 Validation Gate\\n| Command | Status |\\n|---|---|\\n| oracle:allowed-writes | ✅ PASS |\\n| oracle:writable-ast-oracles.mjs | ✅ PASS |\\n| oracle:target-fingerprint | ✅ PASS |\\n## Findings\\n### ⚠️ Major\\nsrc/modules/library/api/books/route.ts:2 — The failure path lacks coverage; add a focused regression assertion.\\n## 💥 Breaking Changes\\n- [x] No break identified.\\n## 🧪 Test Coverage\\nThe missing failure-path assertion is the blocking gap.'
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ schemaVersion: 1, verdict: 'request changes', report, validationEvidence: evidence, findings: [finding] }))
-console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md REVIEW_POLICY.md REVIEW_EVIDENCE.json .agents/skills/om-code-review/SKILL.md .agents/skills/om-code-review/references/agentic-setup.md .agents/skills/om-code-review/references/output-format.md .agents/skills/om-code-review/references/review-checklist.md .agents/skills/om-code-review/references/rules.md REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt' } }))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md REVIEW_POLICY.md REVIEW_EVIDENCE.json .ai/review-checklist.md .agents/skills/om-code-review/SKILL.md .agents/skills/om-code-review/references/agentic-setup.md .agents/skills/om-code-review/references/output-format.md .agents/skills/om-code-review/references/review-checklist.md .agents/skills/om-code-review/references/rules.md REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt' } }))
 `)
     const review = runEvaluator(controller, [
       '--runner', 'codex', '--review-writable-result', sourceResult, '--writable-root', target,

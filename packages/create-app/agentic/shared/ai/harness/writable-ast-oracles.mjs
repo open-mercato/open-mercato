@@ -310,6 +310,26 @@ const WRITABLE_CASES = Object.freeze({
       'src/modules/order_risk/i18n/en.json',
     ],
   },
+  'OMH-185': {
+    family: 'complete-module',
+    sources: ['src/modules/library', 'src/modules.ts'],
+    artifacts: [
+      'src/modules/library/index.ts',
+      'src/modules/library/acl.ts',
+      'src/modules/library/setup.ts',
+      'src/modules/library/encryption.ts',
+      'src/modules/library/search.ts',
+      'src/modules/library/data/entities.ts',
+      'src/modules/library/data/validators.ts',
+      'src/modules/library/migrations/**',
+      'src/modules/library/commands/**',
+      'src/modules/library/commands/__tests__/**',
+      'src/modules/library/api/books/route.ts',
+      'src/modules/library/backend/books/**',
+      'src/modules/library/i18n/en.json',
+      'src/modules.ts',
+    ],
+  },
 })
 
 export const WRITABLE_CASE_IDS = Object.freeze(Object.keys(WRITABLE_CASES))
@@ -811,6 +831,29 @@ function check(id, passed, requirement) {
 
 function caseChecks(ts, caseId, facts) {
   const definition = WRITABLE_CASES[caseId]
+  if (definition.family === 'complete-module') {
+    const scopedEntity = facts.classes.some((entry) => entry.decorators.has('Entity') && ['tenant_id', 'organization_id', 'updated_at'].every((name) => entry.members.has(name)))
+    const uiFailures = uiPolicyFailures(facts)
+    return [
+      check('module.activation', facts.moduleEntries.some((entry) => entry.id === 'library' && entry.from === '@app'), 'src/modules.ts activates library from @app'),
+      check('module.entity', scopedEntity, 'a scoped editable @Entity includes tenant_id, organization_id, and updated_at'),
+      check('module.validator', hasCall(facts, 'z.object', 'object'), 'the book input boundary uses a concrete validator object'),
+      check('module.acl', facts.exportedVariables.has('features') && hasString(facts, 'library.books.view') && hasString(facts, 'library.books.manage'), 'acl.ts exports stable view/manage features'),
+      check('module.setup', facts.exportedVariables.has('setup') && facts.objectProperties.has('defaultRoleFeatures'), 'setup.ts grants module features through defaultRoleFeatures'),
+      check('module.crud-host', hasCallOptions(facts, 'makeCrudRoute', ['metadata', 'orm', 'list', 'actions', 'indexer', 'enrichers']) && hasString(facts, 'library:book'), 'the scoped CRUD route publishes aligned indexer and enricher hosts for library:book'),
+      check('module.api-metadata', ['GET', 'POST', 'PUT', 'DELETE', 'requireAuth', 'requireFeatures'].every((name) => facts.objectProperties.has(name)), 'CRUD API metadata declares per-method auth and features'),
+      check('module.command-atomic', hasCallOptions(facts, 'withAtomicFlush', ['transaction']) && hasCall(facts, 'enforceCommandOptimisticLock'), 'commands use transactional withAtomicFlush and command-level optimistic locking'),
+      check('module.command-undo', hasCall(facts, 'extractUndoPayload') && hasCall(facts, 'buildCustomFieldResetMap') && hasCall(facts, 'emitCrudSideEffects') && hasCall(facts, 'emitCrudUndoSideEffects'), 'commands capture and restore custom fields with symmetric forward/undo side effects'),
+      check('module.encryption-map', facts.exportedVariables.has('defaultEncryptionMaps') && hasString(facts, 'library:book'), 'encryption.ts exports a library:book defaultEncryptionMaps entry'),
+      check('module.encrypted-read', ['findWithDecryption', 'findOneWithDecryption', 'findAndCountWithDecryption'].some((name) => hasCall(facts, name)) && [...facts.importSources].includes('@open-mercato/shared/lib/encryption/find'), 'read paths use a scoped framework decryption helper'),
+      check('module.search', facts.exportedVariables.has('searchConfig') && ['fieldPolicy', 'checksumSource', 'formatResult'].every((name) => facts.objectProperties.has(name)), 'search.ts defines policy, checksum, and presentation contracts'),
+      check('module.table', facts.jsxTags.has('DataTable') && facts.jsxAttributes.has('extensionTableId') && hasString(facts, '/backend/library/books/create'), 'the extensible DataTable list exposes an add-book route'),
+      check('module.form', facts.jsxTags.has('CrudForm') && facts.jsxAttributes.has('initialValues') && (facts.jsxAttributes.has('entityId') || facts.objectProperties.has('entityIds')), 'CrudForm create/edit binds the stable custom-field entity identity and initial values'),
+      check('module.custom-fields', hasCall(facts, 'collectCustomFieldValues') && hasCall(facts, 'buildCustomFieldResetMap'), 'UI submission and command undo preserve custom fields'),
+      check('module.sidebar', ['pageTitleKey', 'pageGroupKey', 'pagePriority', 'pageOrder', 'icon', 'breadcrumb'].every((name) => facts.objectProperties.has(name)), 'the Books list page metadata publishes localized main-sidebar navigation'),
+      check('module.localized-ui', hasCall(facts, 'useT') && hasCall(facts, 't') && uiFailures.length === 0, `rendered UI uses i18n and shared design-system policy${uiFailures.length ? ` (${uiFailures.join(', ')})` : ''}`),
+    ]
+  }
   if (definition.family === 'business-command') {
     const fact = facts.exportedFunctions.get(definition.seam)
     return [

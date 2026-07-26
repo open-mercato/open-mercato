@@ -2,6 +2,8 @@
 
 Load this reference for list/detail/create/edit/delete work.
 
+Unless the brief explicitly excludes an operation, a new editable entity includes list, create, view/edit, and delete. The list supplies filter/search, a localized add action, and a linked row action; the forms use the shared CRUD helpers and return to a reachable list.
+
 - DataTable: stable `entityId`, `apiPath`, `extensionTableId`; columns/actions/filters with stable IDs; complete pagination ownership; built-in empty/loading/error/export behavior. When authoring a new host UI, publish intentional extension spots with stable column, action, and row-action IDs rather than creating an isolated local-only table.
 - CrudForm: typed fields/groups, shared create/update/delete helpers, server-error adapter, `initialValues.updatedAt`, explicit null clearing, translation keys.
 - Detail: load through shared API helpers, preserve scoped/auth errors, use reusable detail sections and stable extension spots. Keep host IDs aligned with the API `enrichers` entity ID and add widget/injection round-trip coverage when the surface is extensible.

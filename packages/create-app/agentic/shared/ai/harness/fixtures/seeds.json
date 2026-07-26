@@ -13,6 +13,9 @@
     "module-backend-ui": {
       "src/modules/library/index.ts": "export const metadata = { id: 'library', title: 'Library' }\n"
     },
+    "module-complete-library": {
+      "src/modules/library/index.ts": "export const metadata = { id: 'library', title: 'Library' }\n"
+    },
     "umes-form-field": {
       "src/modules/app_customizations/index.ts": "export const metadata = { id: 'app_customizations', title: 'App customizations' }\n"
     },

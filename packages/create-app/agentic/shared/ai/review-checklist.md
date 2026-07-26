@@ -1,0 +1,32 @@
+# Standalone Module Review Checklist
+
+Apply this checklist in addition to the installed `om-code-review` checklist whenever a diff changes module elements under `src/modules/**`, module activation in `src/modules.ts`, or a discovered page/API/widget/search/AI surface. Review the complete affected vertical slice, not only the edited file. The installed `customers` module is the reference pattern; copy its contracts, not its optional business surfaces or source code.
+
+## Complete module and discovery
+
+- A new app module has a stable namespaced ID, is activated in `src/modules.ts` with `{ id, from: '@app' }`, and runs `yarn generate`; generated files are inspected but never hand-edited.
+- A user-facing backend module is reachable from the main sidebar through its list page `page.meta.ts`: localized `pageTitleKey` and `pageGroupKey`, stable priority/order/icon/breadcrumb, `requireAuth`, and the matching `requireFeatures`. A deliberately hidden or deep-link-only page uses `navHidden` with a stated reason.
+- Create/edit/detail pages remain reachable from the list. A create-capable list exposes an obvious localized add action. Route, entity, search, `DataTable` `extensionTableId`, `CrudForm` entity ID, API enricher, widget spot, ACL, event, and command IDs are stable and aligned.
+- Add only surfaces the brief uses. Do not require unrelated `customers` capabilities such as analytics, vector search, notifications, workflows, or AI unless the changed module actually implements them.
+
+## Data, commands, API, and safety
+
+- Editable scoped entities use UUIDs, snake_case storage, tenant/org and standard timestamp/soft-delete columns, plus `updated_at`; migrations and the module snapshot contain only intended changes, and `yarn db:generate` is rerun as a no-op probe without applying migrations.
+- Input validators cover every query/body trust boundary. API routes use per-method auth/feature metadata, `makeCrudRoute`, scoped ORM keys, a separate `openApi` export, stable response keys including `updatedAt`, and `indexer: { entityType }` where searchable.
+- Domain writes go through commands. Multi-phase entity/relation/custom-field changes use `withAtomicFlush(..., { transaction: true })` on one EntityManager; command actions enforce optimistic locking and keep events, cache invalidation, indexing, queues, and external effects after commit.
+- Undo reads the stored payload through `extractUndoPayload`, re-authorizes/re-scopes, is retry-safe, and emits symmetric undo effects. Custom-field writes capture before/after snapshots, restore through `buildCustomFieldResetMap`, and keep matching cache/index aliases in `emitCrudSideEffects` and `emitCrudUndoSideEffects`.
+- ACL feature IDs are namespaced and dependency-aware; `setup.ts` grants appropriate defaults and keeps all hooks/seeds idempotent. UI visibility never replaces server authorization, wildcard-aware ACL, tenant/org filters, or record ownership.
+
+## Encryption, custom fields, search, and extension hosts
+
+- Sensitive fields are declared in `defaultEncryptionMaps`. Reads use `findWithDecryption`, `findOneWithDecryption`, or `findAndCountWithDecryption` with both scoped query filters and the decryption scope; responses, logs, events, exports, cache keys, and indexes do not expose ciphertext or plaintext secrets.
+- Equality lookup uses an explicitly approved hash-only sibling. `search.ts` uses a stable entity ID and safe `fieldPolicy`; searchable CRUD writes index after commit, bulk paths reindex deterministically, vector sources have `checksumSource`, token results have `formatResult`, and tests do not wait with arbitrary sleeps.
+- `CrudForm` uses shared helpers, `initialValues.updatedAt`, localized fields/groups/errors, `collectCustomFieldValues`/`entityIds`, explicit null clearing, and conflict surfacing. `DataTable` owns pagination/loading/empty/error/export and uses stable column/action/row-action IDs plus `extensionTableId`.
+- An intentional extensible API host declares an aligned colon-form `enrichers` entity ID. UI injection spots, widgets, interceptors, guards, enrichers, component handles, and menu entries keep stable IDs and demonstrate the complete render/read/save/reload/clear or execute/undo path they claim to support.
+
+## Design system, i18n, and proof
+
+- Every rendered page follows the design system: shared layout/form/table/control primitives, semantic tokens, no raw replacement controls or hard-coded palette/arbitrary Tailwind values, and no manual dark-mode fork.
+- Visible copy lives in module `i18n/<locale>.json` and is read with the installed translation helpers; `translations.ts` is reserved for translatable entity fields. Locale generation/sync is refreshed when keys change.
+- Pages preserve server-rendered shells and small client islands, do not pull route-specific heavy code into global providers, and cover responsive layouts, keyboard/focus behavior, labels, accessible announcements, loading, empty, error, permission-denied, validation, conflict, success, and destructive confirmation states.
+- Focused tests cover allowed/denied/wildcard ACL, two scopes, malformed input, current/stale version, custom-field save/reload/clear, injected atomic rollback, undo/retry, encrypted read/redaction, search deletion/reindex convergence, and extension-host round trips as applicable.

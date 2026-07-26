@@ -24,6 +24,8 @@ Sibling follow-up: #4528 (`feat/kimi-cli-runner-harness-evals`) adds a third run
 - Audit the AI framework, i18n, and UMES authoring surfaces: typed agents/tools and approval-gated mutations; locale ownership and generated registration; and stable injection spots/IDs plus widgets, fields, menus, component replacements, interceptors, guards, and response enrichers for new APIs/UIs.
 - Make complete new modules visible in the main sidebar and add a failing-first single-shot book-library module evaluation. The generated plan must own registration/navigation, DataTable + CrudForm create/edit flows and add-book links, command writes with atomic transactions and undo, ACL/setup features, custom fields, search/indexing, UI i18n, encryption maps/scoped decryption, and an intentional UMES-capable API host.
 - Extend the generated-code/code-review checklist for diffs touching standalone module elements (entities, commands, APIs, pages, navigation, widgets, search, ACL/setup, encryption). Derive any additional minimums from the installed `customers` module, require design-system alignment for rendered UI, and make the repo-local `om-auto-review-pr` override explicitly feed these rules into `om-code-review` and generated-code review.
+- Default new editable entities/modules/backend UI to the complete CRUD path unless the brief explicitly excludes an operation: filtered/searchable DataTable list, linked create and edit/detail actions, CrudForm create/update/delete, custom-field round trips, and the corresponding scoped APIs/commands. Keep this rule compact in backend-UI progressive guidance.
+- Preserve upstream `open-mercato/skills` review behavior and report formatting. Use its supported `reviewChecklist`/`CODE_REVIEW.md` extension mechanisms, do not ship a local `om-code-review` replacement, and keep the standalone `om-auto-review-pr` overlay to the minimum additive portability note needed.
 - Add or strengthen semantic catalog coverage for real gaps above. Preserve progressive disclosure and the fail-closed gates; modest per-case file/byte quota increases and limited WIP catalog compatibility changes are allowed only when both runner traces justify them and the final measurements disclose them.
 
 ## Non-goals
@@ -178,6 +180,22 @@ Implementation order: add the semantic/writable case and demonstrate its failure
 - The standalone `.ai/skills/om-auto-review-pr/SKILL.md` override must explicitly require the external `om-code-review` workflow plus the local module checklist. The disposable generated-code policy must load the same checklist for relevant generated sources and include routed backend/design-system references.
 - Add regression tests proving review configuration/skills/policy cannot silently stop applying these rules; then exercise the generated review lane for the complete-module case.
 
+### OMH-185 failing-first infrastructure checkpoint (2026-07-26T17:18Z)
+
+- The pre-owner regression suite failed exactly as intended: catalog coverage was still 184 instead of 185 and the standalone review config had no module checklist. No guidance was changed to make the case pass before this evidence was captured.
+- Added OMH-185 as a high-risk writable one-shot plus mandatory portability and generated-code-review assignment. The release contract is now 185 routing cases and 40 writable/review cases.
+- Added a disposable incomplete-library fixture and a fixed `oracle.module.complete` AST/artifact gate derived from the installed `customers` reference. A skeleton cannot pass: the gate requires activation, sidebar metadata, scoped entity/migration/validators, ACL/setup, CRUD+OpenAPI/indexer/enricher, atomic locked commands and symmetric custom-field undo, encryption/decryption, search policy/presentation, DataTable/CrudForm/custom fields, i18n/design-system policy, tests, and target typecheck.
+- Added `.ai/review-checklist.md`, wired it through `reviewChecklist`, made the repo-local `om-auto-review-pr` override explicitly require it through `om-code-review`, and bundled it into every isolated generated-code review. The checklist activates for module elements and adds routed design-system review for UI.
+- Focused catalog/evaluator/oracle/review regression suite: 90/90 passed after adding the case infrastructure. The case was then used to pin the smallest missing backend-UI full-CRUD default; the expanded focused suite passes 96/96. Live OMH-185 routing/writable/review evidence remains required.
+
+### Full-CRUD and upstream-review compatibility accepted (2026-07-26T17:21Z)
+
+- For a new editable entity or module surface, absence of an explicit exclusion means list/create/view-or-edit/delete are all required. The list owns filters/search and obvious localized links/actions to add and edit records; forms own create/update/delete, custom-field save/reload/clear, optimistic conflicts, and complete states.
+- Put the compact authoring rule in backend-UI progressive guidance and enforce it in OMH-185 plus the customers-derived review checklist. Do not grow the root router for implementation detail.
+- Keep `.ai/review-checklist.md` as the upstream-supported config extension consumed by `om-code-review`. Do not add a standalone `.ai/skills/om-code-review` override. Trim the repo-local `om-auto-review-pr` overlay so it only confirms that the external workflow remains authoritative and its configured checklist is additive; this preserves upstream output/emoji templates and future rules.
+- Provider continuation: if Claude/Sonnet reports token or quota exhaustion, record the exact completed/failed/remaining case IDs and sanitized provider error, stop that lane without changing its expectations, and continue deterministic, Codex, writable-oracle, generated-review, documentation, and repository-gate work. Resume Sonnet when capacity returns; a Codex pass never substitutes for the required Sonnet pass.
+- Review compatibility implementation uses only the upstream-supported config hook (`reviewChecklist: .ai/review-checklist.md`) plus the existing standalone `om-auto-review-pr` portability overlay. No local `om-code-review` override was added. The overlay now defers output/verdict/emoji templates to the external skill and adds one concise checklist pointer.
+
 
 ## Progress
 
@@ -213,9 +231,10 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.1 Remediate shared-owner routing authority defects — additive `backend-ui`, additive ownership (`umes`), architecture co-route, module-fact triggers, `testing` trigger, compatibility-guide path
 - [x] 3.2 Remediate declaration/observation discipline in the shared contract — `selectedContext` is an exact record; over-reported blockers; refused reads no longer scored as loaded content (both runner shapes)
 - [ ] 3.3 Recalibrate over-specified expectations and prove the complete sonnet matrix
-- [ ] 3.4 Audit and pin the expanded integrity/encryption/search/AI/i18n/UMES guidance requirements
+- [x] 3.4 Audit and pin the expanded integrity/encryption/search/AI/i18n/UMES guidance requirements — `9d90ef01a`
 - [ ] 3.5 Add and pass the single-shot complete book-library module evaluation, including main-sidebar visibility
 - [ ] 3.6 Enforce the complete-module and design-system checklist through om-code-review, om-auto-review-pr, and generated-code review
+- [ ] 3.7 Default new editable module surfaces to linked/filterable full CRUD while preserving upstream review-skill behavior
 
 ### Phase 4: Compatibility baseline
 

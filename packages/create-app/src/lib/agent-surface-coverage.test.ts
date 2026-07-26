@@ -143,7 +143,7 @@ test('UMES selector documents additive command interceptors across execute and u
   assert.match(branches, /never bypass the command, locking, audit, or undo/)
 })
 
-test('the 184-case catalog routes audited installed-module and AI/provider branches explicitly', () => {
+test('the 185-case catalog routes audited installed-module and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -151,7 +151,7 @@ test('the 184-case catalog routes audited installed-module and AI/provider branc
     requiredDecisions: string[]
     expectedRouter: { required: string[] }
   }>
-  assert.equal(cases.length, 184)
+  assert.equal(cases.length, 185)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
@@ -163,6 +163,24 @@ test('the 184-case catalog routes audited installed-module and AI/provider branc
     'OMH-097': { contexts: ['.ai/guides/modules/onboarding.md'], decisions: ['on-tenant-created-hook', 'seed-defaults-versus-examples', 'translated-welcome-invitation-email'] },
     'OMH-106': { contexts: ['.ai/guides/modules/staff.md'], decisions: ['staff-assignable-route', 'staff-availability-resolver', 'optional-staff-module'] },
     'OMH-157': { contexts: ['.ai/guides/modules/attachments.md'], decisions: ['attachment-scope-both-or-neither', 'check-attachment-access'] },
+    'OMH-185': {
+      contexts: [
+        '.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md',
+        '.ai/skills/om-data-model-design/references/integrity-and-concurrency.md',
+        '.ai/skills/om-data-model-design/references/sensitive-data.md',
+        '.ai/skills/om-backend-ui-design/references/crud-surfaces.md',
+        '.ai/skills/om-system-extension/references/read-write-roundtrip.md',
+      ],
+      decisions: [
+        'main-sidebar-navigation',
+        'crudform-datatable-add-book',
+        'custom-field-roundtrip',
+        'command-atomic-undo-locking',
+        'encryption-scoped-decryption',
+        'search-index-convergence',
+        'umes-api-host',
+      ],
+    },
   }
   for (const [caseId, expected] of Object.entries(expectations)) {
     const record = byId.get(caseId)
@@ -172,6 +190,7 @@ test('the 184-case catalog routes audited installed-module and AI/provider branc
     for (const decision of expected.decisions) assert.ok(record.requiredDecisions.includes(decision), `${caseId}: missing decision ${decision}`)
   }
   assert.ok(byId.get('OMH-087')?.expectedRouter.required.includes('ai-workflow'))
+  assert.deepEqual(byId.get('OMH-185')?.expectedRouter.required, ['module-data', 'backend-ui', 'umes'])
 })
 
 test('the second-round cohort is exactly 92 business-language prompts without leaked framework contracts', () => {

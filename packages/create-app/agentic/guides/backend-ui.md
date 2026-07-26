@@ -18,6 +18,10 @@ Use shared backend/page primitives and keep UI behavior aligned with API scope, 
 
 List destinations need stable `pageGroup`, `pageGroupKey`, and order. Prefer a registered string icon name in `page.meta.ts` so generated metadata stays serializable; use `lucide-react` components in page-body UI. Hide create/edit/detail destinations from navigation when they are reached from a list.
 
+## Default CRUD Completeness
+
+For a new editable entity or module, unless the brief explicitly excludes an operation, deliver list, create, view/edit, and delete as one connected slice. The `DataTable` list owns server filter/search controls, a localized add action linking to create, and a stable linked row action to view/edit. `CrudForm` owns create/update/delete, custom-field save/reload/clear, `updatedAt` conflicts, and return navigation. Do not leave a new backend entity reachable only by typing a URL.
+
 ## DataTable
 
 - Use `DataTable` with stable colon-form `entityId`, `apiPath`, and `extensionTableId`. These are host contracts, not cosmetic props.

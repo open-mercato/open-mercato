@@ -12604,5 +12604,117 @@
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:raw|full).{0,20}(?:transcript|prompt|model output)","(?:secret|token|credential|environment value)","(?:load|read).{0,20}all (?:packages|modules|source)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
     "maxContextFiles":6,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-005","OMH-087"]
+  },
+  {
+    "id": "OMH-185",
+    "title": "Create a complete searchable and extensible book library module in one shot",
+    "family": "module",
+    "mode": "one-shot",
+    "evaluationKind": "implementation",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, create a complete app-owned book library module in one shot. Register it from @app and make its localized Books list visible in the main sidebar. Provide a DataTable list with an obvious add-book link plus CrudForm create/edit flows that load, save, clear, and reload custom fields. Add scoped entities, validators, migration snapshot, per-method ACL metadata and default grants, command-only create/update/delete with optimistic locking, atomic multi-phase writes, audit/undo, and post-commit event/cache/index effects. Declare encryption maps and use the framework's scoped decryption helpers. Add safe search/index configuration with deterministic reindex convergence. Publish stable aligned entity IDs, DataTable/CrudForm extension IDs, and an intentional API enricher host so UMES widgets, interceptors, and guards can extend it later. Put visible copy in module i18n, run generation, and add focused tests; do not edit installed or generated framework files and do not apply migrations.",
+    "tags": ["module", "complete-vertical-slice", "book-library", "backend-ui", "umes", "writable"],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "ruleIds": ["BC-01", "BC-02", "BC-03", "BC-05", "BC-06", "BC-07", "BC-08", "BC-09", "BC-10"]
+    },
+    "expectedRouter": {
+      "required": ["module-data", "backend-ui", "umes"],
+      "allowedExtra": ["architecture", "testing", "framework-context"]
+    },
+    "requiredSkills": ["om-module-scaffold", "om-data-model-design", "om-backend-ui-design", "om-system-extension"],
+    "optionalSkills": [{"id": "om-framework-context", "route": "framework-context"}],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/contracts.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+        ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+        ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+        ".ai/skills/om-data-model-design/SKILL.md",
+        ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+        ".ai/skills/om-data-model-design/references/sensitive-data.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/read-write-roundtrip.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
+        ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md",
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-framework-context/SKILL.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**", ".mercato/generated/**"]
+    },
+    "requiredDecisions": [
+      "app-module-registration",
+      "main-sidebar-navigation",
+      "crudform-datatable-add-book",
+      "custom-field-roundtrip",
+      "tenant-organization-scope",
+      "acl-default-grants",
+      "command-atomic-undo-locking",
+      "post-commit-side-effects",
+      "encryption-scoped-decryption",
+      "search-index-convergence",
+      "localized-visible-copy",
+      "umes-api-host",
+      "stable-ui-host-ids",
+      "migration-snapshot-no-apply",
+      "generate-and-test"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "requireRoles",
+      "@mikro-orm/core.{0,20}(?:Entity|Property)",
+      "raw (?:form|fetch)",
+      "hard-coded user-facing",
+      "(?:apply|run).{0,20}(?:migration|db:migrate)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.module.complete"
+    ],
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 81920,
+    "maxTotalContextBytes": 245760,
+    "relatedCases": ["OMH-004", "OMH-009", "OMH-011", "OMH-012", "OMH-014", "OMH-017", "OMH-026"],
+    "fixture": {"scaffold": "fresh-standalone", "setup": ["fixture:module-complete-library"]},
+    "oracle": {
+      "validatorIds": ["writable.allowed-paths", "oracle.artifacts", "oracle.module.complete"],
+      "expectedArtifacts": [
+        "src/modules/library/index.ts",
+        "src/modules/library/acl.ts",
+        "src/modules/library/setup.ts",
+        "src/modules/library/encryption.ts",
+        "src/modules/library/search.ts",
+        "src/modules/library/data/entities.ts",
+        "src/modules/library/data/validators.ts",
+        "src/modules/library/migrations/**",
+        "src/modules/library/commands/**",
+        "src/modules/library/commands/__tests__/**",
+        "src/modules/library/api/books/route.ts",
+        "src/modules/library/backend/books/**",
+        "src/modules/library/i18n/en.json",
+        "src/modules.ts"
+      ]
+    },
+    "allowedWrites": ["src/modules/library/**", "src/modules.ts"]
   }
 ]
