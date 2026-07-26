@@ -11281,7 +11281,7 @@
     "requiredDecisions":["event-progress","widget-progress","workflow-resume-checkpoint","workflow-cancellation-boundary","subscriber-idempotency"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","poll.{0,20}(?:every|setInterval)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":8,"maxInitialContextBytes":49152,"maxTotalContextBytes":114688,"relatedCases":["OMH-035","OMH-055"]
+    "maxContextFiles":10,"maxInitialContextBytes":61440,"maxTotalContextBytes":114688,"relatedCases":["OMH-035","OMH-055"]
   },
   {
     "id": "OMH-149",
@@ -11418,7 +11418,9 @@
     "expectedRouter": {
       "required": [
         "integration",
-        "testing"
+        "testing",
+        "backend-ui",
+        "umes"
       ],
       "allowedExtra": [
         "module-data",
@@ -11426,15 +11428,24 @@
       ]
     },
     "requiredSkills": [
-      "om-integration-builder"
+      "om-integration-builder",
+      "om-backend-ui-design",
+      "om-system-extension"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/integrations.md",
         ".ai/guides/testing-debugging.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/guides/extensions.md",
         ".ai/skills/om-integration-builder/SKILL.md",
-        ".ai/guides/modules/payment_gateways.md"
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/modules/payment_gateways.md",
+        ".ai/guides/modules/checkout.md",
+        ".ai/guides/modules/webhooks.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/integrations.md"
@@ -11474,9 +11485,9 @@
       "oracle.artifacts",
       "oracle.business.provider-adapter"
     ],
-    "maxContextFiles": 8,
-    "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 114688,
+    "maxContextFiles": 12,
+    "maxInitialContextBytes": 73728,
+    "maxTotalContextBytes": 163840,
     "relatedCases": [
       "OMH-041",
       "OMH-079"
@@ -12454,12 +12465,12 @@
     "owner":{"kind":"skill","path":".ai/skills/om-framework-context/SKILL.md","ruleIds":["BC-01","BC-03","BC-04","BC-14"]},
     "expectedRouter":{"required":["architecture","framework-context"],"allowedExtra":["umes"]},
     "requiredSkills":["om-framework-context"],
-    "optionalSkills":[{"id":"om-system-extension","route":"umes"}],
-    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-framework-context/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/extensions.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "optionalSkills":[{"id":"om-help","route":"architecture"},{"id":"om-system-extension","route":"umes"}],
+    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-framework-context/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/extensions.md",".ai/skills/om-help/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["installed-version","bounded-source-search","facts-first","read-only-framework-context"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","assume.{0,30}(?:event|permission|route|version)","(?:load|read).{0,20}all (?:packages|modules|source)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":5,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-003","OMH-087"]
+    "maxContextFiles":6,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-003","OMH-087"]
   },
   {
     "id":"OMH-179","title":"Show loyalty points in customer responses without copying customer records","family":"umes","mode":"one-shot","evaluationKind":"routing","risk":"medium",

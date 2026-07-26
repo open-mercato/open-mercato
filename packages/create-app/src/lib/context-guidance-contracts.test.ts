@@ -186,3 +186,10 @@ test('business one-shot route keys remain binding for installed-module links', (
   assert.match(blueprints, /do not remove `U`/)
   assert.match(blueprints, /every unparenthesized route letter and its skill/)
 })
+
+test('router distinguishes durable multi-stage state from one-step schedules', () => {
+  const root = readAgentic('shared/AGENTS.md.template')
+  assert.match(root, /Persistent multi-stage business state/)
+  assert.match(root, /must survive restarts is a durable process/)
+  assert.match(root, /one-step scheduled reminder without process state/)
+})

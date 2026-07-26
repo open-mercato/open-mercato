@@ -39,7 +39,7 @@ Combine matches: lifecycle reaction = `module-data` + `umes`; convergence bug ad
 
 `debugging` = failure/security/drift. Specs/delivery = `spec-pr` + integration coverage; spec-only work reads root + `om-spec-writing` + config, implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; an editable or save/reload/clear round-trip surface adds `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
-Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`.
+Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`. Persistent multi-stage business state that advances over time, waits or cancels on domain events, or must survive restarts is a durable process; a one-step scheduled reminder without process state is only `module-data`.
 
 Authoring, restyling, replacing/wrapping, prop-transforming, menu-editing, or adding visible feedback adds `backend-ui`; merely hiding/toggling/rewiring installed UI does not. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
 
