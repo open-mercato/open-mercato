@@ -68,6 +68,8 @@ Sibling follow-up: #4528 (`feat/kimi-cli-runner-harness-evals`) adds a third run
 
 ## Progress
 
+PR: #4529
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Reproducible measurement controller
