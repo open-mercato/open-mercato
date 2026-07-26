@@ -200,7 +200,7 @@ describe('CrudForm workflow dialogs — DurationInput adoption (#4229)', () => {
       />,
     )
 
-    expect(screen.getByText('SLA Duration')).toBeInTheDocument()
+    expect(screen.getByText('workflows.tasks.userTaskConfig.slaDuration')).toBeInTheDocument()
     const amountInputs = screen.getAllByRole('spinbutton', { name: 'Duration amount' })
     expect(amountInputs.map((input) => (input as HTMLInputElement).value)).toEqual(
       expect.arrayContaining(['1']),
@@ -219,7 +219,7 @@ describe('CrudForm workflow dialogs — DurationInput adoption (#4229)', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save Step' }))
+    fireEvent.click(screen.getByRole('button', { name: 'workflows.form.saveStep' }))
 
     await waitFor(() => expect(onSave).toHaveBeenCalled())
     expect(alertSpy).not.toHaveBeenCalled()
