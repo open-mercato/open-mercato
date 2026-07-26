@@ -243,6 +243,13 @@ Compare the current branch with `origin/develop` and trace the generated app fro
 - Increased only six initial-context quotas to cover clean observed selections: OMH-144 `9/49152→12/65536`, OMH-145 `7/40960→11/61440`, OMH-150 `6/40960→8/49152`, OMH-153 bytes `57344→61440`, OMH-154 `6/40960→8/53248`, and OMH-182 files `6→8`. No total-context, safety, write, oracle, or review limit changed.
 - Focused deterministic catalog checks pass 187/187; the full affected two-model rerun is next.
 
+### Provider-capacity handoff (2026-07-26T20:55Z)
+
+- The immutable targeted Codex rerun improved the historical failure set from 0/20 to **17/20**; residuals are OMH-131 (defensible extra `debugging`), OMH-154 (604-byte initial-context overrun), and OMH-172 (UI bug route/guide selected, design skill omitted).
+- The immutable targeted Sonnet rerun completed all 50 requested historical failures: **23 pass, 20 actionable routing failures, 6 provider-quota terminations, 1 timeout**. The six quota-terminated IDs are exactly OMH-173, OMH-176, OMH-177, OMH-178, OMH-181, and OMH-184; each returned sanitized HTTP 429 evidence: `You've hit your weekly limit · resets 10am (UTC)`. OMH-043 separately hit the harness timeout.
+- No Sonnet cases remain unattempted in that targeted set, but the six quota IDs and OMH-043 have no usable routing verdict from this run. The final complete 187-case Sonnet matrix and those seven targeted proofs remain pending provider reset.
+- Continue now with trace-driven shared/catalog remediation, complete Codex, deterministic, writable OMH-185, generated-code review, and repository gates. Do not rerun Sonnet until capacity returns; Codex evidence never substitutes for it.
+
 
 ## Progress
 
