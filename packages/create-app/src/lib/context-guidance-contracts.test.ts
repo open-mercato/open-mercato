@@ -105,6 +105,7 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(moduleSurfaces, /setup: ModuleSetupConfig/)
   assert.match(moduleSurfaces, /@open-mercato\/shared\/modules\/events/)
   assert.match(moduleSurfaces, /category: 'crud'/)
+  assert.match(moduleSurfaces, /export const features/)
 
   const apiAndDomain = readAgentic(
     'shared/ai/skills/om-module-scaffold/references/api-and-domain.md',
@@ -134,6 +135,7 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(crudSurfaces, /never `CrudFormField`/)
   assert.match(crudSurfaces, /pagination=\{\{ page, pageSize, total, totalPages, onPageChange/)
   assert.match(crudSurfaces, /not top-level pagination props/)
+  assert.match(crudSurfaces, /`onDelete` receives no values argument/)
 
   const pageAndNavigation = readAgentic(
     'shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md',
