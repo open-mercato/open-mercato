@@ -20,12 +20,15 @@ export interface ParallelForkNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  errorCount?: number
 }
 
 function mapStatus(status?: string): WorkflowStatus {
   if (!status || status === 'pending') return 'not_started'
   if (status === 'running' || status === 'in_progress') return 'in_progress'
   if (status === 'completed') return 'completed'
+  if (status === 'error') return 'error'
   return 'not_started'
 }
 
@@ -52,6 +55,8 @@ export function ParallelForkNode({ data, isConnectable, selected }: NodeProps) {
         status={mapStatus(nodeData.status)}
         nodeType="parallelFork"
         selected={selected}
+        hasError={nodeData.hasError}
+        errorCount={nodeData.errorCount}
       />
 
       <Handle

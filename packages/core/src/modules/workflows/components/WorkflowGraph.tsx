@@ -23,6 +23,7 @@ export interface WorkflowGraphProps {
   className?: string
   height?: string
   focusTarget?: WorkflowGraphFocusTarget | null
+  nodeErrorCounts?: Record<string, number>
 }
 
 const WorkflowGraphImpl = dynamic(() => import('./WorkflowGraphImpl'), {

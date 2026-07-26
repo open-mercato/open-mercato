@@ -50,6 +50,7 @@ export interface WorkflowGraphImplProps {
   className?: string
   height?: string
   focusTarget?: WorkflowGraphFocusTarget | null
+  nodeErrorCounts?: Record<string, number>
 }
 
 export default function WorkflowGraphImpl({
@@ -64,6 +65,7 @@ export default function WorkflowGraphImpl({
   className = '',
   height = '600px',
   focusTarget = null,
+  nodeErrorCounts,
 }: WorkflowGraphImplProps) {
   const t = useT()
   const [nodes, setNodes] = useNodesState(initialNodes)
@@ -180,6 +182,17 @@ export default function WorkflowGraphImpl({
     [setEdges, onEdgesChangeProp]
   )
 
+  // Decorate nodes with validation-error state at render time only, so the
+  // error flags never enter the committed graph state or the saved definition.
+  const displayNodes = useMemo(() => {
+    if (!nodeErrorCounts) return nodes
+    return nodes.map((node) => {
+      const errorCount = nodeErrorCounts[node.id]
+      if (!errorCount) return node
+      return { ...node, data: { ...node.data, hasError: true, errorCount } }
+    })
+  }, [nodes, nodeErrorCounts])
+
   const nodeTypes = useMemo(
     () => ({
       start: StartNode,
@@ -205,7 +218,7 @@ export default function WorkflowGraphImpl({
   return (
     <div className={`workflow-graph-container ${className}`} style={{ height }}>
       <ReactFlow
-        nodes={nodes}
+        nodes={displayNodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}

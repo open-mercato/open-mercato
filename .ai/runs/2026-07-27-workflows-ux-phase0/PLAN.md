@@ -16,7 +16,7 @@
 | 2 | 2.2 | Fix retry-policy field-name drift in ActivitiesEditor and TransitionsEditor | done | 4261372e2 |
 | 2 | 2.3 | Default workflows role grants for employee in module setup | done | 8c4521a5e |
 | 3 | 3.1 | Problems list panel in visual editor and formatted save errors | done | 2a6b9b9eb |
-| 3 | 3.2 | Per-node error badges on the canvas | todo | — |
+| 3 | 3.2 | Per-node error badges on the canvas | done | fde6de53a |
 | 3 | 3.3 | Inline invalid-JSON feedback in ActivitiesEditor config textarea | todo | — |
 | 4 | 4.1 | DurationInput primitive in packages/ui with tests | todo | — |
 | 4 | 4.2 | Adopt DurationInput in legacy Node/Edge dialogs | todo | — |

@@ -1189,6 +1189,7 @@
   "workflows.visualEditor.loadExampleWorkflow": "Załaduj przykładowy przepływ pracy",
   "workflows.visualEditor.problems.counts": "Błędy: {errors} · Ostrzeżenia: {warnings}",
   "workflows.visualEditor.problems.dismiss": "Ukryj problemy",
+  "workflows.visualEditor.problems.nodeErrorBadge": "Błędy walidacji: {count}",
   "workflows.visualEditor.problems.saveBlocked": "Nie można zapisać: znaleziono błędy walidacji ({count}). Najpierw je popraw.",
   "workflows.visualEditor.problems.schemaValidationFailed": "Walidacja schematu nie powiodła się: {message}",
   "workflows.visualEditor.problems.summary": "Walidacja wykryła błędy: {errors} i ostrzeżenia: {warnings}.",

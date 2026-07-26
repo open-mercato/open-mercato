@@ -1189,6 +1189,7 @@
   "workflows.visualEditor.loadExampleWorkflow": "Cargar un flujo de trabajo de ejemplo",
   "workflows.visualEditor.problems.counts": "{errors} error(es) · {warnings} advertencia(s)",
   "workflows.visualEditor.problems.dismiss": "Descartar problemas",
+  "workflows.visualEditor.problems.nodeErrorBadge": "{count} error(es) de validación",
   "workflows.visualEditor.problems.saveBlocked": "No se puede guardar: se encontraron {count} error(es) de validación. Corrígelos primero.",
   "workflows.visualEditor.problems.schemaValidationFailed": "La validación del esquema falló: {message}",
   "workflows.visualEditor.problems.summary": "La validación encontró {errors} error(es) y {warnings} advertencia(s).",

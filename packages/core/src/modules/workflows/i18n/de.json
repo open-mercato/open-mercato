@@ -1189,6 +1189,7 @@
   "workflows.visualEditor.loadExampleWorkflow": "Beispiel-Workflow laden",
   "workflows.visualEditor.problems.counts": "{errors} Fehler · {warnings} Warnungen",
   "workflows.visualEditor.problems.dismiss": "Probleme ausblenden",
+  "workflows.visualEditor.problems.nodeErrorBadge": "{count} Validierungsfehler",
   "workflows.visualEditor.problems.saveBlocked": "Speichern nicht möglich: {count} Validierungsfehler gefunden. Bitte zuerst beheben.",
   "workflows.visualEditor.problems.schemaValidationFailed": "Schemavalidierung fehlgeschlagen: {message}",
   "workflows.visualEditor.problems.summary": "Die Validierung hat {errors} Fehler und {warnings} Warnungen gefunden.",

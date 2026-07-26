@@ -109,6 +109,17 @@ export default function VisualEditorPage() {
   const [focusTarget, setFocusTarget] = useState<WorkflowGraphFocusTarget | null>(null)
   const focusRequestRef = React.useRef(0)
 
+  // Error-severity issue counts per node id — drives the per-node error badges
+  // on the canvas; clearing the problems list clears every badge.
+  const nodeErrorCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const issue of problems) {
+      if (issue.severity !== 'error' || !issue.nodeId) continue
+      counts[issue.nodeId] = (counts[issue.nodeId] ?? 0) + 1
+    }
+    return counts
+  }, [problems])
+
   // Workflow metadata state
   const [workflowId, setWorkflowId] = useState('')
   const [workflowName, setWorkflowName] = useState('')
@@ -1082,6 +1093,7 @@ export default function VisualEditorPage() {
                 editable={!isCodeOnly}
                 height="100%"
                 focusTarget={focusTarget}
+                nodeErrorCounts={nodeErrorCounts}
               />
             </div>
 
@@ -1274,6 +1286,7 @@ export default function VisualEditorPage() {
                   editable={!isCodeOnly}
                   height="100%"
                   focusTarget={focusTarget}
+                  nodeErrorCounts={nodeErrorCounts}
                 />
               </div>
 

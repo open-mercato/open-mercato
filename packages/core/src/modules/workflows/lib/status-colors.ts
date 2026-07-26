@@ -1,4 +1,4 @@
-export type WorkflowStatus = 'completed' | 'in_progress' | 'pending' | 'not_started'
+export type WorkflowStatus = 'completed' | 'in_progress' | 'pending' | 'not_started' | 'error'
 
 export const STATUS_COLORS = {
   completed: {
@@ -28,6 +28,13 @@ export const STATUS_COLORS = {
     text: 'text-foreground',
     icon: 'text-muted-foreground',
     hex: '#6b7280',
+  },
+  error: {
+    bg: 'bg-status-error-bg',
+    border: 'border-status-error-border',
+    text: 'text-status-error-text',
+    icon: 'text-status-error-icon',
+    hex: '#dc2626',
   },
 } as const
 
