@@ -328,3 +328,94 @@ fails more. The fix is an optional per-runner/per-lane `capabilityProfile` that
 scales retries (B), context/step budgets (C), and quality-only oracle/routing
 thresholds (D, E), with the security fail-closed set structurally excluded from what
 a profile can touch and the default profile reproducing current behavior exactly.
+
+---
+
+## Part 3 — What a measured weak-model run actually showed
+
+Part 2 was written before either lane had been exercised on a current CLI. When it
+was, the premise changed: **neither runner worked at all**, and once they did, the
+weaker model's failures were overwhelmingly *harness* defects rather than capability
+limits. Recorded here so the next person tunes from evidence.
+
+### 3.1 Both adapters were broken, and the tests could not see it
+
+| Lane | Symptom | Cause |
+|------|---------|-------|
+| Claude | 0 of 184; model reported "no read tool is exposed" | `--tools` accepts only **built-in** names, so `--tools mcp__harness__read` resolved to zero tools *and* removed the built-in deferred-discovery tool, which is the only way an MCP tool becomes callable. `--safe-mode` additionally drops every `--mcp-config` server; `--permission-mode plan` returns a plan instead of reading. |
+| Codex | 0 of 184; aborted before the model ran | `--disable skill_search` — a feature retired from codex-cli 0.144.6 — is a hard error. |
+
+Both defects survived review because the tests drive a **fake** runner binary that
+asserts exactly the flags the code passes. That is a self-confirming contract. A
+runner adapter needs at least one authenticated end-to-end case asserting on the
+observed *trace*, not only on the constructed argv.
+
+### 3.2 The instruction budget is the binding constraint on router clarity
+
+The generated root sat **5 bytes** under the 12 KiB target. That ceiling is *why* the
+router is telegraphic — and telegraphic prose is exactly what a weaker model
+mis-reads. Every clarification has to be funded by deleting duplication. Watch three
+traps, all of which were hit while doing this:
+
+- Guides are not free either. `.ai/guides/*.md` count as **initial** context, and
+  per-case slack runs as low as ~2 KiB (OMH-043), so a 1.4 KiB guide addition can
+  push a tight case over its own budget (it did, for OMH-027).
+- `references/`, `.ai/guides/modules/`, and `.ai/guides/upstream/` are excluded from
+  the initial-context measure — that is where elaboration belongs.
+- The largest instruction chain is separately capped at Codex's 32 KiB; a note added
+  to `contracts.md` tripped it at 33,023 bytes and had to be reverted.
+
+### 3.3 Weak-model failures clustered on either/or framing, not on difficulty
+
+Sonnet rarely produced a *wrong* answer; it produced an *incomplete* one, and the
+same cases failed on Codex — which is the tell that the router, not the model, was
+under-specified. Every one of these was a sentence that offered a branch where the
+catalog wanted both:
+
+- "App-owned page/form/table-only = `backend-ui`; installed host changes add `umes`"
+  made an installed-host **UI** change read as UMES-only.
+- "App: `src/modules/<id>/`; installed: UMES" made app code that changes an installed
+  module read as `module-data`-only.
+- The blueprint row claiming it "resolves ownership" suppressed `architecture`.
+- "App primitives skip … `events` unless changed" suppressed the fact sheet for the
+  very module a task was about.
+
+### 3.4 Calibrating a trigger: the asymmetry that decides direction
+
+Missing required context is always fatal. A **refused** read is not — the fail-closed
+MCP server denies it, and once refusals are scored correctly it is a bounded signal.
+So a trigger should sit slightly broad. Two hard limits on that:
+
+1. It must not match text that appears in nearly every prompt. Adding "preserving" to
+   the compatibility trigger matched the boilerplate "preserve tenant and organization
+   boundaries" and cost Codex 19 false failures in one run.
+2. An unexpected **route** is fatal too, so a negative carve-out has to be *correct*
+   rather than absent — gating a surface the app injected does select `backend-ui`
+   (OMH-037) while hiding an installed page does not (OMH-029/038).
+
+An additive push also needs a matching stop rule, or tight cases over-read: telling a
+model to match every row and select every match pushed OMH-027 and OMH-043 past their
+file budgets until the assembly policy ranked guide over skill over references.
+
+### 3.5 Where capability-scaled retry would actually apply
+
+After the defects above were fixed, the residual failures were concentrated in
+`debugging` cases whose budget permits **five** context files — exactly the size of
+their required set, with zero tolerance for one extra read. Across successive runs
+those cases moved between different violations under monotonically clearer guidance,
+which is the signature of run-to-run variance rather than a missing rule.
+
+That is the population Part 2's retry lever (B) is for, and it remains **untaken**
+here: retrying an assertion failure changes what the metric means, so it should be an
+explicit reviewed decision. The result schema already records `attempts` and
+`corrections` so a first-pass rate and a corrected rate stay distinguishable.
+
+### 3.6 One catalog inconsistency, recorded rather than papered over
+
+`.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` is `required` in 9 cases and, by a
+deterministic validator, may never be `allowedExtra` — access is binary. But OMH-057
+requires it for a "preserve the seeded … export seam" prompt while OMH-045, OMH-054,
+OMH-060, OMH-061, and OMH-070 forbid it on identical wording. No router rule can
+satisfy both. The harness-side mitigation is that a refused path is treated as
+inapplicable to that case rather than as an unresolved blocker; resolving the
+inconsistency itself is a catalog decision for the owner.
