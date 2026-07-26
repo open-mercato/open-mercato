@@ -49,12 +49,20 @@ export function classifyPage(input: ClassifyInput): PageClassification {
   if (input.status === 403 || input.status === 429 || input.status === 503) {
     return { verdict: 'blocked', reason: `HTTP ${input.status}` }
   }
-  const challenge = CHALLENGE_MARKERS.find((marker) => haystack.includes(marker))
-  if (challenge) return { verdict: 'blocked', reason: `anti-bot challenge (${challenge})` }
 
   const text = input.text.trim()
   if (text.length === 0 && input.html.trim().length === 0) {
     return { verdict: 'empty', reason: 'no response body' }
+  }
+
+  // Marker matching runs over raw markup, including script bundles, so plenty of
+  // ordinary pages mention "captcha" or "access denied" without being one. A
+  // challenge page is content-free by definition, so the markers only count when
+  // the page also failed to yield readable text — otherwise a working page gets
+  // flagged and triggers a pointless browser escalation.
+  if (text.length < MIN_MEANINGFUL_TEXT) {
+    const challenge = CHALLENGE_MARKERS.find((marker) => haystack.includes(marker))
+    if (challenge) return { verdict: 'blocked', reason: `anti-bot challenge (${challenge})` }
   }
 
   const jsMarker = JS_REQUIRED_MARKERS.find((marker) => haystack.includes(marker))

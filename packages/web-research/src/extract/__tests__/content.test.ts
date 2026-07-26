@@ -54,6 +54,15 @@ describe('classifyPage', () => {
     expect(classifyPage({ ...base, html, text: 'Just a moment...' }).verdict).toBe('blocked')
   })
 
+  // Observed against a real LinkedIn company page: 12,987 chars of usable text,
+  // but the word "captcha" appears in a bundled script. Flagging that as blocked
+  // triggers a browser render for a page that already worked.
+  it('does not call a content-bearing page blocked just because its markup mentions a challenge', () => {
+    const text = 'Stripe. Technology, Information and Internet. '.repeat(40)
+    const html = `<html><body><script>var x="captcha";</script><article><p>${text}</p></article></body></html>`
+    expect(classifyPage({ ...base, html, text }).verdict).toBe('ok')
+  })
+
   it('detects a client-side render shell', () => {
     const html = `<html><body><div id="root"></div>${'<script>x</script>'.repeat(400)}</body></html>`
     expect(classifyPage({ ...base, html, text: '' }).verdict).toBe('js-shell')
