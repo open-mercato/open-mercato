@@ -1212,5 +1212,18 @@
   "agent_orchestrator.traces.window.24h": "24h",
   "agent_orchestrator.traces.window.30d": "30d",
   "agent_orchestrator.traces.window.7d": "7d",
-  "agent_orchestrator.traces.windowTooltip": "Time range — runs from the selected period"
+  "agent_orchestrator.traces.windowTooltip": "Time range — runs from the selected period",
+  "agent_orchestrator.webSearch.activity.engine": "engine",
+  "agent_orchestrator.webSearch.activity.event.blocked": "Blocked",
+  "agent_orchestrator.webSearch.activity.event.cached": "From cache",
+  "agent_orchestrator.webSearch.activity.event.cancelled": "Cancelled",
+  "agent_orchestrator.webSearch.activity.event.completed": "Done",
+  "agent_orchestrator.webSearch.activity.event.empty": "No results",
+  "agent_orchestrator.webSearch.activity.event.error": "Failed",
+  "agent_orchestrator.webSearch.activity.event.escalated": "Escalated to browser",
+  "agent_orchestrator.webSearch.activity.event.ok": "Answered",
+  "agent_orchestrator.webSearch.activity.event.started": "Querying",
+  "agent_orchestrator.webSearch.activity.event.timeout": "Timed out",
+  "agent_orchestrator.webSearch.activity.event.unavailable": "Not configured",
+  "agent_orchestrator.webSearch.activity.results": "{count} results"
 }

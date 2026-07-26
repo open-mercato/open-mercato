@@ -23,6 +23,7 @@ import { SectionHeader, CollapsibleSection } from '@open-mercato/ui/backend/Sect
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ProposalCard } from '../../components/ProposalCard'
+import { WebSearchActivity } from '../../components/WebSearchActivity'
 import { mapAgent, type AgentView } from '../../components/types'
 import { toolPanelStateFromResponse, type ToolPanelState } from '../../components/playgroundToolCalls'
 import { runErrorStateFromBody } from '../../components/playgroundRunError'
@@ -499,6 +500,9 @@ export default function AgentPlaygroundPage() {
                 <div className="flex flex-col items-center gap-2 py-12 text-center">
                   <Spinner className="size-5" />
                   <p className="text-sm text-muted-foreground">{t('agent_orchestrator.playground.running')}</p>
+                  {/* The run POST does not return until the agent finishes, so this
+                      is the only place the operator can see what it is doing. */}
+                  <WebSearchActivity className="w-full max-w-xl text-left" />
                 </div>
               ) : null}
 

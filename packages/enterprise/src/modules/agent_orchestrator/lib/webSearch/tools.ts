@@ -1,9 +1,9 @@
 import { z } from 'zod'
 import type { AiToolDefinition, McpToolContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
-import type { SearchStep } from '@open-mercato/web-research'
 import { enforceWebSearchRateLimit, resolveRunId } from './guardrails'
 import { hostnameOf, isHostAllowed, resolveWebSearchSettings } from './policy'
 import { buildWebSearchEngine } from './registry'
+import { createStepEmitter } from './steps'
 
 export const WEB_SEARCH_TOOL_ID = 'agent_orchestrator.web_search'
 export const WEB_FETCH_TOOL_ID = 'agent_orchestrator.web_fetch'
@@ -50,17 +50,40 @@ const webFetchInput = z.object({
     .describe('auto (default) renders in a browser only when the plain read looks like a JavaScript shell.'),
 })
 
-export type WebSearchStepCollector = (step: SearchStep) => void
-
-async function loadContext(ctx: McpToolContext, collect: WebSearchStepCollector) {
+/**
+ * Resolves the run this call belongs to and wires the live step feed to it.
+ * Steps are broadcast, never returned to the model: `diagnostics` is the compact
+ * summary it can act on, and a full narration would just spend context.
+ */
+async function loadContext(ctx: McpToolContext, query: string) {
   const settings = await resolveWebSearchSettings(ctx.container, ctx.tenantId ?? null)
+  const runId = await resolveRunId(ctx.container, ctx.sessionId)
+  const agentId = await resolveAgentId(ctx)
   const built = buildWebSearchEngine({
     container: ctx.container,
     settings,
     tenantId: ctx.tenantId ?? null,
-    onStep: collect,
+    onStep: createStepEmitter({
+      runId,
+      agentId,
+      tenantId: ctx.tenantId ?? null,
+      organizationId: ctx.organizationId ?? null,
+      query,
+    }),
   })
-  return { settings, ...built }
+  return { settings, runId, ...built }
+}
+
+async function resolveAgentId(ctx: McpToolContext): Promise<string | null> {
+  if (!ctx.sessionId) return null
+  try {
+    const store = ctx.container.resolve('agentRunSessionStore') as {
+      resolveActiveAgentId(token: string): Promise<string | null>
+    }
+    return await store.resolveActiveAgentId(ctx.sessionId)
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -79,10 +102,8 @@ export const webSearchTool: AiToolDefinition = {
   tags: ['read', 'agent_orchestrator', 'web'],
   async handler(rawInput, ctx) {
     const input = webSearchInput.parse(rawInput)
-    const steps: SearchStep[] = []
-    const { settings, engine, problems } = await loadContext(ctx, (step) => steps.push(step))
+    const { settings, engine, problems, runId } = await loadContext(ctx, input.query)
 
-    const runId = await resolveRunId(ctx.container, ctx.sessionId)
     const gate = await enforceWebSearchRateLimit(
       ctx.container,
       { runId, tenantId: ctx.tenantId ?? null, kind: 'search' },
@@ -115,7 +136,6 @@ export const webSearchTool: AiToolDefinition = {
         elapsedMs: result.diagnostics.elapsedMs,
         ...(problems.length > 0 ? { problems } : {}),
       },
-      steps,
     }
   },
 }
@@ -132,8 +152,7 @@ export const webFetchTool: AiToolDefinition = {
   tags: ['read', 'agent_orchestrator', 'web'],
   async handler(rawInput, ctx) {
     const input = webFetchInput.parse(rawInput)
-    const steps: SearchStep[] = []
-    const { settings, engine } = await loadContext(ctx, (step) => steps.push(step))
+    const { settings, engine, runId } = await loadContext(ctx, input.url)
 
     const host = hostnameOf(input.url)
     if (!host || !isHostAllowed(host, settings.guardrails)) {
@@ -144,7 +163,6 @@ export const webFetchTool: AiToolDefinition = {
       }
     }
 
-    const runId = await resolveRunId(ctx.container, ctx.sessionId)
     const gate = await enforceWebSearchRateLimit(
       ctx.container,
       { runId, tenantId: ctx.tenantId ?? null, kind: 'fetch' },
@@ -159,8 +177,8 @@ export const webFetchTool: AiToolDefinition = {
     })
 
     if (outcome.status !== 'ok') {
-      return { ok: false as const, code: outcome.status, error: outcome.reason ?? outcome.status, steps }
+      return { ok: false as const, code: outcome.status, error: outcome.reason ?? outcome.status }
     }
-    return { ok: true as const, ...outcome.page, steps }
+    return { ok: true as const, ...outcome.page }
   },
 }
