@@ -10,6 +10,8 @@ import { Trash2 } from 'lucide-react'
 import { CrudForm, type CrudFormGroup, type CrudField, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { DurationInput } from '@open-mercato/ui/backend/inputs/DurationInput'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FormFieldArrayEditor } from './fields/FormFieldArrayEditor'
 import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
 import { MappingArrayEditor } from './fields/MappingArrayEditor'
@@ -92,6 +94,7 @@ export interface NodeEditDialogCrudFormProps {
  * - decision: Basic fields only
  */
 export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete }: NodeEditDialogCrudFormProps) {
+  const t = useT()
   const [initialValues, setInitialValues] = useState<Partial<NodeFormValues>>({})
   const [showJsonSchemaWarning, setShowJsonSchemaWarning] = useState(false)
 
@@ -110,11 +113,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     // Validate and sanitize step ID
     const sanitizedId = sanitizeId(node.id)
     if (sanitizedId !== node.id) {
-      if (typeof window !== 'undefined') {
-        window.alert(
-          `⚠️ Step ID was sanitized from "${node.id}" to "${sanitizedId}" to match schema requirements (lowercase letters, numbers, hyphens, and underscores only).`
-        )
-      }
+      flash(t('workflows.nodeEditor.stepIdSanitized', { from: node.id, to: sanitizedId }), 'warning')
     }
 
     try {
@@ -125,7 +124,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       // Error will be displayed in form (e.g., invalid JSON)
       throw error
     }
-  }, [node, onSave, onClose])
+  }, [node, onSave, onClose, t])
 
   const handleDelete = useCallback(() => {
     if (!node || !onDelete) return
@@ -202,7 +201,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           id: 'userTask',
           title: 'User Task Configuration',
           column: 1,
-          fields: ['assignedTo', 'assignedToRoles', 'formKey'],
+          fields: ['assignedTo', 'assignedToRoles', 'formKey', 'slaDuration'],
         },
         {
           id: 'formFields',
@@ -383,6 +382,13 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       description: 'Optional form key for external form rendering',
     },
     {
+      id: 'slaDuration',
+      label: t('workflows.tasks.userTaskConfig.slaDuration', 'SLA Duration'),
+      type: 'custom',
+      description: 'Time allowed to complete this task before it is overdue; used to compute the task due date',
+      component: (props) => <DurationCrudField {...props} />,
+    },
+    {
       id: 'formFields',
       label: 'Form Fields',
       type: 'custom',
@@ -515,7 +521,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       description: 'Business rules that must pass before the workflow can start',
       component: (props) => <StartPreConditionsEditor {...props} value={props.value as any} />,
     },
-  ], [showJsonSchemaWarning])
+  ], [showJsonSchemaWarning, t])
 
   if (!isOpen || !node) return null
 

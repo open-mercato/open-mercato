@@ -8,8 +8,9 @@
  * editable through the raw-text mode.
  */
 import * as React from 'react'
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { EdgeEditDialog } from '../EdgeEditDialog'
 import { NodeEditDialog } from '../NodeEditDialog'
 import { NodeEditDialogCrudForm, DurationCrudField } from '../NodeEditDialogCrudForm'
@@ -19,6 +20,10 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
   useSearchParams: () => ({ get: () => null }),
   usePathname: () => '/backend/workflows',
+}))
+
+jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
+  flash: jest.fn(),
 }))
 
 if (typeof window !== 'undefined') {
@@ -180,5 +185,45 @@ describe('CrudForm workflow dialogs — DurationInput adoption (#4229)', () => {
     expect(amountInputs.map((input) => (input as HTMLInputElement).value)).toEqual(
       expect.arrayContaining(['30', '5']),
     )
+  })
+
+  it('renders the SLA duration field in the user task configuration group (6.2)', () => {
+    renderWithProviders(
+      <NodeEditDialogCrudForm
+        node={{
+          id: 'task-crud-1',
+          type: 'userTask',
+          data: { stepName: 'Approve Order', userTaskConfig: { slaDuration: 'PT1H' } },
+        } as any}
+        isOpen
+        {...dialogCallbacks}
+      />,
+    )
+
+    expect(screen.getByText('SLA Duration')).toBeInTheDocument()
+    const amountInputs = screen.getAllByRole('spinbutton', { name: 'Duration amount' })
+    expect(amountInputs.map((input) => (input as HTMLInputElement).value)).toEqual(
+      expect.arrayContaining(['1']),
+    )
+  })
+
+  it('routes step-ID sanitization feedback through flash instead of window.alert (6.2)', async () => {
+    const alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => undefined)
+    const onSave = jest.fn()
+    renderWithProviders(
+      <NodeEditDialogCrudForm
+        node={{ id: 'My Step', type: 'decision', data: { stepName: 'Decide' } } as any}
+        isOpen
+        onClose={jest.fn()}
+        onSave={onSave}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Step' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(alertSpy).not.toHaveBeenCalled()
+    expect(flash).toHaveBeenCalledWith('workflows.nodeEditor.stepIdSanitized', 'warning')
+    alertSpy.mockRestore()
   })
 })

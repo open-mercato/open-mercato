@@ -23,7 +23,7 @@
 | 4 | 4.3 | Adopt DurationInput in CrudForm dialog path | done | c91235342 |
 | 5 | 5.1 | Roles multiselect for user-task assignment in both dialogs | done | 55ae2a282 |
 | 6 | 6.1 | CrudForm parity: waitForTimer node support | done | f5c47a354 |
-| 6 | 6.2 | CrudForm parity: slaDuration field and alert removal | todo | — |
+| 6 | 6.2 | CrudForm parity: slaDuration field and alert removal | done | 87180ca47 |
 | 6 | 6.3 | CrudForm parity: full i18n of both CrudForm dialogs | todo | — |
 | 6 | 6.4 | Flip CrudForm dialog default on via parseBooleanWithDefault | todo | — |
 | 7 | 7.1 | Instance detail and canvas status colors to DS tokens | todo | — |
