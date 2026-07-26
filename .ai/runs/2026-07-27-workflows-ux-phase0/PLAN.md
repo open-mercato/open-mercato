@@ -20,7 +20,7 @@
 | 3 | 3.3 | Inline invalid-JSON feedback in ActivitiesEditor config textarea | done | d988c0550 |
 | 4 | 4.1 | DurationInput primitive in packages/ui with tests | done | e4e55c579 |
 | 4 | 4.2 | Adopt DurationInput in legacy Node/Edge dialogs | done | fbfc5f3c8 |
-| 4 | 4.3 | Adopt DurationInput in CrudForm dialog path | todo | — |
+| 4 | 4.3 | Adopt DurationInput in CrudForm dialog path | done | 525408616 |
 | 5 | 5.1 | Roles multiselect for user-task assignment in both dialogs | todo | — |
 | 6 | 6.1 | CrudForm parity: waitForTimer node support | todo | — |
 | 6 | 6.2 | CrudForm parity: slaDuration field and alert removal | todo | — |

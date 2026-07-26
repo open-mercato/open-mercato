@@ -9,6 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Trash2 } from 'lucide-react'
 import { CrudForm, type CrudFormGroup, type CrudField, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
+import { DurationInput } from '@open-mercato/ui/backend/inputs/DurationInput'
 import { FormFieldArrayEditor } from './fields/FormFieldArrayEditor'
 import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
 import { MappingArrayEditor } from './fields/MappingArrayEditor'
@@ -24,6 +25,20 @@ function JsonConfigEditor({ value, setValue, disabled }: CrudCustomFieldRenderPr
   return (
     <JsonBuilder
       value={value || {}}
+      onChange={setValue}
+      disabled={disabled}
+    />
+  )
+}
+
+/**
+ * DurationCrudField - Custom field wrapper for DurationInput
+ */
+export function DurationCrudField({ id, value, setValue, disabled }: CrudCustomFieldRenderProps) {
+  return (
+    <DurationInput
+      id={id}
+      value={typeof value === 'string' ? value : ''}
       onChange={setValue}
       disabled={disabled}
     />
@@ -294,9 +309,9 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     {
       id: 'timeout',
       label: 'Timeout',
-      type: 'text',
-      placeholder: 'PT30S or 30000',
-      description: 'ISO 8601 duration (e.g., PT30S) or milliseconds',
+      type: 'custom',
+      description: 'Maximum time for this step. Switch to text entry for milliseconds (e.g., 30000) or template values.',
+      component: (props) => <DurationCrudField {...props} />,
     },
 
     // UserTask fields
@@ -416,9 +431,9 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     {
       id: 'signalTimeout',
       label: 'Signal Timeout',
-      type: 'text',
-      placeholder: 'PT5M',
-      description: 'How long to wait for the signal (ISO 8601 duration)',
+      type: 'custom',
+      description: 'How long to wait for the signal before timing out',
+      component: (props) => <DurationCrudField {...props} />,
     },
 
     // Advanced configuration

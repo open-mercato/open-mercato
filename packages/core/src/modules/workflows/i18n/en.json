@@ -550,7 +550,7 @@
   "workflows.fieldEditors.activities.removeActivity": "Remove Activity",
   "workflows.fieldEditors.activities.retryPolicy": "Retry Policy",
   "workflows.fieldEditors.activities.timeout": "Timeout",
-  "workflows.fieldEditors.activities.timeoutHint": "ISO 8601 duration or milliseconds",
+  "workflows.fieldEditors.activities.timeoutHint": "Maximum time for this activity. Switch to text entry for milliseconds (e.g., 30000) or template values.",
   "workflows.fieldEditors.activities.timeoutPlaceholder": "PT30S or 30000",
   "workflows.fieldEditors.businessRuleConditions.addRule": "Add Rule",
   "workflows.fieldEditors.businessRuleConditions.confirmRemove": "Are you sure you want to remove this condition?",

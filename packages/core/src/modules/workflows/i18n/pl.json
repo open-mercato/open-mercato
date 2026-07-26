@@ -550,7 +550,7 @@
   "workflows.fieldEditors.activities.removeActivity": "Usuń Działanie",
   "workflows.fieldEditors.activities.retryPolicy": "Polityka Ponowień",
   "workflows.fieldEditors.activities.timeout": "Limit Czasu",
-  "workflows.fieldEditors.activities.timeoutHint": "Czas trwania ISO 8601 lub milisekundy",
+  "workflows.fieldEditors.activities.timeoutHint": "Maksymalny czas dla tego działania. Przełącz na wpis tekstowy dla milisekund (np. 30000) lub wartości szablonowych.",
   "workflows.fieldEditors.activities.timeoutPlaceholder": "PT30S lub 30000",
   "workflows.fieldEditors.businessRuleConditions.addRule": "Dodaj Regułę",
   "workflows.fieldEditors.businessRuleConditions.confirmRemove": "Czy na pewno chcesz usunąć ten warunek?",

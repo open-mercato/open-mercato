@@ -550,7 +550,7 @@
   "workflows.fieldEditors.activities.removeActivity": "Aktivität entfernen",
   "workflows.fieldEditors.activities.retryPolicy": "Wiederholungsrichtlinie",
   "workflows.fieldEditors.activities.timeout": "Zeitlimit",
-  "workflows.fieldEditors.activities.timeoutHint": "ISO 8601-Dauer oder Millisekunden",
+  "workflows.fieldEditors.activities.timeoutHint": "Maximale Dauer für diese Aktivität. Zur Texteingabe wechseln für Millisekunden (z. B. 30000) oder Vorlagenwerte.",
   "workflows.fieldEditors.activities.timeoutPlaceholder": "PT30S oder 30000",
   "workflows.fieldEditors.businessRuleConditions.addRule": "Regel hinzufügen",
   "workflows.fieldEditors.businessRuleConditions.confirmRemove": "Möchten Sie diese Bedingung wirklich entfernen?",

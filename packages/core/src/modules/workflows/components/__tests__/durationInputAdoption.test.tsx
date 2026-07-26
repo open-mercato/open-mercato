@@ -12,6 +12,14 @@ import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { EdgeEditDialog } from '../EdgeEditDialog'
 import { NodeEditDialog } from '../NodeEditDialog'
+import { NodeEditDialogCrudForm, DurationCrudField } from '../NodeEditDialogCrudForm'
+import { ActivityArrayEditor, type Activity } from '../fields/ActivityArrayEditor'
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn() }),
+  useSearchParams: () => ({ get: () => null }),
+  usePathname: () => '/backend/workflows',
+}))
 
 if (typeof window !== 'undefined') {
   if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false
@@ -95,5 +103,82 @@ describe('legacy workflow dialogs — DurationInput adoption (#4229)', () => {
 
     const amountInput = screen.getByRole('spinbutton', { name: 'workflows.edgeEditor.timeout' })
     expect(amountInput).toHaveValue(30)
+  })
+})
+
+describe('CrudForm workflow dialogs — DurationInput adoption (#4229)', () => {
+  const baseActivity: Activity = {
+    activityId: 'fetch_data',
+    activityName: 'Fetch Data',
+    activityType: 'CALL_API',
+    config: {},
+    timeout: 'PT30S',
+  }
+
+  it('renders the per-activity timeout as a composite picker in ActivityArrayEditor', () => {
+    renderWithProviders(
+      <ActivityArrayEditor
+        id="stepActivities"
+        value={[baseActivity]}
+        setValue={jest.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Fetch Data'))
+
+    const amountInput = screen.getByRole('spinbutton', { name: 'workflows.fieldEditors.activities.timeout' })
+    expect(amountInput).toHaveValue(30)
+  })
+
+  it('keeps a template activity timeout editable through raw-text mode in ActivityArrayEditor', () => {
+    renderWithProviders(
+      <ActivityArrayEditor
+        id="stepActivities"
+        value={[{ ...baseActivity, timeout: '{{context.timeout}}' }]}
+        setValue={jest.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Fetch Data'))
+
+    const rawInput = screen.getByRole('textbox', { name: 'workflows.fieldEditors.activities.timeout' })
+    expect(rawInput).toHaveValue('{{context.timeout}}')
+  })
+
+  it('serializes composite edits back to an ISO string via the DurationCrudField wrapper', () => {
+    const setValue = jest.fn()
+    renderWithProviders(
+      <DurationCrudField id="signalTimeout" value="PT5M" setValue={setValue} />,
+    )
+
+    const amountInput = screen.getByRole('spinbutton', { name: 'Duration amount' })
+    expect(amountInput).toHaveValue(5)
+
+    fireEvent.change(amountInput, { target: { value: '10' } })
+    expect(setValue).toHaveBeenCalledWith('PT10M')
+  })
+
+  it('keeps millisecond values editable through raw-text mode in the DurationCrudField wrapper', () => {
+    renderWithProviders(
+      <DurationCrudField id="timeout" value="30000" setValue={jest.fn()} />,
+    )
+
+    const rawInput = screen.getByRole('textbox', { name: 'Duration expression' })
+    expect(rawInput).toHaveValue('30000')
+  })
+
+  it('wires the timeout and signal timeout fields through DurationInput in NodeEditDialogCrudForm', () => {
+    renderWithProviders(
+      <NodeEditDialogCrudForm
+        node={{ id: 'signal-crud-1', type: 'waitForSignal', data: { timeout: 'PT30S', signalConfig: { timeout: 'PT5M' } } } as any}
+        isOpen
+        {...dialogCallbacks}
+      />,
+    )
+
+    const amountInputs = screen.getAllByRole('spinbutton', { name: 'Duration amount' })
+    expect(amountInputs.map((input) => (input as HTMLInputElement).value)).toEqual(
+      expect.arrayContaining(['30', '5']),
+    )
   })
 })
