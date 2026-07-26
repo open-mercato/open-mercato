@@ -80,11 +80,12 @@ test('existing-module UI routing stays inside the backend UI context slice', () 
     'utf8',
   )
 
-  // The root states the general rule — authoring or restyling adds `backend-ui`, while
-  // hiding/gating/toggling/rewiring does not — because the either/or framing it replaced
+  // The root states the general rule — authored surfaces and browser UI state add
+  // `backend-ui`, while hiding/gating/toggling/rewiring does not — because the either/or framing
   // made an installed-host UI change read as UMES-only. The UI skill keeps the narrower
   // page/form/table-only wording, since by then the route is already chosen.
   assert.match(rootInstructions, /replacing\/wrapping, prop-transforming, menu-editing, or adding visible feedback adds `backend-ui`/)
+  assert.match(rootInstructions, /browser UI state\/session bootstrap/)
   assert.match(rootInstructions, /merely hiding\/toggling\/rewiring installed UI does not/)
   assert.match(uiSkill, /page\/form\/table-only/)
   for (const instructions of [rootInstructions, uiSkill]) {
@@ -96,13 +97,12 @@ test('compatibility routing covers existing public contracts without pulling in 
   for (const relativePath of ROOT_SOURCES) {
     const source = fs.readFileSync(path.join(CREATE_APP_ROOT, relativePath), 'utf8')
     // The trigger names the guide's real path: a bare filename does not tell the agent
-    // where to read it. It deliberately stays narrow — adding "preserving" made the rule
-    // fire on the "preserve tenant and organization boundaries" boilerplate carried by
-    // nearly every prompt, so cases that do not permit the guide probed it anyway.
-    assert.match(source, /Adding, changing, removing, or being told to preserve a public route\/schema\/ID\/export\/seam\/signature\/event-payload\/CLI MUST read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
+    // where to read it. It deliberately ties preservation/stability to a named public
+    // surface so the tenant/organization boilerplate carried by many prompts cannot fire it.
+    assert.match(source, /Adding\/changing\/removing, preserving, or keeping stable a public route\/schema\/ID\/export\/seam\/signature\/event-payload\/CLI MUST read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
     // The trigger must exclude the tenant-scope boilerplate every prompt carries, or it
     // fires on nearly all 184 cases and burns the refused-read budget.
-    assert.match(source, /preserving tenant or organization scope is not a contract surface/)
+    assert.match(source, /tenant\/org scope alone is not a contract surface/)
     assert.match(source, /Additive page\/form\/table\/conflict UI skips it/)
   }
 })
@@ -117,6 +117,8 @@ test('live evaluation declares every progressive context read in its structured 
   assert.match(source, /privately audit the task against every Axis 1 route row, every Axis 2 work-unit row, and the Module-Specific Facts mapping/)
   assert.match(source, /selecting its route or guide alone is incomplete/)
   assert.match(source, /while adding nothing from an unmatched row/)
+  assert.match(source, /opened task-matching SKILL\.md counts as invoked/)
+  assert.match(source, /Evaluate the supplied decision vocabulary one label at a time/)
 })
 
 test('generated classic Codex root and representative initial chains fit their byte budgets', () => {

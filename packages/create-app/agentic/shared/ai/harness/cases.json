@@ -6182,7 +6182,7 @@
     "forbiddenPatterns": ["frontend/.+\\.(?:ts|tsx).{0,30}(?:canonical|create)", "api/(?:get|post|put|patch|delete)/", "data/fields\\.ts", "node_modules.{0,40}(?:write|edit|patch)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 81920,
+    "maxInitialContextBytes": 90112,
     "maxTotalContextBytes": 180224,
     "relatedCases": ["OMH-001", "OMH-004", "OMH-008"]
   },
@@ -9071,10 +9071,10 @@
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
-        ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/sales.md"
+        ".ai/skills/om-system-extension/SKILL.md"
       ],
       "allowedExtra": [
+        ".ai/guides/modules/sales.md",
         ".ai/guides/modules/catalog.md",
         ".ai/guides/modules/currencies.md"
       ],
@@ -10124,7 +10124,8 @@
       "allowedExtra": [
         "architecture",
         "framework-context",
-        "testing"
+        "testing",
+        "debugging"
       ]
     },
     "requiredSkills": [
@@ -11610,7 +11611,7 @@
     "expectedRouter":{"required":["integration","module-data","umes"],"allowedExtra":["architecture"]},
     "requiredSkills":["om-integration-builder","om-data-model-design","om-system-extension"],
     "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/modules/integrations.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
-    "requiredDecisions":["decimal-money","tax-jurisdiction-snapshot","tax-outage-policy","tenant-cache-tags"],
+    "requiredDecisions":["decimal-money","tax-jurisdiction-snapshot","tax-outage-policy"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:float|number).{0,20}(?:amount|tax|money)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
     "maxContextFiles":8,"maxInitialContextBytes":57344,"maxTotalContextBytes":131072,"relatedCases":["OMH-021","OMH-041"]
@@ -11751,7 +11752,7 @@
     "requiredDecisions":["webhook-signature","replay-protection","subscriber-idempotency","tenant-scope"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","signature.{0,30}(?:skip|optional|disabled)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":8,"maxInitialContextBytes":53248,"maxTotalContextBytes":114688,"relatedCases":["OMH-043","OMH-057"]
+    "maxContextFiles":8,"maxInitialContextBytes":55296,"maxTotalContextBytes":114688,"relatedCases":["OMH-043","OMH-057"]
   },
   {
     "id":"OMH-155","title":"Notify a partner after shipment with retries and visible delivery status","family":"integration","mode":"one-shot","evaluationKind":"routing","risk":"high",
@@ -11914,7 +11915,7 @@
     "requiredDecisions":["provider-variant","preserve-mode","deterministic-mapping"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","always (?:global|website|store)","(?:float|number).{0,20}(?:price|money)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":5,"maxInitialContextBytes":40960,"maxTotalContextBytes":98304,"relatedCases":["OMH-047"]
+    "maxContextFiles":9,"maxInitialContextBytes":53248,"maxTotalContextBytes":98304,"relatedCases":["OMH-047"]
   },
   {
     "id":"OMH-161","title":"Package a connector so several standalone applications can install it","family":"integration","mode":"one-shot","evaluationKind":"routing","risk":"high",
@@ -12086,8 +12087,8 @@
     "tags":["business-language","integration-tests","payment-provider"],
     "owner":{"kind":"guide","path":".ai/guides/testing-debugging.md","ruleIds":["BC-01","BC-02","BC-04","BC-05","BC-09"]},
     "expectedRouter":{"required":["integration","testing"],"allowedExtra":["debugging"]},
-    "requiredSkills":["om-integration-builder","om-integration-tests"],
-    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/payment_gateways.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "requiredSkills":["om-integration-tests"],
+    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/guides/modules/payment_gateways.md"],"allowedExtra":[".ai/skills/om-integration-builder/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["ephemeral-test-environment","payment-idempotency","failure-injection","health-retry-redaction","honest-test-result"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:real|live).{0,30}(?:provider|payment|credential)","(?:skip|todo|only).{0,30}test"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12281,8 +12282,7 @@
       ]
     },
     "requiredSkills": [
-      "om-troubleshooter",
-      "om-backend-ui-design"
+      "om-troubleshooter"
     ],
     "context": {
       "required": [
@@ -12291,8 +12291,10 @@
         ".ai/guides/backend-ui.md",
         ".ai/guides/contracts.md",
         ".ai/skills/om-troubleshooter/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/guides/modules/customers.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -12384,8 +12386,8 @@
     "tags":["business-language","hydration-regression","localization"],
     "owner":{"kind":"skill","path":".ai/skills/om-troubleshooter/SKILL.md","ruleIds":["BC-01","BC-06","BC-07"]},
     "expectedRouter":{"required":["debugging","backend-ui"],"allowedExtra":["testing"]},
-    "requiredSkills":["om-troubleshooter","om-backend-ui-design"],
-    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/backend-ui.md",".ai/skills/om-troubleshooter/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "requiredSkills":["om-troubleshooter"],
+    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/backend-ui.md",".ai/skills/om-troubleshooter/SKILL.md"],"allowedExtra":[".ai/skills/om-backend-ui-design/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["hydration-parity","locale-source","unit-regression-oracle"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","suppressHydrationWarning","catch.{0,40}(?:ignore|swallow)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],

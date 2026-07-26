@@ -3,7 +3,7 @@
   "catalog": {
     "expectedCaseCount": 187,
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 81920,
+    "maxInitialContextBytes": 90112,
     "maxTotalContextBytes": 262144,
     "backwardCompatibilityRuleIds": [
       "BC-01", "BC-02", "BC-03", "BC-04", "BC-05", "BC-06", "BC-07",

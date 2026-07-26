@@ -12,7 +12,7 @@ Extend this app. Route first; never probe unmatched context.
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
 - Run `yarn generate` after discovery files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows change.
-- Adding, changing, removing, or being told to preserve a public route/schema/ID/export/seam/signature/event-payload/CLI MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; preserving tenant or organization scope is not a contract surface.
+- Adding/changing/removing, preserving, or keeping stable a public route/schema/ID/export/seam/signature/event-payload/CLI MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; tenant/org scope alone is not a contract surface.
 - Localize strings; use shared UI/tokens and complete loading, empty, error, conflict, keyboard, and a11y states.
 
 ## Ask First
@@ -52,7 +52,7 @@ Authoring, restyling, replacing/wrapping, prop-transforming, menu-editing, or ad
 | `architecture` | Capability/ownership choice, boundary investigation, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
 | `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
-| `backend-ui` | Any authored or restyled rendered surface | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
+| `backend-ui` | Authored/restyled rendered surface or browser UI state/session bootstrap | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
 | `integration` | External email/shipping/payment/sync/webhook/storage/file/import/export provider | `.ai/guides/integrations.md`; excludes installed-sender use, workflow `CALL_API`, downloads, AI storage |
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
@@ -78,12 +78,12 @@ Match every work-unit row; OPEN its skill before selection.
 | `integration` | Provider/credentials/health/webhook/files/client/reconciliation/package | `om-integration-builder` + integrations |
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `surface-selector` + `ai_assistant` facts |
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
-| `testing` | The REQUEST asks for tests, coverage, proof, or verification by exercising the app (API/browser/screen sizes/keyboard/screen-reader) — never inferred from a fix's own regression duty, and not a review/audit/config check | testing/debugging; external `om-integration-tests` for integration/E2E |
+| `testing` | REQUEST says test/coverage/prove, or verify by exercising API/browser/screen sizes/keyboard/screen-reader—not a fix's implicit regression duty or review/audit/config check | testing/debugging; MUST load external `om-integration-tests` for integration/E2E/app exercise |
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging |
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
 
-“Installed contract(s)” alone does not select `framework-context`; exact response/error identity does. Otherwise use guides/facts and invoke its skill only for one named unresolved detail.
+“Installed contract(s)” alone does not select `framework-context`; “inspect exact installed contracts first” or exact response/error identity does. Otherwise use guides/facts and invoke it only for one named unresolved detail.
 
 ### Axis 3 — SDLC and Delivery
 
@@ -120,6 +120,6 @@ Load facts for every named/targeted module, not incidental use. Mechanisms: even
 1. `spec-pr`: list `.ai/specs` one level; open one non-template match; plan-only skips specs.
 2. Route the request and load only the matched guides/skills and relevant module facts.
 3. Implement the smallest complete slice through real call sites.
-4. Run `yarn generate` when discovery changed, then the smallest validation gate and affected integration paths.
+4. Discovery change: run `yarn generate`; then the smallest gate/integration paths.
 
 Precedence: root → BC → installed `AGENTS.md` → facts; stop on skew/conflict; never guess.

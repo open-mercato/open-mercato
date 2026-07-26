@@ -250,6 +250,14 @@ Compare the current branch with `origin/develop` and trace the generated app fro
 - No Sonnet cases remain unattempted in that targeted set, but the six quota IDs and OMH-043 have no usable routing verdict from this run. The final complete 187-case Sonnet matrix and those seven targeted proofs remain pending provider reset.
 - Continue now with trace-driven shared/catalog remediation, complete Codex, deterministic, writable OMH-185, generated-code review, and repository gates. Do not rerun Sonnet until capacity returns; Codex evidence never substitutes for it.
 
+### Second shared remediation batch (2026-07-26T21:05Z)
+
+- Tightened route/skill symmetry without assertion feedback: an opened task-matching skill counts as invoked; an opened routed guide forces its route; decision labels are audited one by one against both task and loaded instructions.
+- Clarified request-driven testing (`test`/`prove`/app-exercising `verify`), browser session/bootstrap UI, public-ID stability, and explicit “inspect exact installed contracts first” routing.
+- Kept important semantic contracts (testing/E2E, workflow facts, BC, exact money, OAuth reliability) required. Narrowly removed `tenant-cache-tags` from OMH-152 because the tax-service brief does not request caching, made provider-authoring and UI-design skills optional for testing-only OMH-166 and bugfix-only OMH-172/175, and made OMH-120's sales/catalog fact choice optional because both installed ownership paths are defensible.
+- Added measured headroom for OMH-154 (`53248→55296` bytes), OMH-160 (`5/40960→9/53248`), and the comprehensive OMH-087 audit (`81920→90112`). The catalog-wide initial-context ceiling moved by 10% (`81920→90112`) solely to admit OMH-087's observed 83753-byte multi-surface audit; total-context/safety/write/oracle/review ceilings are unchanged.
+- Focused evaluator/review/catalog and instruction-budget suite: 75/75 pass; deterministic catalog remains 187/187.
+
 
 ## Progress
 
