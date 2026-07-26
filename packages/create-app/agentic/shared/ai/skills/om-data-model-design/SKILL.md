@@ -18,7 +18,7 @@ Produce an entity/validator/migration plan or implement it when requested. Keep 
 
 ## Rules
 
-- Entities live in `src/modules/<id>/data/entities.ts`, not `entities/` directories.
+- Entities and their input schemas live in `src/modules/<id>/data/entities.ts` and `src/modules/<id>/data/validators.ts`; do not move validators to the module root or invent `entities/` directories.
 - Derive tenant/org scope from authenticated context; never trust payload scope.
 - Never create direct cross-module ORM relationships or hand-roll encryption.
 - Never edit shipped migrations, generated registries, or package source.

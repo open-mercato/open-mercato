@@ -63,6 +63,10 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(integrity, /commands\/customFieldSnapshots/)
   assert.match(integrity, /buildCustomFieldResetMap/)
   assert.match(integrity, /enforceCommandOptimisticLock/)
+  assert.match(integrity, /undo: async \(\{ logEntry, ctx \}\)/)
+  assert.match(integrity, /registerCommand\(command\)` separately/)
+  assert.match(integrity, /action: 'created' \| 'updated' \| 'deleted'/)
+  assert.match(integrity, /identifiers: \{ id, tenantId, organizationId \}/)
   assert.match(integrity, /commands\/helpers/)
   assert.match(integrity, /second argument is an array/)
   assert.match(integrity, /after commit/)
@@ -79,10 +83,12 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(moduleSurfaces, /`indexer: \{ entityType \}`/)
   assert.match(moduleSurfaces, /deterministic convergence/)
   assert.match(moduleSurfaces, /buildSource/)
-  assert.match(moduleSurfaces, /Do not invent `convergenceKey`, `result`.*aliases/)
+  assert.match(moduleSurfaces, /Do not invent .*`convergenceKey`, `result`.*aliases/)
   assert.match(moduleSurfaces, /@open-mercato\/shared\/modules\/search/)
   assert.match(moduleSurfaces, /searchable: \[\.\.\.\], excluded: \[\.\.\.\]/)
   assert.match(moduleSurfaces, /text: string\[\]/)
+  assert.match(moduleSurfaces, /exact `entityId` key/)
+  assert.match(moduleSurfaces, /ctx\.record\.id/)
   assert.match(moduleSurfaces, /<module>\.<resources>\.view/)
   assert.match(moduleSurfaces, /setup: ModuleSetupConfig/)
   assert.match(moduleSurfaces, /@open-mercato\/shared\/modules\/events/)
@@ -101,7 +107,7 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(crudSurfaces, /authoring a new host UI/)
   assert.match(crudSurfaces, /extensionTableId/)
   assert.match(crudSurfaces, /stable column, action, and row-action IDs/)
-  for (const expected of ['@open-mercato/ui/backend/DataTable', '@open-mercato/ui/backend/RowActions', '@open-mercato/ui/backend/CrudForm', '@open-mercato/shared/lib/i18n/context', '@open-mercato/ui/backend/utils/apiCall', 'searchValue', 'onSearchChange', '`/create`', 'RowActions', 'collectCustomFieldValues', 'mapCrudServerErrorToFormErrors', 'injectionSpotId']) {
+  for (const expected of ['@open-mercato/ui/backend/DataTable', '@open-mercato/ui/backend/RowActions', '@open-mercato/ui/backend/CrudForm', '@open-mercato/shared/lib/i18n/context', '@open-mercato/ui/backend/utils/apiCall', 'readApiResultOrThrow', 'searchValue', 'onSearchChange', '`/create`', 'RowActions', 'collectCustomFieldValues', 'mapCrudServerErrorToFormErrors', 'injectionSpotId', 'return `void`', 'no `requiredFeatures` field']) {
     assert.ok(crudSurfaces.includes(expected), `missing canonical CRUD surface contract ${expected}`)
   }
 
@@ -226,6 +232,13 @@ test('complete one-shot modules cannot skip core module procedures for specialis
     assert.ok(skill.includes(`.ai/skills/om-module-scaffold/references/${reference}`), `missing mandatory one-shot reference ${reference}`)
   }
   assert.match(skill, /Specialist data\/UI\/UMES procedures add to these three; they never replace them/)
+})
+
+test('data-model skill pins validators beside entities for generated discovery', () => {
+  const skill = readAgentic('shared/ai/skills/om-data-model-design/SKILL.md')
+  assert.match(skill, /src\/modules\/<id>\/data\/entities\.ts/)
+  assert.match(skill, /src\/modules\/<id>\/data\/validators\.ts/)
+  assert.match(skill, /do not move validators to the module root/)
 })
 
 test('router distinguishes durable multi-stage state from one-step schedules', () => {
