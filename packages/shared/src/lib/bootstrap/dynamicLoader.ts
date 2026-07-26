@@ -19,7 +19,7 @@ const logger = createLogger('shared').child({ component: 'bootstrap' })
  * that never generated the file), which is what makes it distinguishable from
  * a file that exists but fails to compile or import.
  */
-export class GeneratedFileNotFoundError extends Error {
+class GeneratedFileNotFoundError extends Error {
   readonly filePath: string
 
   constructor(filePath: string) {
