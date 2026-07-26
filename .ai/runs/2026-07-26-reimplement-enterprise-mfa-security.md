@@ -52,5 +52,5 @@ MFA enforcement and authorization failures can lock users out. Regression tests 
 
 ### Phase 3: Verification and delivery
 
-- [ ] 3.1 Run targeted and full validation, then address review findings
+- [x] 3.1 Run targeted and full validation, then address review findings — da1575c2b
 - [ ] 3.2 Publish the replacement PR and close the original contribution PRs as superseded
