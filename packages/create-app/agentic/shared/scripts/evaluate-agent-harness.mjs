@@ -1043,11 +1043,15 @@ function collectRefusedToolCallIds(value, refused) {
     return
   }
   if (!isPlainObject(value)) return
-  const isError = value.isError === true || value.is_error === true
-  // Only an entry that explicitly REFERENCES a tool call may mark it refused. A bare `id`
-  // is not accepted: an unrelated error event carrying one would otherwise suppress a
-  // genuine successful-out-of-allowlist read, which must always fail closed.
+  const isError = value.isError === true || value.is_error === true || value.status === 'failed'
+  // Only an entry that explicitly REFERENCES a tool call, or that IS a tool-call record,
+  // may mark one refused. A bare `id` on an arbitrary object is not accepted: an unrelated
+  // error event carrying one would otherwise suppress a genuine successful
+  // out-of-allowlist read, which must always fail closed.
+  const isToolCallRecord = value.type === 'mcp_tool_call' || value.type === 'tool_use'
+    || (typeof value.tool === 'string' && typeof value.server === 'string')
   const identifier = value.tool_use_id ?? value.toolUseId ?? value.call_id ?? value.callId
+    ?? (isToolCallRecord ? value.id : undefined)
   if (isError && typeof identifier === 'string' && identifier) refused.add(identifier)
   for (const child of Object.values(value)) collectRefusedToolCallIds(child, refused)
 }

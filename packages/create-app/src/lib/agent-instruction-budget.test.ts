@@ -95,10 +95,11 @@ test('existing-module UI routing stays inside the backend UI context slice', () 
 test('compatibility routing covers existing public contracts without pulling in additive UI work', () => {
   for (const relativePath of ROOT_SOURCES) {
     const source = fs.readFileSync(path.join(CREATE_APP_ROOT, relativePath), 'utf8')
-    // The rule must fire for preserving and removing a seam, not only for changing one —
-    // OMH-048 and OMH-057 both preserve an existing contract — and it must name the guide's
-    // real path, since a bare filename does not tell the agent where to read it.
-    assert.match(source, /Changing, preserving, or removing an existing route\/schema\/ID\/export\/seam\/path\/function\/props-signature\/event-payload\/CLI MUST read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
+    // The trigger names the guide's real path: a bare filename does not tell the agent
+    // where to read it. It deliberately stays narrow — adding "preserving" made the rule
+    // fire on the "preserve tenant and organization boundaries" boilerplate carried by
+    // nearly every prompt, so cases that do not permit the guide probed it anyway.
+    assert.match(source, /Changing or removing an existing route\/schema\/ID\/export\/path\/function\/props-signature\/event-payload\/CLI MUST read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
     assert.match(source, /Additive page\/form\/table\/conflict UI skips it/)
   }
 })

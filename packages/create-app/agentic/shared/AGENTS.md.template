@@ -12,7 +12,7 @@ Extend this app. Route first; never probe unmatched context.
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
 - Run `yarn generate` after discovery files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows change.
-- Changing, preserving, or removing an existing route/schema/ID/export/seam/path/function/props-signature/event-payload/CLI MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`.
+- Changing or removing an existing route/schema/ID/export/path/function/props-signature/event-payload/CLI MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`.
 - Localize strings; use shared UI/tokens and complete loading, empty, error, conflict, keyboard, and accessibility states.
 
 ## Ask First
@@ -118,7 +118,7 @@ Absent skill: run `yarn install-skills` once; never substitute.
 
 ## Module-Specific Facts
 
-Load the fact for EVERY listed module the task names, targets, or passes through, mechanism modules included: event/emitter/subscriber→events; long-running operation or progress→progress; provider wiring→integrations. Host facts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal + customer_accounts; quote/order/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index, but never omit the fact for a module the task changes.
+Load the fact for every listed module the task names or targets, and for none it merely uses. Host facts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal + customer_accounts; quote/order/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index, but never omit the fact for a module the task changes.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
