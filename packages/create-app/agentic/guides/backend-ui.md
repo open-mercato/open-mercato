@@ -2,6 +2,10 @@
 
 Use shared backend/page primitives and keep UI behavior aligned with API scope, locking, and extension hosts.
 
+## When This Guide Applies
+
+`backend-ui` is additive and rarely the only route: select it whenever the task authors or restyles a rendered surface, together with the route owning the code — `umes` for an installed module's surface (injected field/column/action, menu item, replaced or wrapped component, transformed props, progress or status UI, editable custom-field surface), `module-data` when the app owns it. Not for hiding, gating, toggling, permission-scoping, disabling, or rewiring an existing surface, and not for payload text, pagination, or table IDs.
+
 ## Page Selection
 
 | Page | Location and rules |

@@ -39,6 +39,7 @@ type StoredResult = {
   attempts: number
   corrections: number
   sanitizedError?: string
+  refusedContextReads?: string[]
   actualContext: { paths: string[]; bytes: number; initialPaths: string[]; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
   declaredContext: { paths: string[]; bytes: number; initialPaths: string[]; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
   writable?: { changedPaths: string[]; targetFingerprint: string }
@@ -556,7 +557,7 @@ for (const file of ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/testi
   }
 })
 
-test('live Claude adapter uses safe plan mode, a read-only tool list, structured output, and no persistence', { skip: !targetSandboxAvailable }, () => {
+test('live Claude adapter exposes only the discovery tool, allowlists the harness tools, and keeps structured output without persistence', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin)
@@ -565,7 +566,7 @@ test('live Claude adapter uses safe plan mode, a read-only tool list, structured
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
 const mcp = JSON.parse(args[args.indexOf('--mcp-config') + 1]).mcpServers.harness
-if (!args.includes('--safe-mode') || !args.includes('--disable-slash-commands') || args[args.indexOf('--setting-sources') + 1] !== '' || !args.includes('--strict-mcp-config') || mcp.command !== '/usr/bin/env' || mcp.args[0] !== '-i' || !mcp.args.some((entry) => entry.endsWith('agent-harness-tool-server.mjs')) || args[args.indexOf('--permission-mode') + 1] !== 'plan' || args[args.indexOf('--tools') + 1] !== 'mcp__harness__read' || !args.includes('--no-session-persistence') || args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--verbose') || !args.includes('--json-schema')) process.exit(9)
+if (args.includes('--safe-mode') || !args.includes('--disable-slash-commands') || args[args.indexOf('--setting-sources') + 1] !== '' || !args.includes('--strict-mcp-config') || mcp.command !== '/usr/bin/env' || mcp.args[0] !== '-i' || !mcp.args.some((entry) => entry.endsWith('agent-harness-tool-server.mjs')) || args[args.indexOf('--permission-mode') + 1] !== 'dontAsk' || args[args.indexOf('--tools') + 1] !== 'ToolSearch' || args[args.indexOf('--allowed-tools') + 1] !== 'mcp__harness__read' || !args.includes('--no-session-persistence') || args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--verbose') || !args.includes('--json-schema')) process.exit(9)
 const allowedReads = JSON.parse(mcp.args.at(-2))
 for (const required of ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md', '.ai/skills/om-data-model-design/references/**', '.ai/skills/om-framework-context/references/**']) if (!allowedReads.includes(required)) process.exit(9)
 if (JSON.parse(mcp.args.at(-1)).length !== 0) process.exit(9)
@@ -645,6 +646,207 @@ console.log(JSON.stringify({ role: 'meta', type: 'session.resume_hint', session_
   }
 })
 
+// Regression guard for the defect that made the whole Claude lane unusable: `--tools`
+// selects from the BUILT-IN set only, so naming an `mcp__…` tool there yielded zero tools
+// and removed the deferred-discovery tool that makes the harness MCP tools callable at all.
+// A fake runner that merely echoes the flags cannot catch that, so this test asserts the
+// specific properties the real CLI contract depends on.
+test('live Claude adapter keeps the harness MCP tools reachable through built-in deferred discovery', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'claude', `
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+const builtinTools = args[args.indexOf('--tools') + 1].split(',').filter(Boolean)
+const allowedTools = args[args.indexOf('--allowed-tools') + 1].split(',').filter(Boolean)
+// The built-in surface must be exactly one discovery tool: never an mcp__ name (which
+// --tools cannot express), never empty (which also disables discovery), and never a
+// filesystem, shell, process, or network capability.
+if (builtinTools.length !== 1) process.exit(9)
+if (builtinTools.some((tool) => tool.startsWith('mcp__'))) process.exit(9)
+if (builtinTools.some((tool) => /^(?:Bash|Read|Write|Edit|Glob|Grep|Task|WebFetch|WebSearch|NotebookEdit)$/.test(tool))) process.exit(9)
+// The harness tools are reachable only as permission-allowlisted MCP tools.
+if (!allowedTools.includes('mcp__harness__read')) process.exit(9)
+if (allowedTools.some((tool) => !tool.startsWith('mcp__harness__'))) process.exit(9)
+// --safe-mode would drop every --mcp-config server, and plan mode returns a plan
+// instead of performing the reads the trace gate requires.
+if (args.includes('--safe-mode')) process.exit(9)
+if (args[args.indexOf('--permission-mode') + 1] === 'plan') process.exit(9)
+console.log(JSON.stringify({ type: 'system', subtype: 'init', tools: builtinTools, mcp_servers: [{ name: 'harness', status: 'pending' }] }))
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', name: builtinTools[0], input: { query: 'harness read file' } }
+] } }))
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', name: 'mcp__harness__read', input: { path: 'AGENTS.md' } },
+  { type: 'tool_use', name: 'mcp__harness__read', input: { path: '.ai/guides/contracts.md' } },
+  { type: 'tool_use', name: 'mcp__harness__read', input: { path: '.ai/skills/om-data-model-design/SKILL.md' } }
+] } }))
+console.log(JSON.stringify({ type: 'result', structured_output: {
+  selectedRouter: ['module-data'], selectedSkills: ['om-data-model-design'],
+  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+  decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
+}}))
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-009'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    assert.match(result.stdout, /PASS OMH-009/)
+    // The discovery call itself must stay trace-neutral: it is not a context read and
+    // must not register as observed context or as a discovery violation.
+    const [stored] = storedResults(root)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.actualContext.paths, [
+      '.ai/guides/contracts.md',
+      '.ai/skills/om-data-model-design/SKILL.md',
+      'AGENTS.md',
+    ])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// The fail-closed MCP server refuses any read outside the case allowlist, so such an
+// attempt transfers no bytes. These tests pin the distinction between an attempt the guard
+// REFUSED (recorded, bounded) and a read that SUCCEEDED outside the allowlist (still fatal,
+// because it would mean the guard did not hold).
+function claudeRefusedReadRunner(root: string, attempts: string[], options: { succeed?: boolean } = {}): string {
+  const calls = attempts.map((target, index) => ({ id: `call-refused-${index}`, path: target }))
+  return installFakeRunner(root, 'claude', `
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+const calls = ${JSON.stringify(calls)}
+console.log(JSON.stringify({ type: 'assistant', message: { content: calls.map((call) => (
+  { type: 'tool_use', id: call.id, name: 'mcp__harness__read', input: { path: call.path } }
+)) } }))
+console.log(JSON.stringify({ type: 'user', message: { content: calls.map((call) => (
+  { type: 'tool_result', tool_use_id: call.id, is_error: ${options.succeed ? 'false' : 'true'}, content: ${options.succeed ? "'# contents'" : "'path is outside the case read allowlist'"} }
+)) } }))
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', id: 'call-ok-1', name: 'mcp__harness__read', input: { path: 'AGENTS.md' } },
+  { type: 'tool_use', id: 'call-ok-2', name: 'mcp__harness__read', input: { path: '.ai/guides/architecture.md' } }
+] } }))
+console.log(JSON.stringify({ type: 'user', message: { content: [
+  { type: 'tool_result', tool_use_id: 'call-ok-1', content: '# app' },
+  { type: 'tool_result', tool_use_id: 'call-ok-2', content: '# architecture' }
+] } }))
+console.log(JSON.stringify({ type: 'result', structured_output: {
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}}))
+`)
+}
+
+test('a read the harness server refused is recorded but does not fail an otherwise correct route', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = claudeRefusedReadRunner(root, ['.ai/guides/extensions.md'])
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    const [stored] = storedResults(root)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.refusedContextReads, ['.ai/guides/extensions.md'])
+    // A refused attempt read nothing, so it must never enter the observed context or the
+    // context budgets.
+    assert.ok(!stored.actualContext.paths.includes('.ai/guides/extensions.md'))
+    assert.equal(stored.actualContext.bytes, stored.declaredContext.bytes)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a successful read outside the case allowlist still fails closed', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = claudeRefusedReadRunner(root, ['.ai/guides/extensions.md'], { succeed: true })
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.ok(stored.violations.includes('unsafe arbitrary app-root read .ai/guides/extensions.md'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('refused instruction-tree enumeration still fails closed above the bounded budget', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = claudeRefusedReadRunner(root, [
+    '.ai/guides/extensions.md',
+    '.ai/guides/integrations.md',
+    '.ai/guides/backend-ui.md',
+    '.ai/guides/ai-workflows.md',
+    '.ai/guides/contracts.md',
+    '.ai/guides/module-system.md',
+  ])
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.ok(stored.violations.some((entry) => entry.startsWith('refused context read budget exceeded')), JSON.stringify(stored.violations))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('an unrelated error event cannot mark a successful out-of-allowlist read as refused', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  // The error event carries a bare `id` equal to the read's tool-call id but does not
+  // reference it as a tool result, so the read must still be scored as successful.
+  const bin = installFakeRunner(root, 'claude', `
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', id: 'call-x', name: 'mcp__harness__read', input: { path: '.ai/guides/extensions.md' } },
+  { type: 'tool_use', id: 'call-y', name: 'mcp__harness__read', input: { path: 'AGENTS.md' } },
+  { type: 'tool_use', id: 'call-z', name: 'mcp__harness__read', input: { path: '.ai/guides/architecture.md' } }
+] } }))
+console.log(JSON.stringify({ type: 'error', id: 'call-x', is_error: true, message: 'unrelated stream error' }))
+console.log(JSON.stringify({ type: 'result', structured_output: {
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}}))
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.ok(stored.violations.includes('unsafe arbitrary app-root read .ai/guides/extensions.md'), JSON.stringify(stored.violations))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a refused attempt to read a forbidden path still fails closed', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = claudeRefusedReadRunner(root, ['.env'])
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.ok(stored.violations.includes('forbidden context read .env'), JSON.stringify(stored.violations))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('native Glob metadata discovery is a routing failure even when required files are later read', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'claude', `
@@ -683,7 +885,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
-if (!args.includes('--safe-mode')) process.exit(9)
+if (args.includes('--safe-mode') || args[args.indexOf('--tools') + 1] !== 'ToolSearch') process.exit(9)
 const prompt = fs.readFileSync(0, 'utf8')
 if (!prompt.includes('retry attempt 2 after a transient provider failure')) {
   console.log(JSON.stringify({ type: 'system', subtype: 'init', plugins: Array.from({ length: 800 }, (_, index) => 'plugin-' + index) }))

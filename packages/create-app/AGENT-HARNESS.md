@@ -94,9 +94,20 @@ The release gate wraps this in a larger ordered sequence.
     - **Codex**: all built-in tools disabled, `--sandbox workspace-write`,
       `network_access=false`, `shell_environment_policy.inherit=none`,
       `approval_policy="never"`, only `read`+`write` MCP tools (`:1454-1480`).
-      **Claude**: `--safe-mode --strict-mcp-config --permission-mode acceptEdits
-      --tools mcp__harness__read,mcp__harness__write --no-session-persistence`
-      (`:1482-1500`).
+      **Claude**: `--strict-mcp-config --setting-sources ''
+      --disable-slash-commands --permission-mode <dontAsk|acceptEdits>
+      --tools ToolSearch --allowed-tools mcp__harness__read[,mcp__harness__write]
+      --no-session-persistence` (`:1482-1500`). Claude Code exposes MCP tools by
+      **deferred discovery**: they are absent from the initial tool list and become
+      callable only after the built-in discovery tool loads their schema, so the
+      built-in surface is exactly that one capability-free tool and the harness
+      tools are permission-allowlisted. `--safe-mode` cannot be used — it disables
+      all customizations *including* `--mcp-config` servers — and plan mode cannot
+      be used because it returns a plan instead of performing the reads the trace
+      gate requires. Isolation comes from `--setting-sources ''` (no user, project,
+      or local settings, hooks, skills, or project instruction files),
+      `--strict-mcp-config`, the isolated `CLAUDE_CONFIG_DIR`, and the outer OS
+      sandbox.
     - The process is wrapped in the **OS sandbox** `sandboxedInvocation()`
       (writable roots = `[target, tempDir]`, read-only = dependency + tool-server
       dirs); Linux = Bubblewrap `--unshare-all --cap-drop ALL`, macOS =

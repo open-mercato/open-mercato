@@ -2,6 +2,10 @@
 
 Diagnose before editing, fix the smallest knowledge/code owner, and prove the regression through the real runtime path.
 
+## Context Restraint
+
+A fix loads `om-troubleshooter` plus the guide for the affected area, and stops there. It does not load that area's authoring skill or its references — you are correcting existing code, not designing a new surface — and it does not load the contracts guide unless the fix itself changes a data, API, command, ACL, or setup contract. Add a module fact sheet only for a module the failure actually involves.
+
 ## Investigation Order
 
 1. Reproduce with the smallest stable command, request, or UI path and capture expected versus actual behavior.
