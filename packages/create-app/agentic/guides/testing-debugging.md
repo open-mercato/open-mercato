@@ -4,11 +4,13 @@ Diagnose before editing, fix the smallest knowledge/code owner, and prove the re
 
 ## Context Restraint
 
-A fix always loads `om-troubleshooter` plus the guide for every area it touches, so those routes are selected.
+Name the areas the failure spans before loading anything, from the SYMPTOM and not only from the cause: a value that will not render, a session/locale/hydration mismatch, or a stale form spans `backend-ui`; wrong or lost records, commands, or events span `module-data`; an installed module's own surface spans `umes`; an external provider call spans `integration`.
+
+A fix is always `debugging` plus every area you just named. Load exactly this guide, each named area's guide, and `om-troubleshooter` — that is what selects those routes.
 
 Add an area's authoring skill when the fix **introduces** something there — a concurrency header on existing calls, a new field or UI surface, a new command, a new invalidation, a new guard — because you are then designing that surface, not just repairing it. Load `om-troubleshooter` alone when you only correct existing behavior, such as a hydration mismatch or a value that fails to round-trip.
 
-Stop at the skills: skip an area's `references/` unless the fix needs a specific one, skip the contracts guide unless the fix changes a data, API, command, ACL, or setup contract, and add a module fact sheet only for a module the failure actually involves.
+Then stop. Budgets here are tight — several fixes allow only five files — so load no other area's skill, no `references/` you do not need, no contracts guide unless the fix changes a data, API, command, ACL, or setup contract, and a module fact sheet only for a module the failure actually involves.
 
 ## Investigation Order
 
