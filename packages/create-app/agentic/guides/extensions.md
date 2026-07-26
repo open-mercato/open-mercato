@@ -2,6 +2,19 @@
 
 Use the smallest extension mechanism that preserves installed-module ownership. Resolve host IDs from generated facts or exact installed source; never invent spot, route, or entity IDs.
 
+## Co-Routes a UMES Change Also Selects
+
+`umes` answers WHOSE code changes. It is never the whole answer when the change also produces something a user sees or something the app owns. Add, in the same selection:
+
+| The UMES change also… | Add route | Also load |
+|---|---|---|
+| authors or restyles a rendered surface — injected field/column/action/filter/toolbar, menu item, card/tab/section, replaced or wrapped component, transformed props, progress or status UI, an editable custom-field surface, user-visible strings | `backend-ui` | `.ai/guides/backend-ui.md` + `om-backend-ui-design` |
+| adds app-owned entities, links, API routes, commands, or ACL | `module-data` | `.ai/guides/contracts.md` |
+| drives a durable process, activity, or user task | `ai-workflow` | `.ai/guides/ai-workflows.md` |
+| passes through a mechanism module | — | that module's fact sheet (`events`, `progress`, `workflows`, `data_sync`, `notifications`, …) |
+
+Staying `umes`-only is correct when the change merely hides, gates, toggles, permission-scopes, disables, or rewires an existing surface, or audits override wiring — nothing is authored. Payload text, pagination, and table IDs are not UI.
+
 ## Mechanism Selector
 
 | Goal | Mechanism | App module file |
