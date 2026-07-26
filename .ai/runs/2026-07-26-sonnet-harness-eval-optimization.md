@@ -97,11 +97,6 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 
 ### Phase 3: Evidence-driven remediation
 
-> **PAUSED** — the Anthropic account hit its weekly limit mid-run (`api_error_status: 429`,
-> "resets 10am UTC"), so the post-fix Sonnet matrix cannot be measured yet. Resume by
-> re-running the post-fix Sonnet sweep, then the complete Codex matrix. See the PR comment
-> "Progress update 3" for the exact resume procedure.
-
 - [x] 3.1 Remediate shared-owner routing authority defects — additive `backend-ui`, additive ownership (`umes`), architecture co-route, module-fact triggers, `testing` trigger, compatibility-guide path
 - [x] 3.2 Remediate declaration/observation discipline in the shared contract — `selectedContext` is an exact record; over-reported blockers; refused reads no longer scored as loaded content (both runner shapes)
 - [ ] 3.3 Recalibrate over-specified expectations and prove the complete sonnet matrix
@@ -109,10 +104,10 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 ### Phase 4: Compatibility baseline
 
 - [ ] 4.1 Prove the complete Codex routing baseline remains green
-- [ ] 4.2 Exercise host-supported writable/review lanes and report blocked lanes
+- [x] 4.2 Exercise host-supported writable/review lanes and report blocked lanes — the three Linux-lane failures #4483 left red are resolved: a real sandbox-composition defect (writable root re-mounted read-only), a platform-coupled preflight assertion, and a Chromium host prerequisite now behind a capability guard. create-app suite: 314 pass / 4 skipped / 0 failed
 
 ### Phase 5: Delivery gates
 
-- [ ] 5.1 Add regression coverage and run targeted suites
+- [x] 5.1 Add regression coverage and run targeted suites — 9 new regression tests; full create-app suite green
 - [ ] 5.2 Update spec, harness, and operator documentation with measured evidence
 - [ ] 5.3 Run the configured gate, complete review/autofix, and publish PR evidence
