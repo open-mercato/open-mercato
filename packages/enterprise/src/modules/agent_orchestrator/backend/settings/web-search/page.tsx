@@ -14,6 +14,7 @@ import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -25,7 +26,24 @@ const SETTINGS_URL = '/api/agent_orchestrator/web-search/settings'
 
 type AdapterEntry = { id: string; enabled: boolean; order: number; weight: number }
 
-type InstalledAdapter = { id: string; kind: string; packageName: string }
+type OptionField = {
+  name: string
+  kind: 'string' | 'number' | 'boolean' | 'enum' | 'stringList'
+  required: boolean
+  secret: boolean
+  choices?: string[]
+  format?: string
+}
+
+type InstalledAdapter = {
+  id: string
+  kind: string
+  packageName: string
+  fields: OptionField[]
+  options: Record<string, unknown>
+  configured: boolean
+  configurationHint: string | null
+}
 
 type Policy = {
   settleMode: 'race' | 'quorum' | 'exhaustive'
@@ -47,6 +65,8 @@ type SettingsResponse = {
   installed?: InstalledAdapter[]
 }
 
+type AdapterOptions = Record<string, Record<string, unknown>>
+
 function isSettings(value: unknown): value is SettingsResponse {
   return typeof value === 'object' && value !== null && 'policy' in value
 }
@@ -64,10 +84,82 @@ function mergeAdapters(policy: Policy, installed: InstalledAdapter[]): AdapterEn
   return [...merged].sort((left, right) => left.order - right.order)
 }
 
+
+/** Renders one option from an adapter's own schema. */
+function OptionInput({
+  field,
+  value,
+  onChange,
+}: {
+  field: OptionField
+  value: unknown
+  onChange: (next: unknown) => void
+}) {
+  if (field.kind === 'boolean') {
+    return (
+      <input type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} />
+    )
+  }
+  if (field.kind === 'enum') {
+    return (
+      <select
+        className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+        value={typeof value === 'string' ? value : ''}
+        onChange={(event) => onChange(event.target.value === '' ? undefined : event.target.value)}
+      >
+        <option value="">—</option>
+        {(field.choices ?? []).map((choice) => (
+          <option key={choice} value={choice}>
+            {choice}
+          </option>
+        ))}
+      </select>
+    )
+  }
+  if (field.kind === 'number') {
+    return (
+      <Input
+        type="number"
+        className="mt-1"
+        value={typeof value === 'number' ? value : ''}
+        onChange={(event) => onChange(event.target.value === '' ? undefined : Number(event.target.value))}
+      />
+    )
+  }
+  if (field.kind === 'stringList') {
+    return (
+      <Input
+        className="mt-1"
+        value={Array.isArray(value) ? (value as string[]).join(', ') : ''}
+        placeholder="a, b, c"
+        onChange={(event) => {
+          const parts = event.target.value
+            .split(',')
+            .map((part) => part.trim())
+            .filter((part) => part.length > 0)
+          onChange(parts.length > 0 ? parts : undefined)
+        }}
+      />
+    )
+  }
+  return (
+    <Input
+      // Secrets arrive masked and are only sent back when actually retyped.
+      type={field.secret ? 'password' : 'text'}
+      className="mt-1"
+      value={typeof value === 'string' ? value : ''}
+      placeholder={field.format === 'url' ? 'https://…' : undefined}
+      onChange={(event) => onChange(event.target.value === '' ? undefined : event.target.value)}
+    />
+  )
+}
+
 export default function WebSearchSettingsPage() {
   const t = useT()
   const [policy, setPolicy] = React.useState<Policy | null>(null)
   const [installed, setInstalled] = React.useState<InstalledAdapter[]>([])
+  const [adapterOptions, setAdapterOptions] = React.useState<AdapterOptions>({})
+  const [expanded, setExpanded] = React.useState<Set<string>>(new Set())
   const [source, setSource] = React.useState<'tenant' | 'instance'>('instance')
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -83,7 +175,12 @@ export default function WebSearchSettingsPage() {
         return
       }
       const next = call.result
-      setInstalled(next.installed ?? [])
+      const adapters = next.installed ?? []
+      setInstalled(adapters)
+      setAdapterOptions(Object.fromEntries(adapters.map((a) => [a.id, { ...a.options }])))
+      // An adapter that still needs a key is opened for the operator rather than
+      // hidden behind a disclosure they have no reason to click.
+      setExpanded(new Set(adapters.filter((a) => !a.configured && a.fields.length > 0).map((a) => a.id)))
       setSource(next.source)
       setPolicy({ ...next.policy, adapters: mergeAdapters(next.policy, next.installed ?? []) })
       setLoadError(null)
@@ -110,6 +207,24 @@ export default function WebSearchSettingsPage() {
     )
   }
 
+  const updateOption = (adapterId: string, field: string, value: unknown) => {
+    setAdapterOptions((current) => {
+      const next = { ...(current[adapterId] ?? {}) }
+      if (value === undefined) delete next[field]
+      else next[field] = value
+      return { ...current, [adapterId]: next }
+    })
+  }
+
+  const toggleExpanded = (adapterId: string) => {
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (next.has(adapterId)) next.delete(adapterId)
+      else next.add(adapterId)
+      return next
+    })
+  }
+
   const move = (id: string, direction: -1 | 1) => {
     setPolicy((current) => {
       if (!current) return current
@@ -130,7 +245,10 @@ export default function WebSearchSettingsPage() {
       await runMutation({
         context: { contextId: 'agent_orchestrator.web_search.settings' },
         operation: async () => {
-          const call = await apiCall(SETTINGS_URL, { method: 'PUT', body: JSON.stringify(policy) })
+          const call = await apiCall(SETTINGS_URL, {
+            method: 'PUT',
+            body: JSON.stringify({ ...policy, adapterOptions }),
+          })
           if (!call.ok) {
             flash(
               t('agent_orchestrator.settings.webSearch.saveError', 'Could not save web search settings.'),
@@ -199,44 +317,80 @@ export default function WebSearchSettingsPage() {
           <ul className="mt-3 space-y-2">
             {policy.adapters.map((entry, index) => {
               const meta = installed.find((adapter) => adapter.id === entry.id)
+              const fields = meta?.fields ?? []
+              const isOpen = expanded.has(entry.id)
               return (
-                <li key={entry.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={entry.enabled}
-                      onChange={(event) => updateAdapter(entry.id, { enabled: event.target.checked })}
-                    />
-                    <span className="font-mono">{entry.id}</span>
-                  </label>
-                  {meta ? <span className="text-xs text-muted-foreground">{meta.packageName}</span> : null}
-                  <label className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-                    weight
-                    <Input
-                      type="number"
-                      min={0}
-                      max={10}
-                      step={0.5}
-                      value={entry.weight}
-                      className="w-20"
-                      onChange={(event) =>
-                        updateAdapter(entry.id, { weight: Number(event.target.value) || 0 })
-                      }
-                    />
-                  </label>
-                  <div className="flex gap-1">
-                    <Button variant="outline" size="sm" disabled={index === 0} onClick={() => move(entry.id, -1)}>
-                      ↑
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={index === policy.adapters.length - 1}
-                      onClick={() => move(entry.id, 1)}
-                    >
-                      ↓
-                    </Button>
+                <li key={entry.id} className="rounded-lg border border-border p-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={entry.enabled}
+                        onChange={(event) => updateAdapter(entry.id, { enabled: event.target.checked })}
+                      />
+                      <span className="font-mono">{entry.id}</span>
+                    </label>
+                    {meta && !meta.configured ? (
+                      <StatusBadge variant="warning">
+                        {t('agent_orchestrator.settings.webSearch.needsConfig', 'Configuration required')}
+                      </StatusBadge>
+                    ) : null}
+                    {meta ? <span className="text-xs text-muted-foreground">{meta.packageName}</span> : null}
+                    <label className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+                      weight
+                      <Input
+                        type="number"
+                        min={0}
+                        max={10}
+                        step={0.5}
+                        value={entry.weight}
+                        className="w-20"
+                        onChange={(event) => updateAdapter(entry.id, { weight: Number(event.target.value) || 0 })}
+                      />
+                    </label>
+                    {fields.length > 0 ? (
+                      <Button variant="outline" size="sm" onClick={() => toggleExpanded(entry.id)}>
+                        {isOpen
+                          ? t('agent_orchestrator.settings.webSearch.hideConfig', 'Hide config')
+                          : t('agent_orchestrator.settings.webSearch.showConfig', 'Configure')}
+                      </Button>
+                    ) : null}
+                    <div className="flex gap-1">
+                      <Button variant="outline" size="sm" disabled={index === 0} onClick={() => move(entry.id, -1)}>
+                        ↑
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={index === policy.adapters.length - 1}
+                        onClick={() => move(entry.id, 1)}
+                      >
+                        ↓
+                      </Button>
+                    </div>
                   </div>
+
+                  {meta && !meta.configured && meta.configurationHint ? (
+                    <p className="mt-2 text-xs text-status-warning-text">{meta.configurationHint}</p>
+                  ) : null}
+
+                  {isOpen && fields.length > 0 ? (
+                    <div className="mt-3 grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-2">
+                      {fields.map((field) => (
+                        <label key={field.name} className="text-sm">
+                          <span className="flex items-center gap-1">
+                            {field.name}
+                            {field.required ? <span className="text-status-error-text">*</span> : null}
+                          </span>
+                          <OptionInput
+                            field={field}
+                            value={adapterOptions[entry.id]?.[field.name]}
+                            onChange={(next) => updateOption(entry.id, field.name, next)}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
                 </li>
               )
             })}

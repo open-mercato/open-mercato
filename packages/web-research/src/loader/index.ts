@@ -1,4 +1,12 @@
 export {
+  SECRET_PLACEHOLDER,
+  describeOptionsSchema,
+  maskSecrets,
+  unmaskSecrets,
+  type OptionField,
+  type OptionFieldKind,
+} from './describe'
+export {
   ADAPTER_MANIFEST_KEY,
   MANIFEST_NAMESPACE,
   adapterManifestSchema,
