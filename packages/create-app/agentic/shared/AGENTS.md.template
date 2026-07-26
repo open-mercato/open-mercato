@@ -36,15 +36,15 @@ yarn generate && yarn typecheck && yarn lint && yarn test && yarn build
 yarn test:integration:ephemeral
 ```
 
-Report failures; never apply migrations for validation
+Report failures; never migrate to validate
 
 ## Three-Axis Context Assembler
 
 Routes are additive, never exclusive: ownership says WHOSE code changes, the rest say WHAT changes. Select every match, then stop.
 
-Combine matches: lifecycle reaction = `module-data` + `umes` (UMES owns it); convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. Add `framework-context` only for an unresolved contract.
+Combine matches: lifecycle reaction = `module-data` + `umes`; convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. Add `framework-context` only for an unresolved contract.
 
-`testing` is not the implicit gate after implementation. `debugging` = failure/security/drift. Specs/delivery phases = `spec-pr` + integration coverage; spec-only decomposition reads root + `om-spec-writing` + config, while implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`. Never infer work from specs/PRs.
+`testing` is not the implicit gate after implementation. `debugging` = failure/security/drift. Specs/delivery = `spec-pr` + integration coverage; spec-only decomposition reads root + `om-spec-writing` + config, implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; an editable or save/reload/clear round-trip surface adds `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
 Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. App-owned durable process/activity/user task = `module-data` + `ai-workflow`.
 
@@ -56,7 +56,7 @@ Authoring or restyling a rendered surface adds `backend-ui`; hiding, gating, tog
 
 | Route | Match | Context |
 |---|---|---|
-| `architecture` | Capability/ownership choice, explicit boundary investigation, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
+| `architecture` | Capability/ownership choice, boundary investigation, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
 | `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership or mechanism is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
 | `backend-ui` | Any authored or restyled rendered surface | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
@@ -84,11 +84,11 @@ Location never decides the route: app code that changes an installed module's re
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `surface-selector` + `ai_assistant` facts |
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
 | `testing` | Run or author tests, or verify behavior by exercising the app (API/browser/screen sizes/keyboard/screen-reader) — including a requested affected-test run; not a review/audit/config check that never exercises the app | testing/debugging; external `om-integration-tests` for integration/E2E |
-| `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging + affected units |
+| `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging |
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
 
-“Installed contract(s)” alone does not select `framework-context`. Exact response/error identity does; otherwise use guides/facts and invoke its skill only for one named unresolved version detail.
+“Installed contract(s)” alone does not select `framework-context`; exact response/error identity does. Otherwise use guides/facts and invoke its skill only for one named unresolved detail.
 
 ### Axis 3 — SDLC and Delivery
 
