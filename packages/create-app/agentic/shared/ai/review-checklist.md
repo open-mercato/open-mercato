@@ -6,7 +6,7 @@ Apply this checklist in addition to the installed `om-code-review` checklist whe
 
 - A new app module has a stable namespaced ID, is activated in `src/modules.ts` with `{ id, from: '@app' }`, and runs `yarn generate`; generated files are inspected but never hand-edited.
 - A user-facing backend module is reachable from the main sidebar through its list page `page.meta.ts`: localized `pageTitleKey` and `pageGroupKey`, stable priority/order/icon/breadcrumb, `requireAuth`, and the matching `requireFeatures`. A deliberately hidden or deep-link-only page uses `navHidden` with a stated reason.
-- Create/edit/detail pages remain reachable from the list. A create-capable list exposes an obvious localized add action. Route, entity, search, `DataTable` `extensionTableId`, `CrudForm` entity ID, API enricher, widget spot, ACL, event, and command IDs are stable and aligned.
+- Unless the brief explicitly excludes an operation, every new editable entity ships connected list/create/view-or-edit/delete flows. Its `DataTable` exposes server filter/search, an obvious localized add action, a linked view/edit row action, and guarded delete; its `CrudForm` returns to the reachable list. Route, entity, search, `DataTable` `extensionTableId`, `CrudForm` entity ID, API enricher, widget spot, ACL, event, and command IDs are stable and aligned.
 - Add only surfaces the brief uses. Do not require unrelated `customers` capabilities such as analytics, vector search, notifications, workflows, or AI unless the changed module actually implements them.
 
 ## Data, commands, API, and safety
@@ -24,6 +24,7 @@ Apply this checklist in addition to the installed `om-code-review` checklist whe
 - Equality lookup uses an explicitly approved hash-only sibling. `search.ts` uses a stable entity ID and safe `fieldPolicy`; searchable CRUD writes index after commit, bulk paths reindex deterministically, vector sources have `checksumSource`, token results have `formatResult`, and tests do not wait with arbitrary sleeps.
 - `CrudForm` uses shared helpers, `initialValues.updatedAt`, localized fields/groups/errors, `collectCustomFieldValues`/`entityIds`, explicit null clearing, and conflict surfacing. `DataTable` owns pagination/loading/empty/error/export and uses stable column/action/row-action IDs plus `extensionTableId`.
 - An intentional extensible API host declares an aligned colon-form `enrichers` entity ID. UI injection spots, widgets, interceptors, guards, enrichers, component handles, and menu entries keep stable IDs and demonstrate the complete render/read/save/reload/clear or execute/undo path they claim to support.
+- When AI behavior is requested, use the installed AI framework's discovered agent/tool surfaces rather than a bespoke model client. Tools declare non-empty feature gates, validate inputs, remove transport-only session tokens, handle expired sessions, return serializable data, and route mutations through the same scoped commands, confirmation, optimistic-lock, audit, undo, and post-commit contracts as the API/UI.
 
 ## Design system, i18n, and proof
 

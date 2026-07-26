@@ -144,10 +144,14 @@ test('standalone review flow enforces the customers-derived module and design-sy
     'findWithDecryption',
     'DataTable',
     'CrudForm',
+    'server filter/search',
+    'view-or-edit/delete',
     'collectCustomFieldValues',
     'defaultEncryptionMaps',
     'fieldPolicy',
     'extensionTableId',
+    'installed AI framework',
+    'session tokens',
     'design system',
   ]) assert.ok(checklist.includes(required), `missing module review rule ${required}`)
 
