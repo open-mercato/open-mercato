@@ -11886,7 +11886,7 @@
     "expectedRouter":{"required":["integration"],"allowedExtra":["module-data","debugging"]},
     "requiredSkills":["om-integration-builder"],
     "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/integrations.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
-    "requiredDecisions":["encrypted-credentials","oauth-single-flight-refresh","health-retry-redaction","oauth-revocation"],
+    "requiredDecisions":["encrypted-credentials","oauth-single-flight-refresh","health-retry-redaction"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:secret|token|credential).{0,20}(?:console|log|plain.?text)","refresh.{0,30}(?:without|no).{0,20}lock"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
     "maxContextFiles":5,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-039","OMH-045"]

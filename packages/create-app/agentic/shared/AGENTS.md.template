@@ -110,7 +110,7 @@ Absent skill: run `yarn install-skills` once; never substitute.
 
 ## Module-Specific Facts
 
-Load facts for every named/targeted module, not incidental use. Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health→integrations; sync/import→data_sync. Hosts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal + customer_accounts; quote/order/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; maintained query index/reindex→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed.
+Load facts for every named/targeted module, not incidental use. Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health→integrations; sync/import→data_sync. Hosts: session/auth→auth; customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal + customer_accounts; quote/order/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; maintained query index/reindex→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
@@ -118,7 +118,7 @@ Load facts for every named/targeted module, not incidental use. Mechanisms: even
 ## Working Sequence
 
 1. `spec-pr`: list `.ai/specs` one level; open one non-template match; plan-only skips specs.
-2. Route the request and load only the matched guides/skills and relevant module facts.
+2. Route; load only matched guides/skills/facts.
 3. Implement the smallest complete slice through real call sites.
 4. Discovery change: run `yarn generate`; then the smallest gate/integration paths.
 
