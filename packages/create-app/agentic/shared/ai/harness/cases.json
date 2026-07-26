@@ -3428,8 +3428,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 8,
-    "maxInitialContextBytes": 53248,
+    "maxContextFiles": 10,
+    "maxInitialContextBytes": 61440,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-044"
@@ -6241,7 +6241,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Audit the canonical src/modules.ts entry.overrides surface for a standalone app. Account for all wired domains: AI agents/tools plus additive AI extensions; API and backend/frontend page routes; subscribers; workers; injection, component, and dashboard widgets; notification types/handlers; API and command interceptors; enrichers; page guards; CLI; entry-scoped setup; ACL; DI; and encryption maps. State exact resolved keys (including registry entry keys and worker metadata fallback), which maps support null-disable/typed replacement, the special AI-extension and setup shapes, where global override maps may live, bootstrap/generation implications, stale-key diagnostics, security preservation, and rollback verification.",
+    "prompt": "Audit the canonical src/modules.ts entry.overrides surface for a standalone app and verify its stable IDs and replacement seams against the backward-compatibility policy. Account for all wired domains: AI agents/tools plus additive AI extensions; API and backend/frontend page routes; subscribers; workers; injection, component, and dashboard widgets; notification types/handlers; API and command interceptors; enrichers; page guards; CLI; entry-scoped setup; ACL; DI; and encryption maps. State exact resolved keys (including registry entry keys and worker metadata fallback), which maps support null-disable/typed replacement, the special AI-extension and setup shapes, where global override maps may live, bootstrap/generation implications, stale-key diagnostics, security preservation, and rollback verification.",
     "tags": ["umes", "unified-overrides", "all-domains", "audit"],
     "owner": {
       "kind": "skill",
@@ -7329,7 +7329,8 @@
       "allowedExtra": [
         "architecture",
         "framework-context",
-        "testing"
+        "testing",
+        "debugging"
       ]
     },
     "requiredSkills": [
@@ -10983,7 +10984,7 @@
       "src/modules/invoice_dunning/events.ts"
     ],
     "maxContextFiles": 12,
-    "maxInitialContextBytes": 61440,
+    "maxInitialContextBytes": 69632,
     "maxTotalContextBytes": 147456,
     "relatedCases": [
       "OMH-039",
@@ -11414,37 +11415,39 @@
     "expectedRouter": {
       "required": [
         "integration",
-        "testing",
-        "backend-ui",
-        "umes"
+        "testing"
       ],
       "allowedExtra": [
         "module-data",
-        "debugging"
+        "debugging",
+        "backend-ui",
+        "umes"
       ]
     },
     "requiredSkills": [
-      "om-integration-builder",
-      "om-backend-ui-design",
-      "om-system-extension"
+      "om-integration-builder"
+    ],
+    "optionalSkills": [
+      { "id": "om-backend-ui-design", "route": "backend-ui" },
+      { "id": "om-system-extension", "route": "umes" }
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/integrations.md",
         ".ai/guides/testing-debugging.md",
-        ".ai/guides/backend-ui.md",
-        ".ai/guides/extensions.md",
         ".ai/skills/om-integration-builder/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
-        ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/payment_gateways.md",
-        ".ai/guides/modules/checkout.md",
         ".ai/guides/modules/webhooks.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "allowedExtra": [
-        ".ai/guides/modules/integrations.md"
+        ".ai/guides/modules/integrations.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/modules/checkout.md"
       ],
       "forbidden": [
         ".env*",
@@ -12130,7 +12133,7 @@
   },
   {
     "id":"OMH-167","title":"Turn a library-management idea into independently deliverable stages","family":"architecture","mode":"spec","evaluationKind":"routing","risk":"medium",
-    "prompt":"Turn a library-management idea covering books, members, loans, overdue reminders, and staff pages into a plan that can be delivered in safe working stages.",
+    "prompt":"Turn a library-management idea covering books, members, loans, overdue reminders, and staff pages into a plan that can be delivered in safe working stages. State the assumptions and unresolved decisions that each stage depends on.",
     "tags":["business-language","specification","library"],
     "owner":{"kind":"root","path":"AGENTS.md","ruleIds":["BC-01"]},
     "expectedRouter":{"required":["spec-pr"],"allowedExtra":[]},
