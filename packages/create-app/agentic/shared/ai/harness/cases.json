@@ -11395,7 +11395,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Connect the application to our card-payment provider. Administrators need secure credential setup, a connection check, and a visible payment option; repeated requests must never charge twice, payment status notifications must be verified, and uncertain results after retries or outages must reconcile safely. Include automated tests without contacting the real provider.",
+    "prompt": "Connect the application to our card-payment provider. Administrators need secure credential setup, a connection check, and a visible payment option; repeated requests must never charge twice, payment status notifications must be verified, and uncertain results after retries or outages must reconcile safely. Keep the public provider, handler, and descriptor IDs stable and compatibility-reviewed. Include automated tests without contacting the real provider.",
     "tags": [
       "business-language",
       "payments",
@@ -11438,7 +11438,6 @@
         ".ai/guides/testing-debugging.md",
         ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/guides/modules/payment_gateways.md",
-        ".ai/guides/modules/webhooks.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "allowedExtra": [
@@ -11447,7 +11446,8 @@
         ".ai/guides/extensions.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/checkout.md"
+        ".ai/guides/modules/checkout.md",
+        ".ai/guides/modules/webhooks.md"
       ],
       "forbidden": [
         ".env*",
