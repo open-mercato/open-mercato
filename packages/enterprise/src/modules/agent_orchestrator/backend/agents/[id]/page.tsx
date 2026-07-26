@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Activity, FlaskConical, LayoutGrid, SlidersHorizontal } from 'lucide-react'
+import { Activity, FlaskConical, LayoutGrid, SlidersHorizontal, FolderTree, Calculator } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
@@ -27,12 +27,14 @@ import { OverviewTab } from './components/OverviewTab'
 import { ActivityTab } from './components/ActivityTab'
 import { ConfigurationTab } from './components/ConfigurationTab'
 import EvaluationTab from './components/EvaluationTab'
+import { FilesTab } from './components/FilesTab'
+import { TokenCalculatorTab } from './components/TokenCalculatorTab'
 import { computeAgentMetrics, computeRuntimeTokens, type Autonomy, type WorkspaceTab } from './components/workspaceShared'
 
 type PageState = 'loading' | 'notFound' | 'forbidden' | 'error' | 'ready'
 type EvalSection = 'assertions' | 'cases' | 'runs'
 
-const TAB_IDS: WorkspaceTab[] = ['overview', 'activity', 'evaluation', 'configuration']
+const TAB_IDS: WorkspaceTab[] = ['overview', 'activity', 'evaluation', 'configuration', 'files', 'tokens']
 
 async function fetchItems(path: string): Promise<Array<Record<string, unknown>>> {
   const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(path, undefined, { fallback: { items: [] } })
@@ -196,6 +198,15 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
     return <Page><PageBody><ErrorMessage label={t('agent_orchestrator.agentDetail.error')} /></PageBody></Page>
   }
 
+  // File-defined (opencode) agents surface a read-only Files browser + a Token
+  // calculator in place of Configuration; native agents keep Configuration and
+  // get neither. `activeValue` guards against a stale `?tab=` from the other set.
+  const fileDefined = agent.runtime === 'opencode'
+  const allowedTabs: WorkspaceTab[] = fileDefined
+    ? ['overview', 'activity', 'evaluation', 'files', 'tokens']
+    : ['overview', 'activity', 'evaluation', 'configuration']
+  const activeValue: WorkspaceTab = allowedTabs.includes(activeTab) ? activeTab : 'overview'
+
   return (
     <Page>
       <PageBody className="space-y-4">
@@ -209,7 +220,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
           onConfigure={() => setConfigOpen(true)}
         />
 
-        <Tabs value={activeTab} onValueChange={(value) => selectTab(value as WorkspaceTab)} variant="underline">
+        <Tabs value={activeValue} onValueChange={(value) => selectTab(value as WorkspaceTab)} variant="underline">
           <TabsList>
             <TabsTrigger value="overview" leading={<LayoutGrid className="size-4" />}>
               {t('agent_orchestrator.agentDetail.tabs.overview', 'Overview')}
@@ -220,23 +231,45 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
             <TabsTrigger value="evaluation" leading={<FlaskConical className="size-4" />}>
               {t('agent_orchestrator.agentDetail.tabs.evaluation', 'Evaluation')}
             </TabsTrigger>
-            <TabsTrigger value="configuration" leading={<SlidersHorizontal className="size-4" />}>
-              {t('agent_orchestrator.agentDetail.tabs.configuration', 'Configuration')}
-            </TabsTrigger>
+            {fileDefined ? (
+              <>
+                <TabsTrigger value="files" leading={<FolderTree className="size-4" />}>
+                  {t('agent_orchestrator.agentDetail.tabs.files', 'Files')}
+                </TabsTrigger>
+                <TabsTrigger value="tokens" leading={<Calculator className="size-4" />}>
+                  {t('agent_orchestrator.agentDetail.tabs.tokens', 'Token calculator')}
+                </TabsTrigger>
+              </>
+            ) : (
+              <TabsTrigger value="configuration" leading={<SlidersHorizontal className="size-4" />}>
+                {t('agent_orchestrator.agentDetail.tabs.configuration', 'Configuration')}
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="overview" className="pt-4">
-            <OverviewTab agentId={agent.id} metrics={metrics} runs={runs} active={activeTab === 'overview'} onNavigate={selectTab} />
+            <OverviewTab agentId={agent.id} metrics={metrics} runs={runs} active={activeValue === 'overview'} onNavigate={selectTab} />
           </TabsContent>
           <TabsContent value="activity" className="pt-4">
             <ActivityTab runs={runs} proposals={proposals} />
           </TabsContent>
           <TabsContent value="evaluation" className="pt-4">
-            <EvaluationTab agentId={agent.id} agentLabel={agent.label || agent.id} active={activeTab === 'evaluation'} initialSection={evalSection} />
+            <EvaluationTab agentId={agent.id} agentLabel={agent.label || agent.id} active={activeValue === 'evaluation'} initialSection={evalSection} />
           </TabsContent>
-          <TabsContent value="configuration" className="pt-4">
-            <ConfigurationTab agent={agent} runtimeTokens={runtimeTokens} onSkillClick={setActiveSkill} />
-          </TabsContent>
+          {fileDefined ? (
+            <>
+              <TabsContent value="files" className="pt-4">
+                <FilesTab agentId={agent.id} agent={agent} active={activeValue === 'files'} />
+              </TabsContent>
+              <TabsContent value="tokens" className="pt-4">
+                <TokenCalculatorTab />
+              </TabsContent>
+            </>
+          ) : (
+            <TabsContent value="configuration" className="pt-4">
+              <ConfigurationTab agent={agent} runtimeTokens={runtimeTokens} onSkillClick={setActiveSkill} />
+            </TabsContent>
+          )}
         </Tabs>
 
         <SkillDrawer open={!!activeSkill} onOpenChange={(open) => { if (!open) setActiveSkill(null) }} skill={activeSkill} />

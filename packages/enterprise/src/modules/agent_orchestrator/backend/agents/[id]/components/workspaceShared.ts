@@ -5,7 +5,7 @@ import { subjectRefOf } from '../../../../components/subjectRef'
 export type Autonomy = 'auto' | 'review' | 'gated'
 export type Health = 'good' | 'watch' | 'poor' | 'new'
 export type Outcome = 'overridden' | 'applied' | 'pending' | 'failed'
-export type WorkspaceTab = 'overview' | 'activity' | 'evaluation' | 'configuration'
+export type WorkspaceTab = 'overview' | 'activity' | 'evaluation' | 'configuration' | 'files' | 'tokens'
 
 export type RunRow = {
   id: string

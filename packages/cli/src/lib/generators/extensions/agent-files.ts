@@ -87,6 +87,21 @@ type DiscoveredAgent = {
   facts?: DiscoveredFact[]
   /** Baked token-usage breakdown of the agent's construction files (Phase: token accounting). */
   tokenUsage: FileAgentTokenUsage
+  /** Baked raw content of every construction file, for the read-only Files tab (#12 files). */
+  sourceFiles: FileAgentSourceFile[]
+}
+
+/**
+ * Raw definition file baked into the manifest so the Files tab reads agent source
+ * without runtime fs access. MIRRORS `FileAgentFile` in
+ * `packages/enterprise/.../lib/tokens/types.ts` — the CLI cannot import the
+ * enterprise package, so the shape is reimplemented here and MUST stay in sync.
+ */
+type FileAgentSourceFile = {
+  path: string
+  content: string
+  tokens: number
+  inContext: boolean
 }
 
 /**
@@ -638,6 +653,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       sampleInput: discoverSampleInput(dir),
       facts: discoverFacts(dir),
       tokenUsage: discoverAgentTokenUsage(dir),
+      sourceFiles: collectAgentFiles(dir),
     })
   }
   return subAgents
@@ -723,6 +739,56 @@ function discoverAgentTokenUsage(agentDir: string, depth = 0): FileAgentTokenUsa
   const total = self + subAgents.reduce((sum, s) => sum + s.tokens, 0)
 
   return { total, self, agent, outcome, skills, tools, subAgents }
+}
+
+// --- Raw source-file collection (feeds the read-only Files tab, #12 files) ---
+
+/** Files present at the agent root but NOT part of the constructed prompt. */
+const AGENT_AUX_FILES = ['SAMPLE.json', 'FACTS.json']
+
+/**
+ * Walks every construction file of a file-defined agent and returns its raw
+ * content + `o200k_base` token count, paths relative to the agent root. Recurses
+ * `sub-agents/<id>/` once (depth cap = 1, matching `discoverAgentTokenUsage`),
+ * prefixing nested paths with `sub-agents/<id>/`. The `inContext` sum of a tree
+ * equals `discoverAgentTokenUsage(...).total`, so the Files tab and the baked
+ * token estimate stay consistent.
+ */
+function collectAgentFiles(agentDir: string, prefix = '', depth = 0): FileAgentSourceFile[] {
+  const files: FileAgentSourceFile[] = []
+  const add = (relativePath: string, inContext: boolean): void => {
+    const absolute = path.join(agentDir, relativePath)
+    if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) return
+    const content = fs.readFileSync(absolute, 'utf8')
+    files.push({ path: path.join(prefix, relativePath), content, tokens: countTokens(content), inContext })
+  }
+  add('AGENT.md', true)
+  add('OUTCOME.md', true)
+  for (const name of AGENT_AUX_FILES) add(name, false)
+  for (const skillId of tokenListDirs(path.join(agentDir, 'skills'))) {
+    const skillRel = path.join('skills', skillId)
+    for (const name of ['SKILL.md', 'TEMPLATE.md']) add(path.join(skillRel, name), true)
+    for (const subdir of ['examples', 'scripts']) {
+      for (const name of tokenListFiles(path.join(agentDir, skillRel, subdir))) {
+        add(path.join(skillRel, subdir, name), true)
+      }
+    }
+  }
+  for (const name of tokenListFiles(path.join(agentDir, 'tools'), TOKEN_TOOL_EXTENSIONS)) {
+    add(path.join('tools', name), true)
+  }
+  if (depth === 0) {
+    for (const subId of tokenListDirs(path.join(agentDir, 'sub-agents'))) {
+      files.push(
+        ...collectAgentFiles(
+          path.join(agentDir, 'sub-agents', subId),
+          path.join(prefix, 'sub-agents', subId),
+          depth + 1,
+        ),
+      )
+    }
+  }
+  return files
 }
 
 function renderOpenCodeSkillFile(skill: DiscoveredSkill): string {
@@ -898,6 +964,7 @@ function renderDescriptor(agent: DiscoveredAgent, indent: string): string {
     `${indent}  openCodeAgentName: ${JSON.stringify(agent.openCodeAgentName)},`,
     `${indent}  skillsContent: ${JSON.stringify(skillsContent)},`,
     `${indent}  tokenUsage: ${JSON.stringify(agent.tokenUsage)},`,
+    `${indent}  sourceFiles: ${JSON.stringify(agent.sourceFiles)},`,
     ...optional,
     `${indent}},`,
   ].join('\n')
@@ -917,7 +984,7 @@ function renderManifest(agents: DiscoveredAgent[]): string {
 //
 // Regenerate with \`yarn generate\`.
 import type { JsonSchemaNode, OutcomeKind } from '../lib/sdk/outcomeSchema'
-import type { AgentTokenUsage } from '../lib/tokens/types'
+import type { AgentTokenUsage, FileAgentFile } from '../lib/tokens/types'
 
 export type FileAgentScript = {
   name: string
@@ -969,6 +1036,14 @@ export type FileAgentDescriptor = {
    * \`agent_orchestrator token-usage\` CLI. An estimate, not an exact count.
    */
   tokenUsage?: AgentTokenUsage
+  /**
+   * Baked raw content of every construction file (AGENT.md, OUTCOME.md, skills,
+   * tools, sub-agents, and auxiliary SAMPLE.json/FACTS.json), for the read-only
+   * Files tab. Each carries its \`o200k_base\` token count; paths are relative to
+   * the agent root (sub-agent files prefixed \`sub-agents/<id>/\`). Baked so the
+   * runtime never reads agent dirs from disk.
+   */
+  sourceFiles?: FileAgentFile[]
   /**
    * Nested descriptors for this agent's sub-agents (Phase 4). Each is an
    * informative, non-delegating file agent registered individually (depth cap =
@@ -1089,6 +1164,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
         sampleInput: discoverSampleInput(dir),
         facts: discoverFacts(dir),
         tokenUsage: discoverAgentTokenUsage(dir),
+        sourceFiles: collectAgentFiles(dir),
       })
     }
   }
