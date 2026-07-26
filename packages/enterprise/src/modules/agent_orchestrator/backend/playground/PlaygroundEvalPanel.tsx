@@ -58,6 +58,15 @@ export function PlaygroundEvalPanel({ runId, agentId }: { runId: string; agentId
 
   const online = (detail?.evalResults ?? []).filter((row) => !row.matchedEvalCaseId)
   const golden = (detail?.evalResults ?? []).filter((row) => row.matchedEvalCaseId)
+  // Only surface golden verdicts that ADD information over the online list: an
+  // assertion the online plane skipped (expected-based, so only the golden plane
+  // could score it) or one with no online counterpart. Expected-agnostic
+  // assertions produce identical verdicts on both planes — don't list them twice.
+  const onlineByKey = new Map(online.map((row) => [row.assertionKey, row]))
+  const goldenExtra = golden.filter((row) => {
+    const counterpart = onlineByKey.get(row.assertionKey)
+    return !counterpart || counterpart.passed === null
+  })
   const applied = online.filter((row) => row.passed !== null)
   const onlinePass = applied.filter((row) => row.passed === true).length
   const matched = detail?.goldenCase ?? null
@@ -126,7 +135,7 @@ export function PlaygroundEvalPanel({ runId, agentId }: { runId: string; agentId
                     <span className="ml-1 font-mono text-xs text-muted-foreground">{matched.id.slice(0, 8)}</span>
                   </div>
                 </div>
-                {golden.length > 0 ? <VerdictList rows={golden} t={t} /> : null}
+                {goldenExtra.length > 0 ? <VerdictList rows={goldenExtra} t={t} /> : null}
                 <SectionHeader title={t('agent_orchestrator.playground.eval.diff', 'Actual vs expected')} />
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   <div>
@@ -167,19 +176,74 @@ function VerdictList({ rows, t }: { rows: EvalResultView[]; t: ReturnType<typeof
         return (
           <li key={row.id} className="flex items-center gap-2.5 px-3 py-2">
             <meta.Icon className={`size-4 shrink-0 ${meta.className}`} />
-            <span className="font-mono text-xs text-foreground">{row.assertionKey}</span>
-            <span className="text-xs text-muted-foreground">{t(`agent_orchestrator.playground.eval.severity.${row.severity}`, row.severity)}</span>
-            <span className="ml-auto tabular-nums text-xs text-muted-foreground">
-              {row.passed === null
-                ? t('agent_orchestrator.playground.eval.skipped', 'skipped')
-                : row.score == null
-                  ? t(meta.labelKey, meta.labelFallback)
-                  : row.score.toFixed(2)}
-            </span>
+            <span className="shrink-0 font-mono text-xs text-foreground">{row.assertionKey}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{t(`agent_orchestrator.playground.eval.severity.${row.severity}`, row.severity)}</span>
+            <EvidenceSummary row={row} labelFallback={meta.labelFallback} labelKey={meta.labelKey} t={t} />
           </li>
         )
       })}
     </ul>
+  )
+}
+
+const OP_SYMBOL: Record<string, string> = { eq: '=', ne: '≠', gt: '>', gte: '≥', lt: '<', lte: '≤', contains: '⊇', in: '∈' }
+
+function formatEvidenceValue(value: unknown): string {
+  if (value === '') return '∅'
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2)
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+/**
+ * Turns a scorer's `evidence` into a human-readable (actual, expected) pair so
+ * each assertion row shows WHAT it checked and WHAT it observed — not a bare
+ * 0–1 score. Covers the json_path_compare and confidence_threshold evidence
+ * shapes; unknown shapes fall back to just the actual, or the verdict word.
+ */
+function evidenceActualExpected(evidence: unknown): { actual: string | null; expected: string | null } {
+  if (evidence && typeof evidence === 'object' && !Array.isArray(evidence)) {
+    const rec = evidence as Record<string, unknown>
+    if ('operator' in rec && 'actual' in rec) {
+      const op = OP_SYMBOL[String(rec.operator)] ?? String(rec.operator)
+      return { actual: formatEvidenceValue(rec.actual), expected: `${op} ${formatEvidenceValue(rec.value)}` }
+    }
+    if ('confidence' in rec && 'threshold' in rec) {
+      const dir = rec.direction === 'lte' ? '≤' : '≥'
+      return { actual: formatEvidenceValue(rec.confidence), expected: `${dir} ${formatEvidenceValue(rec.threshold)}` }
+    }
+    if ('actual' in rec) return { actual: formatEvidenceValue(rec.actual), expected: null }
+  }
+  return { actual: null, expected: null }
+}
+
+function EvidenceSummary({ row, labelKey, labelFallback, t }: {
+  row: EvalResultView
+  labelKey: string
+  labelFallback: string
+  t: ReturnType<typeof useT>
+}) {
+  if (row.passed === null) {
+    return <span className="ml-auto shrink-0 text-xs text-muted-foreground">{t('agent_orchestrator.playground.eval.skipped', 'skipped')}</span>
+  }
+  const { actual, expected } = evidenceActualExpected(row.evidence)
+  if (actual === null) {
+    return <span className="ml-auto shrink-0 text-xs text-muted-foreground">{t(labelKey, labelFallback)}</span>
+  }
+  return (
+    <span className="ml-auto flex min-w-0 items-center gap-2 text-xs">
+      <span className="min-w-0 max-w-[240px] truncate font-mono text-foreground" title={actual}>{actual}</span>
+      {expected ? (
+        <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+          {t('agent_orchestrator.playground.eval.expectedShort', 'expected')} <span className="font-mono text-foreground/70">{expected}</span>
+        </span>
+      ) : null}
+    </span>
   )
 }
 

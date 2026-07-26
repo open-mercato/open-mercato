@@ -490,6 +490,7 @@
   "agent_orchestrator.playground.eval.assertions": "Assertions on this run",
   "agent_orchestrator.playground.eval.diff": "Actual vs expected",
   "agent_orchestrator.playground.eval.expected": "Expected (golden)",
+  "agent_orchestrator.playground.eval.expectedShort": "expected",
   "agent_orchestrator.playground.eval.fail": "fail",
   "agent_orchestrator.playground.eval.forbidden": "You don’t have permission to view this run’s evaluation.",
   "agent_orchestrator.playground.eval.goldenAdvisory": "Matched a golden case — advisory (no gate)",
