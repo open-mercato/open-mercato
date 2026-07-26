@@ -28,6 +28,7 @@ import {
 import { subjectRefOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { agentAvatarIcon } from '../../components/agentChips'
+import { WebSearchHealthCard } from '../../components/WebSearchHealthCard'
 
 type Health = 'good' | 'watch' | 'poor' | 'new'
 type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
@@ -369,6 +370,8 @@ export default function AgentFleetOverviewPage() {
             </Select>
           </div>
         </div>
+
+        <WebSearchHealthCard />
 
         {isLoading ? (
           <LoadingMessage label={t('agent_orchestrator.overview.title', 'Fleet overview')} />
