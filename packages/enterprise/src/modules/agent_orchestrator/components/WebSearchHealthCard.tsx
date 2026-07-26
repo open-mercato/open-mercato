@@ -9,18 +9,26 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type WebSearchHealthStatus = 'ok' | 'degraded' | 'not_configured'
 
+type AdapterHealthRow = {
+  id: string
+  enabled: boolean
+  ready: boolean
+  ok: boolean
+  detail: string | null
+  latencyMs: number | null
+}
+
 type WebSearchHealth = {
   status: WebSearchHealthStatus
-  provider: string
-  providerImplId: string | null
-  detail: string | null
-  webFetch: 'available'
+  source: 'tenant' | 'instance'
+  adapters: AdapterHealthRow[]
+  problems: Array<{ id: string | null; packageName: string; reason: string }>
   checkedAt: string
 }
 
 // `error` is a client-only state (the health fetch itself failed), kept distinct
-// from the provider's own `degraded` verdict so a failed request never reads as a
-// healthy provider — or masquerades as the server's diagnosis.
+// from the server's own `degraded` verdict so a failed request never reads as a
+// healthy engine — or masquerades as the server's diagnosis.
 type CardStatus = WebSearchHealthStatus | 'error'
 
 const statusVariant: StatusMap<CardStatus> = {
@@ -34,14 +42,21 @@ function isHealth(value: unknown): value is WebSearchHealth {
   return (
     typeof value === 'object' &&
     value !== null &&
-    typeof (value as { status?: unknown }).status === 'string'
+    typeof (value as { status?: unknown }).status === 'string' &&
+    Array.isArray((value as { adapters?: unknown }).adapters)
   )
 }
 
+function adapterVariant(row: AdapterHealthRow): StatusBadgeVariant {
+  if (!row.enabled) return 'neutral'
+  if (!row.ready) return 'neutral'
+  return row.ok ? 'success' : 'warning'
+}
+
 /**
- * Compact diagnostics card for the agent web-search tool. Reads
- * `GET /api/agent_orchestrator/web-search/health` on mount and on demand, and
- * renders the configured provider, its health verdict and the reason detail.
+ * Per-adapter diagnostics for agent web search. One row per installed adapter:
+ * with a racing engine a single verdict is not actionable, but "serp-html
+ * blocked, model-native healthy, firecrawl has no key" says what to fix.
  * Purely informational — no mutation — so it needs no optimistic-lock header.
  */
 export function WebSearchHealthCard() {
@@ -58,7 +73,7 @@ export function WebSearchHealthCard() {
       if (call.ok && isHealth(call.result)) {
         setHealth(call.result)
         setStatus(call.result.status)
-        setDetail(call.result.detail)
+        setDetail(null)
       } else {
         setHealth(null)
         setStatus('error')
@@ -74,12 +89,7 @@ export function WebSearchHealthCard() {
   }, [t])
 
   React.useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      await load()
-      if (cancelled) return
-    })()
-    return () => { cancelled = true }
+    void load()
   }, [load])
 
   const statusLabel: Record<CardStatus, string> = {
@@ -88,7 +98,9 @@ export function WebSearchHealthCard() {
     not_configured: t('agent_orchestrator.overview.webSearch.status.notConfigured', 'Not configured'),
     error: t('agent_orchestrator.overview.webSearch.status.error', 'Check failed'),
   }
-  const variant: StatusBadgeVariant = statusVariant[status]
+
+  const enabled = health?.adapters.filter((row) => row.enabled) ?? []
+  const disabled = health?.adapters.filter((row) => !row.enabled) ?? []
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">
@@ -100,36 +112,68 @@ export function WebSearchHealthCard() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <StatusBadge variant={variant} dot>{statusLabel[status]}</StatusBadge>
+          <StatusBadge variant={statusVariant[status]} dot>
+            {statusLabel[status]}
+          </StatusBadge>
           <Button
             variant="outline"
             size="sm"
             aria-label={t('agent_orchestrator.overview.webSearch.recheck', 'Recheck')}
             disabled={isLoading}
-            onClick={() => { void load() }}
+            onClick={() => {
+              void load()
+            }}
           >
             <RotateCw className={isLoading ? 'size-4 animate-spin' : 'size-4'} />
           </Button>
         </div>
       </div>
 
-      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-        <dt className="text-muted-foreground">{t('agent_orchestrator.overview.webSearch.provider', 'Provider')}</dt>
-        <dd className="font-mono text-foreground">
-          {health?.provider ?? '—'}
-          {health?.providerImplId ? <span className="text-muted-foreground"> · {health.providerImplId}</span> : null}
-        </dd>
-        <dt className="text-muted-foreground">{t('agent_orchestrator.overview.webSearch.webFetch', 'Web fetch')}</dt>
-        <dd className="text-foreground">{t('agent_orchestrator.overview.webSearch.webFetchAvailable', 'Available (built-in)')}</dd>
-      </dl>
+      {detail ? <p className="mt-2 text-xs text-muted-foreground">{detail}</p> : null}
 
-      {detail ? (
-        <p className="mt-2 text-xs text-muted-foreground">{detail}</p>
-      ) : status === 'ok' ? (
+      {enabled.length > 0 ? (
+        <ul className="mt-3 space-y-1.5">
+          {enabled.map((row) => (
+            <li key={row.id} className="flex items-start gap-2 text-xs">
+              <StatusBadge variant={adapterVariant(row)} dot>
+                {row.ok
+                  ? t('agent_orchestrator.overview.webSearch.adapter.ok', 'OK')
+                  : t('agent_orchestrator.overview.webSearch.adapter.problem', 'Problem')}
+              </StatusBadge>
+              <span className="font-mono text-foreground">{row.id}</span>
+              {row.latencyMs !== null ? (
+                <span className="text-muted-foreground">{`${row.latencyMs}ms`}</span>
+              ) : null}
+              {row.detail ? <span className="text-muted-foreground">{row.detail}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {disabled.length > 0 ? (
         <p className="mt-2 text-xs text-muted-foreground">
-          {t('agent_orchestrator.overview.webSearch.okHint', 'The agent web_search tool is ready.')}
+          {t('agent_orchestrator.overview.webSearch.disabledAdapters', 'Installed but disabled: {ids}', {
+            ids: disabled.map((row) => row.id).join(', '),
+          })}
         </p>
       ) : null}
+
+      {health?.problems.length ? (
+        <ul className="mt-2 space-y-1">
+          {health.problems.map((problem) => (
+            <li key={problem.packageName} className="text-xs text-status-warning-text">
+              {`${problem.packageName}: ${problem.reason}`}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <p className="mt-3 text-xs text-muted-foreground">
+        {t('agent_orchestrator.overview.webSearch.webFetch', 'Web fetch')}:{' '}
+        {t('agent_orchestrator.overview.webSearch.webFetchAvailable', 'Available (built-in)')}
+      </p>
     </div>
   )
 }
+
+export default WebSearchHealthCard
