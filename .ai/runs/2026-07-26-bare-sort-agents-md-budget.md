@@ -61,8 +61,31 @@ and the script landed through different branches and only meet on `develop`.
 
 ### Phase 1: Fix the violation
 
-- [ ] 1.1 Add the explicit comparator to the chain-key sort
+- [x] 1.1 Add the explicit comparator to the chain-key sort — c9fe3d62a
 
 ### Phase 2: Validation
 
-- [ ] 2.1 Guard test, script suite, and the configured validation gate all green
+- [x] 2.1 Guard test, script suite, and the configured validation gate all green — c9fe3d62a
+
+Runner: local. The #3620 guard (`packages/core/src/__tests__/explicit-sort-comparators.test.ts`) goes
+from one violation to 4/4 passing, and the script's own suite
+(`scripts/__tests__/check-agents-md-budget.test.mjs`, run by the `Test scripts` CI step) is 8/8.
+Configured gate: `yarn build:packages`, `yarn generate`, `yarn build:packages`,
+`yarn i18n:check-sync`, `yarn i18n:check-usage`, `yarn typecheck` and `yarn build:app` all pass.
+
+`yarn test` reports 1032/1033 suites passing with **zero failed assertions** across two full runs;
+each run lost one different suite to `A jest worker process was terminated ... signal=SIGSEGV`
+(`image.route` / `optimistic-lock` / `labels/scoping` in the first run, `ai-tools/settings-pack` in
+the second). Every one of them passes standalone under `--runInBand` (13/13 and 6/6), so this is
+local worker instability under parallel load, not a regression from this change. CI is the
+authoritative gate.
+
+## Note on CI visibility of this fix
+
+This PR touches only `scripts/`, and `.github/workflows/ci.yml` scopes the PR test run to
+`yarn turbo run test --filter=[origin/<base>]...` — which selects packages by dependency graph and
+will not pull in `@open-mercato/core`, where the guard lives. So the guard will not run on this PR's
+own CI, exactly as it did not run on the PR that introduced the violation; the unfiltered `yarn test`
+on the post-merge push is what turned `develop` red. The evidence that the guard is satisfied is the
+local run above plus the `Test scripts` step. This asymmetry is the same one `ci.yml` already
+documents for the create-app parity guards (#3779).
