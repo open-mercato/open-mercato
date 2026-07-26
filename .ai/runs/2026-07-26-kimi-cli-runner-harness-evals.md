@@ -53,12 +53,14 @@ Source doc: `.ai/specs/2026-07-24-standalone-ai-development-harness.md`
 
 ## Progress
 
+PR: #4528
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Additive Kimi runner contract
 
-- [ ] 1.1 Add and test the Kimi runner adapter and trace contract
-- [ ] 1.2 Extend schemas, matrices, docs, generated assets, and source spec
+- [x] 1.1 Add and test the Kimi runner adapter and trace contract — 838606492, 9765854a5
+- [x] 1.2 Extend schemas, matrices, docs, generated assets, and source spec — 838606492
 
 ### Phase 2: Evidence-driven Kimi optimization
 
@@ -71,3 +73,26 @@ Source doc: `.ai/specs/2026-07-24-standalone-ai-development-harness.md`
 - [ ] 3.1 Prove the complete Codex baseline remains green
 - [ ] 3.2 Run targeted, standalone, and configured full validation gates
 - [ ] 3.3 Complete reviews, PR evidence, labels, and ready handoff
+
+## Handoff — 2026-07-26
+
+### Completed
+
+- Added Kimi 0.29.1 as a third additive evaluator/release runner, including CLI validation, schemas, release matrix selectors, help text, operator docs, and the governing source spec.
+- Isolated Kimi `HOME`/`KIMI_CODE_HOME`, copied only allowlisted regular authentication/config files with private modes, disabled discovered skills, and selected a custom v2 agent whose only tools are the evaluator-owned MCP `read` plus `write` for explicitly writable cases.
+- Parsed Kimi JSONL final Assistant output and function-call argument strings, retained exact trace enforcement, and added Kimi `tool_call_id` correlation for refused MCP reads.
+- Added focused fake-runner coverage for isolated configuration, exact arguments, MCP-only tooling, auth redaction inputs, JSONL parsing, and refused-read evidence.
+- Merged the current Sonnet sibling branch (#4529) at `19f67fc88`, including its shared Claude adapter, refused-read, routing-guidance, and instruction-budget fixes. The combined harness/release/budget suite passed: 120 passed, 5 platform skips, 0 failed.
+- Generated a fresh standalone controller from this branch and passed deterministic validation for all 184 cases.
+- Restored the machine's Kimi device authorization with the documented `kimi login` flow after the CLI reported an empty/expired local credential; no credential values or raw transcripts were persisted or committed.
+- Ran `yarn build:packages` successfully with the local validation runner.
+
+### TODO for continuation
+
+- Rebuild a fresh controller and rerun authenticated `OMH-001` after `9765854a5`. The prior real run reached the exact-path MCP server and observed `AGENTS.md` plus `.ai/guides/architecture.md`, but timed out at the 180-second model bound and its refused extra-route probes were misclassified because the JSON-string argument recursion dropped Kimi's `tool_call_id`; that correlation bug is now fixed and unit-tested but has not yet been re-proven against the real CLI.
+- Run the complete authenticated Kimi routing matrix: `PATH="/Users/piotrkarwatka/.kimi-code/bin:$PATH" node scripts/evaluate-agent-harness.mjs --runner kimi --all`. Classify aggregate sanitized failures, tune only the smallest shared knowledge owner, and rerun affected plus mandatory cases until 184/184 passes.
+- Exercise representative writable/review coverage with Kimi on disposable fresh targets. Do not weaken the full release preflight: the native macOS host cannot safely run the Linux/Bubblewrap loopback lanes, so the complete 39-case writable/generated-test/review release command remains a Linux handoff if no suitable host becomes available.
+- Run the complete authenticated Codex routing baseline (`--runner codex --all`) after Kimi tuning and resolve any shared-guidance regression.
+- Fetch #4529 again before final review and merge any commits added after `19f67fc88`; preserve its shared Sonnet tuning rather than reimplementing or overwriting it.
+- Run the remaining configured validation sequence after the already-passing first `yarn build:packages`: `yarn generate`, `yarn build:packages`, `yarn i18n:check-sync`, `yarn i18n:check-usage`, `yarn typecheck`, `yarn test`, `yarn build:app` (Runner: local).
+- Complete `om-code-review`, `om-auto-review-pr`, PR labels/evidence, remove `in-progress`, and mark #4528 ready only after the Kimi and Codex matrices and all executable gates pass.
