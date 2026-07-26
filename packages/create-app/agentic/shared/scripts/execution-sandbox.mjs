@@ -41,6 +41,12 @@ function regularDirectory(root, label) {
   return fs.realpathSync(root)
 }
 
+// True when `parent` is `candidate` or one of its ancestors.
+function containsPath(parent, candidate) {
+  const relative = path.relative(parent, candidate)
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+}
+
 function uniqueExistingDirectories(values) {
   return [...new Set(values)].filter((entry) => {
     try { return fs.statSync(entry).isDirectory() } catch { return false }
@@ -288,8 +294,17 @@ function linuxInvocation({ command, args, cwd, writableRoots, readOnlyRoots, net
   ]
   for (const root of writable) sandboxArgs.push('--bind', root, root)
   // Apply read-only mounts last so a nested dependency root cannot be shadowed
-  // by a later writable parent bind.
-  for (const root of readable) sandboxArgs.push('--ro-bind', root, root)
+  // by a later writable parent bind. Runtime roots are derived incidentally — the
+  // interpreter, the system tree, and the command's own directory — so one of them can
+  // be a writable root or its ANCESTOR, and mounting that last would re-mount the whole
+  // writable root read-only. Those are dropped: anything inside a writable bind is
+  // already reachable through it. Explicitly declared readOnlyRoots are never dropped,
+  // because a nested read-only dependency tree overriding its writable parent is exactly
+  // what this ordering exists to guarantee.
+  for (const root of readable) {
+    if (!readOnly.includes(root) && writable.some((writableRoot) => containsPath(root, writableRoot))) continue
+    sandboxArgs.push('--ro-bind', root, root)
+  }
   for (const file of networkReadable) sandboxArgs.push('--ro-bind', file, file)
   const realCwd = regularDirectory(cwd, 'sandbox cwd')
   sandboxArgs.push('--chdir', realCwd, '--', resolveExecutable(command, env), ...args)
