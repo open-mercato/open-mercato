@@ -854,7 +854,7 @@ setTimeout(() => process.exit(0), 500).unref()
   }
 })
 
-test('release preflight requires Linux isolation when the matrix contains loopback lanes', () => {
+test('release preflight requires Linux isolation when the matrix contains loopback lanes', { skip: !targetSandboxAvailable }, () => {
   const bin = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-fake-bwrap-')))
   const fakeBwrap = path.join(bin, 'bwrap')
   fs.writeFileSync(fakeBwrap, '#!/bin/sh\nexit 0\n')
@@ -1268,7 +1268,7 @@ test('quality metrics expose first-pass, correction, context, review, and catego
   assert.equal(metrics.reviewVerdicts.requestChanges, 1)
 })
 
-test('release command fails closed before execution and stores a sanitized exact coverage report', () => {
+test('release command fails closed before execution and stores a sanitized exact coverage report', { skip: !targetSandboxAvailable }, () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-controller-')))
   const harness = path.join(root, '.ai', 'harness')
   fs.mkdirSync(path.join(harness, 'fixtures'), { recursive: true })
@@ -1305,7 +1305,7 @@ test('release command fails closed before execution and stores a sanitized exact
   }
 })
 
-test('persisted foundation process diagnostics use a minimal environment and redact environment scalars plus URL userinfo', () => {
+test('persisted foundation process diagnostics use a minimal environment and redact environment scalars plus URL userinfo', { skip: !targetSandboxAvailable }, () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-foundation-redaction-')))
   const harness = path.join(root, '.ai', 'harness')
   const fakeBin = path.join(root, 'fake-bin')

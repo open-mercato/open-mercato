@@ -7,6 +7,9 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+const targetSandboxAvailable = process.platform === 'darwin'
+  || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
+
 const require = createRequire(import.meta.url)
 const astOracle = fileURLToPath(new URL('../../agentic/shared/ai/harness/writable-ast-oracles.mjs', import.meta.url))
 const behaviorOracle = fileURLToPath(new URL('../../agentic/shared/ai/harness/writable-behavior-oracles.mjs', import.meta.url))
@@ -641,7 +644,7 @@ test('the 23 business writable cases have aligned controlled fixtures', () => {
   assert.ok(fixtureIndex.fixtures['ui-public-lead-capture'].seededArtifacts.includes('src/modules/demo_requests/frontend/request-demo/page.meta.ts'))
 })
 
-test('controlled seeds fail and corrected production seams pass both trusted oracles', { skip: process.platform === 'win32' }, () => {
+test('controlled seeds fail and corrected production seams pass both trusted oracles', { skip: !targetSandboxAvailable }, () => {
   for (const [caseId] of Object.entries(cases)) {
     const seededRoot = stageTarget(caseId)
     try {

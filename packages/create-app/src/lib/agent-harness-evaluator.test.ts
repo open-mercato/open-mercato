@@ -463,7 +463,7 @@ test('provider fixtures preserve the scaffold module registry for activation edi
   }
 })
 
-test('live Codex adapter starts one ephemeral host-contained process and stores only a sanitized structured result', { skip: process.platform === 'win32' }, () => {
+test('live Codex adapter starts one ephemeral host-contained process and stores only a sanitized structured result', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin)
@@ -520,7 +520,7 @@ for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) console.log(JSON
   }
 })
 
-test('live routing rejects an observed progressive context file omitted from selectedContext', { skip: process.platform === 'win32' }, () => {
+test('live routing rejects an observed progressive context file omitted from selectedContext', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
@@ -552,7 +552,7 @@ for (const file of ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/testi
   }
 })
 
-test('live Claude adapter uses safe plan mode, a read-only tool list, structured output, and no persistence', { skip: process.platform === 'win32' }, () => {
+test('live Claude adapter uses safe plan mode, a read-only tool list, structured output, and no persistence', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin)
@@ -589,7 +589,7 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
   }
 })
 
-test('native Glob metadata discovery is a routing failure even when required files are later read', { skip: process.platform === 'win32' }, () => {
+test('native Glob metadata discovery is a routing failure even when required files are later read', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'claude', `
 const path = require('node:path')
@@ -620,7 +620,7 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
   }
 })
 
-test('live Claude retries one recognized transient process failure and then succeeds', { skip: process.platform === 'win32' }, () => {
+test('live Claude retries one recognized transient process failure and then succeeds', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'claude', `
 const fs = require('node:fs')
@@ -660,7 +660,7 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
   }
 })
 
-test('live Claude preserves its terminal error event without retrying a non-transient failure', { skip: process.platform === 'win32' }, () => {
+test('live Claude preserves its terminal error event without retrying a non-transient failure', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'claude', `
 const args = process.argv.slice(2)
@@ -684,7 +684,7 @@ process.exit(1)
   }
 })
 
-test('live Claude does not retry routing or safety assertion failures', { skip: process.platform === 'win32' }, () => {
+test('live Claude does not retry routing or safety assertion failures', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'claude', `
 const path = require('node:path')
@@ -716,7 +716,7 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
   }
 })
 
-test('live routing rejects forbidden file and environment reads without inheriting unrelated environment values', { skip: process.platform === 'win32' }, () => {
+test('live routing rejects forbidden file and environment reads without inheriting unrelated environment values', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   fs.writeFileSync(path.join(root, '.env'), 'DO_NOT_READ=this-value\n')
   const secret = 'ghp_1234567890abcdefghij'
@@ -754,7 +754,7 @@ for (const command of ["cat AGENTS.md .ai/guides/architecture.md", 'cat .env', '
   }
 })
 
-test('observed reads reject undeclared context without merging it into declared context', { skip: process.platform === 'win32' }, () => {
+test('observed reads reject undeclared context without merging it into declared context', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const oversized = '.ai/guides/oversized-observed-context.md'
   fs.writeFileSync(path.join(root, oversized), 'x'.repeat(64 * 1024))
@@ -787,7 +787,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: {
   }
 })
 
-test('module facts and upstream compatibility references count as progressive rather than initial context', { skip: process.platform === 'win32' }, () => {
+test('module facts and upstream compatibility references count as progressive rather than initial context', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules'), { recursive: true })
   fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'sales.md'), '# Sales\nInstalled sales module facts.\n')
@@ -828,7 +828,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: {
   }
 })
 
-test('a lifecycle stream without a recognized tool event fails closed', { skip: process.platform === 'win32' }, () => {
+test('a lifecycle stream without a recognized tool event fails closed', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
@@ -855,7 +855,7 @@ console.log(JSON.stringify({ type: 'thread.started', thread_id: 'fake' }))
   }
 })
 
-test('recognized tool traces with no context reads fail closed', { skip: process.platform === 'win32' }, () => {
+test('recognized tool traces with no context reads fail closed', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
@@ -883,7 +883,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('out-of-root and broad app-root reads are rejected even when required context is observed', { skip: process.platform === 'win32' }, () => {
+test('out-of-root and broad app-root reads are rejected even when required context is observed', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
@@ -912,7 +912,7 @@ for (const command of ['cat AGENTS.md .ai/guides/architecture.md', 'cat /etc/pas
   }
 })
 
-test('bounded metadata commands do not count as content reads', { skip: process.platform === 'win32' }, () => {
+test('bounded metadata commands do not count as content reads', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
@@ -942,7 +942,7 @@ for (const command of [
   }
 })
 
-test('spec routing may inspect the bounded spec index without reading spec contents', { skip: process.platform === 'win32' }, () => {
+test('spec routing may inspect the bounded spec index without reading spec contents', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   fs.mkdirSync(path.join(root, '.ai', 'specs'), { recursive: true })
   fs.writeFileSync(path.join(root, '.ai', 'specs', 'example.md'), '# example\n')
@@ -978,7 +978,7 @@ for (const command of [
   }
 })
 
-test('bounded spec metadata requires the route actually selected by the agent', { skip: process.platform === 'win32' }, () => {
+test('bounded spec metadata requires the route actually selected by the agent', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   fs.mkdirSync(path.join(root, '.ai', 'specs'), { recursive: true })
   const bin = installFakeRunner(root, 'codex', `
@@ -1009,7 +1009,7 @@ for (const command of [
   }
 })
 
-test('spec metadata discovery rejects recursive or excessive traversal forms', { skip: process.platform === 'win32' }, () => {
+test('spec metadata discovery rejects recursive or excessive traversal forms', { skip: !targetSandboxAvailable }, () => {
   for (const command of [
     'find .ai/specs -type f',
     'find .ai/specs -maxdepth 2 -type f',
@@ -1045,7 +1045,7 @@ for (const command of ['cat AGENTS.md .agents/skills/om-spec-writing/SKILL.md', 
   }
 })
 
-test('a case may bound optional context for an explicitly allowed extra route', { skip: process.platform === 'win32' }, () => {
+test('a case may bound optional context for an explicitly allowed extra route', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules'), { recursive: true })
   fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'customers.md'), '# customers\n')
@@ -1074,7 +1074,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('selected context canonicalizes an in-root skill symlink to the observed local source', { skip: process.platform === 'win32' }, () => {
+test('selected context canonicalizes an in-root skill symlink to the observed local source', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   fs.mkdirSync(path.join(root, '.agents', 'skills'), { recursive: true })
   fs.symlinkSync(
@@ -1107,7 +1107,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('a case may declare a bounded optional skill for an allowed extra route', { skip: process.platform === 'win32' }, () => {
+test('a case may declare a bounded optional skill for an allowed extra route', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
@@ -1133,7 +1133,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('a selected optional skill requires both its bound route and observed SKILL.md', { skip: process.platform === 'win32' }, () => {
+test('a selected optional skill requires both its bound route and observed SKILL.md', { skip: !targetSandboxAvailable }, () => {
   const scenarios: Array<{ routes: string[]; context: string[]; observedContext?: string[]; expected: string }> = [
     {
       routes: ['module-data'],
@@ -1178,7 +1178,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('canonical route skills and guides are permitted only with their selected route', { skip: process.platform === 'win32' }, () => {
+test('canonical route skills and guides are permitted only with their selected route', { skip: !targetSandboxAvailable }, () => {
   const scenarios: Array<{ routes: string[]; context: string[]; expectedStatus: number; expectedViolation?: string }> = [
     {
       routes: ['architecture', 'debugging'],
@@ -1217,7 +1217,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('Codex login-shell wrappers preserve narrow reads without authorizing nested interpreters', { skip: process.platform === 'win32' }, () => {
+test('Codex login-shell wrappers preserve narrow reads without authorizing nested interpreters', { skip: !targetSandboxAvailable }, () => {
   for (const command of [
     `/bin/zsh -lc "sed -n '1,120p' AGENTS.md && sed -n '1,120p' .ai/guides/architecture.md"`,
     `/bin/bash -lc "cat AGENTS.md .ai/guides/architecture.md"`,
@@ -1260,7 +1260,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('trace containment accepts a canonical absolute path beneath a symlinked app root', { skip: process.platform === 'win32' }, () => {
+test('trace containment accepts a canonical absolute path beneath a symlinked app root', { skip: !targetSandboxAvailable }, () => {
   const realRoot = stageApp()
   const aliasParent = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-alias-'))
   const aliasRoot = path.join(aliasParent, 'app')
@@ -1296,7 +1296,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('newline-separated direct and login-shell traces reject a hidden interpreter', { skip: process.platform === 'win32' }, () => {
+test('newline-separated direct and login-shell traces reject a hidden interpreter', { skip: !targetSandboxAvailable }, () => {
   for (const command of [
     "cat AGENTS.md .ai/guides/architecture.md\nnode -e 'process.cwd()'",
     "/bin/zsh -lc \"cat AGENTS.md .ai/guides/architecture.md\r\nnode -e 'process.cwd()'\"",
@@ -1325,7 +1325,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('restricted login-shell traces reject escaped paths expansions globs braces and nested shells', { skip: process.platform === 'win32' }, () => {
+test('restricted login-shell traces reject escaped paths expansions globs braces and nested shells', { skip: !targetSandboxAvailable }, () => {
   for (const command of [
     `/bin/zsh -lc "cat \\/etc\\/passwd && cat AGENTS.md .ai/guides/architecture.md"`,
     `/bin/zsh -lc "cat $'/etc/passwd' && cat AGENTS.md .ai/guides/architecture.md"`,
@@ -1352,7 +1352,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('routing answers come only from emitted instructions, not the controller prompt', { skip: process.platform === 'win32' }, () => {
+test('routing answers come only from emitted instructions, not the controller prompt', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const agentsPath = path.join(root, 'AGENTS.md')
   fs.writeFileSync(agentsPath, fs.readFileSync(agentsPath, 'utf8').replaceAll('.ai/guides/architecture.md', '.ai/guides/damaged.md'))
@@ -1377,7 +1377,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('fixed focused test commands remain traceable without opening arbitrary package scripts', { skip: process.platform === 'win32' }, () => {
+test('fixed focused test commands remain traceable without opening arbitrary package scripts', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
@@ -1408,7 +1408,7 @@ for (const command of [
   }
 })
 
-test('dangerous and out-of-scope discovery commands fail closed', { skip: process.platform === 'win32' }, () => {
+test('dangerous and out-of-scope discovery commands fail closed', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
@@ -1441,7 +1441,7 @@ for (const command of [
   }
 })
 
-test('routing rejects invented skills, decisions, and extra selected context', { skip: process.platform === 'win32' }, () => {
+test('routing rejects invented skills, decisions, and extra selected context', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
@@ -1471,7 +1471,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('Codex and Claude traces reject interpreter execution even after required bounded reads', { skip: process.platform === 'win32' }, () => {
+test('Codex and Claude traces reject interpreter execution even after required bounded reads', { skip: !targetSandboxAvailable }, () => {
   for (const runner of ['codex', 'claude'] as const) {
     const root = stageApp()
     const response = `{
@@ -1504,7 +1504,7 @@ console.log(JSON.stringify({ type: 'result', structured_output: ${response} }))
   }
 })
 
-test('trace readers reject command-supplied files recursive reads sed side effects and unknown commands', { skip: process.platform === 'win32' }, () => {
+test('trace readers reject command-supplied files recursive reads sed side effects and unknown commands', { skip: !targetSandboxAvailable }, () => {
   const commands = [
     "rg --files --ignore-file .ai/guides/architecture.md .ai/guides",
     "rg --hidden --no-ignore SECRET",
@@ -1530,7 +1530,7 @@ for (const command of ['cat AGENTS.md .ai/guides/architecture.md', ${JSON.string
   }
 })
 
-test('every inherited provider value and credential-file scalar is redacted for Codex and Claude', { skip: process.platform === 'win32' }, () => {
+test('every inherited provider value and credential-file scalar is redacted for Codex and Claude', { skip: !targetSandboxAvailable }, () => {
   for (const runner of ['codex', 'claude'] as const) {
     const root = stageApp()
     const configured = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `om-${runner}-credentials-`)))
@@ -1581,7 +1581,7 @@ console.log(JSON.stringify({ type: 'result', structured_output: { selectedRouter
   }
 })
 
-test('response fields are recursively redacted and long runner violations honor result limits', { skip: process.platform === 'win32' }, () => {
+test('response fields are recursively redacted and long runner violations honor result limits', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const token = 'ghp_1234567890abcdefghij'
   const bin = installFakeRunner(root, 'codex', `
@@ -1619,7 +1619,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('secret redaction preserves legitimate skill reference names beginning with skew', { skip: process.platform === 'win32' }, () => {
+test('secret redaction preserves legitimate skill reference names beginning with skew', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const reference = '.ai/skills/om-framework-context/references/skew-and-escalation.md'
   fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules'), { recursive: true })
@@ -1648,7 +1648,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('long process errors are redacted, bounded, schema-valid, and still produce a failure artifact', { skip: process.platform === 'win32' }, () => {
+test('long process errors are redacted, bounded, schema-valid, and still produce a failure artifact', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const token = 'ghp_1234567890abcdefghij'
   const bin = installFakeRunner(root, 'codex', `
@@ -1675,7 +1675,7 @@ process.exit(7)
   }
 })
 
-test('result schema validation happens before an artifact is written', { skip: process.platform === 'win32' }, () => {
+test('result schema validation happens before an artifact is written', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const schemaPath = path.join(root, '.ai', 'harness', 'result.schema.json')
   const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8')) as {
@@ -1718,7 +1718,7 @@ test('writable mode remains explicit and refuses a target without acknowledgemen
   }
 })
 
-test('generated-code review uses a source-only bundle, pinned external skill evidence, and an explicit prior writable result', { skip: process.platform === 'win32' }, () => {
+test('generated-code review uses a source-only bundle, pinned external skill evidence, and an explicit prior writable result', { skip: !targetSandboxAvailable }, () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)
   try {
@@ -1811,7 +1811,7 @@ test('generated-code review does not add UI design context to non-UI cases', asy
   assert.deepEqual(evaluator.routedReviewReferences({ expectedRouter: { required: ['module-data'] } }), [])
 })
 
-test('generated-code review binds all four release commands to the writable result and final target fingerprint', { skip: process.platform === 'win32' }, () => {
+test('generated-code review binds all four release commands to the writable result and final target fingerprint', { skip: !targetSandboxAvailable }, () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)
   try {
@@ -1873,7 +1873,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('generated-code review rejects validation evidence that attests post-oracle target mutations', { skip: process.platform === 'win32' }, async () => {
+test('generated-code review rejects validation evidence that attests post-oracle target mutations', { skip: !targetSandboxAvailable }, async () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)
   try {
@@ -1970,7 +1970,7 @@ for (const command of [
   }
 })
 
-test('generated-code review turns a major skill finding into a failing request-changes gate', { skip: process.platform === 'win32' }, () => {
+test('generated-code review turns a major skill finding into a failing request-changes gate', { skip: !targetSandboxAvailable }, () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)
   try {
@@ -2010,7 +2010,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('generated-code review refuses stale target evidence before starting a reviewer', { skip: process.platform === 'win32' }, () => {
+test('generated-code review refuses stale target evidence before starting a reviewer', { skip: !targetSandboxAvailable }, () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)
   try {
@@ -2039,7 +2039,7 @@ process.exit(9)
   }
 })
 
-test('generated-code review refuses an installed review skill that no longer matches its pinned hash', { skip: process.platform === 'win32' }, () => {
+test('generated-code review refuses an installed review skill that no longer matches its pinned hash', { skip: !targetSandboxAvailable }, () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)
   try {
@@ -2068,7 +2068,7 @@ process.exit(9)
   }
 })
 
-test('writable evidence fails when an oracle subprocess mutates the target after the agent run', { skip: process.platform === 'win32' }, () => {
+test('writable evidence fails when an oracle subprocess mutates the target after the agent run', { skip: !targetSandboxAvailable }, () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)
   try {
@@ -2220,7 +2220,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('writable mode executes trusted oracles only from the controller harness', { skip: process.platform === 'win32' }, () => {
+test('writable mode executes trusted oracles only from the controller harness', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const target = stageWritableTarget(root)
   const bin = installFakeRunner(root, 'codex', `
@@ -2261,7 +2261,7 @@ console.log(JSON.stringify({ passed: process.argv.includes('after'), failures: p
   }
 })
 
-test('writable snapshots detect protected ignored-root and arbitrary root writes', { skip: process.platform === 'win32' }, () => {
+test('writable snapshots detect protected ignored-root and arbitrary root writes', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const target = stageWritableTarget(root)
   const afterOracleMarker = path.join(root, 'after-oracle-ran')
@@ -2314,7 +2314,7 @@ process.exit(0)
   }
 })
 
-test('writable snapshots bind empty directories plus directory and regular-file mode changes', { skip: process.platform === 'win32' }, () => {
+test('writable snapshots bind empty directories plus directory and regular-file mode changes', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const target = stageWritableTarget(root)
   const bin = installFakeRunner(root, 'codex', `
