@@ -4,7 +4,11 @@ Diagnose before editing, fix the smallest knowledge/code owner, and prove the re
 
 ## Context Restraint
 
-A fix loads `om-troubleshooter` plus the guide for the affected area, and stops there. It does not load that area's authoring skill or its references — you are correcting existing code, not designing a new surface — and it does not load the contracts guide unless the fix itself changes a data, API, command, ACL, or setup contract. Add a module fact sheet only for a module the failure actually involves.
+A fix always loads `om-troubleshooter` plus the guide for every area it touches, so those routes are selected.
+
+Add an area's authoring skill when the fix **introduces** something there — a concurrency header on existing calls, a new field or UI surface, a new command, a new invalidation, a new guard — because you are then designing that surface, not just repairing it. Load `om-troubleshooter` alone when you only correct existing behavior, such as a hydration mismatch or a value that fails to round-trip.
+
+Stop at the skills: skip an area's `references/` unless the fix needs a specific one, skip the contracts guide unless the fix changes a data, API, command, ACL, or setup contract, and add a module fact sheet only for a module the failure actually involves.
 
 ## Investigation Order
 

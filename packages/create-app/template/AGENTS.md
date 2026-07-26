@@ -50,7 +50,7 @@ Unified-override audits = `umes` only; add `architecture`/`framework-context` on
 
 Authoring, restyling, or gating a rendered surface the app owns or injected adds `backend-ui`; hiding, toggling, or rewiring an installed one does not. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
 
-`backend-ui`: UI skill `references/quality-states.md`; public/portal/responsive/a11y adds `references/frontend-and-design-system.md`.
+`backend-ui`: UI skill `references/quality-states.md`; public/portal/responsive/a11y adds `frontend-and-design-system.md`.
 
 ### Axis 1 — Area/Ownership
 
@@ -64,7 +64,7 @@ Authoring, restyling, or gating a rendered surface the app owns or injected adds
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
-Location never decides the route: app code changing an installed module's records, commands, events, or pages is `module-data` + `umes`; reading its facts is not. Reusable providers are published dependencies, never `packages/*`.
+Location never decides the route: app code changing an installed module's records, commands, events, pages, agents, or tools is `module-data` + `umes`; reading its facts is not. Reusable providers are published dependencies, never `packages/*`.
 
 ### Axis 2 — Work Units
 
@@ -79,7 +79,7 @@ Match every work-unit row, and OPEN each matched row's skill before selecting it
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |
 | `module-data` | Entity/link/validator/migration/encryption/lock/transaction | `om-data-model-design` + contracts |
 | `module-data` | CRUD/API/command/OpenAPI/ACL/setup/mutation | `om-module-scaffold` + contracts |
-| `backend-ui` | Form/table/page/middleware/nav/i18n/UI states | `om-backend-ui-design` + backend UI |
+| `backend-ui` | Form/table/page/renderer/middleware/nav/i18n/UI states | `om-backend-ui-design` + backend UI |
 | `module-data` | Search/analytics/event/notification/message/worker/progress/cache/CLI | scaffold + contracts |
 | `umes` | Fields/extension entities/links/enrichers/injection/interceptors/guards/subscribers/DOM/widgets/toggles/overrides | `om-system-extension` + extensions; choices load `mechanism-selector` + `extension-branches` |
 | `integration` | Provider/credentials/health/webhook/files/client/reconciliation/package | `om-integration-builder` + integrations |
