@@ -8045,7 +8045,72 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/web-research@workspace:packages/web-research":
+"@open-mercato/web-research-firecrawl@workspace:packages/web-research-firecrawl":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/web-research-firecrawl@workspace:packages/web-research-firecrawl"
+  dependencies:
+    "@open-mercato/web-research": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^26.0.1"
+    esbuild: "npm:^0.28.1"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
+    zod: "npm:^4.4.3"
+  peerDependencies:
+    "@open-mercato/web-research": ^0.6.0
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/web-research-model@workspace:packages/web-research-model":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/web-research-model@workspace:packages/web-research-model"
+  dependencies:
+    "@ai-sdk/anthropic": "npm:^4.0.1"
+    "@ai-sdk/openai": "npm:^4.0.2"
+    "@open-mercato/web-research": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^26.0.1"
+    ai: "npm:^7.0.4"
+    esbuild: "npm:^0.28.1"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
+    zod: "npm:^4.4.3"
+  peerDependencies:
+    "@ai-sdk/anthropic": ^4.0.1
+    "@ai-sdk/openai": ^4.0.2
+    "@open-mercato/web-research": ^0.6.0
+    ai: ^7.0.4
+  peerDependenciesMeta:
+    "@ai-sdk/anthropic":
+      optional: true
+    "@ai-sdk/openai":
+      optional: true
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/web-research-serp@workspace:packages/web-research-serp":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/web-research-serp@workspace:packages/web-research-serp"
+  dependencies:
+    "@open-mercato/web-research": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^26.0.1"
+    esbuild: "npm:^0.28.1"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
+    zod: "npm:^4.4.3"
+  peerDependencies:
+    "@open-mercato/web-research": ^0.6.0
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/web-research@workspace:*, @open-mercato/web-research@workspace:packages/web-research":
   version: 0.0.0-use.local
   resolution: "@open-mercato/web-research@workspace:packages/web-research"
   dependencies:

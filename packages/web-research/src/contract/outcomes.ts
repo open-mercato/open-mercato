@@ -24,9 +24,15 @@ export type FetchOutcome = { readonly status: 'ok'; readonly page: FetchedPage }
 
 export type OutcomeStatus = SearchOutcome['status']
 
+/**
+ * A prose answer with no citations is still a successful search — the model
+ * knew something, it just did not link anywhere. Only a turn that produced
+ * neither links nor prose is `empty`.
+ */
 export function searchOk(results: readonly RawResult[], answer?: string): SearchOutcome {
-  if (results.length === 0) return { status: 'empty' }
-  return answer === undefined ? { status: 'ok', results } : { status: 'ok', results, answer }
+  const hasAnswer = answer !== undefined && answer.trim().length > 0
+  if (results.length === 0 && !hasAnswer) return { status: 'empty' }
+  return hasAnswer ? { status: 'ok', results, answer } : { status: 'ok', results }
 }
 
 export function searchEmpty(): SearchOutcome {
