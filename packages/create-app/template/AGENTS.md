@@ -57,11 +57,11 @@ Authoring, restyling, or gating a rendered surface the app owns or injected adds
 | Route | Match | Context |
 |---|---|---|
 | `architecture` | Capability/ownership choice, boundary investigation, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
-| `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership or mechanism is unresolved |
+| `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
 | `backend-ui` | Any authored or restyled rendered surface | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
 | `integration` | External email/shipping/payment/sync/webhook/storage/file/import/export provider | `.ai/guides/integrations.md`; excludes installed-sender use, workflow `CALL_API`, downloads, AI storage |
-| `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/reminders/queues/workers/retries/progress alone are `module-data` |
+| `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
 Location never decides the route: app code changing an installed module's records, commands, events, or pages is `module-data` + `umes`; reading its facts is not. Reusable providers are published dependencies, never `packages/*`.
@@ -70,7 +70,7 @@ Location never decides the route: app code changing an installed module's record
 
 | Route | Work unit | Skill/context |
 |---|---|---|
-| `architecture` | Explain/choose module, UMES, package, eject | architecture; `om-help` for an unresolved choice or a comparative framework across these mechanisms |
+| `architecture` | Explain/choose module, UMES, package, eject | architecture; `om-help` for an unresolved or comparative choice across these mechanisms |
 | `module-data` | Business outcome or vertical slice | MUST load `om-module-scaffold` + its exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key, which resolves units inside the slice, not ownership — an ownership/capability outline adds `architecture` |
 | `spec-pr` | Spec or plan in safe working stages | Axis 3 skill; deployable phases |
 | `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts`/`package.json` |
@@ -79,11 +79,11 @@ Location never decides the route: app code changing an installed module's record
 | `module-data` | CRUD/API/command/OpenAPI/ACL/setup/mutation | `om-module-scaffold` + contracts |
 | `backend-ui` | Form/table/page/middleware/nav/i18n/UI states | `om-backend-ui-design` + backend UI |
 | `module-data` | Search/analytics/event/notification/message/worker/progress/cache/CLI | scaffold + contracts |
-| `umes` | Fields/enrichers/injection/interceptors/guards/subscribers/DOM/widgets/toggles/overrides | `om-system-extension` + extensions; choices load `mechanism-selector` + `extension-branches` |
+| `umes` | Fields/extension entities/links/enrichers/injection/interceptors/guards/subscribers/DOM/widgets/toggles/overrides | `om-system-extension` + extensions; choices load `mechanism-selector` + `extension-branches` |
 | `integration` | Provider/credentials/health/webhook/files/client/reconciliation/package | `om-integration-builder` + integrations |
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `surface-selector` + `ai_assistant` facts |
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
-| `testing` | Run or author tests, or verify behavior by exercising the app (API/browser/screen sizes/keyboard/screen-reader) — including a requested affected-test run; not a review/audit/config check that never exercises the app | testing/debugging; external `om-integration-tests` for integration/E2E |
+| `testing` | Run or author tests, prove an invariant, or verify behavior by exercising the app (API/browser/screen sizes/keyboard/screen-reader) — any named test or affected-test run counts; not a review/audit/config check that never exercises the app | testing/debugging; external `om-integration-tests` for integration/E2E |
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging |
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
@@ -92,7 +92,7 @@ Location never decides the route: app code changing an installed module's record
 
 ### Axis 3 — SDLC and Delivery
 
-Select delivery independently from pinned `open-mercato/skills` (`yarn install-skills`). Read external skills at `.agents/skills/<id>/SKILL.md`; MUST also apply any matching `.ai/skills/<id>/SKILL.md` override.
+Delivery skills come from pinned `open-mercato/skills` (`yarn install-skills`). Read them at `.agents/skills/<id>/SKILL.md`; MUST also apply any matching `.ai/skills/<id>/SKILL.md` override.
 
 | Route ID | Delivery need | Skill |
 |---|---|---|
@@ -114,7 +114,7 @@ Absent skill: run `yarn install-skills` once; never substitute.
 
 ## Module-Specific Facts
 
-Load the fact for every module the task names or targets, not one it merely uses. When the subject IS the mechanism: typed events/subscribers→events; long-running operation or progress reporting→progress; provider wiring→integrations. Host facts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal + customer_accounts; quote/order/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index, but never omit the fact for a module the task changes.
+Load the fact for every module the task names or targets, not one it merely uses. When the subject IS the mechanism: typed events/subscribers→events; long-running operation or progress reporting→progress; provider wiring, settings, or health→integrations; sync/import→data_sync. Host facts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal + customer_accounts; quote/order/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index, but never omit the fact for a module the task changes.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
