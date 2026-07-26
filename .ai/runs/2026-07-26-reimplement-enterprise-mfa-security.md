@@ -42,8 +42,8 @@ MFA enforcement and authorization failures can lock users out. Regression tests 
 
 ### Phase 1: MFA enforcement resilience
 
-- [ ] 1.1 Reimplement fail-closed redirect behavior for unavailable or failing enforcement checks
-- [ ] 1.2 Add regression coverage for failure, bypass, exempt-path, and tenant-scoping behavior
+- [x] 1.1 Reimplement fail-closed redirect behavior for unavailable or failing enforcement checks — d16850c52
+- [x] 1.2 Add regression coverage for failure, bypass, exempt-path, and tenant-scoping behavior — d16850c52
 
 ### Phase 2: MFA mutation authorization
 
