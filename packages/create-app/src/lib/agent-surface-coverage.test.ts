@@ -169,6 +169,8 @@ test('the 187-case catalog routes audited installed-module, runtime, and AI/prov
         '.ai/skills/om-data-model-design/references/integrity-and-concurrency.md',
         '.ai/skills/om-data-model-design/references/sensitive-data.md',
         '.ai/skills/om-backend-ui-design/references/crud-surfaces.md',
+        '.ai/skills/om-backend-ui-design/references/page-and-navigation.md',
+        '.ai/skills/om-module-scaffold/references/verification.md',
         '.ai/skills/om-system-extension/references/read-write-roundtrip.md',
       ],
       decisions: [
@@ -200,6 +202,8 @@ test('the 187-case catalog routes audited installed-module, runtime, and AI/prov
   assert.ok(byId.get('OMH-087')?.expectedRouter.required.includes('ai-workflow'))
   assert.deepEqual(byId.get('OMH-134')?.expectedRouter.required, ['umes'])
   assert.deepEqual(byId.get('OMH-185')?.expectedRouter.required, ['module-data', 'backend-ui', 'umes'])
+  assert.ok(byId.get('OMH-185')?.context.required.includes('.ai/skills/om-backend-ui-design/references/page-and-navigation.md'))
+  assert.ok(byId.get('OMH-185')?.context.required.includes('.ai/skills/om-module-scaffold/references/verification.md'))
   assert.ok(!byId.get('OMH-185')?.context.required.includes('.ai/skills/om-system-extension/references/read-write-roundtrip.md'))
   assert.ok(byId.get('OMH-185')?.context.allowedExtra?.includes('.ai/skills/om-system-extension/references/read-write-roundtrip.md'))
   assert.deepEqual(byId.get('OMH-186')?.expectedRouter.required, ['module-data'])

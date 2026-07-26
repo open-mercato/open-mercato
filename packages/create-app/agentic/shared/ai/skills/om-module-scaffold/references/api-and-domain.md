@@ -2,7 +2,7 @@
 
 Load this reference for CRUD, commands, and action routes.
 
-1. Implement create/update/delete as commands with audit/undo/event/cache/index side effects.
+1. Implement create/update/delete as command objects with stable IDs and call `registerCommand` from `@open-mercato/shared/lib/commands` for each object. A route action naming a command ID does not register it. Include audit/undo/event/cache/index side effects.
 2. Create `api/<resource>/route.ts`; import `makeCrudRoute` from `@open-mercato/shared/lib/crud/factory`, then export per-method `metadata`, the selected factory handlers, and matching `openApi`.
 3. Build current `makeCrudRoute` options: `metadata`, `orm`, `list`, `actions: { create, update, delete }`, and `indexer`. Add `enrichers: { entityId: '<module>:<entity>' }` only when the route intentionally publishes that stable host contract; keep the colon-form ID aligned with the UI/widget host and test injected read/write round trips. Export `openApi` separately—it is not a factory option—and build it with `createCrudOpenApiFactory`/`createPagedListResponseSchema` from `@open-mercato/shared/lib/openapi/crud` or a typed `OpenApiRouteDoc` from `@open-mercato/shared/lib/openapi`.
    - Exact current ORM keys are `entity`, `idField`, `tenantField`, `orgField`, and `softDeleteField` (not `organizationField`).

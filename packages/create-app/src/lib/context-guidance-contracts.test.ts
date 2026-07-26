@@ -74,12 +74,18 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(moduleSurfaces, /formatResult/)
   assert.match(moduleSurfaces, /`indexer: \{ entityType \}`/)
   assert.match(moduleSurfaces, /deterministic convergence/)
+  assert.match(moduleSurfaces, /buildSource/)
+  assert.match(moduleSurfaces, /do not invent `convergenceKey` or `result` aliases/)
+  assert.match(moduleSurfaces, /<module>\.<resources>\.view/)
+  assert.match(moduleSurfaces, /setup: ModuleSetupConfig/)
 
   const apiAndDomain = readAgentic(
     'shared/ai/skills/om-module-scaffold/references/api-and-domain.md',
   )
   assert.match(apiAndDomain, /enrichers: \{ entityId: '<module>:<entity>' \}/)
   assert.match(apiAndDomain, /stable host contract/)
+  assert.match(apiAndDomain, /registerCommand/)
+  assert.match(apiAndDomain, /@open-mercato\/shared\/lib\/commands/)
 
   const crudSurfaces = readAgentic(
     'shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md',
@@ -87,6 +93,23 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(crudSurfaces, /authoring a new host UI/)
   assert.match(crudSurfaces, /extensionTableId/)
   assert.match(crudSurfaces, /stable column, action, and row-action IDs/)
+  for (const expected of ['searchValue', 'onSearchChange', '`/create`', 'RowActions', 'collectCustomFieldValues']) {
+    assert.ok(crudSurfaces.includes(expected), `missing canonical CRUD surface contract ${expected}`)
+  }
+
+  const pageAndNavigation = readAgentic(
+    'shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md',
+  )
+  for (const expected of ['pageTitleKey', 'pageGroupKey', 'pagePriority', 'pageOrder', 'breadcrumb']) {
+    assert.ok(pageAndNavigation.includes(expected), `missing generated navigation metadata ${expected}`)
+  }
+
+  const verification = readAgentic(
+    'shared/ai/skills/om-module-scaffold/references/verification.md',
+  )
+  assert.match(verification, /Jest/)
+  assert.match(verification, /commands\/__tests__\//)
+  assert.match(verification, /never Vitest/)
 
   const discoveryCatalog = readAgentic(
     'shared/ai/skills/om-module-scaffold/references/discovery-surface-catalog.md',
