@@ -11,9 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ConfigJsonTextarea } from './ConfigJsonTextarea'
 
 interface Activity {
   activityId: string
@@ -336,18 +336,10 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                 <Label htmlFor={`activity-${index}-config`} className="text-xs">
                   {t('workflows.activities.config')} (JSON)
                 </Label>
-                <Textarea
+                <ConfigJsonTextarea
                   id={`activity-${index}-config`}
-                  value={JSON.stringify(activity.config || {}, null, 2)}
-                  onChange={(e) => {
-                    try {
-                      const parsed = JSON.parse(e.target.value)
-                      updateActivity(index, 'config', parsed)
-                    } catch {
-                      // Invalid JSON, don't update
-                    }
-                  }}
-                  placeholder='{"key": "value"}'
+                  value={activity.config}
+                  onChange={(config) => updateActivity(index, 'config', config)}
                   rows={3}
                   className="mt-1 font-mono text-xs"
                 />

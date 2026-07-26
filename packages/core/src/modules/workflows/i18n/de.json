@@ -544,6 +544,7 @@
   "workflows.fieldEditors.activities.confirmRemove": "Möchten Sie diese Aktivität wirklich entfernen?",
   "workflows.fieldEditors.activities.emptyState": "Keine Aktivitäten definiert. Klicken Sie auf \"Aktivität hinzufügen\", um eine zu erstellen.",
   "workflows.fieldEditors.activities.initialInterval": "Anfangsintervall (ms)",
+  "workflows.fieldEditors.activities.invalidJson": "Ungültiges JSON – korrigieren Sie die Syntax, um die Änderungen zu übernehmen",
   "workflows.fieldEditors.activities.maxAttempts": "Maximale Versuche",
   "workflows.fieldEditors.activities.maxInterval": "Maximales Intervall (ms)",
   "workflows.fieldEditors.activities.removeActivity": "Aktivität entfernen",

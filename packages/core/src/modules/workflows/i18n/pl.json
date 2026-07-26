@@ -544,6 +544,7 @@
   "workflows.fieldEditors.activities.confirmRemove": "Czy na pewno chcesz usunąć to działanie?",
   "workflows.fieldEditors.activities.emptyState": "Brak zdefiniowanych działań. Kliknij \"Dodaj Działanie\", aby utworzyć.",
   "workflows.fieldEditors.activities.initialInterval": "Interwał Początkowy (ms)",
+  "workflows.fieldEditors.activities.invalidJson": "Nieprawidłowy JSON — popraw składnię, aby zastosować zmiany",
   "workflows.fieldEditors.activities.maxAttempts": "Maks. Prób",
   "workflows.fieldEditors.activities.maxInterval": "Maks. Interwał (ms)",
   "workflows.fieldEditors.activities.removeActivity": "Usuń Działanie",
