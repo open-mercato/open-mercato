@@ -23,6 +23,7 @@ Sibling follow-up: #4528 (`feat/kimi-cli-runner-harness-evals`) adds a third run
 - Audit indexing/search guidance, including `search.ts`/query-index contracts, post-write indexing or invalidation, deterministic convergence/reindex verification, and no arbitrary sleeps.
 - Audit the AI framework, i18n, and UMES authoring surfaces: typed agents/tools and approval-gated mutations; locale ownership and generated registration; and stable injection spots/IDs plus widgets, fields, menus, component replacements, interceptors, guards, and response enrichers for new APIs/UIs.
 - Make complete new modules visible in the main sidebar and add a failing-first single-shot book-library module evaluation. The generated plan must own registration/navigation, DataTable + CrudForm create/edit flows and add-book links, command writes with atomic transactions and undo, ACL/setup features, custom fields, search/indexing, UI i18n, encryption maps/scoped decryption, and an intentional UMES-capable API host.
+- Extend the generated-code/code-review checklist for diffs touching standalone module elements (entities, commands, APIs, pages, navigation, widgets, search, ACL/setup, encryption). Derive any additional minimums from the installed `customers` module, require design-system alignment for rendered UI, and make the repo-local `om-auto-review-pr` override explicitly feed these rules into `om-code-review` and generated-code review.
 - Add or strengthen semantic catalog coverage for real gaps above. Preserve progressive disclosure and the fail-closed gates; modest per-case file/byte quota increases and limited WIP catalog compatibility changes are allowed only when both runner traces justify them and the final measurements disclose them.
 
 ## Non-goals
@@ -169,6 +170,14 @@ The expanded catalog must include a failing-first, single-shot request to create
 
 Implementation order: add the semantic/writable case and demonstrate its failure against the existing harness, remediate the smallest progressive owners, then run it against both Sonnet and Codex before the expanded full matrices. Any case-count, context-quota, or compatibility change must be recorded with the exact justification.
 
+### Module-review enforcement accepted (2026-07-26T17:06Z)
+
+- Analyze representative installed `customers` entity/validator/command/CRUD route/list/create/edit/page-metadata/search/encryption/ACL/setup patterns before finalizing the minimum checklist; copy contracts, not package source.
+- Add a focused review checklist that activates when a diff touches `src/modules/**` module elements. It must check complete registration/discovery, main-sidebar navigation for a user-facing module, scope/ACL, validation/OpenAPI, commands/undo/atomicity/locking, encryption/decryption, search convergence, CrudForm/DataTable/custom-field round trips, i18n, UMES host stability, generation, and tests.
+- Rendered UI diffs must additionally satisfy the shared design-system primitives/tokens, accessibility, loading/empty/error/conflict states, responsive behavior, and client-boundary/performance rules.
+- The standalone `.ai/skills/om-auto-review-pr/SKILL.md` override must explicitly require the external `om-code-review` workflow plus the local module checklist. The disposable generated-code policy must load the same checklist for relevant generated sources and include routed backend/design-system references.
+- Add regression tests proving review configuration/skills/policy cannot silently stop applying these rules; then exercise the generated review lane for the complete-module case.
+
 
 ## Progress
 
@@ -206,6 +215,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [ ] 3.3 Recalibrate over-specified expectations and prove the complete sonnet matrix
 - [ ] 3.4 Audit and pin the expanded integrity/encryption/search/AI/i18n/UMES guidance requirements
 - [ ] 3.5 Add and pass the single-shot complete book-library module evaluation, including main-sidebar visibility
+- [ ] 3.6 Enforce the complete-module and design-system checklist through om-code-review, om-auto-review-pr, and generated-code review
 
 ### Phase 4: Compatibility baseline
 
