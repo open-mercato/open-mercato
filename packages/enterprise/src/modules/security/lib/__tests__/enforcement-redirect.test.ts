@@ -58,7 +58,7 @@ describe('resolveMfaEnrollmentRedirect', () => {
     expect(redirect).toBeNull()
   })
 
-  test('returns null when enforcement service is unavailable', async () => {
+  test('redirects when enforcement service is unavailable for a tenant user', async () => {
     const redirect = await resolveMfaEnrollmentRedirect(
       buildArgs({
         container: {
@@ -66,6 +66,55 @@ describe('resolveMfaEnrollmentRedirect', () => {
         },
       }),
     )
+    expect(redirect).toBe(
+      '/backend/profile/security/mfa?redirect=%2Fbackend%2Fcustomers%2Fpeople&reason=mfa_enrollment_required',
+    )
+  })
+
+  test('redirects when resolving the enforcement service throws', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => {
+            throw new Error('unavailable')
+          },
+        },
+      }),
+    )
+
+    expect(redirect).toContain('reason=mfa_enrollment_required')
+  })
+
+  test('redirects when the compliance check throws for a tenant user', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => ({
+            checkUserCompliance: async () => {
+              throw new Error('compliance unavailable')
+            },
+          }),
+        },
+      }),
+    )
+
+    expect(redirect).toContain('reason=mfa_enrollment_required')
+  })
+
+  test('does not fail closed for a tenant-less user', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        auth: {
+          sub: 'user-1',
+          orgId: 'org-1',
+          roles: ['superadmin'],
+        },
+        container: {
+          resolve: () => null,
+        },
+      }),
+    )
+
     expect(redirect).toBeNull()
   })
 
