@@ -71,6 +71,8 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(integrity, /execute` returns `Result` directly/)
   assert.match(integrity, /ctx\.container\.resolve<EntityManager>/)
   assert.match(integrity, /ctx\.selectedOrganizationId/)
+  assert.match(integrity, /Type command helpers as `\(ctx: CommandRuntimeContext\)`/)
+  assert.match(integrity, /do not use `as const` for mutable `cacheAliases`/)
   assert.match(integrity, /commands\/helpers/)
   assert.match(integrity, /second argument is an array/)
   assert.match(integrity, /after commit/)
@@ -115,7 +117,7 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(crudSurfaces, /authoring a new host UI/)
   assert.match(crudSurfaces, /extensionTableId/)
   assert.match(crudSurfaces, /stable column, action, and row-action IDs/)
-  for (const expected of ['@open-mercato/ui/backend/DataTable', '@open-mercato/ui/backend/RowActions', '@open-mercato/ui/backend/CrudForm', '@open-mercato/shared/lib/i18n/context', '@open-mercato/ui/backend/utils/apiCall', 'readApiResultOrThrow', 'searchValue', 'onSearchChange', '`/create`', 'RowActions', 'collectCustomFieldValues', 'mapCrudServerErrorToFormErrors', 'injectionSpotId', 'return `void`', 'no `requiredFeatures` field', 'LoadingMessage', 'ErrorMessage']) {
+  for (const expected of ['@open-mercato/ui/backend/DataTable', '@open-mercato/ui/backend/RowActions', '@open-mercato/ui/backend/CrudForm', '@open-mercato/shared/lib/i18n/context', '@open-mercato/ui/backend/utils/apiCall', 'readApiResultOrThrow', 'searchValue', 'onSearchChange', '`/create`', 'RowActions', 'collectCustomFieldValues', 'mapCrudServerErrorToFormErrors', 'injectionSpotId', 'return `void`', 'no `requiredFeatures` field', 'LoadingMessage', 'ErrorMessage', 'has no `apiPath` prop', 'neither `name` nor `clearable`']) {
     assert.ok(crudSurfaces.includes(expected), `missing canonical CRUD surface contract ${expected}`)
   }
 

@@ -94,6 +94,8 @@ test('the complete module oracle enforces connected customers-level CRUD', () =>
     'updateCrud',
     'deleteCrud',
   ]) assert.ok(source.includes(contract), `missing complete-module oracle contract ${contract}`)
+  assert.match(source, /value\.endsWith\('\.edit'\)/)
+  assert.match(source, /value\.endsWith\('\.delete'\)/)
 })
 
 test('imports and comments cannot satisfy a concrete call/options oracle', () => {
