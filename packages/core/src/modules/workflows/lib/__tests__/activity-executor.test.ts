@@ -94,7 +94,7 @@ describe('Activity Executor (Unit Tests)', () => {
   // ============================================================================
 
   describe('SEND_EMAIL activity', () => {
-    test('should execute SEND_EMAIL activity successfully (console mode)', async () => {
+    test('should report sent:false with reason when no email service is registered', async () => {
       const activity: ActivityDefinition = {
         activityId: 'activity-1',
         activityName: 'Welcome Email',
@@ -112,6 +112,7 @@ describe('Activity Executor (Unit Tests)', () => {
       })
 
       mockLoggerInstance.info.mockClear()
+      mockLoggerInstance.warn.mockClear()
 
       const result = await activityExecutor.executeActivity(
         mockEm,
@@ -121,11 +122,16 @@ describe('Activity Executor (Unit Tests)', () => {
       )
 
       expect(result.success).toBe(true)
-      expect(result.output.sent).toBe(true)
+      expect(result.output.sent).toBe(false)
+      expect(result.output.reason).toBe('no-email-service')
       expect(result.output.to).toBe('user@example.com')
       expect(result.output.via).toBe('console')
       expect(mockLoggerInstance.info).toHaveBeenCalledWith(
         'Send email activity invoked',
+        expect.objectContaining({ subject: 'Welcome!' }),
+      )
+      expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+        expect.stringContaining('no registered email service'),
         expect.objectContaining({ subject: 'Welcome!' }),
       )
     })
@@ -165,6 +171,57 @@ describe('Activity Executor (Unit Tests)', () => {
         templateData: { name: 'John' },
         body: undefined,
       })
+    })
+
+    test('should propagate a real send failure instead of reporting sent:true', async () => {
+      const mockEmailService = {
+        send: jest.fn().mockRejectedValue(new Error('SMTP connection refused')),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockEmailService)
+
+      await expect(
+        activityExecutor.executeSendEmail(
+          { to: 'user@example.com', subject: 'Welcome!' },
+          mockContext,
+          mockContainer
+        )
+      ).rejects.toThrow('SMTP connection refused')
+    })
+
+    test('should surface send failures through the activity retry loop', async () => {
+      const mockEmailService = {
+        send: jest.fn().mockRejectedValue(new Error('SMTP connection refused')),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockEmailService)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-2b',
+        activityName: 'Failing Email',
+        activityType: 'SEND_EMAIL',
+        config: {
+          to: 'user@example.com',
+          subject: 'Welcome!',
+        },
+        retryPolicy: {
+          maxAttempts: 2,
+          initialIntervalMs: 1,
+          backoffCoefficient: 1,
+          maxIntervalMs: 10,
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('SMTP connection refused')
+      expect(mockEmailService.send).toHaveBeenCalledTimes(2)
     })
 
     test('should fail SEND_EMAIL if missing required fields', async () => {

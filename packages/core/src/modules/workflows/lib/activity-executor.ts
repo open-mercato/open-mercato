@@ -514,7 +514,9 @@ async function executeActivityByType(
 /**
  * SEND_EMAIL activity handler
  *
- * For MVP, this logs the email (actual email sending can be added later)
+ * Sends via the DI-registered emailService when available; without one it
+ * reports an honest stub result ({ sent: false, reason: 'no-email-service' }).
+ * A real send() failure propagates so the activity retry loop handles it.
  */
 export async function executeSendEmail(
   config: any,
@@ -527,27 +529,28 @@ export async function executeSendEmail(
     throw new Error('SEND_EMAIL requires "to" and "subject" fields')
   }
 
-  // For MVP: Log the email (actual email service integration can be added later)
   logger.info('Send email activity invoked', { component: 'SEND_EMAIL', subject })
 
-  // Check if email service is available in container
+  let emailService: { send: (input: unknown) => Promise<unknown> | unknown } | undefined
   try {
-    const emailService = container.resolve<{ send: (input: unknown) => Promise<unknown> | unknown }>('emailService')
-    if (emailService && typeof emailService.send === 'function') {
-      await emailService.send({
-        to,
-        subject,
-        template,
-        templateData,
-        body,
-      })
-      return { sent: true, to, subject, via: 'emailService' }
-    }
-  } catch (error) {
-    // Email service not available, just log
+    emailService = container.resolve<{ send: (input: unknown) => Promise<unknown> | unknown }>('emailService')
+  } catch {
+    emailService = undefined
   }
 
-  return { sent: true, to, subject, via: 'console' }
+  if (emailService && typeof emailService.send === 'function') {
+    await emailService.send({
+      to,
+      subject,
+      template,
+      templateData,
+      body,
+    })
+    return { sent: true, to, subject, via: 'emailService' }
+  }
+
+  logger.warn('SEND_EMAIL has no registered email service; email was not sent', { component: 'SEND_EMAIL', subject })
+  return { sent: false, to, subject, via: 'console', reason: 'no-email-service' }
 }
 
 /**
