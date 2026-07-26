@@ -50,7 +50,7 @@ Options:
   --portability-runner <runner> Optional different runner for the 39-case read-only portability lane
   --prepare-targets <absolute>   Clone this fresh scaffold once per writable case under an empty/new directory
   --writable-targets <absolute> JSON map of every writable case to a fresh disposable app
-  --case-timeout <ms>           Per-model invocation timeout (default: 120000)
+  --case-timeout <ms>           Per-model invocation timeout floor (default: 120000; a writable case may raise it)
   --validation-timeout <ms>     Timeout for each yarn validation (default: 1800000)
   --acknowledge-writes          Required: fixture preparation and validation commands write files
   --help                        Show this help
@@ -111,6 +111,11 @@ function parseArgs(argv) {
   if (!Number.isInteger(options.caseTimeout) || options.caseTimeout < 1_000 || options.caseTimeout > 3_600_000) throw new Error('--case-timeout must be from 1000 to 3600000 milliseconds')
   if (!Number.isInteger(options.validationTimeout) || options.validationTimeout < 1_000 || options.validationTimeout > 7_200_000) throw new Error('--validation-timeout must be from 1000 to 7200000 milliseconds')
   return options
+}
+
+export function effectiveCaseTimeout(cases, caseId, fallback) {
+  const declared = cases.find((item) => item.id === caseId)?.timeoutMs
+  return Math.max(fallback, Number.isInteger(declared) ? declared : 0)
 }
 
 function readJson(file) {
@@ -1599,7 +1604,11 @@ export function main(argv = process.argv.slice(2)) {
       const routingArgs = [evaluator, '--root', root, '--runner', step.runner]
       if (step.lane === 'primary') routingArgs.push('--all')
       routingArgs.push('--model', step.modelSelector, '--timeout', String(options.caseTimeout))
-      const execution = execute(process.execPath, routingArgs, root, options.caseTimeout * Math.max(1, step.expectedCaseIds.length) + 60_000)
+      const routingTimeout = step.expectedCaseIds.reduce(
+        (total, caseId) => total + effectiveCaseTimeout(cases, caseId, options.caseTimeout),
+        60_000,
+      )
+      const execution = execute(process.execPath, routingArgs, root, routingTimeout)
       const artifacts = readNewResults(root, before)
       resultArtifacts.push(...artifacts)
       steps.push(stepResult(step, execution, artifacts, roots, step.expectedCaseIds.length))
@@ -1623,11 +1632,12 @@ export function main(argv = process.argv.slice(2)) {
         continue
       }
       const beforeWritable = resultFiles(root)
+      const caseTimeout = effectiveCaseTimeout(cases, caseId, options.caseTimeout)
       const writableExecution = execute(process.execPath, [
         evaluator, '--root', root, '--runner', writableStep.runner, '--case', caseId,
-        '--model', writableStep.modelSelector, '--timeout', String(options.caseTimeout),
+        '--model', writableStep.modelSelector, '--timeout', String(caseTimeout),
         '--writable-root', target, '--acknowledge-writes',
-      ], root, options.caseTimeout + 120_000)
+      ], root, caseTimeout + 120_000)
       const writableArtifacts = readNewResults(root, beforeWritable)
       resultArtifacts.push(...writableArtifacts)
       const writableResult = stepResult(writableStep, writableExecution, writableArtifacts, roots, 1)
@@ -1685,10 +1695,10 @@ export function main(argv = process.argv.slice(2)) {
       const beforeReview = resultFiles(root)
       const reviewExecution = execute(process.execPath, [
         evaluator, '--root', root, '--runner', reviewStep.runner,
-        '--model', reviewStep.modelSelector, '--timeout', String(options.caseTimeout),
+        '--model', reviewStep.modelSelector, '--timeout', String(caseTimeout),
         '--review-writable-result', path.join(root, sourceArtifact.path), '--writable-root', target,
         '--review-validation-result', targetValidationArtifact.absolute,
-      ], root, options.caseTimeout + 60_000)
+      ], root, caseTimeout + 60_000)
       const reviewArtifacts = readNewResults(root, beforeReview)
       resultArtifacts.push(...reviewArtifacts)
       steps.push(stepResult(reviewStep, reviewExecution, reviewArtifacts, roots, 1))

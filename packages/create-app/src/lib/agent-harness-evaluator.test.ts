@@ -26,6 +26,7 @@ type HarnessCase = {
   context: { required: string[]; allowedExtra?: string[] }
   validators: string[]
   fixture?: unknown
+  timeoutMs?: number
 }
 
 type StoredResult = {
@@ -257,6 +258,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
   assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
   assert.equal(validators.catalog.writableCaseIds.length, 40)
+  assert.deepEqual(cases.filter((entry) => entry.timeoutMs !== undefined).map((entry) => [entry.id, entry.timeoutMs]), [['OMH-185', 600_000]])
   assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
   assert.deepEqual(matrix.generatedCodeReview.caseIds, validators.catalog.writableCaseIds)

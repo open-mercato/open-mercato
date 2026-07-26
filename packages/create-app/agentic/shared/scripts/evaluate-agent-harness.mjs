@@ -40,7 +40,7 @@ const CASE_KEYS = new Set([
   'id', 'title', 'family', 'mode', 'evaluationKind', 'risk', 'prompt', 'tags', 'owner',
   'expectedRouter', 'requiredSkills', 'optionalSkills', 'context', 'requiredDecisions', 'forbiddenPatterns',
   'validators', 'fixture', 'oracle', 'allowedWrites', 'maxContextFiles',
-  'maxInitialContextBytes', 'maxTotalContextBytes', 'relatedCases', 'source',
+  'maxInitialContextBytes', 'maxTotalContextBytes', 'timeoutMs', 'relatedCases', 'source',
 ])
 const SAFE_TEXT_EXTENSIONS = new Set([
   '.cjs', '.css', '.graphql', '.html', '.js', '.json', '.jsx', '.md', '.mdx',
@@ -425,6 +425,10 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     if (!isUniqueStringArray(item.relatedCases, { min: 1 })) add(id, 'relatedCases must not be empty')
     for (const related of item.relatedCases ?? []) if (!idSet.has(related)) add(id, `dangling related case ${related}`)
     const writable = WRITABLE_KINDS.has(item.evaluationKind)
+    if (item.timeoutMs !== undefined
+      && (!writable || !Number.isInteger(item.timeoutMs) || item.timeoutMs < 1_000 || item.timeoutMs > 600_000)) {
+      add(id, 'timeoutMs must be a writable-case duration from 1000 to 600000 milliseconds')
+    }
     if (writable) {
       if (!isPlainObject(item.fixture) || item.fixture.scaffold !== 'fresh-standalone') add(id, 'writable case requires a fresh-standalone fixture')
       if (!isUniqueStringArray(item.fixture?.setup, { min: 1 })) add(id, 'fixture.setup is invalid')
@@ -2324,8 +2328,9 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
       if (writable && beforeOracle.failures.length === 0) throw new Error(`${caseRecord.id}: writable oracle already passes before the edit`)
       const prompt = buildPrompt(caseRecord, runRoot, writable) + (writable ? `\n\nImplement the task only under these allowed app-relative paths: ${caseRecord.allowedWrites.join(', ')}. Do not change anything else.` : '')
       const allowedReads = caseReadAllowlist(caseRecord, writable)
+      const timeout = Math.max(options.timeout, caseRecord.timeoutMs ?? 0)
       const executions = [runAgentOnce({
-        runner: options.runner, root: runRoot, schemaPath, prompt, timeout: options.timeout, model, writable,
+        runner: options.runner, root: runRoot, schemaPath, prompt, timeout, model, writable,
         allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [],
       })]
       let execution = executions[0]
@@ -2334,7 +2339,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
           ? `${prompt}\n\nYour previous response was not valid structured output. Return only the schema object.`
           : `${prompt}\n\nThis is retry attempt 2 after a transient provider failure. Continue with the same routing contract.`
         execution = runAgentOnce({
-          runner: options.runner, root: runRoot, schemaPath, prompt: retryPrompt, timeout: options.timeout, model, writable,
+          runner: options.runner, root: runRoot, schemaPath, prompt: retryPrompt, timeout, model, writable,
           allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [],
         })
         executions.push(execution)

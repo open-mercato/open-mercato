@@ -14,6 +14,7 @@ const executionSandboxScript = fileURLToPath(new URL('../../agentic/shared/scrip
 const monorepoNodeModules = fs.realpathSync(fileURLToPath(new URL('../../../../node_modules', import.meta.url)))
 const release = await import(pathToFileURL(releaseScript).href) as {
   buildReleasePlan: (input: Record<string, unknown>) => any
+  effectiveCaseTimeout: (cases: Array<{ id: string; timeoutMs?: number }>, caseId: string, fallback: number) => number
   aggregateQualityMetrics: (results: any[]) => any
   sanitizeReportText: (value: string, roots?: string[]) => string
   createMinimalValidationEnvironment: (tempRoot: string, pathValue?: string) => { env: NodeJS.ProcessEnv; toolReadRoots: string[] }
@@ -49,6 +50,13 @@ const isolatedLoopbackAvailable = (() => {
     return true
   } catch { return false }
 })()
+
+test('case-local writable timeout raises but never lowers the operator timeout floor', () => {
+  const cases = [{ id: 'OMH-184' }, { id: 'OMH-185', timeoutMs: 600_000 }]
+  assert.equal(release.effectiveCaseTimeout(cases, 'OMH-184', 120_000), 120_000)
+  assert.equal(release.effectiveCaseTimeout(cases, 'OMH-185', 120_000), 600_000)
+  assert.equal(release.effectiveCaseTimeout(cases, 'OMH-185', 900_000), 900_000)
+})
 
 // The browser lane needs a launchable Chromium headless shell, which depends on host
 // libraries Playwright installs separately (`npx playwright install-deps`). Without them the

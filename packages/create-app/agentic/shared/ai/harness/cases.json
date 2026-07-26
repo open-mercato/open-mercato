@@ -12746,6 +12746,7 @@
     "maxContextFiles": 16,
     "maxInitialContextBytes": 81920,
     "maxTotalContextBytes": 245760,
+    "timeoutMs": 600000,
     "relatedCases": ["OMH-004", "OMH-009", "OMH-011", "OMH-012", "OMH-014", "OMH-017", "OMH-026"],
     "fixture": {"scaffold": "fresh-standalone", "setup": ["fixture:module-complete-library"]},
     "oracle": {
