@@ -4593,10 +4593,6 @@
     ],
     "optionalSkills": [
       {
-        "id": "om-backend-ui-design",
-        "route": "backend-ui"
-      },
-      {
         "id": "om-framework-context",
         "route": "framework-context"
       }
@@ -5758,12 +5754,12 @@
         "AGENTS.md", ".ai/guides/contracts.md", ".ai/guides/backend-ui.md", ".ai/guides/extensions.md", ".ai/guides/ai-workflows.md",
         ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/skills/om-data-model-design/SKILL.md", ".ai/skills/om-backend-ui-design/SKILL.md", ".ai/skills/om-system-extension/SKILL.md", ".ai/skills/om-build-workflow/SKILL.md",
-        ".ai/guides/modules/customers.md", ".ai/guides/modules/workflows.md", ".ai/guides/modules/notifications.md"
+        ".ai/guides/modules/customers.md", ".ai/guides/modules/workflows.md", ".ai/guides/modules/notifications.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/scheduler.md",
-        ".ai/guides/modules/events.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/modules/events.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
@@ -6040,11 +6036,11 @@
       "required": [
         "AGENTS.md", ".ai/guides/contracts.md", ".ai/guides/backend-ui.md", ".ai/guides/integrations.md", ".ai/guides/extensions.md",
         ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md", ".ai/skills/om-integration-builder/SKILL.md", ".ai/skills/om-backend-ui-design/SKILL.md", ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/data_sync.md", ".ai/guides/modules/customers.md", ".ai/guides/modules/catalog.md", ".ai/guides/modules/progress.md"
+        ".ai/guides/modules/data_sync.md", ".ai/guides/modules/customers.md", ".ai/guides/modules/catalog.md", ".ai/guides/modules/progress.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "allowedExtra": [
-        ".ai/guides/modules/integrations.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/modules/integrations.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
@@ -6213,7 +6209,8 @@
     "context": {
       "required": [
         "AGENTS.md", ".ai/guides/extensions.md", ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/skills/om-system-extension/references/mechanism-selector.md", ".ai/skills/om-system-extension/references/extension-branches.md"
+        ".ai/skills/om-system-extension/references/mechanism-selector.md", ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/notifications.md",
@@ -6225,8 +6222,7 @@
         ".ai/guides/modules/ai_assistant.md",
         ".ai/guides/modules/search.md",
         ".ai/guides/modules/events.md",
-        ".ai/guides/modules/query_index.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/modules/query_index.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
@@ -6257,14 +6253,14 @@
     "context": {
       "required": [
         "AGENTS.md", ".ai/guides/extensions.md", ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/skills/om-system-extension/references/unified-overrides.md"
+        ".ai/skills/om-system-extension/references/unified-overrides.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/ai_assistant.md",
         ".ai/guides/modules/dashboards.md",
         ".ai/guides/modules/events.md",
-        ".ai/guides/modules/notifications.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/modules/notifications.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
@@ -12465,7 +12461,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-framework-context/SKILL.md","ruleIds":["BC-01","BC-03","BC-04","BC-14"]},
     "expectedRouter":{"required":["architecture","framework-context"],"allowedExtra":["umes"]},
     "requiredSkills":["om-framework-context"],
-    "optionalSkills":[{"id":"om-help","route":"architecture"},{"id":"om-system-extension","route":"umes"}],
+    "optionalSkills":[{"id":"om-system-extension","route":"umes"}],
     "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-framework-context/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/extensions.md",".ai/skills/om-help/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["installed-version","bounded-source-search","facts-first","read-only-framework-context"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","assume.{0,30}(?:event|permission|route|version)","(?:load|read).{0,20}all (?:packages|modules|source)"],
