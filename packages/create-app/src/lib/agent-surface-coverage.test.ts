@@ -143,7 +143,7 @@ test('UMES selector documents additive command interceptors across execute and u
   assert.match(branches, /never bypass the command, locking, audit, or undo/)
 })
 
-test('the 185-case catalog routes audited installed-module and AI/provider branches explicitly', () => {
+test('the 187-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -151,7 +151,7 @@ test('the 185-case catalog routes audited installed-module and AI/provider branc
     requiredDecisions: string[]
     expectedRouter: { required: string[] }
   }>
-  assert.equal(cases.length, 185)
+  assert.equal(cases.length, 187)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
@@ -181,6 +181,14 @@ test('the 185-case catalog routes audited installed-module and AI/provider branc
         'umes-api-host',
       ],
     },
+    'OMH-186': {
+      contexts: ['.ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md'],
+      decisions: ['di-cache-service', 'tenant-aware-cache-context', 'post-commit-cache-invalidation', 'undo-cache-invalidation'],
+    },
+    'OMH-187': {
+      contexts: ['.ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md'],
+      decisions: ['module-queue-factory', 'discovered-worker-metadata', 'scoped-serializable-job', 'queue-retry-idempotency'],
+    },
   }
   for (const [caseId, expected] of Object.entries(expectations)) {
     const record = byId.get(caseId)
@@ -191,6 +199,8 @@ test('the 185-case catalog routes audited installed-module and AI/provider branc
   }
   assert.ok(byId.get('OMH-087')?.expectedRouter.required.includes('ai-workflow'))
   assert.deepEqual(byId.get('OMH-185')?.expectedRouter.required, ['module-data', 'backend-ui', 'umes'])
+  assert.deepEqual(byId.get('OMH-186')?.expectedRouter.required, ['module-data'])
+  assert.deepEqual(byId.get('OMH-187')?.expectedRouter.required, ['module-data'])
 })
 
 test('the second-round cohort is exactly 92 business-language prompts without leaked framework contracts', () => {

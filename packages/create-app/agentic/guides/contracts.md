@@ -82,9 +82,9 @@ Reject malformed ID lists and filters explicitly. Preserve existing response key
 - Declare typed events in `events.ts` with `createModuleEvents(... as const)` before emitting them. Keep IDs past-tense and stable.
 - Use persistent idempotent subscribers for retried side effects; use ephemeral subscribers for local reactive work. Verify the host module can be absent when optional.
 - Declare notification types/renderers/handlers through their registries; keep notification IDs stable and ACL-aware.
-- Give every worker metadata, an idempotent handler, bounded concurrency/retry behavior, scoped payloads, and commands for domain writes. Use `ProgressJob` for user-visible bulk/long work.
+- Give every worker discovered metadata, an idempotent handler, bounded concurrency/retry behavior, scoped serializable payloads, and commands for domain writes. Use `ProgressJob` for user-visible bulk/long work. Exact cache/queue imports, tenant context, worker shape, retry semantics, and operator commands live in `om-module-scaffold` → `references/runtime-cache-and-queues.md`.
 - Configure `search.ts`; use deterministic convergence polling or reindex assertions rather than arbitrary sleeps.
-- Resolve cache through DI and mirror the host scope in keys/tags: tenant+organization for organization-owned data, or an explicitly authorized tenant-wide key for tenant-wide state. Invalidate every successful write/undo/sub-resource path after commit.
+- Resolve cache through DI and mirror the host scope in keys/tags: tenant+organization for organization-owned data, or an explicitly authorized tenant-wide key for tenant-wide state. Invalidate every successful write/undo/sub-resource path after commit; non-request runtimes establish the tenant cache context explicitly.
 - Add module CLI commands through the discovery contract and test the compiled package path, not only TypeScript source.
 
 ## Frozen Surfaces

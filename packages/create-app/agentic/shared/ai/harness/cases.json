@@ -12716,5 +12716,136 @@
       ]
     },
     "allowedWrites": ["src/modules/library/**", "src/modules.ts"]
+  },
+  {
+    "id": "OMH-186",
+    "title": "Add a scoped cache-aside read and complete post-commit invalidation",
+    "family": "module",
+    "mode": "one-shot",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a cache-aside read for an app-owned pricing projection. Use the configured cache rather than creating infrastructure, isolate every tenant and organization, choose a bounded TTL and stable tags, and invalidate affected record, collection, aggregate, and sub-resource results after successful create, update, delete, action, and undo paths. Cover cache use from both request and worker contexts, prevent rolled-back writes from invalidating, keep sensitive values out of keys and cached payloads, and identify the smallest focused validation.",
+    "tags": ["module", "cache", "cache-invalidation", "post-commit", "runtime"],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md",
+      "ruleIds": ["BC-03"]
+    },
+    "expectedRouter": {
+      "required": ["module-data"],
+      "allowedExtra": ["architecture", "testing", "framework-context"]
+    },
+    "requiredSkills": ["om-module-scaffold"],
+    "optionalSkills": [{"id": "om-framework-context", "route": "framework-context"}],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+        ".ai/skills/om-framework-context/SKILL.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**", ".mercato/generated/**"]
+    },
+    "requiredDecisions": [
+      "di-cache-service",
+      "tenant-aware-cache-context",
+      "organization-cache-key-tags",
+      "bounded-cache-ttl",
+      "post-commit-cache-invalidation",
+      "undo-cache-invalidation",
+      "sensitive-cache-exclusion",
+      "cache-scope-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "new (?:CacheService|Redis)",
+      "(?:secret|token|credential).{0,30}(?:cache key|cached payload)",
+      "invalidate.{0,40}(?:before|inside).{0,30}transaction"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "safety.mandatory"
+    ],
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 122880,
+    "relatedCases": ["OMH-063", "OMH-185"]
+  },
+  {
+    "id": "OMH-187",
+    "title": "Add a durable module queue and auto-discovered retry-safe worker",
+    "family": "module",
+    "mode": "one-shot",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a durable module-owned queue and discovered worker that rebuilds an app-owned reporting projection outside the request. Validate a serializable job containing trusted tenant and organization scope, scalar record IDs, and one stable operation key; enqueue only after the initiating command commits and provide recovery if that enqueue is lost. Keep retries and restarts idempotent, bound concurrency, perform domain writes through commands, expose terminal failure or progress to operators, run generation, and identify the smallest focused validation without constructing Redis or BullMQ directly.",
+    "tags": ["module", "queue", "worker", "idempotency", "runtime"],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md",
+      "ruleIds": ["BC-03"]
+    },
+    "expectedRouter": {
+      "required": ["module-data"],
+      "allowedExtra": ["architecture", "testing", "framework-context"]
+    },
+    "requiredSkills": ["om-module-scaffold"],
+    "optionalSkills": [{"id": "om-framework-context", "route": "framework-context"}],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+        ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
+        ".ai/skills/om-framework-context/SKILL.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**", ".mercato/generated/**"]
+    },
+    "requiredDecisions": [
+      "module-queue-factory",
+      "stable-queue-name",
+      "discovered-worker-metadata",
+      "scoped-serializable-job",
+      "post-commit-enqueue",
+      "durable-enqueue-recovery",
+      "queue-retry-idempotency",
+      "worker-command-writes",
+      "terminal-failure-observability",
+      "generate-worker-registry"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "new (?:Redis|BullMQ|Queue)",
+      "(?:request|container|entity|credential|decryption key).{0,30}(?:job payload|serialize)",
+      "(?:random|timestamp).{0,20}idempotency"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "safety.mandatory"
+    ],
+    "maxContextFiles": 7,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 122880,
+    "relatedCases": ["OMH-019", "OMH-063", "OMH-185"]
   }
 ]

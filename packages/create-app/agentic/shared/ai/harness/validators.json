@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "catalog": {
-    "expectedCaseCount": 185,
+    "expectedCaseCount": 187,
     "maxContextFiles": 16,
     "maxInitialContextBytes": 81920,
     "maxTotalContextBytes": 262144,
@@ -11,7 +11,8 @@
     ],
     "mandatoryCaseIds": [
       "OMH-057", "OMH-058", "OMH-059", "OMH-060", "OMH-061", "OMH-062", "OMH-063",
-      "OMH-064", "OMH-065", "OMH-066", "OMH-067", "OMH-068", "OMH-069", "OMH-070"
+      "OMH-064", "OMH-065", "OMH-066", "OMH-067", "OMH-068", "OMH-069", "OMH-070",
+      "OMH-186", "OMH-187"
     ],
     "compatibilityRequiredCaseIds": [
       "OMH-007", "OMH-022", "OMH-030", "OMH-048", "OMH-057", "OMH-064", "OMH-105", "OMH-147", "OMH-182"

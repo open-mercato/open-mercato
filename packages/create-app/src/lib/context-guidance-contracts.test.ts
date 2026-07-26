@@ -95,6 +95,30 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(discoveryCatalog, /`translations\.ts`/)
 })
 
+test('progressive runtime reference pins cache invalidation and discovered queue contracts', () => {
+  const runtime = readAgentic(
+    'shared/ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md',
+  )
+  for (const expected of [
+    "container.resolve<CacheStrategy>('cache')",
+    '@open-mercato/cache',
+    'runWithCacheTenant',
+    'deleteByTags',
+    'invalidateCrudCache',
+    'after commit',
+    'undo',
+    'createModuleQueue',
+    '@open-mercato/queue',
+    'WorkerMeta',
+    'QueuedJob',
+    'JobContext',
+    'workers/<id>.ts',
+    'attemptNumber',
+    'three attempts',
+    'exponential backoff',
+  ]) assert.ok(runtime.includes(expected), `missing cache/queue contract ${expected}`)
+})
+
 test('progressive AI reference pins generated registration and approval-gated command writes', () => {
   const moduleAi = readAgentic(
     'shared/ai/skills/om-create-ai-agent/references/module-agents-and-tools.md',

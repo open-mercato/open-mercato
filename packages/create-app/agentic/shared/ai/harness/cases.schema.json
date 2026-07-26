@@ -3,8 +3,8 @@
   "$id": "https://open-mercato.dev/schemas/standalone-harness-cases.schema.json",
   "title": "Open Mercato standalone harness case catalog",
   "type": "array",
-  "minItems": 185,
-  "maxItems": 185,
+  "minItems": 187,
+  "maxItems": 187,
   "items": {
     "type": "object",
     "additionalProperties": false,

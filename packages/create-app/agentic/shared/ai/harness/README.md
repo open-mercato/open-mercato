@@ -1,22 +1,22 @@
 # Agent harness evaluations
 
-`cases.json` is the 184-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
+`cases.json` is the 187-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
 
 ```text
 yarn harness:validate --runner codex --all
 yarn harness:validate --runner claude --case OMH-009
 ```
 
-A blocking release selects one primary runner for every live lane. The optional portability runner must be different and receives only the exact 39-case representative read-only set:
+A blocking release selects one primary runner for every live lane. The optional portability runner must be different and receives only the exact 40-case representative read-only set:
 
 ```text
 yarn harness:release --runner codex --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 yarn harness:release --runner codex --portability-runner claude --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-The primary runner owns all 184 routing cases, all 39 writable cases, and all generated-code reviews. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
+The primary runner owns all 187 routing cases, all 40 writable cases, and all generated-code reviews. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
 
-Writable evaluation is intentionally opt-in. The expanded catalog has a 39-case writable release target, but only cases registered in `release-matrix.json` and backed by controller-owned fixtures and oracles are executable. Copy or create a fresh standalone app for one registered case, then seed only that case and mark the target disposable:
+Writable evaluation is intentionally opt-in. The expanded catalog has a 40-case writable release target, but only cases registered in `release-matrix.json` and backed by controller-owned fixtures and oracles are executable. Copy or create a fresh standalone app for one registered case, then seed only that case and mark the target disposable:
 
 ```text
 yarn harness:fixture --case OMH-009 --target /absolute/disposable/app --acknowledge-writes
