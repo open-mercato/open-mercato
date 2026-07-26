@@ -9,7 +9,7 @@ Load only the rows the brief requires.
 | ACL/setup | Declare features, dependencies, default grants, idempotent tenant/default/example seeds, ACL sync. |
 | Events | `events.ts` typed declaration before emission; stable past-tense ID; idempotent subscriber. |
 | Worker/progress | metadata, scoped/idempotent job, bounded concurrency/retry, command writes, `ProgressJob`. |
-| Search | `search.ts`, indexed fields/result metadata, reindex and deterministic convergence assertions. |
+| Search | `search.ts` with a stable colon-form entity ID, scoped `fieldPolicy` (`excluded` for sensitive values, hash-only for approved exact lookup), and result metadata. CRUD uses `indexer: { entityType }`; bulk writes use the SearchIndexer reindex path. Vector sources provide `checksumSource`, token results provide `formatResult`, and tests prove delete/reindex deterministic convergence without sleeps. |
 | Cache | DI cache, tenant/org/entity tags, post-commit invalidation including undo/sub-resource paths. |
 | Notifications | type, renderer, subscriber/handler, ACL, client reactive behavior when needed. |
 | CLI | discovered command, scoped inputs, compiled-package test. |

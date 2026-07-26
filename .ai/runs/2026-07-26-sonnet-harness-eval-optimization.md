@@ -146,6 +146,15 @@ The resumed run additionally owns a budget-aware documentation and evaluation au
 
 Implementation rule: keep the root router compact, put actionable contracts in the smallest progressive guide/skill reference or generated fact owner, and add a failing semantic case before every new rule. Completion requires clean, attributable Sonnet and Codex sweeps against one immutable emitted controller version; quota changes must be minimal and reported separately from routing fixes. Progress is committed/pushed and mirrored to PR comments after each coherent batch.
 
+### Expanded-guidance checkpoint (2026-07-26T16:55Z)
+
+- Added a failing-first contract test before editing owners: data/integrity and search/host assertions failed while the existing AI and i18n assertions already passed.
+- Pinned the exact scoped read surface: `findWithDecryption`, `findOneWithDecryption`, and `findAndCountWithDecryption` from `@open-mercato/shared/lib/encryption/find`. The query `where` owns tenant/org authorization; the fifth argument owns decryption-key scope. Encrypted values stay out of search/vector/index paths except an explicitly approved hash-only sibling for equality.
+- Pinned `withAtomicFlush(..., { transaction: true })`, same-`EntityManager` atomicity, command undo via `extractUndoPayload`, post-commit/compensated side effects, and command-level optimistic locking via `enforceCommandOptimisticLock`.
+- Expanded the progressive search row with `fieldPolicy`, CRUD `indexer`, bulk reindex, `checksumSource`, `formatResult`, and deterministic convergence. New CRUD API/UI hosts now explicitly publish aligned colon-form enricher/entity IDs and stable DataTable/widget action and row-action IDs.
+- Kept AI and i18n owners unchanged because their existing progressive references already pin typed discovered files, `prepareMutation` approval before command writes, optimistic locking, generation, `i18n/<locale>.json`, and the distinct `translations.ts` entity-field surface.
+- Focused checks: the new contract test first failed 2/5, then passed 5/5 after the owner edits; combined instruction-budget and guidance suite passed 10/10. No root-router, evaluator, case expectation, or quota change was needed for this batch.
+
 
 ## Progress
 
