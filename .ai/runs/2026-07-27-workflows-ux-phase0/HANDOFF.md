@@ -1,17 +1,17 @@
 # Handoff — 2026-07-27-workflows-ux-phase0
 
-**Last updated:** 2026-07-27T02:10:00Z
+**Last updated:** 2026-07-27T04:05:00Z
 **Branch:** feat/workflows-ux-phase0
 **PR:** not yet opened
-**Current phase/step:** Phase 3 Step 3.2
-**Last commit:** 2a6b9b9eb — feat(workflows): surface all validation issues in a problems panel (#4232)
+**Current phase/step:** Phase 5 Step 5.1
+**Last commit:** c91235342 — feat(workflows): use DurationInput in CrudForm dialog fields (#4229)
 
 ## What just happened
-- Checkpoint 1 passed: build:packages, generate, typecheck, i18n:check-sync all green; workflows suite 44/651 green (package-scoped runner).
-- Steps 1.1–3.1 landed: spec+mockups, honest SEND_EMAIL, retry-policy drift fix, employee role grants, problems panel.
+- Checkpoint 2 passed: build/generate/typecheck/i18n green; workflows 47 suites/669 tests; ui inputs 103 tests.
+- Steps 3.2–4.3 landed: node error badges, ConfigJsonTextarea inline feedback, DurationInput primitive + adoption in legacy and CrudForm dialogs.
 
 ## Next concrete action
-- Step 3.2: per-node error badges on the canvas (thread hasError to WorkflowNodeCard, stop discarding 'error' status in UserTaskNode).
+- Step 5.1: roles multiselect for user-task assignment in both dialogs (degrades to free text on 403).
 
 ## Blockers / open questions
 - none

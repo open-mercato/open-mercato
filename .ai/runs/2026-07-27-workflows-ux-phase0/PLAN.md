@@ -16,11 +16,11 @@
 | 2 | 2.2 | Fix retry-policy field-name drift in ActivitiesEditor and TransitionsEditor | done | 4261372e2 |
 | 2 | 2.3 | Default workflows role grants for employee in module setup | done | 8c4521a5e |
 | 3 | 3.1 | Problems list panel in visual editor and formatted save errors | done | 2a6b9b9eb |
-| 3 | 3.2 | Per-node error badges on the canvas | done | fde6de53a |
-| 3 | 3.3 | Inline invalid-JSON feedback in ActivitiesEditor config textarea | done | d988c0550 |
-| 4 | 4.1 | DurationInput primitive in packages/ui with tests | done | e4e55c579 |
-| 4 | 4.2 | Adopt DurationInput in legacy Node/Edge dialogs | done | fbfc5f3c8 |
-| 4 | 4.3 | Adopt DurationInput in CrudForm dialog path | done | 525408616 |
+| 3 | 3.2 | Per-node error badges on the canvas | done | 1f95b7e23 |
+| 3 | 3.3 | Inline invalid-JSON feedback in ActivitiesEditor config textarea | done | 2c05a0d6e |
+| 4 | 4.1 | DurationInput primitive in packages/ui with tests | done | c15d25fa0 |
+| 4 | 4.2 | Adopt DurationInput in legacy Node/Edge dialogs | done | 0eccd7584 |
+| 4 | 4.3 | Adopt DurationInput in CrudForm dialog path | done | c91235342 |
 | 5 | 5.1 | Roles multiselect for user-task assignment in both dialogs | todo | — |
 | 6 | 6.1 | CrudForm parity: waitForTimer node support | todo | — |
 | 6 | 6.2 | CrudForm parity: slaDuration field and alert removal | todo | — |
