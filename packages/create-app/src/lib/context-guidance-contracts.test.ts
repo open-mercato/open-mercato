@@ -51,6 +51,9 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(sensitiveData, /fifth-argument decryption scope/)
   assert.match(sensitiveData, /hash-only/)
   assert.match(sensitiveData, /make a concrete call in every implemented sensitive-record read path/)
+  assert.match(sensitiveData, /@open-mercato\/shared\/modules\/encryption/)
+  assert.match(sensitiveData, /ModuleEncryptionMap/)
+  assert.match(sensitiveData, /fields: \[\{ field:/)
 
   const integrity = readAgentic(
     'shared/ai/skills/om-data-model-design/references/integrity-and-concurrency.md',
@@ -79,6 +82,7 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(integrity, /\(\) => \{ em\.persist\(record\) \}/)
   assert.match(integrity, /created_at.*updated_at/)
   assert.match(integrity, /after commit/)
+  assert.match(integrity, /Never ship an empty or stub `undo`/)
 })
 
 test('progressive module references pin search, i18n, and intentional extension hosts', () => {
@@ -106,6 +110,8 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(moduleSurfaces, /@open-mercato\/shared\/modules\/events/)
   assert.match(moduleSurfaces, /category: 'crud'/)
   assert.match(moduleSurfaces, /export const features/)
+  assert.match(moduleSurfaces, /`i18n\/<locale>\.json`/)
+  assert.match(moduleSurfaces, /not `locales\/<locale>\.json`/)
 
   const apiAndDomain = readAgentic(
     'shared/ai/skills/om-module-scaffold/references/api-and-domain.md',

@@ -14,6 +14,7 @@ Load only the rows the brief requires.
 | Notifications | type, renderer, subscriber/handler, ACL, client reactive behavior when needed. |
 | CLI | discovered command, scoped inputs, compiled-package test. |
 | Custom fields/entities | `ce.ts`, stable entity ID, CRUD/UI normalization, save/reload/clear tests. |
+| UI locale messages | Put generated module messages in `i18n/<locale>.json`, not `locales/<locale>.json`; use stable namespaced keys and rerun generation. This is distinct from translatable entity fields. |
 | Translatable fields | `translations.ts`; entity-field translation manager registration. |
 | AI/workflows | Invoke their dedicated skills; keep discovered root filenames. |
 
