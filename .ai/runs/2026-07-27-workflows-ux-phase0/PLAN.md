@@ -11,11 +11,11 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 1 | 1.1 | Land redesign spec, story catalog, and HTML mockups | done | 8ff43d8b2 |
-| 2 | 2.1 | SEND_EMAIL honest stub result and error propagation | done | 14cd846ca |
-| 2 | 2.2 | Fix retry-policy field-name drift in ActivitiesEditor and TransitionsEditor | done | ad3ba5617 |
-| 2 | 2.3 | Default workflows role grants for employee in module setup | done | 5354e00b6 |
-| 3 | 3.1 | Problems list panel in visual editor and formatted save errors | done | 12b828060 |
+| 1 | 1.1 | Land redesign spec, story catalog, and HTML mockups | done | 494ba36ec |
+| 2 | 2.1 | SEND_EMAIL honest stub result and error propagation | done | b87fb2b0d |
+| 2 | 2.2 | Fix retry-policy field-name drift in ActivitiesEditor and TransitionsEditor | done | 4261372e2 |
+| 2 | 2.3 | Default workflows role grants for employee in module setup | done | 8c4521a5e |
+| 3 | 3.1 | Problems list panel in visual editor and formatted save errors | done | 2a6b9b9eb |
 | 3 | 3.2 | Per-node error badges on the canvas | todo | — |
 | 3 | 3.3 | Inline invalid-JSON feedback in ActivitiesEditor config textarea | todo | — |
 | 4 | 4.1 | DurationInput primitive in packages/ui with tests | todo | — |
