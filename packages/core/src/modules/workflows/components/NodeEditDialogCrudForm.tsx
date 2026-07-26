@@ -88,6 +88,7 @@ export interface NodeEditDialogCrudFormProps {
  * - automated: Activity type + activities array
  * - subWorkflow: Workflow selector + input/output mappings
  * - waitForSignal: Signal name + timeout
+ * - waitForTimer: Duration XOR wait-until timer configuration
  * - decision: Basic fields only
  */
 export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete }: NodeEditDialogCrudFormProps) {
@@ -294,6 +295,32 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       ]
     }
 
+    // WaitForTimer specific groups
+    if (node.type === 'waitForTimer') {
+      return [
+        {
+          id: 'basic',
+          title: 'Basic Information',
+          column: 1,
+          fields: ['stepName', 'description'],
+        },
+        {
+          id: 'timer',
+          title: 'Timer Configuration',
+          column: 1,
+          description: 'Pause the workflow for a duration or until a specific date and time. Set exactly one.',
+          fields: ['timerDuration', 'timerUntil'],
+        },
+        {
+          id: 'advanced',
+          title: 'Advanced Configuration',
+          column: 1,
+          description: 'Additional JSON configuration',
+          fields: ['advancedConfig'],
+        },
+      ]
+    }
+
     // Decision and other types: just basic fields + advanced
     return [
       ...baseGroups,
@@ -453,6 +480,22 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       type: 'custom',
       description: 'How long to wait for the signal before timing out',
       component: (props) => <DurationCrudField {...props} />,
+    },
+
+    // WaitForTimer fields
+    {
+      id: 'timerDuration',
+      label: 'Duration',
+      type: 'custom',
+      description: 'ISO 8601 duration (e.g., PT5M, PT1H, P1D) or simple format (5m, 1h, 3d). Leave empty when using Wait Until.',
+      component: (props) => <DurationCrudField {...props} />,
+    },
+    {
+      id: 'timerUntil',
+      label: 'Wait Until',
+      type: 'datetime',
+      minDate: new Date(),
+      description: 'Specific date and time to wait until. Leave empty when using Duration.',
     },
 
     // Advanced configuration

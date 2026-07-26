@@ -11,6 +11,7 @@ import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { Mapping } from '../components/fields/MappingArrayEditor'
 import type { StartPreCondition } from '../components/fields/StartPreConditionsEditor'
 import { sanitizeId } from './graph-utils'
+import { isFutureIsoDateString, isValidDurationString } from '../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -47,6 +48,10 @@ export interface NodeFormValues {
   // WaitForSignal fields
   signalName?: string
   signalTimeout?: string
+
+  // WaitForTimer fields
+  timerDuration?: string
+  timerUntil?: string
 
   // Start node pre-conditions
   preConditions?: StartPreCondition[]
@@ -213,6 +218,12 @@ export function nodeToFormValues(node: Node): NodeFormValues {
     values.signalTimeout = nodeData.signalConfig.timeout || 'PT5M'
   }
 
+  // WaitForTimer fields
+  if (node.type === 'waitForTimer') {
+    values.timerDuration = nodeData?.config?.duration || ''
+    values.timerUntil = nodeData?.config?.until || ''
+  }
+
   // Start node pre-conditions
   if (node.type === 'start' && nodeData?.preConditions) {
     values.preConditions = nodeData.preConditions
@@ -337,6 +348,27 @@ export function formValuesToNodeUpdates(
     if (Object.keys(config).length > 0) {
       updates.signalConfig = config
     }
+  }
+
+  // WaitForTimer specific fields (duration XOR until)
+  if (node.type === 'waitForTimer') {
+    const duration = typeof values.timerDuration === 'string' ? values.timerDuration.trim() : ''
+    const until = typeof values.timerUntil === 'string' ? values.timerUntil.trim() : ''
+
+    if (duration && until) {
+      throw new Error('Wait For Timer accepts "Duration" or "Wait Until", not both. Clear one of them.')
+    }
+    if (!duration && !until) {
+      throw new Error('Wait For Timer requires either "Duration" or "Wait Until".')
+    }
+    if (duration && !isValidDurationString(duration)) {
+      throw new Error('Invalid duration. Use ISO 8601 (e.g., PT5M, PT1H, P1D) or simple format (5m, 1h, 3d).')
+    }
+    if (until && !isFutureIsoDateString(until)) {
+      throw new Error('Wait Until must be a date and time in the future.')
+    }
+
+    updates.config = duration ? { duration } : { until }
   }
 
   // Start node pre-conditions
