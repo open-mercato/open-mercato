@@ -182,6 +182,10 @@ const fs = require('node:fs')
 const path = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const prompt = fs.readFileSync(0, 'utf8')
+if (!prompt.includes('implement the complete request with repeated use of the allowlisted harness write tool')
+  || !prompt.includes('A manifest of intended files, metadata-only stub, TODO, placeholder')
+  || !prompt.includes('selectedContext records only instruction/fact paths')) process.exit(10)
 JSON.parse(fs.readFileSync(args[args.indexOf('--output-schema') + 1], 'utf8'))
 ${sandboxProbe ? `
 try { fs.readFileSync(${JSON.stringify(sandboxProbe.readPath)}, 'utf8'); process.exit(31) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT'].includes(error.code)) throw error }
@@ -196,6 +200,7 @@ fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   decisions: ['crud-factory', 'scoped-response', 'openapi-indexer'], violations: []
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md .ai/guides/contracts.md .ai/skills/om-module-scaffold/SKILL.md' } }))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: 'src/modules/library/api/books/route.ts' }, status: 'completed' } }))
 `)
   const fakeYarn = path.join(bin, 'yarn')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
@@ -2348,6 +2353,7 @@ test('writable model sandbox denies out-of-root reads and writes while allowing 
     preparePassingWritableCrudResult(controller, target, false, { readPath: secret, writePath: escapedWrite })
     const [stored] = storedResults(controller)
     assert.equal(stored.status, 'pass')
+    assert.equal(stored.actualContext.paths.includes('src/modules/library/api/books/route.ts'), false)
     assert.equal(fs.readFileSync(secret, 'utf8'), 'do-not-read')
     assert.equal(fs.existsSync(escapedWrite), false)
   } finally {

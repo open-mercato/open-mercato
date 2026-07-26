@@ -1325,7 +1325,12 @@ function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads
     }
     for (const file of expandObservedPath(root, relative, candidate.expand)) {
       if (matchesAny(file, HARD_FORBIDDEN_READ_PATTERNS) || matchesAny(file, caseRecord.context.forbidden)) violations.add(`forbidden context read ${file}`)
-      else if (isAllowedObservedPath(file, caseRecord, writable)) paths.add(file)
+      // Writable target source is a safe implementation input, not routing context.
+      // Keep it out of instruction/fact budgets and selectedContext accounting while
+      // still failing closed above for every non-allowlisted read.
+      else if (isAllowedObservedPath(file, caseRecord, writable)) {
+        if (!writable || reviewExpectedReads || permittedContextPath(file, caseRecord)) paths.add(file)
+      }
       else violations.add(`unsafe arbitrary app-root read ${file}`)
     }
   }
@@ -1479,7 +1484,7 @@ function buildPrompt(caseRecord, root, writable) {
   const externalSkills = [...discoverExternalSkills(root)]
   const availableSkills = [...new Set([...localSkills, ...externalSkills])].sort()
   const modeInstruction = writable
-    ? 'This is an explicitly disposable writable evaluation. You must implement the requested artifact with the allowlisted harness write tool before returning the routing object, then re-read the completed file. A response that only plans or routes without writing fails. Write only inside the allowlist provided after the task; do not use network access or inspect environment values.'
+    ? 'This is an explicitly disposable writable evaluation. You must implement the complete request with repeated use of the allowlisted harness write tool before returning the routing object, then re-read the completed implementation. A manifest of intended files, metadata-only stub, TODO, placeholder, or response that only plans/routes fails: create every requested source, API, command, UI, registration, locale, migration snapshot, and focused test surface inside the write allowlist. You may read allowlisted target source files as implementation inputs, but selectedContext records only instruction/fact paths and must never include those target source paths. Write only inside the allowlist provided after the task; do not use network access or inspect environment values.'
     : 'Work read-only: do not edit files, run mutations, use network access, or inspect environment values. Do not implement the request. Accept the task premise for routing; fixture and implementation-target paths may be absent in this controller, so do not inspect them or report their absence as a blocker.'
   return `You are evaluating routing for a standalone Open Mercato application. ${modeInstruction} Only the harness MCP read tool${writable ? ' and allowlisted write tool are' : ' is'} available; no shell, process, environment, discovery, or network tool exists. Your first tool action must read AGENTS.md with that exact-path tool, even when the runner auto-injected it, then load only the smallest task-matching context. Do not execute framework-context, generation, test, package, release, installer, or skill workflow commands during routing; select the instructions that would govern that later execution. Do not emit a provisional structured response. Do not inspect .ai/harness/**; those are evaluator internals. Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories; an all-guides/all-skills/all-facts read is an automatic failure. The emitted AGENTS.md and the context it routes are the only task-routing authority. Before the final response, open every instruction or fact path you will put in selectedContext with direct harness read calls. Never rely only on skill descriptions, filenames, discovery, metadata, or prior knowledge: an unobserved selected path automatically fails this evaluation.
 
