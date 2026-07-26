@@ -4,6 +4,8 @@ import {
   LAUNCH_ARGS,
   importChromium,
   installNavigationGuard,
+  launchChromium,
+  type InstallRunner,
   type BrowserHandle,
   type ContextHandle,
   type PageHandle,
@@ -17,6 +19,8 @@ export type SidecarState = {
   leases: Map<string, Lease>
   filterSubresources: boolean
   warn: (message: string) => void
+  /** Injectable so tests never shell out to `npx playwright install`. */
+  installRunner?: InstallRunner
 }
 
 export const DEFAULT_GOTO_TIMEOUT_MS = 30_000
@@ -35,7 +39,11 @@ export function createState(overrides: Partial<SidecarState> = {}): SidecarState
 async function ensureBrowser(state: SidecarState): Promise<BrowserHandle> {
   if (state.browser) return state.browser
   const chromium = await importChromium()
-  state.browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS })
+  state.browser = await launchChromium(
+    chromium,
+    { headless: true, args: LAUNCH_ARGS },
+    { onProgress: state.warn, ...(state.installRunner ? { install: state.installRunner } : {}) },
+  )
   return state.browser
 }
 

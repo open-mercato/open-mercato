@@ -35,16 +35,11 @@
     }
   },
   "peerDependencies": {
-    "@open-mercato/web-research": "^0.6.0",
-    "playwright": "^1.40.0"
-  },
-  "peerDependenciesMeta": {
-    "playwright": {
-      "optional": true
-    }
+    "@open-mercato/web-research": "^0.6.0"
   },
   "dependencies": {
     "@open-mercato/web-research-serp": "workspace:*",
+    "playwright": "^1.40.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

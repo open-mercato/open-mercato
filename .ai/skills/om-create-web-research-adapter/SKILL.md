@@ -113,9 +113,20 @@ resolveModel: z.custom<ModelResolver>((value) => typeof value === 'function').op
 `readiness()` then reports its absence plainly instead of failing deep inside a search. See
 `packages/web-research-model/src/adapter.ts`.
 
-If you must import an optional SDK, do it with a **dynamic import inside the call path**, never at
-module scope. This package is statically imported by the generated registry, and a missing optional
-peer at module scope fails the entire registry rather than just this adapter.
+**Ship what your adapter needs.** Declare an SDK your adapter cannot work without as a real
+`dependency`, not an optional peer — installing the adapter package should be the only step an
+operator takes. The package is opt-in by virtue of being installed at all, so there is nothing to
+protect a non-user from.
+
+Still import it with a **dynamic import inside the call path**, never at module scope: this package
+is statically imported by the generated registry, and a load failure at module scope fails the whole
+registry rather than just this adapter.
+
+**Non-npm assets need a bootstrap.** A browser binary, a model file or a native toolchain is not
+something the package manager fetches. Handle it the way `web-research-browser` handles Chromium:
+detect the specific "asset missing" failure, fetch it once with a bounded timeout, retry exactly
+once, and surface an actionable error if the fetch fails. Keep the fetcher injectable so tests never
+shell out. Until a second adapter needs this, keep it inside the adapter rather than generalizing it.
 
 ### 5. Test it
 
@@ -162,6 +173,6 @@ from your `optionsSchema`. It ships **disabled** — enabling it is the operator
 - Never call `fetch`, `node:https`, or a vendor SDK's own transport.
 - Never throw from `search`, `fetch`, or `readiness`.
 - Never return `empty` for a failure, or `error` for a missing key.
-- Never import an optional peer dependency at module scope.
+- Never import an SDK at module scope, even one you depend on - the generated registry imports this package statically.
 - Never reuse an existing adapter id — the loader rejects the duplicate and the operator sees an adapter silently missing.
 - Never bundle a copy of `@open-mercato/web-research`.

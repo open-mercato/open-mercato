@@ -1,10 +1,15 @@
+import { spawn } from 'node:child_process'
 import { assertPublicUrl } from '@open-mercato/web-research'
 import { SidecarError } from './protocol'
 
 /**
- * Structural projections of the Playwright surface we touch. Playwright is an
- * optional peer, so its types are never imported — a type-only import would still
- * fail typecheck for a consumer that did not install it.
+ * Structural projections of the Playwright surface we touch.
+ *
+ * Playwright is a real dependency of this package — installing the adapter gets
+ * you the tooling it needs — but it is still reached through a dynamic import
+ * inside the sidecar, so the app and MCP processes never load it. The types stay
+ * structural for the same reason: nothing here should pull the SDK into a bundle
+ * that only ever spawns the child.
  */
 export type PageHandle = {
   goto(url: string, options?: { waitUntil?: string; timeout?: number }): Promise<unknown>
@@ -48,10 +53,87 @@ export async function importChromium(): Promise<BrowserType> {
     return playwright.chromium
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    // Playwright is a dependency of this package, so a module-not-found here
+    // means a broken install (hoisting, a pruned image layer), not a missing opt-in.
     throw new SidecarError(
-      `Playwright is not installed. Run \`yarn add playwright\` then \`npx playwright install chromium\`.\nUnderlying: ${message}`,
+      `Playwright could not be loaded even though it is a dependency of this package — reinstall dependencies. Underlying: ${message}`,
       isModuleNotFound(message) ? 'needs-install' : 'init',
     )
+  }
+}
+
+/**
+ * Playwright's launch error when the npm package is installed but the browser
+ * binary was never downloaded. The wording has been stable across 1.x, and it is
+ * the only signal Playwright gives for this case.
+ */
+function isMissingBrowserError(error: unknown): boolean {
+  return error instanceof Error && /Executable doesn'?t exist at/i.test(error.message)
+}
+
+/** Generous, but bounded — an unbounded install hangs the sidecar forever. */
+const INSTALL_TIMEOUT_MS = 10 * 60_000
+
+export type InstallRunner = (onProgress: (line: string) => void) => Promise<void>
+
+const defaultInstallRunner: InstallRunner = async (onProgress) =>
+  new Promise((resolve, reject) => {
+    const child = spawn('npx', ['playwright', 'install', 'chromium'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let tail = ''
+    const collect = (chunk: Buffer): void => {
+      tail = `${tail}${chunk.toString('utf8')}`.slice(-4000)
+    }
+    child.stdout?.on('data', collect)
+    child.stderr?.on('data', collect)
+
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL')
+      reject(new Error(`\`npx playwright install chromium\` exceeded ${INSTALL_TIMEOUT_MS}ms`))
+    }, INSTALL_TIMEOUT_MS)
+
+    child.once('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+    child.once('close', (code) => {
+      clearTimeout(timer)
+      if (code === 0) {
+        onProgress('chromium install complete')
+        resolve()
+        return
+      }
+      reject(new Error(`\`npx playwright install chromium\` failed (exit ${code}): ${tail.trim()}`))
+    })
+  })
+
+/**
+ * Launches Chromium, downloading the binary once if it is missing.
+ *
+ * Installing the npm package does not fetch the ~150MB browser, so an operator
+ * who enables this tier would otherwise hit a launch failure with no obvious
+ * remedy. One retry only — a second failure is a real fault, not a cold cache.
+ */
+export async function launchChromium(
+  browserType: BrowserType,
+  options: { headless?: boolean; args?: string[] },
+  deps: { install?: InstallRunner; onProgress?: (line: string) => void } = {},
+): Promise<BrowserHandle> {
+  try {
+    return await browserType.launch(options)
+  } catch (error) {
+    if (!isMissingBrowserError(error)) throw error
+    const onProgress = deps.onProgress ?? (() => {})
+    onProgress('chromium binary missing, running `npx playwright install chromium` (one-time, ~150MB)')
+    try {
+      await (deps.install ?? defaultInstallRunner)(onProgress)
+    } catch (installError) {
+      const detail = installError instanceof Error ? installError.message : String(installError)
+      throw new SidecarError(
+        `Playwright browser auto-install failed: ${detail}. Run \`npx playwright install chromium\` manually.`,
+        'init',
+      )
+    }
+    return await browserType.launch(options)
   }
 }
 
