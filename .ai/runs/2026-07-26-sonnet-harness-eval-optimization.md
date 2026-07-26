@@ -22,6 +22,7 @@ Sibling follow-up: #4528 (`feat/kimi-cli-runner-harness-evals`) adds a third run
 - Make encryption guidance actionable without routine source archaeology: canonical encryption maps and scoped decryption helpers (including `findWithDecryption`-style reads), redaction boundaries, and search/export/worker coverage.
 - Audit indexing/search guidance, including `search.ts`/query-index contracts, post-write indexing or invalidation, deterministic convergence/reindex verification, and no arbitrary sleeps.
 - Audit the AI framework, i18n, and UMES authoring surfaces: typed agents/tools and approval-gated mutations; locale ownership and generated registration; and stable injection spots/IDs plus widgets, fields, menus, component replacements, interceptors, guards, and response enrichers for new APIs/UIs.
+- Make complete new modules visible in the main sidebar and add a failing-first single-shot book-library module evaluation. The generated plan must own registration/navigation, DataTable + CrudForm create/edit flows and add-book links, command writes with atomic transactions and undo, ACL/setup features, custom fields, search/indexing, UI i18n, encryption maps/scoped decryption, and an intentional UMES-capable API host.
 - Add or strengthen semantic catalog coverage for real gaps above. Preserve progressive disclosure and the fail-closed gates; modest per-case file/byte quota increases and limited WIP catalog compatibility changes are allowed only when both runner traces justify them and the final measurements disclose them.
 
 ## Non-goals
@@ -155,6 +156,19 @@ Implementation rule: keep the root router compact, put actionable contracts in t
 - Kept AI and i18n owners unchanged because their existing progressive references already pin typed discovered files, `prepareMutation` approval before command writes, optimistic locking, generation, `i18n/<locale>.json`, and the distinct `translations.ts` entity-field surface.
 - Focused checks: the new contract test first failed 2/5, then passed 5/5 after the owner edits; combined instruction-budget and guidance suite passed 10/10. No root-router, evaluator, case expectation, or quota change was needed for this batch.
 
+### Book-library one-shot requirement accepted (2026-07-26T17:00Z)
+
+The expanded catalog must include a failing-first, single-shot request to create a complete app-owned book-library module. Its required decision contract will keep smaller models from stopping at entity/API scaffolding:
+
+- register the module and generated discovery surfaces, add a localized main-sidebar navigation entry, and expose list/create/edit routes with an obvious add-book action;
+- build the list with DataTable and the create/edit flow with CrudForm, including custom-field render/read/save/reload/clear behavior;
+- declare ACL features/default grants, validate tenant/org scope, and route all writes through commands with audit logs, optimistic locking, atomic multi-phase flushes, undo, and post-commit event/cache/index effects;
+- declare encryption maps, use scoped framework decryption reads, exclude encrypted values from unsafe indexes, and provide a deterministic search/reindex contract;
+- publish aligned, stable colon-form entity/host IDs for intentional API enrichment and UI injection spots so later UMES widgets/interceptors/guards can extend the module;
+- own all visible copy in module `i18n/<locale>.json`, run generation, and prove the smallest structural/behavioral checks.
+
+Implementation order: add the semantic/writable case and demonstrate its failure against the existing harness, remediate the smallest progressive owners, then run it against both Sonnet and Codex before the expanded full matrices. Any case-count, context-quota, or compatibility change must be recorded with the exact justification.
+
 
 ## Progress
 
@@ -191,6 +205,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.2 Remediate declaration/observation discipline in the shared contract — `selectedContext` is an exact record; over-reported blockers; refused reads no longer scored as loaded content (both runner shapes)
 - [ ] 3.3 Recalibrate over-specified expectations and prove the complete sonnet matrix
 - [ ] 3.4 Audit and pin the expanded integrity/encryption/search/AI/i18n/UMES guidance requirements
+- [ ] 3.5 Add and pass the single-shot complete book-library module evaluation, including main-sidebar visibility
 
 ### Phase 4: Compatibility baseline
 
