@@ -60,7 +60,11 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(integrity, /same `EntityManager`/)
   assert.match(integrity, /@open-mercato\/shared\/lib\/commands\/undo/)
   assert.match(integrity, /extractUndoPayload/)
+  assert.match(integrity, /commands\/customFieldSnapshots/)
+  assert.match(integrity, /buildCustomFieldResetMap/)
   assert.match(integrity, /enforceCommandOptimisticLock/)
+  assert.match(integrity, /commands\/helpers/)
+  assert.match(integrity, /second argument is an array/)
   assert.match(integrity, /after commit/)
 })
 
@@ -75,9 +79,13 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(moduleSurfaces, /`indexer: \{ entityType \}`/)
   assert.match(moduleSurfaces, /deterministic convergence/)
   assert.match(moduleSurfaces, /buildSource/)
-  assert.match(moduleSurfaces, /do not invent `convergenceKey` or `result` aliases/)
+  assert.match(moduleSurfaces, /Do not invent `convergenceKey`, `result`.*aliases/)
+  assert.match(moduleSurfaces, /@open-mercato\/shared\/modules\/search/)
+  assert.match(moduleSurfaces, /searchable: \[\.\.\.\], excluded: \[\.\.\.\]/)
+  assert.match(moduleSurfaces, /text: string\[\]/)
   assert.match(moduleSurfaces, /<module>\.<resources>\.view/)
   assert.match(moduleSurfaces, /setup: ModuleSetupConfig/)
+  assert.match(moduleSurfaces, /@open-mercato\/shared\/modules\/events/)
 
   const apiAndDomain = readAgentic(
     'shared/ai/skills/om-module-scaffold/references/api-and-domain.md',
@@ -93,7 +101,7 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(crudSurfaces, /authoring a new host UI/)
   assert.match(crudSurfaces, /extensionTableId/)
   assert.match(crudSurfaces, /stable column, action, and row-action IDs/)
-  for (const expected of ['searchValue', 'onSearchChange', '`/create`', 'RowActions', 'collectCustomFieldValues']) {
+  for (const expected of ['@open-mercato/ui/backend/DataTable', '@open-mercato/ui/backend/RowActions', '@open-mercato/ui/backend/CrudForm', '@open-mercato/shared/lib/i18n/context', '@open-mercato/ui/backend/utils/apiCall', 'searchValue', 'onSearchChange', '`/create`', 'RowActions', 'collectCustomFieldValues', 'mapCrudServerErrorToFormErrors', 'injectionSpotId']) {
     assert.ok(crudSurfaces.includes(expected), `missing canonical CRUD surface contract ${expected}`)
   }
 
