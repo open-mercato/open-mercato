@@ -47,8 +47,13 @@ replacement.
    `LABELS_ENABLED`, `QA_GATE`, and the operations **current-user**, **get-pr**,
    **get-pr-checks**, **get-pr-diff**, **list-prs**, **list-issue-comments**,
    **assign-pr**, **comment-pr**, plus the `apply_label` / `set_pipeline_label`
-   guards. Confirm the GitHub identity first (`gh auth status`) — this repo
-   requires the `wojciechszyjka` account; stop if a different one is active.
+   guards. Confirm the GitHub identity first (`gh auth status`) — stop when the
+   active account is not the one this repository's runs are made from.
+   The `.agents/skills/…` references quoted throughout belong to the shared
+   skills installed from [open-mercato/skills](https://github.com/open-mercato/skills);
+   they are not committed to this repository. When one is missing, run
+   `yarn install-skills` and re-enter — never improvise a substitute procedure
+   for the claim, worktree, or setup mechanics.
 
 1. **Resolve the PR.** With `{prNumber}`, fetch it. Without one, run **list-prs**
    for the current user's open PRs and ask which to drive. Stop immediately when
