@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "picocolors": "^1.1.0",
-    "tar": "^7.5.20",
+    "tar": "^7.5.21",
     "ts-morph": "^28.0.0"
   },
   "devDependencies": {
