@@ -5,6 +5,7 @@
 ```text
 yarn harness:validate --runner codex --all
 yarn harness:validate --runner claude --case OMH-009
+yarn harness:validate --runner kimi --case OMH-009
 ```
 
 A blocking release selects one primary runner for every live lane. The optional portability runner must be different and receives only the exact 39-case representative read-only set:
@@ -37,6 +38,6 @@ The source must be a passing one-shot implementation result from the current har
 
 ## Live-run security boundary
 
-The trusted runner receives an explicit allowlist of runtime/authentication variables rather than the evaluator's complete environment. The model receives no general shell, process, environment, discovery, browser, or network tool. Codex and Claude are both restricted to one evaluator-owned MCP server launched through `env -i`; it exposes only exact-path `read` and, for writable cases, allowlisted atomic `write`. The server rejects absolute/traversal paths, symlink escapes, credentials, dependencies, Git state, build output, and harness internals. Every response-derived string is also recursively redacted before validation or persistence.
+The trusted runner receives an explicit allowlist of runtime/authentication variables rather than the evaluator's complete environment. The model receives no general shell, process, environment, discovery, browser, or network tool. Codex, Claude, and Kimi are restricted to one evaluator-owned MCP server launched through `env -i`; it exposes only exact-path `read` and, for writable cases, allowlisted atomic `write`. The server rejects absolute/traversal paths, symlink escapes, credentials, dependencies, Git state, build output, and harness internals. Every response-derived string is also recursively redacted before validation or persistence.
 
 The controller places routing and generated-code review inside a host filesystem sandbox: macOS uses `/usr/bin/sandbox-exec`; Linux uses Bubblewrap with user namespaces; native Windows is unsupported for live/review lanes. Only the trusted runner binary receives provider transport and isolated authentication state. Prompt-directed tools cannot open sockets or read runner state: the sole MCP subprocess has an empty environment, is rooted at the app or inert review bundle, and implements no process or network operation. The mandatory outer sandbox remains the filesystem authority; the narrow MCP contract is the model-tool authority. Tool-event traces are still mandatory release evidence: missing traces, out-of-root reads, `.env*`, `.git/**`, `.ai/harness/**`, and case-forbidden or arbitrary app-root reads fail closed. `actualContext` contains only traced MCP reads; `declaredContext` separately measures the model-reported selection. Writable runs additionally fingerprint normally ignored/protected roots before and after execution so writes under `.git`, `node_modules`, build output, or harness results cannot evade the allowlist check.

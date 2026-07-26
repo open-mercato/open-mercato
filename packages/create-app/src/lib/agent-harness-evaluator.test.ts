@@ -101,7 +101,7 @@ function runEvaluator(root: string, args: string[] = [], env: NodeJS.ProcessEnv 
   })
 }
 
-function installFakeRunner(root: string, name: 'codex' | 'claude', source: string): string {
+function installFakeRunner(root: string, name: 'codex' | 'claude' | 'kimi', source: string): string {
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin, { recursive: true })
   const fake = path.join(bin, name)
@@ -247,7 +247,11 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(cases.filter((entry) => entry.fixture).map((entry) => entry.id), validators.catalog.writableCaseIds)
   assert.deepEqual(matrix.routing.portability.caseIds, validators.catalog.writableCaseIds)
   assert.equal(matrix.routing.required.caseIds, 'all')
-  assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } })
+  assert.deepEqual(matrix.routing.runners, {
+    codex: { modelSelector: 'default' },
+    claude: { modelSelector: 'sonnet' },
+    kimi: { modelSelector: 'default' },
+  })
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
   assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
   assert.equal(validators.catalog.writableCaseIds.length, 39)
@@ -260,7 +264,7 @@ test('the catalog count and release coverage are derived from the validator regi
     { caseId: 'OMH-164', runner: 'playwright-api', artifact: 'src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts', network: 'loopback' },
     { caseId: 'OMH-165', runner: 'playwright-browser', artifact: 'src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts', network: 'loopback' },
   ])
-  assert.deepEqual(matrix.releaseSuite.supportedRunners, ['codex', 'claude'])
+  assert.deepEqual(matrix.releaseSuite.supportedRunners, ['codex', 'claude', 'kimi'])
   assert.equal(matrix.releaseSuite.requireGeneratedCodeReview, true)
   assert.deepEqual(matrix.releaseSuite.validationCommands, ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'])
   assert.deepEqual(
@@ -586,6 +590,58 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
     assert.match(result.stdout, /PASS OMH-009/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live Kimi adapter isolates auth and exposes only the exact-path harness MCP reader', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const configured = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-kimi-credentials-')))
+  fs.mkdirSync(path.join(configured, 'credentials'), { recursive: true })
+  fs.writeFileSync(path.join(configured, 'config.toml'), 'default_model = "kimi-for-coding"\n')
+  fs.writeFileSync(path.join(configured, 'credentials', 'kimi-code.json'), JSON.stringify({ token: 'fake-kimi-token' }))
+  const bin = installFakeRunner(root, 'kimi', `
+const fs = require('node:fs')
+const path = require('node:path')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('kimi-fake 0.29.1'); process.exit(0) }
+if (process.env.KIMI_CODE_EXPERIMENTAL_FLAG !== '1' || !process.env.KIMI_CODE_HOME?.includes('om-harness-result-') || !process.env.HOME?.includes('om-harness-result-')) process.exit(9)
+if (args.includes('--auto') || args.includes('--yolo') || args.includes('--model')) process.exit(9)
+if (args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--skills-dir') || !args.includes('--agent-file') || !args.includes('--prompt')) process.exit(9)
+const skillsDir = args[args.indexOf('--skills-dir') + 1]
+if (fs.readdirSync(skillsDir).length !== 0) process.exit(9)
+const agent = fs.readFileSync(args[args.indexOf('--agent-file') + 1], 'utf8')
+if (!agent.includes('mcp__harness__read') || agent.includes('mcp__harness__write') || /(?:^|\\n)  - (?:Bash|Read|Write|Glob|Grep)(?:\\n|$)/.test(agent)) process.exit(9)
+const mcp = JSON.parse(fs.readFileSync(path.join(process.env.KIMI_CODE_HOME, 'mcp.json'), 'utf8')).mcpServers.harness
+if (mcp.command !== '/usr/bin/env' || mcp.args[0] !== '-i' || !mcp.args.some((entry) => entry.endsWith('agent-harness-tool-server.mjs'))) process.exit(9)
+if (!fs.existsSync(path.join(process.env.KIMI_CODE_HOME, 'config.toml')) || !fs.existsSync(path.join(process.env.KIMI_CODE_HOME, 'credentials', 'kimi-code.json'))) process.exit(9)
+const allowedReads = JSON.parse(mcp.args.at(-2))
+for (const required of ['AGENTS.md', '.ai/guides/architecture.md']) if (!allowedReads.includes(required)) process.exit(9)
+if (JSON.parse(mcp.args.at(-1)).length !== 0) process.exit(9)
+if (!args[args.indexOf('--prompt') + 1].includes('UNTRUSTED_TASK')) process.exit(9)
+const calls = ['AGENTS.md', '.ai/guides/architecture.md'].map((file) => ({
+  type: 'function', function: { name: 'mcp__harness__read', arguments: JSON.stringify({ path: file }) },
+}))
+console.log(JSON.stringify({ role: 'assistant', tool_calls: calls }))
+console.log(JSON.stringify({ role: 'tool', tool_call_id: 'read', content: 'ok' }))
+console.log(JSON.stringify({ role: 'assistant', content: JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: [],
+}) }))
+console.log(JSON.stringify({ role: 'meta', type: 'session.resume_hint', session_id: 'ignored' }))
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'kimi', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+      KIMI_CODE_HOME: configured,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    assert.match(result.stdout, /PASS OMH-001/)
+    assert.deepEqual(storedResults(root)[0].actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(configured, { recursive: true, force: true })
   }
 })
 

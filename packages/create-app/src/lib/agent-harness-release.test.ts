@@ -76,14 +76,18 @@ function releaseInputs() {
   const releaseMatrix = {
     deterministic: { caseIds: 'all' },
     releaseSuite: {
-      supportedRunners: ['codex', 'claude'],
+      supportedRunners: ['codex', 'claude', 'kimi'],
       requireGeneratedCodeReview: true,
       validationCommands: ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'],
     },
     routing: {
       required: { caseIds: 'all' },
       portability: { caseIds: ['OMH-002', 'OMH-003'] },
-      runners: { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } },
+      runners: {
+        codex: { modelSelector: 'default' },
+        claude: { modelSelector: 'sonnet' },
+        kimi: { modelSelector: 'default' },
+      },
     },
     writable: [
       { caseId: 'OMH-002' },
@@ -93,7 +97,11 @@ function releaseInputs() {
       required: true,
       skill: 'om-code-review',
       caseIds: ['OMH-002', 'OMH-003'],
-      runners: { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } },
+      runners: {
+        codex: { modelSelector: 'default' },
+        claude: { modelSelector: 'sonnet' },
+        kimi: { modelSelector: 'default' },
+      },
     },
     generatedTests: { required: true, entries: [] },
   }
@@ -141,6 +149,17 @@ test('release preflight selects one primary runner and an optional distinct port
     ['portability', 'codex', ['OMH-002', 'OMH-003']],
   ])
   assert.ok(claude.steps.filter((entry: any) => ['writable', 'review'].includes(entry.kind)).every((entry: any) => entry.runner === 'claude'))
+
+  const kimiInput = releaseInputs()
+  kimiInput.primaryRunner = 'kimi'
+  kimiInput.portabilityRunner = 'claude'
+  const kimi = release.buildReleasePlan(kimiInput)
+  assert.deepEqual(kimi.runnerPolicy, { primaryRunner: 'kimi', portabilityRunner: 'claude' })
+  assert.deepEqual(kimi.coverage.routing.map((entry: any) => [entry.lane, entry.runner, entry.expectedCaseIds]), [
+    ['primary', 'kimi', ['OMH-001', 'OMH-002', 'OMH-003']],
+    ['portability', 'claude', ['OMH-002', 'OMH-003']],
+  ])
+  assert.ok(kimi.steps.filter((entry: any) => ['writable', 'review'].includes(entry.kind)).every((entry: any) => entry.runner === 'kimi'))
 
   const sameRunner = releaseInputs()
   sameRunner.portabilityRunner = 'codex'
@@ -1216,7 +1235,7 @@ test('release command requires one explicit primary runner and rejects a duplica
     releaseScript, '--prepare-targets', path.join(os.tmpdir(), 'om-release-unused-targets'), '--acknowledge-writes',
   ], { encoding: 'utf8' })
   assert.equal(missing.status, 2)
-  assert.match(missing.stderr, /--runner must be codex or claude/)
+  assert.match(missing.stderr, /--runner must be codex, claude, or kimi/)
 
   const duplicate = spawnSync(process.execPath, [
     releaseScript, '--runner', 'codex', '--portability-runner', 'codex',

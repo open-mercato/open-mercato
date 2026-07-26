@@ -235,11 +235,11 @@ yarn install-skills [existing flags]
 yarn framework:context --module <id> [--query <text>] [--json]
 yarn framework:context --package <@scope/name> [--query <text>] [--json]
 yarn harness:validate [--case <id> | --family <name> | --all]
-yarn harness:validate --runner <codex|claude> [--case/--family/--all] [--batch-size <n>] [--timeout <ms>]
+yarn harness:validate --runner <codex|claude|kimi> [--case/--family/--all] [--batch-size <n>] [--timeout <ms>]
 yarn harness:fixture --case <id> --target <absolute-disposable-app> --acknowledge-writes
-yarn harness:validate --runner <codex|claude> --case <id> --writable-root <absolute-disposable-app> --acknowledge-writes
-yarn harness:validate --runner <codex|claude> --review-writable-result <result.json> --writable-root <absolute-disposable-app> [--review-validation-result <result.json>]
-yarn harness:release --runner <codex|claude> [--portability-runner <other-runner>] --prepare-targets <absolute-empty-directory> --acknowledge-writes
+yarn harness:validate --runner <codex|claude|kimi> --case <id> --writable-root <absolute-disposable-app> --acknowledge-writes
+yarn harness:validate --runner <codex|claude|kimi> --review-writable-result <result.json> --writable-root <absolute-disposable-app> [--review-validation-result <result.json>]
+yarn harness:release --runner <codex|claude|kimi> [--portability-runner <other-runner>] --prepare-targets <absolute-empty-directory> --acknowledge-writes
 yarn mercato agentic:init [--tool <id>] [--update-harness | --force]
 ```
 
@@ -594,7 +594,7 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 | Missing source/duplicate module/version skew fixtures | Explicit degraded/ambiguous/skew output; no guessed edit path. |
 | Deterministic harness validation | 184 schema-valid cases, existing references, no contradictory stale patterns, context budgets, dependency closure. |
 | Instruction-budget regression | Both root sources ≤12 KiB; named representative generated initial chains ≤32,768 bytes, measured as bytes. |
-| Selected primary live runner | Codex or Claude read-only structured routing/decision result for all 184 cases, one fresh session per case. |
+| Selected primary live runner | Codex, Claude, or Kimi read-only structured routing/decision result for all 184 cases, one fresh session per case. |
 | Optional portability live runner | A different explicitly requested runner executes the exact 39-case representative read-only target; omission is recorded without blocking release. |
 | Writable live runner | The selected primary runner owns disposable scaffolds and executable oracles for all 39 implementation/regression cases. |
 | Generated test execution | Fixed-argv execution of the generated Jest unit plus Linux/Bubblewrap-isolated Playwright API and browser cases in canonical module-local paths; a host-loopback listener remains unreachable. |
@@ -669,7 +669,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Implement deterministic, read-only Codex/Claude routing, and writable disposable-scaffold evaluation modes plus sanitized result artifacts.
 2. Generate a fresh standalone app, install local/external skills, resolve upstream context, and run deterministic validation.
-3. Select Codex or Claude once for the release; run all 184 primary routing cases and all 39 primary-owned writable implementation/regression target oracles, generated tests, target commands, and code reviews. Optionally request the other runner for the exact 39-case read-only portability target. Fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
+3. Select Codex, Claude, or Kimi once for the release; run all 184 primary routing cases and all 39 primary-owned writable implementation/regression target oracles, generated tests, target commands, and code reviews. Optionally request a different supported runner for the exact 39-case read-only portability target. Fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
 4. Run create-app targeted tests, Verdaccio standalone parity where package boundaries changed, and the configured full repository gate.
 5. Complete automated code review/autofix, final compliance report, PR evidence, and rollback notes.
 
@@ -706,3 +706,4 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 - **2026-07-24** — Strengthened the release target to 39 cases (21.2%), made generated-code review mandatory for every writable implementation/regression, and added fixed-argv execution of generated Jest, Playwright API, and Playwright browser tests under fail-closed host containment.
 - **2026-07-25** — Replaced the non-waivable dual-provider release dependency with one explicit primary runner that owns all blocking live lanes, plus an optional distinct 39-case read-only portability runner recorded separately in release evidence.
 - **2026-07-25** — Made the complete release gate require trusted Linux/Bubblewrap after proving macOS `sandbox-exec` shares host loopback; preflight rejects untrusted/no-op/pass-through runtimes and proves private loopback before target/provider/write activity, all build validation is network-free, and Playwright loopback stays inside an unshared namespace.
+- **2026-07-26** — Added Kimi CLI as a third contained primary or portability runner with isolated authentication state, a custom allowlisted MCP-only agent, stream-event parsing, and the same fail-closed trace and release contracts as Codex and Claude.

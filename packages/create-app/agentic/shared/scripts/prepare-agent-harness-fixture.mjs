@@ -208,7 +208,7 @@ function main() {
     0o600,
   )
   console.log(`Prepared ${options.caseId} (${fixtureId}) in ${target}`)
-  console.log(`Run: yarn harness:validate --runner <codex|claude> --case ${options.caseId} --writable-root ${target} --acknowledge-writes`)
+  console.log(`Run: yarn harness:validate --runner <codex|claude|kimi> --case ${options.caseId} --writable-root ${target} --acknowledge-writes`)
   return 0
 }
 

@@ -30,7 +30,7 @@ Examples: `OMH-011` (CRUD routes), `OMH-093` (business contact-merge command),
 
 The authoritative single-case path is the evaluator's **writable branch** inside
 `liveRun()` (`evaluate-agent-harness.mjs:2196-2326`), invoked as
-`--runner <codex|claude> --case OMH-NNN --writable-root <abs> --acknowledge-writes`.
+`--runner <codex|claude|kimi> --case OMH-NNN --writable-root <abs> --acknowledge-writes`.
 The release gate wraps this in a larger ordered sequence.
 
 ### Phase A — Host & catalog preflight
@@ -207,10 +207,10 @@ tying the reviewed artifact to the exact validated bytes.
 ## Part 2 — Optimizing for lower-capability models (without changing strong-model behavior)
 
 ### 2.1 How the model is selected today
-- **Two runners only** — `codex` and `claude` — hard-coded and frozen by tests
+- **Three runners only** — `codex`, `claude`, and `kimi` — hard-coded and frozen by tests
   (`evaluate-agent-harness.mjs:159`, `run-agent-harness-release.mjs:22,104`).
 - **Model selector is per-runner, config-driven** in the release matrix:
-  `routing.runners = { codex:{modelSelector:"default"}, claude:{modelSelector:"sonnet"} }`
+  `routing.runners = { codex:{modelSelector:"default"}, claude:{modelSelector:"sonnet"}, kimi:{modelSelector:"default"} }`
   (`ai/harness/release-matrix.json:30-31`; review lane repeats it at `:88-89`).
 - Resolved once per run: `const model = options.model ?? releaseMatrix.routing.runners[options.runner].modelSelector`
   (`evaluate-agent-harness.mjs:2199`; review path `:2119`), overridable by a single
@@ -224,7 +224,7 @@ tying the reviewed artifact to the exact validated bytes.
 ### 2.2 Where a strong model passes and a weak one fails
 | Knob | Location | Status today |
 |------|----------|--------------|
-| Runner set (codex/claude) | `evaluate…:159`, `run…:22,104` | Fixed |
+| Runner set (codex/claude/kimi) | `evaluate…:159`, `run…:22,104` | Fixed |
 | Model selector per runner | matrix `:30-31,88-89`; `evaluate…:2199` | Config-driven; global `--model` |
 | Model **per-lane / per-case** | — | **Not tunable** (one global `model`) |
 | Retry count & triggers | `evaluate…:2224-2234, 625-635` | Fixed: max 1, no assertion retry, no codex transient retry |

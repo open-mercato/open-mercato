@@ -13,6 +13,7 @@ import { sandboxedInvocation } from './execution-sandbox.mjs'
 const EXIT_PASS = 0
 const EXIT_FAILURE = 1
 const EXIT_INVALID = 2
+const SUPPORTED_RUNNERS = ['codex', 'claude', 'kimi']
 const ROUTERS = new Set([
   'architecture', 'module-data', 'backend-ui', 'umes', 'integration',
   'ai-workflow', 'testing', 'debugging', 'spec-pr', 'framework-context',
@@ -86,6 +87,7 @@ const RUNNER_ENV_KEYS = {
     'GOOGLE_APPLICATION_CREDENTIALS', 'ANTHROPIC_VERTEX_PROJECT_ID',
     'CLOUD_ML_REGION', 'AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT',
   ],
+  kimi: ['KIMI_CODE_HOME', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_BASE_URL'],
 }
 const SENSITIVE_RUNNER_ENV_KEYS = new Set([
   'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_ORG_ID', 'OPENAI_PROJECT_ID',
@@ -94,6 +96,7 @@ const SENSITIVE_RUNNER_ENV_KEYS = new Set([
   'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_REGION',
   'AWS_DEFAULT_REGION', 'GOOGLE_APPLICATION_CREDENTIALS', 'ANTHROPIC_VERTEX_PROJECT_ID',
   'CLOUD_ML_REGION', 'HTTP_PROXY', 'HTTPS_PROXY',
+  'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_BASE_URL',
 ])
 const IN_MEMORY_SECRET_VALUES = new Set([...SENSITIVE_RUNNER_ENV_KEYS]
   .map((key) => process.env[key])
@@ -107,9 +110,9 @@ function usage() {
 
 Usage:
   node scripts/evaluate-agent-harness.mjs [--root <app>] [--case <OMH-NNN> | --family <name> | --all]
-  node scripts/evaluate-agent-harness.mjs --runner <codex|claude> [selector] [--model <selector>] [--timeout <ms>]
-  node scripts/evaluate-agent-harness.mjs --runner <codex|claude> --case <id> --writable-root <absolute-path> --acknowledge-writes
-  node scripts/evaluate-agent-harness.mjs --runner <codex|claude> --review-writable-result <absolute-result.json> --writable-root <absolute-path> [--review-validation-result <absolute-result.json>]
+  node scripts/evaluate-agent-harness.mjs --runner <codex|claude|kimi> [selector] [--model <selector>] [--timeout <ms>]
+  node scripts/evaluate-agent-harness.mjs --runner <codex|claude|kimi> --case <id> --writable-root <absolute-path> --acknowledge-writes
+  node scripts/evaluate-agent-harness.mjs --runner <codex|claude|kimi> --review-writable-result <absolute-result.json> --writable-root <absolute-path> [--review-validation-result <absolute-result.json>]
 
 Default mode is deterministic and validates the complete catalog. An explicit runner --all
 selects the complete catalog; a runner without a selector uses the representative portability
@@ -156,8 +159,8 @@ function parseArgs(argv) {
     else if (arg === '--acknowledge-writes') options.acknowledgeWrites = true
     else throw new Error(`unknown argument: ${arg}`)
   }
-  if (options.runner && !['codex', 'claude'].includes(options.runner)) {
-    throw new Error('--runner must be codex or claude')
+  if (options.runner && !SUPPORTED_RUNNERS.includes(options.runner)) {
+    throw new Error('--runner must be codex, claude, or kimi')
   }
   if (!Number.isInteger(options.timeout) || options.timeout < 1_000 || options.timeout > 3_600_000) {
     throw new Error('--timeout must be an integer from 1000 to 3600000')
@@ -458,9 +461,9 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     if (!isPlainObject(entry) || !cases.some((candidate) => candidate.id === entry.caseId) || Object.keys(entry).length !== 1) globalErrors.push(`invalid runner-neutral writable release entry ${entry?.caseId ?? '<missing>'}`)
   }
   const releaseSuite = releaseMatrix?.releaseSuite
-  const supportedRunners = ['codex', 'claude']
-  if (JSON.stringify(releaseSuite?.supportedRunners) !== JSON.stringify(supportedRunners)) globalErrors.push('release suite supported runners must be Codex and Claude')
-  if (JSON.stringify(Object.keys(releaseMatrix?.routing?.runners ?? {})) !== JSON.stringify(supportedRunners)) globalErrors.push('routing matrix must configure exactly Codex and Claude')
+  const supportedRunners = SUPPORTED_RUNNERS
+  if (JSON.stringify(releaseSuite?.supportedRunners) !== JSON.stringify(supportedRunners)) globalErrors.push('release suite supported runners must be Codex, Claude, and Kimi')
+  if (JSON.stringify(Object.keys(releaseMatrix?.routing?.runners ?? {})) !== JSON.stringify(supportedRunners)) globalErrors.push('routing matrix must configure exactly Codex, Claude, and Kimi')
   for (const runner of supportedRunners) {
     if (typeof releaseMatrix?.routing?.runners?.[runner]?.modelSelector !== 'string') globalErrors.push(`routing matrix requires a ${runner} model selector`)
   }
@@ -471,7 +474,7 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
   if (review?.skill !== REVIEW_SKILL) globalErrors.push(`generated-code review skill must be ${REVIEW_SKILL}`)
   if (review?.required !== true) globalErrors.push('generated-code review must be mandatory for every writable case')
   if (JSON.stringify(review?.caseIds) !== JSON.stringify(reviewIds)) globalErrors.push('generated-code review matrix must exactly cover every writable case')
-  for (const runner of ['codex', 'claude']) {
+  for (const runner of supportedRunners) {
     if (typeof review?.runners?.[runner]?.modelSelector !== 'string') globalErrors.push(`generated-code review requires a ${runner} model selector`)
   }
   for (const [key, minimum, maximum] of [
@@ -549,7 +552,11 @@ function sanitize(value, root, maxLength = 4096) {
 function rememberCredentialFileSecrets(file) {
   if (!fs.existsSync(file)) return
   let value
-  try { value = JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return }
+  const body = fs.readFileSync(file, 'utf8')
+  try { value = JSON.parse(body) } catch {
+    if (body.trim()) IN_MEMORY_SECRET_VALUES.add(body.trim())
+    return
+  }
   const visit = (current) => {
     if (typeof current === 'string' && current.length > 0) IN_MEMORY_SECRET_VALUES.add(current)
     else if (Array.isArray(current)) current.forEach(visit)
@@ -584,6 +591,17 @@ function extractJsonCandidate(stdout, outputFile, runner) {
   const trimmed = stdout.trim()
   if (!trimmed) throw new Error('runner returned no structured output')
   const lines = trimmed.split(/\r?\n/).filter(Boolean)
+  if (runner === 'kimi') {
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      try {
+        const event = JSON.parse(lines[index])
+        if (event?.role !== 'assistant' || typeof event.content !== 'string' || !event.content.trim()) continue
+        const candidate = JSON.parse(event.content.trim())
+        if (isPlainObject(candidate)) return candidate
+      } catch { /* earlier stream events and non-JSON assistant text are not final structured output */ }
+    }
+    throw new Error('Kimi stream did not contain a structured final assistant response')
+  }
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     try {
       const parsed = JSON.parse(lines[index])
@@ -1038,6 +1056,7 @@ function recursivelyFindTraceCandidates(value, state, inheritedContentTool = fal
   if (/file_search|\bglob\b/.test(marker)) state.violations.add('forbidden metadata discovery tool')
   const toolName = String(value.name ?? value.tool_name ?? value.tool ?? value.type ?? inheritedName).toLowerCase()
   const exactReadTool = toolName === 'read' || /(?:^|__)read$/.test(toolName)
+  if (exactReadTool) state.available = true
   if (state.reviewExpectedReads && (/file_search|\bglob\b|\bgrep\b|\bbash\b|\bshell\b/.test(marker)
       || (/mcp_tool_call/.test(marker) && !exactReadTool))) {
     state.violations.add('forbidden review discovery or execution tool')
@@ -1060,6 +1079,8 @@ function recursivelyFindTraceCandidates(value, state, inheritedContentTool = fal
           for (const violation of validateReviewCommand(command, state.root, state.reviewExpectedReads)) state.violations.add(violation)
         }
       }
+    } else if (isContentTool && /^(?:arguments|input)$/i.test(key) && typeof child === 'string') {
+      try { recursivelyFindTraceCandidates(JSON.parse(child), state, true, toolName) } catch { /* malformed tool arguments fail through missing trace evidence */ }
     }
     recursivelyFindTraceCandidates(child, state, isContentTool, toolName)
   }
@@ -1449,7 +1470,7 @@ function harnessMcpConfig(root, writable, allowedReads, allowedWrites) {
   }
 }
 
-function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, writable, allowedReads, allowedWrites }) {
+function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, writable, allowedReads, allowedWrites, prompt, kimiAgentPath, kimiSkillsDir }) {
   const mcp = harnessMcpConfig(root, writable, allowedReads, allowedWrites)
   if (runner === 'codex') {
     const args = [
@@ -1479,6 +1500,16 @@ function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, wr
     args.push('-')
     return { command: 'codex', args }
   }
+  if (runner === 'kimi') {
+    const args = [
+      '--output-format', 'stream-json',
+      '--skills-dir', kimiSkillsDir,
+      '--agent-file', kimiAgentPath,
+    ]
+    if (model && model !== 'default') args.push('--model', model)
+    args.push('--prompt', prompt)
+    return { command: 'kimi', args, input: undefined }
+  }
   const schema = JSON.stringify(readJson(schemaPath))
   const mcpConfig = JSON.stringify({ mcpServers: { harness: mcp } })
   const tools = writable ? 'mcp__harness__read,mcp__harness__write' : 'mcp__harness__read'
@@ -1507,8 +1538,9 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
   const isolatedSchemaPath = path.join(tempDir, 'output.schema.json')
   fs.copyFileSync(schemaPath, isolatedSchemaPath, fs.constants.COPYFILE_EXCL)
   fs.chmodSync(isolatedSchemaPath, 0o600)
-  const invocation = buildRunnerInvocation({ runner, root: canonicalRoot, schemaPath: isolatedSchemaPath, outputPath, model, writable, allowedReads, allowedWrites })
   const runnerEnv = narrowRunnerEnv(runner)
+  let kimiAgentPath
+  let kimiSkillsDir
   if (runner === 'codex') {
     const isolatedCodexHome = path.join(tempDir, 'codex-home')
     const isolatedHome = path.join(tempDir, 'home')
@@ -1538,7 +1570,37 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
     }
     runnerEnv.HOME = isolatedHome
     runnerEnv.CLAUDE_CONFIG_DIR = isolatedConfig
+  } else if (runner === 'kimi') {
+    const isolatedHome = path.join(tempDir, 'home')
+    const isolatedKimiHome = path.join(tempDir, 'kimi-home')
+    kimiSkillsDir = path.join(tempDir, 'empty-skills')
+    fs.mkdirSync(isolatedHome, { recursive: true, mode: 0o700 })
+    fs.mkdirSync(isolatedKimiHome, { recursive: true, mode: 0o700 })
+    fs.mkdirSync(kimiSkillsDir, { recursive: true, mode: 0o700 })
+    const configuredKimiHome = runnerEnv.KIMI_CODE_HOME || path.join(os.homedir(), '.kimi-code')
+    for (const relative of ['config.toml', 'device_id', 'credentials/kimi-code.json', 'oauth/kimi-code']) {
+      const source = path.join(configuredKimiHome, relative)
+      if (!fs.existsSync(source)) continue
+      const entry = fs.lstatSync(source)
+      if (!entry.isFile() || entry.isSymbolicLink()) throw new Error(`Kimi authentication source must be a regular file: ${relative}`)
+      rememberCredentialFileSecrets(source)
+      const target = path.join(isolatedKimiHome, relative)
+      fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 })
+      fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL)
+      fs.chmodSync(target, 0o600)
+    }
+    fs.writeFileSync(path.join(isolatedKimiHome, 'mcp.json'), `${JSON.stringify({ mcpServers: { harness: harnessMcpConfig(canonicalRoot, writable, allowedReads, allowedWrites) } }, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
+    kimiAgentPath = path.join(tempDir, 'open-mercato-harness.md')
+    const kimiTools = writable ? ['mcp__harness__read', 'mcp__harness__write'] : ['mcp__harness__read']
+    fs.writeFileSync(kimiAgentPath, `---\nname: open-mercato-harness\ndescription: Contained Open Mercato harness evaluator\ntools:\n${kimiTools.map((tool) => `  - ${tool}`).join('\n')}\nsubagents: []\n---\n\n\${base_prompt}\n\nUse only the evaluator-owned harness MCP tools. Do not use shell, built-in file tools, web tools, subagents, plugins, or skills.\n`, { mode: 0o600, flag: 'wx' })
+    runnerEnv.HOME = isolatedHome
+    runnerEnv.KIMI_CODE_HOME = isolatedKimiHome
+    runnerEnv.KIMI_CODE_EXPERIMENTAL_FLAG = '1'
   }
+  const invocation = buildRunnerInvocation({
+    runner, root: canonicalRoot, schemaPath: isolatedSchemaPath, outputPath, model, writable,
+    allowedReads, allowedWrites, prompt, kimiAgentPath, kimiSkillsDir,
+  })
   const started = Date.now()
   try {
     const dependencyRoots = fs.existsSync(path.join(canonicalRoot, 'node_modules'))
@@ -1557,7 +1619,7 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writab
     })
     const processResult = spawnSync(contained.command, contained.args, {
       cwd: contained.cwd,
-      input: prompt,
+      input: Object.hasOwn(invocation, 'input') ? invocation.input : prompt,
       encoding: 'utf8',
       timeout,
       maxBuffer: 8 * 1024 * 1024,

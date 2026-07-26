@@ -222,7 +222,7 @@ yarn harness:validate --all
 
 ### Live routing evaluation
 
-Live routing starts a fresh Codex or Claude process for each case and asks for a schema-constrained response. Passing requires the model to declare the expected routes, skills, decisions, and context. The evaluator independently reconstructs observed context from tool traces; undeclared reads, declared-but-unread required context, unsafe reads, forbidden output patterns, missing traces, and budget overruns fail the case.
+Live routing starts a fresh Codex, Claude, or Kimi process for each case and asks for a schema-constrained response. Passing requires the model to declare the expected routes, skills, decisions, and context. The evaluator independently reconstructs observed context from tool traces; undeclared reads, declared-but-unread required context, unsafe reads, forbidden output patterns, missing traces, and budget overruns fail the case.
 
 There is one retry for invalid structured output and the evaluator's narrowly recognized transient-provider condition. Assertion failures are not retried into a pass.
 
@@ -319,7 +319,7 @@ yarn harness:release --runner codex \
   --acknowledge-writes
 ```
 
-Optional cross-model evidence uses the other supported runner:
+Optional cross-model evidence uses any different supported runner:
 
 ```bash
 yarn harness:release --runner codex \
