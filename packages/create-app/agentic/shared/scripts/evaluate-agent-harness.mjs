@@ -1065,7 +1065,8 @@ function collectRefusedToolCallIds(value, refused) {
   // Only an entry that explicitly REFERENCES a tool call may mark it refused. A bare `id`
   // is not accepted: an unrelated error event carrying one would otherwise suppress a
   // genuine successful-out-of-allowlist read, which must always fail closed.
-  const identifier = value.tool_use_id ?? value.toolUseId ?? value.call_id ?? value.callId
+  const identifier = value.tool_use_id ?? value.toolUseId ?? value.tool_call_id ?? value.toolCallId
+    ?? value.call_id ?? value.callId
   if (isError && typeof identifier === 'string' && identifier) refused.add(identifier)
   for (const child of Object.values(value)) collectRefusedToolCallIds(child, refused)
 }
@@ -1090,7 +1091,8 @@ function recursivelyFindTraceCandidates(value, state, inheritedContentTool = fal
   const ownContentTool = (exactReadTool || /command_execution|\bread\b|\bgrep\b|\bbash\b|\bshell\b|\bterminal\b|\bexecute\b/.test(marker)) && !/\bglob\b|file_search/.test(marker)
   const isContentTool = inheritedContentTool || ownContentTool
   const callId = (typeof value.id === 'string' && value.id) || (typeof value.call_id === 'string' && value.call_id)
-    || (typeof value.tool_use_id === 'string' && value.tool_use_id) || inheritedCallId
+    || (typeof value.tool_use_id === 'string' && value.tool_use_id)
+    || (typeof value.tool_call_id === 'string' && value.tool_call_id) || inheritedCallId
   const refusedCall = Boolean(callId) && state.refusedCallIds.has(callId)
   for (const [key, child] of Object.entries(value)) {
     if (isContentTool && /^(?:file_path|filepath|path|paths|filename|file)$/i.test(key)) {
@@ -1109,7 +1111,7 @@ function recursivelyFindTraceCandidates(value, state, inheritedContentTool = fal
         }
       }
     } else if (isContentTool && /^(?:arguments|input)$/i.test(key) && typeof child === 'string') {
-      try { recursivelyFindTraceCandidates(JSON.parse(child), state, true, toolName) } catch { /* malformed tool arguments fail through missing trace evidence */ }
+      try { recursivelyFindTraceCandidates(JSON.parse(child), state, true, toolName, callId) } catch { /* malformed tool arguments fail through missing trace evidence */ }
     }
     recursivelyFindTraceCandidates(child, state, isContentTool, toolName, callId)
   }

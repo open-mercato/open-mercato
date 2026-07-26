@@ -619,6 +619,11 @@ const allowedReads = JSON.parse(mcp.args.at(-2))
 for (const required of ['AGENTS.md', '.ai/guides/architecture.md']) if (!allowedReads.includes(required)) process.exit(9)
 if (JSON.parse(mcp.args.at(-1)).length !== 0) process.exit(9)
 if (!args[args.indexOf('--prompt') + 1].includes('UNTRUSTED_TASK')) process.exit(9)
+console.log(JSON.stringify({ role: 'assistant', tool_calls: [{
+  id: 'call-refused', type: 'function',
+  function: { name: 'mcp__harness__read', arguments: JSON.stringify({ path: '.ai/guides/extensions.md' }) },
+}] }))
+console.log(JSON.stringify({ role: 'tool', tool_call_id: 'call-refused', is_error: true, content: 'path is outside the case read allowlist' }))
 const calls = ['AGENTS.md', '.ai/guides/architecture.md'].map((file) => ({
   type: 'function', function: { name: 'mcp__harness__read', arguments: JSON.stringify({ path: file }) },
 }))
@@ -640,6 +645,7 @@ console.log(JSON.stringify({ role: 'meta', type: 'session.resume_hint', session_
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
     assert.match(result.stdout, /PASS OMH-001/)
     assert.deepEqual(storedResults(root)[0].actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+    assert.deepEqual(storedResults(root)[0].refusedContextReads, ['.ai/guides/extensions.md'])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
     fs.rmSync(configured, { recursive: true, force: true })
