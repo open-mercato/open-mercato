@@ -10,6 +10,7 @@ Load this reference for CRUD, commands, and action routes.
    - The factory applies trusted tenant/organization scope from the ORM keys. `buildFilters` adds only validated business filters; do not read nullable `ctx.auth` merely to repeat scope. Commands derive required trusted scope and fail closed.
    - `mapInput` receives `{ parsed, raw, ctx }`; use `({ parsed }) => parsed` when no route adaptation is needed. `response` is a callback receiving `{ result, logEntry, ctx }`, never a response schema.
    - `createCrudOpenApiFactory({ defaultTag: '<Tag>' })` returns a builder. Call that builder with `resourceName`, `querySchema`, `listResponseSchema`, and optional `create`/`update`/`del` objects containing Zod `schema`, optional `responseSchema`, and `description`; the key is not `body`. Do not pass resource options to the factory itself.
+   - A manual `OpenApiRouteDoc` nests HTTP method docs under `methods`, for example `const openApi: OpenApiRouteDoc = { methods: { GET: { summary, tags, responses } } }`; `GET` is uppercase but is not a top-level `GET` key.
 4. Include `updated_at` in the list/detail projection and serialize `updatedAt`. Keep stable response keys and colon-form entity IDs.
 5. Validate all query/body data. Reject malformed ID/filter values and derive tenant/org scope from context.
 6. For a non-factory action, run mutation guards, enforce aggregate optimistic lock, dispatch a command, then run callbacks/side effects only after commit.

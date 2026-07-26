@@ -116,6 +116,8 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(apiAndDomain, /uses `commandId`/)
   assert.match(apiAndDomain, /not `findMany`/)
   assert.match(apiAndDomain, /the key is not `body`/)
+  assert.match(apiAndDomain, /methods: \{ GET:/)
+  assert.match(apiAndDomain, /not a top-level `GET` key/)
 
   const crudSurfaces = readAgentic(
     'shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md',
@@ -128,6 +130,10 @@ test('progressive module references pin search, i18n, and intentional extension 
   }
   assert.match(crudSurfaces, /DataTable loading prop is `isLoading`/)
   assert.match(crudSurfaces, /CrudForm has no `mapServerError` prop/)
+  assert.match(crudSurfaces, /type `CrudField`/)
+  assert.match(crudSurfaces, /never `CrudFormField`/)
+  assert.match(crudSurfaces, /pagination=\{\{ page, pageSize, total, totalPages, onPageChange/)
+  assert.match(crudSurfaces, /not top-level pagination props/)
 
   const pageAndNavigation = readAgentic(
     'shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md',
