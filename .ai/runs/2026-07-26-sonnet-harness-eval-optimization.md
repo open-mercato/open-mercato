@@ -2,7 +2,7 @@
 
 ## Goal
 
-Optimize the standalone AI development harness so the complete 184-case evaluation catalog passes with the Claude runner on the `sonnet` model selector, while the Codex baseline (`modelSelector: "default"`) keeps passing exactly as it does today.
+Optimize the standalone AI development harness so the complete current evaluation catalog passes with the Claude runner on the `sonnet` model selector and the Codex runner (`modelSelector: "default"`). The catalog started at 184 cases and is now 187 after adding the complete-library, cache, and queue contracts requested during this run.
 
 Source doc: `.ai/specs/2026-07-24-standalone-ai-development-harness.md`
 Depends on: #4483 (`feat/standalone-app-ai-harness`), stacked from its head `e6c38e0be`.
@@ -76,6 +76,26 @@ Sibling follow-up: #4528 (`feat/kimi-cli-runner-harness-evals`) adds a third run
 - #4483 is unmerged and #4528 is stacked from the same head. Mitigation: keep this branch on 4483's exact head, prefer shared-owner edits, avoid runner-enumeration churn, and re-check #4528 for convergence during implementation.
 - The full writable/browser release gate needs trusted Bubblewrap and private loopback. Mitigation: do not weaken preflight; run every safely supported lane and report the exact remaining operator command for anything blocked.
 - Provider cost/time for repeated 184-case sweeps is significant. Mitigation: batch execution, target reruns to affected plus mandatory cases, and keep full sweeps for baseline and final proof.
+
+## Current Handoff (2026-07-26T20:18Z)
+
+- Worktree: `/home/pkarw/Projects/mercato-development/.ai/tmp/om-auto-continue-pr/pr-4529-20260726-160846`; branch `feat/sonnet-harness-eval-optimization`; the latest pushed implementation checkpoint is `4ab32d393`.
+- Do not reuse or reinterpret the earlier concurrent-sweep numbers retracted below. The first clean immutable post-resume controller measurement is the **184-case pre-expanded-guidance baseline** recorded in the next section.
+- The current catalog is **187 cases / 40 writable-review cases**. OMH-185 is the complete book-library writable/review case; OMH-186 and OMH-187 are the cache-invalidation and durable-queue generative routing cases.
+- Shared skill refresh is implemented in `4e9ed542c`: setup deliberately refreshes current `open-mercato/skills` with verified hashes and an atomic rollback, while plain install reproduces the reviewed pin. Cache/queue contracts and cases are implemented in `4ab32d393`.
+- Next: re-emit one immutable 187-case controller; run OMH-185/186/187 on Sonnet and Codex; classify/remediate the union of clean baseline failures in the smallest shared owner; run complete 187-case single-instance matrices; then writable/review, full configured validation, `om-code-review`, and `om-auto-review-pr`.
+- If Sonnet capacity fails, preserve its completed/failed/remaining IDs and provider error, continue Codex/deterministic/writable/review/gate work, and resume Sonnet without treating Codex as a substitute.
+
+## Clean Immutable Pre-Expansion Baseline (184 cases)
+
+These two sweeps used one unchanged emitted controller and exactly one process per provider lane. They predate OMH-185/186/187 and the expanded integrity/shared-skill/cache/queue batches, so they are a classification baseline—not a final 187-case result.
+
+| Runner | Result | Failed case IDs | Violation classes |
+|---|---:|---|---|
+| Codex/default | **164/184** | 030, 034, 048, 058, 072, 110, 114, 127, 131, 134, 137, 145, 147, 153, 154, 165, 169, 172, 175, 182 | missing context/observation 11+11; unexpected context 6; missing skill 5; missing route 3; file budget 3; byte budget 3; unexpected route 1; no reads 1; process failure 1 |
+| Claude/sonnet | **134/184** | 028, 030, 036, 043, 046, 056, 057, 058, 060, 063, 070, 078, 087, 092, 097, 102, 105, 107, 109, 110, 113, 115, 116, 120, 122, 132, 134, 138, 139, 141, 144, 145, 146, 147, 149, 150, 152, 153, 154, 158, 160, 166, 172, 173, 175, 176, 177, 178, 181, 184 | missing context/observation 56+56; missing skill 31; missing route 21; missing decision 7; byte budget 4; file budget 3; unexpected route 1 |
+
+The dominant Sonnet issue is incomplete route/skill/context declaration; Codex has a smaller mixed set of missing and over-selected context plus three file/byte quota outliers and one timed-out no-read process. Recalibration or quota changes remain case-specific and require trace review.
 
 ## Resume Status (2026-07-26T16:35Z)
 
@@ -244,11 +264,11 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.2 Remediate declaration/observation discipline in the shared contract — `selectedContext` is an exact record; over-reported blockers; refused reads no longer scored as loaded content (both runner shapes)
 - [ ] 3.3 Recalibrate over-specified expectations and prove the complete sonnet matrix
 - [x] 3.4 Audit and pin the expanded integrity/encryption/search/AI/i18n/UMES guidance requirements — `9d90ef01a`
-- [ ] 3.5 Add and pass the single-shot complete book-library module evaluation, including main-sidebar visibility
-- [ ] 3.6 Enforce the complete-module and design-system checklist through om-code-review, om-auto-review-pr, and generated-code review
-- [ ] 3.7 Default new editable module surfaces to linked/filterable full CRUD while preserving upstream review-skill behavior
-- [ ] 3.8 Verify and, if needed, restore shared `open-mercato/skills` install/update parity for generated apps
-- [ ] 3.9 Add progressive cache/invalidation and queue guidance plus two-model generative evaluation coverage
+- [ ] 3.5 Add and pass the single-shot complete book-library module evaluation, including main-sidebar visibility — infrastructure, oracle, and deterministic tests landed in `0dff12ef3`; live two-model and writable/review proof pending
+- [ ] 3.6 Enforce the complete-module and design-system checklist through om-code-review, om-auto-review-pr, and generated-code review — checklist/config/policy tests landed in `0dff12ef3`; live review proof pending
+- [x] 3.7 Default new editable module surfaces to linked/filterable full CRUD while preserving upstream review-skill behavior — `0dff12ef3`
+- [x] 3.8 Verify and, if needed, restore shared `open-mercato/skills` install/update parity for generated apps — `4e9ed542c`
+- [ ] 3.9 Add progressive cache/invalidation and queue guidance plus two-model generative evaluation coverage — contracts/cases/tests landed in `4ab32d393`; live two-model proof pending
 
 ### Phase 4: Compatibility baseline
 
