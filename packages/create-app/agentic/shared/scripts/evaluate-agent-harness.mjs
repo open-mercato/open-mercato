@@ -105,6 +105,10 @@ const TOOL_SERVER_PATH = fileURLToPath(new URL('./agent-harness-tool-server.mjs'
 // process, or network capability of its own; it exists solely so the deferred harness MCP
 // tools become callable. Keep this list at exactly one entry.
 const CLAUDE_DISCOVERY_TOOL = 'ToolSearch'
+// How many distinct out-of-allowlist read attempts the fail-closed MCP server may refuse
+// before the run is treated as instruction-tree enumeration rather than progressive
+// routing. Refused attempts transfer no bytes, so they never enter the context budgets.
+const MAX_REFUSED_CONTEXT_READS = 4
 
 function usage() {
   return `Open Mercato standalone agent harness evaluator
@@ -1024,15 +1028,30 @@ function validateReviewCommand(command, root, expectedReads) {
   return violations
 }
 
-function addTraceCandidate(state, raw, expand = false) {
+function addTraceCandidate(state, raw, expand = false, refused = false) {
   if (Array.isArray(raw)) {
-    for (const item of raw) addTraceCandidate(state, item, expand)
-  } else if (typeof raw === 'string' && raw.trim()) state.candidates.push({ raw, expand })
+    for (const item of raw) addTraceCandidate(state, item, expand, refused)
+  } else if (typeof raw === 'string' && raw.trim()) state.candidates.push({ raw, expand, refused })
 }
 
-function recursivelyFindTraceCandidates(value, state, inheritedContentTool = false, inheritedName = '') {
+// Tool-call identifiers whose paired result reported an error. The evaluator-owned MCP
+// server is fail-closed: a read outside the case allowlist is refused and transfers no
+// bytes, so such an attempt must not be scored as content the model actually loaded.
+function collectRefusedToolCallIds(value, refused) {
   if (Array.isArray(value)) {
-    for (const item of value) recursivelyFindTraceCandidates(item, state, inheritedContentTool, inheritedName)
+    for (const item of value) collectRefusedToolCallIds(item, refused)
+    return
+  }
+  if (!isPlainObject(value)) return
+  const isError = value.isError === true || value.is_error === true
+  const identifier = value.tool_use_id ?? value.toolUseId ?? value.call_id ?? value.id
+  if (isError && typeof identifier === 'string' && identifier) refused.add(identifier)
+  for (const child of Object.values(value)) collectRefusedToolCallIds(child, refused)
+}
+
+function recursivelyFindTraceCandidates(value, state, inheritedContentTool = false, inheritedName = '', inheritedCallId = undefined) {
+  if (Array.isArray(value)) {
+    for (const item of value) recursivelyFindTraceCandidates(item, state, inheritedContentTool, inheritedName, inheritedCallId)
     return
   }
   if (!isPlainObject(value)) return
@@ -1048,9 +1067,12 @@ function recursivelyFindTraceCandidates(value, state, inheritedContentTool = fal
   }
   const ownContentTool = (exactReadTool || /command_execution|\bread\b|\bgrep\b|\bbash\b|\bshell\b|\bterminal\b|\bexecute\b/.test(marker)) && !/\bglob\b|file_search/.test(marker)
   const isContentTool = inheritedContentTool || ownContentTool
+  const callId = (typeof value.id === 'string' && value.id) || (typeof value.call_id === 'string' && value.call_id)
+    || (typeof value.tool_use_id === 'string' && value.tool_use_id) || inheritedCallId
+  const refusedCall = Boolean(callId) && state.refusedCallIds.has(callId)
   for (const [key, child] of Object.entries(value)) {
     if (isContentTool && /^(?:file_path|filepath|path|paths|filename|file)$/i.test(key)) {
-      addTraceCandidate(state, child, /glob|grep|search/.test(toolName))
+      addTraceCandidate(state, child, /glob|grep|search/.test(toolName), refusedCall)
     } else if (isContentTool && /^(?:command|cmd)$/i.test(key)) {
       const commands = Array.isArray(child) ? child : [child]
       for (const command of commands) {
@@ -1065,7 +1087,7 @@ function recursivelyFindTraceCandidates(value, state, inheritedContentTool = fal
         }
       }
     }
-    recursivelyFindTraceCandidates(child, state, isContentTool, toolName)
+    recursivelyFindTraceCandidates(child, state, isContentTool, toolName, callId)
   }
 }
 
@@ -1206,16 +1228,20 @@ function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads
     available: false,
     candidates: [],
     violations: new Set(),
+    refusedCallIds: new Set(),
     reviewExpectedReads: reviewExpectedReads ? new Set(reviewExpectedReads) : undefined,
     reviewCommandCount: 0,
   }
+  const events = []
   for (const line of stdout.split(/\r?\n/).filter(Boolean)) {
-    try {
-      const parsed = JSON.parse(line)
-      recursivelyFindTraceCandidates(parsed, state)
-    } catch { /* ignore non-event lines */ }
+    try { events.push(JSON.parse(line)) } catch { /* ignore non-event lines */ }
   }
+  // Refusals are emitted after the call they answer, so collect them before walking the
+  // trace for read candidates.
+  for (const event of events) collectRefusedToolCallIds(event, state.refusedCallIds)
+  for (const event of events) recursivelyFindTraceCandidates(event, state)
   const paths = new Set()
+  const refusedReads = new Set()
   const metadataPaths = new Set()
   let metadataEntries = 0
   let metadataBytes = 0
@@ -1278,7 +1304,15 @@ function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads
       }
     }
     if (!isAllowedObservedPath(relative, caseRecord, writable)) {
-      violations.add(`unsafe arbitrary app-root read ${relative}`)
+      // The fail-closed MCP server already refused this exact call, so nothing was read:
+      // scoring it as loaded content would be factually wrong. Record it as a bounded
+      // exploration signal instead. Every genuinely dangerous case is still fatal above:
+      // hard-forbidden and case-forbidden paths, out-of-root and symlink escapes, broad or
+      // recursive reads, and metadata discovery are all rejected before this point, whether
+      // the attempt succeeded or not. A read that SUCCEEDED outside the allowlist still
+      // fails here, because that would mean the server guard did not hold.
+      if (candidate.refused) refusedReads.add(relative)
+      else violations.add(`unsafe arbitrary app-root read ${relative}`)
       continue
     }
     for (const file of expandObservedPath(root, relative, candidate.expand)) {
@@ -1288,9 +1322,16 @@ function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads
     }
   }
   if (state.available && paths.size === 0) violations.add('runner trace contained no observed context reads')
+  // Refused probing stays bounded: a handful of refused attempts is ordinary progressive
+  // routing, but sweeping the instruction tree is the enumeration the routing contract
+  // forbids, and it fails closed even though the server denied every individual call.
+  if (refusedReads.size > MAX_REFUSED_CONTEXT_READS) {
+    violations.add(`refused context read budget exceeded: ${refusedReads.size}/${MAX_REFUSED_CONTEXT_READS}`)
+  }
   return {
     available: state.available,
     paths: [...paths].sort(),
+    refusedPaths: [...refusedReads].sort(),
     metadataPaths: [...metadataPaths].sort(),
     metadataEntries,
     metadataBytes,
@@ -2330,6 +2371,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         ...(execution.kind === 'success' ? {} : { sanitizedError: sanitize(execution.error, runRoot) }),
         actualContext: stats,
         declaredContext: declaredStats,
+        ...(trace.refusedPaths?.length ? { refusedContextReads: recursivelySanitize(trace.refusedPaths, runRoot) } : {}),
         ...(writableResult ? { writable: writableResult } : {}),
       }
       const resultPath = writeResult(root, result, resultSchema)

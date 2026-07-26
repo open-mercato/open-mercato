@@ -39,6 +39,7 @@ type StoredResult = {
   attempts: number
   corrections: number
   sanitizedError?: string
+  refusedContextReads?: string[]
   actualContext: { paths: string[]; bytes: number; initialPaths: string[]; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
   declaredContext: { paths: string[]; bytes: number; initialPaths: string[]; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
   writable?: { changedPaths: string[]; targetFingerprint: string }
@@ -645,6 +646,114 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
       '.ai/skills/om-data-model-design/SKILL.md',
       'AGENTS.md',
     ])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// The fail-closed MCP server refuses any read outside the case allowlist, so such an
+// attempt transfers no bytes. These tests pin the distinction between an attempt the guard
+// REFUSED (recorded, bounded) and a read that SUCCEEDED outside the allowlist (still fatal,
+// because it would mean the guard did not hold).
+function claudeRefusedReadRunner(root: string, attempts: string[], options: { succeed?: boolean } = {}): string {
+  const calls = attempts.map((target, index) => ({ id: `call-refused-${index}`, path: target }))
+  return installFakeRunner(root, 'claude', `
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+const calls = ${JSON.stringify(calls)}
+console.log(JSON.stringify({ type: 'assistant', message: { content: calls.map((call) => (
+  { type: 'tool_use', id: call.id, name: 'mcp__harness__read', input: { path: call.path } }
+)) } }))
+console.log(JSON.stringify({ type: 'user', message: { content: calls.map((call) => (
+  { type: 'tool_result', tool_use_id: call.id, is_error: ${options.succeed ? 'false' : 'true'}, content: ${options.succeed ? "'# contents'" : "'path is outside the case read allowlist'"} }
+)) } }))
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', id: 'call-ok-1', name: 'mcp__harness__read', input: { path: 'AGENTS.md' } },
+  { type: 'tool_use', id: 'call-ok-2', name: 'mcp__harness__read', input: { path: '.ai/guides/architecture.md' } }
+] } }))
+console.log(JSON.stringify({ type: 'user', message: { content: [
+  { type: 'tool_result', tool_use_id: 'call-ok-1', content: '# app' },
+  { type: 'tool_result', tool_use_id: 'call-ok-2', content: '# architecture' }
+] } }))
+console.log(JSON.stringify({ type: 'result', structured_output: {
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}}))
+`)
+}
+
+test('a read the harness server refused is recorded but does not fail an otherwise correct route', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = claudeRefusedReadRunner(root, ['.ai/guides/extensions.md'])
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    const [stored] = storedResults(root)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.refusedContextReads, ['.ai/guides/extensions.md'])
+    // A refused attempt read nothing, so it must never enter the observed context or the
+    // context budgets.
+    assert.ok(!stored.actualContext.paths.includes('.ai/guides/extensions.md'))
+    assert.equal(stored.actualContext.bytes, stored.declaredContext.bytes)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a successful read outside the case allowlist still fails closed', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = claudeRefusedReadRunner(root, ['.ai/guides/extensions.md'], { succeed: true })
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.ok(stored.violations.includes('unsafe arbitrary app-root read .ai/guides/extensions.md'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('refused instruction-tree enumeration still fails closed above the bounded budget', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = claudeRefusedReadRunner(root, [
+    '.ai/guides/extensions.md',
+    '.ai/guides/integrations.md',
+    '.ai/guides/backend-ui.md',
+    '.ai/guides/ai-workflows.md',
+    '.ai/guides/contracts.md',
+    '.ai/guides/module-system.md',
+  ])
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.ok(stored.violations.some((entry) => entry.startsWith('refused context read budget exceeded')), JSON.stringify(stored.violations))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a refused attempt to read a forbidden path still fails closed', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = claudeRefusedReadRunner(root, ['.env'])
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.ok(stored.violations.includes('forbidden context read .env'), JSON.stringify(stored.violations))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

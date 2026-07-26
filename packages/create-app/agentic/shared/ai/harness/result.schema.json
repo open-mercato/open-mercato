@@ -23,6 +23,7 @@
     "exitStatus": { "type": ["integer", "null"] },
     "status": { "enum": ["pass", "fail", "error"] },
     "sanitizedError": { "type": "string", "maxLength": 4096 },
+    "refusedContextReads": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
     "actualContext": {
       "type": "object",
       "additionalProperties": false,
