@@ -5,6 +5,12 @@ import dynamic from 'next/dynamic'
 import type { Node, Edge, Connection } from '@xyflow/react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
+export interface WorkflowGraphFocusTarget {
+  nodeId?: string
+  edgeId?: string
+  requestId: number
+}
+
 export interface WorkflowGraphProps {
   initialNodes?: Node[]
   initialEdges?: Edge[]
@@ -16,6 +22,7 @@ export interface WorkflowGraphProps {
   editable?: boolean
   className?: string
   height?: string
+  focusTarget?: WorkflowGraphFocusTarget | null
 }
 
 const WorkflowGraphImpl = dynamic(() => import('./WorkflowGraphImpl'), {

@@ -22,6 +22,7 @@ import {
   EdgeChange,
   ConnectionMode,
   MarkerType,
+  ReactFlowInstance,
 } from '@xyflow/react'
 import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, ParallelForkNode, ParallelJoinNode} from './nodes'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
@@ -30,6 +31,12 @@ import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
 import { useTheme } from '@open-mercato/ui/theme'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+export interface WorkflowGraphFocusTarget {
+  nodeId?: string
+  edgeId?: string
+  requestId: number
+}
 
 export interface WorkflowGraphImplProps {
   initialNodes?: Node[]
@@ -42,6 +49,7 @@ export interface WorkflowGraphImplProps {
   editable?: boolean
   className?: string
   height?: string
+  focusTarget?: WorkflowGraphFocusTarget | null
 }
 
 export default function WorkflowGraphImpl({
@@ -55,6 +63,7 @@ export default function WorkflowGraphImpl({
   editable = false,
   className = '',
   height = '600px',
+  focusTarget = null,
 }: WorkflowGraphImplProps) {
   const t = useT()
   const [nodes, setNodes] = useNodesState(initialNodes)
@@ -93,6 +102,39 @@ export default function WorkflowGraphImpl({
   useEffect(() => {
     setEdges(initialEdges)
   }, [initialEdges, setEdges])
+
+  const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null)
+
+  useEffect(() => {
+    if (!focusTarget) return
+    const instance = reactFlowInstanceRef.current
+    if (!instance) return
+    const focusOptions = { zoom: 1, duration: 300 }
+    if (focusTarget.nodeId) {
+      const node = latestNodesRef.current.find((candidate) => candidate.id === focusTarget.nodeId)
+      if (!node) return
+      const width = node.measured?.width ?? 0
+      const height = node.measured?.height ?? 0
+      void instance.setCenter(node.position.x + width / 2, node.position.y + height / 2, focusOptions)
+      setNodes((currentNodes) =>
+        currentNodes.map((candidate) => ({ ...candidate, selected: candidate.id === focusTarget.nodeId }))
+      )
+    } else if (focusTarget.edgeId) {
+      const edge = latestEdgesRef.current.find((candidate) => candidate.id === focusTarget.edgeId)
+      if (!edge) return
+      const source = latestNodesRef.current.find((candidate) => candidate.id === edge.source)
+      const target = latestNodesRef.current.find((candidate) => candidate.id === edge.target)
+      if (!source || !target) return
+      void instance.setCenter(
+        (source.position.x + target.position.x) / 2,
+        (source.position.y + target.position.y) / 2,
+        focusOptions
+      )
+      setEdges((currentEdges) =>
+        currentEdges.map((candidate) => ({ ...candidate, selected: candidate.id === focusTarget.edgeId }))
+      )
+    }
+  }, [focusTarget, setNodes, setEdges])
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -172,6 +214,9 @@ export default function WorkflowGraphImpl({
         onConnect={editable ? onConnect : undefined}
         onNodeClick={onNodeClickProp}
         onEdgeClick={onEdgeClickProp}
+        onInit={(instance) => {
+          reactFlowInstanceRef.current = instance
+        }}
         connectionMode={ConnectionMode.Loose}
         fitView
         fitViewOptions={{
