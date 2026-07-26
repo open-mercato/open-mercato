@@ -80,8 +80,14 @@ test('existing-module UI routing stays inside the backend UI context slice', () 
     'utf8',
   )
 
+  // The root states the general rule — authoring or restyling adds `backend-ui`, while
+  // hiding/gating/toggling/rewiring does not — because the either/or framing it replaced
+  // made an installed-host UI change read as UMES-only. The UI skill keeps the narrower
+  // page/form/table-only wording, since by then the route is already chosen.
+  assert.match(rootInstructions, /Authoring or restyling a rendered surface adds `backend-ui`/)
+  assert.match(rootInstructions, /hiding, gating, toggling, or rewiring an existing one does not/)
+  assert.match(uiSkill, /page\/form\/table-only/)
   for (const instructions of [rootInstructions, uiSkill]) {
-    assert.match(instructions, /page\/form\/table-only/)
     assert.match(instructions, /do not load .*contracts.*module-scaffold/i)
   }
 })
@@ -89,7 +95,10 @@ test('existing-module UI routing stays inside the backend UI context slice', () 
 test('compatibility routing covers existing public contracts without pulling in additive UI work', () => {
   for (const relativePath of ROOT_SOURCES) {
     const source = fs.readFileSync(path.join(CREATE_APP_ROOT, relativePath), 'utf8')
-    assert.match(source, /Existing route\/schema\/ID\/export\/path\/function\/props-signature\/event-payload\/CLI changes MUST read `BACKWARD_COMPATIBILITY\.md`/)
+    // The rule must fire for preserving and removing a seam, not only for changing one —
+    // OMH-048 and OMH-057 both preserve an existing contract — and it must name the guide's
+    // real path, since a bare filename does not tell the agent where to read it.
+    assert.match(source, /Changing, preserving, or removing an existing route\/schema\/ID\/export\/seam\/path\/function\/props-signature\/event-payload\/CLI MUST read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
     assert.match(source, /Additive page\/form\/table\/conflict UI skips it/)
   }
 })

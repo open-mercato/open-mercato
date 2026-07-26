@@ -12,7 +12,7 @@ Extend this app. Route first; load every match; never probe unmatched context.
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
 - Run `yarn generate` after discovery files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows change.
-- Existing route/schema/ID/export/path/function/props-signature/event-payload/CLI changes MUST read `BACKWARD_COMPATIBILITY.md`.
+- Changing, preserving, or removing an existing route/schema/ID/export/seam/path/function/props-signature/event-payload/CLI MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`.
 - Localize strings; use shared UI/tokens and complete loading, empty, error, conflict, keyboard, and accessibility states.
 
 ## Ask First
@@ -32,11 +32,7 @@ Extend this app. Route first; load every match; never probe unmatched context.
 Choose the smallest relevant set, then expand for broad changes:
 
 ```bash
-yarn generate
-yarn typecheck
-yarn lint
-yarn test
-yarn build
+yarn generate && yarn typecheck && yarn lint && yarn test && yarn build
 yarn test:integration:ephemeral
 ```
 
