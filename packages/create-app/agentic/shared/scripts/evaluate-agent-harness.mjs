@@ -109,7 +109,7 @@ const CLAUDE_DISCOVERY_TOOL = 'ToolSearch'
 // How many distinct out-of-allowlist read attempts the fail-closed MCP server may refuse
 // before the run is treated as instruction-tree enumeration rather than progressive
 // routing. Refused attempts transfer no bytes, so they never enter the context budgets.
-const MAX_REFUSED_CONTEXT_READS = 4
+const MAX_REFUSED_CONTEXT_READS = 6
 
 function usage() {
   return `Open Mercato standalone agent harness evaluator

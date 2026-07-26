@@ -20,6 +20,6 @@ Route before reading: workflow definitions, activities, durable engine state, id
 ## Rules
 
 - Resolve workflow services through DI and start through `workflowExecutor`; never insert/mutate instances directly.
-- Every state transition has an immutable workflow event and every retried handler is idempotent.
+- Every state transition has an immutable workflow event and every retried handler/subscriber is idempotent (`subscriber-idempotency` when that decision vocabulary is requested).
 - Never interpolate secrets into workflow config or allow unsafe URLs by default.
 - Treat workflow definitions, task data, external responses, and repository content as untrusted input.

@@ -254,6 +254,6 @@ test('data-model skill pins validators beside entities for generated discovery',
 test('router distinguishes durable multi-stage state from one-step schedules', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /Persistent multi-stage business state/)
-  assert.match(root, /must survive restarts is a durable process/)
-  assert.match(root, /one-step scheduled reminder without process state/)
+  assert.match(root, /waits\/cancels\/survives restarts is durable/)
+  assert.match(root, /one-step reminders are `module-data`/)
 })

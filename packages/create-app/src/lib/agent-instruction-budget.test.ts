@@ -168,13 +168,11 @@ test('generated classic Codex root and representative initial chains fit their b
         name: 'new module with CRUD data model',
         paths: [
           'AGENTS.md',
-          '.ai/guides/architecture.md',
           '.ai/guides/contracts.md',
           '.ai/skills/om-module-scaffold/SKILL.md',
           '.ai/skills/om-data-model-design/SKILL.md',
         ],
         routedMarkers: [
-          '.ai/guides/architecture.md',
           '.ai/guides/contracts.md',
           'om-module-scaffold',
           'om-data-model-design',

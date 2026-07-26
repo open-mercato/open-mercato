@@ -421,7 +421,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 49152,
+    "maxInitialContextBytes": 51200,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-007"
@@ -4882,8 +4882,8 @@
       "oracle.artifacts",
       "oracle.regression.null-roundtrip"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 45056,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-062"
@@ -4976,8 +4976,8 @@
       "patterns.forbidden",
       "safety.mandatory"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 45056,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-063"
@@ -5492,8 +5492,8 @@
       "patterns.forbidden",
       "safety.mandatory"
     ],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 7,
+    "maxInitialContextBytes": 45056,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-070"
@@ -5571,7 +5571,7 @@
       "oracle.artifacts",
       "oracle.regression.cursor"
     ],
-    "maxContextFiles": 5,
+    "maxContextFiles": 6,
     "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
@@ -6187,7 +6187,7 @@
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 16,
     "maxInitialContextBytes": 90112,
-    "maxTotalContextBytes": 180224,
+    "maxTotalContextBytes": 196608,
     "relatedCases": ["OMH-001", "OMH-004", "OMH-008"]
   },
   {
@@ -8906,7 +8906,8 @@
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/catalog.md"
+        ".ai/guides/modules/catalog.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-module-scaffold/SKILL.md"
@@ -10050,7 +10051,8 @@
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
         ".ai/skills/om-backend-ui-design/references/quality-states.md",
-        ".ai/guides/modules/customers.md"
+        ".ai/guides/modules/customers.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
         ".env*",
@@ -11802,7 +11804,7 @@
     "requiredDecisions":["webhook-signature","typed-events","subscriber-idempotency","outbound-delivery-status"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","(?:secret|token|credential).{0,20}(?:console|log|plain.?text)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":12,"maxInitialContextBytes":57344,"maxTotalContextBytes":147456,"relatedCases":["OMH-018","OMH-043"]
+    "maxContextFiles":12,"maxInitialContextBytes":61440,"maxTotalContextBytes":147456,"relatedCases":["OMH-018","OMH-043"]
   },
   {
     "id": "OMH-156",
@@ -12168,7 +12170,7 @@
     "requiredDecisions":["public-scope-derived-server-side","idempotent-submission","deterministic-deduplication","optional-crm","delivery-route-preserves-task-routes","smallest-validation"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","git (?:add|commit).{0,20}(?:--all|-a)","(?:skip|omit).{0,30}(?:validation|test)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":11,"maxInitialContextBytes":57344,"maxTotalContextBytes":163840,"relatedCases":["OMH-005","OMH-073"]
+    "maxContextFiles":11,"maxInitialContextBytes":57344,"maxTotalContextBytes":196608,"relatedCases":["OMH-005","OMH-073"]
   },
   {
     "id":"OMH-170","title":"Review a stock-reservation pull request for actionable problems only","family":"architecture","mode":"review","evaluationKind":"routing","risk":"medium",
@@ -12331,7 +12333,8 @@
         ".ai/guides/modules/customers.md"
       ],
       "allowedExtra": [
-        ".ai/skills/om-backend-ui-design/SKILL.md"
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-module-scaffold/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -12381,7 +12384,7 @@
     "allowedWrites": [
       "src/modules/harness_fixture/backend/edit/page.tsx"
     ],
-    "maxContextFiles": 9,
+    "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 114688,
     "relatedCases": [

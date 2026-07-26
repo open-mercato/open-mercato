@@ -281,12 +281,12 @@ test('the catalog count and release coverage are derived from the validator regi
   )
   assert.deepEqual(validators.catalog.compatibilityRequiredCaseIds, [
     'OMH-007', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-072', 'OMH-074',
-    'OMH-082', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-131', 'OMH-147', 'OMH-150', 'OMH-169',
+    'OMH-082', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-118', 'OMH-130', 'OMH-131', 'OMH-147', 'OMH-150', 'OMH-169',
     'OMH-182',
   ])
   assert.deepEqual(validators.catalog.compatibilityExcludedCaseIds, [
     'OMH-006', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-018', 'OMH-026',
-    'OMH-081', 'OMH-091', 'OMH-093', 'OMH-172', 'OMH-181',
+    'OMH-081', 'OMH-091', 'OMH-093', 'OMH-172', 'OMH-177', 'OMH-181',
   ])
   const compatibilityPath = '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
@@ -738,6 +738,8 @@ test('refused instruction-tree enumeration still fails closed above the bounded 
     '.ai/guides/ai-workflows.md',
     '.ai/guides/contracts.md',
     '.ai/guides/module-system.md',
+    '.ai/guides/testing-debugging.md',
+    '.ai/agentic.config.json',
   ])
   try {
     const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-001'], {
