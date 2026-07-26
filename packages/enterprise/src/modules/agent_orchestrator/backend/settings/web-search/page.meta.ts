@@ -10,12 +10,15 @@ const webSearchIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['agent_orchestrator.agents.manage'],
+  // Same view-level gate as the rest of the Agents group, so the entry appears
+  // wherever the other orchestrator pages do. Writing the policy is separately
+  // gated on `agents.manage` at the PUT route — read the config, don't change it.
+  requireFeatures: ['agent_orchestrator.agents.view'],
   pageTitle: 'Web search',
   pageTitleKey: 'agent_orchestrator.nav.webSearch',
   pageGroup: 'Agents',
   pageGroupKey: 'agent_orchestrator.nav.group',
-  pagePriority: 30,
+  pagePriority: 70,
   pageOrder: 190,
   icon: webSearchIcon,
   breadcrumb: [{ label: 'Web search', labelKey: 'agent_orchestrator.nav.webSearch' }],

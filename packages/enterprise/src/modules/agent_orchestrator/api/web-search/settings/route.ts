@@ -26,8 +26,14 @@ import { agentOrchestratorTag } from '../../openapi'
  * adapters that exist but are not yet in the policy — otherwise installing a new
  * adapter package would leave it invisible until someone hand-wrote its entry.
  */
+/**
+ * Reading the policy uses the same view-level gate as the rest of the module, so
+ * the settings page is reachable wherever the other agent pages are. Writing it
+ * stays on `agents.manage` — this configures outbound egress and stores adapter
+ * credentials.
+ */
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
   PUT: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.manage'] },
 }
 
@@ -184,11 +190,11 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Read the resolved web-search policy and installed adapter catalogue',
       description:
-        'Returns the tenant-resolved policy (env default overlaid with the tenant row), the guardrails, and every installed adapter package. Gated by agent_orchestrator.agents.manage.',
+        'Returns the tenant-resolved policy (env default overlaid with the tenant row), the guardrails, and every installed adapter package. Gated by agent_orchestrator.agents.view.',
       responses: [{ status: 200, description: 'Resolved settings', schema: settingsResponseSchema }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
-        { status: 403, description: 'Missing agent_orchestrator.agents.manage', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Missing agent_orchestrator.agents.view', schema: z.object({ error: z.string() }) },
       ],
     },
     PUT: {
