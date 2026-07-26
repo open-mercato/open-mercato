@@ -66,6 +66,68 @@ Sibling follow-up: #4528 (`feat/kimi-cli-runner-harness-evals`) adds a third run
 - The full writable/browser release gate needs trusted Bubblewrap and private loopback. Mitigation: do not weaken preflight; run every safely supported lane and report the exact remaining operator command for anything blocked.
 - Provider cost/time for repeated 184-case sweeps is significant. Mitigation: batch execution, target reruns to affected plus mandatory cases, and keep full sweeps for baseline and final proof.
 
+## Resume Status (2026-07-26T16:35Z)
+
+### ⚠️ First, retract the numbers in my previous comment
+
+The matrix figures in the comment immediately above ("Sonnet 43/49 · Codex 59/64", "134 of 184") are **not trustworthy and should be ignored**. I found the cause while reconciling them: I launched a second pair of full matrices without killing the first pair, so **four full sweeps were running concurrently**, all writing into the same results directory, and the controller was re-emitted while they were in flight. The per-case results therefore cannot be attributed to a single harness version. That is my methodology error, not a harness fault.
+
+All sweeps are now stopped and the process table is clean. **No full 184-case post-fix pass rate has been established for either runner.** Everything below separates what is verified from what is not.
+
+### ✅ Verified
+
+| Check | Result |
+|---|---|
+| Deterministic 184-case catalog gate | **184/184**, re-verified after every re-emission |
+| `create-mercato-app` test suite | **318 tests: 314 pass, 4 skipped, 0 failed** (base had 3 failing) |
+| `yarn typecheck` + `yarn lint` | pass |
+| Pre-PR baseline, Claude/`sonnet` | **0 / 184** — no reachable read tool |
+| Pre-PR baseline, Codex/`default` | **0 / 184** — `--disable skill_search` unknown to codex-cli 0.144.6 |
+| Sonnet after adapter fix, before router work | **96 / 184** (clean single sweep) |
+| Hardest-18 targeted set, clean single runs | **Codex 16/18**, **Sonnet 11/18** |
+
+The hardest-18 set is the accumulated failure list, so it is a deliberately pessimistic sample — not representative of the full catalog.
+
+### ❌ Not established
+
+- A full 184-case pass rate for either runner on the final harness. This is the one remaining measurement, and it needs **one** pair of sweeps with nothing else running.
+
+### What was actually fixed (all pushed, 27 commits)
+
+**Both runner lanes were dead on current CLIs** — so #4483's "Codex 184/184" does not reproduce:
+
+- **Claude**: `--tools` takes only *built-in* names, so `--tools mcp__harness__read` gave zero tools **and** removed `ToolSearch`, the only route to MCP tools under Claude Code 2.1.220's deferred discovery; `--safe-mode` drops `--mcp-config` servers; `plan` mode returns a plan instead of reading.
+- **Codex**: `--disable skill_search` is a hard error on a CLI where that feature was retired. Now probes `codex features list` and denies only known features; a failed probe never *shrinks* the denial set.
+- Both slipped through because **the tests drive a fake runner that asserts exactly the flags the code passes** — a self-confirming contract.
+
+**Shared trace accounting**: reads the fail-closed MCP server *refused* were scored as loaded content. Now recorded as `refusedContextReads` for both runner shapes (Claude `is_error`+`tool_use_id`, Codex `status:"failed"` on an `mcp_tool_call`). No gate weakened — a successful out-of-allowlist read, a forbidden-path attempt, and refused enumeration above a bound all still fail, each pinned by a test.
+
+**Router defects**, each traced to a specific sentence rather than to model weakness: additive `backend-ui` (with the authoring-vs-configuring line, refined so gating an *app-injected* surface counts while hiding an installed page does not); additive ownership (`umes` when changing an installed module's records/commands/events/pages/agents/tools); `architecture` on ownership outlines; request-driven `testing`; extension entities as UMES work units; renderers as rendered surfaces; provider settings/health → `integrations` facts; symptom-derived debugging areas; and a matching stop rule (guide > skill > references) to offset the additive push.
+
+**Three of those were regressions I introduced** while freeing instruction-budget bytes, and are worth knowing about: deleting `Match every work-unit row` (which is what sends a model to Axis 2 at all), telling models to declare every path they "opened" (which they read as including refused attempts), and dropping "editable adds `backend-ui`".
+
+**Three Linux-lane failures #4483 left red** are fixed: a genuine sandbox-composition defect (a runtime read root containing a writable root re-mounted it read-only, so every write hit `EROFS`), a platform-coupled preflight assertion, and a Chromium host prerequisite now behind a capability guard (`libnspr4.so` is missing on this box — it fails outside any sandbox too; `npx playwright install-deps` fixes it).
+
+### Known issue I could not fix from the router
+
+`.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` access is a **binary** by deterministic validator — required or excluded, never `allowedExtra` (I tried widening it and the gate correctly rejected it). Yet OMH-057 *requires* it for a "preserve the seeded … export seam" prompt while OMH-045/054/060/061/070 *forbid* it on identical wording. No router rule satisfies both. Mitigated harness-side: a refused path is now treated as inapplicable to that case instead of being reported as an unresolved blocker. Resolving the inconsistency itself is a catalog decision.
+
+### Resume procedure
+
+1. Worktree: `git worktree add <dir> origin/feat/sonnet-harness-eval-optimization`, then `yarn install && yarn build:packages && yarn generate && yarn build:packages`.
+2. Controller: copy `packages/create-app/template`, resolve `{{APP_NAME}}`/`{{PACKAGE_VERSION}}`, then `runAgenticSetup(dir, async () => 'skip', { tool: 'claude-code,codex,cursor' })` from the built CLI. Confirm `node scripts/evaluate-agent-harness.mjs --all` → 184/184.
+3. **Run exactly one sweep per runner and confirm nothing else is running first** (`pgrep -f sweep.mjs`). Concurrent runs across providers are fine; concurrent runs of the *same* lane are what corrupted the last measurement.
+4. Re-run the union of failures, fix in the smallest shared owner, re-emit, repeat.
+
+The measurement driver and per-case classifier live in the session scratchpad and are deliberately **not** committed — the shipped operator entry points remain `yarn harness:validate` and `yarn harness:release`.
+
+### Judgement call left open
+
+After the defects above, the residual failures concentrate in `debugging` cases whose budget permits **five** files — exactly their required set, zero tolerance for one extra read. Across runs those cases moved between different violations under monotonically clearer guidance, which is variance rather than a missing rule. `AGENT-HARNESS.md` Part 2 identifies capability-scaled retry as the biggest lever for a weaker model; I have **not** taken it, because retrying an assertion failure changes what the metric means and should be your explicit decision. `attempts` and `corrections` are already recorded per case so a first-pass and a corrected rate stay distinguishable.
+
+Part 3 of `AGENT-HARNESS.md` (added in this PR) records all of the above as guidance for whoever tunes the next runner.
+
+
 ## Progress
 
 PR: #4529
