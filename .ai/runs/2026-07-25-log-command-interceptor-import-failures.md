@@ -79,7 +79,12 @@ Runner: local. `yarn build:packages`, `yarn generate`, `yarn build:packages`, `y
 it passes standalone (16 suites / 327 tests) and on the immediate re-run of the full gate, and no
 scheduler code is touched by this change.
 
-## Follow-up observed while working (not fixed here)
+### Phase 4: Review findings
+
+- [x] 4.1 Keep `GeneratedFileNotFoundError` internal — drop the `export` so the diagnostics fix adds
+  no shared public type (review finding r3650721984, Medium) — 1add4fc8b
+
+## Follow-up observed while working (not fixed here) — tracked as #4526
 
 `compileAndImport` does `return import(fileUrl)` inside its `try`, so the promise is not awaited and
 the `catch` that calls `recoverMikroOrmV7GeneratedCacheFromImportError` never sees an import-time
