@@ -42,7 +42,7 @@ export function WorkflowNodeCard({
 
   const backgroundClass = isEditMode ? 'bg-card' : colors.bg
   const borderClass = selected
-    ? 'border-[#0080FE]'
+    ? 'border-primary'
     : hasError
       ? 'border-status-error-border'
       : isEditMode
@@ -62,7 +62,7 @@ export function WorkflowNodeCard({
         transition-all duration-200 relative
         ${
           selected
-            ? 'shadow-[0_0_0_3px_rgba(0,128,254,0.15)]'
+            ? 'shadow-focus'
             : 'shadow-sm hover:shadow-md'
         }
       `}

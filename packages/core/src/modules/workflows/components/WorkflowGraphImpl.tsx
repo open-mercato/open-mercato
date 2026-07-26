@@ -29,7 +29,6 @@ import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
 import { STATUS_COLORS } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
-import { useTheme } from '@open-mercato/ui/theme'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export interface WorkflowGraphFocusTarget {
@@ -79,9 +78,7 @@ export default function WorkflowGraphImpl({
   const latestEdgesRef = useRef(edges)
   latestEdgesRef.current = edges
 
-  const { resolvedTheme } = useTheme()
-  const isDark = resolvedTheme === 'dark'
-  const backgroundDotColor = isDark ? '#374151' : '#e5e7eb'
+  const backgroundDotColor = 'var(--border)'
   const [isCompactViewport, setIsCompactViewport] = useState(false)
 
   useEffect(() => {
@@ -151,7 +148,7 @@ export default function WorkflowGraphImpl({
             type: MarkerType.ArrowClosed,
             width: 16,
             height: 16,
-            color: '#9ca3af',
+            color: 'var(--muted-foreground)',
           },
         }
         setEdges((eds) => addEdge(newEdge, eds))
@@ -245,7 +242,7 @@ export default function WorkflowGraphImpl({
             type: MarkerType.ArrowClosed,
             width: 16,
             height: 16,
-            color: '#9ca3af',
+            color: 'var(--muted-foreground)',
           },
         }}
         nodesDraggable={editable}
