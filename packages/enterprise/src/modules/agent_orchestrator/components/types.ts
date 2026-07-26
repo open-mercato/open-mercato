@@ -87,6 +87,10 @@ export type RunView = {
   confidence: number | null
   evalScore: number | null
   evalPassed: boolean | null
+  /** Approved golden case this run's input matched (online golden-match plane), or null. */
+  goldenCaseId: string | null
+  /** AND of the matched golden case's gate verdicts; null when unmatched or no gate applied. */
+  goldenPassed: boolean | null
   latencyMs: number | null
   costMinor: number | null
   inputTokens: number | null
@@ -142,6 +146,8 @@ export type EvalResultView = {
   score: number | null
   severity: string
   evidence: unknown
+  /** Set when this verdict came from the online golden-match plane (scored against a matched golden case's `expected`). */
+  matchedEvalCaseId: string | null
 }
 
 export type ContextRoutedSourceView = {
@@ -176,6 +182,12 @@ export type GuardrailCheckView = {
   evidence: unknown
 }
 
+export type GoldenCaseView = {
+  id: string
+  /** The golden case's expected output (decrypted) — powers the actual-vs-expected diff. */
+  expected: unknown
+}
+
 export type RunDetailView = {
   run: RunView
   spans: SpanView[]
@@ -185,6 +197,8 @@ export type RunDetailView = {
   guardrailChecks: GuardrailCheckView[]
   /** The run's proposals (oldest first) — carry the persisted `payload.rationale`. */
   proposals: ProposalView[]
+  /** The approved golden case this run's input matched (online golden-match plane), or null. */
+  goldenCase: GoldenCaseView | null
 }
 
 export type AgentRuntime = 'in-process' | 'native' | 'opencode' | 'external'
@@ -375,6 +389,8 @@ export function mapRun(item: Record<string, unknown>): RunView | null {
     confidence: asNumber(item.confidence),
     evalScore: asNumber(item.eval_score) ?? asNumber(item.evalScore),
     evalPassed: asBoolean(item.eval_passed) ?? asBoolean(item.evalPassed),
+    goldenCaseId: asString(item.golden_case_id) ?? asString(item.goldenCaseId),
+    goldenPassed: asBoolean(item.golden_passed) ?? asBoolean(item.goldenPassed),
     latencyMs: asNumber(item.latency_ms) ?? asNumber(item.latencyMs),
     costMinor: asNumber(item.cost_minor) ?? asNumber(item.costMinor),
     inputTokens: asNumber(item.input_tokens) ?? asNumber(item.inputTokens),
@@ -435,6 +451,7 @@ export function mapEvalResult(item: Record<string, unknown>): EvalResultView | n
     score: asNumber(item.score),
     severity: asString(item.severity) ?? 'warn',
     evidence: item.evidence ?? null,
+    matchedEvalCaseId: asString(item.matched_eval_case_id) ?? asString(item.matchedEvalCaseId),
   }
 }
 
@@ -515,7 +532,13 @@ export function mapRunDetail(payload: Record<string, unknown>): RunDetailView | 
   const proposals = (Array.isArray(payload.proposals) ? payload.proposals : [])
     .map((row) => mapProposal(row as Record<string, unknown>))
     .filter((row): row is ProposalView => !!row)
-  return { run, spans, toolCalls, evalResults, contextBundle, guardrailChecks, proposals }
+  const goldenCaseRaw = payload.goldenCase
+  let goldenCase: GoldenCaseView | null = null
+  if (goldenCaseRaw && typeof goldenCaseRaw === 'object' && !Array.isArray(goldenCaseRaw)) {
+    const goldenId = asString((goldenCaseRaw as Record<string, unknown>).id)
+    if (goldenId) goldenCase = { id: goldenId, expected: (goldenCaseRaw as Record<string, unknown>).expected ?? null }
+  }
+  return { run, spans, toolCalls, evalResults, contextBundle, guardrailChecks, proposals, goldenCase }
 }
 
 export function mapAgent(item: Record<string, unknown>): AgentView | null {

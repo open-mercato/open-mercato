@@ -6,7 +6,7 @@ export const metadata = {
   pageGroup: 'Agents',
   pageGroupKey: 'agent_orchestrator.nav.group',
   breadcrumb: [
-    { label: 'Eval cases', labelKey: 'agent_orchestrator.nav.evalCases', href: '/backend/eval-cases' },
+    { label: 'Agents', labelKey: 'agent_orchestrator.nav.agents', href: '/backend/agents' },
     { label: 'Eval case', labelKey: 'agent_orchestrator.evalCases.detail.title' },
   ],
 }

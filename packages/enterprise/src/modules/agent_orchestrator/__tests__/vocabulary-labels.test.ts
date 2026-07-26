@@ -90,7 +90,9 @@ describe('subjectRefOf (consistency pass Area 5)', () => {
       'backend/audit/page.tsx',
       'backend/overview/page.tsx',
       'backend/caseload/page.tsx',
-      'backend/agents/[id]/page.tsx',
+      // The agent detail run-row sniffing moved into the shared workspace helper
+      // (2026-07-24 agent-centric-workspace-and-eval-consolidation).
+      'backend/agents/[id]/components/workspaceShared.ts',
     ]
     for (const page of pages) {
       const source = readFileSync(join(MODULE_ROOT, page), 'utf8')

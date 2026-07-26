@@ -6,7 +6,7 @@ export const metadata = {
   pageGroup: 'Agents',
   pageGroupKey: 'agent_orchestrator.nav.group',
   breadcrumb: [
-    { label: 'Evaluations', labelKey: 'agent_orchestrator.nav.evalRuns', href: '/backend/eval-runs' },
+    { label: 'Agents', labelKey: 'agent_orchestrator.nav.agents', href: '/backend/agents' },
     { label: 'Evaluation run', labelKey: 'agent_orchestrator.evalRuns.detail.title' },
   ],
 }

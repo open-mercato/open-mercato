@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { TraceIngest, TraceSpanIngest } from '../../data/validators'
 import { ingestTrace } from '../trace/traceIngestionService'
 import { createArtifactOffloader } from '../trace/artifactStore'
+import { evaluateRun } from '../eval/evalRuntimeService'
 
 /**
  * Always-on per-step trace capture for the native runtime (lightweight-agent-
@@ -189,9 +190,15 @@ export async function captureNativeRunTrace(
   if (!isNativeTraceCaptureEnabled()) return
   try {
     const em = (container.resolve('em') as EntityManager).fork()
-    await ingestTrace(em, scope, buildNativeTracePayload(input), {
+    const result = await ingestTrace(em, scope, buildNativeTracePayload(input), {
       offloadArtifact: createArtifactOffloader(container, scope),
     })
+    // Parity with the `trace.ingest` command (used by the OpenCode/HMAC path):
+    // score the run online (deterministic assertions + the golden-match plane) on
+    // the same EM. Without this, native runs never get an eval verdict or a golden
+    // comparison — only OpenCode runs did. The async llm_judge tier stays on the
+    // command path. Best-effort: wrapped by the outer try so it never fails the run.
+    await evaluateRun(em, scope, result.runId)
   } catch (err) {
     console.warn(
       `[internal] agent_orchestrator: native trace capture failed for run "${input.runId}":`,

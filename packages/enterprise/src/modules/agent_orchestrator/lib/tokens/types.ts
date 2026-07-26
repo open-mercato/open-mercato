@@ -17,6 +17,22 @@ export type TokenizedFile = {
   tokens: number
 }
 
+/**
+ * A single raw definition file of a file-defined (OpenCode) agent, baked into
+ * `file-agents.generated.ts` at `yarn generate` time so the Files tab can read
+ * the agent's source without any runtime filesystem access. `path` is relative
+ * to the agent directory (sub-agent files are prefixed `sub-agents/<id>/`);
+ * `tokens` is the `o200k_base` count of the file; `inContext` is `true` for
+ * files that form the agent's constructed prompt (AGENT.md, OUTCOME.md, skills,
+ * tools) and `false` for auxiliary files (SAMPLE.json, FACTS.json) that do not.
+ */
+export type FileAgentFile = {
+  path: string
+  content: string
+  tokens: number
+  inContext: boolean
+}
+
 /** Per-skill subtotal with a breakdown of its subfiles (SKILL.md, TEMPLATE.md, examples/*, scripts/*). */
 export type SkillTokenUsage = {
   id: string

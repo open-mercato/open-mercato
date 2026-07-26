@@ -6,6 +6,7 @@ import { Check, X, MinusCircle, ChevronRight, Target, Timer, Hash, Coins, Wrench
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@open-mercato/ui/primitives/popover'
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -802,13 +803,30 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
         ) : (
           (() => {
             const run = detail.run
+            // A run whose input reproduced an approved golden case is scored twice —
+            // once online (against its own output) and once against the golden case's
+            // `expected` (tagged `matchedEvalCaseId`). Dedupe by assertion key,
+            // preferring the online verdict, so each assertion shows once; the golden
+            // match is surfaced as its own header badge, not a duplicate list.
+            const dedupedEvalResults = (() => {
+              const seen = new Set<string>()
+              const out: typeof detail.evalResults = []
+              for (const result of [...detail.evalResults].sort(
+                (a, b) => (a.matchedEvalCaseId == null ? 0 : 1) - (b.matchedEvalCaseId == null ? 0 : 1),
+              )) {
+                if (seen.has(result.assertionKey)) continue
+                seen.add(result.assertionKey)
+                out.push(result)
+              }
+              return out
+            })()
             // Skipped results (passed === null) are excluded from BOTH sides of the
             // ratio: counting them in the denominator would report "3 of 5 passed"
             // for a run where two assertions never applied.
-            const evalApplied = detail.evalResults.filter((result) => result.passed !== null)
+            const evalApplied = dedupedEvalResults.filter((result) => result.passed !== null)
             const evalTotal = evalApplied.length
             const evalPass = evalApplied.filter((result) => result.passed === true).length
-            const evalSkipped = detail.evalResults.length - evalTotal
+            const evalSkipped = dedupedEvalResults.length - evalTotal
             const allPassed = evalTotal > 0 && evalPass === evalTotal
             const tokensTotal =
               run.inputTokens != null || run.outputTokens != null
@@ -848,6 +866,11 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                           })}
                         </StatusBadge>
                       ) : null}
+                      {run.goldenCaseId ? (
+                        <StatusBadge variant={run.goldenPassed === false ? 'error' : 'success'}>
+                          {t('agent_orchestrator.traces.detail.goldenMatch', 'Golden match')}
+                        </StatusBadge>
+                      ) : null}
                       {gated ? (
                         <StatusBadge variant="info">{t('agent_orchestrator.traces.detail.gated')}</StatusBadge>
                       ) : null}
@@ -861,14 +884,16 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       {detail.proposals.length === 1 ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => router.push(`/backend/caseload/${encodeURIComponent(detail.proposals[0].id)}`)}
-                        >
-                          <Inbox className="size-4" />
-                          {t('agent_orchestrator.traces.detail.openProposal')}
-                        </Button>
+                        <SimpleTooltip side="bottom" content={t('agent_orchestrator.traces.detail.openProposalTooltip', 'Open the proposal this run produced')}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => router.push(`/backend/caseload/${encodeURIComponent(detail.proposals[0].id)}`)}
+                          >
+                            <Inbox className="size-4" />
+                            {t('agent_orchestrator.traces.detail.openProposal')}
+                          </Button>
+                        </SimpleTooltip>
                       ) : detail.proposals.length > 1 ? (
                         <Popover>
                           <PopoverTrigger asChild>
@@ -900,50 +925,60 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                         </Popover>
                       ) : null}
                       {run.processId ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => router.push(`/backend/processes/${encodeURIComponent(run.processId!)}`)}
-                        >
-                          <Workflow className="size-4" />
-                          {t('agent_orchestrator.proposal.openProcess')}
-                        </Button>
+                        <SimpleTooltip side="bottom" content={t('agent_orchestrator.traces.detail.openProcessTooltip', 'Open the workflow run that started this agent')}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => router.push(`/backend/processes/${encodeURIComponent(run.processId!)}`)}
+                          >
+                            <Workflow className="size-4" />
+                            {t('agent_orchestrator.proposal.openProcess')}
+                          </Button>
+                        </SimpleTooltip>
                       ) : null}
                       {inEvalSet ? (
+                        <SimpleTooltip side="bottom" content={t('agent_orchestrator.traces.detail.actionViewEvalSetTooltip', 'Review the draft evaluation cases')}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => router.push('/backend/eval-cases?status=draft')}
+                          >
+                            <ClipboardCheck className="size-4" />
+                            {t('agent_orchestrator.traces.detail.actionViewEvalSet')}
+                          </Button>
+                        </SimpleTooltip>
+                      ) : (
+                        <SimpleTooltip side="bottom" content={t('agent_orchestrator.traces.detail.actionAddEvalTooltip', 'Save this run as a draft evaluation case')}>
+                          <Button size="sm" onClick={() => void addToEvals()} disabled={addingToEvals}>
+                            <Plus className="size-4" />
+                            {t('agent_orchestrator.traces.detail.actionAddEval')}
+                          </Button>
+                        </SimpleTooltip>
+                      )}
+                      <SimpleTooltip side="bottom" content={t('agent_orchestrator.traces.detail.actionRerunTooltip', 'Re-run this agent with the same input')}>
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => router.push('/backend/eval-cases?status=draft')}
+                          onClick={() => void rerunAgent()}
+                          disabled={rerunning}
                         >
-                          <ClipboardCheck className="size-4" />
-                          {t('agent_orchestrator.traces.detail.actionViewEvalSet')}
+                          <RotateCcw className="size-4" />
+                          {t('agent_orchestrator.traces.detail.actionRerun')}
                         </Button>
-                      ) : (
-                        <Button size="sm" onClick={() => void addToEvals()} disabled={addingToEvals}>
-                          <Plus className="size-4" />
-                          {t('agent_orchestrator.traces.detail.actionAddEval')}
+                      </SimpleTooltip>
+                      <SimpleTooltip side="bottom" content={run.flaggedAt ? t('agent_orchestrator.traces.detail.actionUnflagTooltip', 'Remove the review flag from this run') : t('agent_orchestrator.traces.detail.actionFlagTooltip', 'Flag this run for review')}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void toggleFlag()}
+                          disabled={flagging}
+                        >
+                          <Flag className={run.flaggedAt ? 'size-4 text-status-warning-text' : 'size-4'} />
+                          {run.flaggedAt
+                            ? t('agent_orchestrator.traces.detail.actionUnflag')
+                            : t('agent_orchestrator.traces.detail.actionFlag')}
                         </Button>
-                      )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void rerunAgent()}
-                        disabled={rerunning}
-                      >
-                        <RotateCcw className="size-4" />
-                        {t('agent_orchestrator.traces.detail.actionRerun')}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void toggleFlag()}
-                        disabled={flagging}
-                      >
-                        <Flag className={run.flaggedAt ? 'size-4 text-status-warning-text' : 'size-4'} />
-                        {run.flaggedAt
-                          ? t('agent_orchestrator.traces.detail.actionUnflag')
-                          : t('agent_orchestrator.traces.detail.actionFlag')}
-                      </Button>
+                      </SimpleTooltip>
                     </div>
                   </div>
 
@@ -1069,7 +1104,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
 
                 {/* Eval assertions — the trust verdict */}
                 <InspectorCard title={t('agent_orchestrator.traces.detail.evalResults')}>
-                      {detail.evalResults.length === 0 ? (
+                      {dedupedEvalResults.length === 0 ? (
                         <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
                           <EmptyArt className="size-28 text-muted-foreground" />
                           <p className="text-sm text-muted-foreground">
@@ -1116,7 +1151,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                           </div>
                           )}
                           <ul className="space-y-1.5">
-                            {detail.evalResults.map((result) => (
+                            {dedupedEvalResults.map((result) => (
                               <li key={result.id} className="flex items-center gap-2">
                                 {result.passed === null ? (
                                   <MinusCircle

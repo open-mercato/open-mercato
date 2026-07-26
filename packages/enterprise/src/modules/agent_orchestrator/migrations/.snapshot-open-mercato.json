@@ -1507,6 +1507,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "datetime"
+        },
+        "input_key": {
+          "name": "input_key",
+          "type": "varchar(64)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 64,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "string"
         }
       },
       "indexes": [
@@ -1540,6 +1557,18 @@
           "composite": true,
           "constraint": false,
           "keyName": "agent_eval_cases_tenant_org_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "organization_id",
+            "agent_definition_id",
+            "input_key"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "agent_eval_cases_agent_input_key_idx",
           "primary": false,
           "unique": false
         }
@@ -1756,6 +1785,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "matched_eval_case_id": {
+          "name": "matched_eval_case_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
         }
       },
       "indexes": [
@@ -1797,6 +1843,16 @@
           "composite": true,
           "constraint": false,
           "keyName": "agent_eval_results_tenant_org_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "matched_eval_case_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "agent_eval_results_matched_case_idx",
           "primary": false,
           "unique": false
         }
@@ -4649,6 +4705,40 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "datetime"
+        },
+        "golden_case_id": {
+          "name": "golden_case_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "golden_passed": {
+          "name": "golden_passed",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean"
         }
       },
       "indexes": [

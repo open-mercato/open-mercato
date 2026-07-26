@@ -246,7 +246,18 @@ export default function EvalCaseDetailPage({ params }: { params?: { id?: string 
     <Page>
       <PageBody className="space-y-6">
         <div>
-          <Button type="button" variant="outline" size="sm" onClick={() => router.push('/backend/eval-cases')}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              router.push(
+                detail
+                  ? `/backend/agents/${encodeURIComponent(detail.agentDefinitionId)}?tab=evaluation&section=cases`
+                  : '/backend/agents',
+              )
+            }
+          >
             {t('agent_orchestrator.evalCases.detail.back')}
           </Button>
         </div>
@@ -257,7 +268,7 @@ export default function EvalCaseDetailPage({ params }: { params?: { id?: string 
           <RecordNotFoundState
             label={t('agent_orchestrator.evalCases.detail.notFound')}
             description={t('agent_orchestrator.evalCases.detail.notFoundDescription')}
-            backHref="/backend/eval-cases"
+            backHref="/backend/agents"
             backLabel={t('agent_orchestrator.evalCases.detail.back')}
           />
         ) : error ? (

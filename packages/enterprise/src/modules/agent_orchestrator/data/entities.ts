@@ -45,6 +45,8 @@ export class AgentRun {
     | 'latencyMs'
     | 'evalScore'
     | 'evalPassed'
+    | 'goldenCaseId'
+    | 'goldenPassed'
     | 'contextRouting'
     | 'outputArtifactKey'
     | 'humanConfirmedAt'
@@ -135,6 +137,14 @@ export class AgentRun {
 
   @Property({ name: 'eval_passed', type: 'boolean', nullable: true })
   evalPassed?: boolean | null
+
+  /** FK id → agent_eval_cases; the approved golden case whose input this run matched (online golden-match plane); null when no golden matched. */
+  @Property({ name: 'golden_case_id', type: 'uuid', nullable: true })
+  goldenCaseId?: string | null
+
+  /** Verdict of the matched golden case's gate assertions for this run; null when no golden matched or no gate applied. */
+  @Property({ name: 'golden_passed', type: 'boolean', nullable: true })
+  goldenPassed?: boolean | null
 
   /** TDCR routed-vs-pruned context summary (context overlay). */
   @Property({ name: 'context_routing', type: 'jsonb', nullable: true })
@@ -397,9 +407,10 @@ export type AgentEvalCaseStatus = 'draft' | 'approved' | 'archived'
 @Entity({ tableName: 'agent_eval_cases' })
 @Index({ name: 'agent_eval_cases_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'agent_eval_cases_agent_status_idx', properties: ['organizationId', 'agentDefinitionId', 'status'] })
+@Index({ name: 'agent_eval_cases_agent_input_key_idx', properties: ['organizationId', 'agentDefinitionId', 'inputKey'] })
 export class AgentEvalCase {
   [OptionalProps]?:
-    | 'processType' | 'expected' | 'assertions' | 'status' | 'approvedByUserId'
+    | 'processType' | 'inputKey' | 'expected' | 'assertions' | 'status' | 'approvedByUserId'
     | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -426,6 +437,15 @@ export class AgentEvalCase {
 
   @Property({ name: 'input', type: 'jsonb' })
   input!: unknown
+
+  /**
+   * SHA-256 (hex) of the canonicalized plaintext `input` — the match key used to
+   * recognize a live/playground run whose input reproduces this golden case
+   * (`canonicalInputKey`). Plaintext by design (must be SQL-queryable); NOT in
+   * the encryption map. Nullable for legacy rows.
+   */
+  @Property({ name: 'input_key', type: 'varchar', length: 64, nullable: true })
+  inputKey?: string | null
 
   /** Expected output (the corrected value); null when sourced from a plain reject. */
   @Property({ name: 'expected', type: 'jsonb', nullable: true })
@@ -540,8 +560,9 @@ export class AgentEvalAssertion {
 @Index({ name: 'agent_eval_results_run_idx', properties: ['agentRunId'] })
 @Index({ name: 'agent_eval_results_assertion_idx', properties: ['assertionId'] })
 @Index({ name: 'agent_eval_results_case_run_idx', properties: ['evalCaseRunId'] })
+@Index({ name: 'agent_eval_results_matched_case_idx', properties: ['matchedEvalCaseId'] })
 export class AgentEvalResult {
-  [OptionalProps]?: 'evalCaseRunId' | 'passed' | 'score' | 'evidence' | 'evaluatedAt' | 'createdAt'
+  [OptionalProps]?: 'evalCaseRunId' | 'matchedEvalCaseId' | 'passed' | 'score' | 'evidence' | 'evaluatedAt' | 'createdAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -570,6 +591,15 @@ export class AgentEvalResult {
    */
   @Property({ name: 'eval_case_run_id', type: 'uuid', nullable: true })
   evalCaseRunId?: string | null
+
+  /**
+   * FK id → agent_eval_cases. Set (with `evalCaseRunId` null) when this verdict
+   * comes from the ONLINE golden-match plane: a live/playground run whose input
+   * matched an approved golden case, scored against that case's `expected`. Null
+   * for plain online results and for eval-plane (`evalCaseRunId`) results.
+   */
+  @Property({ name: 'matched_eval_case_id', type: 'uuid', nullable: true })
+  matchedEvalCaseId?: string | null
 
   /**
    * `null` means SKIPPED and is the single source of truth for it — there is no
