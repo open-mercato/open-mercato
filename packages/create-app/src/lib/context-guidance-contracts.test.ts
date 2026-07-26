@@ -50,6 +50,7 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(sensitiveData, /query `where`/)
   assert.match(sensitiveData, /fifth-argument decryption scope/)
   assert.match(sensitiveData, /hash-only/)
+  assert.match(sensitiveData, /make a concrete call in every implemented sensitive-record read path/)
 
   const integrity = readAgentic(
     'shared/ai/skills/om-data-model-design/references/integrity-and-concurrency.md',
@@ -67,6 +68,9 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(integrity, /registerCommand\(command\)` separately/)
   assert.match(integrity, /action: 'created' \| 'updated' \| 'deleted'/)
   assert.match(integrity, /identifiers: \{ id, tenantId, organizationId \}/)
+  assert.match(integrity, /execute` returns `Result` directly/)
+  assert.match(integrity, /ctx\.container\.resolve<EntityManager>/)
+  assert.match(integrity, /ctx\.selectedOrganizationId/)
   assert.match(integrity, /commands\/helpers/)
   assert.match(integrity, /second argument is an array/)
   assert.match(integrity, /after commit/)
@@ -92,6 +96,7 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(moduleSurfaces, /<module>\.<resources>\.view/)
   assert.match(moduleSurfaces, /setup: ModuleSetupConfig/)
   assert.match(moduleSurfaces, /@open-mercato\/shared\/modules\/events/)
+  assert.match(moduleSurfaces, /category: 'crud'/)
 
   const apiAndDomain = readAgentic(
     'shared/ai/skills/om-module-scaffold/references/api-and-domain.md',
@@ -100,6 +105,9 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(apiAndDomain, /stable host contract/)
   assert.match(apiAndDomain, /registerCommand/)
   assert.match(apiAndDomain, /@open-mercato\/shared\/lib\/commands/)
+  assert.match(apiAndDomain, /uses `commandId`/)
+  assert.match(apiAndDomain, /not `findMany`/)
+  assert.match(apiAndDomain, /the key is not `body`/)
 
   const crudSurfaces = readAgentic(
     'shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md',
@@ -107,7 +115,7 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(crudSurfaces, /authoring a new host UI/)
   assert.match(crudSurfaces, /extensionTableId/)
   assert.match(crudSurfaces, /stable column, action, and row-action IDs/)
-  for (const expected of ['@open-mercato/ui/backend/DataTable', '@open-mercato/ui/backend/RowActions', '@open-mercato/ui/backend/CrudForm', '@open-mercato/shared/lib/i18n/context', '@open-mercato/ui/backend/utils/apiCall', 'readApiResultOrThrow', 'searchValue', 'onSearchChange', '`/create`', 'RowActions', 'collectCustomFieldValues', 'mapCrudServerErrorToFormErrors', 'injectionSpotId', 'return `void`', 'no `requiredFeatures` field']) {
+  for (const expected of ['@open-mercato/ui/backend/DataTable', '@open-mercato/ui/backend/RowActions', '@open-mercato/ui/backend/CrudForm', '@open-mercato/shared/lib/i18n/context', '@open-mercato/ui/backend/utils/apiCall', 'readApiResultOrThrow', 'searchValue', 'onSearchChange', '`/create`', 'RowActions', 'collectCustomFieldValues', 'mapCrudServerErrorToFormErrors', 'injectionSpotId', 'return `void`', 'no `requiredFeatures` field', 'LoadingMessage', 'ErrorMessage']) {
     assert.ok(crudSurfaces.includes(expected), `missing canonical CRUD surface contract ${expected}`)
   }
 
