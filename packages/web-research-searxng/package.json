@@ -1,9 +1,14 @@
 {
-  "name": "@open-mercato/web-search",
-  "version": "0.0.0",
+  "name": "@open-mercato/web-research-searxng",
+  "version": "0.6.5",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
+  "openMercato": {
+    "webResearchAdapter": {
+      "id": "searxng"
+    }
+  },
   "scripts": {
     "build": "node build.mjs",
     "watch": "node watch.mjs",
@@ -21,30 +26,19 @@
     },
     "./*": {
       "types": [
-        "./src/*.ts",
-        "./src/*.tsx"
+        "./src/*.ts"
       ],
       "default": "./dist/*.js"
-    },
-    "./*/*": {
-      "types": [
-        "./src/*/*.ts",
-        "./src/*/*.tsx"
-      ],
-      "default": "./dist/*/*.js"
-    },
-    "./*/*/*": {
-      "types": [
-        "./src/*/*/*.ts",
-        "./src/*/*/*.tsx"
-      ],
-      "default": "./dist/*/*/*.js"
     }
+  },
+  "peerDependencies": {
+    "@open-mercato/web-research": "^0.6.0"
   },
   "dependencies": {
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@open-mercato/web-research": "workspace:*",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.0.1",
     "esbuild": "^0.28.1",
@@ -59,6 +53,6 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/open-mercato/open-mercato",
-    "directory": "packages/web-search"
+    "directory": "packages/web-research-searxng"
   }
 }

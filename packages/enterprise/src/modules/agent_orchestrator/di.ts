@@ -47,7 +47,6 @@ import { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow
 import { ContextResolverImpl } from './lib/context/contextResolver'
 import { DocumentIngestServiceImpl } from './lib/context/documentIngest'
 import { resolveDefaultOcrProvider } from './lib/context/documentOcrProvider'
-import { resolveWebSearchProvider } from './lib/webSearch/webSearchProvider'
 import { buildWebSearchEngine } from './lib/webSearch/registry'
 import type { DispositionService } from './lib/disposition/dispositionService'
 
@@ -152,7 +151,6 @@ export function register(container: AppContainer) {
     // (allowed net), never the sandbox. A deployment can re-register
     // `webSearchEngineFactory` to wrap or replace the chain.
     webSearchEngineFactory: asFunction(() => buildWebSearchEngine).scoped(),
-    webSearchProvider: asFunction(() => resolveWebSearchProvider(container)).scoped(),
     agentDocumentIngestService: asFunction(
       () => new DocumentIngestServiceImpl(container, { provider: resolveDefaultOcrProvider(container) }),
     ).scoped(),

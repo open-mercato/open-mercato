@@ -73,7 +73,6 @@
     "@open-mercato/scheduler": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@open-mercato/web-research": "workspace:*",
-    "@open-mercato/web-search": "workspace:*",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
     "@simplewebauthn/types": "^12.0.0",

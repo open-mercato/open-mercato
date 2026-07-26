@@ -8,6 +8,10 @@ module.exports = {
   watchman: false,
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
+  moduleNameMapper: {
+    '^@open-mercato/web-research/(.*)$': '<rootDir>/../web-research/src/$1',
+    '^@open-mercato/web-research$': '<rootDir>/../web-research/src/index.ts',
+  },
   transform: {
     '^.+\\.(t|j)sx?$': [
       'ts-jest',

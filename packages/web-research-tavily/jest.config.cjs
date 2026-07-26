@@ -3,34 +3,26 @@ const base = require('../../jest.config.base.cjs')
 
 module.exports = {
   ...base,
+  preset: 'ts-jest',
   testEnvironment: 'node',
   watchman: false,
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
-    '^@open-mercato/enterprise/(.*)$': '<rootDir>/src/$1',
-    '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
-    '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
-    '^@open-mercato/ui/(.*)$': '<rootDir>/../ui/src/$1',
-    '^@open-mercato/web-research$': '<rootDir>/../web-research/src/index.ts',
     '^@open-mercato/web-research/(.*)$': '<rootDir>/../web-research/src/$1',
-    '^(\\.{1,2}/.*)\\.js$': '$1',
+    '^@open-mercato/web-research$': '<rootDir>/../web-research/src/index.ts',
   },
   transform: {
     '^.+\\.(t|j)sx?$': [
-      '<rootDir>/../../scripts/jest-mikroorm-transformer.cjs',
+      'ts-jest',
       {
         tsconfig: {
-          jsx: 'react-jsx',
           rootDir: '.',
           ignoreDeprecations: '6.0',
         },
       },
     ],
   },
-  transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm|kysely|ai|@ai-sdk|ai-sdk-ollama|@workflow|@standard-schema)/)',
-  ],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
   passWithNoTests: true,
 }
