@@ -20,7 +20,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { WebSearchHealthCard } from '../../../components/WebSearchHealthCard'
+import { WebSearchHealthCard } from '../../components/WebSearchHealthCard'
 
 const SETTINGS_URL = '/api/agent_orchestrator/web-search/settings'
 
