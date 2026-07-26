@@ -46,6 +46,7 @@
         "om-fix-specs",
         "om-migrate-mikro-orm",
         "om-create-ai-agent",
+        "om-create-web-research-adapter",
         "om-help"
       ]
     },
