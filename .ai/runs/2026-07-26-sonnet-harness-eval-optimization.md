@@ -26,6 +26,8 @@ Sibling follow-up: #4528 (`feat/kimi-cli-runner-harness-evals`) adds a third run
 - Extend the generated-code/code-review checklist for diffs touching standalone module elements (entities, commands, APIs, pages, navigation, widgets, search, ACL/setup, encryption). Derive any additional minimums from the installed `customers` module, require design-system alignment for rendered UI, and make the repo-local `om-auto-review-pr` override explicitly feed these rules into `om-code-review` and generated-code review.
 - Default new editable entities/modules/backend UI to the complete CRUD path unless the brief explicitly excludes an operation: filtered/searchable DataTable list, linked create and edit/detail actions, CrudForm create/update/delete, custom-field round trips, and the corresponding scoped APIs/commands. Keep this rule compact in backend-UI progressive guidance.
 - Preserve upstream `open-mercato/skills` review behavior and report formatting. Use its supported `reviewChecklist`/`CODE_REVIEW.md` extension mechanisms, do not ship a local `om-code-review` replacement, and keep the standalone `om-auto-review-pr` overlay to the minimum additive portability note needed.
+- Verify create-mercato-app still exposes and runs the shared-skill installation/update flow used on the base branch (including the generated `npx skills`/installer-facing command where applicable). Ensure new apps can intentionally refresh to the current `open-mercato/skills` source while retaining ownership/provenance checks and deterministic pinned installs for harness release evidence.
+- Document the framework-owned cache and queue paths without forcing agents back into source archaeology: cache key/scope/TTL ownership, explicit invalidation after committed writes, and durable queue registration, enqueue/worker boundaries, retries, idempotency, tenant context, and observable failure handling. Add generative routing cases for cache invalidation and queue-backed work for both supported models.
 - Add or strengthen semantic catalog coverage for real gaps above. Preserve progressive disclosure and the fail-closed gates; modest per-case file/byte quota increases and limited WIP catalog compatibility changes are allowed only when both runner traces justify them and the final measurements disclose them.
 
 ## Non-goals
@@ -196,6 +198,16 @@ Implementation order: add the semantic/writable case and demonstrate its failure
 - Provider continuation: if Claude/Sonnet reports token or quota exhaustion, record the exact completed/failed/remaining case IDs and sanitized provider error, stop that lane without changing its expectations, and continue deterministic, Codex, writable-oracle, generated-review, documentation, and repository-gate work. Resume Sonnet when capacity returns; a Codex pass never substitutes for the required Sonnet pass.
 - Review compatibility implementation uses only the upstream-supported config hook (`reviewChecklist: .ai/review-checklist.md`) plus the existing standalone `om-auto-review-pr` portability overlay. No local `om-code-review` override was added. The overlay now defers output/verdict/emoji templates to the external skill and adds one concise checklist pointer.
 
+### Shared-skill bootstrap/update audit accepted (2026-07-26T17:27Z)
+
+Compare the current branch with `origin/develop` and trace the generated app from package scripts through `agentic:init` and `scripts/install-skills.{mjs,sh}`. Confirm that normal setup installs the declared shared collection and that an explicit update path can refresh to the current `open-mercato/skills` source without discarding repo-local overlays. Keep pinned ref/content hashes and the ownership ledger for reproducible harness review; do not silently turn a release run into an unpinned network fetch. Add a regression test and document the operator-visible command if the current flow is hidden or incomplete.
+
+### Cache/invalidation and queue guidance accepted (2026-07-26T17:32Z)
+
+- Add concise progressive guidance for framework cache access, scoped keys and TTLs, and commit-aware invalidation. Mutation handlers must never publish invalidation before the transaction commits; undo/compensation must invalidate the same affected scopes.
+- Add concise progressive guidance for durable queued work: registered queue/job ownership, validated serializable payloads containing tenant/org context rather than ambient request state, enqueue-after-commit semantics, idempotency/deduplication, bounded retries/backoff, observable terminal failure, and command/service reuse in workers.
+- Add failing-first generative cases with exact route/skill/context expectations and semantic decisions for cache invalidation and queued jobs. Exercise them with both `sonnet` and Codex, and fold applicable cache/queue checks into the complete-module review checklist without making every module use infrastructure it does not need.
+
 
 ## Progress
 
@@ -235,6 +247,8 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [ ] 3.5 Add and pass the single-shot complete book-library module evaluation, including main-sidebar visibility
 - [ ] 3.6 Enforce the complete-module and design-system checklist through om-code-review, om-auto-review-pr, and generated-code review
 - [ ] 3.7 Default new editable module surfaces to linked/filterable full CRUD while preserving upstream review-skill behavior
+- [ ] 3.8 Verify and, if needed, restore shared `open-mercato/skills` install/update parity for generated apps
+- [ ] 3.9 Add progressive cache/invalidation and queue guidance plus two-model generative evaluation coverage
 
 ### Phase 4: Compatibility baseline
 
