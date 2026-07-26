@@ -74,6 +74,28 @@ test('the trusted writable AST oracle owns exactly the fixed writable-case matri
   assert.deepEqual(WRITABLE_CASE_IDS, EXPECTED_WRITABLE_CASE_IDS)
 })
 
+test('the complete module oracle enforces connected customers-level CRUD', () => {
+  const source = fs.readFileSync(oracle, 'utf8')
+  for (const checkId of [
+    'module.crud-actions',
+    'module.openapi',
+    'module.list-query',
+    'module.table',
+    'module.form',
+  ]) assert.match(source, new RegExp(`check\\('${checkId.replace('.', '\\.')}'`))
+  for (const contract of [
+    'library.books.create',
+    'library.books.update',
+    'library.books.delete',
+    'searchValue',
+    'onSearchChange',
+    'buildFilters',
+    'createCrud',
+    'updateCrud',
+    'deleteCrud',
+  ]) assert.ok(source.includes(contract), `missing complete-module oracle contract ${contract}`)
+})
+
 test('imports and comments cannot satisfy a concrete call/options oracle', () => {
   const root = stageTarget('src/modules/library/api/books/route.ts', `
 import { makeCrudRoute, metadata, openApi, indexer } from 'decoy'
