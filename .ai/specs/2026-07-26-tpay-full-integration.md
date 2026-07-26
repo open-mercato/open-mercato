@@ -9,7 +9,7 @@
 
 ## 1. Purpose
 
-Take the PoC `gateway-tpay` package from a redirect-only proof of concept to a **production-grade, upstreamable** Tpay payment provider for Open Mercato — the platform's first fully-featured Polish payment gateway (BLIK, cards + 3DS, Polish bank transfers, wallets), with authoritative webhook confirmation, refunds, multi-currency, observability, and a full test suite.
+Take the PoC `gateway-tpay` package from a redirect-only proof of concept to a **production-grade, upstreamable** Tpay payment provider for Open Mercato — the platform's first fully-featured Polish payment gateway (BLIK, cards + 3DS, Polish bank transfers, wallets), with authoritative webhook confirmation, refunds, PLN-first currency handling (optional EUR), observability, and a full test suite.
 
 The package stays **generic and client-agnostic** (no downstream customer identity anywhere) so it can be contributed to the `open-mercato` OSS repo.
 
@@ -80,8 +80,11 @@ Where the PoC intentionally skipped a Stripe-parity file (async worker, config w
 - **Cancel/expire:** handle unpaid-transaction expiry; reflect `cancelled`/`expired` unified statuses.
 - **Capture:** redirect auto-captures; keep `capture` a status-reflecting no-op (documented).
 
-### Phase 4 — Multi-currency & POS
-- Tpay derives currency from the merchant POS; support multiple POS/currency by credential or config; validate `supportedCurrencies` in the descriptor; reject unsupported currency at session create with a clear error.
+### Phase 4 — Currency support (PLN primary; EUR as a scoped follow-up)
+Tpay supports **PLN and EUR only** — not arbitrary currencies — so this is **not** generic multi-currency. PLN is the provider's primary, default currency.
+- Descriptor keeps `supportedCurrencies: ['PLN']`; reject any non-PLN currency at session create with a clear error until EUR is explicitly enabled for a tenant.
+- **EUR is a separate, more complex case, deliberately out of the initial scope.** Tpay settles EUR through a **dedicated EUR POS** on the merchant account (its own POS/credentials), with currency-scoped notifications and per-currency handling. Treat it as opt-in: add a second POS credential and widen `supportedCurrencies` to `['PLN', 'EUR']` only when a tenant needs it, and validate the order currency against the configured POS.
+- Do **not** build open-ended multi-currency; Tpay does not support it.
 
 ### Phase 5 — Status state machine & reconciliation
 - Complete provider→unified mapping (`pending/correct/paid/refund/refunded/chargeback/declined/error/canceled`), notification `tr_status` tokens (`TRUE`/`CHARGEBACK`/`FALSE`), and expiry.
@@ -124,7 +127,7 @@ Where the PoC intentionally skipped a Stripe-parity file (async worker, config w
 - **Tpay root-cert rotation** — pin + refresh strategy; alert on chain-validation failures.
 - **Notification reachability in dev** — requires a public tunnel; document `PLATFORM_DOMAINS` + notification URL.
 - **Method breadth** — cards/3DS/wallets each have edge cases; phase them, gate by descriptor.
-- **Currency/POS** — mismatch between order currency and merchant POS; validate early.
+- **Currency/POS** — Tpay supports only PLN and EUR, and EUR needs its own POS. Default to PLN, validate the order currency against the configured POS, and gate EUR behind an explicit per-tenant EUR POS.
 
 ## 8. Backward compatibility & upstreaming
 
