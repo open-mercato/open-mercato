@@ -3,9 +3,12 @@ import type { AwilixContainer } from 'awilix'
 import * as fs from 'fs'
 import * as path from 'path'
 import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { WorkflowDefinitionData } from '@open-mercato/core/modules/workflows/data/entities'
+import { AgentEvalAssertion, AgentEvalCase } from '../data/entities'
+import { canonicalInputKey } from './eval/canonicalInputKey'
 import { getAgentEntry } from './sdk/defineAgent'
 
 const __esmDirname = path.dirname(fileURLToPath(import.meta.url))
@@ -37,6 +40,54 @@ const DEMO_DEALS = [
     status: 'open',
   },
 ] as const
+
+const DEMO_HEALTHY_DEAL_TITLE = '[Demo] Acme renewal — healthy'
+
+/**
+ * Agent-specific demo assertions for `deals.health_check`. The tenant-wide `'*'`
+ * defaults (`seedDefaultEvalAssertions`) already cover output-present + min-confidence;
+ * these two add the checks specific to this agent's decision shape, so the demo
+ * agent shows a meaningful gate/warn mix out of the box.
+ */
+const DEMO_DHC_ASSERTIONS: Array<{
+  key: string
+  scorerKey: string
+  title: string
+  description: string
+  type: 'deterministic'
+  severity: 'gate' | 'warn'
+  config: Record<string, unknown>
+}> = [
+  {
+    key: 'dh_proposes_stage',
+    scorerKey: 'json_path_compare',
+    title: 'Proposes a stage change',
+    description: 'The proposal moves the deal to a stage.',
+    type: 'deterministic',
+    severity: 'gate',
+    config: { path: 'proposal.actions[0].type', operator: 'eq', value: 'set_stage' },
+  },
+  {
+    key: 'dh_rationale_present',
+    scorerKey: 'json_path_compare',
+    title: 'Rationale present',
+    description: 'The proposal explains its reasoning.',
+    type: 'deterministic',
+    severity: 'warn',
+    config: { path: 'proposal.rationale', operator: 'ne', value: '' },
+  },
+]
+
+/** Strong golden output for the healthy demo deal (should auto-approve; confidence >= 0.8). */
+const DEMO_HEALTHY_EXPECTED = {
+  kind: 'actionable',
+  proposal: {
+    actions: [{ type: 'set_stage', payload: { stage: 'Negotiation' } }],
+    confidence: 0.85,
+    rationale:
+      'The deal is healthy: strong momentum, engaged stakeholders, and the current-stage exit criteria are met — advance to Negotiation.',
+  },
+}
 
 type WorkflowSeedDefinition = {
   workflowId: string
@@ -170,9 +221,94 @@ async function seedDemoDeals(
 }
 
 /**
+ * Demo eval setup for `deals.health_check`: the agent-specific assertions plus an
+ * APPROVED golden case tied to the healthy demo deal, so a fresh install shows a
+ * meaningful evaluation (gate/warn verdicts + a golden-match diff) in the Playground.
+ * Runs after `seedDemoDeals` so the deal exists; idempotent (assertion by
+ * org+appliesTo+key, golden by agent+inputKey). The golden's `input` is built from
+ * the deal's runtime uuid, so its `inputKey` matches real `{ dealId }` runs.
+ */
+async function seedDealsHealthCheckEval(
+  container: AwilixContainer,
+  scope: AgentOrchestratorSeedScope,
+): Promise<void> {
+  const em = (container.resolve('em') as EntityManager).fork()
+
+  let assertionsCreated = false
+  for (const assertion of DEMO_DHC_ASSERTIONS) {
+    const existing = await em.findOne(AgentEvalAssertion, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      appliesTo: DEMO_AGENT_ID,
+      key: assertion.key,
+    })
+    if (existing) continue
+    em.persist(
+      em.create(AgentEvalAssertion, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        key: assertion.key,
+        scorerKey: assertion.scorerKey,
+        title: assertion.title,
+        description: assertion.description,
+        appliesTo: DEMO_AGENT_ID,
+        type: assertion.type,
+        severity: assertion.severity,
+        config: assertion.config,
+        enabled: true,
+        deletedAt: null,
+      }),
+    )
+    assertionsCreated = true
+  }
+  if (assertionsCreated) await em.flush()
+
+  const customers = (await import(
+    '@open-mercato/core/modules/customers/data/entities'
+  )) as typeof import('@open-mercato/core/modules/customers/data/entities')
+  const deal = await findOneWithDecryption(
+    em,
+    customers.CustomerDeal,
+    { title: DEMO_HEALTHY_DEAL_TITLE, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+  if (!deal) return
+
+  const input = { dealId: deal.id }
+  const inputKey = canonicalInputKey(input)
+  const existingCase = await em.findOne(AgentEvalCase, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    agentDefinitionId: DEMO_AGENT_ID,
+    inputKey,
+  })
+  if (existingCase) return
+  em.persist(
+    em.create(AgentEvalCase, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      sourceType: 'golden_run',
+      sourceId: randomUUID(),
+      agentDefinitionId: DEMO_AGENT_ID,
+      processType: null,
+      input,
+      inputKey,
+      expected: DEMO_HEALTHY_EXPECTED,
+      assertions: null,
+      status: 'approved',
+      approvedByUserId: null,
+      deletedAt: null,
+    }),
+  )
+  await em.flush()
+}
+
+/**
  * Gated demo seed (skipped with `--no-examples`). Lands the demo workflow
- * definition + demo deals; verifies the code-defined demo agent resolves.
- * All writes are tenant-scoped and idempotent (re-running creates nothing new).
+ * definition + demo deals + the demo agent's eval assertions & golden case;
+ * verifies the code-defined demo agent resolves. All writes are tenant-scoped and
+ * idempotent (re-running creates nothing new).
  */
 export async function seedAgentOrchestratorExamples(
   em: EntityManager,
@@ -182,4 +318,5 @@ export async function seedAgentOrchestratorExamples(
   verifyDemoAgent()
   await seedDealsHealthCheckWorkflow(em, scope)
   await seedDemoDeals(container, scope)
+  await seedDealsHealthCheckEval(container, scope)
 }
