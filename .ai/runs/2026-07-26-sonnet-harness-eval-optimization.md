@@ -18,6 +18,11 @@ Sibling follow-up: #4528 (`feat/kimi-cli-runner-harness-evals`) adds a third run
 - Rerun the complete Codex routing matrix as the compatibility baseline after remediation.
 - Exercise the writable/review lanes the host can safely support (this controller is Linux with attested Bubblewrap, which #4483 could not use on macOS) and report any lane that stays environment-blocked without weakening it.
 - Update the governing spec and harness documentation with the measured evidence.
+- Audit the standalone progressive guidance for data-integrity implementation: commands as the mutation boundary; transaction/atomic multi-write semantics; post-commit side effects; audit/undo/compensation; optimistic locking for CRUD and command actions; and clear-to-null behavior.
+- Make encryption guidance actionable without routine source archaeology: canonical encryption maps and scoped decryption helpers (including `findWithDecryption`-style reads), redaction boundaries, and search/export/worker coverage.
+- Audit indexing/search guidance, including `search.ts`/query-index contracts, post-write indexing or invalidation, deterministic convergence/reindex verification, and no arbitrary sleeps.
+- Audit the AI framework, i18n, and UMES authoring surfaces: typed agents/tools and approval-gated mutations; locale ownership and generated registration; and stable injection spots/IDs plus widgets, fields, menus, component replacements, interceptors, guards, and response enrichers for new APIs/UIs.
+- Add or strengthen semantic catalog coverage for real gaps above. Preserve progressive disclosure and the fail-closed gates; modest per-case file/byte quota increases and limited WIP catalog compatibility changes are allowed only when both runner traces justify them and the final measurements disclose them.
 
 ## Non-goals
 
@@ -127,6 +132,20 @@ After the defects above, the residual failures concentrate in `debugging` cases 
 
 Part 3 of `AGENT-HARNESS.md` (added in this PR) records all of the above as guidance for whoever tunes the next runner.
 
+### Expanded requirements accepted on resume (2026-07-26T16:12Z)
+
+The resumed run additionally owns a budget-aware documentation and evaluation audit for:
+
+- transaction boundaries, atomic multi-write updates, command undo/compensation and post-commit side effects;
+- CRUD and command optimistic locks, including raw UI update/delete conflict handling;
+- encryption maps, scoped `findWithDecryption`-style reads, redaction, and index/export/worker safety;
+- data indexing, search/query-index ownership, deterministic convergence and reindex verification;
+- typed AI agents/tools/orchestrators, approval-gated mutations, attachments/artifacts, and generated registration;
+- i18n ownership, generated locale discovery, no hard-coded user-facing copy, and validation;
+- UMES-ready API/UI design with stable injection identifiers and the applicable widget/menu/field/component/interceptor/guard/enricher contracts.
+
+Implementation rule: keep the root router compact, put actionable contracts in the smallest progressive guide/skill reference or generated fact owner, and add a failing semantic case before every new rule. Completion requires clean, attributable Sonnet and Codex sweeps against one immutable emitted controller version; quota changes must be minimal and reported separately from routing fixes. Progress is committed/pushed and mirrored to PR comments after each coherent batch.
+
 
 ## Progress
 
@@ -162,6 +181,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.1 Remediate shared-owner routing authority defects — additive `backend-ui`, additive ownership (`umes`), architecture co-route, module-fact triggers, `testing` trigger, compatibility-guide path
 - [x] 3.2 Remediate declaration/observation discipline in the shared contract — `selectedContext` is an exact record; over-reported blockers; refused reads no longer scored as loaded content (both runner shapes)
 - [ ] 3.3 Recalibrate over-specified expectations and prove the complete sonnet matrix
+- [ ] 3.4 Audit and pin the expanded integrity/encryption/search/AI/i18n/UMES guidance requirements
 
 ### Phase 4: Compatibility baseline
 
