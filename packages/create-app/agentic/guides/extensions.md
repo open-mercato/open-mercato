@@ -6,9 +6,9 @@ Use the smallest extension mechanism that preserves installed-module ownership. 
 
 Your file lives in `src/modules/<id>/` either way, so location decides nothing — what you change does. Creating your own entity/route/command/page/worker is `module-data`/`backend-ui` alone, even when it calls installed APIs and you read installed facts to do it. Changing an **installed** module selects `umes` as well: its records or data derived from them, commands, events and lifecycle reactions, pages and rendered surfaces, overrides or disablement, or the invariants applied to them. Reading its facts is not `umes`; changing its behavior is.
 
-`umes` says whose code changes, never what the change produces, so add every other match: `backend-ui` + `om-backend-ui-design` when authoring or restyling a rendered surface (injected field/column/action/filter/toolbar, menu item, card/tab/section, replaced or wrapped component, transformed props, progress or status UI, editable custom-field surface, user-visible strings); `module-data` + contracts for app-owned entities/links/routes/commands/ACL; `ai-workflow` for a durable process, activity, or user task; plus the facts of every mechanism module involved.
+`umes` says whose code changes, never what the change produces, so add every other match: `backend-ui` + `om-backend-ui-design` when authoring, restyling, or ACL-gating a rendered surface this app owns or injected (injected field/column/action/filter/toolbar, menu item, card/tab/section, replaced or wrapped component, transformed props, progress or status UI, editable custom-field surface, user-visible strings); `module-data` + contracts for app-owned entities/links/routes/commands/ACL; `ai-workflow` for a durable process, activity, or user task; plus the facts of every mechanism module involved.
 
-Stay `umes`-only when nothing is authored: hiding, gating, toggling, permission-scoping, disabling, rewiring, or auditing an existing surface. Payload text, pagination, and table IDs are not UI.
+Stay `umes`-only when nothing of yours is rendered: hiding, toggling, disabling, rewiring, or auditing a surface an installed module owns. Payload text, pagination, and table IDs are not UI.
 
 ## Mechanism Selector
 

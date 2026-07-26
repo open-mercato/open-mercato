@@ -84,8 +84,8 @@ test('existing-module UI routing stays inside the backend UI context slice', () 
   // hiding/gating/toggling/rewiring does not — because the either/or framing it replaced
   // made an installed-host UI change read as UMES-only. The UI skill keeps the narrower
   // page/form/table-only wording, since by then the route is already chosen.
-  assert.match(rootInstructions, /Authoring or restyling a rendered surface adds `backend-ui`/)
-  assert.match(rootInstructions, /hiding, gating, toggling, or rewiring an existing one does not/)
+  assert.match(rootInstructions, /Authoring, restyling, or gating a rendered surface the app owns or injected adds `backend-ui`/)
+  assert.match(rootInstructions, /hiding, toggling, or rewiring an installed one does not/)
   assert.match(uiSkill, /page\/form\/table-only/)
   for (const instructions of [rootInstructions, uiSkill]) {
     assert.match(instructions, /do not load .*contracts.*module-scaffold/i)

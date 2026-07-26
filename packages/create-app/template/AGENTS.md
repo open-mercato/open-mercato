@@ -48,9 +48,9 @@ Combine matches: lifecycle reaction = `module-data` + `umes`; convergence bug ad
 
 Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. App-owned durable process/activity/user task = `module-data` + `ai-workflow`.
 
-Authoring or restyling a rendered surface adds `backend-ui`; hiding, gating, toggling, or rewiring an existing one does not. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
+Authoring, restyling, or gating a rendered surface the app owns or injected adds `backend-ui`; hiding, toggling, or rewiring an installed one does not. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
 
-`backend-ui`: UI skill `references/quality-states.md`; public/portal/responsive/a11y adds `references/frontend-and-design-system.md`. Payload text is not UI.
+`backend-ui`: UI skill `references/quality-states.md`; public/portal/responsive/a11y adds `references/frontend-and-design-system.md`.
 
 ### Axis 1 — Area/Ownership
 
@@ -60,11 +60,11 @@ Authoring or restyling a rendered surface adds `backend-ui`; hiding, gating, tog
 | `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership or mechanism is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
 | `backend-ui` | Any authored or restyled rendered surface | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
-| `integration` | External email/shipping/payment/sync/webhook/storage/file/import/export provider | `.ai/guides/integrations.md`; excludes installed-sender use, workflow `CALL_API`, downloads, and AI storage |
+| `integration` | External email/shipping/payment/sync/webhook/storage/file/import/export provider | `.ai/guides/integrations.md`; excludes installed-sender use, workflow `CALL_API`, downloads, AI storage |
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/reminders/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
-Location never decides the route: app code that changes an installed module's records, commands, events, or pages is `module-data` + `umes`. Reading its facts alone is not. Reusable providers are published dependencies, never `packages/*`.
+Location never decides the route: app code changing an installed module's records, commands, events, or pages is `module-data` + `umes`; reading its facts is not. Reusable providers are published dependencies, never `packages/*`.
 
 ### Axis 2 — Work Units
 
