@@ -24,6 +24,18 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.6 → 0.6.7 (unreleased)
 
+### MFA self-service mutations now require `security.mfa.manage` (#3855)
+
+Starting or confirming an MFA provider, regenerating recovery codes, and removing an MFA method now require `security.mfa.manage`, matching the existing MFA authorization model. New tenants grant this feature to the default `employee` role so ordinary users can still enroll in MFA and manage their own methods.
+
+**Action for existing tenants:** synchronize role ACLs after deployment, then restart application instances so their in-process ACL caches load the new grant:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+Roles deliberately denied `security.mfa.manage` will no longer be able to call these self-service mutation endpoints, while their other security-profile permissions are unchanged.
+
 ### Scheduler queue targets now deliver one flat payload contract in both execution modes (#4221)
 
 The local scheduler used to wrap a scheduled queue target's configured `targetPayload` in an undocumented envelope (`{ scheduleId, scheduleName, scopeType, tenantId, organizationId, payload: { …targetPayload }, triggeredAt }`), while the asynchronous execute-schedule worker already spread `targetPayload` onto the worker payload root. Both paths now build their payload through one scheduler-owned helper (`packages/scheduler/src/modules/scheduler/lib/queueTargetPayload.ts`) and deliver the documented flat contract:
