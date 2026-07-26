@@ -743,6 +743,53 @@ test('refused instruction-tree enumeration still fails closed above the bounded 
   }
 })
 
+// `--disable` errors on a feature name the installed Codex does not recognize, so a name
+// that has been retired aborts every case — `skill_search` no longer exists in codex-cli
+// 0.144.6 and made the whole Codex lane unusable there. The harness must deny every
+// capability this CLI knows, and must not pass a name it does not.
+test('live Codex adapter denies only the feature flags the installed CLI knows', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const known = ['shell_tool', 'unified_exec', 'apps', 'multi_agent', 'browser_use', 'computer_use',
+  'image_generation', 'standalone_web_search', 'goals', 'hooks', 'plugins', 'remote_plugin',
+  'tool_suggest', 'auth_elicitation', 'unrelated_feature']
+if (args[0] === 'features' && args[1] === 'list') {
+  for (const name of known) console.log(name.padEnd(38) + 'stable  true')
+  process.exit(0)
+}
+const disabled = args.reduce((names, value, index) => (
+  args[index - 1] === '--disable' ? [...names, value] : names
+), [])
+// Every capability this CLI knows about must be denied...
+for (const name of known.filter((entry) => entry !== 'unrelated_feature')) {
+  if (!disabled.includes(name)) process.exit(9)
+}
+// ...and a retired name this CLI would reject must not be passed at all.
+if (disabled.includes('skill_search')) process.exit(9)
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: {
+  type: 'command_execution', command: 'cat AGENTS.md .ai/guides/architecture.md'
+}}))
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    assert.match(result.stdout, /PASS OMH-001/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('an unrelated error event cannot mark a successful out-of-allowlist read as refused', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   // The error event carries a bare `id` equal to the read's tool-call id but does not

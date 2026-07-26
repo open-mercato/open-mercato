@@ -1485,6 +1485,48 @@ ${caseRecord.prompt}
 </UNTRUSTED_TASK>`
 }
 
+// Model-authored capabilities the harness always denies when the installed Codex knows
+// them. `--disable` is deliberate: it errors on a name this CLI does not recognize, so a
+// silent typo can never leave a capability enabled. Feature names come and go across
+// versions, so a name absent from `codex features list` names nothing to disable — passing
+// it anyway aborts every case, which is how `skill_search` broke this lane on codex-cli
+// 0.144.6, where the feature no longer exists.
+const CODEX_DENIED_FEATURES = Object.freeze([
+  'skill_search', 'shell_tool', 'unified_exec', 'apps', 'multi_agent', 'browser_use',
+  'computer_use', 'image_generation', 'standalone_web_search', 'goals', 'hooks', 'plugins',
+  'remote_plugin', 'tool_suggest', 'auth_elicitation',
+])
+
+let codexKnownFeatureCache
+
+// Returns the feature names this Codex recognizes, or null when that cannot be established.
+// A failed probe must never SHRINK the denial set, so callers fall back to requesting every
+// denial: that keeps the stricter pre-probe behavior on a CLI without this subcommand.
+function codexKnownFeatures() {
+  if (codexKnownFeatureCache !== undefined) return codexKnownFeatureCache
+  codexKnownFeatureCache = null
+  const result = spawnSync('codex', ['features', 'list'], {
+    encoding: 'utf8',
+    timeout: 30_000,
+    maxBuffer: 1024 * 1024,
+    env: narrowRunnerEnv('codex'),
+  })
+  if (result.error || result.status !== 0) return codexKnownFeatureCache
+  const names = new Set()
+  for (const line of String(result.stdout ?? '').split(/\r?\n/)) {
+    const name = line.trim().split(/\s+/)[0]
+    if (/^[a-z0-9_]+$/.test(name)) names.add(name)
+  }
+  if (names.size) codexKnownFeatureCache = names
+  return codexKnownFeatureCache
+}
+
+function codexDisableArguments() {
+  const known = codexKnownFeatures()
+  const requested = known ? CODEX_DENIED_FEATURES.filter((feature) => known.has(feature)) : CODEX_DENIED_FEATURES
+  return requested.flatMap((feature) => ['--disable', feature])
+}
+
 function harnessMcpConfig(root, writable, allowedReads, allowedWrites) {
   const server = TOOL_SERVER_PATH
   if (!fs.existsSync(server)) throw new Error('agent harness tool server is missing; rerun `yarn mercato agentic:init --update-harness`')
@@ -1502,12 +1544,7 @@ function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, wr
   if (runner === 'codex') {
     const args = [
       'exec', '--json', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check',
-      '--disable', 'skill_search',
-      '--disable', 'shell_tool', '--disable', 'unified_exec', '--disable', 'apps',
-      '--disable', 'multi_agent', '--disable', 'browser_use', '--disable', 'computer_use',
-      '--disable', 'image_generation', '--disable', 'standalone_web_search',
-      '--disable', 'goals', '--disable', 'hooks', '--disable', 'plugins',
-      '--disable', 'remote_plugin', '--disable', 'tool_suggest', '--disable', 'auth_elicitation',
+      ...codexDisableArguments(),
       // No general-purpose model-authored process or network tool is exposed.
       // The mandatory outer sandbox contains the trusted CLI and the single
       // env-cleared, path-validating MCP file server.
