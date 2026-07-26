@@ -218,6 +218,16 @@ test('business one-shot route keys remain binding for installed-module links', (
   assert.match(blueprints, /every unparenthesized route letter and its skill/)
 })
 
+test('complete one-shot modules cannot skip core module procedures for specialist skills', () => {
+  const skill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
+  assert.match(skill, /complete one-shot module or CRUD vertical slice/)
+  assert.match(skill, /steps 3, 4, and 7 are mandatory/)
+  for (const reference of ['api-and-domain.md', 'module-surfaces.md', 'verification.md']) {
+    assert.ok(skill.includes(`.ai/skills/om-module-scaffold/references/${reference}`), `missing mandatory one-shot reference ${reference}`)
+  }
+  assert.match(skill, /Specialist data\/UI\/UMES procedures add to these three; they never replace them/)
+})
+
 test('router distinguishes durable multi-stage state from one-step schedules', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /Persistent multi-stage business state/)

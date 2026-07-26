@@ -202,6 +202,8 @@ test('the 187-case catalog routes audited installed-module, runtime, and AI/prov
   assert.ok(byId.get('OMH-087')?.expectedRouter.required.includes('ai-workflow'))
   assert.deepEqual(byId.get('OMH-134')?.expectedRouter.required, ['umes'])
   assert.deepEqual(byId.get('OMH-185')?.expectedRouter.required, ['module-data', 'backend-ui', 'umes'])
+  assert.match(byId.get('OMH-185')?.prompt ?? '', /src\/modules\/library\/backend\/books\/\*\*/)
+  assert.match(byId.get('OMH-185')?.prompt ?? '', /\/backend\/library\/books/)
   assert.ok(byId.get('OMH-185')?.context.required.includes('.ai/skills/om-backend-ui-design/references/page-and-navigation.md'))
   assert.ok(byId.get('OMH-185')?.context.required.includes('.ai/skills/om-module-scaffold/references/verification.md'))
   assert.ok(!byId.get('OMH-185')?.context.required.includes('.ai/skills/om-system-extension/references/read-write-roundtrip.md'))
