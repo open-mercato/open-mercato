@@ -40,7 +40,7 @@ Migrate the `tar` dependency update from PR #4520 onto the configured `develop` 
 ### Phase 1: Migration
 
 - [x] 1.1 Apply the `tar` manifest and lockfile update on a branch based on `origin/develop`. — 9e0fe1723, 3ce7637b0
-- [ ] 1.2 Verify the focused dependency change and run the configured validation gate.
+- [x] 1.2 Verify the focused dependency change and run the configured validation gate. — afd8b89aa
 
 ### Phase 2: Tracker handoff
 
