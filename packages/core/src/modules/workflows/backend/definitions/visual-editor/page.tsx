@@ -14,6 +14,7 @@ import { collectValidationIssues, countIssuesBySeverity, type WorkflowValidation
 import { formatWorkflowValidationError } from '../../../lib/format-validation-error'
 import type { WorkflowGraphFocusTarget } from '../../../components/WorkflowGraph'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
+import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-flag'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
 import { Page } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -692,14 +693,16 @@ export default function VisualEditorPage() {
     setEffectiveFrom, setEffectiveTo, setTriggers,
   }
 
+  const crudFormDialogsEnabled = resolveCrudFormDialogsEnabled(process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED)
+
   const sharedDialogs = (
     <>
-      {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
+      {crudFormDialogsEnabled ? (
         <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       ) : (
         <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       )}
-      {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
+      {crudFormDialogsEnabled ? (
         <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
       ) : (
         <EdgeEditDialog edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
