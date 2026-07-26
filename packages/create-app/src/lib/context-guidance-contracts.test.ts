@@ -83,6 +83,8 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(integrity, /created_at.*updated_at/)
   assert.match(integrity, /after commit/)
   assert.match(integrity, /Never ship an empty or stub `undo`/)
+  assert.match(integrity, /must call `buildCustomFieldResetMap`/)
+  assert.match(integrity, /`Object\.assign` alone does not replace/)
 })
 
 test('progressive module references pin search, i18n, and intentional extension hosts', () => {
@@ -142,6 +144,8 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(crudSurfaces, /pagination=\{\{ page, pageSize, total, totalPages, onPageChange/)
   assert.match(crudSurfaces, /not top-level pagination props/)
   assert.match(crudSurfaces, /`onDelete` receives no values argument/)
+  assert.match(crudSurfaces, /CrudForm has no `onCancel` prop/)
+  assert.match(crudSurfaces, /use `cancelHref`/)
 
   const pageAndNavigation = readAgentic(
     'shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md',
