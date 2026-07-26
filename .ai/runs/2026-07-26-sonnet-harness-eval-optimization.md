@@ -75,7 +75,7 @@ PR: #4529
 ### Phase 1: Reproducible measurement controller
 
 - [x] 1.1 Build the harness controller app and prove the deterministic gate — 184/184 deterministic on a Linux controller scaffolded from this branch
-- [ ] 1.2 Add the sanitized full-matrix sweep driver and failure classifier
+- [x] 1.2 Add the sanitized full-matrix sweep driver and failure classifier — local driver + classifier kept out of the repo; shipped entry points stay `yarn harness:validate` / `harness:release`
 - [x] 1.3 Fix the Claude runner adapter tool-exposure defect
 
 #### 1.3 finding (root cause of the whole Claude lane failing)
@@ -92,13 +92,18 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 
 ### Phase 2: Baseline measurement
 
-- [ ] 2.1 Measure the complete Claude/sonnet routing baseline
-- [ ] 2.2 Measure the Codex control sample for the same cases
+- [x] 2.1 Measure the complete Claude/sonnet routing baseline — **96/184** with the adapter fixed, before any router edit (0/184 before it)
+- [x] 2.2 Measure the Codex control sample for the same cases — Codex lane was also dead here (`--disable skill_search` unknown to codex-cli 0.144.6); fixed, then used as the regression control
 
 ### Phase 3: Evidence-driven remediation
 
-- [ ] 3.1 Remediate shared-owner routing authority defects
-- [ ] 3.2 Remediate declaration/observation discipline in the shared contract
+> **PAUSED** — the Anthropic account hit its weekly limit mid-run (`api_error_status: 429`,
+> "resets 10am UTC"), so the post-fix Sonnet matrix cannot be measured yet. Resume by
+> re-running the post-fix Sonnet sweep, then the complete Codex matrix. See the PR comment
+> "Progress update 3" for the exact resume procedure.
+
+- [x] 3.1 Remediate shared-owner routing authority defects — additive `backend-ui`, additive ownership (`umes`), architecture co-route, module-fact triggers, `testing` trigger, compatibility-guide path
+- [x] 3.2 Remediate declaration/observation discipline in the shared contract — `selectedContext` is an exact record; over-reported blockers; refused reads no longer scored as loaded content (both runner shapes)
 - [ ] 3.3 Recalibrate over-specified expectations and prove the complete sonnet matrix
 
 ### Phase 4: Compatibility baseline
