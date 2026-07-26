@@ -77,14 +77,16 @@ Sibling follow-up: #4528 (`feat/kimi-cli-runner-harness-evals`) adds a third run
 - The full writable/browser release gate needs trusted Bubblewrap and private loopback. Mitigation: do not weaken preflight; run every safely supported lane and report the exact remaining operator command for anything blocked.
 - Provider cost/time for repeated 184-case sweeps is significant. Mitigation: batch execution, target reruns to affected plus mandatory cases, and keep full sweeps for baseline and final proof.
 
-## Current Handoff (2026-07-26T20:18Z)
+## Current Handoff (2026-07-26T21:25Z)
 
-- Worktree: `/home/pkarw/Projects/mercato-development/.ai/tmp/om-auto-continue-pr/pr-4529-20260726-160846`; branch `feat/sonnet-harness-eval-optimization`; the latest pushed implementation checkpoint is `4ab32d393`.
+- Worktree: `/home/pkarw/Projects/mercato-development/.ai/tmp/om-auto-continue-pr/pr-4529-20260726-160846`; branch `feat/sonnet-harness-eval-optimization`; the latest pushed implementation checkpoint is `865fea060`.
 - Do not reuse or reinterpret the earlier concurrent-sweep numbers retracted below. The first clean immutable post-resume controller measurement is the **184-case pre-expanded-guidance baseline** recorded in the next section.
 - The current catalog is **187 cases / 40 writable-review cases**. OMH-185 is the complete book-library writable/review case; OMH-186 and OMH-187 are the cache-invalidation and durable-queue generative routing cases.
 - Shared skill refresh is implemented in `4e9ed542c`: setup deliberately refreshes current `open-mercato/skills` with verified hashes and an atomic rollback, while plain install reproduces the reviewed pin. Cache/queue contracts and cases are implemented in `4ab32d393`.
-- Next: re-emit one immutable 187-case controller; run OMH-185/186/187 on Sonnet and Codex; classify/remediate the union of clean baseline failures in the smallest shared owner; run complete 187-case single-instance matrices; then writable/review, full configured validation, `om-code-review`, and `om-auto-review-pr`.
-- If Sonnet capacity fails, preserve its completed/failed/remaining IDs and provider error, continue Codex/deterministic/writable/review/gate work, and resume Sonnet without treating Codex as a substitute.
+- Expanded live routing proof is complete: OMH-185, OMH-186, and OMH-187 pass on both Sonnet and Codex. The targeted Codex residual set is fully clean after `865fea060`. The deterministic catalog is 187/187, and the complete create-app suite is 323 pass / 4 platform skips / 0 failures.
+- Sonnet capacity is exhausted until the provider's stated 10:00 UTC reset. Its targeted run attempted all 50 historical failures: 23 pass, 20 actionable results now remediated through shared contracts/catalog, six quota terminations (OMH-173/176/177/178/181/184), and one independent timeout (OMH-043). No Codex result substitutes for these seven missing Sonnet verdicts or the pending final Sonnet matrix.
+- One immutable complete Codex matrix is running from `865fea060`; every result reported through OMH-033 is passing. A fresh writable OMH-185 target is prepared at `/tmp/omh185-writable-6m5FMa`; invoke the emitted Node scripts directly because the temporary controller lives beneath another Yarn project and is intentionally absent from that enclosing lockfile.
+- Next: finish and record the complete Codex matrix; run OMH-185 writable generation, target generation/typecheck/lint/build, and generated-code review; run the configured repository gate and local/Docker probe; then resume the seven missing Sonnet verdicts plus the complete Sonnet matrix after reset before final `om-code-review` and `om-auto-review-pr` acceptance.
 
 ## Clean Immutable Pre-Expansion Baseline (184 cases)
 
