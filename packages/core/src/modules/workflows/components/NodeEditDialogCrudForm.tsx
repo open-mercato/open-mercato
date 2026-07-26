@@ -121,8 +121,8 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       onSave(node.id, updates)
       onClose()
     } catch (error) {
-      // Error will be displayed in form (e.g., invalid JSON)
-      throw error
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(t(message))
     }
   }, [node, onSave, onClose, t])
 
@@ -151,7 +151,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           component: () => (
             <Alert variant="info">
               <AlertDescription>
-                End nodes cannot be edited. They mark the completion of the workflow.
+                {t('workflows.nodeEditor.endStepsNotEditable')}
               </AlertDescription>
             </Alert>
           ),
@@ -169,16 +169,16 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           component: () => (
             <Alert variant="info" className="mb-4">
               <AlertDescription>
-                Start nodes mark the beginning of the workflow. You can define pre-conditions that must pass before the workflow can be started.
+                {t('workflows.nodeEditor.startStepsInfo')}
               </AlertDescription>
             </Alert>
           ),
         },
         {
           id: 'preConditions',
-          title: 'Pre-Conditions',
+          title: t('workflows.transitions.preConditions'),
           column: 1,
-          description: 'Business rules that must pass before the workflow can start',
+          description: t('workflows.fieldEditors.preConditions.description'),
           fields: ['preConditions'],
         },
       ]
@@ -187,11 +187,19 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     const baseGroups: CrudFormGroup[] = [
       {
         id: 'basic',
-        title: 'Basic Information',
+        title: t('workflows.form.groups.basic'),
         column: 1,
         fields: ['stepName', 'description', 'timeout'],
       },
     ]
+
+    const advancedGroup: CrudFormGroup = {
+      id: 'advanced',
+      title: t('workflows.form.advancedConfiguration'),
+      column: 1,
+      description: t('workflows.form.descriptions.advancedConfig'),
+      fields: ['advancedConfig'],
+    }
 
     // UserTask specific groups
     if (node.type === 'userTask') {
@@ -199,24 +207,18 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         ...baseGroups,
         {
           id: 'userTask',
-          title: 'User Task Configuration',
+          title: t('workflows.nodeEditor.userTaskConfig'),
           column: 1,
           fields: ['assignedTo', 'assignedToRoles', 'formKey', 'slaDuration'],
         },
         {
           id: 'formFields',
-          title: 'Form Fields',
+          title: t('workflows.nodeEditor.groups.formFields'),
           column: 1,
-          description: 'Define the form structure for this user task',
+          description: t('workflows.form.descriptions.formFields'),
           fields: ['formFields'],
         },
-        {
-          id: 'advanced',
-          title: 'Advanced Configuration',
-          column: 1,
-          description: 'Additional JSON configuration (userTaskConfig, retryPolicy, etc.)',
-          fields: ['advancedConfig'],
-        },
+        advancedGroup,
       ]
     }
 
@@ -226,24 +228,18 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         ...baseGroups,
         {
           id: 'automated',
-          title: 'Automated Task Configuration',
+          title: t('workflows.nodeEditor.groups.automated'),
           column: 1,
           fields: ['activityType', 'activityId'],
         },
         {
           id: 'stepActivities',
-          title: 'Step Activities',
+          title: t('workflows.nodeEditor.groups.stepActivities'),
           column: 1,
-          description: 'Activities executed as part of this automated step',
+          description: t('workflows.nodeEditor.groups.stepActivitiesDescription'),
           fields: ['stepActivities'],
         },
-        {
-          id: 'advanced',
-          title: 'Advanced Configuration',
-          column: 1,
-          description: 'Additional JSON configuration (retryPolicy, etc.)',
-          fields: ['advancedConfig'],
-        },
+        advancedGroup,
       ]
     }
 
@@ -253,24 +249,18 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         ...baseGroups,
         {
           id: 'subWorkflow',
-          title: 'Sub-Workflow Configuration',
+          title: t('workflows.form.subWorkflowConfig'),
           column: 1,
           fields: ['subWorkflowId', 'subWorkflowVersion'],
         },
         {
           id: 'mappings',
-          title: 'Data Mappings',
+          title: t('workflows.nodeEditor.groups.mappings'),
           column: 1,
-          description: 'Map data between parent and sub-workflow',
+          description: t('workflows.nodeEditor.groups.mappingsDescription'),
           fields: ['inputMappings', 'outputMappings'],
         },
-        {
-          id: 'advanced',
-          title: 'Advanced Configuration',
-          column: 1,
-          description: 'Additional JSON configuration',
-          fields: ['advancedConfig'],
-        },
+        advancedGroup,
       ]
     }
 
@@ -280,17 +270,11 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         ...baseGroups,
         {
           id: 'signal',
-          title: 'Signal Configuration',
+          title: t('workflows.form.signalConfig'),
           column: 1,
           fields: ['signalName', 'signalTimeout'],
         },
-        {
-          id: 'advanced',
-          title: 'Advanced Configuration',
-          column: 1,
-          description: 'Additional JSON configuration',
-          fields: ['advancedConfig'],
-        },
+        advancedGroup,
       ]
     }
 
@@ -299,98 +283,86 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       return [
         {
           id: 'basic',
-          title: 'Basic Information',
+          title: t('workflows.form.groups.basic'),
           column: 1,
           fields: ['stepName', 'description'],
         },
         {
           id: 'timer',
-          title: 'Timer Configuration',
+          title: t('workflows.nodeEditor.groups.timer'),
           column: 1,
-          description: 'Pause the workflow for a duration or until a specific date and time. Set exactly one.',
+          description: t('workflows.nodeEditor.groups.timerDescription'),
           fields: ['timerDuration', 'timerUntil'],
         },
-        {
-          id: 'advanced',
-          title: 'Advanced Configuration',
-          column: 1,
-          description: 'Additional JSON configuration',
-          fields: ['advancedConfig'],
-        },
+        advancedGroup,
       ]
     }
 
     // Decision and other types: just basic fields + advanced
     return [
       ...baseGroups,
-      {
-        id: 'advanced',
-        title: 'Advanced Configuration',
-        column: 1,
-        description: 'Additional JSON configuration',
-        fields: ['advancedConfig'],
-      },
+      advancedGroup,
     ]
-  }, [node])
+  }, [node, t])
 
   // Define all possible form fields (only relevant ones are used based on groups)
   const fields: CrudField[] = useMemo(() => [
     // Basic fields
     {
       id: 'stepName',
-      label: 'Step Name',
+      label: t('workflows.form.stepName'),
       type: 'text',
-      placeholder: 'Enter step name',
+      placeholder: t('workflows.form.placeholders.stepName'),
       required: true,
-      description: 'Display name for this step',
+      description: t('workflows.form.descriptions.stepName'),
     },
     {
       id: 'description',
-      label: 'Description',
+      label: t('workflows.form.description'),
       type: 'textarea',
-      placeholder: 'Enter step description',
-      description: 'Optional description of what this step does',
+      placeholder: t('workflows.form.placeholders.description'),
+      description: t('workflows.form.descriptions.description'),
     },
     {
       id: 'timeout',
-      label: 'Timeout',
+      label: t('workflows.form.timeout'),
       type: 'custom',
-      description: 'Maximum time for this step. Switch to text entry for milliseconds (e.g., 30000) or template values.',
+      description: t('workflows.form.descriptions.timeout'),
       component: (props) => <DurationCrudField {...props} />,
     },
 
     // UserTask fields
     {
       id: 'assignedTo',
-      label: 'Assigned To',
+      label: t('workflows.form.assignedTo'),
       type: 'text',
-      placeholder: 'user@example.com or userId',
-      description: 'User email or ID to assign this task to',
+      placeholder: t('workflows.form.placeholders.userId'),
+      description: t('workflows.form.descriptions.assignedTo'),
     },
     {
       id: 'assignedToRoles',
-      label: 'Assigned To Roles',
+      label: t('workflows.form.assignedToRoles'),
       type: 'custom',
-      description: 'Roles that can claim this task',
+      description: t('workflows.form.descriptions.assignedToRoles'),
       component: (props) => <RolesCrudField {...props} />,
     },
     {
       id: 'formKey',
-      label: 'Form Key',
+      label: t('workflows.form.formKey'),
       type: 'text',
-      placeholder: 'approval_form',
-      description: 'Optional form key for external form rendering',
+      placeholder: t('workflows.form.placeholders.formKey'),
+      description: t('workflows.form.descriptions.formKey'),
     },
     {
       id: 'slaDuration',
-      label: t('workflows.tasks.userTaskConfig.slaDuration', 'SLA Duration'),
+      label: t('workflows.tasks.userTaskConfig.slaDuration'),
       type: 'custom',
-      description: 'Time allowed to complete this task before it is overdue; used to compute the task due date',
+      description: t('workflows.nodeEditor.slaDurationDescription'),
       component: (props) => <DurationCrudField {...props} />,
     },
     {
       id: 'formFields',
-      label: 'Form Fields',
+      label: t('workflows.nodeEditor.groups.formFields'),
       type: 'custom',
       component: (props) => (
         <FormFieldArrayEditor
@@ -404,29 +376,29 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     // Automated fields
     {
       id: 'activityType',
-      label: 'Activity Type',
+      label: t('workflows.form.activityType'),
       type: 'select',
       options: [
-        { value: 'SEND_EMAIL', label: 'Send Email' },
-        { value: 'CALL_API', label: 'Call API' },
-        { value: 'UPDATE_ENTITY', label: 'Update Entity' },
-        { value: 'EMIT_EVENT', label: 'Emit Event' },
-        { value: 'CALL_WEBHOOK', label: 'Call Webhook' },
-        { value: 'EXECUTE_FUNCTION', label: 'Execute Function' },
-        { value: 'WAIT', label: 'Wait' },
+        { value: 'SEND_EMAIL', label: t('workflows.activities.types.SEND_EMAIL') },
+        { value: 'CALL_API', label: t('workflows.activities.types.CALL_API') },
+        { value: 'UPDATE_ENTITY', label: t('workflows.activities.types.UPDATE_ENTITY') },
+        { value: 'EMIT_EVENT', label: t('workflows.activities.types.EMIT_EVENT') },
+        { value: 'CALL_WEBHOOK', label: t('workflows.activities.types.CALL_WEBHOOK') },
+        { value: 'EXECUTE_FUNCTION', label: t('workflows.activities.types.EXECUTE_FUNCTION') },
+        { value: 'WAIT', label: t('workflows.activities.types.WAIT') },
       ],
-      description: 'Type of activity to execute',
+      description: t('workflows.nodeEditor.activityTypeDescription'),
     },
     {
       id: 'activityId',
-      label: 'Activity ID',
+      label: t('workflows.form.activityId'),
       type: 'text',
-      placeholder: 'send_welcome_email',
-      description: 'Unique identifier for this activity',
+      placeholder: t('workflows.form.placeholders.activityId'),
+      description: t('workflows.nodeEditor.activityIdDescription'),
     },
     {
       id: 'stepActivities',
-      label: 'Step Activities',
+      label: t('workflows.nodeEditor.groups.stepActivities'),
       type: 'custom',
       component: (props) => <ActivityArrayEditor {...props} value={props.value as any} />,
     },
@@ -434,40 +406,40 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     // SubWorkflow fields
     {
       id: 'subWorkflowId',
-      label: 'Sub-Workflow',
+      label: t('workflows.form.workflowToInvoke'),
       type: 'custom',
       component: (props) => <WorkflowSelectorField {...props} value={props.value as any} />,
     },
     {
       id: 'subWorkflowVersion',
-      label: 'Version',
+      label: t('workflows.form.version'),
       type: 'number',
-      placeholder: '1',
-      description: 'Specific version of the sub-workflow to invoke',
+      placeholder: t('workflows.form.placeholders.version'),
+      description: t('workflows.form.descriptions.subWorkflowVersion'),
     },
     {
       id: 'inputMappings',
-      label: 'Input Mappings',
+      label: t('workflows.nodeEditor.inputMappings'),
       type: 'custom',
       component: (props) => (
         <MappingArrayEditor
           {...props}
           value={props.value as any}
-          label="Input Mappings"
-          description="Map parent workflow data to sub-workflow input"
+          label={t('workflows.nodeEditor.inputMappings')}
+          description={t('workflows.form.descriptions.inputMapping')}
         />
       ),
     },
     {
       id: 'outputMappings',
-      label: 'Output Mappings',
+      label: t('workflows.nodeEditor.outputMappings'),
       type: 'custom',
       component: (props) => (
         <MappingArrayEditor
           {...props}
           value={props.value as any}
-          label="Output Mappings"
-          description="Map sub-workflow output back to parent workflow"
+          label={t('workflows.nodeEditor.outputMappings')}
+          description={t('workflows.form.descriptions.outputMapping')}
         />
       ),
     },
@@ -475,58 +447,57 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     // WaitForSignal fields
     {
       id: 'signalName',
-      label: 'Signal Name',
+      label: t('workflows.form.signalName'),
       type: 'text',
-      placeholder: 'approval_received',
-      description: 'Name of the signal to wait for',
+      placeholder: t('workflows.form.placeholders.signalName'),
+      description: t('workflows.form.descriptions.signalName'),
     },
     {
       id: 'signalTimeout',
-      label: 'Signal Timeout',
+      label: t('workflows.nodeEditor.signalTimeout'),
       type: 'custom',
-      description: 'How long to wait for the signal before timing out',
+      description: t('workflows.form.descriptions.signalTimeout'),
       component: (props) => <DurationCrudField {...props} />,
     },
 
     // WaitForTimer fields
     {
       id: 'timerDuration',
-      label: 'Duration',
+      label: t('workflows.activities.waitDuration'),
       type: 'custom',
-      description: 'ISO 8601 duration (e.g., PT5M, PT1H, P1D) or simple format (5m, 1h, 3d). Leave empty when using Wait Until.',
+      description: t('workflows.nodeEditor.timerDurationDescription'),
       component: (props) => <DurationCrudField {...props} />,
     },
     {
       id: 'timerUntil',
-      label: 'Wait Until',
+      label: t('workflows.activities.waitUntil'),
       type: 'datetime',
       minDate: new Date(),
-      description: 'Specific date and time to wait until. Leave empty when using Duration.',
+      description: t('workflows.nodeEditor.timerUntilDescription'),
     },
 
     // Advanced configuration
     {
       id: 'advancedConfig',
-      label: 'Advanced Configuration (JSON)',
+      label: t('workflows.form.advancedConfiguration'),
       type: 'custom',
-      description: 'Additional JSON configuration merged with the step data',
+      description: t('workflows.form.descriptions.advancedConfig'),
       component: (props) => <JsonConfigEditor {...props} />,
     },
 
     // Start node pre-conditions
     {
       id: 'preConditions',
-      label: 'Pre-Conditions',
+      label: t('workflows.transitions.preConditions'),
       type: 'custom',
-      description: 'Business rules that must pass before the workflow can start',
+      description: t('workflows.fieldEditors.preConditions.description'),
       component: (props) => <StartPreConditionsEditor {...props} value={props.value as any} />,
     },
   ], [showJsonSchemaWarning, t])
 
   if (!isOpen || !node) return null
 
-  const nodeType = node.type || 'unknown'
-  const nodeTypeLabel = nodeType.charAt(0).toUpperCase() + nodeType.slice(1).replace(/([A-Z])/g, ' $1')
+  const nodeTypeLabel = t(`workflows.nodeTypes.${node.type || 'automated'}`)
 
   const canDelete = !!onDelete
 
@@ -538,17 +509,17 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       >
         <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b border-border/70">
           <div className="flex items-center gap-2 mb-2">
-            <DialogTitle>Edit Step</DialogTitle>
+            <DialogTitle>{t('workflows.nodeEditor.title')}</DialogTitle>
             <Badge variant="secondary" className="text-xs">
               {nodeTypeLabel}
             </Badge>
           </div>
           <div className="space-y-1">
             <DialogDescription>
-              Configure step properties and behavior
+              {t('workflows.nodeEditor.description')}
             </DialogDescription>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-medium">ID:</span>
+              <span className="font-medium">{t('workflows.fields.id')}:</span>
               <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{node.id}</code>
             </div>
           </div>
@@ -559,9 +530,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           {showJsonSchemaWarning && (
             <Alert variant="info" className="mb-4">
               <AlertDescription className="text-xs">
-                This form uses JSON Schema format. Fields have been converted for visual editing.
-                When you save, it will be converted to the simplified format. To preserve the original JSON Schema,
-                edit it in the &#34;Advanced Configuration (JSON)&#34; section.
+                {t('workflows.nodeEditor.jsonSchemaFormat')}
               </AlertDescription>
             </Alert>
           )}
@@ -572,17 +541,16 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
             initialValues={initialValues}
             onSubmit={handleSubmit}
             embedded={true}
-            submitLabel="Save Step"
+            submitLabel={t('workflows.form.saveStep')}
             extraActions={
               canDelete ? (
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="destructive"
                   onClick={handleDelete}
-                  className="text-red-600 border-red-200 hover:bg-red-50"
                 >
                   <Trash2 className="size-4 mr-2" />
-                  Delete Step
+                  {t('workflows.form.deleteStep')}
                 </Button>
               ) : undefined
             }

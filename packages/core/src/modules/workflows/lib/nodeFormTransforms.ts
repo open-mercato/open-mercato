@@ -356,16 +356,16 @@ export function formValuesToNodeUpdates(
     const until = typeof values.timerUntil === 'string' ? values.timerUntil.trim() : ''
 
     if (duration && until) {
-      throw new Error('Wait For Timer accepts "Duration" or "Wait Until", not both. Clear one of them.')
+      throw new Error('workflows.validation.timerDurationXorUntil')
     }
     if (!duration && !until) {
-      throw new Error('Wait For Timer requires either "Duration" or "Wait Until".')
+      throw new Error('workflows.validation.timerDurationOrUntilRequired')
     }
     if (duration && !isValidDurationString(duration)) {
-      throw new Error('Invalid duration. Use ISO 8601 (e.g., PT5M, PT1H, P1D) or simple format (5m, 1h, 3d).')
+      throw new Error('workflows.validation.invalidDuration')
     }
     if (until && !isFutureIsoDateString(until)) {
-      throw new Error('Wait Until must be a date and time in the future.')
+      throw new Error('workflows.validation.untilMustBeFuture')
     }
 
     updates.config = duration ? { duration } : { until }
@@ -388,7 +388,7 @@ export function formValuesToNodeUpdates(
       Object.assign(updates, parsed)
     } catch (error) {
       logger.error('Invalid JSON in Advanced Configuration', { err: error })
-      throw new Error('Invalid JSON in Advanced Configuration. Please check your syntax.')
+      throw new Error('workflows.validation.invalidAdvancedConfigJson')
     }
   }
 

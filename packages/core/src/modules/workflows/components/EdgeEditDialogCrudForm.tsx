@@ -8,6 +8,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Trash2 } from 'lucide-react'
 import { CrudForm, type CrudFormGroup, type CrudField, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { BusinessRuleConditionsEditor } from './fields/BusinessRuleConditionsEditor'
 import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
 import { edgeToFormValues, formValuesToEdgeUpdates, type EdgeFormValues } from '../lib/edgeFormTransforms'
@@ -51,6 +52,7 @@ export interface EdgeEditDialogCrudFormProps {
  * - Keyboard shortcuts (Cmd/Ctrl+Enter save, Escape cancel)
  */
 export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete }: EdgeEditDialogCrudFormProps) {
+  const t = useT()
   const [initialValues, setInitialValues] = useState<Partial<EdgeFormValues>>({})
 
   // Load edge data when dialog opens
@@ -69,10 +71,10 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
       onSave(edge.id, updates)
       onClose()
     } catch (error) {
-      // Error will be displayed in form (e.g., invalid JSON)
-      throw error
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(t(message))
     }
-  }, [edge, onSave, onClose])
+  }, [edge, onSave, onClose, t])
 
   const handleDelete = useCallback(() => {
     if (!edge) return
@@ -89,74 +91,74 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
   const groups: CrudFormGroup[] = useMemo(() => [
     {
       id: 'basic',
-      title: 'Basic Configuration',
+      title: t('workflows.edgeEditor.groups.basic'),
       column: 1,
       fields: ['transitionName', 'trigger', 'priority', 'continueOnActivityFailure'],
     },
     {
       id: 'businessRules',
-      title: 'Business Rules',
+      title: t('workflows.edgeEditor.groups.businessRules'),
       column: 1,
-      description: 'Define pre-conditions (guards) and post-conditions (validations) for this transition',
+      description: t('workflows.edgeEditor.groups.businessRulesDescription'),
       fields: ['preConditions', 'postConditions'],
     },
     {
       id: 'activities',
-      title: 'Activities',
+      title: t('workflows.edgeEditor.activities'),
       column: 1,
-      description: 'Activities executed when this transition fires',
+      description: t('workflows.edgeEditor.activitiesDescription'),
       fields: ['activities'],
     },
     {
       id: 'advanced',
-      title: 'Advanced Configuration',
+      title: t('workflows.edgeEditor.advancedConfiguration'),
       column: 1,
-      description: 'Additional configuration as JSON (merged with above fields)',
+      description: t('workflows.edgeEditor.advancedConfigHint'),
       fields: ['advancedConfig'],
     },
-  ], [])
+  ], [t])
 
   // Define form fields
   const fields: CrudField[] = useMemo(() => [
     {
       id: 'transitionName',
-      label: 'Transition Name',
+      label: t('workflows.edgeEditor.transitionName'),
       type: 'text',
-      placeholder: 'Enter transition name',
+      placeholder: t('workflows.edgeEditor.placeholders.transitionName'),
       required: true,
-      description: 'Display name for this transition',
+      description: t('workflows.edgeEditor.transitionNameHint'),
     },
     {
       id: 'trigger',
-      label: 'Trigger Type',
+      label: t('workflows.edgeEditor.triggerType'),
       type: 'select',
       required: true,
       options: [
-        { value: 'auto', label: 'Automatic' },
-        { value: 'manual', label: 'Manual' },
-        { value: 'signal', label: 'Signal' },
-        { value: 'timer', label: 'Timer' },
+        { value: 'auto', label: t('workflows.transitions.triggers.auto') },
+        { value: 'manual', label: t('workflows.transitions.triggers.manual') },
+        { value: 'signal', label: t('workflows.transitions.triggers.signal') },
+        { value: 'timer', label: t('workflows.transitions.triggers.timer') },
       ],
-      description: 'How this transition is triggered',
+      description: t('workflows.edgeEditor.triggerTypeDescription'),
     },
     {
       id: 'priority',
-      label: 'Priority',
+      label: t('workflows.edgeEditor.priority'),
       type: 'number',
       placeholder: '100',
-      description: 'Higher priority transitions are evaluated first (0-9999)',
+      description: t('workflows.edgeEditor.priorityHint'),
     },
     {
       id: 'continueOnActivityFailure',
-      label: 'Continue on Activity Failure',
+      label: t('workflows.edgeEditor.continueOnActivityFailure'),
       type: 'checkbox',
-      description: 'If checked, transition completes even if activities fail',
+      description: t('workflows.edgeEditor.continueOnActivityFailureHint'),
     },
     {
       id: 'preConditions',
-      label: 'Pre-Conditions (Guards)',
+      label: t('workflows.edgeEditor.preConditions'),
       type: 'custom',
-      description: 'Business rules that must pass before transition can fire',
+      description: t('workflows.edgeEditor.preConditionsHint'),
       component: (props) => (
         <BusinessRuleConditionsEditor
           {...props}
@@ -166,9 +168,9 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
     },
     {
       id: 'postConditions',
-      label: 'Post-Conditions (Validations)',
+      label: t('workflows.edgeEditor.postConditions'),
       type: 'custom',
-      description: 'Business rules validated after transition completes',
+      description: t('workflows.edgeEditor.postConditionsHint'),
       component: (props) => (
         <BusinessRuleConditionsEditor
           {...props}
@@ -178,19 +180,19 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
     },
     {
       id: 'activities',
-      label: 'Activities',
+      label: t('workflows.edgeEditor.activities'),
       type: 'custom',
-      description: 'Activities executed when this transition fires',
+      description: t('workflows.edgeEditor.activitiesDescription'),
       component: (props) => <ActivityArrayEditor {...props} value={props.value as any} />,
     },
     {
       id: 'advancedConfig',
-      label: 'Advanced Configuration (JSON)',
+      label: t('workflows.edgeEditor.advancedConfiguration'),
       type: 'custom',
-      description: 'Additional JSON configuration merged with the transition data',
+      description: t('workflows.edgeEditor.advancedConfigHint'),
       component: (props) => <JsonConfigEditor {...props} />,
     },
-  ], [])
+  ], [t])
 
   if (!isOpen || !edge) return null
 
@@ -206,23 +208,21 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
       >
         <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b border-border/70">
           <div className="flex items-center gap-2 mb-2">
-            <DialogTitle>Edit Transition</DialogTitle>
+            <DialogTitle>{t('workflows.edgeEditor.title')}</DialogTitle>
             <Badge variant={triggerVariant} className="text-xs">
-              {trigger === 'auto' ? 'Automatic' :
-               trigger === 'manual' ? 'Manual' :
-               trigger === 'signal' ? 'Signal' : 'Timer'}
+              {t(`workflows.transitions.triggers.${trigger}`)}
             </Badge>
           </div>
           <div className="space-y-1">
             <DialogDescription>
-              Configure transition properties, conditions, and activities
+              {t('workflows.edgeEditor.description')}
             </DialogDescription>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-medium">ID:</span>
+              <span className="font-medium">{t('workflows.edgeEditor.id')}:</span>
               <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{edge.id}</code>
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-medium">Flow:</span>
+              <span className="font-medium">{t('workflows.edgeEditor.flow')}:</span>
               <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{edge.source}</code>
               <span>→</span>
               <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{edge.target}</code>
@@ -237,16 +237,15 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
             initialValues={initialValues}
             onSubmit={handleSubmit}
             embedded={true}
-            submitLabel="Save Transition"
+            submitLabel={t('workflows.edgeEditor.saveTransition')}
             extraActions={
               <Button
                 type="button"
-                variant="outline"
+                variant="destructive"
                 onClick={handleDelete}
-                className="text-red-600 border-red-200 hover:bg-red-50"
               >
                 <Trash2 className="size-4 mr-2" />
-                Delete Transition
+                {t('workflows.edgeEditor.deleteTransition')}
               </Button>
             }
           />

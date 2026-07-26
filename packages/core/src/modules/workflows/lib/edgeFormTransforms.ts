@@ -123,7 +123,7 @@ export function formValuesToEdgeUpdates(
       Object.assign(updates, parsed)
     } catch (error) {
       logger.error('Invalid JSON in Advanced Configuration', { err: error })
-      throw new Error('Invalid JSON in Advanced Configuration. Please check your syntax.')
+      throw new Error('workflows.validation.invalidAdvancedConfigJson')
     }
   }
 

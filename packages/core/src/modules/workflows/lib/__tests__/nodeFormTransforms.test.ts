@@ -44,28 +44,28 @@ describe('nodeFormTransforms waitForTimer', () => {
     const node = makeTimerNode()
     const values: NodeFormValues = { stepName: 'Wait Step', timerDuration: 'PT5M', timerUntil: futureIso }
 
-    expect(() => formValuesToNodeUpdates(values, node)).toThrow(/not both/)
+    expect(() => formValuesToNodeUpdates(values, node)).toThrow('workflows.validation.timerDurationXorUntil')
   })
 
   it('throws when neither duration nor until is set', () => {
     const node = makeTimerNode()
     const values: NodeFormValues = { stepName: 'Wait Step', timerDuration: '', timerUntil: '' }
 
-    expect(() => formValuesToNodeUpdates(values, node)).toThrow(/requires either/)
+    expect(() => formValuesToNodeUpdates(values, node)).toThrow('workflows.validation.timerDurationOrUntilRequired')
   })
 
   it('throws on an invalid duration string', () => {
     const node = makeTimerNode()
     const values: NodeFormValues = { stepName: 'Wait Step', timerDuration: 'not-a-duration', timerUntil: '' }
 
-    expect(() => formValuesToNodeUpdates(values, node)).toThrow(/Invalid duration/)
+    expect(() => formValuesToNodeUpdates(values, node)).toThrow('workflows.validation.invalidDuration')
   })
 
   it('throws when until is in the past', () => {
     const node = makeTimerNode()
     const values: NodeFormValues = { stepName: 'Wait Step', timerDuration: '', timerUntil: pastIso }
 
-    expect(() => formValuesToNodeUpdates(values, node)).toThrow(/future/)
+    expect(() => formValuesToNodeUpdates(values, node)).toThrow('workflows.validation.untilMustBeFuture')
   })
 
   it('accepts template expressions for duration', () => {
