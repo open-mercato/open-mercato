@@ -99,7 +99,10 @@ test('compatibility routing covers existing public contracts without pulling in 
     // where to read it. It deliberately stays narrow — adding "preserving" made the rule
     // fire on the "preserve tenant and organization boundaries" boilerplate carried by
     // nearly every prompt, so cases that do not permit the guide probed it anyway.
-    assert.match(source, /Changing or removing an existing route\/schema\/ID\/export\/path\/function\/props-signature\/event-payload\/CLI MUST read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
+    assert.match(source, /Adding, changing, removing, or being told to preserve a public route\/schema\/ID\/export\/seam\/signature\/event-payload\/CLI MUST read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
+    // The trigger must exclude the tenant-scope boilerplate every prompt carries, or it
+    // fires on nearly all 184 cases and burns the refused-read budget.
+    assert.match(source, /preserving tenant or organization scope is not a contract surface/)
     assert.match(source, /Additive page\/form\/table\/conflict UI skips it/)
   }
 })

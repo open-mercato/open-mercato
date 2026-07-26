@@ -12,7 +12,7 @@ Extend this app. Route first; never probe unmatched context.
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
 - Run `yarn generate` after discovery files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows change.
-- Changing or removing an existing route/schema/ID/export/path/function/props-signature/event-payload/CLI MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`.
+- Adding, changing, removing, or being told to preserve a public route/schema/ID/export/seam/signature/event-payload/CLI MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; preserving tenant or organization scope is not a contract surface.
 - Localize strings; use shared UI/tokens and complete loading, empty, error, conflict, keyboard, and accessibility states.
 
 ## Ask First
@@ -44,11 +44,9 @@ Routes are additive, never exclusive: ownership says WHOSE code changes, the res
 
 Combine matches: lifecycle reaction = `module-data` + `umes` (UMES owns it); convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. Add `framework-context` only for an unresolved contract.
 
-`testing` is not the implicit gate after ordinary implementation; see its work-unit row. `debugging` = failure/security/drift. Specs/delivery phases = `spec-pr` + integration coverage; spec-only decomposition reads root + `om-spec-writing` + config, while implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`. Never infer work from specs/PRs.
+`testing` is not the implicit gate after implementation. `debugging` = failure/security/drift. Specs/delivery phases = `spec-pr` + integration coverage; spec-only decomposition reads root + `om-spec-writing` + config, while implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`. Never infer work from specs/PRs.
 
-App-owned durable process/activity/user task = `module-data` + `ai-workflow`; add `umes` for installed-module interception.
-
-Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys.
+Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. App-owned durable process/activity/user task = `module-data` + `ai-workflow`.
 
 Authoring or restyling a rendered surface adds `backend-ui`; hiding, gating, toggling, or rewiring an existing one does not. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
 
@@ -69,8 +67,6 @@ Authoring or restyling a rendered surface adds `backend-ui`; hiding, gating, tog
 Location never decides the route: app code that changes an installed module's records, commands, events, or pages is `module-data` + `umes`. Reading its facts alone is not. Reusable providers are published dependencies, never `packages/*`.
 
 ### Axis 2 — Work Units
-
-Match every work-unit row.
 
 | Route | Work unit | Skill/context |
 |---|---|---|
@@ -118,7 +114,7 @@ Absent skill: run `yarn install-skills` once; never substitute.
 
 ## Module-Specific Facts
 
-Load the fact for every listed module the task names or targets, and for none it merely uses. Host facts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal + customer_accounts; quote/order/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index, but never omit the fact for a module the task changes.
+Load the fact for every module the task names or targets, not one it merely uses. When the subject IS the mechanism: typed events/subscribers→events; long-running operation or progress reporting→progress; provider wiring→integrations. Host facts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal + customer_accounts; quote/order/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index, but never omit the fact for a module the task changes.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
