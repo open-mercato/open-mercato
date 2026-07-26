@@ -198,6 +198,7 @@ test('the 187-case catalog routes audited installed-module, runtime, and AI/prov
     for (const decision of expected.decisions) assert.ok(record.requiredDecisions.includes(decision), `${caseId}: missing decision ${decision}`)
   }
   assert.ok(byId.get('OMH-087')?.expectedRouter.required.includes('ai-workflow'))
+  assert.deepEqual(byId.get('OMH-134')?.expectedRouter.required, ['umes'])
   assert.deepEqual(byId.get('OMH-185')?.expectedRouter.required, ['module-data', 'backend-ui', 'umes'])
   assert.ok(!byId.get('OMH-185')?.context.required.includes('.ai/skills/om-system-extension/references/read-write-roundtrip.md'))
   assert.ok(byId.get('OMH-185')?.context.allowedExtra?.includes('.ai/skills/om-system-extension/references/read-write-roundtrip.md'))

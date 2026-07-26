@@ -27,16 +27,9 @@ Extend this app. Route first; never probe unmatched context.
 - Never use raw admin `fetch`/`<form>`, ad hoc crypto/cache/queues, role-name guards, or direct mutations when helpers exist.
 - Never hard-code user strings/status colors; expose secrets/transcripts; or guess answerable contracts.
 
-## Validation Commands
+## Validation
 
-Choose the smallest relevant set, then expand for broad changes:
-
-```bash
-yarn generate && yarn typecheck && yarn lint && yarn test && yarn build
-yarn test:integration:ephemeral
-```
-
-Report failures; never migrate to validate
+Use the smallest relevant set. Broad: `yarn generate && yarn typecheck && yarn lint && yarn test && yarn build`; integration: `yarn test:integration:ephemeral`. Report failures; never migrate to validate.
 
 ## Three-Axis Context Assembler
 
@@ -48,7 +41,7 @@ Combine matches: lifecycle reaction = `module-data` + `umes`; convergence bug ad
 
 Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`.
 
-Authoring, restyling, or gating a rendered surface the app owns or injected adds `backend-ui`; hiding, toggling, or rewiring an installed one does not. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
+Authoring, restyling, replacing/wrapping, prop-transforming, menu-editing, or adding visible feedback adds `backend-ui`; merely hiding/toggling/rewiring installed UI does not. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
 
 `backend-ui`: UI skill `references/quality-states.md`; public/portal/responsive/a11y adds `frontend-and-design-system.md`.
 
@@ -68,7 +61,7 @@ Location never decides the route: app code changing an installed module's record
 
 ### Axis 2 — Work Units
 
-Match every work-unit row, and OPEN each matched row's skill before selecting it.
+Match every work-unit row; OPEN its skill before selection.
 
 | Route | Work unit | Skill/context |
 |---|---|---|
@@ -108,27 +101,25 @@ Absent skill: run `yarn install-skills` once; never substitute.
 
 ### Token-Efficient Assembly Policy
 
-- Load each matched guide once, then only needed references and facts.
-- Budgets are hard: prefer a guide over its skill, a skill over its references; open a reference only when the task names what it covers.
-- For specs, list names and open one task match; skip README/template.
+- Load matched guides once, then only needed references/facts.
+- Hard budgets: guide > skill > references; open a reference only for its named subject.
+- Specs: list names; open one task match; skip README/template.
 - Inspect app call sites before bounded `framework-context`.
 - Additive page/form/table/conflict UI skips it.
 - Never bulk-read guide, skill, fact, or source trees.
 
 ## Module-Specific Facts
 
-Load the fact for every module the task names or targets, not one it merely uses. When the subject IS the mechanism: typed events/subscribers→events; long-running operation or progress reporting→progress; provider wiring, settings, or health→integrations; sync/import→data_sync. Host facts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal + customer_accounts; quote/order/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index, but never omit the fact for a module the task changes.
+Load facts for every named/targeted module, not incidental use. Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health→integrations; sync/import→data_sync. Hosts: customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal + customer_accounts; quote/order/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; maintained query index/reindex→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
 
 ## Working Sequence
 
-1. For `spec-pr`, list `.ai/specs` one level deep and open one non-template match. Do not list specs for plan-only work.
+1. `spec-pr`: list `.ai/specs` one level; open one non-template match; plan-only skips specs.
 2. Route the request and load only the matched guides/skills and relevant module facts.
-3. Implement the smallest complete vertical slice through real call sites.
+3. Implement the smallest complete slice through real call sites.
 4. Run `yarn generate` when discovery changed, then the smallest validation gate and affected integration paths.
 
-## Context Precedence
-
-This file governs standalone safety, writes, and validation; then `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` for stable public IDs; then the nearest installed `AGENTS.md` for version-specific contracts; then generated facts for installed surfaces. After version/skew checks, stop on conflicts; never guess.
+Precedence: root → BC → installed `AGENTS.md` → facts; stop on skew/conflict; never guess.

@@ -234,6 +234,15 @@ Compare the current branch with `origin/develop` and trace the generated app fro
 - OMH-187 durable queue/worker: Codex pass, Sonnet pass.
 - OMH-185 complete library: Codex pass. Sonnet selected every required route, skill, and semantic decision, but correctly skipped `om-system-extension/references/read-write-roundtrip.md`; that reference explicitly owns an app field/action added to an installed host, while OMH-185 creates an app-owned API/UI host for future extensions. Reclassified only this path from required to allowed-extra. The required `umes` route, `om-system-extension` skill, extension guide, stable host decisions, and writable oracle remain unchanged.
 
+### First shared remediation batch (2026-07-26T20:38Z)
+
+- Added a runner-neutral final routing audit against every Axis 1 route, Axis 2 work unit, module-fact mapping, and decision label. It reinforces route/skill/context symmetry without revealing case expectations or retrying assertion failures.
+- Clarified existing rendered-surface triggers (component replacement/wrapping/prop transforms, menu edits, visible feedback) and added compact workflow, AI-assistant, and query-index fact mappings while keeping the emitted root and representative initial chains inside the fixed Codex byte ceilings.
+- Recalibrated OMH-134 to require UMES only: hiding an installed page/menu is explicitly a supported override rather than authored UI. Backend UI remains allowed when the implementation truly authors a surface. OMH-138/147 now permit defensible additive module-data selection.
+- Made compatibility context required where the prompt/root contract actually preserves or adds public surfaces (OMH-072/131/169), and allowed the directly relevant optional facts Codex observed for OMH-048/110/131.
+- Increased only six initial-context quotas to cover clean observed selections: OMH-144 `9/49152→12/65536`, OMH-145 `7/40960→11/61440`, OMH-150 `6/40960→8/49152`, OMH-153 bytes `57344→61440`, OMH-154 `6/40960→8/53248`, and OMH-182 files `6→8`. No total-context, safety, write, oracle, or review limit changed.
+- Focused deterministic catalog checks pass 187/187; the full affected two-model rerun is next.
+
 
 ## Progress
 

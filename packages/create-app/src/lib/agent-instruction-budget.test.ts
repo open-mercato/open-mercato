@@ -84,8 +84,8 @@ test('existing-module UI routing stays inside the backend UI context slice', () 
   // hiding/gating/toggling/rewiring does not — because the either/or framing it replaced
   // made an installed-host UI change read as UMES-only. The UI skill keeps the narrower
   // page/form/table-only wording, since by then the route is already chosen.
-  assert.match(rootInstructions, /Authoring, restyling, or gating a rendered surface the app owns or injected adds `backend-ui`/)
-  assert.match(rootInstructions, /hiding, toggling, or rewiring an installed one does not/)
+  assert.match(rootInstructions, /replacing\/wrapping, prop-transforming, menu-editing, or adding visible feedback adds `backend-ui`/)
+  assert.match(rootInstructions, /merely hiding\/toggling\/rewiring installed UI does not/)
   assert.match(uiSkill, /page\/form\/table-only/)
   for (const instructions of [rootInstructions, uiSkill]) {
     assert.match(instructions, /do not load .*contracts.*module-scaffold/i)
@@ -114,6 +114,9 @@ test('live evaluation declares every progressive context read in its structured 
   )
   assert.match(source, /selectedContext lists every exact app-relative instruction or fact path you opened/)
   assert.match(source, /never omit a progressive read from the final object/)
+  assert.match(source, /privately audit the task against every Axis 1 route row, every Axis 2 work-unit row, and the Module-Specific Facts mapping/)
+  assert.match(source, /selecting its route or guide alone is incomplete/)
+  assert.match(source, /while adding nothing from an unmatched row/)
 })
 
 test('generated classic Codex root and representative initial chains fit their byte budgets', () => {

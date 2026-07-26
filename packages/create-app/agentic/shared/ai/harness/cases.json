@@ -3786,6 +3786,9 @@
         ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
+      "allowedExtra": [
+        ".ai/guides/modules/integrations.md"
+      ],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -5670,7 +5673,8 @@
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/customers.md"
+        ".ai/guides/modules/customers.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
@@ -8114,6 +8118,9 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/sales.md"
       ],
+      "allowedExtra": [
+        ".ai/guides/modules/shipping_carriers.md"
+      ],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -10136,7 +10143,11 @@
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
         ".ai/guides/modules/customer_accounts.md",
-        ".ai/guides/modules/customers.md"
+        ".ai/guides/modules/customers.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/portal.md"
       ],
       "forbidden": [
         ".env*",
@@ -10400,26 +10411,27 @@
     },
     "expectedRouter": {
       "required": [
-        "backend-ui",
         "umes"
       ],
       "allowedExtra": [
+        "backend-ui",
         "framework-context",
         "testing"
       ]
     },
     "requiredSkills": [
-      "om-backend-ui-design",
       "om-system-extension"
     ],
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-system-extension/references/mechanism-selector.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/backend-ui.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -10568,6 +10580,7 @@
         "backend-ui"
       ],
       "allowedExtra": [
+        "module-data",
         "debugging",
         "testing"
       ]
@@ -11089,8 +11102,8 @@
       "src/modules/quote_assistant/ai-agents.ts",
       "src/modules/quote_assistant/ai-tools.ts"
     ],
-    "maxContextFiles": 9,
-    "maxInitialContextBytes": 49152,
+    "maxContextFiles": 12,
+    "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 147456,
     "relatedCases": [
       "OMH-012",
@@ -11109,7 +11122,7 @@
     "requiredDecisions":["artifact-authorization","encrypted-storage","cleanup","draft-only-ai-output"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","public (?:bucket|attachment|url)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":7,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-050","OMH-052"]
+    "maxContextFiles":11,"maxInitialContextBytes":61440,"maxTotalContextBytes":114688,"relatedCases":["OMH-050","OMH-052"]
   },
   {
     "id": "OMH-146",
@@ -11220,7 +11233,7 @@
     "prompt":"Replace the built-in sales assistant for one account, preserve its public identity, and let an administrator turn it off without changing installed files.",
     "tags":["business-language","ai-override","account-setting"],
     "owner":{"kind":"skill","path":".ai/skills/om-create-ai-agent/SKILL.md","ruleIds":["BC-04","BC-05","BC-11","BC-12"]},
-    "expectedRouter":{"required":["ai-workflow","umes"],"allowedExtra":["architecture","framework-context"]},
+    "expectedRouter":{"required":["ai-workflow","umes"],"allowedExtra":["architecture","framework-context","module-data"]},
     "requiredSkills":["om-create-ai-agent","om-system-extension"],
     "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
     "context":{"required":["AGENTS.md",".ai/guides/ai-workflows.md",".ai/guides/extensions.md",".ai/skills/om-create-ai-agent/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/ai_assistant.md",".ai/guides/modules/sales.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
@@ -11433,8 +11446,8 @@
       "oracle.artifacts",
       "oracle.business.provider-adapter"
     ],
-    "maxContextFiles": 6,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 114688,
     "relatedCases": [
       "OMH-041",
@@ -11719,7 +11732,7 @@
       "src/modules/erp_sync/workers/**"
     ],
     "maxContextFiles": 15,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 61440,
     "maxTotalContextBytes": 163840,
     "relatedCases": [
       "OMH-042",
@@ -11738,7 +11751,7 @@
     "requiredDecisions":["webhook-signature","replay-protection","subscriber-idempotency","tenant-scope"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","signature.{0,30}(?:skip|optional|disabled)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":6,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-043","OMH-057"]
+    "maxContextFiles":8,"maxInitialContextBytes":53248,"maxTotalContextBytes":114688,"relatedCases":["OMH-043","OMH-057"]
   },
   {
     "id":"OMH-155","title":"Notify a partner after shipment with retries and visible delivery status","family":"integration","mode":"one-shot","evaluationKind":"routing","risk":"high",
@@ -12113,7 +12126,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-auto-create-pr/SKILL.md","ruleIds":["BC-01","BC-02","BC-05","BC-07","BC-10"]},
     "expectedRouter":{"required":["module-data","backend-ui","umes","testing","spec-pr"],"allowedExtra":["ai-workflow"]},
     "requiredSkills":["om-module-scaffold","om-data-model-design","om-backend-ui-design","om-system-extension","om-auto-create-pr"],
-    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/guides/testing-debugging.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-auto-create-pr/SKILL.md",".ai/guides/modules/customers.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/guides/testing-debugging.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-auto-create-pr/SKILL.md",".ai/guides/modules/customers.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["public-scope-derived-server-side","idempotent-submission","deterministic-deduplication","optional-crm","delivery-route-preserves-task-routes","smallest-validation"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","git (?:add|commit).{0,20}(?:--all|-a)","(?:skip|omit).{0,30}(?:validation|test)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12577,7 +12590,7 @@
     "requiredDecisions":["mutation-guard","backend-consistency","status-invariant"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","UI only","(?:skip|bypass).{0,30}(?:guard|permission|lock)","rewrite.{0,30}(?:all|entire).{0,20}(?:body|query)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":6,"maxInitialContextBytes":65536,"maxTotalContextBytes":114688,"relatedCases":["OMH-031","OMH-032","OMH-038"]
+    "maxContextFiles":8,"maxInitialContextBytes":65536,"maxTotalContextBytes":114688,"relatedCases":["OMH-031","OMH-032","OMH-038"]
   },
   {
     "id":"OMH-183","title":"Award loyalty points after payment while tolerating an absent sales feature","family":"umes","mode":"one-shot","evaluationKind":"routing","risk":"high",

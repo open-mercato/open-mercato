@@ -273,7 +273,8 @@ test('the catalog count and release coverage are derived from the validator regi
     validators.catalog.mandatoryCaseIds,
   )
   assert.deepEqual(validators.catalog.compatibilityRequiredCaseIds, [
-    'OMH-007', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-105', 'OMH-147', 'OMH-182',
+    'OMH-007', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-072', 'OMH-105',
+    'OMH-131', 'OMH-147', 'OMH-169', 'OMH-182',
   ])
   assert.deepEqual(validators.catalog.compatibilityExcludedCaseIds, [
     'OMH-006', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-018', 'OMH-026',
