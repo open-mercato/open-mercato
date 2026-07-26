@@ -280,6 +280,18 @@ describe('runAgenticSetup ownership modes', () => {
     expect(existsSync(join(appDir, 'AGENTS.md.incoming'))).toBe(false)
   })
 
+  it('updates the harness without crashing when src/modules.ts is missing', async () => {
+    rmSync(join(appDir, 'src', 'modules.ts'))
+
+    await expect(runAgenticSetup(appDir, async () => '', {
+      tool: 'codex',
+      updateHarness: true,
+    })).resolves.toBeUndefined()
+
+    expect(existsSync(join(appDir, 'src', 'modules.ts'))).toBe(false)
+    expect(existsSync(join(appDir, '.ai', 'harness', 'manifest.json'))).toBe(true)
+  })
+
   it('removes unmodified tool-specific assets when switching tools', async () => {
     const ask = async () => ''
     await runAgenticSetup(appDir, ask, { tool: 'claude-code' })

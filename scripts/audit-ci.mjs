@@ -22,22 +22,29 @@
 import fs from 'node:fs'
 import zlib from 'node:zlib'
 import path from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
+import { pathToFileURL } from 'node:url'
 
-const SEVERITY_ORDER = ['info', 'low', 'moderate', 'high', 'critical']
-const thresholdArg = (process.argv.find((a) => a.startsWith('--severity=')) || '').split('=')[1]
-  || (process.argv[process.argv.indexOf('--severity') + 1] && !process.argv[process.argv.indexOf('--severity') + 1].startsWith('--')
-    ? process.argv[process.argv.indexOf('--severity') + 1]
-    : 'high')
-const thresholdIndex = SEVERITY_ORDER.indexOf(thresholdArg)
-if (thresholdIndex < 0) {
-  console.error(`audit-ci: unknown --severity "${thresholdArg}" (expected one of ${SEVERITY_ORDER.join(', ')})`)
-  process.exit(2)
+export const SEVERITY_ORDER = ['info', 'low', 'moderate', 'high', 'critical']
+export const ENDPOINT = 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk'
+
+export function parseArgs(argv) {
+  const inlineSeverity = (argv.find((arg) => arg.startsWith('--severity=')) || '').split('=')[1]
+  const severityIndex = argv.indexOf('--severity')
+  const threshold = inlineSeverity
+    || (severityIndex >= 0 && argv[severityIndex + 1] && !argv[severityIndex + 1].startsWith('--')
+      ? argv[severityIndex + 1]
+      : 'high')
+  if (!SEVERITY_ORDER.includes(threshold)) {
+    throw new Error(`unknown --severity "${threshold}" (expected one of ${SEVERITY_ORDER.join(', ')})`)
+  }
+  return {
+    threshold,
+    lockPath: path.resolve(argv.find((arg) => arg.endsWith('yarn.lock')) || 'yarn.lock'),
+  }
 }
 
-const ENDPOINT = 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk'
-const lockPath = path.resolve(process.argv.find((a) => a.endsWith('yarn.lock')) || 'yarn.lock')
-
-function readLockPackages(lockFile) {
+export function readLockPackages(lockFile) {
   // Yarn v4 lockfile: each top-level block carries `resolution: "<name>@<protocol>:<selector>"`
   // and `version: "<resolved>"`. Only npm-protocol packages can carry npm advisories.
   const raw = fs.readFileSync(lockFile, 'utf8')
@@ -58,34 +65,79 @@ function readLockPackages(lockFile) {
   return packages
 }
 
-async function fetchAdvisories(chunk) {
+export function decodeAdvisoryResponse(bytes) {
+  const body = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b
+    ? zlib.gunzipSync(bytes).toString('utf8')
+    : bytes.toString('utf8')
+  const result = JSON.parse(body)
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    throw new Error('advisory response must be an object')
+  }
+  for (const [name, entries] of Object.entries(result)) {
+    if (!Array.isArray(entries)) throw new Error(`advisory response for ${name} must be an array`)
+    for (const advisory of entries) {
+      if (!advisory || typeof advisory !== 'object' || !SEVERITY_ORDER.includes(advisory.severity)) {
+        throw new Error(`advisory response for ${name} contains an invalid severity`)
+      }
+    }
+  }
+  return result
+}
+
+export async function fetchAdvisories(chunk, options = {}) {
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch
+  const endpoint = options.endpoint ?? ENDPOINT
+  const timeoutMs = options.timeoutMs ?? 15_000
+  const retryDelayMs = options.retryDelayMs ?? 250
   let lastError
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const res = await fetch(ENDPOINT, {
+      const res = await fetchImpl(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(chunk),
+        signal: AbortSignal.timeout(timeoutMs),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const bytes = Buffer.from(await res.arrayBuffer())
-      const body = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b
-        ? zlib.gunzipSync(bytes).toString('utf8')
-        : bytes.toString('utf8')
-      return JSON.parse(body)
+      return decodeAdvisoryResponse(bytes)
     } catch (error) {
       lastError = error
+      if (attempt < 2 && retryDelayMs > 0) await delay(retryDelayMs * (2 ** attempt))
     }
   }
   throw lastError
 }
 
-async function main() {
+export function collectFlaggedAdvisories(advisories, threshold) {
+  const thresholdIndex = SEVERITY_ORDER.indexOf(threshold)
+  const flagged = []
+  for (const [name, entries] of Object.entries(advisories)) {
+    for (const advisory of entries) {
+      if (SEVERITY_ORDER.indexOf(advisory.severity) >= thresholdIndex) {
+        flagged.push({ name, severity: advisory.severity, range: advisory.vulnerable_versions, title: advisory.title, url: advisory.url })
+      }
+    }
+  }
+  flagged.sort((left, right) => SEVERITY_ORDER.indexOf(right.severity) - SEVERITY_ORDER.indexOf(left.severity))
+  return flagged
+}
+
+export async function main(argv = process.argv.slice(2)) {
+  let options
+  try {
+    options = parseArgs(argv)
+  } catch (error) {
+    console.error(`audit-ci: ${error.message}`)
+    return 2
+  }
+
+  const { lockPath, threshold } = options
   const packages = readLockPackages(lockPath)
   const names = [...packages.keys()]
   if (names.length === 0) {
     console.error(`audit-ci: no npm packages found in ${lockPath}`)
-    process.exit(2)
+    return 2
   }
   const advisories = {}
   for (let i = 0; i < names.length; i += 200) {
@@ -97,32 +149,31 @@ async function main() {
     } catch (error) {
       // Fail closed — never pass the gate when advisory data is unavailable.
       console.error(`audit-ci: could not retrieve advisories (batch ${i / 200 + 1}): ${error.message}`)
-      process.exit(2)
+      return 2
     }
     Object.assign(advisories, result)
   }
 
-  const flagged = []
-  for (const [name, entries] of Object.entries(advisories)) {
-    for (const advisory of entries) {
-      if (SEVERITY_ORDER.indexOf(advisory.severity) >= thresholdIndex) {
-        flagged.push({ name, severity: advisory.severity, range: advisory.vulnerable_versions, title: advisory.title, url: advisory.url })
-      }
-    }
-  }
+  const flagged = collectFlaggedAdvisories(advisories, threshold)
 
-  console.log(`audit-ci: scanned ${names.length} packages; threshold=${thresholdArg}+`)
+  console.log(`audit-ci: scanned ${names.length} packages; threshold=${threshold}+`)
   if (flagged.length === 0) {
     console.log('audit-ci: no advisories at or above threshold.')
-    process.exit(0)
+    return 0
   }
-  flagged.sort((a, b) => SEVERITY_ORDER.indexOf(b.severity) - SEVERITY_ORDER.indexOf(a.severity))
-  console.error(`audit-ci: ${flagged.length} advisory(ies) at or above ${thresholdArg}:`)
-  for (const f of flagged) console.error(`  [${f.severity}] ${f.name} ${f.range} — ${f.title} (${f.url})`)
-  process.exit(1)
+  console.error(`audit-ci: ${flagged.length} advisory(ies) at or above ${threshold}:`)
+  for (const advisory of flagged) {
+    console.error(`  [${advisory.severity}] ${advisory.name} ${advisory.range} — ${advisory.title} (${advisory.url})`)
+  }
+  return 1
 }
 
-main().catch((error) => {
-  console.error(`audit-ci: unexpected failure: ${error.stack || error.message}`)
-  process.exit(2)
-})
+const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null
+if (invokedPath === import.meta.url) {
+  main().then((exitCode) => {
+    process.exitCode = exitCode
+  }).catch((error) => {
+    console.error(`audit-ci: unexpected failure: ${error.stack || error.message}`)
+    process.exitCode = 2
+  })
+}

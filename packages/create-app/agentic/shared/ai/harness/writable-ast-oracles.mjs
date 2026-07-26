@@ -752,8 +752,12 @@ function hasObjectVariable(facts, variableName, required) {
   return Boolean(properties && required.every((name) => properties.has(name)))
 }
 
-function hasString(facts, value) {
-  return [...facts.strings].some((entry) => entry === value || entry.startsWith(value))
+export function hasExactString(facts, value) {
+  return facts.strings.has(value)
+}
+
+function hasStringPrefix(facts, value) {
+  return [...facts.strings].some((entry) => entry.startsWith(value))
 }
 
 function exportedFunctionCalls(facts, functionName, requiredCalls) {
@@ -831,10 +835,10 @@ function caseChecks(ts, caseId, facts) {
     const fact = facts.exportedFunctions.get(definition.seam)
     const onExecute = facts.propertyIdentifiers.get('onExecute')
     return [
-      check('business.table-filter-host', hasObjectVariable(facts, 'injectionTable', ['data-table:sales.orders:filters']) && hasString(facts, 'order_risk.injection.order-risk-filter'), 'the exact sales.orders filters host loads the order-risk filter widget'),
-      check('business.table-bulk-host', hasObjectVariable(facts, 'injectionTable', ['data-table:sales.orders:bulk-actions']) && hasString(facts, 'order_risk.injection.order-risk-review'), 'the exact sales.orders bulk-actions host loads the order-risk review widget'),
-      check('business.table-filter', facts.exportedVariables.has('orderRiskFilterWidget') && hasObjectVariable(facts, 'orderRiskFilterWidget', ['metadata', 'filters']) && ['order-risk', 'order_risk.filters.risk.label', 'server', 'risk'].every((value) => hasString(facts, value)), 'an exported localized server-backed order-risk filter is registered'),
-      check('business.table-bulk-action', facts.exportedVariables.has('orderRiskReviewWidget') && hasObjectVariable(facts, 'orderRiskReviewWidget', ['metadata', 'bulkActions']) && hasString(facts, 'review-order-risk') && onExecute?.has(definition.seam), `the exported bulk action links onExecute directly to ${definition.seam}`),
+      check('business.table-filter-host', hasObjectVariable(facts, 'injectionTable', ['data-table:sales.orders:filters']) && hasExactString(facts, 'order_risk.injection.order-risk-filter'), 'the exact sales.orders filters host loads the order-risk filter widget'),
+      check('business.table-bulk-host', hasObjectVariable(facts, 'injectionTable', ['data-table:sales.orders:bulk-actions']) && hasExactString(facts, 'order_risk.injection.order-risk-review'), 'the exact sales.orders bulk-actions host loads the order-risk review widget'),
+      check('business.table-filter', facts.exportedVariables.has('orderRiskFilterWidget') && hasObjectVariable(facts, 'orderRiskFilterWidget', ['metadata', 'filters']) && ['order-risk', 'order_risk.filters.risk.label', 'server', 'risk'].every((value) => hasExactString(facts, value)), 'an exported localized server-backed order-risk filter is registered'),
+      check('business.table-bulk-action', facts.exportedVariables.has('orderRiskReviewWidget') && hasObjectVariable(facts, 'orderRiskReviewWidget', ['metadata', 'bulkActions']) && hasExactString(facts, 'review-order-risk') && onExecute?.has(definition.seam), `the exported bulk action links onExecute directly to ${definition.seam}`),
       check('business.table-safe-seam', exportedFunctionCalls(facts, definition.seam, ['effects.authorize', 'effects.checkVersion', 'effects.surfaceConflict', 'effects.execute']) && (fact?.loops ?? 0) > 0 && (fact?.throws ?? 0) > 0, `exported ${definition.seam} authorizes and version-checks every selected order before execution`),
       check('business.table-ui-policy', uiPolicyFailures(facts).length === 0, 'the injected table extension avoids raw UI, inline SVG/style, hard-coded copy/colors, arbitrary Tailwind, and manual dark overrides'),
     ]
@@ -864,14 +868,14 @@ function caseChecks(ts, caseId, facts) {
       check('business.provider-seam', exportedFunctionCalls(facts, definition.seam, ['effects.findExisting', 'effects.request', 'effects.reconcile', 'effects.redact']), `exported ${definition.seam} uses idempotency, provider, reconciliation, and redaction seams`),
       check('business.provider-retry', (fact?.loops ?? 0) > 0 && (fact?.throws ?? 0) > 0, `exported ${definition.seam} bounds retries and redacts terminal failure`),
       check('business.provider-integration', facts.importedBindings.get('IntegrationDefinition') === '@open-mercato/shared/modules/integrations/types' && facts.exportedVariables.has('integration') && facts.exportedVariables.has('integrations') && hasObjectVariable(facts, 'integration', ['id', 'category', 'providerKey', 'credentials', 'healthCheck']), 'integration.ts exports typed IntegrationDefinition metadata, credentials, and health'),
-      check('business.provider-secret', hasString(facts, 'secret'), 'integration credentials include a secret-bearing field type'),
-      check('business.provider-health', hasString(facts, definition.healthService) && hasCall(facts, 'container.register'), `DI registers the exact ${definition.healthService} health service declared by integration.ts`),
+      check('business.provider-secret', hasExactString(facts, 'secret'), 'integration credentials include a secret-bearing field type'),
+      check('business.provider-health', hasExactString(facts, definition.healthService) && hasCall(facts, 'container.register'), `DI registers the exact ${definition.healthService} health service declared by integration.ts`),
       check('business.provider-activation', facts.moduleEntries.some((entry) => entry.id === definition.moduleId && entry.from === '@app'), `src/modules.ts activates ${definition.moduleId} from @app`),
     ]
     if (definition.providerKind === 'transactional-email') {
       checks.push(
         check('business.provider-transactional-di', hasObjectVariable(facts, 'smtpEmailService', ['send']) && facts.propertyIdentifiers.get('send')?.has(definition.seam), 'DI-facing SMTP sender delegates to the tested transactional client seam'),
-        check('business.provider-not-mailbox', !hasString(facts, 'communication_channels') && !facts.importedBindings.has('ChannelAdapter'), 'transactional SMTP does not claim the mailbox ChannelAdapter contract'),
+        check('business.provider-not-mailbox', !hasExactString(facts, 'communication_channels') && !facts.importedBindings.has('ChannelAdapter'), 'transactional SMTP does not claim the mailbox ChannelAdapter contract'),
       )
     }
     if (definition.providerKind === 'payment') {
@@ -896,7 +900,7 @@ function caseChecks(ts, caseId, facts) {
     }
     if (definition.providerKind === 'payment' || definition.providerKind === 'shipping') {
       checks.push(
-        check('business.provider-acl', facts.exportedVariables.has('features') && hasString(facts, `${definition.moduleId}.view`) && hasString(facts, `${definition.moduleId}.configure`), 'provider acl.ts exports stable view/configure features'),
+        check('business.provider-acl', facts.exportedVariables.has('features') && hasExactString(facts, `${definition.moduleId}.view`) && hasExactString(facts, `${definition.moduleId}.configure`), 'provider acl.ts exports stable view/configure features'),
         check('business.provider-setup', facts.exportedVariables.has('setup') && hasObjectVariable(facts, 'setup', ['defaultRoleFeatures']), 'provider setup.ts grants its features through defaultRoleFeatures'),
       )
     }
@@ -922,7 +926,7 @@ function caseChecks(ts, caseId, facts) {
       check('business.test-api-runner', facts.importedBindings.get('test') === '@playwright/test' && facts.importedBindings.get('expect') === '@playwright/test', 'the module-local spec uses the Playwright test runner'),
       check('business.test-api-enabled', hasOnlyEnabledTests(facts), 'generated API coverage contains no disabled, focused-only, todo, or expected-failure tests or suites'),
       check('business.test-api-http', ['request.post', 'request.patch', 'request.delete'].every((name) => hasCall(facts, name)), 'real HTTP creation, stale update, and cleanup requests are executed'),
-      check('business.test-api-scope-conflict', hasString(facts, 'x-organization-id') && hasString(facts, 'if-match') && (facts.calls.get('toBe') ?? 0) >= 4, 'organization denial and optimistic conflict statuses are asserted'),
+      check('business.test-api-scope-conflict', hasExactString(facts, 'x-organization-id') && hasExactString(facts, 'if-match') && (facts.calls.get('toBe') ?? 0) >= 4, 'organization denial and optimistic conflict statuses are asserted'),
       check('business.test-api-lifecycle', allServersBindLoopback(facts) && hasCall(facts, 'close') && facts.finallyBlocks > 0, 'every ephemeral server listen call binds the literal host 127.0.0.1 and is closed in finally'),
     ]
   }
@@ -931,7 +935,7 @@ function caseChecks(ts, caseId, facts) {
       check('business.test-browser-runner', facts.importedBindings.get('test') === '@playwright/test' && facts.importedBindings.get('expect') === '@playwright/test', 'the module-local spec uses the Playwright test runner'),
       check('business.test-browser-enabled', hasOnlyEnabledTests(facts), 'generated browser coverage contains no disabled, focused-only, todo, or expected-failure tests or suites'),
       check('business.test-browser-real-page', hasCall(facts, 'page.goto') && hasCall(facts, 'page.getByRole') && hasCall(facts, 'click'), 'a real browser navigates loopback HTTP and interacts through semantic roles'),
-      check('business.test-browser-coverage', hasString(facts, '/portal/orders/forbidden') && hasString(facts, '/api/backend/quotes/quote-1') && hasCall(facts, 'toHaveText', 'toContainText', 'toBe'), 'direct-route denial, stale conflict, and backend state are asserted'),
+      check('business.test-browser-coverage', hasExactString(facts, '/portal/orders/forbidden') && hasExactString(facts, '/api/backend/quotes/quote-1') && hasCall(facts, 'toHaveText', 'toContainText', 'toBe'), 'direct-route denial, stale conflict, and backend state are asserted'),
       check('business.test-browser-lifecycle', allServersBindLoopback(facts) && hasCall(facts, 'close') && facts.finallyBlocks > 0, 'every ephemeral server listen call binds the literal host 127.0.0.1 and is closed in finally'),
     ]
   }
@@ -964,13 +968,13 @@ function caseChecks(ts, caseId, facts) {
       ]
     case 'OMH-026':
       return [
-        check('umes.form-spot', hasString(facts, 'crud-form:'), 'a concrete crud-form:* spot ID literal'),
+        check('umes.form-spot', hasStringPrefix(facts, 'crud-form:'), 'a concrete crud-form:* spot ID literal'),
         check('umes.enricher', hasCall(facts, 'enrichMany'), 'an enrichMany call'),
         check('umes.interceptor', hasObjectVariable(facts, 'interceptors', []) || facts.declarations.has('interceptors'), 'an interceptors declaration'),
       ]
     case 'OMH-027':
       return [
-        check('umes.table-spot', hasString(facts, 'data-table:'), 'a concrete data-table:* spot ID literal'),
+        check('umes.table-spot', hasStringPrefix(facts, 'data-table:'), 'a concrete data-table:* spot ID literal'),
         check('umes.table-id', facts.objectProperties.has('extensionTableId') || facts.jsxAttributes.has('extensionTableId'), 'an extensionTableId option or JSX attribute'),
       ]
     case 'OMH-029':
@@ -996,9 +1000,9 @@ function caseChecks(ts, caseId, facts) {
       return [check('ai.agent', hasCallOptions(facts, 'defineAiAgent', ['provider', 'model', 'allowedTools', 'requiredFeatures']), 'defineAiAgent called with provider, model, allowedTools, and requiredFeatures options')]
     case 'OMH-054':
       return [
-        check('workflow.activity', facts.functions.has('callApiActivity') && hasString(facts, 'CALL_API'), 'a callApiActivity declaration and CALL_API literal'),
+        check('workflow.activity', facts.functions.has('callApiActivity') && hasExactString(facts, 'CALL_API'), 'a callApiActivity declaration and CALL_API literal'),
         check('workflow.transaction', hasCall(facts, 'transaction', 'transactional'), 'a transaction/transactional call'),
-        check('workflow.idempotency', (hasCall(facts, 'fetch', 'fetchImpl') && facts.objectProperties.has('headers') && hasString(facts, 'Idempotency-Key')), 'a fetch call with headers and an Idempotency-Key literal'),
+        check('workflow.idempotency', (hasCall(facts, 'fetch', 'fetchImpl') && facts.objectProperties.has('headers') && hasExactString(facts, 'Idempotency-Key')), 'a fetch call with headers and an Idempotency-Key literal'),
       ]
     case 'OMH-057':
     case 'OMH-171':

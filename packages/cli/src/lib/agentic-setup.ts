@@ -777,8 +777,10 @@ export async function runAgenticSetup(
     try {
       const modulesSourcePath = join(targetDir, 'src', 'modules.ts')
       const modulesCandidatePath = join(stagingDir, 'src', 'modules.ts')
-      ensureDir(modulesCandidatePath)
-      copyFileSync(modulesSourcePath, modulesCandidatePath)
+      if (existsSync(modulesSourcePath)) {
+        ensureDir(modulesCandidatePath)
+        copyFileSync(modulesSourcePath, modulesCandidatePath)
+      }
 
       const stagingConfig: AgenticConfig = {
         projectName: config.projectName,
