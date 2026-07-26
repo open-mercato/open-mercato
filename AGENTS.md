@@ -91,6 +91,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Webhooks (outbound/inbound, Standard Webhooks signing, delivery queues, admin UI) | `packages/webhooks/AGENTS.md` (cross-refs `queue`, `events`, `integrations`, `ui`) |
 | Building a new integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` |
 | Adding a web search source (Brave, Exa, Serper, Kagi, SearXNG, a scraping vendor) as a `@open-mercato/web-research-*` adapter package | `.ai/skills/om-create-web-research-adapter/SKILL.md` + `packages/web-research/AGENTS.md` |
+| Agent web search/fetch behaviour — adapter racing, fusion, browser escalation, SSRF/DNS pinning, per-tenant policy, live status | `apps/docs/docs/framework/ai-assistant/web-research.mdx` + `packages/web-research/AGENTS.md` + `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md` → Web Egress |
 | **Packages** | |
 | Adding reusable utilities, encryption helpers, i18n translations (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `packages/shared/AGENTS.md` |
 | Structured logging / replacing raw `console.*` with the logging facade (`createLogger`, `child()`, `OM_LOG_LEVEL`), advisory `yarn logger:check-console` | `apps/docs/docs/framework/runtime/logging.mdx` + `.ai/specs/2026-07-02-structured-logging-facade.md` + `packages/shared/AGENTS.md` |
