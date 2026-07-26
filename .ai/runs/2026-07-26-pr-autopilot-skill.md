@@ -74,21 +74,23 @@ example reviewing a PR whose implementation is not finished) much less likely.
 
 ## Progress
 
+PR: #4525
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Skill
 
-- [ ] 1.1 Write SKILL.md router
-- [ ] 1.2 Write references/diagnose.md
-- [ ] 1.3 Write references/state-matrix.md
-- [ ] 1.4 Write references/report.md
+- [x] 1.1 Write SKILL.md router — 0d9f45717
+- [x] 1.2 Write references/diagnose.md — 0d9f45717
+- [x] 1.3 Write references/state-matrix.md — 0d9f45717
+- [x] 1.4 Write references/report.md — 0d9f45717
 
 ### Phase 2: Registration
 
-- [ ] 2.1 Add the skill to the automation tier in tiers.json
-- [ ] 2.2 Add the catalog row and tier count in README.md
-- [ ] 2.3 Verify with validate-skills-tiers.sh
+- [x] 2.1 Add the skill to the automation tier in tiers.json — b043fb4cf
+- [x] 2.2 Add the catalog row and tier count in README.md — b043fb4cf
+- [x] 2.3 Verify with validate-skills-tiers.sh — b043fb4cf
 
 ### Phase 3: Verification
 
-- [ ] 3.1 Exercise the diagnosis procedure against real open PRs
+- [x] 3.1 Exercise the diagnosis procedure against real open PRs — b043fb4cf
