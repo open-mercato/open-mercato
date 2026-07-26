@@ -6,7 +6,7 @@ Diagnose before editing, fix the smallest knowledge/code owner, and prove the re
 
 Name the areas the failure spans before loading anything, from the SYMPTOM and not only from the cause: a value that will not render, a session/locale/hydration mismatch, or a stale form spans `backend-ui`; wrong or lost records, commands, or events span `module-data`; an installed module's own surface spans `umes`; an external provider call spans `integration`.
 
-A fix is always `debugging` plus every area you just named. Load exactly this guide, each named area's guide, and `om-troubleshooter` — that is what selects those routes.
+A fix is always `debugging` plus every area you just named. Proving the fix with a regression oracle is part of `debugging` and does NOT add `testing`; only a request that asks for tests, coverage, or app-level verification does. Load exactly this guide, each named area's guide, and `om-troubleshooter` — that is what selects those routes.
 
 Add an area's authoring skill when the fix **introduces** something there — a concurrency header on existing calls, a new field or UI surface, a new command, a new invalidation, a new guard — because you are then designing that surface, not just repairing it. Load `om-troubleshooter` alone when you only correct existing behavior, such as a hydration mismatch or a value that fails to round-trip.
 

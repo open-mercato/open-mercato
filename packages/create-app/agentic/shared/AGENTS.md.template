@@ -44,7 +44,7 @@ Routes are additive, never exclusive: ownership says WHOSE code changes, the res
 
 Combine matches: lifecycle reaction = `module-data` + `umes`; convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. `framework-context` only for an unresolved contract.
 
-`testing` is not the implicit gate after implementation. `debugging` = failure/security/drift. Specs/delivery = `spec-pr` + integration coverage; spec-only work reads root + `om-spec-writing` + config, implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; an editable or save/reload/clear round-trip surface adds `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
+`debugging` = failure/security/drift. Specs/delivery = `spec-pr` + integration coverage; spec-only work reads root + `om-spec-writing` + config, implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; an editable or save/reload/clear round-trip surface adds `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
 Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`.
 
@@ -85,7 +85,7 @@ Match every work-unit row, and OPEN each matched row's skill before selecting it
 | `integration` | Provider/credentials/health/webhook/files/client/reconciliation/package | `om-integration-builder` + integrations |
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `surface-selector` + `ai_assistant` facts |
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
-| `testing` | Run or author tests, prove an invariant, or verify behavior by exercising the app (API/browser/screen sizes/keyboard/screen-reader) — any named test or affected-test run counts; not a review/audit/config check that never exercises the app | testing/debugging; external `om-integration-tests` for integration/E2E |
+| `testing` | The REQUEST asks for tests, coverage, proof, or verification by exercising the app (API/browser/screen sizes/keyboard/screen-reader) — never inferred from a fix's own regression duty, and not a review/audit/config check | testing/debugging; external `om-integration-tests` for integration/E2E |
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging |
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
@@ -109,7 +109,8 @@ Absent skill: run `yarn install-skills` once; never substitute.
 ### Token-Efficient Assembly Policy
 
 - Load each matched guide once, then only needed references and facts.
-- For specs, list names and open one task match; skip README/template otherwise.
+- Budgets are hard: prefer a guide over its skill, a skill over its references; open a reference only when the task names what it covers.
+- For specs, list names and open one task match; skip README/template.
 - Inspect app call sites before bounded `framework-context`.
 - Additive page/form/table/conflict UI skips it.
 - Never bulk-read guide, skill, fact, or source trees.
