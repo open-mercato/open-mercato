@@ -11,7 +11,7 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 1 | 1.1 | Land redesign spec, story catalog, and HTML mockups | todo | — |
+| 1 | 1.1 | Land redesign spec, story catalog, and HTML mockups | done | 8ff43d8b2 |
 | 2 | 2.1 | SEND_EMAIL honest stub result and error propagation | todo | — |
 | 2 | 2.2 | Fix retry-policy field-name drift in ActivitiesEditor and TransitionsEditor | todo | — |
 | 2 | 2.3 | Default workflows role grants for employee in module setup | todo | — |
