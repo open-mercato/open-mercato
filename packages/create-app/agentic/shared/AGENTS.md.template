@@ -94,7 +94,7 @@ Match every work-unit row, and OPEN each matched row's skill before selecting it
 
 ### Axis 3 — SDLC and Delivery
 
-Delivery skills come from pinned `open-mercato/skills` (`yarn install-skills`). Read them at `.agents/skills/<id>/SKILL.md`; MUST also apply any matching `.ai/skills/<id>/SKILL.md` override.
+Delivery skills come from pinned `open-mercato/skills` (`yarn install-skills`; intentionally refresh and re-pin current `main` with `yarn install-skills --update`). Read them at `.agents/skills/<id>/SKILL.md`; MUST also apply any matching `.ai/skills/<id>/SKILL.md` override.
 
 | Route ID | Delivery need | Skill |
 |---|---|---|

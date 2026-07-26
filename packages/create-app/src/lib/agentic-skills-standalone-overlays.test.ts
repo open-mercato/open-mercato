@@ -168,7 +168,7 @@ test('tiers.json owns a pinned, hashed, dependency-closed external skill set', (
     'om-prepare-issue',
   ]
   assert.equal(external?.source, 'open-mercato/skills')
-  assert.equal(external?.ref, 'cf42eaf277a91c3906ffa910a1cdfeb121fe8322')
+  assert.equal(external?.ref, 'c6103c034571f3610323a1b53d97c81abe110b58')
   assert.ok(externalSkills.has('om-setup-agent-pipeline'), 'om-setup-agent-pipeline must be installed')
   for (const skill of backwardCompatibleSkills) {
     assert.ok(externalSkills.has(skill), `${skill} must remain installable across a harness upgrade`)

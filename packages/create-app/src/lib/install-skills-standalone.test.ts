@@ -15,6 +15,7 @@ const installer = await import(pathToFileURL(installerPath).href) as {
 }
 
 const HASH = `sha256:${'0'.repeat(64)}`
+const LATEST_REF = 'c6103c034571f3610323a1b53d97c81abe110b58'
 
 function fixture(overrides: Record<string, unknown> = {}): string {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-standalone-skills-')))
@@ -247,6 +248,75 @@ test('default external selection excludes opt-in automation workflows', async ()
     assert.equal(await installer.runInstaller({ rootDir: root, args: ['--with', 'automation'], downloadSource }), 0)
     assert.deepEqual(downloadedSelections[1], ['om-code-review', 'om-auto-create-pr-loop'])
     assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', 'om-auto-create-pr-loop')), true)
+  } finally {
+    removeFixture(root)
+  }
+})
+
+test('--update resolves current shared skills and pins their verified hashes before installation', async () => {
+  const root = fixture()
+  const latestContents = '# current shared review\n'
+  const latestHash = hashSingleFileSkill(latestContents)
+  const seenRefs: string[] = []
+  try {
+    assert.equal(await installer.runInstaller({
+      rootDir: root,
+      args: ['--update'],
+      resolveLatestRef: async () => LATEST_REF,
+      downloadSource: (external: { ref: string }) => {
+        seenRefs.push(external.ref)
+        return regularDownloadSource({ 'om-code-review': latestContents })
+      },
+    }), 0)
+
+    assert.deepEqual(seenRefs, [LATEST_REF])
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, '.ai', 'skills', 'tiers.json'), 'utf8')) as {
+      external: { ref: string; contentHashes: Record<string, string> }
+    }
+    assert.equal(manifest.external.ref, LATEST_REF)
+    assert.equal(manifest.external.contentHashes['om-code-review'], latestHash)
+    const ledger = JSON.parse(fs.readFileSync(path.join(root, '.agents', 'skills', '.om-external-ownership.json'), 'utf8')) as {
+      ref: string
+      skills: Record<string, string>
+    }
+    assert.equal(ledger.ref, LATEST_REF)
+    assert.equal(ledger.skills['om-code-review'], latestHash)
+    assert.equal(installer.hashSkillDirectory(path.join(root, '.agents', 'skills', 'om-code-review')), latestHash)
+  } finally {
+    removeFixture(root)
+  }
+})
+
+test('--update restores the prior pin and installed skills when activation fails', async () => {
+  const root = fixture()
+  const priorContents = '# prior shared review\n'
+  const latestContents = '# current shared review\n'
+  setExternalHash(root, hashSingleFileSkill(priorContents))
+  try {
+    assert.equal(await installer.runInstaller({
+      rootDir: root,
+      args: [],
+      downloadSource: () => regularDownloadSource({ 'om-code-review': priorContents }),
+    }), 0)
+    const manifestPath = path.join(root, '.ai', 'skills', 'tiers.json')
+    const ledgerPath = path.join(root, '.agents', 'skills', '.om-external-ownership.json')
+    const priorManifest = fs.readFileSync(manifestPath, 'utf8')
+    const priorLedger = fs.readFileSync(ledgerPath, 'utf8')
+
+    await assert.rejects(installer.runInstaller({
+      rootDir: root,
+      args: ['--update'],
+      resolveLatestRef: async () => LATEST_REF,
+      downloadSource: () => regularDownloadSource({ 'om-code-review': latestContents }),
+      activationObserver: () => { throw new Error('injected refresh activation failure') },
+    }), /injected refresh activation failure/)
+
+    assert.equal(fs.readFileSync(manifestPath, 'utf8'), priorManifest)
+    assert.equal(fs.readFileSync(ledgerPath, 'utf8'), priorLedger)
+    assert.equal(
+      installer.hashSkillDirectory(path.join(root, '.agents', 'skills', 'om-code-review')),
+      hashSingleFileSkill(priorContents),
+    )
   } finally {
     removeFixture(root)
   }

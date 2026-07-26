@@ -47,6 +47,8 @@ Options:
   --ignore-agents <csv>
                       Never write the named agent directories.
   --no-external       Skip the pinned external collection (also OM_SKIP_EXTERNAL_SKILLS=1).
+  --update            Resolve the shared repository's current main commit, pin
+                      its verified skill hashes, then install that exact snapshot.
   --list              Print the tier and external-skill catalog, then exit.
   --clean             Remove harness-owned skill links, then exit.
   --help, -h          Show this message.
@@ -246,6 +248,7 @@ function parseArgs(args, env) {
     clean: false,
     legacyLinks: false,
     ignoreAgents: undefined,
+    update: false,
     noExternal: Boolean(env.OM_SKIP_EXTERNAL_SKILLS && env.OM_SKIP_EXTERNAL_SKILLS !== '0'),
   }
   let selectionFlag
@@ -256,6 +259,7 @@ function parseArgs(args, env) {
     else if (arg === '--clean') options.clean = true
     else if (arg === '--legacy-links') options.legacyLinks = true
     else if (arg === '--no-external') options.noExternal = true
+    else if (arg === '--update') options.update = true
     else if (arg === '--all') {
       if (selectionFlag && selectionFlag !== '--all') fail('--with, --tiers, and --all are mutually exclusive')
       selectionFlag = '--all'
@@ -284,6 +288,7 @@ function parseArgs(args, env) {
       }
     } else fail(`unknown option '${arg}'`)
   }
+  if (options.update && options.noExternal) fail('--update and --no-external are mutually exclusive')
   return options
 }
 
@@ -470,6 +475,91 @@ async function downloadPinnedSource(external, fetchImpl) {
   }
 }
 
+async function resolveLatestRef(external, fetchImpl) {
+  const match = external.source.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/)
+  if (!match) fail(`unsupported external source '${external.source}'; expected owner/repository`)
+  const [, owner, repository] = match
+  const response = await fetchImpl(`https://api.github.com/repos/${owner}/${repository}/commits/main`, {
+    headers: { accept: 'application/vnd.github+json' },
+    signal: AbortSignal.timeout(30_000),
+  })
+  if (!response.ok) fail(`external current-ref lookup failed (${response.status})`)
+  const payload = await response.json()
+  if (!COMMIT_PATTERN.test(payload?.sha ?? '')) fail('external current-ref lookup returned an invalid commit')
+  return payload.sha
+}
+
+function inspectDownloadedSource(downloaded) {
+  const lexicalDownloadRoot = resolve(downloaded.tempRoot)
+  if (!isWithin(downloaded.sourceDir, lexicalDownloadRoot)) fail('downloaded external source escapes its temporary root')
+  const downloadRoot = realInstallerRoot(downloaded.tempRoot)
+  const sourceEntry = lstatSync(downloaded.sourceDir, { throwIfNoEntry: false })
+  if (!sourceEntry || sourceEntry.isSymbolicLink() || !sourceEntry.isDirectory()) {
+    fail('downloaded external source must be a real directory')
+  }
+  const sourceDir = realpathSync(downloaded.sourceDir)
+  if (!isWithin(sourceDir, downloadRoot)) fail('downloaded external source escapes its temporary root')
+  assertRealDirectoryComponents(downloadRoot, sourceDir, { requireLeaf: true })
+  assertRegularSkillTree(sourceDir)
+  const sourceSkillsDir = join(sourceDir, 'skills')
+  assertRealDirectoryComponents(downloadRoot, sourceSkillsDir, { requireLeaf: true })
+  return { downloadRoot, sourceDir, sourceSkillsDir }
+}
+
+function cleanupDownloadedSource(downloadRoot) {
+  if (!downloadRoot) return
+  const entry = lstatSync(downloadRoot, { throwIfNoEntry: false })
+  if (entry?.isDirectory() && !entry.isSymbolicLink()) rmSync(downloadRoot, { recursive: true, force: true })
+  else if (entry) unlinkSync(downloadRoot)
+}
+
+function writeManifest(rootDir, manifestOrSource) {
+  const manifestPath = join(rootDir, '.ai', 'skills', 'tiers.json')
+  assertRegularOwnedFile(rootDir, manifestPath, { optional: false })
+  const temporary = `${manifestPath}.tmp-${randomUUID()}`
+  const source = typeof manifestOrSource === 'string'
+    ? manifestOrSource
+    : `${JSON.stringify(manifestOrSource, null, 2)}\n`
+  try {
+    assertOwnedPathAbsent(rootDir, temporary)
+    writeFileSync(temporary, source, { mode: 0o600, flag: 'wx' })
+    assertRegularOwnedFile(rootDir, temporary, { optional: false })
+    assertRegularOwnedFile(rootDir, manifestPath, { optional: false })
+    renameSync(temporary, manifestPath)
+  } finally {
+    const entry = lstatSync(temporary, { throwIfNoEntry: false })
+    if (entry) unlinkSync(temporary)
+  }
+}
+
+async function refreshExternalManifest(rootDir, manifest, fetchImpl, downloadSource, latestRefResolver) {
+  const ref = await latestRefResolver(manifest.external, fetchImpl)
+  const candidate = { ...manifest.external, ref }
+  let downloadRoot
+  try {
+    const downloaded = await downloadSource(candidate, fetchImpl)
+    downloadRoot = realInstallerRoot(downloaded.tempRoot)
+    const inspected = inspectDownloadedSource(downloaded)
+    downloadRoot = inspected.downloadRoot
+    const contentHashes = {}
+    for (const skill of candidate.skills) {
+      const skillDir = join(inspected.sourceSkillsDir, skill)
+      const entry = lstatSync(skillDir, { throwIfNoEntry: false })
+      if (!entry || entry.isSymbolicLink() || !entry.isDirectory()) fail(`current external skill is missing: ${skill}`)
+      contentHashes[skill] = hashSkillDirectory(skillDir)
+    }
+    const refreshed = {
+      ...manifest,
+      external: { ...candidate, contentHashes },
+    }
+    writeManifest(rootDir, refreshed)
+    return { manifest: refreshed, downloaded }
+  } catch (error) {
+    cleanupDownloadedSource(downloadRoot)
+    throw error
+  }
+}
+
 function filesystemEntryKind(entry) {
   if (entry.isSymbolicLink()) return 'symbolic link'
   if (entry.isFIFO()) return 'FIFO'
@@ -644,19 +734,10 @@ async function installExternal(rootDir, external, fetchImpl, downloadSource, act
   let downloadRoot
   try {
     downloaded = await downloadSource(external, fetchImpl)
-    const lexicalDownloadRoot = resolve(downloaded.tempRoot)
-    if (!isWithin(downloaded.sourceDir, lexicalDownloadRoot)) fail('downloaded external source escapes its temporary root')
     downloadRoot = realInstallerRoot(downloaded.tempRoot)
-    const sourceEntry = lstatSync(downloaded.sourceDir, { throwIfNoEntry: false })
-    if (!sourceEntry || sourceEntry.isSymbolicLink() || !sourceEntry.isDirectory()) {
-      fail('downloaded external source must be a real directory')
-    }
-    const sourceDir = realpathSync(downloaded.sourceDir)
-    if (!isWithin(sourceDir, downloadRoot)) fail('downloaded external source escapes its temporary root')
-    assertRealDirectoryComponents(downloadRoot, sourceDir, { requireLeaf: true })
-    assertRegularSkillTree(sourceDir)
-    const sourceSkillsDir = join(sourceDir, 'skills')
-    assertRealDirectoryComponents(downloadRoot, sourceSkillsDir, { requireLeaf: true })
+    const inspected = inspectDownloadedSource(downloaded)
+    downloadRoot = inspected.downloadRoot
+    const { sourceSkillsDir } = inspected
     const mismatches = []
     for (const skill of external.skills) {
       const skillDir = join(sourceSkillsDir, skill)
@@ -759,11 +840,7 @@ async function installExternal(rootDir, external, fetchImpl, downloadSource, act
     }
     return `installed ${external.source}@${external.ref}`
   } finally {
-    if (downloadRoot) {
-      const entry = lstatSync(downloadRoot, { throwIfNoEntry: false })
-      if (entry?.isDirectory() && !entry.isSymbolicLink()) rmSync(downloadRoot, { recursive: true, force: true })
-      else if (entry) unlinkSync(downloadRoot)
-    }
+    cleanupDownloadedSource(downloadRoot)
   }
 }
 
@@ -842,6 +919,7 @@ export async function runInstaller({
   platform = process.platform,
   fetchImpl = globalThis.fetch,
   downloadSource = downloadPinnedSource,
+  resolveLatestRef: latestRefResolver = resolveLatestRef,
   activationObserver = undefined,
 } = {}) {
   const options = parseArgs(args, env)
@@ -851,7 +929,7 @@ export async function runInstaller({
   }
   rootDir = realInstallerRoot(rootDir)
   assertInstallerPathPreflight(rootDir)
-  const manifest = readManifest(rootDir)
+  let manifest = readManifest(rootDir)
   if (options.list) {
     printCatalog(manifest)
     return 0
@@ -865,7 +943,7 @@ export async function runInstaller({
   for (const agent of ignoredAgents) if (!KNOWN_AGENTS.includes(agent)) fail(`unknown agent '${agent}'; valid agents: ${KNOWN_AGENTS.join(', ')}`)
   const tiers = selectedTiers(manifest, options)
   const localSkills = selectedLocalSkills(manifest, tiers)
-  const external = selectedExternalConfig(manifest, tiers)
+  let external = selectedExternalConfig(manifest, tiers)
   for (const skill of localSkills) {
     const localSkillDir = join(rootDir, '.ai', 'skills', skill)
     assertRealDirectoryComponents(rootDir, localSkillDir, { requireLeaf: true })
@@ -878,16 +956,41 @@ export async function runInstaller({
     console.warn(`install-skills: quarantined ${ownership} skill '${item.skill}' outside agent discovery: ${item.path}`)
   }
   let externalStatus = 'skipped (--no-external)'
-  if (external.skills.length === 0) {
-    externalStatus = 'skipped (no external skills selected)'
-  } else if (!options.noExternal) {
-    try {
-      externalStatus = await installExternal(rootDir, external, fetchImpl, downloadSource, activationObserver)
-    } catch (error) {
-      externalStatus = `unavailable (${error.message})`
-      console.warn(`install-skills: warning: ${error.message}`)
-      console.warn('  Local skills will still be installed. Retry with `yarn install-skills` when online.')
+  let refreshDownload
+  const originalManifestSource = options.update
+    ? readFileSync(join(rootDir, '.ai', 'skills', 'tiers.json'), 'utf8')
+    : undefined
+  if (options.update) {
+    const refreshed = await refreshExternalManifest(rootDir, manifest, fetchImpl, downloadSource, latestRefResolver)
+    manifest = refreshed.manifest
+    refreshDownload = refreshed.downloaded
+    external = selectedExternalConfig(manifest, tiers)
+  }
+  try {
+    if (external.skills.length === 0) {
+      externalStatus = 'skipped (no external skills selected)'
+    } else if (!options.noExternal) {
+      try {
+        const installDownloadSource = refreshDownload
+          ? async () => {
+              const downloaded = refreshDownload
+              refreshDownload = undefined
+              return downloaded
+            }
+          : downloadSource
+        externalStatus = await installExternal(rootDir, external, fetchImpl, installDownloadSource, activationObserver)
+      } catch (error) {
+        if (options.update) {
+          writeManifest(rootDir, originalManifestSource)
+          throw error
+        }
+        externalStatus = `unavailable (${error.message})`
+        console.warn(`install-skills: warning: ${error.message}`)
+        console.warn('  Local skills will still be installed. Retry with `yarn install-skills` when online.')
+      }
     }
+  } finally {
+    if (refreshDownload) cleanupDownloadedSource(realInstallerRoot(refreshDownload.tempRoot))
   }
   installLocalLinks(rootDir, localSkills, platform)
   const externalInstalled = installedExternalSkills(rootDir, external)
@@ -905,6 +1008,7 @@ export async function runInstaller({
   }
   console.log(`Installed ${localSkills.length} local skills across ${tiers.length} tier(s): ${tiers.join(', ')}.`)
   console.log(`External skills: ${externalStatus}.`)
+  if (options.update) console.log(`Pinned current shared skills at ${external.ref}.`)
   const links = linkAgents.filter((agent) => !ignoredAgents.includes(agent))
   console.log(`Layout: .agents/skills/ (canonical); per-agent links: ${links.join(', ') || 'none'}.`)
   if (options.mode === 'default') console.log('Tip: inspect opt-in tiers with `yarn install-skills --list`.')

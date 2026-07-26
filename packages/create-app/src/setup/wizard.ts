@@ -180,7 +180,7 @@ function installSkills(targetDir: string): void {
   if (!existsSync(installScript)) return
   console.log('')
   console.log('   Installing agent skills (local tiers + external open-mercato/skills subset)...')
-  const result = spawnSync(process.execPath, [installScript], { cwd: targetDir, stdio: 'inherit' })
+  const result = spawnSync(process.execPath, [installScript, '--update'], { cwd: targetDir, stdio: 'inherit' })
   if (result.error || result.status !== 0) {
     console.log('   ⚠ Skill installation did not complete; run `yarn install-skills` inside the app when online.')
   }
@@ -213,7 +213,9 @@ function printSummary(selectedIds: string[]): void {
     console.log('      The external open-mercato/skills subset installs automatically')
     console.log('      (including chain steps like om-prepare-test-env and the autofix')
     console.log('      chain om-verify-in-repo → om-root-cause → om-fix → om-open-pr);')
-    console.log('      re-run anytime with `yarn install-skills`. The local override')
+    console.log('      setup pins the current shared commit; refresh later with')
+    console.log('      `yarn install-skills --update` or reinstall the pin with')
+    console.log('      `yarn install-skills`. The local override')
     console.log('      SKILL.md files adjust them for your app (base-branch discovery,')
     console.log('      opt-in pipeline labels, script probing).')
   }
