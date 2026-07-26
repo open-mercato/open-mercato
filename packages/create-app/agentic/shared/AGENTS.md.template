@@ -13,11 +13,11 @@ Extend this app. Route first; never probe unmatched context.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
 - Run `yarn generate` after discovery files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows change.
 - Adding, changing, removing, or being told to preserve a public route/schema/ID/export/seam/signature/event-payload/CLI MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; preserving tenant or organization scope is not a contract surface.
-- Localize strings; use shared UI/tokens and complete loading, empty, error, conflict, keyboard, and accessibility states.
+- Localize strings; use shared UI/tokens and complete loading, empty, error, conflict, keyboard, and a11y states.
 
 ## Ask First
 
-- Ask before scope/architecture/public-contract/dependency/ejection/canonical-primitive changes; migrations/resets/DB targets; live credentials/providers; or weaker security, concurrency, retries, idempotency, audit, or undo.
+- Ask before scope/architecture/public-contract/dependency/ejection/canonical-primitive changes; migrations/resets/DB targets; live credentials/providers; or weaker security, concurrency, retries, idempotency, audit, undo.
 
 ## Never
 
@@ -42,11 +42,11 @@ Report failures; never migrate to validate
 
 Routes are additive, never exclusive: ownership says WHOSE code changes, the rest say WHAT changes. Select every match, then stop.
 
-Combine matches: lifecycle reaction = `module-data` + `umes`; convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. Add `framework-context` only for an unresolved contract.
+Combine matches: lifecycle reaction = `module-data` + `umes`; convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. `framework-context` only for an unresolved contract.
 
-`testing` is not the implicit gate after implementation. `debugging` = failure/security/drift. Specs/delivery = `spec-pr` + integration coverage; spec-only decomposition reads root + `om-spec-writing` + config, implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; an editable or save/reload/clear round-trip surface adds `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
+`testing` is not the implicit gate after implementation. `debugging` = failure/security/drift. Specs/delivery = `spec-pr` + integration coverage; spec-only work reads root + `om-spec-writing` + config, implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; an editable or save/reload/clear round-trip surface adds `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
-Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. App-owned durable process/activity/user task = `module-data` + `ai-workflow`.
+Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`.
 
 Authoring, restyling, or gating a rendered surface the app owns or injected adds `backend-ui`; hiding, toggling, or rewiring an installed one does not. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
 
@@ -67,6 +67,8 @@ Authoring, restyling, or gating a rendered surface the app owns or injected adds
 Location never decides the route: app code changing an installed module's records, commands, events, or pages is `module-data` + `umes`; reading its facts is not. Reusable providers are published dependencies, never `packages/*`.
 
 ### Axis 2 — Work Units
+
+Match every work-unit row, and OPEN each matched row's skill before selecting it.
 
 | Route | Work unit | Skill/context |
 |---|---|---|
@@ -123,9 +125,8 @@ Load the fact for every module the task names or targets, not one it merely uses
 
 1. For `spec-pr`, list `.ai/specs` one level deep and open one non-template match. Do not list specs for plan-only work.
 2. Route the request and load only the matched guides/skills and relevant module facts.
-3. Inspect current app call sites; invoke `om-framework-context` only for missing exact-version details.
-4. Implement the smallest complete vertical slice through real call sites.
-5. Run `yarn generate` when discovery changed, then the smallest validation gate and affected integration paths.
+3. Implement the smallest complete vertical slice through real call sites.
+4. Run `yarn generate` when discovery changed, then the smallest validation gate and affected integration paths.
 
 ## Context Precedence
 
