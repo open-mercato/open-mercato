@@ -552,7 +552,7 @@ for (const file of ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/testi
   }
 })
 
-test('live Claude adapter uses safe plan mode, a read-only tool list, structured output, and no persistence', { skip: !targetSandboxAvailable }, () => {
+test('live Claude adapter exposes only the discovery tool, allowlists the harness tools, and keeps structured output without persistence', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin)
@@ -561,7 +561,7 @@ test('live Claude adapter uses safe plan mode, a read-only tool list, structured
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
 const mcp = JSON.parse(args[args.indexOf('--mcp-config') + 1]).mcpServers.harness
-if (!args.includes('--safe-mode') || !args.includes('--disable-slash-commands') || args[args.indexOf('--setting-sources') + 1] !== '' || !args.includes('--strict-mcp-config') || mcp.command !== '/usr/bin/env' || mcp.args[0] !== '-i' || !mcp.args.some((entry) => entry.endsWith('agent-harness-tool-server.mjs')) || args[args.indexOf('--permission-mode') + 1] !== 'plan' || args[args.indexOf('--tools') + 1] !== 'mcp__harness__read' || !args.includes('--no-session-persistence') || args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--verbose') || !args.includes('--json-schema')) process.exit(9)
+if (args.includes('--safe-mode') || !args.includes('--disable-slash-commands') || args[args.indexOf('--setting-sources') + 1] !== '' || !args.includes('--strict-mcp-config') || mcp.command !== '/usr/bin/env' || mcp.args[0] !== '-i' || !mcp.args.some((entry) => entry.endsWith('agent-harness-tool-server.mjs')) || args[args.indexOf('--permission-mode') + 1] !== 'dontAsk' || args[args.indexOf('--tools') + 1] !== 'ToolSearch' || args[args.indexOf('--allowed-tools') + 1] !== 'mcp__harness__read' || !args.includes('--no-session-persistence') || args[args.indexOf('--output-format') + 1] !== 'stream-json' || !args.includes('--verbose') || !args.includes('--json-schema')) process.exit(9)
 const allowedReads = JSON.parse(mcp.args.at(-2))
 for (const required of ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md', '.ai/skills/om-data-model-design/references/**', '.ai/skills/om-framework-context/references/**']) if (!allowedReads.includes(required)) process.exit(9)
 if (JSON.parse(mcp.args.at(-1)).length !== 0) process.exit(9)
@@ -584,6 +584,67 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
     })
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
     assert.match(result.stdout, /PASS OMH-009/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// Regression guard for the defect that made the whole Claude lane unusable: `--tools`
+// selects from the BUILT-IN set only, so naming an `mcp__…` tool there yielded zero tools
+// and removed the deferred-discovery tool that makes the harness MCP tools callable at all.
+// A fake runner that merely echoes the flags cannot catch that, so this test asserts the
+// specific properties the real CLI contract depends on.
+test('live Claude adapter keeps the harness MCP tools reachable through built-in deferred discovery', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'claude', `
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+const builtinTools = args[args.indexOf('--tools') + 1].split(',').filter(Boolean)
+const allowedTools = args[args.indexOf('--allowed-tools') + 1].split(',').filter(Boolean)
+// The built-in surface must be exactly one discovery tool: never an mcp__ name (which
+// --tools cannot express), never empty (which also disables discovery), and never a
+// filesystem, shell, process, or network capability.
+if (builtinTools.length !== 1) process.exit(9)
+if (builtinTools.some((tool) => tool.startsWith('mcp__'))) process.exit(9)
+if (builtinTools.some((tool) => /^(?:Bash|Read|Write|Edit|Glob|Grep|Task|WebFetch|WebSearch|NotebookEdit)$/.test(tool))) process.exit(9)
+// The harness tools are reachable only as permission-allowlisted MCP tools.
+if (!allowedTools.includes('mcp__harness__read')) process.exit(9)
+if (allowedTools.some((tool) => !tool.startsWith('mcp__harness__'))) process.exit(9)
+// --safe-mode would drop every --mcp-config server, and plan mode returns a plan
+// instead of performing the reads the trace gate requires.
+if (args.includes('--safe-mode')) process.exit(9)
+if (args[args.indexOf('--permission-mode') + 1] === 'plan') process.exit(9)
+console.log(JSON.stringify({ type: 'system', subtype: 'init', tools: builtinTools, mcp_servers: [{ name: 'harness', status: 'pending' }] }))
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', name: builtinTools[0], input: { query: 'harness read file' } }
+] } }))
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', name: 'mcp__harness__read', input: { path: 'AGENTS.md' } },
+  { type: 'tool_use', name: 'mcp__harness__read', input: { path: '.ai/guides/contracts.md' } },
+  { type: 'tool_use', name: 'mcp__harness__read', input: { path: '.ai/skills/om-data-model-design/SKILL.md' } }
+] } }))
+console.log(JSON.stringify({ type: 'result', structured_output: {
+  selectedRouter: ['module-data'], selectedSkills: ['om-data-model-design'],
+  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+  decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
+}}))
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-009'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    assert.match(result.stdout, /PASS OMH-009/)
+    // The discovery call itself must stay trace-neutral: it is not a context read and
+    // must not register as observed context or as a discovery violation.
+    const [stored] = storedResults(root)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.actualContext.paths, [
+      '.ai/guides/contracts.md',
+      '.ai/skills/om-data-model-design/SKILL.md',
+      'AGENTS.md',
+    ])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -627,7 +688,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
-if (!args.includes('--safe-mode')) process.exit(9)
+if (args.includes('--safe-mode') || args[args.indexOf('--tools') + 1] !== 'ToolSearch') process.exit(9)
 const prompt = fs.readFileSync(0, 'utf8')
 if (!prompt.includes('retry attempt 2 after a transient provider failure')) {
   console.log(JSON.stringify({ type: 'system', subtype: 'init', plugins: Array.from({ length: 800 }, (_, index) => 'plugin-' + index) }))

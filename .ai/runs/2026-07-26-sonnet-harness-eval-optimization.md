@@ -72,8 +72,21 @@ Sibling follow-up: #4528 (`feat/kimi-cli-runner-harness-evals`) adds a third run
 
 ### Phase 1: Reproducible measurement controller
 
-- [ ] 1.1 Build the harness controller app and prove the deterministic gate
+- [x] 1.1 Build the harness controller app and prove the deterministic gate — 184/184 deterministic on a Linux controller scaffolded from this branch
 - [ ] 1.2 Add the sanitized full-matrix sweep driver and failure classifier
+- [x] 1.3 Fix the Claude runner adapter tool-exposure defect
+
+#### 1.3 finding (root cause of the whole Claude lane failing)
+
+The Claude lane could never pass a single case, for adapter reasons rather than model capability. Measured against the real CLI (2.1.220):
+
+- `--tools` selects only from the **built-in** tool set, so passing `mcp__harness__read` there resolved to **zero** tools. That also removed the built-in deferred-discovery tool, which is the only way an MCP tool becomes callable in this CLI — the model reported "No read tool is exposed in this session's function list".
+- `--safe-mode` disables every customization **including `--mcp-config` servers**; the init event reported `mcp: []` with it and `mcp: [{name:"harness"}]` without it.
+- `--permission-mode plan` returns a plan instead of performing the reads the trace gate requires.
+
+The MCP tool server itself was proven conformant (correct `initialize`, `notifications/initialized`, and `tools/list` exchange over stdio). Fixed by exposing exactly one built-in discovery tool, permission-allowlisting the harness MCP tools, and using a non-plan mode. Isolation is preserved by `--setting-sources ''`, verified by probe: skills NONE, hooks no, project instruction files not auto-injected — so the traced MCP read stays the only route to app content. `OMH-001` went from fail to pass immediately.
+
+The existing tests could not catch this: the fake `claude` binary asserted exactly the flags the code passed, so the contract was self-confirming. Replaced with property assertions about the real contract.
 
 ### Phase 2: Baseline measurement
 

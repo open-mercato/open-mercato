@@ -101,6 +101,10 @@ const IN_MEMORY_SECRET_VALUES = new Set([...SENSITIVE_RUNNER_ENV_KEYS]
 )
 const HARD_FORBIDDEN_READ_PATTERNS = ['.env*', '.git', '.git/**', '.ai/harness', '.ai/harness/**']
 const TOOL_SERVER_PATH = fileURLToPath(new URL('./agent-harness-tool-server.mjs', import.meta.url))
+// The only built-in Claude Code tool the harness exposes. It carries no filesystem, shell,
+// process, or network capability of its own; it exists solely so the deferred harness MCP
+// tools become callable. Keep this list at exactly one entry.
+const CLAUDE_DISCOVERY_TOOL = 'ToolSearch'
 
 function usage() {
   return `Open Mercato standalone agent harness evaluator
@@ -1481,16 +1485,27 @@ function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, wr
   }
   const schema = JSON.stringify(readJson(schemaPath))
   const mcpConfig = JSON.stringify({ mcpServers: { harness: mcp } })
-  const tools = writable ? 'mcp__harness__read,mcp__harness__write' : 'mcp__harness__read'
+  const harnessTools = writable ? 'mcp__harness__read,mcp__harness__write' : 'mcp__harness__read'
+  // Claude Code exposes MCP tools through deferred discovery: they are absent from the
+  // initial tool list and are only callable after the built-in discovery tool loads their
+  // schema. `--tools` selects from the BUILT-IN set only, so naming an `mcp__…` tool there
+  // resolves to zero tools and leaves the model with no way to reach the harness server.
+  // `--safe-mode` additionally disables every customization including `--mcp-config`
+  // servers, and `--permission-mode plan` returns a plan instead of executing reads.
+  // The built-in surface therefore stays limited to the discovery tool, the harness tools
+  // are permission-allowlisted, and isolation comes from `--setting-sources ''` (no user,
+  // project, or local settings, hooks, skills, or project instruction files),
+  // `--strict-mcp-config`, `--disable-slash-commands`, the isolated configuration
+  // directory, and the mandatory outer OS sandbox.
   const args = [
     '-p',
-    '--safe-mode',
     '--disable-slash-commands',
     '--setting-sources', '',
     '--strict-mcp-config',
     '--mcp-config', mcpConfig,
-    '--permission-mode', writable ? 'acceptEdits' : 'plan',
-    '--tools', tools,
+    '--permission-mode', writable ? 'acceptEdits' : 'dontAsk',
+    '--tools', CLAUDE_DISCOVERY_TOOL,
+    '--allowed-tools', harnessTools,
     '--no-session-persistence',
     '--output-format', 'stream-json',
     '--verbose',
