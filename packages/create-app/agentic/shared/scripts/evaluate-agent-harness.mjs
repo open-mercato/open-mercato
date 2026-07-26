@@ -1044,7 +1044,10 @@ function collectRefusedToolCallIds(value, refused) {
   }
   if (!isPlainObject(value)) return
   const isError = value.isError === true || value.is_error === true
-  const identifier = value.tool_use_id ?? value.toolUseId ?? value.call_id ?? value.id
+  // Only an entry that explicitly REFERENCES a tool call may mark it refused. A bare `id`
+  // is not accepted: an unrelated error event carrying one would otherwise suppress a
+  // genuine successful-out-of-allowlist read, which must always fail closed.
+  const identifier = value.tool_use_id ?? value.toolUseId ?? value.call_id ?? value.callId
   if (isError && typeof identifier === 'string' && identifier) refused.add(identifier)
   for (const child of Object.values(value)) collectRefusedToolCallIds(child, refused)
 }
