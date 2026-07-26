@@ -690,6 +690,19 @@ function collectFacts(ts, sourceFiles) {
       if (ts.isCallExpression(node)) {
         const name = expressionName(ts, node.expression)
         const fullName = fullExpressionName(ts, node.expression)
+        if (fullName === 'enabledModules.push') {
+          for (const argument of node.arguments) {
+            if (!ts.isObjectLiteralExpression(argument)) continue
+            const entry = {}
+            for (const property of argument.properties) {
+              if (!ts.isPropertyAssignment(property)) continue
+              const propertyKey = propertyName(ts, property.name)
+              if (!propertyKey || !ts.isStringLiteralLike(property.initializer)) continue
+              entry[propertyKey] = property.initializer.text
+            }
+            facts.moduleEntries.push(entry)
+          }
+        }
         const forbiddenModifier = forbiddenTestModifier(ts, node.expression)
         if (forbiddenModifier) facts.forbiddenTestModifiers.add(forbiddenModifier)
         const callPath = expressionPath(ts, node.expression)

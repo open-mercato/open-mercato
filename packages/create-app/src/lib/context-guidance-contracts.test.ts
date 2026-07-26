@@ -75,6 +75,9 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(integrity, /do not use `as const` for mutable `cacheAliases`/)
   assert.match(integrity, /commands\/helpers/)
   assert.match(integrity, /second argument is an array/)
+  assert.match(integrity, /phase callback must return `void`/)
+  assert.match(integrity, /\(\) => \{ em\.persist\(record\) \}/)
+  assert.match(integrity, /created_at.*updated_at/)
   assert.match(integrity, /after commit/)
 })
 
@@ -95,6 +98,9 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(moduleSurfaces, /text: string\[\]/)
   assert.match(moduleSurfaces, /exact `entityId` key/)
   assert.match(moduleSurfaces, /ctx\.record\.id/)
+  assert.match(moduleSurfaces, /SearchResultPresenter.*`title`\/`subtitle`\/`icon`\/`badge`/)
+  assert.match(moduleSurfaces, /has no `metadata`/)
+  assert.match(moduleSurfaces, /enabledModules\.push/)
   assert.match(moduleSurfaces, /<module>\.<resources>\.view/)
   assert.match(moduleSurfaces, /setup: ModuleSetupConfig/)
   assert.match(moduleSurfaces, /@open-mercato\/shared\/modules\/events/)
@@ -120,6 +126,8 @@ test('progressive module references pin search, i18n, and intentional extension 
   for (const expected of ['@open-mercato/ui/backend/DataTable', '@open-mercato/ui/backend/RowActions', '@open-mercato/ui/backend/CrudForm', '@open-mercato/shared/lib/i18n/context', '@open-mercato/ui/backend/utils/apiCall', 'readApiResultOrThrow', 'searchValue', 'onSearchChange', '`/create`', 'RowActions', 'collectCustomFieldValues', 'mapCrudServerErrorToFormErrors', 'injectionSpotId', 'return `void`', 'no `requiredFeatures` field', 'LoadingMessage', 'ErrorMessage', 'has no `apiPath` prop', 'neither `name` nor `clearable`']) {
     assert.ok(crudSurfaces.includes(expected), `missing canonical CRUD surface contract ${expected}`)
   }
+  assert.match(crudSurfaces, /DataTable loading prop is `isLoading`/)
+  assert.match(crudSurfaces, /CrudForm has no `mapServerError` prop/)
 
   const pageAndNavigation = readAgentic(
     'shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md',
@@ -127,6 +135,7 @@ test('progressive module references pin search, i18n, and intentional extension 
   for (const expected of ['pageTitleKey', 'pageGroupKey', 'pagePriority', 'pageOrder', 'breadcrumb']) {
     assert.ok(pageAndNavigation.includes(expected), `missing generated navigation metadata ${expected}`)
   }
+  assert.match(pageAndNavigation, /const \{ t \} = await resolveTranslations\(\)/)
 
   const verification = readAgentic(
     'shared/ai/skills/om-module-scaffold/references/verification.md',

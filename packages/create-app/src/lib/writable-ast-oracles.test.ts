@@ -41,8 +41,8 @@ function stageTarget(relativeFile: string, source: string): string {
   return root
 }
 
-function runOracle(root: string, phase: 'before' | 'after', env: NodeJS.ProcessEnv = process.env) {
-  const result = spawnSync(process.execPath, [oracle, '--root', root, '--case', 'OMH-011', '--phase', phase, '--json'], {
+function runOracle(root: string, phase: 'before' | 'after', env: NodeJS.ProcessEnv = process.env, caseId = 'OMH-011') {
+  const result = spawnSync(process.execPath, [oracle, '--root', root, '--case', caseId, '--phase', phase, '--json'], {
     cwd: root,
     env,
     encoding: 'utf8',
@@ -96,6 +96,19 @@ test('the complete module oracle enforces connected customers-level CRUD', () =>
   ]) assert.ok(source.includes(contract), `missing complete-module oracle contract ${contract}`)
   assert.match(source, /value\.endsWith\('\.edit'\)/)
   assert.match(source, /value\.endsWith\('\.delete'\)/)
+})
+
+test('the complete module oracle accepts canonical enabledModules.push activation', () => {
+  const root = stageTarget('src/modules.ts', `
+export const enabledModules = [{ id: 'example', from: '@app' }]
+enabledModules.push({ id: 'library', from: '@app' })
+`)
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.activation')?.passed, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('imports and comments cannot satisfy a concrete call/options oracle', () => {
