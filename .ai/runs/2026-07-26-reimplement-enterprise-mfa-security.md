@@ -38,6 +38,8 @@ MFA enforcement and authorization failures can lock users out. Regression tests 
 
 ## Progress
 
+PR: #4530
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: MFA enforcement resilience
@@ -53,4 +55,4 @@ MFA enforcement and authorization failures can lock users out. Regression tests 
 ### Phase 3: Verification and delivery
 
 - [x] 3.1 Run targeted and full validation, then address review findings — da1575c2b
-- [ ] 3.2 Publish the replacement PR and close the original contribution PRs as superseded
+- [x] 3.2 Publish the replacement PR and close the original contribution PRs as superseded — da6e44a4e
