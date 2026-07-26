@@ -6469,7 +6469,8 @@
       "allowedExtra": [
         "architecture",
         "framework-context",
-        "testing"
+        "testing",
+        "debugging"
       ]
     },
     "requiredSkills": [
@@ -6490,6 +6491,9 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/guides/modules/customers.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/testing-debugging.md"
       ],
       "forbidden": [
         ".env*",
@@ -7529,7 +7533,8 @@
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
-        ".ai/guides/modules/customers.md"
+        ".ai/guides/modules/customers.md",
+        ".ai/guides/modules/data_sync.md"
       ],
       "allowedExtra": [
         ".ai/guides/contracts.md",
@@ -8117,7 +8122,8 @@
       "allowedExtra": [
         "architecture",
         "framework-context",
-        "backend-ui"
+        "backend-ui",
+        "debugging"
       ]
     },
     "requiredSkills": [
@@ -9738,7 +9744,8 @@
       ],
       "allowedExtra": [
         "architecture",
-        "framework-context"
+        "framework-context",
+        "debugging"
       ]
     },
     "requiredSkills": [
@@ -10251,6 +10258,8 @@
         ".ai/guides/testing-debugging.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-troubleshooter/SKILL.md",
+        ".ai/guides/modules/auth.md",
+        ".ai/guides/modules/portal.md",
         ".ai/guides/modules/customer_accounts.md",
         ".ai/guides/modules/sales.md"
       ],
