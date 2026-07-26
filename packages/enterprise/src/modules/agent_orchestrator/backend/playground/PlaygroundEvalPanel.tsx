@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Check, ClipboardCheck, FlaskConical, MinusCircle, Plus, X } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, ClipboardCheck, FlaskConical, MinusCircle, Plus, X, XCircle } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
@@ -68,8 +68,12 @@ export function PlaygroundEvalPanel({ runId, agentId }: { runId: string; agentId
     return !counterpart || counterpart.passed === null
   })
   const applied = online.filter((row) => row.passed !== null)
-  const onlinePass = applied.filter((row) => row.passed === true).length
   const matched = detail?.goldenCase ?? null
+  // Overall run verdict: a failed gate fails the run; a failed warn downgrades a
+  // pass to "pass with warnings"; no applicable assertions → not evaluated.
+  const gateFailed = applied.some((row) => row.severity === 'gate' && row.passed === false)
+  const warnFailed = applied.some((row) => row.severity === 'warn' && row.passed === false)
+  const verdict: RunVerdict = applied.length === 0 ? 'none' : gateFailed ? 'failed' : warnFailed ? 'warnings' : 'passed'
 
   const saveGolden = React.useCallback(async () => {
     setSavingGolden(true)
@@ -98,15 +102,15 @@ export function PlaygroundEvalPanel({ runId, agentId }: { runId: string; agentId
           <span className="text-sm font-semibold text-foreground">{t('agent_orchestrator.playground.eval.title', 'Evaluation')}</span>
         </div>
         {state === 'ready' ? (
-          matched ? (
-            <StatusBadge variant={goldenVariant(detail?.run.goldenPassed ?? null)} dot>
-              {t('agent_orchestrator.playground.eval.goldenBadge', 'Golden matched')}
-            </StatusBadge>
-          ) : applied.length > 0 ? (
-            <StatusBadge variant={onlinePass === applied.length ? 'success' : 'error'} dot>
-              {t('agent_orchestrator.playground.eval.passBadge', '{pass}/{total} passed', { pass: onlinePass, total: applied.length })}
-            </StatusBadge>
-          ) : null
+          <div className="flex items-center gap-2">
+            {matched ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-status-info-border bg-status-info-bg px-2 py-0.5 text-xs font-medium text-status-info-text">
+                <FlaskConical className="size-3" />
+                {t('agent_orchestrator.playground.eval.goldenBadge', 'Golden matched')}
+              </span>
+            ) : null}
+            <VerdictBadge verdict={verdict} t={t} />
+          </div>
         ) : null}
       </div>
 
@@ -122,7 +126,7 @@ export function PlaygroundEvalPanel({ runId, agentId }: { runId: string; agentId
               {online.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{t('agent_orchestrator.playground.eval.noAssertions', 'No assertions apply to this agent yet.')}</p>
               ) : (
-                <VerdictList rows={online} t={t} />
+                <AssertionTable rows={online} t={t} />
               )}
             </section>
 
@@ -135,7 +139,7 @@ export function PlaygroundEvalPanel({ runId, agentId }: { runId: string; agentId
                     <span className="ml-1 font-mono text-xs text-muted-foreground">{matched.id.slice(0, 8)}</span>
                   </div>
                 </div>
-                {goldenExtra.length > 0 ? <VerdictList rows={goldenExtra} t={t} /> : null}
+                {goldenExtra.length > 0 ? <AssertionTable rows={goldenExtra} t={t} /> : null}
                 <SectionHeader title={t('agent_orchestrator.playground.eval.diff', 'Actual vs expected')} />
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   <div>
@@ -168,21 +172,56 @@ export function PlaygroundEvalPanel({ runId, agentId }: { runId: string; agentId
   )
 }
 
-function VerdictList({ rows, t }: { rows: EvalResultView[]; t: ReturnType<typeof useT> }) {
+type RunVerdict = 'passed' | 'warnings' | 'failed' | 'none'
+
+function VerdictBadge({ verdict, t }: { verdict: RunVerdict; t: ReturnType<typeof useT> }) {
+  const meta = {
+    passed: { variant: 'success' as const, Icon: CheckCircle2, key: 'agent_orchestrator.playground.eval.verdict.passed', fallback: 'Passed' },
+    warnings: { variant: 'warning' as const, Icon: AlertTriangle, key: 'agent_orchestrator.playground.eval.verdict.warnings', fallback: 'Pass with warnings' },
+    failed: { variant: 'error' as const, Icon: XCircle, key: 'agent_orchestrator.playground.eval.verdict.failed', fallback: 'Failed' },
+    none: { variant: 'neutral' as const, Icon: MinusCircle, key: 'agent_orchestrator.playground.eval.verdict.none', fallback: 'Not evaluated' },
+  }[verdict]
   return (
-    <ul className="divide-y divide-border rounded-lg border border-border">
-      {rows.map((row) => {
-        const meta = verdictMeta(row.passed)
-        return (
-          <li key={row.id} className="flex items-center gap-2.5 px-3 py-2">
-            <meta.Icon className={`size-4 shrink-0 ${meta.className}`} />
-            <span className="shrink-0 font-mono text-xs text-foreground">{row.assertionKey}</span>
-            <span className="shrink-0 text-xs text-muted-foreground">{t(`agent_orchestrator.playground.eval.severity.${row.severity}`, row.severity)}</span>
-            <EvidenceSummary row={row} labelFallback={meta.labelFallback} labelKey={meta.labelKey} t={t} />
-          </li>
-        )
-      })}
-    </ul>
+    <StatusBadge variant={meta.variant}>
+      <meta.Icon className="size-3.5" />
+      {t(meta.key, meta.fallback)}
+    </StatusBadge>
+  )
+}
+
+function AssertionTable({ rows, t }: { rows: EvalResultView[]; t: ReturnType<typeof useT> }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-border">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
+            <th className="w-9 px-3 py-2" aria-hidden="true" />
+            <th className="px-3 py-2 font-medium">{t('agent_orchestrator.playground.eval.col.assertion', 'Assertion')}</th>
+            <th className="px-3 py-2 font-medium">{t('agent_orchestrator.playground.eval.col.severity', 'Severity')}</th>
+            <th className="px-3 py-2 font-medium">{t('agent_orchestrator.playground.eval.col.actual', 'Actual')}</th>
+            <th className="px-3 py-2 font-medium">{t('agent_orchestrator.playground.eval.col.expected', 'Expected')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const meta = verdictMeta(row.passed)
+            const { actual, expected } = evidenceActualExpected(row.evidence)
+            const actualText = row.passed === null
+              ? t('agent_orchestrator.playground.eval.skipped', 'skipped')
+              : actual ?? t(meta.labelKey, meta.labelFallback)
+            return (
+              <tr key={row.id} className="border-b border-border last:border-0">
+                <td className="px-3 py-2"><meta.Icon className={`size-4 ${meta.className}`} /></td>
+                <td className="whitespace-nowrap px-3 py-2 font-mono text-foreground">{row.assertionKey}</td>
+                <td className="px-3 py-2 text-muted-foreground">{t(`agent_orchestrator.playground.eval.severity.${row.severity}`, row.severity)}</td>
+                <td className="max-w-[280px] truncate px-3 py-2 font-mono text-foreground" title={actual ?? undefined}>{actualText}</td>
+                <td className="whitespace-nowrap px-3 py-2 font-mono text-muted-foreground">{expected ?? '—'}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -222,31 +261,6 @@ function evidenceActualExpected(evidence: unknown): { actual: string | null; exp
   return { actual: null, expected: null }
 }
 
-function EvidenceSummary({ row, labelKey, labelFallback, t }: {
-  row: EvalResultView
-  labelKey: string
-  labelFallback: string
-  t: ReturnType<typeof useT>
-}) {
-  if (row.passed === null) {
-    return <span className="ml-auto shrink-0 text-xs text-muted-foreground">{t('agent_orchestrator.playground.eval.skipped', 'skipped')}</span>
-  }
-  const { actual, expected } = evidenceActualExpected(row.evidence)
-  if (actual === null) {
-    return <span className="ml-auto shrink-0 text-xs text-muted-foreground">{t(labelKey, labelFallback)}</span>
-  }
-  return (
-    <span className="ml-auto flex min-w-0 items-center gap-2 text-xs">
-      <span className="min-w-0 max-w-[240px] truncate font-mono text-foreground" title={actual}>{actual}</span>
-      {expected ? (
-        <span className="shrink-0 whitespace-nowrap text-muted-foreground">
-          {t('agent_orchestrator.playground.eval.expectedShort', 'expected')} <span className="font-mono text-foreground/70">{expected}</span>
-        </span>
-      ) : null}
-    </span>
-  )
-}
-
 function verdictMeta(passed: boolean | null): {
   Icon: React.ComponentType<{ className?: string }>
   className: string
@@ -256,12 +270,6 @@ function verdictMeta(passed: boolean | null): {
   if (passed === null) return { Icon: MinusCircle, className: 'text-muted-foreground', labelKey: 'agent_orchestrator.playground.eval.skipped', labelFallback: 'skipped' }
   if (passed) return { Icon: Check, className: 'text-status-success-icon', labelKey: 'agent_orchestrator.playground.eval.pass', labelFallback: 'pass' }
   return { Icon: X, className: 'text-status-error-icon', labelKey: 'agent_orchestrator.playground.eval.fail', labelFallback: 'fail' }
-}
-
-function goldenVariant(passed: boolean | null): 'success' | 'error' | 'info' {
-  if (passed === true) return 'success'
-  if (passed === false) return 'error'
-  return 'info'
 }
 
 function goldenIcon(passed: boolean | null) {
