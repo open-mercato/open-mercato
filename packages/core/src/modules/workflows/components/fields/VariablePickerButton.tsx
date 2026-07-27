@@ -20,9 +20,13 @@ import { insertAtElementCursor } from '../../lib/insert-at-cursor'
  * listing the context available at the edited step — the step's incoming
  * ledger entries grouped by producer kind, each with its type badge, a
  * `maybe` marker for path-dependent presence, and a sample snippet when one
- * is known. Clicking a row splices `{{path}}` into the target control at the
- * cursor position (via the target element's id — works for Input and
- * Textarea alike) and closes the popover.
+ * is known. Clicking a row splices the picked path into the target control at
+ * the cursor position (via the target element's id — works for Input and
+ * Textarea alike) and closes the popover. `insertMode` controls the spliced
+ * text: `'template'` (default) wraps the path as `{{path}}` for interpolated
+ * config values; `'bare'` inserts the dot path as-is for consumers that treat
+ * the whole value as a context path (sub-workflow `inputMapping` values read
+ * by `mapInputData` via `getNestedValue`, no `{{}}` interpolation).
  *
  * The button renders even when no ledger entries are available so the
  * feature stays discoverable; the popover then shows an empty state. The
@@ -81,15 +85,25 @@ function groupEntries(entries: LedgerEntry[]): Array<{ kind: LedgerSourceKind; e
   return groups
 }
 
+export type VariablePickerInsertMode = 'template' | 'bare'
+
 export interface VariablePickerButtonProps {
   targetId: string
   value: string
   onValueChange: (nextValue: string) => void
   ledgerEntries?: LedgerEntry[]
+  insertMode?: VariablePickerInsertMode
   disabled?: boolean
 }
 
-export function VariablePickerButton({ targetId, value, onValueChange, ledgerEntries, disabled }: VariablePickerButtonProps) {
+export function VariablePickerButton({
+  targetId,
+  value,
+  onValueChange,
+  ledgerEntries,
+  insertMode = 'template',
+  disabled,
+}: VariablePickerButtonProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
   const [search, setSearch] = React.useState('')
@@ -113,7 +127,8 @@ export function VariablePickerButton({ targetId, value, onValueChange, ledgerEnt
     const element = document.getElementById(targetId)
     const target =
       element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element : null
-    const result = insertAtElementCursor(target, value, `{{${path}}}`)
+    const insertion = insertMode === 'bare' ? path : `{{${path}}}`
+    const result = insertAtElementCursor(target, value, insertion)
     onValueChange(result.value)
     handleOpenChange(false)
     if (target) {

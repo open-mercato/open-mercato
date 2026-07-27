@@ -18,7 +18,7 @@
 | 2 | 2.3 | Context-schema API route | done | d9caa2097 |
 | 3 | 3.1 | Expression-reference extraction and ledger-checked warnings in Problems | done | fec8ada45 |
 | 3 | 3.2 | Variable picker button in activity config fields | done | 4c7b95d84 |
-| 3 | 3.3 | Picker in mapping rows and trigger expressions | todo | — |
+| 3 | 3.3 | Picker in mapping rows and trigger expressions | done | bbecead0c |
 | 4 | 4.1 | Pinned samples storage with size cap and precedence resolver | todo | — |
 | 4 | 4.2 | Registry mock widening and would-do mocks for effectors | todo | — |
 | 4 | 4.3 | Test-step API route with mock-first semantics and new ACL feature | todo | — |

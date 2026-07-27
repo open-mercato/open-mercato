@@ -13,7 +13,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { VariablePickerButton } from '../fields/VariablePickerButton'
+import { VariablePickerButton, type VariablePickerInsertMode } from '../fields/VariablePickerButton'
 import type { LedgerEntry } from '../../lib/context-ledger'
 
 const BUTTON_LABEL_KEY = 'workflows.variablePicker.buttonLabel'
@@ -74,10 +74,12 @@ function InputHarness({
   entries,
   onValueChange,
   initialValue = 'hello world',
+  insertMode,
 }: {
   entries?: LedgerEntry[]
   onValueChange: (nextValue: string) => void
   initialValue?: string
+  insertMode?: VariablePickerInsertMode
 }) {
   const [value, setValue] = React.useState(initialValue)
   const handleChange = (nextValue: string) => {
@@ -98,6 +100,7 @@ function InputHarness({
         value={value}
         onValueChange={handleChange}
         ledgerEntries={entries}
+        insertMode={insertMode}
       />
     </div>
   )
@@ -215,6 +218,26 @@ describe('VariablePickerButton', () => {
     await waitFor(() => {
       expect(screen.queryByText(GROUP_CONTEXT_SCHEMA_KEY)).not.toBeInTheDocument()
     })
+  })
+
+  it('inserts the bare dot path at the cursor when insertMode is bare', async () => {
+    const onValueChange = jest.fn()
+    renderWithProviders(
+      <InputHarness
+        entries={sampleEntries}
+        onValueChange={onValueChange}
+        initialValue=""
+        insertMode="bare"
+      />,
+    )
+
+    openPicker()
+    await waitFor(() => {
+      expect(screen.getByText('dealId')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('dealId'))
+
+    expect(onValueChange).toHaveBeenCalledWith('dealId')
   })
 
   it('inserts {{path}} at the cursor position of a Textarea', async () => {

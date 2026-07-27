@@ -423,6 +423,8 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           value={props.value as any}
           label={t('workflows.nodeEditor.inputMappings')}
           description={t('workflows.form.descriptions.inputMapping')}
+          variablePicker
+          ledgerEntries={ledgerEntries}
         />
       ),
     },
