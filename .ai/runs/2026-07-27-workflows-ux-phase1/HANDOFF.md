@@ -1,16 +1,16 @@
 # Handoff — 2026-07-27-workflows-ux-phase1
 
-**Last updated:** 2026-07-27T10:40:00Z
+**Last updated:** 2026-07-27T13:10:00Z
 **Branch:** feat/workflows-ux-phase1 (stacked on feat/workflows-ux-phase0, PR #4532)
 **PR:** not yet opened
-**Current phase/step:** Phase 2 Step 2.1
-**Last commit:** a669adaad — refactor(workflows): registry-driven async dispatch with enqueue-time capability checks
+**Current phase/step:** Phase 4 Step 4.4
+**Last commit:** fd323ee66 — feat(workflows): event picker for EMIT_EVENT config
 
 ## What just happened
-- Checkpoint 1 passed (737 workflows tests; executor suite unedited). Registry core complete: sync+async dispatch registry-driven, CALL_API async refused at enqueue.
+- Checkpoint 2 passed (779 workflows tests). Registry-driven validation warnings, SET_VARIABLE, options hook, config forms (5 types form-first), event picker all landed.
 
 ## Next concrete action
-- Step 2.1: registry-driven activityTypeSchema + per-type config validation (warning severity).
+- Step 4.4: command picker for UPDATE_ENTITY with safe-command list API.
 
 ## Blockers / open questions
 - none

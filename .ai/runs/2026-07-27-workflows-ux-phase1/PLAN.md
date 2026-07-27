@@ -14,11 +14,11 @@
 | 1 | 1.2 | Register the 7 built-in activity types with config schemas | done | f54f3679a |
 | 1 | 1.3 | Sync dispatch through the registry | done | 7c0036079 |
 | 1 | 1.4 | Async worker dispatch through the registry + CALL_API enqueue-time refusal | done | a669adaad |
-| 2 | 2.1 | Registry-driven activityTypeSchema and per-type config validation (warning severity) | done | 9ff3e832a |
-| 3 | 3.1 | SET_VARIABLE activity type end-to-end | done | 6e590017b |
-| 4 | 4.1 | Shared activity-type options hook; kill hardcoded label arrays | done | 71796cb5a |
-| 4 | 4.2 | Registry-driven config forms in ActivityArrayEditor (WAIT, SEND_EMAIL, CALL_WEBHOOK, CALL_API) | done | 373fec54e |
-| 4 | 4.3 | Event picker field for EMIT_EVENT | done | 144b00832 |
+| 2 | 2.1 | Registry-driven activityTypeSchema and per-type config validation (warning severity) | done | 352ccb1c4 |
+| 3 | 3.1 | SET_VARIABLE activity type end-to-end | done | b2699c39d |
+| 4 | 4.1 | Shared activity-type options hook; kill hardcoded label arrays | done | 94b50edd3 |
+| 4 | 4.2 | Registry-driven config forms in ActivityArrayEditor (WAIT, SEND_EMAIL, CALL_WEBHOOK, CALL_API) | done | 6c986ee52 |
+| 4 | 4.3 | Event picker field for EMIT_EVENT | done | fd323ee66 |
 | 4 | 4.4 | Command picker for UPDATE_ENTITY with safe-command list API | todo | — |
 | 4 | 4.5 | Workflow function registry seam and function picker | todo | — |
 | 4 | 4.6 | SET_VARIABLE assignments form | todo | — |

@@ -10,3 +10,8 @@
 ## 2026-07-27T10:40:00Z — checkpoint 1
 - Steps 1.1..1.4 (b69f2b664..a669adaad): registry core complete; build/generate/typecheck green; 737 workflows tests (executor suite unedited — BC proof held).
 - Executor delegations: one sequential executor per step.
+
+## 2026-07-27T13:10:00Z — checkpoint 2
+- Steps 2.1..4.3 (352ccb1c4..fd323ee66) verified: build/generate/typecheck/i18n green; 779 workflows tests.
+- SET_VARIABLE merge semantics decided: path-patch at the two existing sync merge points; async keeps namespaced result.
+- Executor delegations: one sequential executor per step; 4.1's missed CrudForm activity-type select folded into 4.2.
