@@ -1,6 +1,6 @@
 # create-mercato-app — agentic wizard must survive a non-interactive shell
 
-Status: in-progress
+Status: complete
 
 ## Goal
 
@@ -63,9 +63,9 @@ precedence and are unaffected — they bypass the prompt before this point.
 
 ### Phase 1: Fix and regression test
 
-- [ ] 1.1 Guard promptSelection on a non-interactive shell
-- [ ] 1.2 Add the regression test
+- [x] 1.1 Guard promptSelection on a non-interactive shell — 27216cc97
+- [x] 1.2 Add the regression test — 27216cc97
 
 ### Phase 2: Validation
 
-- [ ] 2.1 create-app suite and typecheck
+- [x] 2.1 create-app suite and typecheck — 112 pass / 4 pre-existing fail, typecheck clean
