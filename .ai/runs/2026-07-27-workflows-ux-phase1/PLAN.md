@@ -17,6 +17,7 @@
 | 2 | 2.1 | Registry-driven activityTypeSchema and per-type config validation (warning severity) | done | 352ccb1c4 |
 | 3 | 3.1 | SET_VARIABLE activity type end-to-end | done | b2699c39d |
 | 3 | 3.1-review-fix | Harden SET_VARIABLE async/paths and route the production worker through the registry | done | 48cb0449b |
+| 7 | 7.2-ds-fix | Focus ring, radius, and label association on gallery and pickers | done | ee556a79f |
 | 4 | 4.1 | Shared activity-type options hook; kill hardcoded label arrays | done | 94b50edd3 |
 | 4 | 4.2 | Registry-driven config forms in ActivityArrayEditor (WAIT, SEND_EMAIL, CALL_WEBHOOK, CALL_API) | done | 6c986ee52 |
 | 4 | 4.3 | Event picker field for EMIT_EVENT | done | fd323ee66 |

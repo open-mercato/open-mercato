@@ -577,9 +577,20 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
   return (
     <div className="space-y-3">
       {entry.form.map((spec) => (
-        <div key={spec.id}>
+        <div
+          key={spec.id}
+          {...(spec.component === 'commandId' || spec.component === 'functionName'
+            ? { role: 'group', 'aria-labelledby': `${idPrefix}-${spec.id}-label` }
+            : {})}
+        >
           {spec.component !== 'checkbox' && (
-            <Label htmlFor={`${idPrefix}-${spec.id}`} className="text-xs font-medium mb-1">
+            <Label
+              id={`${idPrefix}-${spec.id}-label`}
+              {...(spec.component === 'commandId' || spec.component === 'functionName'
+                ? {}
+                : { htmlFor: `${idPrefix}-${spec.id}` })}
+              className="text-xs font-medium mb-1"
+            >
               {labelFor(spec)}
               {spec.required ? ' *' : ''}
             </Label>

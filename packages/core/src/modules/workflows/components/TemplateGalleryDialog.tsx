@@ -117,7 +117,7 @@ export function TemplateGalleryDialog({ open, onOpenChange, onSelect }: Template
   }, [open, activeCardId, handleSelect])
 
   const cardClassName = (cardId: string) => (
-    `group relative flex w-full cursor-pointer flex-col gap-2 rounded-xl border-2 bg-background px-4 py-3 text-left transition-all hover:shadow-md ${
+    `group relative flex w-full cursor-pointer flex-col gap-2 rounded-lg border-2 bg-background px-4 py-3 text-left transition-all hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
       activeCardId === cardId ? 'border-primary' : 'border-border hover:border-muted-foreground/30'
     }`
   )
