@@ -8,7 +8,6 @@ import {
   extractMainContent,
   extractTitle,
   htmlToText,
-  notReady,
   searchOk,
   type FetchOutcome,
   type SearchAdapter,
@@ -19,8 +18,6 @@ import { z } from 'zod'
 import { createSidecar, type Sidecar, type SidecarOptions } from './client'
 
 export const browserOptionsSchema = z.object({
-  /** Off unless the operator opts in — this tier spawns a process and downloads a browser. */
-  enabled: z.boolean().optional(),
   engines: z.array(z.enum(['ddg-html', 'ddg-lite'])).min(1).optional(),
   userAgent: z.string().min(1).optional(),
   timeoutMs: z.number().int().min(1000).max(120_000).optional(),
@@ -44,7 +41,6 @@ function isRenderResult(value: unknown): value is RenderResult {
 }
 
 export function createBrowserAdapter(options: BrowserOptions): SearchAdapter {
-  const enabled = options.enabled ?? false
   const engines = options.engines ?? DEFAULT_ENGINES
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   let sidecar: Sidecar | null = null
@@ -85,11 +81,13 @@ export function createBrowserAdapter(options: BrowserOptions): SearchAdapter {
       // is why the engine only reaches for this after a source reports blocked.
       cost: 'metered',
     },
-    readiness: () =>
-      enabled ? READY : notReady('browser tier is disabled (set enabled: true to opt in)'),
+    // Participation is governed solely by the policy row. The scheduler already
+    // keeps `kind: 'browser'` out of normal waves, so an enabled browser adapter
+    // is reached only for escalation — a second per-adapter switch just made the
+    // UI show two toggles meaning different things.
+    readiness: () => READY,
 
     async search(request, context): Promise<SearchOutcome> {
-      if (!enabled) return { status: 'unavailable', reason: 'browser tier is disabled' }
       let lastReason = 'no engine produced results'
 
       for (const engine of engines) {
@@ -125,7 +123,6 @@ export function createBrowserAdapter(options: BrowserOptions): SearchAdapter {
     },
 
     async fetch(request, context): Promise<FetchOutcome> {
-      if (!enabled) return { status: 'unavailable', reason: 'browser tier is disabled' }
       try {
         const rendered = await render(request.url, context.signal)
         const text = extractMainContent(rendered.html) || htmlToText(rendered.html)
@@ -151,7 +148,6 @@ export function createBrowserAdapter(options: BrowserOptions): SearchAdapter {
     },
 
     async healthCheck() {
-      if (!enabled) return { ok: false, detail: 'browser tier is disabled' }
       try {
         await client().call('ping', {})
         return { ok: true }

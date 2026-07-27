@@ -148,16 +148,13 @@ describe('sidecar client protocol', () => {
 
 describe('browser adapter', () => {
   const options = (extra: Record<string, unknown> = {}) => ({
-    enabled: true,
     sidecar: { sidecarPath: '/fake/sidecar.js', callTimeoutMs: 500, closeTimeoutMs: 50, ...extra },
   })
 
-  it('is unavailable until explicitly enabled', async () => {
-    const adapter = createBrowserAdapter({})
-    expect(adapter.readiness().ready).toBe(false)
-    await expect(adapter.search({ query: 'x', limit: 5 }, createTestContext())).resolves.toMatchObject({
-      status: 'unavailable',
-    })
+  // Participation is the policy row's job; the scheduler never puts a browser
+  // adapter in a normal wave, so it is reachable only via escalation.
+  it('is ready without per-adapter opt-in, since the policy row governs it', () => {
+    expect(createBrowserAdapter({}).readiness().ready).toBe(true)
   })
 
   it('parses a browser-rendered SERP with the shared engine profiles', async () => {
@@ -214,9 +211,7 @@ describe('browser adapter', () => {
 describeAdapterContract(
   browserAdapterModule,
   {
-    unconfiguredOptions: {},
     configuredOptions: {
-      enabled: true,
       sidecar: { sidecarPath: '/fake/sidecar.js', callTimeoutMs: 200, closeTimeoutMs: 50 },
     },
   },
