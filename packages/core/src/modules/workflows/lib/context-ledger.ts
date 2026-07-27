@@ -71,7 +71,10 @@
  *   resolution paths (step-handler inline branch, activity-worker-handler
  *   parked resume, agent_orchestrator's human dispose → sendSignal) merge
  *   different key sets, so every entry is `maybe`: `outputMapping` target keys
- *   when a mapping is declared (mapAgentResultToContext, machine paths only);
+ *   when a mapping is declared (mapAgentResultToContext, machine paths only;
+ *   typed from the mapping's source path against the INVOKE_AGENT envelope the
+ *   injected `resolveOutputContract` seam resolves from the selected agent's
+ *   OUTCOME schema, `unknown` when the optional agent peer cannot type it);
  *   the legacy fixed keys `disposition`/`agentId`/`agentProposalId`/
  *   `proposalPayload`/`<stepId>_agent` when it is not; the human dispose path
  *   always merges `disposition`/`proposalId`/`stepId`/`proposalPayload`
@@ -542,7 +545,10 @@ function transitionContributions(
 // here because the ledger's purity boundary forbids importing engine modules.
 const INVOKE_AGENT_DEFAULT_SIGNAL_NAME = 'agent_orchestrator.proposal.ready'
 
-function invokeAgentContributions(step: LedgerStepDefinition): LedgerEntry[] {
+function invokeAgentContributions(
+  step: LedgerStepDefinition,
+  options: ComputeContextLedgerOptions,
+): LedgerEntry[] {
   const entries: LedgerEntry[] = []
   for (const activity of step.activities ?? []) {
     if (activity.activityType !== 'INVOKE_AGENT') continue
@@ -559,9 +565,15 @@ function invokeAgentContributions(step: LedgerStepDefinition): LedgerEntry[] {
     const outputMapping = activity.config?.outputMapping
     const hasMapping = isPlainObject(outputMapping) && Object.keys(outputMapping).length > 0
     if (hasMapping) {
-      for (const targetKey of Object.keys(outputMapping)) {
+      const envelopeContract = options.resolveOutputContract?.(activity.activityType, activity.config)
+      const typedEnvelope = envelopeContract && envelopeContract !== 'unknown' ? envelopeContract : null
+      for (const [targetKey, sourcePath] of Object.entries(outputMapping)) {
         if (!targetKey) continue
-        entries.push(makeEntry(targetKey, 'unknown', 'maybe', source))
+        const mappedType =
+          typedEnvelope && typeof sourcePath === 'string'
+            ? typedEnvelope.entries.find(entry => entry.path === sourcePath)?.type ?? 'unknown'
+            : 'unknown'
+        entries.push(makeEntry(targetKey, mappedType, 'maybe', source))
       }
     } else {
       // Legacy fixed-key merge (step-handler inline branch and
@@ -607,7 +619,7 @@ function stepContributions(
         ...(step.activities ?? [])
           .filter((activity) => activity.async === true)
           .flatMap((activity) => asyncResultContributions(activity, step.stepId, options)),
-        ...invokeAgentContributions(step),
+        ...invokeAgentContributions(step, options),
       ]
     default:
       return []

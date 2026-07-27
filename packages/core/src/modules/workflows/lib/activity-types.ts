@@ -20,7 +20,7 @@
  * timers).
  */
 
-import type { ZodTypeAny } from 'zod'
+import { z, type ZodTypeAny } from 'zod'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { getActivityType, registerActivityType } from './activity-registry'
 import { calculateWaitDelayMs } from './duration'
@@ -117,6 +117,48 @@ const resolveCallApiOutputContract = (config: unknown): ZodTypeAny | 'unknown' =
   const method = typeof rawMethod === 'string' && rawMethod.length > 0 ? rawMethod : 'GET'
   if (method.includes('{{')) return 'unknown'
   return boundCallApiResponseSchemaResolver(endpoint, method)
+}
+
+/**
+ * INVOKE_AGENT's output contract describes the normalized agent-result envelope
+ * that `mapAgentResultToContext` reads its `outputMapping` source paths from.
+ * The envelope keys are the platform's own contract; the OUTCOME shape under
+ * `data` (informative agents) or `proposalPayload` (actionable agents) belongs
+ * to the selected agent and lives in the OPTIONAL agent_orchestrator peer, so it
+ * arrives through a runtime binding seam — core never imports enterprise.
+ * server-output-contract.ts binds a resolver backed by the peer's DI bridge;
+ * unbound runtimes (the browser), a missing peer, a templated or unknown agent
+ * id, and agents without a declared OUTCOME all degrade honestly to 'unknown'.
+ */
+export type AgentOutcomeContract = {
+  resultKind: 'informative' | 'actionable'
+  schema: ZodTypeAny
+}
+
+export type AgentOutcomeSchemaResolver = (agentId: string) => AgentOutcomeContract | 'unknown'
+
+let boundAgentOutcomeSchemaResolver: AgentOutcomeSchemaResolver | null = null
+
+export function bindAgentOutcomeSchemaResolver(resolver: AgentOutcomeSchemaResolver): void {
+  boundAgentOutcomeSchemaResolver = resolver
+}
+
+const agentEnvelopeShape = {
+  kind: z.string(),
+  disposition: z.string(),
+  agentId: z.string(),
+  proposalId: z.string(),
+}
+
+const resolveInvokeAgentOutputContract = (config: unknown): ZodTypeAny | 'unknown' => {
+  if (!boundAgentOutcomeSchemaResolver) return 'unknown'
+  if (typeof config !== 'object' || config === null) return 'unknown'
+  const agentId = (config as Record<string, unknown>).agentId
+  if (typeof agentId !== 'string' || agentId.length === 0 || agentId.includes('{{')) return 'unknown'
+  const outcome = boundAgentOutcomeSchemaResolver(agentId)
+  if (outcome === 'unknown') return 'unknown'
+  const outcomeKey = outcome.resultKind === 'informative' ? 'data' : 'proposalPayload'
+  return z.object({ ...agentEnvelopeShape, [outcomeKey]: outcome.schema })
 }
 
 /**
@@ -315,6 +357,7 @@ export function registerBuiltinActivityTypes(): void {
     // in the registry's sense. No mock: agent runs are not simulatable here.
     execute: async (config, ctx, deps) => (await loadExecutor()).executeInvokeAgent(config, ctx, deps.container),
     async: { capable: false, reason: 'parksOnDedicatedQueue' },
+    outputContract: resolveInvokeAgentOutputContract,
   })
 }
 

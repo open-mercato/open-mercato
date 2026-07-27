@@ -34,7 +34,10 @@ import {
   type LedgerWorkflowDefinition,
 } from '../../../../lib/context-ledger'
 import { ensureWorkflowEndpointCatalog } from '../../../../lib/endpoint-catalog'
-import { resolveServerOutputContract } from '../../../../lib/server-output-contract'
+import {
+  ensureWorkflowAgentOutcomeContracts,
+  resolveServerOutputContract,
+} from '../../../../lib/server-output-contract'
 import { getCodeWorkflow, getAllCodeWorkflows } from '../../../../lib/code-registry'
 import { codeWorkflowUuid } from '../../../../lib/find-definition'
 import {
@@ -132,6 +135,7 @@ export async function GET(
     const stepId = new URL(request.url).searchParams.get('stepId')
 
     await ensureWorkflowEndpointCatalog()
+    await ensureWorkflowAgentOutcomeContracts(container)
 
     if (params.id.startsWith('code:')) {
       const workflowId = params.id.slice(5)

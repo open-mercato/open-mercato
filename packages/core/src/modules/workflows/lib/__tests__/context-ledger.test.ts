@@ -786,6 +786,54 @@ describe('computeContextLedger', () => {
       })
     })
 
+    test('types mapping targets from the resolved agent envelope contract', () => {
+      const definition: LedgerWorkflowDefinition = {
+        steps: [
+          step('start', 'START'),
+          invokeAgentStep({
+            outputMapping: {
+              riskScore: 'proposalPayload.score',
+              rationale: 'proposalPayload.rationale',
+              dispositionKind: 'kind',
+              unmapped: 'proposalPayload.absent',
+            },
+          }),
+          step('end', 'END'),
+        ],
+        transitions: [transition('start', 'agent'), transition('agent', 'end')],
+      }
+      const ledger = computeContextLedger(definition, {
+        resolveOutputContract: (activityType, config) => {
+          if (activityType !== 'INVOKE_AGENT') return 'unknown'
+          if ((config as { agentId?: string })?.agentId !== 'risk-scorer') return 'unknown'
+          return {
+            entries: [
+              { path: 'kind', type: 'text' },
+              { path: 'proposalPayload.score', type: 'number' },
+              { path: 'proposalPayload.rationale', type: 'text' },
+            ],
+          }
+        },
+      })
+      expect(entryAt(ledger, 'end', 'riskScore')).toMatchObject({ type: 'number', presence: 'maybe' })
+      expect(entryAt(ledger, 'end', 'rationale')).toMatchObject({ type: 'text', presence: 'maybe' })
+      expect(entryAt(ledger, 'end', 'dispositionKind')).toMatchObject({ type: 'text' })
+      expect(entryAt(ledger, 'end', 'unmapped')).toMatchObject({ type: 'unknown' })
+    })
+
+    test('keeps mapping targets unknown when no agent contract resolves', () => {
+      const definition: LedgerWorkflowDefinition = {
+        steps: [
+          step('start', 'START'),
+          invokeAgentStep({ outputMapping: { riskScore: 'proposalPayload.score' } }),
+          step('end', 'END'),
+        ],
+        transitions: [transition('start', 'agent'), transition('agent', 'end')],
+      }
+      const ledger = computeContextLedger(definition, { resolveOutputContract: () => 'unknown' })
+      expect(entryAt(ledger, 'end', 'riskScore')).toMatchObject({ type: 'unknown', presence: 'maybe' })
+    })
+
     test('contributes only to steps AFTER the invoke-agent step, not its own incoming view', () => {
       const definition: LedgerWorkflowDefinition = {
         steps: [step('start', 'START'), invokeAgentStep(), step('end', 'END')],

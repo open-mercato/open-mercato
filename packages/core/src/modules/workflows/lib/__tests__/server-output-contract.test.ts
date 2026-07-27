@@ -297,3 +297,158 @@ describe('resolveServerOutputContract for CALL_API', () => {
     }
   })
 })
+
+describe('resolveServerOutputContract for INVOKE_AGENT', () => {
+  const riskOutcome = z.object({ score: z.number(), rationale: z.string() })
+
+  const bridgeContainer = (bridge: unknown) => ({
+    resolve: <T,>(name: string): T => {
+      if (name !== 'agentWorkflowBridge' || bridge === undefined) {
+        throw new Error(`[internal] ${name} is not registered`)
+      }
+      return bridge as T
+    },
+  })
+
+  test('types the agent envelope from the optional peer OUTCOME contracts', async () => {
+    const { serverContractModule } = loadIsolated()
+    await serverContractModule.ensureWorkflowAgentOutcomeContracts(
+      bridgeContainer({
+        listAgentOutcomeContracts: async () => [
+          { agentId: 'risk.scorer', resultKind: 'actionable', schema: riskOutcome },
+        ],
+      }),
+    )
+    try {
+      expect(
+        serverContractModule.resolveServerOutputContract('INVOKE_AGENT', { agentId: 'risk.scorer' }),
+      ).toEqual({
+        entries: [
+          { path: 'kind', type: 'text' },
+          { path: 'disposition', type: 'text' },
+          { path: 'agentId', type: 'text' },
+          { path: 'proposalId', type: 'text' },
+          { path: 'proposalPayload.score', type: 'number' },
+          { path: 'proposalPayload.rationale', type: 'text' },
+        ],
+      })
+    } finally {
+      serverContractModule.clearWorkflowAgentOutcomeContractsForTests()
+    }
+  })
+
+  test('puts an informative agent OUTCOME under the envelope data key', async () => {
+    const { serverContractModule } = loadIsolated()
+    await serverContractModule.ensureWorkflowAgentOutcomeContracts(
+      bridgeContainer({
+        listAgentOutcomeContracts: async () => [
+          { agentId: 'deals.summary', resultKind: 'informative', schema: z.object({ summary: z.string() }) },
+        ],
+      }),
+    )
+    try {
+      const contract = serverContractModule.resolveServerOutputContract('INVOKE_AGENT', {
+        agentId: 'deals.summary',
+      })
+      expect(contract).not.toBe('unknown')
+      expect(contract).toMatchObject({
+        entries: expect.arrayContaining([{ path: 'data.summary', type: 'text' }]),
+      })
+    } finally {
+      serverContractModule.clearWorkflowAgentOutcomeContractsForTests()
+    }
+  })
+
+  test("degrades to 'unknown' without the peer, before warm-up, and for unknown or templated agent ids", async () => {
+    const { serverContractModule } = loadIsolated()
+    expect(serverContractModule.resolveServerOutputContract('INVOKE_AGENT', { agentId: 'risk.scorer' })).toBe(
+      'unknown',
+    )
+    await serverContractModule.ensureWorkflowAgentOutcomeContracts(bridgeContainer(undefined))
+    try {
+      expect(serverContractModule.resolveServerOutputContract('INVOKE_AGENT', { agentId: 'risk.scorer' })).toBe(
+        'unknown',
+      )
+    } finally {
+      serverContractModule.clearWorkflowAgentOutcomeContractsForTests()
+    }
+
+    const second = loadIsolated().serverContractModule
+    await second.ensureWorkflowAgentOutcomeContracts(
+      bridgeContainer({
+        listAgentOutcomeContracts: async () => [
+          { agentId: 'risk.scorer', resultKind: 'actionable', schema: riskOutcome },
+        ],
+      }),
+    )
+    try {
+      expect(second.resolveServerOutputContract('INVOKE_AGENT', { agentId: 'other.agent' })).toBe('unknown')
+      expect(second.resolveServerOutputContract('INVOKE_AGENT', { agentId: '{{context.agentId}}' })).toBe('unknown')
+      expect(second.resolveServerOutputContract('INVOKE_AGENT', {})).toBe('unknown')
+    } finally {
+      second.clearWorkflowAgentOutcomeContractsForTests()
+    }
+  })
+
+  test('survives a peer whose contract listing throws', async () => {
+    const { serverContractModule } = loadIsolated()
+    await serverContractModule.ensureWorkflowAgentOutcomeContracts(
+      bridgeContainer({
+        listAgentOutcomeContracts: async () => {
+          throw new Error('[internal] registry unavailable')
+        },
+      }),
+    )
+    try {
+      expect(serverContractModule.resolveServerOutputContract('INVOKE_AGENT', { agentId: 'risk.scorer' })).toBe(
+        'unknown',
+      )
+    } finally {
+      serverContractModule.clearWorkflowAgentOutcomeContractsForTests()
+    }
+  })
+
+  test('types INVOKE_AGENT mapping targets in the ledger through the seam', async () => {
+    const { serverContractModule } = loadIsolated()
+    await serverContractModule.ensureWorkflowAgentOutcomeContracts(
+      bridgeContainer({
+        listAgentOutcomeContracts: async () => [
+          { agentId: 'risk.scorer', resultKind: 'actionable', schema: riskOutcome },
+        ],
+      }),
+    )
+    try {
+      const definition: LedgerWorkflowDefinition = {
+        steps: [
+          { stepId: 'start', stepType: 'START' },
+          {
+            stepId: 'agent',
+            stepType: 'AUTOMATED',
+            activities: [
+              {
+                activityId: 'invoke-risk',
+                activityType: 'INVOKE_AGENT',
+                config: { agentId: 'risk.scorer', outputMapping: { riskScore: 'proposalPayload.score' } },
+              },
+            ],
+          },
+          { stepId: 'end', stepType: 'END' },
+        ],
+        transitions: [
+          { fromStepId: 'start', toStepId: 'agent' },
+          { fromStepId: 'agent', toStepId: 'end' },
+        ],
+      }
+      const ledger = computeContextLedger(definition, {
+        resolveOutputContract: serverContractModule.resolveServerOutputContract,
+      })
+      expect(ledger.steps.end.entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: 'riskScore', type: 'number', presence: 'maybe' }),
+        ]),
+      )
+    } finally {
+      serverContractModule.clearWorkflowAgentOutcomeContractsForTests()
+    }
+  })
+})

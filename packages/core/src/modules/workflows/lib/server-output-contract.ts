@@ -20,7 +20,11 @@
 import { ZodType } from 'zod'
 import './activity-registry-bootstrap'
 import { getActivityType } from './activity-registry'
-import { bindCallApiResponseSchemaResolver } from './activity-types'
+import {
+  bindAgentOutcomeSchemaResolver,
+  bindCallApiResponseSchemaResolver,
+  type AgentOutcomeContract,
+} from './activity-types'
 import { findEndpointResponseSchema } from './endpoint-catalog'
 import { flattenSchemaToContract } from './ledger-schema-flatten'
 import type { ResolveOutputContract } from './context-ledger'
@@ -33,6 +37,78 @@ import type { ResolveOutputContract } from './context-ledger'
  * the context-schema route does; unwarmed processes degrade to 'unknown'.
  */
 bindCallApiResponseSchemaResolver((endpoint, method) => findEndpointResponseSchema(endpoint, method) ?? 'unknown')
+
+/**
+ * INVOKE_AGENT's registry outputContract reaches the OPTIONAL agent_orchestrator
+ * peer the same way the executor does: through DI, never an import. The peer's
+ * `agentWorkflowBridge` service may expose `listAgentOutcomeContracts()` (an
+ * additive, optional method — an older peer without it is simply a peer without
+ * agent typing); this module caches the returned OUTCOME schemas per process and
+ * the bound resolver reads that cache synchronously. Callers that want agent
+ * contracts resolved must `await ensureWorkflowAgentOutcomeContracts(container)`
+ * first — the context-schema route does; unwarmed processes, an absent peer, and
+ * a failing lookup all degrade to 'unknown' without throwing.
+ */
+type AgentOutcomeContractSnapshot = {
+  agentId?: unknown
+  resultKind?: unknown
+  schema?: unknown
+}
+
+type AgentOutcomeBridgeLike = {
+  listAgentOutcomeContracts?: () => Promise<AgentOutcomeContractSnapshot[]>
+}
+
+type ServiceContainer = {
+  resolve: <T>(name: string) => T
+}
+
+let agentOutcomeContracts: Map<string, AgentOutcomeContract> | null = null
+let agentOutcomeWarmup: Promise<void> | null = null
+
+bindAgentOutcomeSchemaResolver((agentId) => agentOutcomeContracts?.get(agentId) ?? 'unknown')
+
+function toAgentOutcomeContract(snapshot: AgentOutcomeContractSnapshot): AgentOutcomeContract | null {
+  const { agentId, resultKind, schema } = snapshot
+  if (typeof agentId !== 'string' || agentId.length === 0) return null
+  if (resultKind !== 'informative' && resultKind !== 'actionable') return null
+  if (!(schema instanceof ZodType)) return null
+  return { resultKind, schema }
+}
+
+async function loadAgentOutcomeContracts(container: ServiceContainer): Promise<void> {
+  let bridge: AgentOutcomeBridgeLike | undefined
+  try {
+    bridge = container.resolve<AgentOutcomeBridgeLike>('agentWorkflowBridge')
+  } catch {
+    bridge = undefined
+  }
+  if (!bridge || typeof bridge.listAgentOutcomeContracts !== 'function') {
+    agentOutcomeContracts = new Map()
+    return
+  }
+  const resolved = new Map<string, AgentOutcomeContract>()
+  try {
+    for (const snapshot of await bridge.listAgentOutcomeContracts()) {
+      const contract = toAgentOutcomeContract(snapshot)
+      if (contract && typeof snapshot.agentId === 'string') resolved.set(snapshot.agentId, contract)
+    }
+  } catch {
+    agentOutcomeContracts = new Map()
+    return
+  }
+  agentOutcomeContracts = resolved
+}
+
+export async function ensureWorkflowAgentOutcomeContracts(container: ServiceContainer): Promise<void> {
+  if (!agentOutcomeWarmup) agentOutcomeWarmup = loadAgentOutcomeContracts(container)
+  await agentOutcomeWarmup
+}
+
+export function clearWorkflowAgentOutcomeContractsForTests(): void {
+  agentOutcomeContracts = null
+  agentOutcomeWarmup = null
+}
 
 export const resolveServerOutputContract: ResolveOutputContract = (activityType, config) => {
   const entry = getActivityType(activityType)
