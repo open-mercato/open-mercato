@@ -19,6 +19,7 @@ import {
   type WorkflowInstanceStatus,
 } from '../data/entities'
 import { compensateWorkflow } from './compensation-handler'
+import { WORKFLOW_ENGINE_VERSION, isEngineVersionSupported } from './engine-version'
 import { findWorkflowDefinition, findDefinitionForInstance } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitWorkflowsEvent } from '../events'
@@ -145,6 +146,18 @@ export async function startWorkflow(
       `Workflow definition is disabled: ${workflowId}`,
       'DEFINITION_DISABLED',
       { workflowId, version: definition.version }
+    )
+  }
+
+  // Forward-compatibility guard: a definition authored against a newer engine
+  // is refused outright rather than executed with unknown step types treated
+  // as no-ops (spec section 5.8).
+  const minEngineVersion = definition.metadata?.minEngineVersion
+  if (!isEngineVersionSupported(minEngineVersion)) {
+    throw new WorkflowExecutionError(
+      `Workflow definition requires engine version ${minEngineVersion}, this engine is version ${WORKFLOW_ENGINE_VERSION}`,
+      'ENGINE_VERSION_TOO_OLD',
+      { workflowId, version: definition.version, minEngineVersion, engineVersion: WORKFLOW_ENGINE_VERSION }
     )
   }
 

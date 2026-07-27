@@ -22,6 +22,7 @@ import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
 import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
+import { collectBranchingRouteWarnings } from '../../../data/branching-route-warnings'
 import {
   buildTriggerPayloadContracts,
   computeContextLedger,
@@ -115,6 +116,26 @@ function computeClientContextLedger(
     resolveOutputContract: () => 'unknown',
     triggerPayloadContracts,
   })
+}
+
+/**
+ * Advisory warnings for branching steps (IF_ELSE / SWITCH) whose outgoing
+ * routes are all conditioned. Routing lives entirely in the transition
+ * evaluator, so a branching node without an unconditioned "otherwise" route can
+ * strand an instance — the editor warns, never blocks.
+ */
+function collectOtherwiseRouteWarnings(
+  definitionData: WorkflowDefinitionData,
+  translate: ReturnType<typeof useT>,
+): ZodIssueLike[] {
+  return collectBranchingRouteWarnings(definitionData).map((warning) => ({
+    path: warning.path,
+    message: translate(
+      'workflows.visualEditor.problems.branchingWithoutOtherwise',
+      'Branching step "{stepId}" has no unconditioned route; add an otherwise route so the workflow cannot stall when no condition matches',
+      { stepId: warning.stepId },
+    ),
+  }))
 }
 
 function collectContextRefWarnings(
@@ -884,6 +905,7 @@ export default function VisualEditorPage() {
       const ledgerDefinition = buildDefinitionPayload({ graphDefinition: definitionData, triggers, contextSchema, io: definitionIo, interpolation })
       configWarnings = [
         ...collectActivityConfigWarnings(definitionData),
+        ...collectOtherwiseRouteWarnings(definitionData, t),
         ...collectContextRefWarnings(ledgerDefinition, t, triggerPayloadContracts),
       ]
     } catch (error) {
@@ -951,6 +973,7 @@ export default function VisualEditorPage() {
       zodIssues: schemaResult.success ? [] : schemaResult.error.issues,
       configWarnings: [
         ...collectActivityConfigWarnings(definitionData),
+        ...collectOtherwiseRouteWarnings(definitionData, t),
         ...collectContextRefWarnings(definitionData, t, triggerPayloadContracts),
       ],
       nodes,

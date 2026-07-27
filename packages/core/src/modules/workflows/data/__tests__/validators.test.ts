@@ -32,6 +32,7 @@ import {
   type CreateStepInstanceInput,
   type CreateUserTaskInput,
 } from '../validators'
+import { collectBranchingRouteWarnings } from '../branching-route-warnings'
 
 describe('Workflows Validators', () => {
   describe('workflowStepTypeSchema', () => {
@@ -47,8 +48,139 @@ describe('Workflows Validators', () => {
       expect(workflowStepTypeSchema.parse('WAIT_FOR_TIMER')).toBe('WAIT_FOR_TIMER')
     })
 
+    test('should accept the additive branching step types', () => {
+      expect(workflowStepTypeSchema.parse('IF_ELSE')).toBe('IF_ELSE')
+      expect(workflowStepTypeSchema.parse('SWITCH')).toBe('SWITCH')
+    })
+
     test('should reject invalid step types', () => {
       expect(() => workflowStepTypeSchema.parse('INVALID')).toThrow()
+    })
+  })
+
+  describe('branching steps as transition sugar', () => {
+    const branchingDefinition = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' as const },
+        { stepId: 'branch', stepName: 'Branch', stepType: 'IF_ELSE' as const },
+        { stepId: 'approve', stepName: 'Approve', stepType: 'AUTOMATED' as const },
+        { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+      ],
+      transitions: [
+        {
+          transitionId: 'e_start_branch',
+          fromStepId: 'start',
+          toStepId: 'branch',
+          trigger: 'auto' as const,
+          priority: 0,
+        },
+        {
+          transitionId: 'e_branch_approve',
+          fromStepId: 'branch',
+          toStepId: 'approve',
+          trigger: 'auto' as const,
+          priority: 10,
+          condition: { field: 'total', operator: '>', value: 100 },
+        },
+        {
+          transitionId: 'e_approve_end',
+          fromStepId: 'approve',
+          toStepId: 'end',
+          trigger: 'auto' as const,
+          priority: 0,
+        },
+      ],
+    }
+
+    test('should accept a definition using IF_ELSE and SWITCH steps', () => {
+      const result = workflowDefinitionDataSchema.safeParse(branchingDefinition)
+      expect(result.success).toBe(true)
+
+      const switchDefinition = {
+        ...branchingDefinition,
+        steps: branchingDefinition.steps.map((step) =>
+          step.stepId === 'branch' ? { ...step, stepType: 'SWITCH' as const } : step,
+        ),
+      }
+      expect(workflowDefinitionDataSchema.safeParse(switchDefinition).success).toBe(true)
+    })
+
+    test('should warn when a branching step has no unconditioned otherwise route', () => {
+      const warnings = collectBranchingRouteWarnings(branchingDefinition)
+      expect(warnings).toEqual([{ path: ['steps', 1], stepId: 'branch', stepType: 'IF_ELSE' }])
+    })
+
+    test('should not warn once an otherwise route exists', () => {
+      const withOtherwise = {
+        ...branchingDefinition,
+        transitions: [
+          ...branchingDefinition.transitions,
+          {
+            transitionId: 'e_branch_end',
+            fromStepId: 'branch',
+            toStepId: 'end',
+            trigger: 'auto' as const,
+            priority: 0,
+          },
+        ],
+      }
+      expect(collectBranchingRouteWarnings(withOtherwise)).toEqual([])
+    })
+
+    test('should treat business-rule pre/post conditions as conditioned routes', () => {
+      const ruleRouted = {
+        ...branchingDefinition,
+        transitions: branchingDefinition.transitions.map((transition) =>
+          transition.transitionId === 'e_branch_approve'
+            ? {
+                transitionId: transition.transitionId,
+                fromStepId: transition.fromStepId,
+                toStepId: transition.toStepId,
+                trigger: transition.trigger,
+                priority: transition.priority,
+                preConditions: ['11111111-1111-4111-8111-111111111111'],
+              }
+            : transition,
+        ),
+      }
+      expect(collectBranchingRouteWarnings(ruleRouted)).toHaveLength(1)
+    })
+
+    test('should not warn for branching steps without outgoing routes', () => {
+      expect(
+        collectBranchingRouteWarnings({
+          steps: [{ stepId: 'branch', stepName: 'Branch', stepType: 'SWITCH' }],
+          transitions: [],
+        }),
+      ).toEqual([])
+    })
+
+    test('should not warn for non-branching steps', () => {
+      expect(
+        collectBranchingRouteWarnings({
+          steps: [{ stepId: 'auto', stepName: 'Auto', stepType: 'AUTOMATED' }],
+          transitions: [
+            {
+              transitionId: 'e_auto_end',
+              fromStepId: 'auto',
+              toStepId: 'end',
+              condition: { field: 'x', operator: '==', value: 1 },
+            },
+          ],
+        }),
+      ).toEqual([])
+    })
+  })
+
+  describe('minEngineVersion metadata guard', () => {
+    test('should accept an optional positive integer', () => {
+      expect(workflowMetadataSchema.parse({ minEngineVersion: 2 }).minEngineVersion).toBe(2)
+      expect(workflowMetadataSchema.parse({}).minEngineVersion).toBeUndefined()
+    })
+
+    test('should reject non-integer or non-positive versions', () => {
+      expect(workflowMetadataSchema.safeParse({ minEngineVersion: 0 }).success).toBe(false)
+      expect(workflowMetadataSchema.safeParse({ minEngineVersion: 1.5 }).success).toBe(false)
     })
   })
 

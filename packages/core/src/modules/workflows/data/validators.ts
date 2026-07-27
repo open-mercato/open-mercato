@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { conditionExpressionSchema } from '@open-mercato/core/modules/business_rules/data/validators'
 import '../lib/activity-registry-bootstrap'
 import { activityTypeIds } from '../lib/activity-registry'
 import {
@@ -64,6 +65,8 @@ export const workflowStepTypeSchema = z.enum([
   'SUB_WORKFLOW',
   'WAIT_FOR_SIGNAL',
   'WAIT_FOR_TIMER',
+  'IF_ELSE',
+  'SWITCH',
 ])
 export type WorkflowStepType = z.infer<typeof workflowStepTypeSchema>
 
@@ -385,6 +388,11 @@ export const workflowTransitionSchema = z.object({
   trigger: transitionTriggerSchema,
   preConditions: z.array(transitionConditionSchema).optional(),
   postConditions: z.array(transitionConditionSchema).optional(),
+  // Inline condition in the business_rules ConditionExpression language — the
+  // one condition language platform-wide. `findValidTransitions` has always
+  // evaluated `transition.condition`; declaring it here makes author-time
+  // routing (IF_ELSE / SWITCH cases) survive a save round-trip.
+  condition: conditionExpressionSchema,
   activities: z.array(activityDefinitionSchema).optional(), // Activities to execute during transition
   continueOnActivityFailure: z.boolean().default(false).optional(), // If true, transition continues even when activities fail
   priority: z.number().int().min(0).max(9999).default(0),
@@ -686,6 +694,9 @@ export const workflowMetadataSchema = z.object({
   tags: z.array(z.string().max(50)).optional(),
   category: z.string().max(100).optional(),
   icon: z.string().max(100).optional(),
+  // Forward-compatibility guard (spec section 5.8): engines below this version
+  // refuse to instantiate the definition instead of misexecuting it.
+  minEngineVersion: z.number().int().min(1).optional(),
   editor: z.object({
     samples: z.record(z.string(), sampleEnvelopeSchema).optional(),
   }).passthrough().optional(),

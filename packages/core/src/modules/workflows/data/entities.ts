@@ -21,6 +21,8 @@ export type WorkflowStepType =
   | 'SUB_WORKFLOW'
   | 'WAIT_FOR_SIGNAL'
   | 'WAIT_FOR_TIMER'
+  | 'IF_ELSE'
+  | 'SWITCH'
 
 export type WorkflowInstanceStatus =
   | 'RUNNING'
@@ -172,6 +174,10 @@ export interface WorkflowMetadata {
   tags?: string[]
   category?: string
   icon?: string
+  // Forward-compatibility guard (spec section 5.8): the lowest engine version
+  // able to execute this definition. Engines older than the declared version
+  // refuse to instantiate it instead of misexecuting unknown step types.
+  minEngineVersion?: number
   editor?: WorkflowEditorMetadata
 }
 

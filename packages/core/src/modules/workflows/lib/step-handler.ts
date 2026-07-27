@@ -348,6 +348,10 @@ async function executeStepByType(
       }
       return await handleSubWorkflowStep(em, container, instance, stepInstance, stepDef, context)
 
+    case 'IF_ELSE':
+    case 'SWITCH':
+      return handleBranchingStep(stepType)
+
     case 'WAIT_FOR_SIGNAL':
       return await handleWaitForSignalStep(em, instance, stepInstance, stepDef, context, branch)
 
@@ -422,6 +426,25 @@ function handleEndStep(
       stepType: 'END',
       timestamp: new Date().toISOString(),
       finalContext: context.workflowContext,
+    },
+  }
+}
+
+/**
+ * Handle IF_ELSE / SWITCH steps - pure transition sugar.
+ *
+ * Branching nodes carry NO runtime semantics of their own: they behave exactly
+ * like an AUTOMATED step with no activities and complete immediately. Every
+ * routing decision stays in `findValidTransitions`, which already evaluates the
+ * business_rules condition language and orders candidates by priority, so the
+ * unconditioned "otherwise" route wins only when no cased route matches.
+ */
+function handleBranchingStep(stepType: 'IF_ELSE' | 'SWITCH'): StepExecutionResult {
+  return {
+    status: 'COMPLETED',
+    outputData: {
+      stepType,
+      timestamp: new Date().toISOString(),
     },
   }
 }

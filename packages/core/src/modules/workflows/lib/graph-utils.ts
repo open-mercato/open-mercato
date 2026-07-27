@@ -180,6 +180,12 @@ export function graphToDefinition(
       transition.postConditions = edgeData.postConditions
     }
 
+    // Inline condition expression (business_rules language). Branching routes
+    // authored on IF_ELSE / SWITCH nodes are plain conditioned transitions.
+    if (edgeData?.condition !== undefined && edgeData.condition !== null) {
+      transition.condition = edgeData.condition
+    }
+
     // Add activities if present in edge data
     if (edgeData?.activities && edgeData.activities.length > 0) {
       transition.activities = edgeData.activities.map((activity: any) => ({
@@ -415,6 +421,7 @@ export function definitionToGraph(
           : false,
         preConditions: transition.preConditions || [],
         postConditions: transition.postConditions || [],
+        condition: (transition as any).condition,
         activities: transition.activities || [],
         label: (transition as any).transitionName || (transition as any).label, // Backward compat
         state: (transition as any).state || 'pending', // Default edge state
@@ -576,6 +583,8 @@ function mapNodeTypeToStepType(nodeType: string): string {
     parallelJoin: 'PARALLEL_JOIN',
     // The invoke-agent node is a specialization of an AUTOMATED step.
     invokeAgent: 'AUTOMATED',
+    ifElse: 'IF_ELSE',
+    switch: 'SWITCH',
   }
   return mapping[nodeType] || 'AUTOMATED'
 }
@@ -595,6 +604,8 @@ function mapStepTypeToNodeType(stepType: string): string {
     WAIT_FOR_TIMER: 'waitForTimer',
     PARALLEL_FORK: 'parallelFork',
     PARALLEL_JOIN: 'parallelJoin',
+    IF_ELSE: 'ifElse',
+    SWITCH: 'switch',
   }
   return mapping[stepType] || 'automated'
 }
@@ -615,6 +626,8 @@ function getBadgeForNodeType(nodeType: string): string {
     parallelFork: 'Parallel Fork',
     parallelJoin: 'Parallel Join',
     invokeAgent: 'Invoke Agent',
+    ifElse: 'If / Else',
+    switch: 'Switch',
   }
   return badges[nodeType] || 'Task'
 }
