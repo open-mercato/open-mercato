@@ -206,8 +206,8 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | Skill | When to use |
 |-------|-------------|
 | `om-auto-publish-pr` | Publish pkg.pr.new package previews for a same-repository Open Mercato PR by dispatching the Package Previews GitHub Actions workflow with gh. Use when a maintainer asks to publish, republish, or trigger a PR package preview. Does not publish npm snapshots. |
-| `om-pr-autopilot` | Dispatcher for a single open PR: diagnoses its real state (unfinished plan steps, missing review, red CI, base conflicts, unresolved threads, missing QA evidence, merge-ready), picks the matching chain of `om-*` skills, runs them in order, and publishes a complete status report to the tracker. Use for "finish PR 123", "what is left on PR 123", "drive PR 123 to the end". Never merges unless `--allow-merge`. |
 | `om-auto-qa-scenarios` | Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `develop`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass. |
+| `om-pr-autopilot` | Dispatcher for a single open PR: diagnoses its real state (unfinished plan steps, missing review, red CI, base conflicts, unresolved threads, missing QA evidence, merge-ready), picks the matching chain of `om-*` skills, runs them in order, and publishes a complete status report to the tracker. Use for "finish PR 123", "what is left on PR 123", "drive PR 123 to the end". Never merges unless `--allow-merge`. |
 
 ### external (open-mercato/skills)
 

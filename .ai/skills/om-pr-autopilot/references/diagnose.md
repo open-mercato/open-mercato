@@ -12,8 +12,12 @@ gh auth status
 gh repo view --json nameWithOwner --jq .nameWithOwner
 ```
 
-This repo requires the `wojciechszyjka` account. A different active account is a
-**stop condition** — report it and do not mutate anything.
+Record the active account and the repository. The run must operate as the
+identity this repository's automation runs are made from — never a hard-coded
+handle. Derive it from **current-user** and confirm it is the account that owns
+the PR's claim and (for `IS_MINE`) authored the head branch. An active account
+that does not match is a **stop condition** — report it and do not mutate
+anything.
 
 ## 2. PR core (get-pr)
 
@@ -54,7 +58,8 @@ gh pr view {prNumber} --json body --jq .body | grep -E '^Tracking (plan|run fold
 gh pr diff {prNumber} --name-only
 ```
 
-Classify: **spec-only** (touches only `.ai/specs/**`), **docs-only**,
+Classify: **spec-only** (touches only `$SPECS_DIR`, the config's `paths.specs` —
+read it, never hard-code the path), **docs-only**,
 **UI-touching** (any `packages/ui/**`, `**/frontend/**`, `**/backend/**` page or
 component, portal surfaces), **migration/schema**, **contract surface** (types,
 event ids, API routes, DI keys, ACL ids — see `BACKWARD_COMPATIBILITY.md`).

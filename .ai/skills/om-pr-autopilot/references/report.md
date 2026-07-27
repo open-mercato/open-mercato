@@ -9,7 +9,9 @@ key:value dump.
 
 Post once per run via **comment-pr**. When a previous `om-pr-autopilot` comment
 exists, update it instead of stacking duplicates (**list-issue-comments** →
-**update-comment**).
+**update-comment**). When the tracker descriptor defines no **update-comment**
+operation, post a replacement comment that states it supersedes the previous
+`om-pr-autopilot` report — never silently stack a second one.
 
 ```markdown
 🤖 `om-pr-autopilot` run — {UTC timestamp}

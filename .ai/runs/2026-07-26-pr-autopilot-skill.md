@@ -94,3 +94,15 @@ PR: #4525
 ### Phase 3: Verification
 
 - [x] 3.1 Exercise the diagnosis procedure against real open PRs — b043fb4cf
+
+### Phase 4: Review follow-up (om-auto-review-pr, 2026-07-27)
+
+- [x] 4.1 Drop the hardcoded account handle from diagnose.md and state-matrix.md
+- [x] 4.2 Split the fork note on ownership — own-fork PRs are pushable
+- [x] 4.3 Document the `403` no-triage fallback for the claim step
+- [x] 4.4 Add the `update-comment` fallback and list the operation in SKILL.md
+- [x] 4.5 Read the specs path from `paths.specs` instead of hardcoding it
+- [x] 4.6 Register the skill in the om-help catalog; fix README row ordering
+- [ ] 4.7 Decide on @pkarw's request: port as an agnostic skill to
+      `open-mercato/skills` with a repo-local override here (**needs a decision —
+      spans two repositories, out of scope for this PR alone**)

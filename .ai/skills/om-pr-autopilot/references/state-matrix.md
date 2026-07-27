@@ -9,11 +9,11 @@ left to do.
 | # | State signal | Chain step | Exit condition |
 |---|---|---|---|
 | 0 | `state != OPEN` (merged/closed) | **stop** — report and exit | — |
-| 0b | Active GitHub account is not `wojciechszyjka` | **stop** — wrong identity | — |
+| 0b | Active GitHub account is not the identity this repository's runs are made from (**current-user**) | **stop** — wrong identity | — |
 | 0c | Hard block present: `do-not-merge`, `blocked`, `qa-failed` | **stop** unless the user explicitly says to work through it; report the blocker | — |
 | 1 | Plan exists with pending steps (`- [ ]` / non-`done` rows) | `om-auto-continue-pr {pr}` — or `om-auto-continue-pr-loop {pr}` when the tracking line points at a **run folder** | all plan steps done |
 | 2 | `plan: none` and the diff does not implement the linked issue | **ask the user** — an unplanned, incomplete PR is a scope decision, not a dispatch one | user answers |
-| 3 | Spec-only diff (`.ai/specs/**` only) | `om-auto-review-pr {pr}` (specification review). **Never** grow it into implementation — that ships via `om-auto-implement-spec` on its own PR | spec review submitted |
+| 3 | Spec-only diff (only `$SPECS_DIR`, the config's `paths.specs`) | `om-auto-review-pr {pr}` (specification review). **Never** grow it into implementation — that ships via `om-auto-implement-spec` on its own PR | spec review submitted |
 | 4 | `mergeStateStatus` is `CONFLICTING` or `BEHIND` | `om-auto-fix-pr {pr}` (it merges the base **first**, before review or CI work) | `MERGEABLE` |
 | 5 | Review is `NONE` / `REVIEW_REQUIRED`, or `CHANGES_REQUESTED`, or unresolved threads > 0 | `om-auto-fix-pr {pr} --max-iterations <n>` on your own PR (review + autofix + CI + UI in one loop). On **someone else's** PR: `om-auto-review-pr {pr}` only — review and hand off, no autofix, unless the user explicitly asked for it | approvable, no unresolved blocking threads |
 | 6 | CI red, everything else already fine | `om-auto-fix-pr {pr} --ci-only` | all required checks green |
@@ -24,11 +24,19 @@ left to do.
 
 ## Notes that change the chain
 
-- **Fork PR** (`isCrossRepository: true`): you cannot push to the contributor's
-  branch. Do not force a base merge — `om-auto-fix-pr` hands that to
-  `om-auto-review-pr`'s fork carry-forward flow, which opens a credited
-  replacement PR (`Supersedes #…`, reassigned to the original author). From then
-  on `{prNumber}` means the replacement.
+- **Fork PR** (`isCrossRepository: true`) — split on **who owns the fork**, since
+  contributors here normally work from their own fork and `IS_FORK` alone says
+  nothing about push access:
+  - `IS_FORK && IS_MINE` (your own fork — the common case): you *do* have push
+    access. Treat it exactly like a same-repo PR — base merges and follow-up
+    commits go to the PR's own head branch. Never route it into the
+    carry-forward flow; that would abandon your branch and open a duplicate PR
+    crediting yourself.
+  - `IS_FORK && !IS_MINE` (someone else's fork): you cannot push to the
+    contributor's branch. Do not force a base merge — `om-auto-fix-pr` hands
+    that to `om-auto-review-pr`'s fork carry-forward flow, which opens a credited
+    replacement PR (`Supersedes #…`, reassigned to the original author). From
+    then on `{prNumber}` means the replacement.
 - **Draft PR**: diagnose and fix normally; promotion to ready happens inside
   `om-auto-fix-pr`'s merge-prep step, not here. A spec-only design PR and any PR
   carrying `⚠ NEEDS HUMAN CONFIRMATION` stay draft.
