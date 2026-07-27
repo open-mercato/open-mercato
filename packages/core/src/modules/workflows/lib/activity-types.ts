@@ -91,6 +91,35 @@ const resolveCommandOutputContract = (config: unknown): ZodTypeAny | 'unknown' =
 }
 
 /**
+ * CALL_API's output contract resolves the picked endpoint's declared response
+ * schema from the in-process endpoint catalog (lib/endpoint-catalog.ts).
+ * That helper is server-only, so — like the executor — it is reached through
+ * a runtime binding seam: server-output-contract.ts binds the resolver when
+ * it loads. Unbound runtimes (the browser), unmatched or free-text endpoints,
+ * and templated methods all degrade honestly to 'unknown'.
+ */
+export type CallApiResponseSchemaResolver = (endpoint: string, method: string) => ZodTypeAny | 'unknown'
+
+let boundCallApiResponseSchemaResolver: CallApiResponseSchemaResolver | null = null
+
+export function bindCallApiResponseSchemaResolver(resolver: CallApiResponseSchemaResolver): void {
+  boundCallApiResponseSchemaResolver = resolver
+}
+
+const resolveCallApiOutputContract = (config: unknown): ZodTypeAny | 'unknown' => {
+  if (!boundCallApiResponseSchemaResolver) return 'unknown'
+  if (typeof config !== 'object' || config === null) return 'unknown'
+  const record = config as Record<string, unknown>
+  const endpoint = record.endpoint
+  if (typeof endpoint !== 'string' || endpoint.length === 0) return 'unknown'
+  const rawMethod = record.method
+  if (rawMethod !== undefined && typeof rawMethod !== 'string') return 'unknown'
+  const method = typeof rawMethod === 'string' && rawMethod.length > 0 ? rawMethod : 'GET'
+  if (method.includes('{{')) return 'unknown'
+  return boundCallApiResponseSchemaResolver(endpoint, method)
+}
+
+/**
  * Would-do mocks receive raw (possibly still-templated) config, so they read
  * keys defensively instead of trusting a schema parse: callers like the
  * test-step route interpolate before invoking, but nothing guarantees it.
@@ -245,6 +274,7 @@ export function registerBuiltinActivityTypes(): void {
     ],
     execute: async (config, ctx, deps) => (await loadExecutor()).executeCallApi(deps.em, config, ctx, deps.container, deps.signal),
     async: { capable: false, reason: 'mintsPerRequestKey' },
+    outputContract: resolveCallApiOutputContract,
     mock: 'refuse',
   })
 

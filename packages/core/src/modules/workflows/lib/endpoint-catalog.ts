@@ -17,10 +17,14 @@
  * `endpoint` config values look like (`buildApiUrl` only accepts `/api/*`).
  */
 
+import { ZodType } from 'zod'
+import type { ZodTypeAny } from 'zod'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import { getApiRouteManifests } from '@open-mercato/shared/modules/registry'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { attachOpenApiDocsToModules, buildOpenApiDocument } from '@open-mercato/shared/lib/openapi'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findMatchingEndpoint } from './endpoint-path'
 
 export type WorkflowEndpointParamLocation = 'path' | 'query' | 'header'
 
@@ -153,10 +157,87 @@ export function buildEndpointCatalog(modules: Module[]): WorkflowEndpointCatalog
   return { items }
 }
 
+interface EndpointResponseSchemaEntry {
+  path: string
+  method: string
+  schema: ZodTypeAny | null
+}
+
+function normalizeDocPath(path: string): string {
+  const segments = path
+    .split('/')
+    .filter((segment) => segment.length > 0)
+    .map((segment) => {
+      const optionalCatchAll = segment.match(/^\[\[\.\.\.(.+)\]\]$/)
+      if (optionalCatchAll) return `{${optionalCatchAll[1]}}`
+      const catchAll = segment.match(/^\[\.\.\.(.+)\]$/)
+      if (catchAll) return `{${catchAll[1]}}`
+      const dynamic = segment.match(/^\[(.+)\]$/)
+      if (dynamic) return `{${dynamic[1]}}`
+      return segment
+    })
+  return `/${segments.join('/')}`
+}
+
+function successResponseZodSchema(methodDoc: OpenApiMethodDoc | undefined): ZodTypeAny | null {
+  if (!methodDoc || !Array.isArray(methodDoc.responses)) return null
+  const declaredSuccesses = methodDoc.responses
+    .filter(
+      (response) =>
+        typeof response?.status === 'number' &&
+        response.status >= 200 &&
+        response.status < 300 &&
+        response.schema instanceof ZodType,
+    )
+    .sort((left, right) => left.status - right.status)
+  const schema = declaredSuccesses[0]?.schema
+  return schema instanceof ZodType ? schema : null
+}
+
+/**
+ * Index of the endpoint surface with each endpoint's declared zod success
+ * response schema (or null when none is declared), built from the SAME
+ * attached route docs the catalog projection reads. Every endpoint is
+ * indexed — not only those with schemas — so a literal route always wins the
+ * match over a sibling `{param}` template instead of borrowing its schema.
+ * Schemas stay zod (not JSON schema) so the CALL_API output contract can
+ * feed `flattenSchemaToContract` through the existing `resolveOutputContract`
+ * seam.
+ */
+function buildResponseSchemaIndex(modules: Module[]): EndpointResponseSchemaEntry[] {
+  const entries: EndpointResponseSchemaEntry[] = []
+  for (const moduleEntry of modules) {
+    for (const api of moduleEntry.apis ?? []) {
+      const rawPath = (api as { path?: unknown }).path
+      if (typeof rawPath !== 'string' || rawPath.length === 0) continue
+      const path = `/api${normalizeDocPath(rawPath)}`
+      if ('handlers' in api) {
+        const handlers = (api as { handlers?: Record<string, unknown> }).handlers ?? {}
+        const docs = (api as { docs?: OpenApiRouteDoc }).docs
+        for (const method of METHOD_ORDER) {
+          if (typeof handlers[method] !== 'function') continue
+          entries.push({ path, method, schema: successResponseZodSchema(docs?.methods?.[method]) })
+        }
+        continue
+      }
+      const legacyMethod = (api as { method?: unknown }).method
+      if (typeof legacyMethod !== 'string' || legacyMethod.length === 0) continue
+      entries.push({
+        path,
+        method: legacyMethod.toUpperCase(),
+        schema: successResponseZodSchema((api as { docs?: OpenApiMethodDoc }).docs),
+      })
+    }
+  }
+  return entries
+}
+
 let catalogPromise: Promise<WorkflowEndpointCatalog> | null = null
+let responseSchemaIndex: EndpointResponseSchemaEntry[] | null = null
 
 async function assembleCatalog(): Promise<WorkflowEndpointCatalog> {
   const docModules = await attachOpenApiDocsToModules(getModules(), getApiRouteManifests())
+  responseSchemaIndex = buildResponseSchemaIndex(docModules)
   return buildEndpointCatalog(docModules)
 }
 
@@ -170,6 +251,33 @@ export async function getWorkflowEndpointCatalog(): Promise<WorkflowEndpointCata
   return catalogPromise
 }
 
+/**
+ * Warms the per-process catalog cache, swallowing failures: callers that only
+ * need the sync `findEndpointResponseSchema` lookup (the context-schema
+ * route) degrade to 'unknown' contracts when assembly is impossible, e.g.
+ * when the module registry is not bootstrapped.
+ */
+export async function ensureWorkflowEndpointCatalog(): Promise<void> {
+  try {
+    await getWorkflowEndpointCatalog()
+  } catch {
+    return
+  }
+}
+
+/**
+ * Sync lookup over the warmed response-schema index. Returns null until
+ * `getWorkflowEndpointCatalog`/`ensureWorkflowEndpointCatalog` has resolved
+ * at least once in this process, and for endpoints without a declared zod
+ * success response.
+ */
+export function findEndpointResponseSchema(endpoint: string, method: string): ZodTypeAny | null {
+  if (!responseSchemaIndex) return null
+  const matched = findMatchingEndpoint(endpoint, method, responseSchemaIndex)
+  return matched ? matched.item.schema : null
+}
+
 export function clearWorkflowEndpointCatalogForTests(): void {
   catalogPromise = null
+  responseSchemaIndex = null
 }

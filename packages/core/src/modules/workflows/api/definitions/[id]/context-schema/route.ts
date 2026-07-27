@@ -28,6 +28,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { WorkflowDefinition, type WorkflowDefinitionData } from '../../../../data/entities'
 import { computeContextLedger, type LedgerWorkflowDefinition } from '../../../../lib/context-ledger'
+import { ensureWorkflowEndpointCatalog } from '../../../../lib/endpoint-catalog'
 import { resolveServerOutputContract } from '../../../../lib/server-output-contract'
 import { getCodeWorkflow, getAllCodeWorkflows } from '../../../../lib/code-registry'
 import { codeWorkflowUuid } from '../../../../lib/find-definition'
@@ -119,6 +120,8 @@ export async function GET(
     }
 
     const stepId = new URL(request.url).searchParams.get('stepId')
+
+    await ensureWorkflowEndpointCatalog()
 
     if (params.id.startsWith('code:')) {
       const workflowId = params.id.slice(5)

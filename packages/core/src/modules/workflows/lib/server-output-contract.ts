@@ -20,8 +20,19 @@
 import { ZodType } from 'zod'
 import './activity-registry-bootstrap'
 import { getActivityType } from './activity-registry'
+import { bindCallApiResponseSchemaResolver } from './activity-types'
+import { findEndpointResponseSchema } from './endpoint-catalog'
 import { flattenSchemaToContract } from './ledger-schema-flatten'
 import type { ResolveOutputContract } from './context-ledger'
+
+/**
+ * CALL_API's registry outputContract reaches the server-only endpoint
+ * catalog through this binding (mirroring bindActivityExecutor). The sync
+ * lookup reads the per-process catalog cache, so callers that want CALL_API
+ * contracts resolved must `await ensureWorkflowEndpointCatalog()` first —
+ * the context-schema route does; unwarmed processes degrade to 'unknown'.
+ */
+bindCallApiResponseSchemaResolver((endpoint, method) => findEndpointResponseSchema(endpoint, method) ?? 'unknown')
 
 export const resolveServerOutputContract: ResolveOutputContract = (activityType, config) => {
   const entry = getActivityType(activityType)

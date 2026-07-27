@@ -19,7 +19,7 @@
 | 1 | 1.3 | Strict interpolation mode (schema field, threading, create default, editor toggle) | done | 18a9e4db1 |
 | 1 | 1.4 | Workflows endpoint-catalog API (OpenAPI projection) | done | a9de51c55 |
 | 1 | 1.5 | EndpointPicker component + CALL_API/CALL_WEBHOOK form wiring | done | f2248fc80 |
-| 1 | 1.6 | CALL_API outputContract → response schema into ledger | todo | — |
+| 1 | 1.6 | CALL_API outputContract → response schema into ledger | done | f94a84ec7 |
 | 1 | 1.7 | Additive EventDefinition payloadSchema + /api/events exposure | todo | — |
 | 1 | 1.8 | Trigger editor: payload-path filter builder + mapping pickers + safe-default copy | todo | — |
 | 1 | 1.9 | Ledger: typed trigger contextMapping contributions | todo | — |
