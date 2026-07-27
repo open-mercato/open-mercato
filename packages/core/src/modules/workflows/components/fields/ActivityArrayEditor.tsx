@@ -18,6 +18,7 @@ import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { DurationInput } from '@open-mercato/ui/backend/inputs/DurationInput'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { LedgerEntry } from '../../lib/context-ledger'
 import { useActivityTypeOptions } from './useActivityTypeOptions'
 import { ActivityConfigFields, hasActivityConfigForm } from './ActivityConfigFields'
 
@@ -43,6 +44,7 @@ export interface Activity {
 
 interface ActivityArrayEditorProps extends CrudCustomFieldRenderProps {
   value: Activity[]
+  ledgerEntries?: LedgerEntry[]
 }
 
 /**
@@ -57,7 +59,7 @@ interface ActivityArrayEditorProps extends CrudCustomFieldRenderProps {
  *
  * Used by both EdgeEditDialog and NodeEditDialog (automated type)
  */
-export function ActivityArrayEditor({ id, value = [], error, setValue, disabled }: ActivityArrayEditorProps) {
+export function ActivityArrayEditor({ id, value = [], error, setValue, disabled, ledgerEntries }: ActivityArrayEditorProps) {
   const t = useT()
   const activityTypeOptions = useActivityTypeOptions()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -387,6 +389,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                             idPrefix={`${id}-${index}-config`}
                             config={activity.config || {}}
                             onChange={(config) => updateActivity(index, 'config', config)}
+                            ledgerEntries={ledgerEntries}
                             disabled={disabled}
                           />
                           <div>

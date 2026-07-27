@@ -13,8 +13,10 @@ import { Plus, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import '../../lib/activity-registry-bootstrap'
 import { getActivityType, type ActivityFormFieldSpec } from '../../lib/activity-registry'
+import type { LedgerEntry } from '../../lib/context-ledger'
 import { CommandPicker } from './CommandPicker'
 import { FunctionPicker } from './FunctionPicker'
+import { VariablePickerButton } from './VariablePickerButton'
 
 /**
  * Registry-driven config form for workflow activities (spec
@@ -410,10 +412,11 @@ export interface ActivityConfigFieldsProps {
   idPrefix: string
   config: Record<string, unknown>
   onChange: (config: Record<string, unknown>) => void
+  ledgerEntries?: LedgerEntry[]
   disabled?: boolean
 }
 
-export function ActivityConfigFields({ activityType, idPrefix, config, onChange, disabled }: ActivityConfigFieldsProps) {
+export function ActivityConfigFields({ activityType, idPrefix, config, onChange, ledgerEntries, disabled }: ActivityConfigFieldsProps) {
   const t = useT()
   const entry = getActivityType(activityType)
   if (!entry || entry.form.length === 0) return null
@@ -457,14 +460,23 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
         const current = stringValue(rawValue)
         if (containsTemplate(current)) {
           return (
-            <Input
-              id={fieldId}
-              type="text"
-              value={current}
-              onChange={(event) => setField(spec, event.target.value)}
-              className="text-xs"
-              disabled={disabled}
-            />
+            <div className="flex items-center gap-1">
+              <Input
+                id={fieldId}
+                type="text"
+                value={current}
+                onChange={(event) => setField(spec, event.target.value)}
+                className="flex-1 text-xs"
+                disabled={disabled}
+              />
+              <VariablePickerButton
+                targetId={fieldId}
+                value={current}
+                onValueChange={(nextValue) => setField(spec, nextValue)}
+                ledgerEntries={ledgerEntries}
+                disabled={disabled}
+              />
+            </div>
           )
         }
         return (
@@ -480,14 +492,23 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
       }
       case 'textarea':
         return (
-          <Textarea
-            id={fieldId}
-            value={stringValue(rawValue)}
-            onChange={(event) => setField(spec, event.target.value)}
-            rows={4}
-            className="text-xs"
-            disabled={disabled}
-          />
+          <div className="flex items-start gap-1">
+            <Textarea
+              id={fieldId}
+              value={stringValue(rawValue)}
+              onChange={(event) => setField(spec, event.target.value)}
+              rows={4}
+              className="flex-1 text-xs"
+              disabled={disabled}
+            />
+            <VariablePickerButton
+              targetId={fieldId}
+              value={stringValue(rawValue)}
+              onValueChange={(nextValue) => setField(spec, nextValue)}
+              ledgerEntries={ledgerEntries}
+              disabled={disabled}
+            />
+          </div>
         )
       case 'eventName':
         return (
@@ -558,14 +579,23 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
         )
       default:
         return (
-          <Input
-            id={fieldId}
-            type="text"
-            value={stringValue(rawValue)}
-            onChange={(event) => setField(spec, event.target.value)}
-            className="text-xs"
-            disabled={disabled}
-          />
+          <div className="flex items-center gap-1">
+            <Input
+              id={fieldId}
+              type="text"
+              value={stringValue(rawValue)}
+              onChange={(event) => setField(spec, event.target.value)}
+              className="flex-1 text-xs"
+              disabled={disabled}
+            />
+            <VariablePickerButton
+              targetId={fieldId}
+              value={stringValue(rawValue)}
+              onValueChange={(nextValue) => setField(spec, nextValue)}
+              ledgerEntries={ledgerEntries}
+              disabled={disabled}
+            />
+          </div>
         )
     }
   }

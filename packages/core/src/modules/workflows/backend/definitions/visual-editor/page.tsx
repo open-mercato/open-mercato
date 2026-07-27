@@ -83,13 +83,17 @@ const DRAFT_SAVED_LABEL_REFRESH_MS = 30000
  * channel as activity-config warnings, so `collectValidationIssues` maps them
  * to nodes/edges and they never block saves.
  */
+function computeClientContextLedger(definitionData: WorkflowDefinitionData) {
+  return computeContextLedger(definitionData as unknown as LedgerWorkflowDefinition, {
+    resolveOutputContract: () => 'unknown',
+  })
+}
+
 function collectContextRefWarnings(
   definitionData: WorkflowDefinitionData,
   translate: ReturnType<typeof useT>,
 ): ZodIssueLike[] {
-  const ledger = computeContextLedger(definitionData as unknown as LedgerWorkflowDefinition, {
-    resolveOutputContract: () => 'unknown',
-  })
+  const ledger = computeClientContextLedger(definitionData)
   return collectUnresolvedContextRefWarnings(definitionData, ledger).map((warning) => ({
     path: warning.path,
     message: translate(
@@ -543,6 +547,37 @@ export default function VisualEditorPage() {
     setEdges((eds) => appendWorkflowEdge(eds, newEdge))
   }, [])
 
+  // Ledger entries for the variable picker in the open edit dialog (spec
+  // section 3.5, step 3.2). Computed lazily — only while a dialog is open —
+  // with the same client-side 'unknown'-contract ledger the Problems warnings
+  // use, so the picker never offers a path the ref checker would then flag.
+  // Node dialogs get the edited step's incoming view; edge dialogs get the
+  // TARGET step's incoming view, matching the transition scope rule in
+  // lib/expression-refs.ts.
+  const dialogLedger = useMemo(() => {
+    if (!showNodeDialog && !showEdgeDialog) return null
+    try {
+      const definitionData = buildDefinitionPayload({
+        graphDefinition: graphToDefinition(nodes, edges),
+        triggers,
+        contextSchema,
+      })
+      return computeClientContextLedger(definitionData)
+    } catch {
+      return null
+    }
+  }, [showNodeDialog, showEdgeDialog, nodes, edges, triggers, contextSchema])
+
+  const nodeDialogLedgerEntries = useMemo(
+    () => (dialogLedger && selectedNode ? dialogLedger.steps[selectedNode.id]?.entries : undefined),
+    [dialogLedger, selectedNode],
+  )
+
+  const edgeDialogLedgerEntries = useMemo(
+    () => (dialogLedger && selectedEdge ? dialogLedger.steps[selectedEdge.target]?.entries : undefined),
+    [dialogLedger, selectedEdge],
+  )
+
   // Validate workflow — collect every graph and schema issue into the problems panel
   const handleValidate = useCallback(() => {
     const graphErrors = validateWorkflowGraph(nodes, edges)
@@ -922,12 +957,12 @@ export default function VisualEditorPage() {
   const sharedDialogs = (
     <>
       {crudFormDialogsEnabled ? (
-        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
+        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} />
       ) : (
         <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       )}
       {crudFormDialogsEnabled ? (
-        <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
+        <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} ledgerEntries={edgeDialogLedgerEntries} />
       ) : (
         <EdgeEditDialog edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
       )}

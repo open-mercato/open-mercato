@@ -96,6 +96,7 @@ export interface LedgerEntry {
   type: LedgerType
   presence: LedgerPresence
   source: LedgerEntrySource
+  sample?: unknown
 }
 
 export interface LedgerStepView {

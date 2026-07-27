@@ -12,6 +12,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { BusinessRuleConditionsEditor } from './fields/BusinessRuleConditionsEditor'
 import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
 import { edgeToFormValues, formValuesToEdgeUpdates, type EdgeFormValues } from '../lib/edgeFormTransforms'
+import type { LedgerEntry } from '../lib/context-ledger'
 
 /**
  * JsonConfigEditor - Custom field wrapper for JsonBuilder
@@ -32,6 +33,7 @@ export interface EdgeEditDialogCrudFormProps {
   onClose: () => void
   onSave: (edgeId: string, updates: Partial<Edge['data']>) => void
   onDelete: (edgeId: string) => void
+  ledgerEntries?: LedgerEntry[]
 }
 
 /**
@@ -51,7 +53,7 @@ export interface EdgeEditDialogCrudFormProps {
  * - Delete functionality with confirmation
  * - Keyboard shortcuts (Cmd/Ctrl+Enter save, Escape cancel)
  */
-export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete }: EdgeEditDialogCrudFormProps) {
+export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete, ledgerEntries }: EdgeEditDialogCrudFormProps) {
   const t = useT()
   const [initialValues, setInitialValues] = useState<Partial<EdgeFormValues>>({})
 
@@ -183,7 +185,7 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
       label: t('workflows.edgeEditor.activities'),
       type: 'custom',
       description: t('workflows.edgeEditor.activitiesDescription'),
-      component: (props) => <ActivityArrayEditor {...props} value={props.value as any} />,
+      component: (props) => <ActivityArrayEditor {...props} value={props.value as any} ledgerEntries={ledgerEntries} />,
     },
     {
       id: 'advancedConfig',
@@ -192,7 +194,7 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
       description: t('workflows.edgeEditor.advancedConfigHint'),
       component: (props) => <JsonConfigEditor {...props} />,
     },
-  ], [t])
+  ], [ledgerEntries, t])
 
   if (!isOpen || !edge) return null
 

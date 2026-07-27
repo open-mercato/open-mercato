@@ -21,6 +21,7 @@ import { RolesMultiSelect } from './fields/RolesMultiSelect'
 import { StartPreConditionsEditor } from './fields/StartPreConditionsEditor'
 import { nodeToFormValues, formValuesToNodeUpdates, isJsonSchemaFormat, type NodeFormValues } from '../lib/nodeFormTransforms'
 import { sanitizeId } from '../lib/graph-utils'
+import type { LedgerEntry } from '../lib/context-ledger'
 
 /**
  * JsonConfigEditor - Custom field wrapper for JsonBuilder
@@ -73,6 +74,7 @@ export interface NodeEditDialogCrudFormProps {
   onClose: () => void
   onSave: (nodeId: string, updates: Partial<Node['data']>) => void
   onDelete?: (nodeId: string) => void
+  ledgerEntries?: LedgerEntry[]
 }
 
 /**
@@ -94,7 +96,7 @@ export interface NodeEditDialogCrudFormProps {
  * - waitForTimer: Duration XOR wait-until timer configuration
  * - decision: Basic fields only
  */
-export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete }: NodeEditDialogCrudFormProps) {
+export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries }: NodeEditDialogCrudFormProps) {
   const t = useT()
   const activityTypeOptions = useActivityTypeOptions()
   const [initialValues, setInitialValues] = useState<Partial<NodeFormValues>>({})
@@ -394,7 +396,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       id: 'stepActivities',
       label: t('workflows.nodeEditor.groups.stepActivities'),
       type: 'custom',
-      component: (props) => <ActivityArrayEditor {...props} value={props.value as any} />,
+      component: (props) => <ActivityArrayEditor {...props} value={props.value as any} ledgerEntries={ledgerEntries} />,
     },
 
     // SubWorkflow fields
@@ -487,7 +489,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       description: t('workflows.fieldEditors.preConditions.description'),
       component: (props) => <StartPreConditionsEditor {...props} value={props.value as any} />,
     },
-  ], [activityTypeOptions, showJsonSchemaWarning, t])
+  ], [activityTypeOptions, showJsonSchemaWarning, ledgerEntries, t])
 
   if (!isOpen || !node) return null
 
