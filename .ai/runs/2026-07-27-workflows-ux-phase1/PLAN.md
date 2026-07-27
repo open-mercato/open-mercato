@@ -16,7 +16,7 @@
 | 1 | 1.4 | Async worker dispatch through the registry + CALL_API enqueue-time refusal | done | a669adaad |
 | 2 | 2.1 | Registry-driven activityTypeSchema and per-type config validation (warning severity) | done | 352ccb1c4 |
 | 3 | 3.1 | SET_VARIABLE activity type end-to-end | done | b2699c39d |
-| 3 | 3.1-review-fix | Harden SET_VARIABLE async/paths and route the production worker through the registry | done | 48cb0449b |
+| 3 | 3.1-review-fix | Harden SET_VARIABLE async/paths and route the production worker through the registry | done | 338f56b69 |
 | 7 | 7.2-ds-fix | Focus ring, radius, and label association on gallery and pickers | done | ee556a79f |
 | 4 | 4.1 | Shared activity-type options hook; kill hardcoded label arrays | done | 94b50edd3 |
 | 4 | 4.2 | Registry-driven config forms in ActivityArrayEditor (WAIT, SEND_EMAIL, CALL_WEBHOOK, CALL_API) | done | 6c986ee52 |
@@ -28,13 +28,13 @@
 | 6 | 6.1 | CommandHandler outputSchema seam with customers.deals.update exemplar | done | 14cee0c35 |
 | 7 | 7.1 | Template assets and templates list API | done | 62a30be35 |
 | 7 | 7.2 | Template gallery dialog wired into list page, empty state, and editor | done | a3fba3824 |
-| 7 | 7.1-review-fix | Static template imports to fix whole-project NFT tracing in build:app | done | 11b470eb6 |
+| 7 | 7.1-review-fix | Static template imports to fix whole-project NFT tracing in build:app | done | 9d5246070 |
 | 8 | 8.1 | workflow_definition_drafts entity and migration | done | a830038a2 |
 | 8 | 8.2 | Draft API routes (GET/PUT/DELETE, user-scoped) | done | 8167b6d2a |
 | 8 | 8.3 | Editor draft wiring: debounced draft save + restore banner | done | 7710c7957 |
 | 9 | 9.1 | Docs: AGENTS.md activity-type recipe rewrite + user-guide updates | done | f4555d693 |
-| 8 | 8.3-review-fix | Explicit comparator in draft-restore stable serializer | done | ac8b97796 |
-| 8 | 8.3-review-fix-2 | Fix visual-editor save regression caught by TC-WF-011 | done | d485d2097 |
+| 8 | 8.3-review-fix | Explicit comparator in draft-restore stable serializer | done | e1c382b30 |
+| 8 | 8.3-review-fix-2 | Fix visual-editor save regression caught by TC-WF-011 | done | c6e20581b |
 
 ## Goal
 

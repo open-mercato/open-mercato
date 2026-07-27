@@ -21,3 +21,7 @@
 
 ## 2026-07-27T18:20:00Z — checkpoint 4
 - Steps 5.1..8.1 (cdbeadb4e..a830038a2) verified: 844 core + 141 shared tests; migration reviewed clean (single table, no unrelated output).
+
+## 2026-07-28T01:30:00Z — final gate passed
+- Validation green (build:app needed 7.1-review-fix: static template imports + executor binding seam; base A/B test proved regression ours). Integration: 1699 passed; TC-WF-011 toast-literal assertion aligned + proven 5/5 scoped; onboarding failures same unrelated-env signature as Phase 0.
+- DS CLEAN (advisories landed in 7.2-ds-fix). Code review REQUEST_CHANGES → all majors fixed in 3.1-review-fix (second worker switch unified via executeRegistryActivity; SET_VARIABLE async refusal + proto-pollution guard).

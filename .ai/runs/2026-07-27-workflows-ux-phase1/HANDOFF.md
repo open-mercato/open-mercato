@@ -1,16 +1,16 @@
 # Handoff — 2026-07-27-workflows-ux-phase1
 
-**Last updated:** 2026-07-27T18:20:00Z
+**Last updated:** 2026-07-28T01:30:00Z
 **Branch:** feat/workflows-ux-phase1 (stacked on feat/workflows-ux-phase0, PR #4532)
 **PR:** not yet opened
-**Current phase/step:** Phase 8 Step 8.2
-**Last commit:** a830038a2 — feat(workflows): add workflow_definition_drafts entity and migration
+**Current phase/step:** complete — all 25 Tasks rows done, final gate passed
+**Last commit:** 1affb12c0 — style(workflows): focus ring and valid labeling for gallery cards and pickers
 
 ## What just happened
-- Checkpoint 4 passed (844 core + 141 shared tests). #4230 closed, outputSchema seam + exemplar, template gallery live on 3 surfaces, drafts entity + clean migration.
+- Final gate passed: full validation green, integration 1699 passed + TC-WF-011 fixed and proven (5/5 scoped), DS CLEAN + advisories landed, code review majors all fixed (worker unification, SET_VARIABLE hardening).
 
 ## Next concrete action
-- Step 8.2: draft API routes (GET/PUT/DELETE, user-scoped).
+- Open the stacked PR (base feat/workflows-ux-phase0), claim, labels, review pass, summary.
 
 ## Blockers / open questions
 - none
