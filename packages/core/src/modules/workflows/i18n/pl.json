@@ -1310,6 +1310,7 @@
   "workflows.visualEditor.problems.schemaValidationFailed": "Walidacja schematu nie powiodła się: {message}",
   "workflows.visualEditor.problems.summary": "Walidacja wykryła błędy: {errors} i ostrzeżenia: {warnings}.",
   "workflows.visualEditor.problems.title": "Problemy",
+  "workflows.visualEditor.problems.unresolvedContextRef": "Referencja kontekstu \"{path}\" nie jest dostarczana przez żaden wcześniejszy krok, wyzwalacz ani pole wejściowe",
   "workflows.visualEditor.problems.validationPassed": "Walidacja zakończona pomyślnie! Przepływ pracy jest poprawny i gotowy do zapisania.",
   "workflows.visualEditor.readOnly": "Tylko do odczytu",
   "workflows.visualEditor.runTest": "Uruchom test",

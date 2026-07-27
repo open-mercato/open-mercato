@@ -19,6 +19,8 @@ import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } 
 import { buildDefinitionPayload, buildMetadataPayload } from '../../../lib/definition-payload'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
 import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
+import { computeContextLedger, type LedgerWorkflowDefinition } from '../../../lib/context-ledger'
+import { collectUnresolvedContextRefWarnings } from '../../../lib/expression-refs'
 import { Page } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -52,7 +54,7 @@ import { ContextSchemaEditor } from '../../../components/ContextSchemaEditor'
 import { TemplateGalleryDialog, type WorkflowTemplateGalleryItem } from '../../../components/TemplateGalleryDialog'
 import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
-import type { WorkflowContextSchema, WorkflowDefinitionTrigger } from '../../../data/entities'
+import type { WorkflowContextSchema, WorkflowDefinitionData, WorkflowDefinitionTrigger } from '../../../data/entities'
 import type { WorkflowMetadataState, WorkflowMetadataHandlers } from '../../../data/types'
 import * as React from 'react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -68,6 +70,35 @@ type WorkflowDefinitionDraftPayload = {
 
 const DRAFT_AUTOSAVE_DEBOUNCE_MS = 2000
 const DRAFT_SAVED_LABEL_REFRESH_MS = 30000
+
+/**
+ * Ledger-checked context-reference warnings for the Problems panel (spec
+ * section 3.5). The editor validates UNSAVED state, so the ledger is computed
+ * CLIENT-side with `resolveOutputContract` pinned to 'unknown' instead of
+ * fetching the server ledger from the context-schema API: the client ledger is
+ * type-poorer (activity outputs stay single `unknown` nodes rather than typed
+ * contract entries) but structurally identical, and since `unknown` entries
+ * resolve every sub-path in the checker, the degradation can only suppress
+ * warnings, never fabricate them. Warnings merge into the same ZodIssueLike
+ * channel as activity-config warnings, so `collectValidationIssues` maps them
+ * to nodes/edges and they never block saves.
+ */
+function collectContextRefWarnings(
+  definitionData: WorkflowDefinitionData,
+  translate: ReturnType<typeof useT>,
+): ZodIssueLike[] {
+  const ledger = computeContextLedger(definitionData as unknown as LedgerWorkflowDefinition, {
+    resolveOutputContract: () => 'unknown',
+  })
+  return collectUnresolvedContextRefWarnings(definitionData, ledger).map((warning) => ({
+    path: warning.path,
+    message: translate(
+      'workflows.visualEditor.problems.unresolvedContextRef',
+      'Context reference "{path}" is not provided by any earlier step, trigger, or input',
+      { path: warning.refPath },
+    ),
+  }))
+}
 
 /**
  * VisualEditorPage - Visual workflow definition editor
@@ -525,7 +556,11 @@ export default function VisualEditorPage() {
       if (!result.success) {
         zodIssues = result.error.issues
       }
-      configWarnings = collectActivityConfigWarnings(definitionData)
+      const ledgerDefinition = buildDefinitionPayload({ graphDefinition: definitionData, triggers, contextSchema })
+      configWarnings = [
+        ...collectActivityConfigWarnings(definitionData),
+        ...collectContextRefWarnings(ledgerDefinition, t),
+      ]
     } catch (error) {
       schemaFailureMessage = error instanceof Error ? error.message : String(error)
     }
@@ -552,7 +587,7 @@ export default function VisualEditorPage() {
         errors > 0 ? 'error' : 'warning',
       )
     }
-  }, [nodes, edges, t])
+  }, [nodes, edges, triggers, contextSchema, t])
 
   // Focus the offending node or edge on the canvas when a problem row is clicked
   const handleProblemClick = useCallback((issue: WorkflowValidationIssue) => {
@@ -586,7 +621,10 @@ export default function VisualEditorPage() {
     const issues = collectValidationIssues({
       graphErrors,
       zodIssues: schemaResult.success ? [] : schemaResult.error.issues,
-      configWarnings: collectActivityConfigWarnings(definitionData),
+      configWarnings: [
+        ...collectActivityConfigWarnings(definitionData),
+        ...collectContextRefWarnings(definitionData, t),
+      ],
       nodes,
       edges,
     })

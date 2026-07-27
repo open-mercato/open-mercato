@@ -1310,6 +1310,7 @@
   "workflows.visualEditor.problems.schemaValidationFailed": "Schema validation failed: {message}",
   "workflows.visualEditor.problems.summary": "Validation found {errors} error(s) and {warnings} warning(s).",
   "workflows.visualEditor.problems.title": "Problems",
+  "workflows.visualEditor.problems.unresolvedContextRef": "Context reference \"{path}\" is not provided by any earlier step, trigger, or input",
   "workflows.visualEditor.problems.validationPassed": "Validation passed! Your workflow is valid and ready to save.",
   "workflows.visualEditor.readOnly": "Read-only",
   "workflows.visualEditor.runTest": "Run Test",

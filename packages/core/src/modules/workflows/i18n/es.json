@@ -1310,6 +1310,7 @@
   "workflows.visualEditor.problems.schemaValidationFailed": "La validación del esquema falló: {message}",
   "workflows.visualEditor.problems.summary": "La validación encontró {errors} error(es) y {warnings} advertencia(s).",
   "workflows.visualEditor.problems.title": "Problemas",
+  "workflows.visualEditor.problems.unresolvedContextRef": "La referencia de contexto \"{path}\" no la proporciona ningún paso anterior, disparador o campo de entrada",
   "workflows.visualEditor.problems.validationPassed": "¡Validación superada! Tu flujo de trabajo es válido y está listo para guardar.",
   "workflows.visualEditor.readOnly": "Solo lectura",
   "workflows.visualEditor.runTest": "Ejecutar prueba",

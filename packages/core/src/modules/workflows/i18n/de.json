@@ -1310,6 +1310,7 @@
   "workflows.visualEditor.problems.schemaValidationFailed": "Schemavalidierung fehlgeschlagen: {message}",
   "workflows.visualEditor.problems.summary": "Die Validierung hat {errors} Fehler und {warnings} Warnungen gefunden.",
   "workflows.visualEditor.problems.title": "Probleme",
+  "workflows.visualEditor.problems.unresolvedContextRef": "Kontextreferenz \"{path}\" wird von keinem früheren Schritt, Trigger oder Eingabefeld bereitgestellt",
   "workflows.visualEditor.problems.validationPassed": "Validierung erfolgreich! Der Workflow ist gültig und kann gespeichert werden.",
   "workflows.visualEditor.readOnly": "Schreibgeschützt",
   "workflows.visualEditor.runTest": "Test ausführen",

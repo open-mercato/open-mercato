@@ -16,7 +16,7 @@
 | 2 | 2.1 | Pure context-ledger module with fixpoint and maybe semantics | done | 892e73b61 |
 | 2 | 2.2 | Zod-to-ledger flattener and outputContract wiring | done | 3e03f7f04 |
 | 2 | 2.3 | Context-schema API route | done | d9caa2097 |
-| 3 | 3.1 | Expression-reference extraction and ledger-checked warnings in Problems | todo | — |
+| 3 | 3.1 | Expression-reference extraction and ledger-checked warnings in Problems | done | fec8ada45 |
 | 3 | 3.2 | Variable picker button in activity config fields | todo | — |
 | 3 | 3.3 | Picker in mapping rows and trigger expressions | todo | — |
 | 4 | 4.1 | Pinned samples storage with size cap and precedence resolver | todo | — |
