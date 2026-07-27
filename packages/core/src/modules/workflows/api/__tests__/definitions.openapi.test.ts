@@ -12,6 +12,7 @@ import { openApi as definitionsOpenApi } from '../definitions/route'
 import { openApi as definitionDetailOpenApi } from '../definitions/[id]/route'
 import { openApi as customizeOpenApi } from '../definitions/[id]/customize/route'
 import { openApi as resetToCodeOpenApi } from '../definitions/[id]/reset-to-code/route'
+import { openApi as contextSchemaOpenApi } from '../definitions/[id]/context-schema/route'
 
 type SchemaNode = {
   type?: string
@@ -20,6 +21,8 @@ type SchemaNode = {
   items?: SchemaNode
   anyOf?: SchemaNode[]
   required?: string[]
+  additionalProperties?: SchemaNode | boolean
+  enum?: string[]
 }
 
 type MediaTypeNode = { schema?: SchemaNode; example?: unknown }
@@ -53,6 +56,11 @@ function buildDoc() {
           path: '/workflows/definitions/[id]/reset-to-code',
           handlers: { POST: noopHandler },
           docs: resetToCodeOpenApi,
+        },
+        {
+          path: '/workflows/definitions/[id]/context-schema',
+          handlers: { GET: noopHandler },
+          docs: contextSchemaOpenApi,
         },
       ],
     } as unknown as Module,
@@ -125,6 +133,23 @@ describe('Workflow Definitions OpenAPI response schemas', () => {
     const objectBranch = dataSchema?.anyOf?.find((branch) => branch.type === 'object')
     expectTypedDefinition(objectBranch)
     expect(schema.properties?.message?.type).toBe('string')
+  })
+
+  it('types the context-schema GET 200 response as a per-step ledger map', () => {
+    const schema = schemaFor('/workflows/definitions/{id}/context-schema', 'get', '200')
+    expect(schema.type).toBe('object')
+    expect(schema.description).not.toBe('Schema not declared')
+    const steps = schema.properties?.steps
+    expect(steps?.type).toBe('object')
+    const stepSchema = steps?.additionalProperties
+    expect(typeof stepSchema).toBe('object')
+    const entries = (stepSchema as SchemaNode).properties?.entries
+    expect(entries?.type).toBe('array')
+    const entry = entries?.items
+    expect(entry?.properties?.path?.type).toBe('string')
+    expect(entry?.properties?.type?.enum).toContain('unknown')
+    expect(entry?.properties?.presence?.enum).toEqual(['always', 'maybe'])
+    expect(entry?.properties?.source?.properties?.kind?.enum).toContain('asyncResult')
   })
 
   it('types the error responses with the shared error schema', () => {

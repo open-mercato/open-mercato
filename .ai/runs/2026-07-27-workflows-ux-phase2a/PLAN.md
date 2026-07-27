@@ -15,7 +15,7 @@
 | 1 | 1.3 | ContextSchemaEditor UI on the definition panel | done | 5050cb370 |
 | 2 | 2.1 | Pure context-ledger module with fixpoint and maybe semantics | done | ff845de46 |
 | 2 | 2.2 | Zod-to-ledger flattener and outputContract wiring | done | ce0b9f891 |
-| 2 | 2.3 | Context-schema API route | todo | — |
+| 2 | 2.3 | Context-schema API route | done | 58ae0af01 |
 | 3 | 3.1 | Expression-reference extraction and ledger-checked warnings in Problems | todo | — |
 | 3 | 3.2 | Variable picker button in activity config fields | todo | — |
 | 3 | 3.3 | Picker in mapping rows and trigger expressions | todo | — |

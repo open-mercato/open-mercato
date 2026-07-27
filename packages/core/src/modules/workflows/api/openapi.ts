@@ -447,3 +447,39 @@ export const workflowDefinitionDraftMutationResponseSchema = z.object({
 export const workflowDefinitionDraftDeleteResponseSchema = z.object({
   message: z.string(),
 })
+
+// ---------------------------------------------------------------------------
+// Workflow Context Schema (per-step ledger) Schemas
+// ---------------------------------------------------------------------------
+
+export const ledgerEntrySourceSchema = z.object({
+  kind: z.enum([
+    'contextSchema',
+    'trigger',
+    'activity',
+    'setVariable',
+    'userTask',
+    'signal',
+    'subWorkflow',
+    'join',
+    'asyncResult',
+  ]).describe('What kind of producer contributes this context entry'),
+  stepId: z.string().optional().describe('Producing step, when the producer is step-bound'),
+  activityId: z.string().optional().describe('Producing activity, when the producer is an activity'),
+  label: z.string().describe('Stable machine-readable producer label (e.g. "trigger:<id>:payload")'),
+})
+
+export const ledgerEntrySchema = z.object({
+  path: z.string().describe('Dot path in workflow context ("*" is the untyped whole-payload wildcard)'),
+  type: z.enum(['text', 'number', 'boolean', 'select', 'date', 'object', 'unknown']),
+  presence: z.enum(['always', 'maybe']).describe('"always" only when the entry is present on every incoming route'),
+  source: ledgerEntrySourceSchema,
+})
+
+export const workflowContextSchemaStepSchema = z.object({
+  entries: z.array(ledgerEntrySchema),
+})
+
+export const workflowContextSchemaResponseSchema = z.object({
+  steps: z.record(z.string(), workflowContextSchemaStepSchema).describe('Per-step incoming context ledger, keyed by stepId'),
+})
