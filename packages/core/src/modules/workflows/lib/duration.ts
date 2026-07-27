@@ -49,3 +49,20 @@ export function parseDuration(duration: string): number {
 
   throw new Error(`Invalid duration format: ${duration}`)
 }
+
+export function calculateWaitDelayMs(config: { duration?: string; until?: string }): number {
+  if (config.until) {
+    const targetDate = new Date(config.until)
+    if (isNaN(targetDate.getTime())) {
+      throw new Error(`WAIT activity: invalid "until" datetime: ${config.until}`)
+    }
+    const delayMs = targetDate.getTime() - Date.now()
+    return Math.max(0, delayMs)
+  }
+
+  if (config.duration) {
+    return parseDuration(config.duration)
+  }
+
+  throw new Error('WAIT activity requires "duration" (e.g., "PT5M", "1h") or "until" (ISO 8601 datetime)')
+}

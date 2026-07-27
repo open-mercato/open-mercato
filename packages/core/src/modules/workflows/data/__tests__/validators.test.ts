@@ -110,10 +110,26 @@ describe('Workflows Validators', () => {
       expect(activityTypeSchema.parse('CALL_WEBHOOK')).toBe('CALL_WEBHOOK')
       expect(activityTypeSchema.parse('EXECUTE_FUNCTION')).toBe('EXECUTE_FUNCTION')
       expect(activityTypeSchema.parse('WAIT')).toBe('WAIT')
+      expect(activityTypeSchema.parse('SET_VARIABLE')).toBe('SET_VARIABLE')
+      expect(activityTypeSchema.parse('INVOKE_AGENT')).toBe('INVOKE_AGENT')
     })
 
     test('should reject invalid activity types', () => {
       expect(() => activityTypeSchema.parse('INVALID')).toThrow()
+    })
+
+    test('should expose exactly the registry-driven builtin ids', () => {
+      expect([...activityTypeSchema.options].sort()).toEqual([
+        'CALL_API',
+        'CALL_WEBHOOK',
+        'EMIT_EVENT',
+        'EXECUTE_FUNCTION',
+        'INVOKE_AGENT',
+        'SEND_EMAIL',
+        'SET_VARIABLE',
+        'UPDATE_ENTITY',
+        'WAIT',
+      ])
     })
   })
 

@@ -20,6 +20,7 @@ export interface ZodIssueLike {
 export interface CollectValidationIssuesInput {
   graphErrors: ValidationError[]
   zodIssues?: ZodIssueLike[]
+  configWarnings?: ZodIssueLike[]
   nodes: Node[]
   edges: Edge[]
 }
@@ -55,7 +56,7 @@ function formatZodPath(path: Array<string | number | symbol>): string {
 }
 
 export function collectValidationIssues(input: CollectValidationIssuesInput): WorkflowValidationIssue[] {
-  const { graphErrors, zodIssues = [], nodes, edges } = input
+  const { graphErrors, zodIssues = [], configWarnings = [], nodes, edges } = input
 
   const graphIssues: WorkflowValidationIssue[] = graphErrors.map((error, index) => ({
     id: `graph-${index}`,
@@ -78,7 +79,17 @@ export function collectValidationIssues(input: CollectValidationIssuesInput): Wo
     }
   })
 
-  const all = [...graphIssues, ...schemaIssues]
+  const configWarningIssues: WorkflowValidationIssue[] = configWarnings.map((issue, index) => {
+    const pathText = formatZodPath(issue.path)
+    return {
+      id: `config-${index}`,
+      severity: 'warning',
+      message: pathText ? `${pathText} - ${issue.message}` : issue.message,
+      ...mapZodPathToGraph(issue.path, nodes, edges),
+    }
+  })
+
+  const all = [...graphIssues, ...schemaIssues, ...configWarningIssues]
   const errors = all.filter((issue) => issue.severity === 'error')
   const warnings = all.filter((issue) => issue.severity === 'warning')
   return [...errors, ...warnings]

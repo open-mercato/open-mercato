@@ -1,47 +1,54 @@
 import { z } from 'zod'
-import { parseDuration } from '../lib/duration'
+import '../lib/activity-registry-bootstrap'
+import { activityTypeIds } from '../lib/activity-registry'
+import {
+  DURATION_ERROR,
+  UNTIL_ERROR,
+  UNTIL_PAST_ERROR,
+  invokeAgentConfigSchema,
+  isFutureIsoDateString,
+  isValidDurationString,
+  isValidIsoDateString,
+} from './activity-config-schemas'
 
 /**
  * Workflows Module - Zod Validators
  *
  * Comprehensive validation schemas for workflow engine entities.
+ *
+ * Per-type activity config schemas live in activity-config-schemas.ts (the
+ * registry bootstrap depends on them, and this module depends on the
+ * bootstrap for the registry-driven activityTypeSchema) and are re-exported
+ * here to keep the historical import surface stable.
  */
 
+export {
+  isValidDurationString,
+  isValidIsoDateString,
+  isFutureIsoDateString,
+  callApiConfigSchema,
+  callWebhookConfigSchema,
+  sendEmailConfigSchema,
+  emitEventConfigSchema,
+  updateEntityConfigSchema,
+  executeFunctionConfigSchema,
+  invokeAgentConfigSchema,
+  setVariableAssignmentSchema,
+  setVariableConfigSchema,
+  waitConfigSchema,
+} from './activity-config-schemas'
+export type {
+  CallWebhookConfig,
+  SendEmailConfig,
+  EmitEventConfig,
+  UpdateEntityConfig,
+  ExecuteFunctionConfig,
+  InvokeAgentConfig,
+  SetVariableConfig,
+  WaitConfig,
+} from './activity-config-schemas'
+
 const uuid = z.uuid()
-
-// Variable interpolation tokens (e.g., {{context.timeout}}) are resolved at
-// run time, so we must skip strict syntax checks on them at save time.
-const containsTemplate = (value: string) => value.includes('{{')
-
-export function isValidDurationString(value: unknown): boolean {
-  if (typeof value !== 'string' || value.length === 0) return false
-  if (containsTemplate(value)) return true
-  try {
-    const ms = parseDuration(value)
-    return Number.isFinite(ms) && ms > 0
-  } catch {
-    return false
-  }
-}
-
-export function isValidIsoDateString(value: unknown): boolean {
-  if (typeof value !== 'string' || value.length === 0) return false
-  if (containsTemplate(value)) return true
-  const d = new Date(value)
-  return !Number.isNaN(d.getTime())
-}
-
-export function isFutureIsoDateString(value: unknown): boolean {
-  if (typeof value !== 'string' || value.length === 0) return false
-  if (containsTemplate(value)) return true
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return false
-  return d.getTime() > Date.now()
-}
-
-const DURATION_ERROR = 'Invalid duration. Use ISO 8601 (e.g., PT5M, PT1H, P1D) or simple format (5m, 1h, 3d)'
-const UNTIL_ERROR = 'Invalid "until". Provide an ISO 8601 datetime string'
-const UNTIL_PAST_ERROR = '"until" must be a future datetime'
 
 // ============================================================================
 // Enum Schemas - Workflow Types and Statuses
@@ -105,41 +112,17 @@ export type UserTaskStatus = z.infer<typeof userTaskStatusSchema>
 export const transitionTriggerSchema = z.enum(['auto', 'manual', 'signal', 'timer'])
 export type TransitionTrigger = z.infer<typeof transitionTriggerSchema>
 
-export const activityTypeSchema = z.enum([
-  'SEND_EMAIL',
-  'CALL_API',
-  'UPDATE_ENTITY',
-  'EMIT_EVENT',
-  'CALL_WEBHOOK',
-  'EXECUTE_FUNCTION',
-  'WAIT',
-  'INVOKE_AGENT',
-])
+/**
+ * Registry-driven: the accepted activity types are whatever the Activity
+ * Registry has registered by the time this module loads (the bootstrap import
+ * above guarantees the built-ins, INVOKE_AGENT included). Registration order
+ * matters — the enum is frozen at this module's first import, so extension
+ * modules MUST call `registerActivityType` before anything imports these
+ * validators, or their types will be rejected by every schema built from this
+ * enum.
+ */
+export const activityTypeSchema = z.enum(activityTypeIds())
 export type ActivityType = z.infer<typeof activityTypeSchema>
-
-// INVOKE_AGENT activity configuration — runs a callable agent (area 02a) and
-// dispositions any actionable proposal. `onResult` is carried verbatim to the
-// agent_orchestrator disposition service.
-export const invokeAgentConfigSchema = z.object({
-  agentId: z.string().min(1),
-  input: z.record(z.string(), z.any()).default({}),
-  onResult: z.union([
-    z.object({ autoApproveThreshold: z.number().min(0).max(1) }),
-    z.object({ alwaysAsk: z.literal(true) }),
-  ]),
-  // Optional routing of the agent result into workflow context. Keys are the
-  // target context paths; values are plain dot-paths into the normalized agent
-  // result envelope (kind / disposition / proposalId / proposalPayload / data).
-  // Mirrors SUB_WORKFLOW's outputMapping. When omitted, the engine writes the
-  // legacy fixed keys (disposition / agentProposalId / proposalPayload).
-  outputMapping: z.record(z.string(), z.string()).optional(),
-  // Optional business-record descriptor ("what this process is about"), static
-  // or {{context.*}}-interpolated like the rest of the config. Forwarded opaquely
-  // to the agent_orchestrator bridge (additive; the enterprise module validates
-  // the shape) so its process projection can render a claim-centric caseload.
-  subject: z.record(z.string(), z.any()).optional(),
-})
-export type InvokeAgentConfig = z.infer<typeof invokeAgentConfigSchema>
 
 export const escalationTriggerSchema = z.enum(['sla_breach', 'no_progress', 'custom'])
 export type EscalationTrigger = z.infer<typeof escalationTriggerSchema>
@@ -222,24 +205,6 @@ export const workflowIoContractSchema = z.object({
 export type PortFieldType = z.infer<typeof portFieldTypeSchema>
 export type PortField = z.infer<typeof portFieldSchema>
 export type WorkflowIoContract = z.infer<typeof workflowIoContractSchema>
-
-// CALL_API activity configuration
-export const callApiConfigSchema = z.object({
-  endpoint: z.string().min(1, 'API endpoint is required'),
-  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']).default('GET'),
-  headers: z.record(z.string(), z.string()).optional(),
-  body: z.any().optional(),
-  validateTenantMatch: z.boolean().default(true).optional(),
-  timeout: z.number().int().positive().optional(),
-})
-
-export const callWebhookConfigSchema = z.object({
-  url: z.string().min(1, 'Webhook URL is required'),
-  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('POST'),
-  headers: z.record(z.string(), z.string()).optional(),
-  body: z.any().optional(),
-})
-export type CallWebhookConfig = z.infer<typeof callWebhookConfigSchema>
 
 // Retry policy
 export const retryPolicySchema = z.object({
@@ -801,6 +766,36 @@ export const workflowDefinitionFilterSchema = z.object({
 })
 
 export type WorkflowDefinitionFilter = z.infer<typeof workflowDefinitionFilterSchema>
+
+// ============================================================================
+// WorkflowDefinitionDraft Schemas
+// ============================================================================
+
+/**
+ * Lenient shape-only schema for per-user editor drafts (spec §4.7).
+ *
+ * A draft is autosaved mid-edit and may be structurally incomplete — missing
+ * START/END steps, dangling transitions, empty graphs — so it deliberately
+ * does NOT reuse workflowDefinitionDataSchema (min counts, fork/join graph
+ * rules). Only truly malformed payloads are rejected: steps and transitions
+ * must be arrays of objects. Unknown keys (triggers, queries, signals, timers,
+ * future fields) pass through untouched so a draft round-trips losslessly.
+ * Full validation runs when the draft is promoted via the definition PUT.
+ */
+export const workflowDefinitionDraftDataSchema = z.object({
+  steps: z.array(z.record(z.string(), z.unknown())),
+  transitions: z.array(z.record(z.string(), z.unknown())),
+}).passthrough()
+
+export type WorkflowDefinitionDraftData = z.infer<typeof workflowDefinitionDraftDataSchema>
+
+export const upsertWorkflowDefinitionDraftInputSchema = z.object({
+  definition: workflowDefinitionDraftDataSchema,
+  metadata: workflowMetadataSchema.optional().nullable(),
+  baseUpdatedAt: dateOrNull.optional(),
+}).strict()
+
+export type UpsertWorkflowDefinitionDraftApiInput = z.infer<typeof upsertWorkflowDefinitionDraftInputSchema>
 
 // ============================================================================
 // WorkflowInstance Schemas

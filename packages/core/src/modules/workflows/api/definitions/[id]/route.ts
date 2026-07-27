@@ -20,6 +20,12 @@ import {
   type UpdateWorkflowDefinitionApiInput,
 } from '../../../data/validators'
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from '../serialize'
+import {
+  workflowDefinitionDetailResponseSchema,
+  workflowDefinitionMutationResponseSchema,
+  workflowDefinitionDeleteResponseSchema,
+  workflowErrorSchema,
+} from '../../openapi'
 import { invalidateTriggerCache } from '../../../lib/event-trigger-service'
 import { getCodeWorkflow, getAllCodeWorkflows } from '../../../lib/code-registry'
 import { codeWorkflowUuid } from '../../../lib/find-definition'
@@ -535,6 +541,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow definition found',
+          schema: workflowDefinitionDetailResponseSchema,
           example: {
             data: {
               id: '123e4567-e89b-12d3-a456-426614174000',
@@ -614,6 +621,7 @@ export const openApi = {
         {
           status: 404,
           description: 'Workflow definition not found',
+          schema: workflowErrorSchema,
           example: {
             error: 'Workflow definition not found',
           },
@@ -692,6 +700,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow definition updated successfully',
+          schema: workflowDefinitionMutationResponseSchema,
           example: {
             data: {
               id: '123e4567-e89b-12d3-a456-426614174000',
@@ -758,6 +767,7 @@ export const openApi = {
         {
           status: 400,
           description: 'Validation error',
+          schema: workflowErrorSchema,
           example: {
             error: 'Validation failed',
             details: [
@@ -772,6 +782,7 @@ export const openApi = {
         {
           status: 404,
           description: 'Workflow definition not found',
+          schema: workflowErrorSchema,
           example: {
             error: 'Workflow definition not found',
           },
@@ -789,6 +800,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow definition deleted successfully',
+          schema: workflowDefinitionDeleteResponseSchema,
           example: {
             message: 'Workflow definition deleted successfully',
           },
@@ -796,6 +808,7 @@ export const openApi = {
         {
           status: 404,
           description: 'Workflow definition not found',
+          schema: workflowErrorSchema,
           example: {
             error: 'Workflow definition not found',
           },
@@ -803,6 +816,7 @@ export const openApi = {
         {
           status: 409,
           description: 'Cannot delete - active workflow instances exist',
+          schema: workflowErrorSchema,
           example: {
             error: 'Cannot delete workflow definition with 3 active instance(s)',
           },

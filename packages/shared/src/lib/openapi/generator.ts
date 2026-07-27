@@ -821,7 +821,7 @@ function buildResponses(
         : {
             content: {
               [mediaType]: {
-                schema: schema ?? { type: 'object' },
+                schema: schema ?? { type: 'object', description: 'Schema not declared' },
                 ...(example !== undefined ? { example } : {}),
               },
             },

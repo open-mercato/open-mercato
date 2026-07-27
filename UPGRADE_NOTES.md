@@ -24,6 +24,17 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.6 → 0.6.7 (unreleased)
 
+### Workflows UX Phase 1: activity registry, per-type config warnings, SET_VARIABLE, drafts table
+
+Phase 1 of the workflows UX redesign (`.ai/specs/2026-07-26-workflows-ux-redesign.md`) lands several changes downstream authors should know about:
+
+- **Per-type activity-config validation now runs on save and surfaces as editor/API WARNINGS.** Each activity's `config` is checked against its registered zod schema; failures are returned as non-blocking warnings, never schema errors, so legacy definitions that predate per-type validation keep saving unchanged. Strict (blocking) mode arrives later as an opt-in.
+- **New `SET_VARIABLE` activity type.** Writes `{ path, value }` assignments at dot paths into top-level workflow context (not namespaced under the activity name). Additive — no action required.
+- **`CALL_API` marked `async: true` is now refused at enqueue time** with a clear error (`Activity type CALL_API cannot run asynchronously`). Previously the job enqueued and failed opaquely in the background worker because the activity mints a per-request auth key that cannot cross the queue boundary. Definitions that relied on this never worked — remove the `async` flag from `CALL_API` activities.
+- **New `workflow_definition_drafts` table** backs per-user editor autosave (unique per definition+user+tenant). Run the migrations (`yarn db:migrate`) when upgrading — the workflows module ships `Migration20260727074335_workflows.ts`.
+
+Activity types themselves are now registry-driven (`registerActivityType` in `packages/core/src/modules/workflows/lib/activity-registry.ts`); see `apps/docs/docs/framework/workflows/extending.mdx` for the new extension recipe. Existing STABLE executor exports are unchanged.
+
 ### Scheduler queue targets now deliver one flat payload contract in both execution modes (#4221)
 
 The local scheduler used to wrap a scheduled queue target's configured `targetPayload` in an undocumented envelope (`{ scheduleId, scheduleName, scopeType, tenantId, organizationId, payload: { …targetPayload }, triggeredAt }`), while the asynchronous execute-schedule worker already spread `targetPayload` onto the worker payload root. Both paths now build their payload through one scheduler-owned helper (`packages/scheduler/src/modules/scheduler/lib/queueTargetPayload.ts`) and deliver the documented flat contract:

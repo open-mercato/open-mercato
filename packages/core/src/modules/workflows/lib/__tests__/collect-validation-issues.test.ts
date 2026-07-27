@@ -127,6 +127,43 @@ describe('collectValidationIssues', () => {
     const ids = issues.map((issue) => issue.id)
     expect(new Set(ids).size).toBe(ids.length)
   })
+
+  it('maps config warnings on transitions to the edge with warning severity', () => {
+    const issues = collectValidationIssues({
+      graphErrors: [],
+      configWarnings: [
+        { path: ['transitions', 1, 'activities', 0, 'config', 'to'], message: 'SEND_EMAIL requires "to"' },
+      ],
+      nodes,
+      edges,
+    })
+
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toMatchObject({
+      severity: 'warning',
+      message: 'transitions.1.activities.0.config.to - SEND_EMAIL requires "to"',
+      edgeId: 'e-step1-end',
+    })
+    expect(issues[0].nodeId).toBeUndefined()
+  })
+
+  it('maps config warnings on steps to the node and orders them after errors', () => {
+    const issues = collectValidationIssues({
+      graphErrors: [{ type: 'error', message: 'graph issue' }],
+      configWarnings: [
+        { path: ['steps', 1, 'activities', 0, 'config', 'eventName'], message: 'EMIT_EVENT requires "eventName"' },
+      ],
+      nodes,
+      edges,
+    })
+
+    expect(issues.map((issue) => issue.severity)).toEqual(['error', 'warning'])
+    expect(issues[1]).toMatchObject({
+      severity: 'warning',
+      nodeId: 'step1',
+      nodeLabel: 'Review Request',
+    })
+  })
 })
 
 describe('countIssuesBySeverity', () => {

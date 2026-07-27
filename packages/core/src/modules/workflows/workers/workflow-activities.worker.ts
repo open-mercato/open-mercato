@@ -11,17 +11,11 @@
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
 import type { WorkflowActivityJob } from '../lib/activity-queue-types'
 import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
 import { logWorkflowEvent } from '../lib/event-logger'
-import {
-  executeSendEmail,
-  executeCallApi,
-  executeEmitEvent,
-  executeUpdateEntity,
-  executeCallWebhook,
-  executeFunction,
-} from '../lib/activity-executor'
+import { executeRegistryActivity } from '../lib/activity-worker-handler'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { handleInvokeAgentJob, resumeParentAfterSubWorkflow } from '../lib/activity-worker-handler'
 
@@ -143,43 +137,18 @@ export default async function handle(
       userId: payload.userId,
     }
 
-    // Execute activity by type
-    const executeActivityByType = async (signal?: AbortSignal) => {
-      switch (payload.activityType) {
-        case 'SEND_EMAIL':
-          return await executeSendEmail(payload.activityConfig, activityContext, container)
-        case 'CALL_API':
-          return await executeCallApi(
-            em,
-            payload.activityConfig,
-            activityContext,
-            container,
-            signal
-          )
-        case 'EMIT_EVENT':
-          return await executeEmitEvent(payload.activityConfig, activityContext, container)
-        case 'UPDATE_ENTITY':
-          return await executeUpdateEntity(
-            em,
-            payload.activityConfig,
-            activityContext,
-            container
-          )
-        case 'CALL_WEBHOOK':
-          return await executeCallWebhook(payload.activityConfig, activityContext, { signal })
-        case 'EXECUTE_FUNCTION':
-          return await executeFunction(payload.activityConfig, activityContext, container)
-        case 'WAIT':
-          // Delay already handled by queue's delayMs — return success immediately
-          return { waited: true }
-        default:
-          throw new Error(`Unsupported activity type: ${payload.activityType}`)
-      }
-    }
+    // Execute the activity through the shared registry dispatch (lookup,
+    // async-capability gate, executeAsync ?? execute preference).
+    const executeActivityByType = async (signal?: AbortSignal) =>
+      executeRegistryActivity(payload, activityContext, {
+        em: em as PostgreSqlEntityManager,
+        container,
+        signal,
+      })
 
     // Execute with optional timeout. AbortController aborts in-flight fetches
     // when the timeout wins the race, preventing phantom executions.
-    let result: any
+    let result: unknown
     if (payload.timeoutMs && payload.timeoutMs > 0) {
       const abortController = new AbortController()
       const timeoutId = setTimeout(() => {

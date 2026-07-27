@@ -30,6 +30,10 @@ export function registerWorkflowSafeCommands(commands: readonly WorkflowSafeComm
   }
 }
 
+export function listWorkflowSafeCommands(): WorkflowSafeCommandDefinition[] {
+  return Array.from(workflowSafeCommands.values())
+}
+
 export function getWorkflowSafeCommand(commandId: unknown): WorkflowSafeCommandDefinition | null {
   const normalized = normalizeCommandId(commandId)
   if (!normalized) return null

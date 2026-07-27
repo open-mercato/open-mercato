@@ -23,15 +23,30 @@ import {
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
-import { callWebhookConfigSchema, invokeAgentConfigSchema } from '../data/validators'
+import {
+  callWebhookConfigSchema,
+  invokeAgentConfigSchema,
+  setVariableConfigSchema,
+} from '../data/activity-config-schemas'
+import {
+  buildSetVariableContextPatch,
+  isSetVariableOutput,
+  splitAssignmentPath,
+  type SetVariableOutput,
+} from './set-variable'
 import {
   WorkflowActivityJob,
   WorkflowActivityJobInvokeAgent,
   WORKFLOW_ACTIVITIES_QUEUE_NAME,
   WORKFLOW_INVOKE_AGENT_QUEUE_NAME,
 } from './activity-queue-types'
+import './activity-registry-bootstrap'
+import { bindActivityExecutor } from './activity-types'
+import { getActivityType } from './activity-registry'
 import { logWorkflowEvent } from './event-logger'
-import { parseDuration } from './duration'
+import { calculateWaitDelayMs, parseDuration } from './duration'
+
+export { calculateWaitDelayMs } from './duration'
 import { getWorkflowSafeCommand } from './workflow-safe-commands'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
@@ -103,6 +118,7 @@ export type ActivityType =
   | 'CALL_WEBHOOK'
   | 'EXECUTE_FUNCTION'
   | 'WAIT'
+  | 'SET_VARIABLE'
   | 'INVOKE_AGENT'
 
 /**
@@ -281,6 +297,15 @@ export async function enqueueActivity(
   const { workflowInstance, workflowContext, stepContext, transitionId, stepInstanceId, branchInstanceId } =
     context
 
+  const registryEntry = getActivityType(activity.activityType)
+  if (registryEntry && registryEntry.async.capable === false) {
+    throw new ActivityExecutionError(
+      `[internal] Activity type ${activity.activityType} cannot run asynchronously (${registryEntry.async.reason})`,
+      activity.activityType,
+      activity.activityName
+    )
+  }
+
   // Interpolate config variables NOW (before queuing)
   const interpolatedConfig = interpolateVariables(activity.config, workflowContext, workflowInstance)
 
@@ -303,11 +328,12 @@ export async function enqueueActivity(
     userId: context.userId,
   }
 
-  // Enqueue to queue (WAIT activities use delayMs for the actual delay)
+  // Enqueue to queue (entries with enqueueDelayMs, e.g. WAIT, use delayMs for the actual delay)
   const queue = getActivityQueue()
-  const enqueueOptions = activity.activityType === 'WAIT' && (interpolatedConfig.duration || interpolatedConfig.until)
-    ? { delayMs: calculateWaitDelayMs(interpolatedConfig) }
-    : undefined
+  const registryDelayMs = registryEntry?.enqueueDelayMs
+    ? registryEntry.enqueueDelayMs(interpolatedConfig)
+    : null
+  const enqueueOptions = registryDelayMs !== null ? { delayMs: registryDelayMs } : undefined
   const jobId = await queue.enqueue(job, enqueueOptions)
 
   // Log event
@@ -517,12 +543,21 @@ export async function executeActivities(
         break
       }
 
-      // Update workflow context with activity output
+      // Update workflow context with activity output. SET_VARIABLE outputs
+      // land at their assignment paths in top-level context; every other
+      // output merges under the activity name/type key.
       if (result.output && typeof result.output === 'object') {
-        const key = activity.activityName || activity.activityType
-        context.workflowContext = {
-          ...context.workflowContext,
-          [key]: result.output,
+        if (activity.activityType === 'SET_VARIABLE' && isSetVariableOutput(result.output)) {
+          context.workflowContext = {
+            ...context.workflowContext,
+            ...buildSetVariableContextPatch(context.workflowContext, result.output.assignments),
+          }
+        } else {
+          const key = activity.activityName || activity.activityType
+          context.workflowContext = {
+            ...context.workflowContext,
+            [key]: result.output,
+          }
         }
       }
     }
@@ -547,38 +582,19 @@ async function executeActivityByType(
   // Interpolate config variables from context (including workflow metadata)
   const interpolatedConfig = interpolateVariables(activity.config, context.workflowContext, context.workflowInstance)
 
-  switch (activity.activityType) {
-    case 'SEND_EMAIL':
-      return await executeSendEmail(interpolatedConfig, context, container)
-
-    case 'CALL_API':
-      return await executeCallApi(em, interpolatedConfig, context, container)
-
-    case 'EMIT_EVENT':
-      return await executeEmitEvent(interpolatedConfig, context, container)
-
-    case 'UPDATE_ENTITY':
-      return await executeUpdateEntity(em, interpolatedConfig, context, container)
-
-    case 'CALL_WEBHOOK':
-      return await executeCallWebhook(interpolatedConfig, context)
-
-    case 'EXECUTE_FUNCTION':
-      return await executeFunction(interpolatedConfig, context, container)
-
-    case 'WAIT':
-      return await executeWait(interpolatedConfig)
-
-    case 'INVOKE_AGENT':
-      return await executeInvokeAgent(interpolatedConfig, context, container)
-
-    default:
-      throw new ActivityExecutionError(
-        `Unknown activity type: ${activity.activityType}`,
-        activity.activityType,
-        activity.activityName
-      )
+  const entry = getActivityType(activity.activityType)
+  if (!entry) {
+    throw new ActivityExecutionError(
+      `Unknown activity type: ${activity.activityType}`,
+      activity.activityType,
+      activity.activityName
+    )
   }
+
+  return await entry.execute(interpolatedConfig, context, {
+    em: em as PostgreSqlEntityManager,
+    container,
+  })
 }
 
 /**
@@ -967,27 +983,6 @@ export async function executeFunction(
 }
 
 /**
- * Calculate delay in milliseconds from a WAIT activity config.
- * Supports either `duration` (relative, e.g. "PT5M") or `until` (absolute ISO 8601 datetime).
- */
-function calculateWaitDelayMs(config: { duration?: string; until?: string }): number {
-  if (config.until) {
-    const targetDate = new Date(config.until)
-    if (isNaN(targetDate.getTime())) {
-      throw new Error(`WAIT activity: invalid "until" datetime: ${config.until}`)
-    }
-    const delayMs = targetDate.getTime() - Date.now()
-    return Math.max(0, delayMs)
-  }
-
-  if (config.duration) {
-    return parseDuration(config.duration)
-  }
-
-  throw new Error('WAIT activity requires "duration" (e.g., "PT5M", "1h") or "until" (ISO 8601 datetime)')
-}
-
-/**
  * WAIT activity handler
  *
  * Delays workflow execution for a configured duration or until a specific datetime.
@@ -997,7 +992,7 @@ function calculateWaitDelayMs(config: { duration?: string; until?: string }): nu
  * - Async mode: delay is handled by the queue's delayMs option;
  *   this handler returns immediately when called from the worker
  */
-async function executeWait(config: any): Promise<any> {
+export async function executeWait(config: any): Promise<any> {
   const durationMs = calculateWaitDelayMs(config)
 
   // In sync mode, actually sleep for the duration
@@ -1005,6 +1000,42 @@ async function executeWait(config: any): Promise<any> {
   await sleep(durationMs)
 
   return { waited: true, durationMs }
+}
+
+/**
+ * SET_VARIABLE activity handler
+ *
+ * Validates the (already interpolated) assignments and echoes them back as
+ * `{ assignments }`. The sync merge points detect this output shape via
+ * `isSetVariableOutput` and apply each assignment at its dot path in
+ * top-level workflow context (see lib/set-variable.ts) instead of
+ * namespacing the output under the activity name/type key.
+ */
+export async function executeSetVariable(
+  config: unknown,
+  context: ActivityContext
+): Promise<SetVariableOutput> {
+  const parsed = setVariableConfigSchema.safeParse(config)
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((issue) => `${issue.path.join('.') || 'config'}: ${issue.message}`)
+      .join('; ')
+    throw new Error(`SET_VARIABLE config invalid: ${issues}`)
+  }
+
+  for (const assignment of parsed.data.assignments) {
+    const segments = splitAssignmentPath(assignment.path)
+    if (segments === null) {
+      throw new Error(
+        `SET_VARIABLE assignment path contains a forbidden segment (__proto__, constructor, prototype): "${assignment.path}"`
+      )
+    }
+    if (segments.length === 0) {
+      throw new Error(`SET_VARIABLE assignment path is blank: "${assignment.path}"`)
+    }
+  }
+
+  return { assignments: parsed.data.assignments }
 }
 
 /**
@@ -1706,3 +1737,14 @@ async function executeWithTimeout<T>(
     clearTimeout(timeoutId!)
   }
 }
+
+bindActivityExecutor({
+  executeSendEmail,
+  executeEmitEvent,
+  executeUpdateEntity,
+  executeCallWebhook,
+  executeFunction,
+  executeCallApi,
+  executeSetVariable,
+  executeInvokeAgent,
+})

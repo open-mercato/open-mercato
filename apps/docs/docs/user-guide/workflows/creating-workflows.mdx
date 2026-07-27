@@ -10,12 +10,15 @@ This guide walks you through creating a workflow from scratch using the visual e
 ## Getting Started
 
 1. Navigate to the **Workflows** section in the backend interface
-2. Click **Create Workflow** or the **New Workflow** button
-3. Choose your editor:
+2. Click **New Workflow** — the template gallery opens
+3. Pick a starting point:
+   - **A template**: Ready-made flows (order approval, lead-to-install, task escalation, webhook integration) you can preview and then adapt
+   - **Blank canvas**: Start from scratch
+4. Choose your editor:
    - **Visual Editor**: Drag-and-drop interface with a graphical canvas (recommended for most users)
    - **Form Editor**: Text-based configuration for advanced users
 
-For this guide, we'll use the Visual Editor.
+For this guide, we'll use the Visual Editor starting from a blank canvas.
 
 ![Workflow visual editor showing a sales order approval flow](/screenshots/open-mercato-workflows-visual-editor.png)
 
@@ -95,16 +98,14 @@ Let's send an email notification when the request is approved:
 4. Configure the activity:
    - **Activity Type**: "SEND_EMAIL"
    - **Activity Name**: "Notify Requester"
-   - **Config**:
-     ```json
-     {
-       "to": "{{context.requesterEmail}}",
-       "subject": "Your request has been approved",
-       "body": "Your purchase request for {{context.itemName}} has been approved."
-     }
-     ```
+   - Fill in the type-specific form fields:
+     - **To**: `{{context.requesterEmail}}`
+     - **Subject**: `Your request has been approved`
+     - **Body**: `Your purchase request for {{context.itemName}} has been approved.`
 
-> 💡 **Tip**: Use `{{context.fieldName}}` to insert workflow data into activity configurations.
+Each activity type shows its own form fields. If you need to paste or fine-tune raw configuration, expand the **Advanced** (JSON) section on the activity.
+
+> 💡 **Tip**: Use `{{context.fieldName}}` to insert workflow data into activity configurations. Invalid configuration is flagged as a non-blocking warning when you save.
 
 [**Learn more about activities →**](./activities)
 
@@ -119,6 +120,10 @@ Let's send an email notification when the request is approved:
 7. Click **Save Definition**
 
 Your workflow is now live and ready to accept new instances.
+
+### Draft Autosave
+
+While you edit, the editor autosaves your work as a personal draft every few seconds. Drafts never change the published definition — only clicking **Save** does. If you leave and come back with unsaved changes, a banner offers to **Restore draft** or **Discard** it; if someone else saved the definition in the meantime, the banner says so before you restore. A successful save removes the draft.
 
 ## Using the Form Editor
 

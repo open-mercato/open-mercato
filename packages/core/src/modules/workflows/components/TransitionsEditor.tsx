@@ -14,6 +14,7 @@ import {
 import { Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ConfigJsonTextarea } from './ConfigJsonTextarea'
+import { useActivityTypeOptions } from './fields/useActivityTypeOptions'
 
 interface Activity {
   activityId: string
@@ -67,18 +68,9 @@ const TRIGGER_TYPES = [
   { value: 'timer', label: 'Timer' },
 ]
 
-const ACTIVITY_TYPES = [
-  { value: 'SEND_EMAIL', label: 'Send Email' },
-  { value: 'CALL_API', label: 'Call API' },
-  { value: 'UPDATE_ENTITY', label: 'Update Entity' },
-  { value: 'EMIT_EVENT', label: 'Emit Event' },
-  { value: 'CALL_WEBHOOK', label: 'Call Webhook' },
-  { value: 'EXECUTE_FUNCTION', label: 'Execute Function' },
-  { value: 'WAIT', label: 'Wait' },
-]
-
 export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfigsChange, steps = [], error }: TransitionsEditorProps) {
   const t = useT()
+  const activityTypeOptions = useActivityTypeOptions()
   const [invalidConfigKeys, setInvalidConfigKeys] = React.useState<ReadonlySet<string>>(() => new Set())
   const lastReportedLabelsRef = React.useRef<string>('')
 
@@ -497,9 +489,9 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                {ACTIVITY_TYPES.map((type) => (
+                                {activityTypeOptions.map((type) => (
                                   <SelectItem key={type.value} value={type.value}>
-                                    {t(`workflows.activities.types.${type.value}`)}
+                                    {type.label}
                                   </SelectItem>
                                 ))}
                               </SelectContent>

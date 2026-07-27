@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { workflowDefinitionDataSchema, workflowDefinitionDraftDataSchema } from '../data/validators'
 
 export const workflowsTag = 'Workflows'
 
@@ -137,6 +138,60 @@ export const validateStartResponseSchema = z.object({
   workflowId: z.string(),
   errors: z.array(validateStartErrorSchema).optional(),
   validatedRules: z.array(validateStartRuleSchema).optional(),
+})
+
+// ---------------------------------------------------------------------------
+// Workflow Definition Response Schemas
+// ---------------------------------------------------------------------------
+
+export const workflowDefinitionSourceSchema = z.enum(['code', 'code_override', 'user'])
+
+export const workflowDefinitionResponseSchema = z
+  .object({
+    id: z.string().describe('UUID for DB definitions, or "code:<workflowId>" for code-based definitions'),
+    workflowId: z.string(),
+    workflowName: z.string(),
+    description: z.string().nullable(),
+    version: z.number().int(),
+    definition: workflowDefinitionDataSchema,
+    metadata: z.record(z.string(), z.unknown()).nullable(),
+    enabled: z.boolean(),
+    effectiveFrom: z.string().nullable(),
+    effectiveTo: z.string().nullable(),
+    tenantId: z.string().nullable(),
+    organizationId: z.string().nullable(),
+    createdBy: z.string().nullable(),
+    updatedBy: z.string().nullable(),
+    createdAt: z.string().nullable(),
+    updatedAt: z.string().nullable(),
+    deletedAt: z.string().nullable(),
+    source: workflowDefinitionSourceSchema,
+    isCodeBased: z.boolean(),
+    codeModuleId: z.string().nullable(),
+  })
+  .passthrough()
+
+export const workflowDefinitionListResponseSchema = z.object({
+  data: z.array(workflowDefinitionResponseSchema),
+  pagination: paginationSchema,
+})
+
+export const workflowDefinitionDetailResponseSchema = z.object({
+  data: workflowDefinitionResponseSchema,
+})
+
+export const workflowDefinitionMutationResponseSchema = z.object({
+  data: workflowDefinitionResponseSchema,
+  message: z.string(),
+})
+
+export const workflowDefinitionResetResponseSchema = z.object({
+  data: workflowDefinitionResponseSchema.nullable(),
+  message: z.string(),
+})
+
+export const workflowDefinitionDeleteResponseSchema = z.object({
+  message: z.string(),
 })
 
 // ---------------------------------------------------------------------------
@@ -320,4 +375,75 @@ export const sendSignalByCorrelationResponseSchema = z.object({
   success: z.boolean(),
   message: z.string(),
   count: z.number().int().nonnegative(),
+})
+
+// ---------------------------------------------------------------------------
+// Workflow-Safe Command Schemas
+// ---------------------------------------------------------------------------
+
+export const workflowSafeCommandSchema = z.object({
+  commandId: z.string().min(1).describe('Command bus id allowlisted for UPDATE_ENTITY activities'),
+  requiredFeatures: z.array(z.string()).min(1).describe('ACL features the workflow actor must hold to run the command'),
+})
+
+export const workflowSafeCommandListResponseSchema = z.object({
+  items: z.array(workflowSafeCommandSchema),
+})
+
+// ---------------------------------------------------------------------------
+// Workflow Function Schemas
+// ---------------------------------------------------------------------------
+
+export const workflowFunctionSchema = z.object({
+  name: z.string().min(1).describe('DI-registered function name resolved as workflowFunction:<name> by EXECUTE_FUNCTION activities'),
+  labelKey: z.string().optional().describe('Optional i18n key for a human-readable label'),
+  description: z.string().optional().describe('Optional description of what the function does'),
+})
+
+export const workflowFunctionListResponseSchema = z.object({
+  items: z.array(workflowFunctionSchema),
+})
+
+// ---------------------------------------------------------------------------
+// Workflow Template Schemas
+// ---------------------------------------------------------------------------
+
+export const workflowTemplateSchema = z.object({
+  id: z.string().min(1).describe('Stable template identifier (kebab-case)'),
+  nameKey: z.string().min(1).describe('i18n key resolving to the template display name'),
+  descriptionKey: z.string().min(1).describe('i18n key resolving to the template description'),
+  category: z.string().min(1).describe('Gallery grouping category'),
+  icon: z.string().min(1).describe('Lucide icon name for the gallery card'),
+  definition: workflowDefinitionDataSchema.describe('Complete workflow definition the template seeds'),
+})
+
+export const workflowTemplateListResponseSchema = z.object({
+  items: z.array(workflowTemplateSchema),
+})
+
+// ---------------------------------------------------------------------------
+// Workflow Definition Draft Schemas
+// ---------------------------------------------------------------------------
+
+export const workflowDefinitionDraftResponseSchema = z.object({
+  id: z.string().describe('Draft row UUID'),
+  definitionId: z.string().nullable().describe('The workflow definition this draft belongs to'),
+  definition: workflowDefinitionDraftDataSchema.describe('The autosaved (possibly incomplete) workflow definition'),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
+  baseUpdatedAt: z.string().nullable().describe('The definition updatedAt the draft forked from, for conflict-aware restore'),
+  createdAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+})
+
+export const workflowDefinitionDraftDetailResponseSchema = z.object({
+  data: workflowDefinitionDraftResponseSchema,
+})
+
+export const workflowDefinitionDraftMutationResponseSchema = z.object({
+  data: workflowDefinitionDraftResponseSchema,
+  message: z.string(),
+})
+
+export const workflowDefinitionDraftDeleteResponseSchema = z.object({
+  message: z.string(),
 })
