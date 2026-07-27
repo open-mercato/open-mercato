@@ -61,7 +61,7 @@ export function ContextSchemaEditor({ value, onChange, className }: ContextSchem
             type="button"
             onClick={() => setCollapsed((previous) => !previous)}
             aria-expanded={!collapsed}
-            className="flex items-center gap-2 text-left"
+            className="flex items-center gap-2 text-left focus-visible:outline-none focus-visible:shadow-focus"
           >
             <Braces className="w-5 h-5 text-muted-foreground" />
             <h3 className="text-sm font-semibold uppercase text-muted-foreground">

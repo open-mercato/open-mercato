@@ -26,6 +26,7 @@
 | 5 | 5.1 | Structured validation error bodies on definition routes | done | fd0b938e5 |
 | 5 | 5.2 | Docs, UPGRADE notes, and spec changelog | done | e6e0823c3 |
 | 2 | 2.1-review-fix | Explicit comparator in ledger serialization | done | db12744ff |
+| 1 | 1.2-review-fix | Legacy edit page preserves contextSchema and metadata.editor; ledger serialization + focus minors | done | 242ddb00b |
 
 ## Goal
 

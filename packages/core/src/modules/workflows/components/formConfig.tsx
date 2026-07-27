@@ -28,6 +28,8 @@ export type WorkflowDefinitionFormValues = {
   steps: any[]
   transitions: any[]
   triggers: WorkflowDefinitionTrigger[]
+  loadedDefinition?: Record<string, unknown> | null
+  loadedMetadata?: Record<string, unknown> | null
   id?: string
   updatedAt?: string | null
 }
@@ -254,6 +256,8 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
     steps: workflow.definition?.steps || [],
     transitions: workflow.definition?.transitions || [],
     triggers: workflow.definition?.triggers || [],
+    loadedDefinition: workflow.definition || null,
+    loadedMetadata: workflow.metadata || null,
     id: workflow.id,
     updatedAt: typeof updatedAt === 'string' ? updatedAt : updatedAt ? String(updatedAt) : null,
   }
@@ -269,11 +273,14 @@ export function buildWorkflowPayload(values: WorkflowDefinitionFormValues) {
   const category = (values['metadata.category'] || '').trim()
   const icon = (values['metadata.icon'] || '').trim()
   const tags = Array.isArray(values['metadata.tags']) ? values['metadata.tags'] : []
-  const metadata = {
+  const metadata: Record<string, unknown> = {
+    ...(values.loadedMetadata ?? {}),
     tags,
-    ...(category ? { category } : {}),
-    ...(icon ? { icon } : {}),
   }
+  if (category) metadata.category = category
+  else delete metadata.category
+  if (icon) metadata.icon = icon
+  else delete metadata.icon
   return {
     workflowId: values.workflowId,
     workflowName: values.workflowName,
@@ -283,10 +290,17 @@ export function buildWorkflowPayload(values: WorkflowDefinitionFormValues) {
     effectiveFrom: values.effectiveFrom || null,
     effectiveTo: values.effectiveTo || null,
     metadata,
-    definition: {
-      steps: values.steps,
-      transitions: values.transitions,
-      ...(triggers.length > 0 ? { triggers } : {}),
-    },
+    definition: buildLegacyDefinition(values, triggers),
   }
+}
+
+function buildLegacyDefinition(values: WorkflowDefinitionFormValues, triggers: WorkflowDefinitionTrigger[]) {
+  const definition: Record<string, unknown> = {
+    ...(values.loadedDefinition ?? {}),
+    steps: values.steps,
+    transitions: values.transitions,
+  }
+  if (triggers.length > 0) definition.triggers = triggers
+  else delete definition.triggers
+  return definition
 }

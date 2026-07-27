@@ -496,7 +496,7 @@ function serializeLedgerMap(ledger: LedgerMap | null): string {
   const parts: string[] = []
   for (const path of [...ledger.keys()].sort((left, right) => left.localeCompare(right))) {
     const entry = ledger.get(path) as LedgerEntry
-    parts.push(`${path}|${entry.type}|${entry.presence}|${entry.source.kind}|${entry.source.label}`)
+    parts.push(`${path}|${entry.type}|${entry.presence}|${entry.source.kind}|${entry.source.stepId ?? ''}|${entry.source.activityId ?? ''}|${entry.source.label}`)
   }
   return parts.join(';')
 }
