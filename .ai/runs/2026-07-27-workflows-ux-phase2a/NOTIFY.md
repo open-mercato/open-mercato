@@ -19,3 +19,6 @@
 
 ## 2026-07-28T13:00:00Z — checkpoint 4
 - Steps 4.1..4.4 (bcd7ee91e..1972a0992): samples + mock-first test step complete. 1056 tests green.
+
+## 2026-07-28T15:30:00Z — final gate passed
+- Validation 8/8 (one comparator fix-forward); integration 1700 passed, zero workflows failures (only the known unrelated-env onboarding pair); DS CLEAN + focus-ring advisory applied; code review major fixed (legacy edit page now preserves contextSchema/samples with round-trip tests).

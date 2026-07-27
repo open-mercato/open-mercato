@@ -3,14 +3,14 @@
 **Last updated:** 2026-07-28T04:10:00Z
 **Branch:** feat/workflows-ux-phase2a (stacked on feat/workflows-ux-phase1, PR #4551)
 **PR:** not yet opened
-**Current phase/step:** Phase 5 Step 5.1
-**Last commit:** 1972a0992 — feat(workflows): test-step panel with pin-as-sample in the activity editor
+**Current phase/step:** COMPLETE — 17 Tasks rows done, final gate passed
+**Last commit:** 4578e2606 — fix(workflows): legacy edit page preserves contextSchema and editor metadata
 
 ## What just happened
-- Checkpoint 4 passed (1056 tests). Samples + test-step phase closed: storage with cap, would-do mocks, mock-first API + test_run feature, editor panel with pin/unpin.
+- Final gate passed: validation 8/8, integration 1700 passed (zero workflows failures), DS CLEAN, code review major (legacy-page stripping) fixed with regression tests.
 
 ## Next concrete action
-- Step 5.1: structured validation error bodies on definition routes.
+- Open the stacked PR (base feat/workflows-ux-phase1), claim, labels, review pass, summary.
 
 ## Blockers / open questions
 - none
