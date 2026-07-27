@@ -9,3 +9,7 @@
 
 ## 2026-07-28T06:00:00Z — checkpoint 1
 - Steps 1.1..1.3 (fe3694ae0..5050cb370): contextSchema end-to-end (schema, round-trip plumbing, editor UI). 913 workflows tests green; typecheck green after re-adding yarn generate to the chain (dispatcher omission, noted).
+
+## 2026-07-28T08:15:00Z — checkpoint 2
+- Steps 2.1..2.3 (892e73b61..d9caa2097): the ledger shipped — pure fixpoint module, schema flattener, API. 977 tests green.
+- Honesty findings: AUTOMATED sync outputs and SUB_WORKFLOW outputMapping never reach instance.context (ledger refuses to advertise; sub-workflow case flagged as candidate engine defect for a follow-up issue).

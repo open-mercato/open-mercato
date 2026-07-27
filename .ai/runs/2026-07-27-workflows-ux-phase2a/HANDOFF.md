@@ -3,14 +3,14 @@
 **Last updated:** 2026-07-28T04:10:00Z
 **Branch:** feat/workflows-ux-phase2a (stacked on feat/workflows-ux-phase1, PR #4551)
 **PR:** not yet opened
-**Current phase/step:** Phase 2 Step 2.1
-**Last commit:** 5050cb370 — feat(workflows): context schema editor on the definition panel
+**Current phase/step:** Phase 3 Step 3.1
+**Last commit:** d9caa2097 — feat(workflows): context-schema API serving the per-step ledger
 
 ## What just happened
-- Checkpoint 1 passed (913 tests). contextSchema declared, editor round-trip fixed (anti-stripping), ContextSchemaEditor live in the metadata panel.
+- Checkpoint 2 passed (977 tests). Ledger complete: pure fixpoint module (39 tests), Zod flattener + server contract resolver, context-schema API with maybe-at-join and typed-async fixtures.
 
 ## Next concrete action
-- Step 2.1: pure context-ledger module (fixpoint, maybe semantics).
+- Step 3.1: expression-reference extraction + ledger-checked warnings in Problems.
 
 ## Blockers / open questions
 - none
