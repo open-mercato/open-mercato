@@ -3,14 +3,14 @@
 **Last updated:** 2026-07-28T04:10:00Z
 **Branch:** feat/workflows-ux-phase2a (stacked on feat/workflows-ux-phase1, PR #4551)
 **PR:** not yet opened
-**Current phase/step:** Phase 4 Step 4.1
-**Last commit:** f274bf78c — feat(workflows): variable picker on sub-workflow input mappings
+**Current phase/step:** Phase 5 Step 5.1
+**Last commit:** 1972a0992 — feat(workflows): test-step panel with pin-as-sample in the activity editor
 
 ## What just happened
-- Checkpoint 3 passed (1012 tests). Picker phase closed: unresolved-ref warnings in Problems, ledger-fed VariablePickerButton in config fields and sub-workflow input mappings.
+- Checkpoint 4 passed (1056 tests). Samples + test-step phase closed: storage with cap, would-do mocks, mock-first API + test_run feature, editor panel with pin/unpin.
 
 ## Next concrete action
-- Step 4.1: pinned samples storage with size cap and precedence resolver.
+- Step 5.1: structured validation error bodies on definition routes.
 
 ## Blockers / open questions
 - none

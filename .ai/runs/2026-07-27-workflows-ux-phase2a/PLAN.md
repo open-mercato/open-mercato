@@ -19,10 +19,10 @@
 | 3 | 3.1 | Expression-reference extraction and ledger-checked warnings in Problems | done | 8dbf86e1b |
 | 3 | 3.2 | Variable picker button in activity config fields | done | 2985c3a3f |
 | 3 | 3.3 | Picker in mapping rows and trigger expressions | done | f274bf78c |
-| 4 | 4.1 | Pinned samples storage with size cap and precedence resolver | done | d27500957 |
-| 4 | 4.2 | Registry mock widening and would-do mocks for effectors | done | 7e222d2d3 |
-| 4 | 4.3 | Test-step API route with mock-first semantics and new ACL feature | done | 19cacc385 |
-| 4 | 4.4 | Editor Test-step UI with output preview and pin-as-sample | done | 17d213ffd |
+| 4 | 4.1 | Pinned samples storage with size cap and precedence resolver | done | bcd7ee91e |
+| 4 | 4.2 | Registry mock widening and would-do mocks for effectors | done | 0aa5714ed |
+| 4 | 4.3 | Test-step API route with mock-first semantics and new ACL feature | done | 7558db879 |
+| 4 | 4.4 | Editor Test-step UI with output preview and pin-as-sample | done | 1972a0992 |
 | 5 | 5.1 | Structured validation error bodies on definition routes | todo | — |
 | 5 | 5.2 | Docs, UPGRADE notes, and spec changelog | todo | — |
 

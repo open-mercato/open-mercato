@@ -16,3 +16,6 @@
 
 ## 2026-07-28T10:30:00Z — checkpoint 3
 - Steps 3.1..3.3 (8dbf86e1b..f274bf78c): ref warnings + variable picker landed. 1012 tests green. Honest scope: no picker where the ledger cannot speak (trigger payloads, child-workflow outputs).
+
+## 2026-07-28T13:00:00Z — checkpoint 4
+- Steps 4.1..4.4 (bcd7ee91e..1972a0992): samples + mock-first test step complete. 1056 tests green.
