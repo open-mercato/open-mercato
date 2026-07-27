@@ -19,6 +19,7 @@ import { DurationInput } from '@open-mercato/ui/backend/inputs/DurationInput'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useActivityTypeOptions } from './useActivityTypeOptions'
+import { ActivityConfigFields, hasActivityConfigForm } from './ActivityConfigFields'
 
 /**
  * Activity definition structure
@@ -61,6 +62,19 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
   const activityTypeOptions = useActivityTypeOptions()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [expandedIndices, setExpandedIndices] = useState<Set<number>>(new Set())
+  const [advancedIndices, setAdvancedIndices] = useState<Set<number>>(new Set())
+
+  const toggleAdvanced = (index: number) => {
+    setAdvancedIndices((current) => {
+      const next = new Set(current)
+      if (next.has(index)) {
+        next.delete(index)
+      } else {
+        next.add(index)
+      }
+      return next
+    })
+  }
 
   const activities = Array.isArray(value) ? value : []
 
@@ -364,19 +378,59 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                       </div>
                     </div>
 
-                    {/* Configuration JSON */}
-                    <div className="border-t border-gray-200 pt-3">
-                      <Label className="text-xs font-medium mb-1">
-                        {t('workflows.fieldEditors.activities.configurationJson')}
-                      </Label>
-                      <JsonBuilder
-                        value={activity.config || {}}
-                        onChange={(config) => updateActivity(index, 'config', config)}
-                        disabled={disabled}
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t('workflows.fieldEditors.activities.configurationHint')}
-                      </p>
+                    {/* Configuration */}
+                    <div className="border-t border-border pt-3">
+                      {hasActivityConfigForm(activity.activityType) ? (
+                        <div className="space-y-3">
+                          <ActivityConfigFields
+                            activityType={activity.activityType}
+                            idPrefix={`${id}-${index}-config`}
+                            config={activity.config || {}}
+                            onChange={(config) => updateActivity(index, 'config', config)}
+                            disabled={disabled}
+                          />
+                          <div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => toggleAdvanced(index)}
+                              aria-expanded={advancedIndices.has(index)}
+                            >
+                              <ChevronDown
+                                className={`size-4 mr-1 transition-transform ${advancedIndices.has(index) ? 'rotate-180' : ''}`}
+                              />
+                              {t('workflows.fieldEditors.activities.advancedJson')}
+                            </Button>
+                            {advancedIndices.has(index) && (
+                              <div className="mt-2">
+                                <JsonBuilder
+                                  value={activity.config || {}}
+                                  onChange={(config) => updateActivity(index, 'config', config)}
+                                  disabled={disabled}
+                                />
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {t('workflows.fieldEditors.activities.configurationHint')}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <Label className="text-xs font-medium mb-1">
+                            {t('workflows.fieldEditors.activities.configurationJson')}
+                          </Label>
+                          <JsonBuilder
+                            value={activity.config || {}}
+                            onChange={(config) => updateActivity(index, 'config', config)}
+                            disabled={disabled}
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {t('workflows.fieldEditors.activities.configurationHint')}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     {/* Delete Button */}

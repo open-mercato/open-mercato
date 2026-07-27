@@ -125,7 +125,7 @@ export function registerBuiltinActivityTypes(): void {
     configSchema: waitConfigSchema,
     form: [
       { id: 'duration', component: 'duration' },
-      { id: 'until', component: 'text' },
+      { id: 'until', component: 'datetime' },
     ],
     execute: (config) => {
       const durationMs = calculateWaitDelayMs(config)

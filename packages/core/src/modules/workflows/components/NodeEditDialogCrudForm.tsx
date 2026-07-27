@@ -14,6 +14,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FormFieldArrayEditor } from './fields/FormFieldArrayEditor'
 import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
+import { useActivityTypeOptions } from './fields/useActivityTypeOptions'
 import { MappingArrayEditor } from './fields/MappingArrayEditor'
 import { WorkflowSelectorField } from './fields/WorkflowSelectorField'
 import { RolesMultiSelect } from './fields/RolesMultiSelect'
@@ -95,6 +96,7 @@ export interface NodeEditDialogCrudFormProps {
  */
 export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete }: NodeEditDialogCrudFormProps) {
   const t = useT()
+  const activityTypeOptions = useActivityTypeOptions()
   const [initialValues, setInitialValues] = useState<Partial<NodeFormValues>>({})
   const [showJsonSchemaWarning, setShowJsonSchemaWarning] = useState(false)
 
@@ -378,15 +380,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       id: 'activityType',
       label: t('workflows.form.activityType'),
       type: 'select',
-      options: [
-        { value: 'SEND_EMAIL', label: t('workflows.activities.types.SEND_EMAIL') },
-        { value: 'CALL_API', label: t('workflows.activities.types.CALL_API') },
-        { value: 'UPDATE_ENTITY', label: t('workflows.activities.types.UPDATE_ENTITY') },
-        { value: 'EMIT_EVENT', label: t('workflows.activities.types.EMIT_EVENT') },
-        { value: 'CALL_WEBHOOK', label: t('workflows.activities.types.CALL_WEBHOOK') },
-        { value: 'EXECUTE_FUNCTION', label: t('workflows.activities.types.EXECUTE_FUNCTION') },
-        { value: 'WAIT', label: t('workflows.activities.types.WAIT') },
-      ],
+      options: activityTypeOptions,
       description: t('workflows.nodeEditor.activityTypeDescription'),
     },
     {
@@ -493,7 +487,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       description: t('workflows.fieldEditors.preConditions.description'),
       component: (props) => <StartPreConditionsEditor {...props} value={props.value as any} />,
     },
-  ], [showJsonSchemaWarning, t])
+  ], [activityTypeOptions, showJsonSchemaWarning, t])
 
   if (!isOpen || !node) return null
 
