@@ -819,6 +819,8 @@
   "ui.dataTable.empty.title": "No {entity} yet",
   "ui.dataTable.emptyState.default": "No results.",
   "ui.dataTable.emptyState.defaultDescription": "Items will appear here once added.",
+  "ui.dataTable.expand.collapseRow": "Collapse row",
+  "ui.dataTable.expand.expandRow": "Expand row",
   "ui.dataTable.export.format.markdown": "Markdown",
   "ui.dataTable.export.label": "Export",
   "ui.dataTable.fieldset.label": "Columns",

@@ -1,11 +1,24 @@
 import type { Node, Edge } from '@xyflow/react'
+import dagre from '@dagrejs/dagre'
 import type { WorkflowDefinition } from '../data/entities'
+import type { WorkflowIoContract } from '../data/validators'
+import { isDataMappingEdge } from './data-edge-mapping'
 
 /**
  * Graph Utilities for Visual Workflow Editor
  *
  * Converts between ReactFlow graph representation and workflow definition JSON
  */
+
+/**
+ * Node footprint used by the dagre layout engine. `NODE_WIDTH` must match the
+ * `NODE_WIDTH` exported from `../components/WorkflowNodeCard`; it is mirrored as
+ * a local constant here so this pure data-transform module stays free of the
+ * React/`lucide-react` import chain (it runs in node + jest contexts).
+ */
+const NODE_WIDTH = 180
+const NODE_MAX_WIDTH = 280
+const NODE_HEIGHT = 84
 
 export interface GraphToDefinitionOptions {
   includePositions?: boolean
@@ -14,6 +27,19 @@ export interface GraphToDefinitionOptions {
 export interface DefinitionToGraphOptions {
   autoLayout?: boolean
   layoutSpacing?: { vertical: number; horizontal: number }
+  /**
+   * Declared IO port contracts of referenced sub-workflows, keyed by
+   * `subWorkflowId`. When provided, a SUB_WORKFLOW node renders the child's
+   * IN/OUT ports. Absent → the node renders without ports (backward compatible).
+   */
+  childContracts?: Map<string, WorkflowIoContract>
+}
+
+export interface LayoutWithDagreOptions {
+  /** Flow direction. Default `'LR'` (left→right). */
+  direction?: 'LR' | 'TB'
+  nodeWidth?: number
+  nodeHeight?: number
 }
 
 /**
@@ -90,6 +116,18 @@ export function graphToDefinition(
       step.activities = node.data.activities
     }
 
+    // Invoke-agent step → AUTOMATED step carrying the INVOKE_AGENT activity plus
+    // a signalConfig so the engine can park-and-resume the human path. The
+    // stepType is already AUTOMATED via mapNodeTypeToStepType.
+    if (node.type === 'invokeAgent') {
+      if (node.data.activities) {
+        step.activities = node.data.activities
+      }
+      if (node.data.signalConfig) {
+        step.signalConfig = node.data.signalConfig
+      }
+    }
+
     // Pre-conditions (for START steps)
     if (node.type === 'start' && (node.data as any).preConditions && (node.data as any).preConditions.length > 0) {
       step.preConditions = (node.data as any).preConditions
@@ -106,8 +144,10 @@ export function graphToDefinition(
     return step
   })
 
-  // Extract transitions from edges
-  const transitions = edges.map((edge) => {
+  // Extract transitions from edges. Drag-authored data-mapping edges are NOT
+  // transitions — their binding lives in the target step's config.inputMapping —
+  // so they are excluded here.
+  const transitions = edges.filter((edge) => !isDataMappingEdge(edge)).map((edge) => {
     const edgeData = edge.data as any
     const transition: any = {
       transitionId: edge.id,
@@ -205,28 +245,52 @@ export function definitionToGraph(
   definition: WorkflowDefinition['definition'],
   options: DefinitionToGraphOptions = {}
 ): { nodes: Node[]; edges: Edge[] } {
-  const { autoLayout = true, layoutSpacing = { vertical: 200, horizontal: 300 } } = options
+  const { autoLayout = true, layoutSpacing = { vertical: 200, horizontal: 300 }, childContracts } = options
 
   // Build step map for quick lookup
   const stepMap = new Map(definition.steps.map(step => [step.stepId, step]))
 
-  // Calculate smart layout positions if autoLayout is enabled
-  const positions = autoLayout
-    ? calculateSmartLayout(definition.steps, definition.transitions, layoutSpacing)
+  // Collect author-arranged positions persisted in the definition. A stored
+  // position always wins over an auto-computed one, so a saved graph re-opens
+  // exactly as the author left it.
+  const storedPositions = new Map<string, { x: number; y: number }>()
+  for (const step of definition.steps) {
+    const stored = (step as any)._editorPosition
+    if (stored && typeof stored.x === 'number' && typeof stored.y === 'number') {
+      storedPositions.set(step.stepId, { x: stored.x, y: stored.y })
+    }
+  }
+
+  // Auto-arrange only the steps that lack a stored position (e.g. freshly added
+  // nodes, or legacy/code graphs with no stored coordinates at all). When the
+  // caller explicitly disables autoLayout, skip dagre entirely.
+  const needsDagre = autoLayout && definition.steps.some((step) => !storedPositions.has(step.stepId))
+  const dagrePositions = needsDagre
+    ? layoutWithDagre(definition.steps, definition.transitions, {
+        direction: 'LR',
+        nodeWidth: NODE_WIDTH,
+        nodeHeight: NODE_HEIGHT,
+      })
     : null
 
   // Convert steps to nodes
   const nodes: Node[] = definition.steps.map((step, index) => {
-    // Determine position
-    let position = positions?.get(step.stepId) || { x: 250, y: 50 + index * layoutSpacing.vertical }
+    // Determine position: stored (author-arranged) → dagre (auto) → fallback.
+    const position = storedPositions.get(step.stepId)
+      || dagrePositions?.get(step.stepId)
+      || { x: 250, y: 50 + index * layoutSpacing.vertical }
 
-    // Use stored position if available and not auto-layouting
-    if (!autoLayout && (step as any)._editorPosition) {
-      position = (step as any)._editorPosition
-    }
-
-    // Map step type to node type
-    const nodeType = mapStepTypeToNodeType(step.stepType)
+    // Map step type to node type. An AUTOMATED step whose activities contain a
+    // single INVOKE_AGENT marker is the compiled form of an invoke-agent node —
+    // round-trip it back to that node type so the dedicated editor/UI is used.
+    const invokeAgentActivity = (step.stepType === 'AUTOMATED'
+      ? ((step as any).activities as any[] | undefined)?.find(
+          (activity) => activity?.activityType === 'INVOKE_AGENT',
+        )
+      : undefined)
+    const nodeType = invokeAgentActivity
+      ? 'invokeAgent'
+      : mapStepTypeToNodeType(step.stepType)
 
     // Build node data
     const nodeData: any = {
@@ -284,9 +348,36 @@ export function definitionToGraph(
       nodeData.signalConfig = (step as any).signalConfig
     }
 
+    // Add sub-workflow port contract so the node renders the child's IN/OUT
+    // ports without opening it. Resolved from the supplied childContracts map.
+    if (step.stepType === 'SUB_WORKFLOW') {
+      const subWorkflowId = (step as any).config?.subWorkflowId
+      const contract = subWorkflowId ? childContracts?.get(subWorkflowId) : undefined
+      if (contract?.inputs?.length) nodeData.inputs = contract.inputs
+      if (contract?.outputs?.length) nodeData.outputs = contract.outputs
+      // Display-only mirror of config.subWorkflowId/version, so the node renders
+      // "Invokes: <id>" without re-reading config. The runtime + editor dialog
+      // keep config.subWorkflowId/version as the source of truth.
+      if ((step as any).config) {
+        nodeData.subWorkflowId = (step as any).config.subWorkflowId
+        if ((step as any).config.version != null) {
+          nodeData.version = (step as any).config.version
+        }
+      }
+    }
+
     // Add step activities data (for AUTOMATED steps)
     if (step.stepType === 'AUTOMATED' && (step as any).activities) {
       nodeData.activities = (step as any).activities
+    }
+
+    // Add invoke-agent data (compiled AUTOMATED step). Carry the signalConfig and
+    // a display-only agentId so the node renders without re-parsing activities.
+    if (invokeAgentActivity) {
+      if ((step as any).signalConfig) {
+        nodeData.signalConfig = (step as any).signalConfig
+      }
+      nodeData.agentId = invokeAgentActivity.config?.agentId
     }
 
     // Add pre-conditions data (for START steps)
@@ -335,115 +426,137 @@ export function definitionToGraph(
 }
 
 /**
- * Calculate smart layout positions for workflow nodes
- * Uses a layered/hierarchical layout algorithm that:
- * 1. Assigns levels (ranks) to nodes based on graph topology
- * 2. Spreads sibling nodes horizontally at the same level
- * 3. Centers merge points below their incoming nodes
+ * Compute overlap-free, node-size-aware layout positions using `@dagrejs/dagre`.
+ *
+ * Builds a layered graph (default `rankdir: 'LR'` → left→right flow), runs dagre
+ * to rank nodes and minimize edge crossings, then converts dagre's center-origin
+ * coordinates to React Flow's top-left origin. Returns a `Map` of `stepId` →
+ * top-left `{ x, y }`, the same shape the previous custom layout produced.
+ *
+ * Only control-flow transitions are passed here — drag-authored data mappings
+ * are not transitions (they live in the target step's `config.inputMapping`).
  */
-function calculateSmartLayout(
+/**
+ * Approximate a node card's rendered footprint when its true measured size is
+ * not yet known (initial open, before React Flow measures the DOM). Cards are
+ * `w-fit` between `NODE_WIDTH` and `NODE_MAX_WIDTH` (see WorkflowNodeCard); their
+ * width is driven mostly by the two-line `line-clamp-2` description, which pushes
+ * almost any described node to the max width. So a node WITH a description is
+ * estimated at the cap (and taller for the extra line); a bare-title node sizes
+ * to its title. Underestimating here is what makes ranks overlap, so this errs
+ * toward the real (larger) footprint. The Auto-arrange path uses exact measured
+ * sizes instead and does not rely on this.
+ */
+function estimateNodeSize(label: unknown, hasDescription: boolean): { width: number; height: number } {
+  const text = typeof label === 'string' ? label.trim() : ''
+  const titleWidth = Math.round(text.length * 7) + 64
+  const width = hasDescription
+    ? NODE_MAX_WIDTH
+    : Math.min(Math.max(NODE_WIDTH, titleWidth), NODE_MAX_WIDTH)
+  const height = hasDescription ? NODE_HEIGHT + 24 : NODE_HEIGHT
+  return { width, height }
+}
+
+/**
+ * Footprint dagre reserves for a node: its exact measured size when React Flow
+ * has already laid it out (the Auto-arrange path passes `node.measured`),
+ * otherwise the description-aware estimate above.
+ */
+function nodeFootprint(step: any): { width: number; height: number } {
+  if (typeof step.width === 'number' && typeof step.height === 'number') {
+    return { width: step.width, height: step.height }
+  }
+  const description = step.description
+  const hasDescription = typeof description === 'string' && description.trim().length > 0
+  return estimateNodeSize(step.stepName ?? step.label, hasDescription)
+}
+
+function layoutWithDagre(
   steps: any[],
   transitions: any[],
-  spacing: { vertical: number; horizontal: number }
+  options: LayoutWithDagreOptions = {}
 ): Map<string, { x: number; y: number }> {
   const positions = new Map<string, { x: number; y: number }>()
 
   if (steps.length === 0) return positions
 
-  // Build adjacency lists
-  const outgoing = new Map<string, string[]>() // node -> children
-  const incoming = new Map<string, string[]>() // node -> parents
+  const rankdir = options.direction ?? 'LR'
+
+  const graph = new dagre.graphlib.Graph()
+  graph.setDefaultEdgeLabel(() => ({}))
+  graph.setGraph({ rankdir, nodesep: 60, ranksep: 80 })
+
+  // Reserve each node's real footprint (measured when available, else a
+  // description-aware estimate). `ranksep`/`nodesep` then become the actual
+  // visible gap between cards, so the spacing is neither cramped nor blown apart.
+  for (const step of steps) {
+    graph.setNode(step.stepId, nodeFootprint(step))
+  }
+
+  // Transition labels are hover-only (WorkflowTransitionEdge), so they occupy no
+  // persistent canvas space — the layout no longer reserves a label pill between
+  // ranks, keeping nodes tight against `ranksep` instead of pushing them apart by
+  // the (previously up to 220px wide) label footprint.
+  for (const transition of transitions) {
+    if (graph.hasNode(transition.fromStepId) && graph.hasNode(transition.toStepId)) {
+      graph.setEdge(transition.fromStepId, transition.toStepId, {})
+    }
+  }
+
+  dagre.layout(graph)
 
   for (const step of steps) {
-    outgoing.set(step.stepId, [])
-    incoming.set(step.stepId, [])
-  }
-
-  for (const t of transitions) {
-    const children = outgoing.get(t.fromStepId) || []
-    children.push(t.toStepId)
-    outgoing.set(t.fromStepId, children)
-
-    const parents = incoming.get(t.toStepId) || []
-    parents.push(t.fromStepId)
-    incoming.set(t.toStepId, parents)
-  }
-
-  // Find start node(s) - nodes with no incoming edges
-  const startNodes = steps.filter(s => (incoming.get(s.stepId) || []).length === 0)
-  if (startNodes.length === 0) {
-    // Fallback: use first step as start
-    startNodes.push(steps[0])
-  }
-
-  // Assign levels using BFS (longest path from start)
-  const levels = new Map<string, number>()
-  const queue: Array<{ id: string; level: number }> = []
-
-  for (const start of startNodes) {
-    queue.push({ id: start.stepId, level: 0 })
-  }
-
-  while (queue.length > 0) {
-    const { id, level } = queue.shift()!
-    const currentLevel = levels.get(id)
-
-    // Only propagate when this path improves the node's level (longest path).
-    // Without this guard a cyclic graph (renegotiation/revision loops) keeps
-    // re-enqueuing children forever and freezes the browser (script timeout).
-    if (currentLevel !== undefined && level <= currentLevel) continue
-    levels.set(id, level)
-
-    // Safety cap: in a DAG a node's level is bounded by the node count; a
-    // higher value means we are walking a cycle, so stop descending.
-    if (level > steps.length) continue
-
-    const children = outgoing.get(id) || []
-    for (const child of children) {
-      queue.push({ id: child, level: level + 1 })
-    }
-  }
-
-  // Group nodes by level
-  const nodesByLevel = new Map<number, string[]>()
-  for (const [nodeId, level] of levels) {
-    const nodesAtLevel = nodesByLevel.get(level) || []
-    nodesAtLevel.push(nodeId)
-    nodesByLevel.set(level, nodesAtLevel)
-  }
-
-  // Calculate positions
-  const centerX = 400 // Center line for the graph
-  const startY = 50
-
-  for (const [level, nodeIds] of nodesByLevel) {
-    const count = nodeIds.length
-    const y = startY + level * spacing.vertical
-
-    if (count === 1) {
-      // Single node at this level - center it
-      positions.set(nodeIds[0], { x: centerX, y })
-    } else {
-      // Multiple nodes at this level - spread them horizontally
-      const totalWidth = (count - 1) * spacing.horizontal
-      const startX = centerX - totalWidth / 2
-
-      // Sort nodes by their parent's position for consistent ordering
-      nodeIds.sort((a, b) => {
-        const parentsA = incoming.get(a) || []
-        const parentsB = incoming.get(b) || []
-        const parentPosA = parentsA.length > 0 ? (positions.get(parentsA[0])?.x || 0) : 0
-        const parentPosB = parentsB.length > 0 ? (positions.get(parentsB[0])?.x || 0) : 0
-        return parentPosA - parentPosB
-      })
-
-      nodeIds.forEach((nodeId, idx) => {
-        positions.set(nodeId, { x: startX + idx * spacing.horizontal, y })
-      })
-    }
+    const node = graph.node(step.stepId)
+    if (!node || typeof node.x !== 'number' || typeof node.y !== 'number') continue
+    // dagre returns the node center; React Flow positions use the top-left corner.
+    // Offset by this node's own footprint (set above), not a shared constant.
+    positions.set(step.stepId, {
+      x: node.x - node.width / 2,
+      y: node.y - node.height / 2,
+    })
   }
 
   return positions
+}
+
+/**
+ * Re-run the dagre layered layout (`rankdir: 'LR'`) directly over React Flow
+ * nodes + edges and return a NEW node array with refreshed `position` values.
+ *
+ * This is the single intentional full re-layout entry point (the "Auto-arrange"
+ * toolbar action): it deliberately IGNORES any stored `_editorPosition` and
+ * re-tidies the whole graph. Every other node field (`data`, `type`, handle
+ * config, …) is preserved — only `position` is replaced. Data-mapping edges are
+ * excluded from the rank graph since they are not control-flow transitions.
+ */
+export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
+  // Use each node's exact measured footprint so dagre reserves the real on-screen
+  // size; React Flow has already measured the cards by the time the user clicks
+  // Auto-arrange. Fall back to the estimate only for any not-yet-measured node.
+  const steps = nodes.map((node) => ({
+    stepId: node.id,
+    stepName: (node.data as any)?.label,
+    description: (node.data as any)?.description,
+    width: node.measured?.width,
+    height: node.measured?.height,
+  }))
+  const transitions = edges
+    .filter((edge) => !isDataMappingEdge(edge))
+    .map((edge) => ({
+      fromStepId: edge.source,
+      toStepId: edge.target,
+    }))
+
+  const positions = layoutWithDagre(steps, transitions, {
+    direction: 'LR',
+    nodeWidth: NODE_WIDTH,
+    nodeHeight: NODE_HEIGHT,
+  })
+
+  return nodes.map((node) => {
+    const next = positions.get(node.id)
+    return next ? { ...node, position: { x: next.x, y: next.y } } : node
+  })
 }
 
 /**
@@ -455,9 +568,14 @@ function mapNodeTypeToStepType(nodeType: string): string {
     end: 'END',
     userTask: 'USER_TASK',
     automated: 'AUTOMATED',
+    subWorkflow: 'SUB_WORKFLOW',
     decision: 'DECISION',
     waitForSignal: 'WAIT_FOR_SIGNAL',
     waitForTimer: 'WAIT_FOR_TIMER',
+    parallelFork: 'PARALLEL_FORK',
+    parallelJoin: 'PARALLEL_JOIN',
+    // The invoke-agent node is a specialization of an AUTOMATED step.
+    invokeAgent: 'AUTOMATED',
   }
   return mapping[nodeType] || 'AUTOMATED'
 }
@@ -471,9 +589,12 @@ function mapStepTypeToNodeType(stepType: string): string {
     END: 'end',
     USER_TASK: 'userTask',
     AUTOMATED: 'automated',
+    SUB_WORKFLOW: 'subWorkflow',
     DECISION: 'decision',
     WAIT_FOR_SIGNAL: 'waitForSignal',
     WAIT_FOR_TIMER: 'waitForTimer',
+    PARALLEL_FORK: 'parallelFork',
+    PARALLEL_JOIN: 'parallelJoin',
   }
   return mapping[stepType] || 'automated'
 }
@@ -488,8 +609,12 @@ function getBadgeForNodeType(nodeType: string): string {
     userTask: 'User Task',
     automated: 'Automated',
     decision: 'Decision',
+    subWorkflow: 'Sub-Workflow',
     waitForSignal: 'Wait for Signal',
     waitForTimer: 'Wait for Timer',
+    parallelFork: 'Parallel Fork',
+    parallelJoin: 'Parallel Join',
+    invokeAgent: 'Invoke Agent',
   }
   return badges[nodeType] || 'Task'
 }

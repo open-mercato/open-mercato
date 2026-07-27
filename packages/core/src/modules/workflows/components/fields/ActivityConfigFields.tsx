@@ -27,7 +27,7 @@ import { VariablePickerButton } from './VariablePickerButton'
  * fall back to a plain text input.
  */
 
-const TYPES_WITH_CONFIG_FORM = new Set(['WAIT', 'SEND_EMAIL', 'CALL_WEBHOOK', 'CALL_API', 'EMIT_EVENT', 'UPDATE_ENTITY', 'EXECUTE_FUNCTION', 'SET_VARIABLE'])
+const TYPES_WITH_CONFIG_FORM = new Set(['WAIT', 'SEND_EMAIL', 'CALL_WEBHOOK', 'CALL_API', 'EMIT_EVENT', 'UPDATE_ENTITY', 'EXECUTE_FUNCTION', 'SET_VARIABLE', 'INVOKE_AGENT'])
 
 export function hasActivityConfigForm(activityType: string): boolean {
   return TYPES_WITH_CONFIG_FORM.has(activityType) && getActivityType(activityType) != null

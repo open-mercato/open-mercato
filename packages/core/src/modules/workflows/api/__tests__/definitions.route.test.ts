@@ -335,7 +335,8 @@ describe('Workflow Definitions API', () => {
         expect.objectContaining({
           workflowId: 'test-workflow',
           tenantId: testTenantId,
-        })
+        }),
+        expect.objectContaining({ orderBy: { version: 'DESC' } })
       )
     })
 

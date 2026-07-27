@@ -109,6 +109,27 @@ Contributor action:
   A plain `yarn install-skills` also self-heals (it sweeps the legacy per-agent links); the `--clean` form just makes it explicit.
 - If a setup still depends on the old layout, `yarn install-skills --legacy-links` restores it.
 - To keep an agent's directory from being written at all, pass `--ignore-agents <csv>` or add a persistent `{ "agents": { "ignore": ["cursor"] } }` block to `.ai/skills/tiers.json`.
+### Dev-environment starters moved to `starters/`; hybrid mode is the new default
+
+The dev-environment startup surface was consolidated into a top-level [`starters/`](starters/README.md) directory, and the default dev mode changed to **hybrid**: the app and the MCP server run natively on your machine (`yarn dev` now starts both), while OpenCode + postgres/redis/meilisearch run in containers. The fully containerized stack remains as the enterprise path. See `.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md`.
+
+Breaking changes (no old-path shims):
+
+- **Compose files moved and were renamed** — `docker-compose.yml` → `starters/docker/compose.infra.yml`, `docker-compose.fullapp.dev.yml` → `starters/docker/compose.fullapp.dev.yml`, `docker-compose.fullapp.yml`, `docker-compose.fullapp.traefik*.yml`, and `docker-compose.preview.yaml` → `starters/docker/compose.{fullapp,fullapp.traefik,fullapp.traefik.dev,preview}.yml`. Bare `docker compose up` at the repo root no longer works. Always invoke via the wrapper scripts (`yarn infra:up`, `yarn docker:dev:up`, …) or the canonical form `docker compose --project-directory . -f starters/docker/compose.<x>.yml …` — the `--project-directory` flag is required to keep `.env` interpolation and relative paths anchored at the repo root.
+- **Windows launcher moved** — `scripts\windows\start-windows.bat` (and siblings) → `starters\docker\windows\`. `.bat` copies from old clones self-download `start-dev.ps1` from a raw URL that 404s once the old path leaves `main`; re-clone or use the new path.
+- **`scripts/setup-windows-dev.ps1`** → `starters/hybrid/windows-toolchain.ps1`.
+- **verdaccio is now opt-in** — add `--profile registry` (it is no longer part of the default infra stack).
+- **Containers created from the old layout**: the canonical `--project-directory .` invocation keeps the same compose project name, so existing `mercato-*` containers are adopted in place (verified — services whose config changed, like opencode, are recreated on the next `up`). Only if `up` complains about container names already in use (e.g. you used `-p` or a renamed checkout) run `docker compose down` from the old checkout or `docker rm` the `mercato-*` containers first. Named volumes (`mercato-postgres-data*`, …) are unchanged and reattach — no data loss.
+- **`DOCKER_COMPOSE_FILE`** values pointing at old paths fail loudly with a hint; point them at `starters/docker/…`. Legacy root `docker-compose.*dev*.local.yml` personal overrides are still auto-discovered, and the new convention is `starters/docker/compose.*dev*.local.yml`.
+
+Behavior changes in `yarn dev` (monorepo):
+
+- It now **starts the MCP server** (port `MCP_PORT`, default 3001) and provisions its API key into `.mercato/mcp-shared/mcp-api-key` for the OpenCode container. Opt out with `yarn dev --no-mcp` or `OM_DEV_WITH_MCP=0`; `yarn dev:app` never starts it.
+- It now **auto-applies pending migrations** at startup (best-effort — a failure warns and dev continues). Opt out with `OM_DEV_AUTO_MIGRATE=0`.
+
+New entry points: `starters/hybrid/install.sh` (Linux/macOS) and `starters\hybrid\install.bat` (Windows) provision prerequisites (git, Node 24, corepack yarn) and install/start the hybrid stack end-to-end; `yarn infra:up` / `yarn infra:down` manage the infra containers.
+
+External coordination: the Dokploy QA deployment config must switch `docker-compose.preview.yaml` → `starters/docker/compose.preview.yml` when this lands (see `.github/QA-DEPLOYMENT.md`).
 
 ### Shared `om-*` pipeline skills now come from open-mercato/skills
 

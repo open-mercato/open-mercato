@@ -89,6 +89,7 @@ The `@open-mercato/enterprise` package delivers the proprietary modules included
 - **Record Locking** — optimistic and pessimistic mutation protection with participant presence, conflict detection/resolution, and force release
 - **Auth Login Interceptors** — MFA login gating via UMES extension points with zero core modifications
 - **System Status Overlays** — enterprise overlays and injected widgets for system status pages
+- **Agent Orchestrator** — propose-only AI agent runtime (in-process + OpenCode file-defined agents), proposal/disposition workflow integration, trace · eval · correction capture, and the operator/engineer cockpit. Enabled with `OM_ENABLE_ENTERPRISE_MODULES` + `OM_ENABLE_ENTERPRISE_MODULES_AGENTS`
 
 ## Sandboxes
 

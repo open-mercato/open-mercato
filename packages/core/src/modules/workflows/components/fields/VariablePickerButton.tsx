@@ -41,6 +41,7 @@ const GROUP_ORDER: LedgerSourceKind[] = [
   'activity',
   'setVariable',
   'asyncResult',
+  'invokeAgent',
   'signal',
   'join',
   'subWorkflow',

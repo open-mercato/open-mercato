@@ -5,6 +5,7 @@ import {
   DURATION_ERROR,
   UNTIL_ERROR,
   UNTIL_PAST_ERROR,
+  invokeAgentConfigSchema,
   isFutureIsoDateString,
   isValidDurationString,
   isValidIsoDateString,
@@ -31,6 +32,7 @@ export {
   emitEventConfigSchema,
   updateEntityConfigSchema,
   executeFunctionConfigSchema,
+  invokeAgentConfigSchema,
   setVariableAssignmentSchema,
   setVariableConfigSchema,
   waitConfigSchema,
@@ -41,6 +43,7 @@ export type {
   EmitEventConfig,
   UpdateEntityConfig,
   ExecuteFunctionConfig,
+  InvokeAgentConfig,
   SetVariableConfig,
   WaitConfig,
 } from './activity-config-schemas'
@@ -112,10 +115,11 @@ export type TransitionTrigger = z.infer<typeof transitionTriggerSchema>
 /**
  * Registry-driven: the accepted activity types are whatever the Activity
  * Registry has registered by the time this module loads (the bootstrap import
- * above guarantees the built-ins). Registration order matters — the enum is
- * frozen at this module's first import, so extension modules MUST call
- * `registerActivityType` before anything imports these validators, or their
- * types will be rejected by every schema built from this enum.
+ * above guarantees the built-ins, INVOKE_AGENT included). Registration order
+ * matters — the enum is frozen at this module's first import, so extension
+ * modules MUST call `registerActivityType` before anything imports these
+ * validators, or their types will be rejected by every schema built from this
+ * enum.
  */
 export const activityTypeSchema = z.enum(activityTypeIds())
 export type ActivityType = z.infer<typeof activityTypeSchema>
@@ -174,6 +178,34 @@ export const subWorkflowConfigSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
 })
 
+// Sub-workflow IO contract ("ports"). Business-user-facing typed declaration of
+// the inputs a workflow accepts and the outputs it returns. The five port types
+// are the simple labels surfaced in the Schema Builder; mapped values are
+// coerced and validated against them at the SUB_WORKFLOW boundary by
+// lib/port-contract.ts. Declared on the child definition (definition.io).
+export const portFieldTypeSchema = z.enum(['text', 'number', 'boolean', 'select', 'date'])
+
+export const portFieldSchema = z.object({
+  name: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[a-zA-Z][a-zA-Z0-9_]*$/, 'Port name must start with a letter and contain only letters, numbers, and underscores'),
+  type: portFieldTypeSchema,
+  label: z.string().min(1).max(255),
+  required: z.boolean().optional().default(false),
+  options: z.array(z.string()).optional(),
+})
+
+export const workflowIoContractSchema = z.object({
+  inputs: z.array(portFieldSchema).optional(),
+  outputs: z.array(portFieldSchema).optional(),
+})
+
+export type PortFieldType = z.infer<typeof portFieldTypeSchema>
+export type PortField = z.infer<typeof portFieldSchema>
+export type WorkflowIoContract = z.infer<typeof workflowIoContractSchema>
+
 // Retry policy
 export const retryPolicySchema = z.object({
   maxAttempts: z.number().int().min(1).max(10),
@@ -202,6 +234,19 @@ export const activityDefinitionSchema = z.object({
     automatic: z.boolean().default(true).optional() // Auto-trigger on failure
   }).optional(), // Compensation configuration (Phase 8.2)
 }).superRefine((activity, ctx) => {
+  if (activity.activityType === 'INVOKE_AGENT') {
+    const parsed = invokeAgentConfigSchema.safeParse(activity.config || {})
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['config', ...issue.path],
+          message: issue.message,
+        })
+      }
+    }
+    return
+  }
   if (activity.activityType !== 'WAIT') return
   const config = activity.config || {}
   const hasDuration = config.duration != null && config.duration !== ''
@@ -276,6 +321,10 @@ export const workflowStepSchema = z.object({
   retryPolicy: retryPolicySchema.optional(),
   // Pre-conditions for START step (business rules to validate before workflow can be started)
   preConditions: z.array(startPreConditionSchema).optional(),
+  // Visual-editor node coordinate persisted in the jsonb definition so a saved
+  // graph re-opens exactly as the author arranged it. Additive/optional — legacy
+  // and code-authored definitions omit it and auto-arrange on load.
+  _editorPosition: z.object({ x: z.number(), y: z.number() }).optional(),
 }).superRefine((step, ctx) => {
   if (step.stepType !== 'WAIT_FOR_TIMER') return
   const config = step.config || {}
@@ -603,7 +652,8 @@ export const workflowDefinitionDataSchema = z.object({
   steps: z.array(workflowStepSchema).min(2, 'Workflow must have at least START and END steps'),
   transitions: z.array(workflowTransitionSchema).min(1, 'Workflow must have at least one transition'),
   triggers: z.array(workflowDefinitionTriggerSchema).optional(), // Event triggers for automatic workflow start
-  contextSchema: contextSchemaSchema.optional(), // Declared typed-input contract (spec §3.1)
+  contextSchema: contextSchemaSchema.optional(), // Declared typed-input contract (spec §3.1) — canonical input contract
+  io: workflowIoContractSchema.optional(), // Sub-workflow input/output port contract; io.input is a read-through alias of contextSchema.input for the ledger
   queries: z.array(z.any()).optional(), // For Phase 7
   signals: z.array(z.any()).optional(), // For Phase 9
   timers: z.array(z.any()).optional(), // For Phase 9
@@ -661,6 +711,29 @@ const dateOrNull = z.preprocess((value) => {
 // WorkflowDefinition Schemas
 // ============================================================================
 
+// Definition classification + lifecycle
+export const workflowKindSchema = z.enum(['workflow', 'component'])
+export const workflowLifecycleSchema = z.enum(['draft', 'published', 'archived'])
+
+export type WorkflowKind = z.infer<typeof workflowKindSchema>
+export type WorkflowLifecycle = z.infer<typeof workflowLifecycleSchema>
+
+// A reusable component is invoked only as a SUB_WORKFLOW and never auto-starts,
+// so it MUST NOT declare event triggers.
+const componentHasNoTriggers = (
+  data: { kind?: string | null; definition?: { triggers?: unknown[] } | null },
+  ctx: z.RefinementCtx,
+) => {
+  const triggers = data.definition && (data.definition as { triggers?: unknown[] }).triggers
+  if (data.kind === 'component' && Array.isArray(triggers) && triggers.length > 0) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['definition', 'triggers'],
+      message: 'A component workflow cannot declare event triggers',
+    })
+  }
+}
+
 // Full schema for database entities (includes tenant fields)
 export const createWorkflowDefinitionSchema = z.object({
   workflowId: z.string().min(1).max(100).regex(/^[a-z0-9._-]+$/, 'Workflow ID must contain only lowercase letters, numbers, dots, hyphens, and underscores'),
@@ -670,6 +743,8 @@ export const createWorkflowDefinitionSchema = z.object({
   definition: workflowDefinitionDataSchema,
   metadata: workflowMetadataSchema.optional().nullable(),
   enabled: z.boolean().default(true),
+  kind: workflowKindSchema.default('workflow'),
+  lifecycle: workflowLifecycleSchema.default('published'),
   effectiveFrom: dateOrNull.optional(),
   effectiveTo: dateOrNull.optional(),
   tenantId: uuid,
@@ -688,9 +763,16 @@ export const createWorkflowDefinitionInputSchema = z.object({
   definition: workflowDefinitionDataSchema,
   metadata: workflowMetadataSchema.optional().nullable(),
   enabled: z.boolean().default(true).optional(),
+  kind: workflowKindSchema.optional(),
+  lifecycle: workflowLifecycleSchema.optional(),
 })
 
 export type CreateWorkflowDefinitionApiInput = z.infer<typeof createWorkflowDefinitionInputSchema>
+
+// Validation variant that also enforces the component-has-no-triggers rule.
+// Kept separate so the base object stays `.pick()`/`.extend()`-able for OpenAPI.
+export const createWorkflowDefinitionInputCheckedSchema =
+  createWorkflowDefinitionInputSchema.superRefine(componentHasNoTriggers)
 
 export const updateWorkflowDefinitionSchema = createWorkflowDefinitionSchema.partial().extend({
   id: uuid,
@@ -711,11 +793,17 @@ export const updateWorkflowDefinitionInputSchema = z.object({
   definition: workflowDefinitionDataSchema.optional(),
   metadata: workflowMetadataSchema.optional().nullable(),
   enabled: z.boolean().optional(),
+  kind: workflowKindSchema.optional(),
+  lifecycle: workflowLifecycleSchema.optional(),
   effectiveFrom: dateOrNull.optional(),
   effectiveTo: dateOrNull.optional(),
 }).strict()
 
 export type UpdateWorkflowDefinitionApiInput = z.infer<typeof updateWorkflowDefinitionInputSchema>
+
+// Validation variant that also enforces the component-has-no-triggers rule.
+export const updateWorkflowDefinitionInputCheckedSchema =
+  updateWorkflowDefinitionInputSchema.superRefine(componentHasNoTriggers)
 
 export const workflowDefinitionFilterSchema = z.object({
   workflowId: z.string().optional(),

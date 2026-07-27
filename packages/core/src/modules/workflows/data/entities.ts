@@ -131,11 +131,25 @@ export interface WorkflowContextSchema {
   }
 }
 
+export interface WorkflowIoPortField {
+  name: string
+  type: 'text' | 'number' | 'boolean' | 'select' | 'date'
+  label: string
+  required?: boolean
+  options?: string[]
+}
+
+export interface WorkflowIoContract {
+  inputs?: WorkflowIoPortField[]
+  outputs?: WorkflowIoPortField[]
+}
+
 export interface WorkflowDefinitionData {
   steps: any[] // WorkflowStep[] - will define schema in validators.ts
   transitions: any[] // WorkflowTransition[] - will define schema in validators.ts
   triggers?: WorkflowDefinitionTrigger[] // Event triggers for automatic workflow start
-  contextSchema?: WorkflowContextSchema // Declared typed-input contract (spec §3.1)
+  contextSchema?: WorkflowContextSchema // Declared typed-input contract (spec §3.1) — canonical input contract
+  io?: WorkflowIoContract // Sub-workflow port contract; io.inputs is a read-through alias of contextSchema.input
   activities?: any[] // ActivityDefinition[] - will define schema in validators.ts
   queries?: any[]
   signals?: any[]
@@ -178,12 +192,16 @@ export interface WorkflowInstanceMetadata {
  * to create workflow instances.
  */
 @Entity({ tableName: 'workflow_definitions' })
-@Unique({ properties: ['workflowId', 'tenantId'] })
+// Versions of the same workflow coexist as separate rows; uniqueness is per
+// (workflowId, version, tenantId) so draft/published versions can live together.
+@Unique({ properties: ['workflowId', 'version', 'tenantId'] })
 @Index({ name: 'workflow_definitions_enabled_idx', properties: ['enabled'] })
 @Index({ name: 'workflow_definitions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'workflow_definitions_workflow_id_idx', properties: ['workflowId'] })
+@Index({ name: 'workflow_definitions_kind_idx', properties: ['kind'] })
+@Index({ name: 'workflow_definitions_definition_gin_idx', properties: ['definition'], type: 'gin' })
 export class WorkflowDefinition {
-  [OptionalProps]?: 'enabled' | 'version' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'codeWorkflowId'
+  [OptionalProps]?: 'enabled' | 'version' | 'kind' | 'lifecycle' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'codeWorkflowId'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -211,6 +229,16 @@ export class WorkflowDefinition {
 
   @Property({ name: 'enabled', type: 'boolean', default: true })
   enabled: boolean = true
+
+  // Distinguishes a reusable library component (no trigger, not standalone-
+  // startable, callable only as a SUB_WORKFLOW) from a normal workflow.
+  @Property({ name: 'kind', type: 'varchar', length: 20, default: 'workflow' })
+  kind: 'workflow' | 'component' = 'workflow'
+
+  // Draft/published version lifecycle. Existing rows backfill to 'published';
+  // the publish flow + version coexistence land with the versioning phase.
+  @Property({ name: 'lifecycle', type: 'varchar', length: 20, default: 'published' })
+  lifecycle: 'draft' | 'published' | 'archived' = 'published'
 
   @Property({ name: 'effective_from', type: Date, nullable: true })
   effectiveFrom?: Date | null

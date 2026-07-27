@@ -105,6 +105,30 @@ export const executeFunctionConfigSchema = z.looseObject({
 })
 export type ExecuteFunctionConfig = z.infer<typeof executeFunctionConfigSchema>
 
+// INVOKE_AGENT activity configuration — runs a callable agent (area 02a) and
+// dispositions any actionable proposal. `onResult` is carried verbatim to the
+// agent_orchestrator disposition service.
+export const invokeAgentConfigSchema = z.object({
+  agentId: z.string().min(1),
+  input: z.record(z.string(), z.any()).default({}),
+  onResult: z.union([
+    z.object({ autoApproveThreshold: z.number().min(0).max(1) }),
+    z.object({ alwaysAsk: z.literal(true) }),
+  ]),
+  // Optional routing of the agent result into workflow context. Keys are the
+  // target context paths; values are plain dot-paths into the normalized agent
+  // result envelope (kind / disposition / proposalId / proposalPayload / data).
+  // Mirrors SUB_WORKFLOW's outputMapping. When omitted, the engine writes the
+  // legacy fixed keys (disposition / agentProposalId / proposalPayload).
+  outputMapping: z.record(z.string(), z.string()).optional(),
+  // Optional business-record descriptor ("what this process is about"), static
+  // or {{context.*}}-interpolated like the rest of the config. Forwarded opaquely
+  // to the agent_orchestrator bridge (additive; the enterprise module validates
+  // the shape) so its process projection can render a claim-centric caseload.
+  subject: z.record(z.string(), z.any()).optional(),
+})
+export type InvokeAgentConfig = z.infer<typeof invokeAgentConfigSchema>
+
 export const setVariableAssignmentSchema = z.looseObject({
   path: z.string().min(1, 'SET_VARIABLE assignment requires "path"'),
   value: z.unknown(),

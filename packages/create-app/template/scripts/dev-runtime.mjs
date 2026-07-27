@@ -89,9 +89,9 @@ const {
   stripAnsi,
   wrapListLines,
 } = await import(resolveSplashHelpersImport())
-const { resolveProjectBinary, resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
+const { resolveMercatoInvocation, resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
 
-const command = resolveProjectBinary(process.platform === 'win32' ? 'mercato.cmd' : 'mercato')
+const mercatoInvocation = resolveMercatoInvocation()
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
 const verbose = !classic && (process.argv.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose')
 const rawPassthrough = classic || verbose
@@ -577,7 +577,7 @@ function looksLikeFailure(line) {
 }
 
 function spawnMercato(args) {
-  const resolvedSpawn = resolveSpawnCommand(command, args)
+  const resolvedSpawn = resolveSpawnCommand(mercatoInvocation.command, [...mercatoInvocation.args, ...args])
   const child = spawn(resolvedSpawn.command, resolvedSpawn.args, {
     stdio: rawPassthrough ? 'inherit' : 'pipe',
     env: {
@@ -1465,6 +1465,7 @@ async function runInitialGenerate() {
       console.error(line)
     }
     shutdown(exitCode)
+    return
   }
 
   updateSplashState({

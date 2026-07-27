@@ -8,10 +8,10 @@ import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Trash2 } from 'lucide-react'
 import { CrudForm, type CrudFormGroup, type CrudField, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { DurationInput } from '@open-mercato/ui/backend/inputs/DurationInput'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FormFieldArrayEditor } from './fields/FormFieldArrayEditor'
 import { ActivityArrayEditor, type ActivityTestContext } from './fields/ActivityArrayEditor'
 import { useActivityTypeOptions } from './fields/useActivityTypeOptions'
@@ -19,6 +19,7 @@ import { MappingArrayEditor } from './fields/MappingArrayEditor'
 import { WorkflowSelectorField } from './fields/WorkflowSelectorField'
 import { RolesMultiSelect } from './fields/RolesMultiSelect'
 import { StartPreConditionsEditor } from './fields/StartPreConditionsEditor'
+import { AgentInvokeConfigField } from './fields/AgentInvokeConfigField'
 import { nodeToFormValues, formValuesToNodeUpdates, isJsonSchemaFormat, type NodeFormValues } from '../lib/nodeFormTransforms'
 import { sanitizeId } from '../lib/graph-utils'
 import type { LedgerEntry } from '../lib/context-ledger'
@@ -319,6 +320,27 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       ]
     }
 
+    // InvokeAgent specific groups
+    if (node.type === 'invokeAgent') {
+      return [
+        ...baseGroups,
+        {
+          id: 'invokeAgent',
+          title: t('workflows.form.invokeAgent.sectionTitle'),
+          column: 1,
+          description: t('workflows.form.invokeAgent.sectionDescription'),
+          fields: ['agentConfig'],
+        },
+        {
+          id: 'advanced',
+          title: 'Advanced Configuration',
+          column: 1,
+          description: 'Additional JSON configuration',
+          fields: ['advancedConfig'],
+        },
+      ]
+    }
+
     // Decision and other types: just basic fields + advanced
     return [
       ...baseGroups,
@@ -489,6 +511,14 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       type: 'datetime',
       minDate: new Date(),
       description: t('workflows.nodeEditor.timerUntilDescription'),
+    },
+
+    // InvokeAgent configuration
+    {
+      id: 'agentConfig',
+      label: '',
+      type: 'custom',
+      component: (props) => <AgentInvokeConfigField {...props} value={props.value as any} />,
     },
 
     // Advanced configuration

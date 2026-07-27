@@ -22,7 +22,12 @@
  * explicit `unknown` entries:
  *
  * - Initial context (START steps): `contextSchema.input.fields` typed
- *   (`required` → always, else maybe) plus, per definition trigger, the
+ *   (`required` → always, else maybe). `contextSchema.input` is the CANONICAL
+ *   input contract; when it is absent, `definition.io.inputs` (the sub-workflow
+ *   port contract) is read through as a deprecated alias — port fields share
+ *   the same name/type/required vocabulary, so they map 1:1 onto START entries.
+ *   Full `@deprecated` dual-emit for `io.inputs` is follow-up work; this is the
+ *   read-through half only. Plus, per definition trigger, the
  *   whole-payload flat spread (one `'*'` wildcard entry), `contextMapping`
  *   target keys (named, untyped), and the `__trigger.*` metadata keys
  *   (event-trigger-service builds `initialContext` from
@@ -58,6 +63,19 @@
  *   `outputMapping` from the child context but only returns it as
  *   `stepInstance.outputData` — it is never merged into `instance.context` —
  *   so advertising those keys would fabricate availability.
+ * - INVOKE_AGENT (an AUTOMATED step carrying an `INVOKE_AGENT` activity) is
+ *   the verified exception to the "AUTOMATED sync outputs stay in outputData"
+ *   rule: its result IS merged top-level into `instance.context`. Three
+ *   resolution paths (step-handler inline branch, activity-worker-handler
+ *   parked resume, agent_orchestrator's human dispose → sendSignal) merge
+ *   different key sets, so every entry is `maybe`: `outputMapping` target keys
+ *   when a mapping is declared (mapAgentResultToContext, machine paths only);
+ *   the legacy fixed keys `disposition`/`agentId`/`agentProposalId`/
+ *   `proposalPayload`/`<stepId>_agent` when it is not; the human dispose path
+ *   always merges `disposition`/`proposalId`/`stepId`/`proposalPayload`
+ *   regardless of mapping; and any parked resume goes through sendSignal,
+ *   adding `signal_<name>_payload`/`signal_<name>_receivedAt` for the step's
+ *   `signalConfig.signalName` (default `agent_orchestrator.proposal.ready`).
  */
 
 import { splitAssignmentPath } from './set-variable'
@@ -83,6 +101,7 @@ export type LedgerSourceKind =
   | 'subWorkflow'
   | 'join'
   | 'asyncResult'
+  | 'invokeAgent'
 
 export interface LedgerEntrySource {
   kind: LedgerSourceKind
@@ -160,11 +179,16 @@ export interface LedgerContextSchema {
   input?: { fields: LedgerContextSchemaField[] }
 }
 
+export interface LedgerIoContract {
+  inputs?: LedgerContextSchemaField[]
+}
+
 export interface LedgerWorkflowDefinition {
   steps: LedgerStepDefinition[]
   transitions: LedgerTransitionDefinition[]
   triggers?: LedgerTriggerDefinition[]
   contextSchema?: LedgerContextSchema
+  io?: LedgerIoContract
 }
 
 type LedgerMap = Map<string, LedgerEntry>
@@ -223,13 +247,19 @@ function makeEntry(
 function initialContributions(definition: LedgerWorkflowDefinition): LedgerEntry[] {
   const entries: LedgerEntry[] = []
 
-  const inputFields = definition.contextSchema?.input?.fields ?? []
+  // contextSchema.input is canonical; definition.io.inputs (the sub-workflow
+  // port contract) is a deprecated read-through alias consulted only when no
+  // contextSchema input is declared. Both share the name/type/required field
+  // vocabulary, so the mapping is identical.
+  const declaredFields = definition.contextSchema?.input?.fields
+  const usingIoAlias = !declaredFields || declaredFields.length === 0
+  const inputFields = usingIoAlias ? definition.io?.inputs ?? [] : declaredFields
   for (const field of inputFields) {
     if (!field.name) continue
     entries.push(
       makeEntry(field.name, mapFieldType(field.type), field.required ? 'always' : 'maybe', {
         kind: 'contextSchema',
-        label: 'contextSchema.input',
+        label: usingIoAlias ? 'io.inputs (read-through)' : 'contextSchema.input',
       }),
     )
   }
@@ -437,6 +467,59 @@ function transitionContributions(
   return entries
 }
 
+// Mirrors INVOKE_AGENT_SIGNAL_NAME in lib/activity-executor.ts — duplicated
+// here because the ledger's purity boundary forbids importing engine modules.
+const INVOKE_AGENT_DEFAULT_SIGNAL_NAME = 'agent_orchestrator.proposal.ready'
+
+function invokeAgentContributions(step: LedgerStepDefinition): LedgerEntry[] {
+  const entries: LedgerEntry[] = []
+  for (const activity of step.activities ?? []) {
+    if (activity.activityType !== 'INVOKE_AGENT') continue
+    const source: LedgerEntrySource = {
+      kind: 'invokeAgent',
+      stepId: step.stepId,
+      activityId: activity.activityId,
+      label: `invokeAgent:${activity.activityId}`,
+    }
+
+    // Everything is `maybe`: which keys land depends on the resolution path
+    // (inline auto_approved/informative, parked machine resume, or human
+    // dispose) and, for mapped keys, on the source path resolving.
+    const outputMapping = activity.config?.outputMapping
+    const hasMapping = isPlainObject(outputMapping) && Object.keys(outputMapping).length > 0
+    if (hasMapping) {
+      for (const targetKey of Object.keys(outputMapping)) {
+        if (!targetKey) continue
+        entries.push(makeEntry(targetKey, 'unknown', 'maybe', source))
+      }
+    } else {
+      // Legacy fixed-key merge (step-handler inline branch and
+      // activity-worker-handler parked resume).
+      entries.push(makeEntry('agentId', 'text', 'maybe', source))
+      entries.push(makeEntry('agentProposalId', 'text', 'maybe', source))
+      entries.push(makeEntry(`${step.stepId}_agent`, 'unknown', 'maybe', source))
+    }
+
+    // agent_orchestrator's human dispose path (lib/disposition/resume.ts)
+    // merges these regardless of any declared outputMapping.
+    entries.push(makeEntry('disposition', 'text', 'maybe', source))
+    entries.push(makeEntry('proposalId', 'text', 'maybe', source))
+    entries.push(makeEntry('stepId', 'text', 'maybe', source))
+    entries.push(makeEntry('proposalPayload', 'unknown', 'maybe', source))
+
+    // Any parked resume arrives via sendSignal, which also records the signal
+    // envelope keys for the step's park signal.
+    const configuredSignal = step.signalConfig?.signalName
+    const signalName =
+      typeof configuredSignal === 'string' && configuredSignal
+        ? configuredSignal
+        : INVOKE_AGENT_DEFAULT_SIGNAL_NAME
+    entries.push(makeEntry(`signal_${signalName}_payload`, 'object', 'maybe', source))
+    entries.push(makeEntry(`signal_${signalName}_receivedAt`, 'date', 'maybe', source))
+  }
+  return entries
+}
+
 function stepContributions(
   step: LedgerStepDefinition,
   options: ComputeContextLedgerOptions,
@@ -449,9 +532,12 @@ function stepContributions(
     case 'PARALLEL_JOIN':
       return joinContributions(step)
     case 'AUTOMATED':
-      return (step.activities ?? [])
-        .filter((activity) => activity.async === true)
-        .flatMap((activity) => asyncResultContributions(activity, step.stepId, options))
+      return [
+        ...(step.activities ?? [])
+          .filter((activity) => activity.async === true)
+          .flatMap((activity) => asyncResultContributions(activity, step.stepId, options)),
+        ...invokeAgentContributions(step),
+      ]
     default:
       return []
   }

@@ -1,0 +1,1603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Open Mercato · Agent Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --surface:#F4F6F9;
+  --raised:#FFFFFF;
+  --sunken:#EBEEF3;
+  --rail:#181C28;
+  --rail-2:#212737;
+  --ink:#161B24;
+  --ink-2:#566072;
+  --ink-3:#8B95A6;
+  --hair:#E1E5EC;
+  --hair-strong:#CDD3DE;
+  /* system / OM "disposes" */
+  --indigo:#3142C7;
+  --indigo-ink:#27349E;
+  --indigo-soft:#ECEEFB;
+  /* agent / LLM "proposes" */
+  --violet:#7A55EE;
+  --violet-soft:#F0EAFD;
+  --violet-ink:#5B36C9;
+  /* states */
+  --amber:#C9821F;
+  --amber-soft:#FBF0DD;
+  --green:#118A63;
+  --green-soft:#E1F3EC;
+  --red:#D23A41;
+  --red-soft:#FBE7E8;
+  --shadow:0 1px 2px rgba(20,25,35,.04),0 6px 20px rgba(20,25,35,.06);
+  --shadow-lg:0 8px 40px rgba(20,25,35,.14);
+  --font-d:"Space Grotesk",sans-serif;
+  --font-b:"IBM Plex Sans",sans-serif;
+  --font-m:"IBM Plex Mono",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:var(--font-b);
+  background:var(--surface);
+  color:var(--ink);
+  font-size:14px;
+  line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+:focus-visible{outline:2px solid var(--indigo);outline-offset:2px;border-radius:3px}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+.mono{font-family:var(--font-m);font-feature-settings:"tnum"}
+
+/* ---------- shell ---------- */
+.app{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+.rail{
+  background:var(--rail);
+  color:#C7CCD8;
+  display:flex;flex-direction:column;
+  position:sticky;top:0;height:100vh;
+}
+.brand{display:flex;align-items:center;gap:10px;padding:22px 20px 20px}
+.brand-mark{
+  width:30px;height:30px;border-radius:8px;flex:none;
+  background:linear-gradient(135deg,var(--violet) 0%,var(--indigo) 100%);
+  display:grid;place-items:center;color:#fff;font-family:var(--font-d);font-weight:700;font-size:15px;
+}
+.brand-name{font-family:var(--font-d);font-weight:600;color:#fff;font-size:15px;letter-spacing:-.01em;line-height:1.1}
+.brand-sub{font-size:10.5px;color:#7E879A;letter-spacing:.06em;text-transform:uppercase;margin-top:1px}
+.rail-section{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#666F82;padding:18px 22px 8px}
+.nav{display:flex;flex-direction:column;gap:1px;padding:0 12px}
+.nav-item{
+  display:flex;align-items:center;gap:11px;
+  padding:9px 12px;border-radius:8px;
+  font-size:13.5px;font-weight:500;color:#AAB2C2;
+  width:100%;text-align:left;transition:background .14s,color .14s;
+}
+.nav-item:hover{background:var(--rail-2);color:#EAEDF3}
+.nav-item.active{background:var(--rail-2);color:#fff}
+.nav-item .ic{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7}
+.nav-item .badge{margin-left:auto;font-family:var(--font-m);font-size:11px;background:var(--amber);color:#2a1c05;
+  padding:1px 7px;border-radius:20px;font-weight:600}
+.nav-item.active .badge{background:var(--amber)}
+.rail-foot{margin-top:auto;padding:16px 18px;border-top:1px solid #262C3B;display:flex;align-items:center;gap:10px}
+.avatar{width:30px;height:30px;border-radius:50%;background:var(--rail-2);display:grid;place-items:center;
+  font-size:12px;font-weight:600;color:#D6DBE5;flex:none}
+.rail-foot .who{font-size:12.5px;color:#E3E7EE;font-weight:500;line-height:1.2}
+.rail-foot .role{font-size:11px;color:#737C8F}
+
+/* ---------- topbar ---------- */
+.main{display:flex;flex-direction:column;min-width:0}
+.topbar{
+  display:flex;align-items:center;gap:16px;
+  padding:0 28px;height:58px;background:var(--raised);
+  border-bottom:1px solid var(--hair);position:sticky;top:0;z-index:20;
+}
+.crumb{font-size:13px;color:var(--ink-2)}
+.crumb b{color:var(--ink);font-weight:600}
+.env{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink-2);
+  background:var(--sunken);padding:4px 10px;border-radius:7px;font-family:var(--font-m)}
+.env .dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:14px}
+.qdepth{display:flex;align-items:center;gap:9px;background:var(--amber-soft);border:1px solid #EAD6AE;
+  padding:5px 12px 5px 10px;border-radius:9px}
+.qdepth .pulse{width:8px;height:8px;border-radius:50%;background:var(--amber);position:relative}
+.qdepth .pulse::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--amber);
+  opacity:.5;animation:ping 1.8s ease-out infinite}
+@keyframes ping{0%{transform:scale(.6);opacity:.6}100%{transform:scale(1.7);opacity:0}}
+.qdepth .num{font-family:var(--font-m);font-weight:600;font-size:14px;color:var(--amber)}
+.qdepth .lbl{font-size:11px;color:#8a6a22;line-height:1.1}
+
+/* ---------- view ---------- */
+.view{padding:26px 28px 60px;max-width:1320px}
+.view[hidden]{display:none}
+.page-h{display:flex;align-items:flex-end;gap:14px;margin-bottom:22px;flex-wrap:wrap}
+.page-h h1{font-family:var(--font-d);font-size:24px;font-weight:600;letter-spacing:-.02em}
+.page-h p{color:var(--ink-2);font-size:13px;margin-bottom:3px}
+.spacer{flex:1}
+
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:9px;font-size:13px;
+  font-weight:600;border:1px solid var(--hair-strong);background:var(--raised);color:var(--ink);transition:.14s}
+.btn:hover{border-color:var(--ink-3);background:#fafbfc}
+.btn-primary{background:var(--indigo);color:#fff;border-color:var(--indigo)}
+.btn-primary:hover{background:var(--indigo-ink)}
+.btn-approve{background:var(--green);color:#fff;border-color:var(--green)}
+.btn-approve:hover{filter:brightness(.94)}
+.btn-reject{background:var(--raised);color:var(--red);border-color:#EBC4C6}
+.btn-reject:hover{background:var(--red-soft)}
+.btn-sm{padding:6px 11px;font-size:12px}
+.ic-s{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8}
+
+/* ---------- kpi tiles ---------- */
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
+.tile{background:var(--raised);border:1px solid var(--hair);border-radius:13px;padding:16px 18px;box-shadow:var(--shadow)}
+.tile .t-lbl{font-size:11.5px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.tile .t-val{font-family:var(--font-d);font-size:30px;font-weight:600;letter-spacing:-.02em;margin-top:7px;line-height:1}
+.tile .t-val small{font-size:15px;color:var(--ink-3);font-weight:500}
+.tile .t-meta{font-size:12px;margin-top:9px;display:flex;align-items:center;gap:6px;color:var(--ink-2)}
+.trend{font-family:var(--font-m);font-weight:600;font-size:11.5px;padding:1px 6px;border-radius:5px}
+.trend.up{color:var(--green);background:var(--green-soft)}
+.trend.down{color:var(--red);background:var(--red-soft)}
+.trend.warn{color:var(--amber);background:var(--amber-soft)}
+
+.grid-2{display:grid;grid-template-columns:1.55fr 1fr;gap:16px;margin-top:16px}
+.card{background:var(--raised);border:1px solid var(--hair);border-radius:13px;box-shadow:var(--shadow)}
+.card-h{display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid var(--hair)}
+.card-h h3{font-family:var(--font-d);font-size:15px;font-weight:600;letter-spacing:-.01em}
+.card-h .hint{font-size:12px;color:var(--ink-3);margin-left:auto}
+.card-b{padding:6px 18px 14px}
+
+/* throughput bars */
+.spark{display:flex;align-items:flex-end;gap:7px;height:110px;padding:14px 4px 6px}
+.spark .bar{flex:1;background:var(--indigo-soft);border-radius:5px 5px 0 0;position:relative;min-height:6px;transition:.2s}
+.spark .bar i{position:absolute;left:0;right:0;bottom:0;background:var(--indigo);border-radius:5px 5px 0 0;display:block}
+.spark .bar:hover{filter:brightness(1.04)}
+.spark-x{display:flex;gap:7px;padding:0 4px}
+.spark-x span{flex:1;text-align:center;font-size:10px;color:var(--ink-3);font-family:var(--font-m)}
+
+/* stuck list */
+.row{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--hair)}
+.row:first-child{border-top:none}
+.row .rid{font-family:var(--font-m);font-size:12px;color:var(--indigo);font-weight:500}
+.row .rwhat{font-size:13px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .rmeta{font-size:11.5px;color:var(--ink-3);font-family:var(--font-m)}
+.row .rtag{margin-left:auto;flex:none}
+
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;
+  font-family:var(--font-b);white-space:nowrap}
+.pill .pd{width:6px;height:6px;border-radius:50%}
+.pill.amber{background:var(--amber-soft);color:var(--amber)}
+.pill.amber .pd{background:var(--amber)}
+.pill.green{background:var(--green-soft);color:var(--green)}
+.pill.green .pd{background:var(--green)}
+.pill.red{background:var(--red-soft);color:var(--red)}
+.pill.red .pd{background:var(--red)}
+.pill.indigo{background:var(--indigo-soft);color:var(--indigo-ink)}
+.pill.indigo .pd{background:var(--indigo)}
+.pill.violet{background:var(--violet-soft);color:var(--violet-ink)}
+.pill.violet .pd{background:var(--violet)}
+.pill.gray{background:var(--sunken);color:var(--ink-2)}
+.pill.gray .pd{background:var(--ink-3)}
+
+/* agent trust strip */
+.astrip{display:flex;flex-direction:column;gap:2px}
+.arow{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--hair)}
+.arow:first-child{border-top:none}
+.adot{width:26px;height:26px;border-radius:7px;background:var(--violet-soft);color:var(--violet-ink);
+  display:grid;place-items:center;font-size:11px;font-weight:700;flex:none}
+.aname{font-size:13px;font-weight:500;flex:1}
+.aname small{display:block;font-size:11px;color:var(--ink-3);font-weight:400;font-family:var(--font-m)}
+.meter{width:96px;height:6px;border-radius:4px;background:var(--sunken);overflow:hidden;flex:none}
+.meter i{display:block;height:100%;border-radius:4px}
+.apct{font-family:var(--font-m);font-size:12px;font-weight:600;width:40px;text-align:right}
+
+/* ---------- inbox ---------- */
+.inbox{display:grid;grid-template-columns:392px 1fr;gap:16px;align-items:start}
+.queue{background:var(--raised);border:1px solid var(--hair);border-radius:13px;box-shadow:var(--shadow);overflow:hidden}
+.queue-h{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--hair)}
+.queue-h h3{font-family:var(--font-d);font-size:14px;font-weight:600;flex:1}
+.seg{display:flex;gap:3px;background:var(--sunken);padding:3px;border-radius:8px}
+.seg button{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:6px;color:var(--ink-2)}
+.seg button.on{background:var(--raised);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.07)}
+.qlist{max-height:640px;overflow:auto}
+.qitem{display:block;width:100%;text-align:left;padding:13px 16px;border-bottom:1px solid var(--hair);
+  transition:background .12s;position:relative}
+.qitem:hover{background:#FAFBFD}
+.qitem.sel{background:var(--indigo-soft)}
+.qitem.sel::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--indigo)}
+.qi-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.qi-type{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:5px}
+.qi-type.review{background:var(--amber-soft);color:var(--amber)}
+.qi-type.question{background:var(--violet-soft);color:var(--violet-ink)}
+.qi-type.notify{background:var(--indigo-soft);color:var(--indigo-ink)}
+.qi-sla{margin-left:auto;font-family:var(--font-m);font-size:11px;font-weight:600}
+.qi-sla.hot{color:var(--red)}.qi-sla.warm{color:var(--amber)}.qi-sla.cool{color:var(--ink-3)}
+.qi-title{font-size:13.5px;font-weight:600;line-height:1.3;margin-bottom:3px}
+.qi-sub{font-size:12px;color:var(--ink-2);display:flex;align-items:center;gap:6px}
+.qi-sub .mono{color:var(--indigo)}
+.qempty{padding:40px 20px;text-align:center;color:var(--ink-3);font-size:13px}
+
+/* detail pane */
+.detail{background:var(--raised);border:1px solid var(--hair);border-radius:13px;box-shadow:var(--shadow);min-height:560px}
+.d-head{padding:20px 22px 16px;border-bottom:1px solid var(--hair)}
+.d-eyebrow{display:flex;align-items:center;gap:9px;margin-bottom:11px}
+.d-claim{font-family:var(--font-m);font-size:12.5px;color:var(--indigo);font-weight:600}
+.d-title{font-family:var(--font-d);font-size:20px;font-weight:600;letter-spacing:-.01em;line-height:1.25}
+.d-ctx{display:flex;gap:22px;margin-top:14px;flex-wrap:wrap}
+.d-ctx .f{font-size:12px}
+.d-ctx .f .k{color:var(--ink-3);text-transform:uppercase;font-size:10px;letter-spacing:.05em;font-weight:600}
+.d-ctx .f .v{font-weight:600;margin-top:2px;font-size:13px}
+.d-ctx .f .v.mono{font-family:var(--font-m);font-weight:500}
+
+.proposal{margin:18px 22px;border:1px solid var(--violet-soft);border-radius:12px;overflow:hidden}
+.prop-h{display:flex;align-items:center;gap:10px;background:var(--violet-soft);padding:11px 16px}
+.prop-h .padot{width:24px;height:24px;border-radius:6px;background:var(--violet);color:#fff;display:grid;
+  place-items:center;font-size:10px;font-weight:700;flex:none}
+.prop-h .pwho{font-size:13px;font-weight:600;color:var(--violet-ink)}
+.prop-h .pwho small{font-weight:400;color:var(--violet-ink);opacity:.75}
+.prop-h .pconf{margin-left:auto;font-family:var(--font-m);font-size:11.5px;color:var(--violet-ink);font-weight:600}
+.prop-b{padding:16px}
+.prop-verdict{display:flex;align-items:center;gap:11px;padding:12px 14px;background:var(--green-soft);
+  border-radius:9px;margin-bottom:14px}
+.prop-verdict .pv-ic{width:30px;height:30px;border-radius:8px;background:var(--green);color:#fff;
+  display:grid;place-items:center;flex:none}
+.prop-verdict .pv-t{font-size:14px;font-weight:600;color:var(--green)}
+.prop-verdict .pv-amt{margin-left:auto;font-family:var(--font-d);font-size:20px;font-weight:600;color:var(--green)}
+.prop-why{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+.reasons{list-style:none;display:flex;flex-direction:column;gap:8px}
+.reasons li{display:flex;gap:9px;font-size:12.5px;color:var(--ink);line-height:1.4}
+.reasons li .rc{width:16px;height:16px;flex:none;margin-top:1px;color:var(--green)}
+.reasons li.flag .rc{color:var(--amber)}
+.gate{display:flex;align-items:center;gap:9px;margin-top:14px;padding:9px 12px;background:var(--amber-soft);
+  border-radius:9px;font-size:12px;color:var(--amber)}
+.gate b{font-weight:700}
+.gate .ic-s{flex:none}
+
+.d-actions{display:flex;gap:10px;padding:16px 22px;border-top:1px solid var(--hair);background:#FAFBFC;
+  border-radius:0 0 13px 13px;flex-wrap:wrap}
+.d-actions .grow{flex:1}
+
+/* ---------- table (processes) ---------- */
+.segbar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.chip{font-size:12.5px;font-weight:500;padding:6px 13px;border-radius:8px;border:1px solid var(--hair);
+  background:var(--raised);color:var(--ink-2);transition:.14s}
+.chip:hover{border-color:var(--hair-strong)}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.chip .ct{font-family:var(--font-m);font-size:11px;opacity:.7;margin-left:5px}
+.tbl-wrap{background:var(--raised);border:1px solid var(--hair);border-radius:13px;box-shadow:var(--shadow);overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{text-align:left;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);
+  font-weight:600;padding:11px 16px;border-bottom:1px solid var(--hair);background:#FBFCFD}
+tbody td{padding:13px 16px;border-bottom:1px solid var(--hair)}
+tbody tr{transition:background .1s;cursor:pointer}
+tbody tr:hover{background:#FAFBFD}
+tbody tr:last-child td{border-bottom:none}
+.t-id{font-family:var(--font-m);font-size:12px;color:var(--indigo);font-weight:500}
+.t-what{font-weight:500}
+.t-agents{display:flex;gap:-6px}
+.t-agents .av{width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:var(--violet-soft);
+  color:var(--violet-ink);display:grid;place-items:center;font-size:9.5px;font-weight:700;margin-left:-7px}
+.t-agents .av:first-child{margin-left:0}
+.t-age{font-family:var(--font-m);font-size:12px;color:var(--ink-2)}
+.t-cost{font-family:var(--font-m);font-size:12px;color:var(--ink-2);text-align:right}
+
+/* ---------- process detail timeline (SIGNATURE) ---------- */
+.pd-head{background:var(--raised);border:1px solid var(--hair);border-radius:13px;box-shadow:var(--shadow);
+  padding:20px 22px;margin-bottom:16px}
+.pd-top{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.pd-claim{font-family:var(--font-m);font-size:13px;color:var(--indigo);font-weight:600;margin-bottom:4px}
+.pd-name{font-family:var(--font-d);font-size:21px;font-weight:600;letter-spacing:-.01em}
+.pd-controls{margin-left:auto;display:flex;gap:9px;flex-wrap:wrap}
+.stages{display:flex;gap:6px;margin-top:20px}
+.stage{flex:1;min-width:0}
+.stage .sbar{height:5px;border-radius:3px;background:var(--sunken)}
+.stage.done .sbar{background:var(--green)}
+.stage.active .sbar{background:var(--indigo)}
+.stage.wait .sbar{background:repeating-linear-gradient(90deg,var(--amber) 0 6px,transparent 6px 11px)}
+.stage .slab{font-size:11px;margin-top:7px;color:var(--ink-3);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stage.active .slab,.stage.wait .slab{color:var(--ink);font-weight:600}
+
+.legend{display:flex;align-items:center;gap:18px;margin:4px 0 18px;padding:11px 16px;background:var(--raised);
+  border:1px solid var(--hair);border-radius:11px;font-size:12px}
+.legend .lk{display:flex;align-items:center;gap:7px;color:var(--ink-2);font-weight:500}
+.legend .lk .ld{width:11px;height:11px;border-radius:3px}
+.legend .ld.v{background:var(--violet)}.legend .ld.i{background:var(--indigo)}
+.legend .note{margin-left:auto;font-style:italic;color:var(--ink-3);font-size:11.5px}
+
+.tl{position:relative;padding:6px 0 6px}
+.tl::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--hair);transform:translateX(-50%)}
+.tev{position:relative;display:grid;grid-template-columns:1fr 56px 1fr;margin-bottom:10px;align-items:start}
+.tev .node{grid-column:2;display:grid;place-items:center;position:relative;z-index:2}
+.tev .node .dot{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:#fff;
+  box-shadow:0 0 0 4px var(--surface)}
+.tev.agent .dot{background:var(--violet)}
+.tev.system .dot{background:var(--indigo)}
+.tev.human .dot{background:var(--ink)}
+.tev.handoff .dot{background:#fff;border:2px dashed var(--hair-strong);color:var(--ink-3);box-shadow:0 0 0 4px var(--surface)}
+.tev .node .ic-s{width:16px;height:16px;stroke-width:1.9}
+.tcard{border-radius:11px;padding:12px 14px;border:1px solid var(--hair);background:var(--raised);box-shadow:var(--shadow)}
+.tev.agent .tcard{grid-column:1;border-color:#E6DCFB;margin-right:6px}
+.tev.system .tcard,.tev.human .tcard{grid-column:3;margin-left:6px}
+.tev.handoff .tcard{grid-column:1/-1;justify-self:center;background:transparent;border:none;box-shadow:none;
+  padding:4px 0;text-align:center}
+.tc-h{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.tev.system .tc-h,.tev.human .tc-h{flex-direction:row-reverse}
+.tc-actor{font-size:12.5px;font-weight:600}
+.tev.agent .tc-actor{color:var(--violet-ink)}
+.tev.system .tc-actor{color:var(--indigo-ink)}
+.tc-time{font-family:var(--font-m);font-size:10.5px;color:var(--ink-3);margin-left:auto}
+.tev.system .tc-time,.tev.human .tc-time{margin-left:0;margin-right:auto}
+.tc-body{font-size:12.5px;color:var(--ink);line-height:1.4}
+.tev.system .tc-body,.tev.human .tc-body{text-align:right}
+.tc-tag{display:inline-block;margin-top:7px;font-family:var(--font-m);font-size:10.5px;padding:1px 7px;border-radius:5px;
+  background:var(--sunken);color:var(--ink-2)}
+.handoff-lbl{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--ink-3);font-family:var(--font-m);
+  background:var(--surface);padding:3px 11px;border-radius:20px;border:1px solid var(--hair)}
+
+/* ---------- agents registry ---------- */
+.agrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.acard{background:var(--raised);border:1px solid var(--hair);border-radius:13px;padding:17px;box-shadow:var(--shadow)}
+.ac-top{display:flex;align-items:center;gap:11px;margin-bottom:14px}
+.ac-ic{width:38px;height:38px;border-radius:10px;background:var(--violet-soft);color:var(--violet-ink);
+  display:grid;place-items:center;font-size:14px;font-weight:700;flex:none}
+.ac-name{font-family:var(--font-d);font-size:15px;font-weight:600}
+.ac-ver{font-family:var(--font-m);font-size:11px;color:var(--ink-3)}
+.ac-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:2px}
+.ac-stat{background:var(--sunken);border-radius:9px;padding:9px 11px}
+.ac-stat .k{font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.ac-stat .v{font-family:var(--font-d);font-size:17px;font-weight:600;margin-top:2px}
+.ac-foot{display:flex;align-items:center;gap:8px;margin-top:13px;padding-top:13px;border-top:1px solid var(--hair)}
+
+/* ---------- audit ---------- */
+.audit-note{display:flex;gap:12px;align-items:flex-start;background:var(--indigo-soft);border:1px solid #CDD3F4;
+  border-radius:12px;padding:14px 16px;margin-bottom:16px}
+.audit-note .ic-s{color:var(--indigo);flex:none;width:20px;height:20px;margin-top:1px}
+.audit-note b{color:var(--indigo-ink)}
+.audit-note p{font-size:12.5px;color:var(--ink-2);line-height:1.5}
+.logrow{display:grid;grid-template-columns:130px 130px 1fr 110px;gap:14px;padding:11px 16px;
+  border-bottom:1px solid var(--hair);font-size:12.5px;align-items:center}
+.logrow:last-child{border-bottom:none}
+.logrow .lt{font-family:var(--font-m);font-size:11.5px;color:var(--ink-3)}
+.logrow .lactor{font-weight:600;font-size:12.5px}
+.logrow .lwhat{color:var(--ink)}
+.logrow .lwhat code{font-family:var(--font-m);font-size:11.5px;background:var(--sunken);padding:1px 6px;border-radius:5px}
+
+/* ---------- toast ---------- */
+.toast-wrap{position:fixed;bottom:24px;right:24px;display:flex;flex-direction:column;gap:10px;z-index:100}
+.toast{display:flex;align-items:center;gap:11px;background:var(--ink);color:#fff;padding:12px 16px;
+  border-radius:11px;box-shadow:var(--shadow-lg);font-size:13px;font-weight:500;
+  animation:toastin .3s cubic-bezier(.2,.8,.2,1)}
+.toast .tk{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;flex:none}
+.toast.ok .tk{background:var(--green)}.toast.no .tk{background:var(--red)}.toast.info .tk{background:var(--indigo)}
+.toast .ic-s{width:14px;height:14px;stroke-width:2.2}
+@keyframes toastin{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* ---------- persona switch ---------- */
+.persona-switch{display:flex;gap:3px;margin:2px 12px 8px;background:var(--rail-2);padding:3px;border-radius:9px}
+.persona-switch button{flex:1;font-size:12px;font-weight:600;color:#9aa3b4;padding:6px 8px;border-radius:6px;transition:.14s}
+.persona-switch button.on{background:#fff;color:var(--rail)}
+[data-roles][hidden]{display:none}
+
+/* ---------- caseload ---------- */
+.case-sum{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.cs{background:var(--raised);border:1px solid var(--hair);border-radius:12px;padding:13px 16px;box-shadow:var(--shadow);flex:1;min-width:118px}
+.cs.lead{border-color:var(--amber);background:var(--amber-soft)}
+.cs .csk{font-size:11px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.cs.lead .csk{color:var(--amber)}
+.cs .csv{font-family:var(--font-d);font-size:26px;font-weight:600;line-height:1;margin-top:6px}
+.cs.lead .csv{color:var(--amber)}
+.cs .csm{font-size:11.5px;color:var(--ink-3);margin-top:5px}
+
+.case-seg{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.case-seg .chip .ct{margin-left:6px}
+
+.vgroup{margin-bottom:20px}
+.vgroup-h{display:flex;align-items:center;gap:10px;margin:0 2px 10px}
+.vgroup-h .vchip{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:700;padding:4px 12px;border-radius:8px}
+.vgroup-h .vsub{font-size:12px;color:var(--ink-3)}
+.vchip.decide{background:var(--amber-soft);color:var(--amber)}
+.vchip.answer{background:var(--violet-soft);color:var(--violet-ink)}
+.vchip.do{background:var(--indigo-soft);color:var(--indigo-ink)}
+.vchip.know{background:var(--sunken);color:var(--ink-2)}
+.vchip .ic-s{width:15px;height:15px}
+
+.cases{display:flex;flex-direction:column;gap:9px}
+.ccard{display:flex;align-items:center;gap:14px;background:var(--raised);border:1px solid var(--hair);border-radius:11px;
+  padding:13px 16px;box-shadow:var(--shadow);transition:.12s;cursor:pointer;border-left:3px solid transparent}
+.ccard:hover{border-color:var(--hair-strong);transform:translateX(1px)}
+.ccard.decide{border-left-color:var(--amber)}
+.ccard.answer{border-left-color:var(--violet)}
+.ccard.do{border-left-color:var(--indigo)}
+.ccard.know{border-left-color:var(--ink-3)}
+.cc-main{min-width:0;flex:1}
+.cc-top{display:flex;align-items:center;gap:9px;margin-bottom:3px}
+.cc-id{font-family:var(--font-m);font-size:12px;color:var(--indigo);font-weight:600}
+.cc-type{font-size:11px;color:var(--ink-3);font-weight:500}
+.cc-stage{font-size:11px;color:var(--ink-3);font-family:var(--font-m)}
+.cc-ask{font-size:13.5px;font-weight:600;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cc-agents{display:flex;flex:none}
+.cc-agents .av{width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:var(--violet-soft);
+  color:var(--violet-ink);display:grid;place-items:center;font-size:9.5px;font-weight:700;margin-left:-7px}
+.cc-agents .av:first-child{margin-left:0}
+.cc-sla{font-family:var(--font-m);font-size:11.5px;font-weight:600;width:64px;text-align:right;flex:none}
+.cc-sla.hot{color:var(--red)}.cc-sla.warm{color:var(--amber)}.cc-sla.cool{color:var(--ink-3)}
+.cc-go{flex:none}
+.cwait{opacity:.92}
+.cwait .cc-ask{font-weight:500;color:var(--ink-2)}
+
+/* ---------- agent I/O drawer ---------- */
+.io-hint{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--ink-3);margin-top:7px;font-weight:500}
+.tev.agent .tcard,.tev.system .tcard{cursor:pointer}
+.tev.agent .tcard:hover,.tev.system .tcard:hover{border-color:var(--violet);box-shadow:0 4px 16px rgba(122,85,238,.14)}
+.tev.system .tcard:hover{border-color:var(--indigo);box-shadow:0 4px 16px rgba(49,66,199,.12)}
+
+.scrim{position:fixed;inset:0;background:rgba(18,22,32,.36);opacity:0;pointer-events:none;transition:opacity .2s;z-index:80}
+.scrim.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;height:100vh;width:min(580px,96vw);background:var(--surface);
+  box-shadow:var(--shadow-lg);transform:translateX(100%);transition:transform .28s cubic-bezier(.2,.8,.2,1);
+  z-index:81;display:flex;flex-direction:column}
+.drawer.open{transform:translateX(0)}
+.dw-head{padding:18px 20px 16px;background:var(--raised);border-bottom:1px solid var(--hair)}
+.dw-eyebrow{display:flex;align-items:center;gap:9px;margin-bottom:11px}
+.dw-eyebrow .lane{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 8px;border-radius:5px}
+.dw-eyebrow .lane.agent{background:var(--violet-soft);color:var(--violet-ink)}
+.dw-eyebrow .lane.system{background:var(--indigo-soft);color:var(--indigo-ink)}
+.dw-close{margin-left:auto;width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--ink-2)}
+.dw-close:hover{background:var(--sunken)}
+.dw-title{font-family:var(--font-d);font-size:18px;font-weight:600;display:flex;align-items:center;gap:11px}
+.dw-title .dwic{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:#fff;flex:none}
+.dw-meta{display:flex;gap:18px;margin-top:12px;flex-wrap:wrap}
+.dw-meta .m{font-size:11.5px}.dw-meta .m .k{color:var(--ink-3);font-size:10px;text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.dw-meta .m .v{font-family:var(--font-m);font-weight:600;margin-top:2px}
+.dw-body{padding:18px 20px 40px;overflow:auto;flex:1}
+.io-block{background:var(--raised);border:1px solid var(--hair);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.io-bh{display:flex;align-items:center;gap:9px;padding:11px 15px;border-bottom:1px solid var(--hair)}
+.io-bh .iob-ic{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;color:#fff;flex:none}
+.io-in .iob-ic{background:var(--ink-2)}.io-out .iob-ic{background:var(--green)}.io-tools .iob-ic{background:var(--violet)}
+.io-bh h4{font-size:13px;font-weight:700;flex:1}
+.io-bh .iob-tag{font-family:var(--font-m);font-size:10.5px;color:var(--ink-3)}
+.io-fields{padding:6px 15px 12px}
+.io-f{display:flex;gap:12px;padding:8px 0;border-top:1px solid var(--hair);font-size:12.5px}
+.io-f:first-child{border-top:none}
+.io-f .fk{color:var(--ink-2);width:120px;flex:none;font-weight:500}
+.io-f .fv{font-weight:500;min-width:0}
+.io-f .fv.mono{font-family:var(--font-m);font-weight:400}
+.io-f .fv .pill{margin:0}
+.io-tools-list{padding:10px 15px;display:flex;flex-direction:column;gap:8px}
+.tool-row{display:flex;align-items:center;gap:10px;font-size:12px}
+.tool-row .tdot{width:7px;height:7px;border-radius:50%;background:var(--violet);flex:none}
+.tool-row .tname{font-family:var(--font-m);font-weight:600}
+.tool-row .tres{color:var(--ink-3);margin-left:auto;font-family:var(--font-m);font-size:11px}
+.io-raw{margin:0 15px 14px;background:#13171F;border-radius:9px;padding:12px 14px;overflow:auto}
+.io-raw pre{font-family:var(--font-m);font-size:11px;color:#C8D0DE;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.io-raw .jk{color:#8FB0FF}.io-raw .js{color:#9DE0AD}.io-raw .jn{color:#E6B673}
+.dw-foot{padding:14px 20px;border-top:1px solid var(--hair);background:var(--raised);display:flex;gap:10px;align-items:center}
+.dw-foot .grow{flex:1;font-size:11.5px;color:var(--ink-3)}
+
+/* ---------- traces list ---------- */
+.escore{font-family:var(--font-m);font-weight:600;font-size:12px}
+.escore.full{color:var(--green)}.escore.part{color:var(--amber)}.escore.none{color:var(--ink-3)}
+.st-ok{}.run-id{font-family:var(--font-m);font-size:12px;color:var(--indigo);font-weight:600}
+
+/* ---------- trace inspector ---------- */
+.trace-head{background:var(--raised);border:1px solid var(--hair);border-radius:13px;box-shadow:var(--shadow);padding:18px 20px;margin-bottom:16px}
+.th-top{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.th-run{font-family:var(--font-m);font-size:12.5px;color:var(--indigo);font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:9px}
+.th-name{font-family:var(--font-d);font-size:20px;font-weight:600;letter-spacing:-.01em}
+.th-name small{font-family:var(--font-m);font-size:12px;color:var(--ink-3);font-weight:400;margin-left:8px}
+.th-sub{font-size:13px;color:var(--ink-2);margin-top:4px}
+.th-metrics{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+.tm{background:var(--sunken);border-radius:9px;padding:8px 13px;min-width:84px}
+.tm .k{font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.tm .v{font-family:var(--font-d);font-size:17px;font-weight:600;margin-top:2px}
+.th-badges{margin-left:auto;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+
+.trace-grid{display:grid;grid-template-columns:1.62fr 1fr;gap:16px;align-items:start}
+.tsec{background:var(--raised);border:1px solid var(--hair);border-radius:13px;box-shadow:var(--shadow);margin-bottom:16px}
+.tsec-h{display:flex;align-items:center;gap:9px;padding:13px 17px;border-bottom:1px solid var(--hair)}
+.tsec-h h3{font-family:var(--font-d);font-size:14px;font-weight:600;flex:1}
+.tsec-h .hint{font-size:11.5px;color:var(--ink-3);font-family:var(--font-m)}
+.tsec-b{padding:15px 17px}
+
+/* waterfall */
+.wf{display:flex;flex-direction:column;gap:7px}
+.wf-row{display:grid;grid-template-columns:150px 1fr 52px;gap:10px;align-items:center;cursor:pointer;border-radius:7px;padding:3px 5px;margin:0 -5px}
+.wf-row:hover{background:var(--sunken)}
+.wf-lbl{font-family:var(--font-m);font-size:11.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.wf-lbl .wd{width:7px;height:7px;border-radius:2px;flex:none}
+.wd.llm{background:var(--violet)}.wd.tool{background:var(--indigo)}.wd.sys{background:var(--ink-3)}
+.wf-track{position:relative;height:18px;background:var(--surface);border-radius:5px}
+.wf-bar{position:absolute;top:3px;height:12px;border-radius:4px;min-width:4px}
+.wf-bar.llm{background:var(--violet)}.wf-bar.tool{background:var(--indigo)}.wf-bar.sys{background:var(--ink-3)}
+.wf-ms{font-family:var(--font-m);font-size:11px;color:var(--ink-2);text-align:right}
+.wf-axis{display:flex;justify-content:space-between;margin-top:9px;padding-left:160px}
+.wf-axis span{font-family:var(--font-m);font-size:10px;color:var(--ink-3)}
+
+/* context routing */
+.ctx-meta{display:flex;align-items:center;gap:10px;margin-bottom:11px;font-size:12px;color:var(--ink-2)}
+.ctx-meta b{color:var(--ink);font-family:var(--font-m)}
+.ctx-chips{display:flex;flex-wrap:wrap;gap:7px}
+.ctx-chip{font-family:var(--font-m);font-size:11.5px;font-weight:500;padding:4px 10px;border-radius:7px;
+  background:var(--violet-soft);color:var(--violet-ink);display:flex;align-items:center;gap:6px}
+.ctx-chip.dim{background:var(--sunken);color:var(--ink-3)}
+.ctx-chip .cdot{width:5px;height:5px;border-radius:50%;background:currentColor}
+
+/* reasoning */
+.rsteps{display:flex;flex-direction:column;gap:0}
+.rstep{display:flex;gap:12px;padding:10px 0;border-top:1px solid var(--hair)}
+.rstep:first-child{border-top:none}
+.rnum{width:22px;height:22px;border-radius:6px;background:var(--indigo-soft);color:var(--indigo-ink);
+  display:grid;place-items:center;font-family:var(--font-m);font-size:11px;font-weight:600;flex:none}
+.rstep.gate .rnum{background:var(--amber-soft);color:var(--amber)}
+.rtext{font-size:12.5px;line-height:1.45}
+
+/* tool accordion */
+.tacc{border:1px solid var(--hair);border-radius:10px;margin-bottom:9px;overflow:hidden}
+.tacc:last-child{margin-bottom:0}
+.tacc-h{display:flex;align-items:center;gap:10px;padding:10px 13px;cursor:pointer;background:var(--raised);transition:.12s}
+.tacc-h:hover{background:#FAFBFD}
+.tacc-h .tdot{width:8px;height:8px;border-radius:2px;background:var(--indigo);flex:none}
+.tacc-h .tn{font-family:var(--font-m);font-size:12.5px;font-weight:600;flex:1}
+.tacc-h .tms{font-family:var(--font-m);font-size:11px;color:var(--ink-3)}
+.tacc-h .chev{transition:transform .18s;color:var(--ink-3)}
+.tacc.open .chev{transform:rotate(90deg)}
+.tacc-b{display:none;border-top:1px solid var(--hair);padding:12px 13px;background:#FBFCFD}
+.tacc.open .tacc-b{display:block}
+.tacc-io{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin:0 0 5px}
+.tacc-io.out{margin-top:11px}
+.code{background:#13171F;border-radius:8px;padding:10px 12px;overflow:auto}
+.code pre{font-family:var(--font-m);font-size:11px;color:#C8D0DE;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+
+/* eval panel */
+.eval-score{display:flex;align-items:center;gap:12px;padding:13px 16px;background:var(--green-soft);border-radius:10px;margin-bottom:13px}
+.eval-score.part{background:var(--amber-soft)}
+.eval-score .es-big{font-family:var(--font-d);font-size:26px;font-weight:600;color:var(--green)}
+.eval-score.part .es-big{color:var(--amber)}
+.eval-score .es-lbl{font-size:12px;color:var(--ink-2);line-height:1.3}
+.eval-score .es-lbl b{color:var(--ink)}
+.evals{display:flex;flex-direction:column;gap:0}
+.eval-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--hair);font-size:12.5px}
+.eval-row:first-child{border-top:none}
+.eval-row .ev-ic{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;flex:none;color:#fff}
+.eval-row.pass .ev-ic{background:var(--green)}.eval-row.fail .ev-ic{background:var(--red)}
+.eval-row .ev-n{font-family:var(--font-m);font-size:12px;flex:1}
+.eval-row.fail .ev-n{color:var(--red);font-weight:600}
+
+/* compare */
+.cmp{display:flex;flex-direction:column;gap:0}
+.cmp-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--hair);font-size:12px}
+.cmp-row:first-child{border-top:none}
+.cmp-k{color:var(--ink-2);font-weight:500}
+.cmp-a,.cmp-b{font-family:var(--font-m);font-weight:600;text-align:right;min-width:70px}
+.cmp-b{color:var(--ink-2)}
+.cmp-head .cmp-a,.cmp-head .cmp-b{font-family:var(--font-d);font-size:11px;color:var(--ink-3);font-weight:600}
+.cmp-win{color:var(--green)}.cmp-lose{color:var(--red)}
+.tsec-actions{display:flex;flex-direction:column;gap:9px;padding:15px 17px}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:1080px){
+  .app{grid-template-columns:1fr}
+  .rail{position:static;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center}
+  .nav{flex-direction:row;flex-wrap:wrap}.rail-section{display:none}.rail-foot{margin-left:auto;border:none}
+  .tiles{grid-template-columns:repeat(2,1fr)}.grid-2,.inbox{grid-template-columns:1fr}.agrid{grid-template-columns:1fr}
+  .trace-grid{grid-template-columns:1fr}.th-badges{margin-left:0;flex-direction:row}.wf-row{grid-template-columns:110px 1fr 44px}.wf-axis{padding-left:120px}
+  .tev{grid-template-columns:1fr}.tl::before{left:18px}.tev .node{grid-column:1;justify-self:start}
+  .tev.agent .tcard,.tev.system .tcard,.tev.human .tcard{grid-column:1;margin:6px 0 0 0}
+  .tev.system .tc-h,.tev.human .tc-h{flex-direction:row}.tev.system .tc-body,.tev.human .tc-body{text-align:left}
+  .tev.system .tc-time,.tev.human .tc-time{margin-left:auto;margin-right:0}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============ RAIL ============ -->
+  <aside class="rail">
+    <div class="brand">
+      <div class="brand-mark">M</div>
+      <div>
+        <div class="brand-name">Open Mercato</div>
+        <div class="brand-sub">Agent Console</div>
+      </div>
+    </div>
+    <div class="persona-switch" id="personaSwitch">
+      <button class="on" data-role="admin">Admin</button>
+      <button data-role="operator">Operator</button>
+      <button data-role="engineer">Engineer</button>
+    </div>
+
+    <!-- ADMIN nav -->
+    <div class="rail-section" data-roles="admin">Operate</div>
+    <nav class="nav" id="nav" data-roles="admin">
+      <button class="nav-item active" data-view="overview">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        Overview
+      </button>
+      <button class="nav-item" data-view="inbox">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 5h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/></svg>
+        Inbox <span class="badge" id="navBadge">23</span>
+      </button>
+      <button class="nav-item" data-view="processes">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="1.6" fill="currentColor" stroke="none"/><circle cx="14" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="10" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg>
+        Processes
+      </button>
+      <button class="nav-item" data-view="detail">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M12 3v18"/><circle cx="12" cy="6" r="2.4"/><circle cx="6" cy="13" r="2.4"/><circle cx="18" cy="13" r="2.4"/><path d="M12 8v2m0 0H6.5M12 10h5.5"/></svg>
+        Process detail
+      </button>
+    </nav>
+    <div class="rail-section" data-roles="admin">Govern</div>
+    <nav class="nav" data-roles="admin">
+      <button class="nav-item" data-view="agents">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="2.5"/><path d="M12 8V5m-3 8h.01M15 13h.01M9 16h6"/><circle cx="12" cy="4" r="1.4"/></svg>
+        Agents
+      </button>
+      <button class="nav-item" data-view="audit">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3Z"/></svg>
+        Audit &amp; compliance
+      </button>
+    </nav>
+
+    <!-- OPERATOR nav -->
+    <div class="rail-section" data-roles="operator" hidden>My work</div>
+    <nav class="nav" data-roles="operator" hidden>
+      <button class="nav-item" data-view="caseload">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="19" cy="17" r="2.4"/></svg>
+        My caseload <span class="badge" id="caseBadge">9</span>
+      </button>
+      <button class="nav-item" data-view="detail">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M12 3v18"/><circle cx="12" cy="6" r="2.4"/><circle cx="6" cy="13" r="2.4"/><circle cx="18" cy="13" r="2.4"/><path d="M12 8v2m0 0H6.5M12 10h5.5"/></svg>
+        Open case
+      </button>
+    </nav>
+
+    <!-- ENGINEER nav -->
+    <div class="rail-section" data-roles="engineer" hidden>AgentOps</div>
+    <nav class="nav" data-roles="engineer" hidden>
+      <button class="nav-item" data-view="traces">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4 18V8m4 10V5m4 13v-7m4 7V9m4 9v-4"/></svg>
+        Traces
+      </button>
+      <button class="nav-item" data-view="trace">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/><path d="M11 8v3l2 2"/></svg>
+        Trace inspector
+      </button>
+      <button class="nav-item" data-view="agents">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="2.5"/><path d="M12 8V5m-3 8h.01M15 13h.01M9 16h6"/><circle cx="12" cy="4" r="1.4"/></svg>
+        Agents
+      </button>
+    </nav>
+    <div class="rail-foot">
+      <div class="avatar" id="railAvatar">PL</div>
+      <div>
+        <div class="who" id="railWho">Patryk L.</div>
+        <div class="role" id="railRole">Claims supervisor</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main">
+    <header class="topbar">
+      <div class="crumb"><b id="crumb">Overview</b></div>
+      <div class="env"><span class="dot"></span> ergo-claims · prod</div>
+      <div class="topbar-right">
+        <div class="qdepth">
+          <span class="pulse"></span>
+          <div>
+            <div class="num" id="qNum">23</div>
+            <div class="lbl">waiting · oldest 41m</div>
+          </div>
+        </div>
+        <button class="btn btn-sm"><svg class="ic-s" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search</button>
+      </div>
+    </header>
+
+    <!-- ===== OVERVIEW ===== -->
+    <section class="view" data-view="overview">
+      <div class="page-h">
+        <div>
+          <h1>Fleet overview</h1>
+          <p>Claims adjudication · last 7 days · 4,180 processes handled</p>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn btn-sm">This week ▾</button>
+      </div>
+
+      <div class="tiles">
+        <div class="tile">
+          <div class="t-lbl">Auto-completed</div>
+          <div class="t-val">71<small>%</small></div>
+          <div class="t-meta"><span class="trend up">▲ 4.2</span> cleared with no human touch</div>
+        </div>
+        <div class="tile">
+          <div class="t-lbl">Needs a decision</div>
+          <div class="t-val">23</div>
+          <div class="t-meta"><span class="trend warn">oldest 41m</span> in the inbox now</div>
+        </div>
+        <div class="tile">
+          <div class="t-lbl">Operator ratio</div>
+          <div class="t-val">1<small>:</small>34</div>
+          <div class="t-meta"><span class="trend up">▲ 1:34</span> processes per supervisor</div>
+        </div>
+        <div class="tile">
+          <div class="t-lbl">SLA breaches</div>
+          <div class="t-val">3</div>
+          <div class="t-meta"><span class="trend down">▼ 2</span> over 4h since reroute</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-h"><h3>Throughput</h3><span class="hint">processes started · daily</span></div>
+          <div class="card-b">
+            <div class="spark" id="spark"></div>
+            <div class="spark-x"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Stuck &amp; breaching</h3><span class="hint">needs attention</span></div>
+          <div class="card-b">
+            <div class="row"><span class="rid mono">CLM-2026-04358</span><span class="rwhat">Bodily injury — disputed liability</span><span class="rtag"><span class="pill red"><span class="pd"></span>SLA 4h12m</span></span></div>
+            <div class="row"><span class="rid mono">CLM-2026-04211</span><span class="rwhat">Property — fraud signal raised</span><span class="rtag"><span class="pill red"><span class="pd"></span>SLA 3h48m</span></span></div>
+            <div class="row"><span class="rid mono">CLM-2026-04417</span><span class="rwhat">Motor collision — payout gate</span><span class="rtag"><span class="pill amber"><span class="pd"></span>waiting 41m</span></span></div>
+            <div class="row"><span class="rid mono">CLM-2026-04390</span><span class="rwhat">Theft — missing documents</span><span class="rtag"><span class="pill amber"><span class="pd"></span>blocked</span></span></div>
+            <div class="row"><span class="rid mono">CLM-2026-04372</span><span class="rwhat">Motor — third-party data timeout</span><span class="rtag"><span class="pill gray"><span class="pd"></span>retrying</span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2" style="grid-template-columns:1fr 1fr">
+        <div class="card">
+          <div class="card-h"><h3>Agent trust</h3><span class="hint">override rate · lower is better</span></div>
+          <div class="card-b">
+            <div class="astrip">
+              <div class="arow"><span class="adot">IN</span><span class="aname">Intake Agent<small>v4.2 · 1,840 runs</small></span><span class="meter"><i style="width:6%;background:var(--green)"></i></span><span class="apct" style="color:var(--green)">6%</span></div>
+              <div class="arow"><span class="adot">CV</span><span class="aname">Coverage Analyst<small>v3.1 · 1,610 runs</small></span><span class="meter"><i style="width:11%;background:var(--green)"></i></span><span class="apct" style="color:var(--green)">11%</span></div>
+              <div class="arow"><span class="adot">DM</span><span class="aname">Damage Estimator<small>v2.7 · 1,290 runs</small></span><span class="meter"><i style="width:19%;background:var(--amber)"></i></span><span class="apct" style="color:var(--amber)">19%</span></div>
+              <div class="arow"><span class="adot">FR</span><span class="aname">Fraud Signal Agent<small>v1.9 · 880 runs</small></span><span class="meter"><i style="width:34%;background:var(--amber)"></i></span><span class="apct" style="color:var(--amber)">34%</span></div>
+              <div class="arow"><span class="adot">AD</span><span class="aname">Adjudication Agent<small>v2.0 · 1,440 runs</small></span><span class="meter"><i style="width:14%;background:var(--green)"></i></span><span class="apct" style="color:var(--green)">14%</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Where humans stepped in</h3><span class="hint">this week</span></div>
+          <div class="card-b">
+            <div class="row"><span class="pill amber"><span class="pd"></span>Review</span><span class="rwhat" style="flex:1">Payout above 10,000 PLN approval gate</span><span class="rmeta">412×</span></div>
+            <div class="row"><span class="pill violet"><span class="pd"></span>Question</span><span class="rwhat" style="flex:1">Ambiguous coverage — agent asked</span><span class="rmeta">188×</span></div>
+            <div class="row"><span class="pill red"><span class="pd"></span>Review</span><span class="rwhat" style="flex:1">Fraud signal over threshold</span><span class="rmeta">96×</span></div>
+            <div class="row"><span class="pill indigo"><span class="pd"></span>Notify</span><span class="rwhat" style="flex:1">Regulatory deadline approaching</span><span class="rmeta">61×</span></div>
+            <div class="row"><span class="pill amber"><span class="pd"></span>Review</span><span class="rwhat" style="flex:1">Customer comms before send</span><span class="rmeta">53×</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== INBOX ===== -->
+    <section class="view" data-view="inbox" hidden>
+      <div class="page-h">
+        <div>
+          <h1>Inbox</h1>
+          <p>Only the claims that need your decision. Everything else is running.</p>
+        </div>
+      </div>
+      <div class="inbox">
+        <div class="queue">
+          <div class="queue-h">
+            <h3>Your queue</h3>
+            <div class="seg" id="inboxSeg">
+              <button class="on" data-f="all">All</button>
+              <button data-f="review">Review</button>
+              <button data-f="question">Question</button>
+              <button data-f="notify">Notify</button>
+            </div>
+          </div>
+          <div class="qlist" id="qlist"></div>
+        </div>
+        <div class="detail" id="detailPane"></div>
+      </div>
+    </section>
+
+    <!-- ===== PROCESSES ===== -->
+    <section class="view" data-view="processes" hidden>
+      <div class="page-h">
+        <div>
+          <h1>Processes</h1>
+          <p>4,180 active &amp; recent · scoped to ergo-claims</p>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn btn-sm"><svg class="ic-s" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>Filters</button>
+        <button class="btn btn-sm"><svg class="ic-s" viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg>Export</button>
+      </div>
+      <div class="segbar" id="segbar">
+        <button class="chip on">All<span class="ct">4180</span></button>
+        <button class="chip">Needs decision<span class="ct">23</span></button>
+        <button class="chip">Stuck &gt; 24h<span class="ct">9</span></button>
+        <button class="chip">High value<span class="ct">147</span></button>
+        <button class="chip">Fraud flagged<span class="ct">31</span></button>
+        <button class="chip">My team<span class="ct">612</span></button>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Claim</th><th>Type</th><th>Stage</th><th>Agents</th><th>Status</th><th>Age</th><th style="text-align:right">Cost</th></tr></thead>
+          <tbody id="procBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== MY CASELOAD (operator) ===== -->
+    <section class="view" data-view="caseload" hidden>
+      <div class="page-h">
+        <div>
+          <h1>My caseload</h1>
+          <p>104 claims assigned to you · sorted by what they need from you</p>
+        </div>
+      </div>
+      <div class="case-sum">
+        <div class="cs lead"><div class="csk">Need you</div><div class="csv">9</div><div class="csm">4 decide · 2 answer · 3 do</div></div>
+        <div class="cs"><div class="csk">Waiting</div><div class="csv">14</div><div class="csm">on third party or customer</div></div>
+        <div class="cs"><div class="csk">Running</div><div class="csv">78</div><div class="csm">agents working · no action</div></div>
+        <div class="cs"><div class="csk">Closed today</div><div class="csv">3</div><div class="csm">settled &amp; paid</div></div>
+      </div>
+      <div class="case-seg" id="caseSeg">
+        <button class="chip on" data-f="need">Needs you<span class="ct">9</span></button>
+        <button class="chip" data-f="waiting">Waiting<span class="ct">14</span></button>
+        <button class="chip" data-f="running">Running<span class="ct">78</span></button>
+        <button class="chip" data-f="all">All<span class="ct">104</span></button>
+      </div>
+      <div id="caseBody"></div>
+    </section>
+
+    <!-- ===== TRACES (engineer list) ===== -->
+    <section class="view" data-view="traces" hidden>
+      <div class="page-h">
+        <div>
+          <h1>Traces</h1>
+          <p>Every agent run · click to inspect input, reasoning, tools, output &amp; evals</p>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn btn-sm"><svg class="ic-s" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>Filters</button>
+      </div>
+      <div class="segbar" id="traceSeg">
+        <button class="chip on">All<span class="ct">2,140</span></button>
+        <button class="chip">Overridden<span class="ct">68</span></button>
+        <button class="chip">Low confidence<span class="ct">112</span></button>
+        <button class="chip">Eval fails<span class="ct">41</span></button>
+        <button class="chip">Questions<span class="ct">29</span></button>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Run</th><th>Agent</th><th>Claim</th><th>Result</th><th>Conf.</th><th>Eval</th><th>Status</th><th style="text-align:right">Cost</th><th>When</th></tr></thead>
+          <tbody id="traceBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== TRACE INSPECTOR (engineer) ===== -->
+    <section class="view" data-view="trace" hidden>
+      <div class="trace-head">
+        <div class="th-top">
+          <div>
+            <div class="th-run mono">RUN-7f3a2c <span class="pill gray"><span class="pd"></span>span 7 of 7</span></div>
+            <div class="th-name">Adjudication Agent <small>v2.0 · claude-opus-4.x</small></div>
+            <div class="th-sub mono">CLM-2026-04417 · proposed: approve &amp; pay 18,400 PLN</div>
+            <div class="th-metrics">
+              <div class="tm"><div class="k">Confidence</div><div class="v">0.86</div></div>
+              <div class="tm"><div class="k">Duration</div><div class="v">9.8s</div></div>
+              <div class="tm"><div class="k">Tokens</div><div class="v">14.2k</div></div>
+              <div class="tm"><div class="k">Cost</div><div class="v">2.05 zł</div></div>
+              <div class="tm"><div class="k">Tool calls</div><div class="v">3</div></div>
+            </div>
+          </div>
+          <div class="th-badges">
+            <span class="pill green"><span class="pd"></span>Evals 6/6</span>
+            <span class="pill amber"><span class="pd"></span>Gated to human</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="trace-grid">
+        <!-- left: execution -->
+        <div>
+          <div class="tsec">
+            <div class="tsec-h"><h3>Execution timeline</h3><span class="hint">9.8s total · click a span</span></div>
+            <div class="tsec-b"><div class="wf" id="wf"></div>
+              <div class="wf-axis"><span>0s</span><span>2.5s</span><span>5s</span><span>7.5s</span><span>9.8s</span></div>
+            </div>
+          </div>
+
+          <div class="tsec">
+            <div class="tsec-h"><h3>Context assembled</h3><span class="hint">Task-Driven Context Routing</span></div>
+            <div class="tsec-b">
+              <div class="ctx-meta">Routed <b>4 of 14</b> modules · <b>3.8k</b> tokens of context · pruned <b>9.1k</b> tokens not relevant to this task</div>
+              <div class="ctx-chips">
+                <span class="ctx-chip"><span class="cdot"></span>coverage-policy</span>
+                <span class="ctx-chip"><span class="cdot"></span>claims-rules</span>
+                <span class="ctx-chip"><span class="cdot"></span>fraud-thresholds</span>
+                <span class="ctx-chip"><span class="cdot"></span>payout-limits</span>
+                <span class="ctx-chip dim"><span class="cdot"></span>+10 pruned</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="tsec">
+            <div class="tsec-h"><h3>Reasoning</h3><span class="hint">5 steps</span></div>
+            <div class="tsec-b"><div class="rsteps" id="rsteps"></div></div>
+          </div>
+
+          <div class="tsec">
+            <div class="tsec-h"><h3>Tool calls</h3><span class="hint">3 · click to expand request &amp; response</span></div>
+            <div class="tsec-b" id="tacc"></div>
+          </div>
+
+          <div class="tsec">
+            <div class="tsec-h"><h3>Output payload</h3><span class="hint">stored as typed OM record</span></div>
+            <div class="tsec-b"><div class="code"><pre>{
+  <span class="jk">"decision"</span>: <span class="js">"approve"</span>,
+  <span class="jk">"payout_pln"</span>: <span class="jn">18400</span>,
+  <span class="jk">"payee"</span>: <span class="js">"policyholder_iban"</span>,
+  <span class="jk">"requires_human"</span>: <span class="jn">true</span>,
+  <span class="jk">"gate_reason"</span>: <span class="js">"payout_ceiling"</span>,
+  <span class="jk">"rationale"</span>: <span class="js">"coverage confirmed; estimate within limit; fraud 0.12"</span>
+}</pre></div></div>
+          </div>
+        </div>
+
+        <!-- right: evals + compare + actions -->
+        <div>
+          <div class="tsec">
+            <div class="tsec-h"><h3>Eval assertions</h3><span class="hint">Inspect AI</span></div>
+            <div class="tsec-b">
+              <div class="eval-score"><span class="es-big">6/6</span><span class="es-lbl"><b>All assertions passed.</b> This run is a clean positive — eligible as a regression case.</span></div>
+              <div class="evals" id="evals"></div>
+            </div>
+          </div>
+
+          <div class="tsec">
+            <div class="tsec-h"><h3>Model comparison</h3><span class="hint">same input</span></div>
+            <div class="tsec-b">
+              <div class="cmp">
+                <div class="cmp-row cmp-head"><span class="cmp-k">&nbsp;</span><span class="cmp-a">prod</span><span class="cmp-b">candidate</span></div>
+                <div class="cmp-row"><span class="cmp-k">Model</span><span class="cmp-a">opus-4.x</span><span class="cmp-b">gpt-4.1</span></div>
+                <div class="cmp-row"><span class="cmp-k">Decision</span><span class="cmp-a">approve</span><span class="cmp-b">approve</span></div>
+                <div class="cmp-row"><span class="cmp-k">Confidence</span><span class="cmp-a cmp-win">0.86</span><span class="cmp-b">0.79</span></div>
+                <div class="cmp-row"><span class="cmp-k">Cost</span><span class="cmp-a">2.05 zł</span><span class="cmp-b cmp-win">1.40 zł</span></div>
+                <div class="cmp-row"><span class="cmp-k">Latency</span><span class="cmp-a">9.8s</span><span class="cmp-b cmp-win">6.2s</span></div>
+                <div class="cmp-row"><span class="cmp-k">Eval score</span><span class="cmp-a cmp-win">6/6</span><span class="cmp-b cmp-lose">5/6</span></div>
+              </div>
+              <div class="ctx-meta" style="margin-top:12px;margin-bottom:0">Candidate is cheaper &amp; faster but failed <b>rationale_no_pii</b> — not promotable yet.</div>
+            </div>
+          </div>
+
+          <div class="tsec">
+            <div class="tsec-h"><h3>Actions</h3></div>
+            <div class="tsec-actions">
+              <button class="btn btn-primary" data-tact="eval"><svg class="ic-s" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add run to eval set</button>
+              <button class="btn" data-tact="rerun"><svg class="ic-s" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 1 2.3 5.6M4 19v-4h4"/></svg>Re-run with edits</button>
+              <button class="btn btn-reject" data-tact="flag"><svg class="ic-s" viewBox="0 0 24 24"><path d="M5 21V4m0 0h11l-2 4 2 4H5"/></svg>Flag as regression</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PROCESS DETAIL (signature) ===== -->
+    <section class="view" data-view="detail" hidden>
+      <div class="pd-head">
+        <div class="pd-top">
+          <div>
+            <div class="pd-claim mono">CLM-2026-04417</div>
+            <div class="pd-name">Motor collision — payout adjudication</div>
+            <div class="d-ctx" style="margin-top:13px">
+              <div class="f"><div class="k">Policyholder</div><div class="v">A. Kowalska</div></div>
+              <div class="f"><div class="k">Claimed</div><div class="v mono">18,400 PLN</div></div>
+              <div class="f"><div class="k">Opened</div><div class="v mono">2d 4h ago</div></div>
+              <div class="f"><div class="k">Owner</div><div class="v">Adjudication Agent</div></div>
+              <div class="f"><div class="k">State</div><div class="v"><span class="pill amber"><span class="pd"></span>Waiting on you</span></div></div>
+            </div>
+          </div>
+          <div class="pd-controls">
+            <button class="btn btn-sm"><svg class="ic-s" viewBox="0 0 24 24"><rect x="7" y="5" width="3.5" height="14" rx="1"/><rect x="13.5" y="5" width="3.5" height="14" rx="1"/></svg>Pause</button>
+            <button class="btn btn-sm"><svg class="ic-s" viewBox="0 0 24 24"><path d="M12 3v6m0 0 3-3m-3 3L9 6"/><circle cx="12" cy="15" r="6"/></svg>Reassign</button>
+            <button class="btn btn-sm btn-primary"><svg class="ic-s" viewBox="0 0 24 24"><path d="M16 3 21 8l-11 11H5v-5L16 3Z"/></svg>Take over</button>
+          </div>
+        </div>
+        <div class="stages">
+          <div class="stage done"><div class="sbar"></div><div class="slab">Intake</div></div>
+          <div class="stage done"><div class="sbar"></div><div class="slab">Coverage check</div></div>
+          <div class="stage done"><div class="sbar"></div><div class="slab">Damage estimate</div></div>
+          <div class="stage done"><div class="sbar"></div><div class="slab">Fraud screen</div></div>
+          <div class="stage wait"><div class="sbar"></div><div class="slab">Adjudication</div></div>
+          <div class="stage"><div class="sbar"></div><div class="slab">Payout &amp; comms</div></div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span class="lk"><span class="ld v"></span>Agent proposes</span>
+        <span class="lk"><span class="ld i"></span>Open Mercato disposes</span>
+        <span class="note">the perception / adjudication split, read top to bottom</span>
+      </div>
+
+      <div class="tl" id="timeline"></div>
+    </section>
+
+    <!-- ===== AGENTS ===== -->
+    <section class="view" data-view="agents" hidden>
+      <div class="page-h">
+        <div>
+          <h1>Agents</h1>
+          <p>The claims pipeline · 6 agents · widen autonomy as override rate drops</p>
+        </div>
+      </div>
+      <div class="agrid" id="agrid"></div>
+    </section>
+
+    <!-- ===== AUDIT ===== -->
+    <section class="view" data-view="audit" hidden>
+      <div class="page-h">
+        <div>
+          <h1>Audit &amp; compliance</h1>
+          <p>Immutable record of every decision and override</p>
+        </div>
+      </div>
+      <div class="audit-note">
+        <svg class="ic-s" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3Z"/><path d="M9 12l2 2 4-4"/></svg>
+        <p><b>EU AI Act — high-risk system.</b> Claims adjudication requires human oversight at all times (Art. 14) and automatic event logging for post-market monitoring (Art. 12). Every approval gate below is a real decision made <b>before</b> the action fired — not an after-the-fact review. Retention: 6 years. Every override is captured with reasoning and exported to the eval set.</p>
+      </div>
+      <div class="tbl-wrap" id="logTable"></div>
+    </section>
+
+  </div>
+</div>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true"></aside>
+<div class="toast-wrap" id="toasts"></div>
+
+<script>
+/* ---------- icons ---------- */
+const I={
+  check:'<path d="M5 12l4 4 10-10"/>',
+  x:'<path d="M6 6l12 12M18 6 6 18"/>',
+  edit:'<path d="M16 3 21 8l-11 11H5v-5L16 3Z"/>',
+  bell:'<path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  ask:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.4 2.3c-.8.4-.9.9-.9 1.7M12 17h.01"/>',
+  bot:'<rect x="5" y="8" width="14" height="11" rx="2.5"/><path d="M12 8V5M9 13h.01M15 13h.01M9 16h6"/>',
+  user:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>',
+  cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M4 12H1m22 0h-3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>',
+  send:'<path d="M4 12l16-7-7 16-2-7-7-2Z"/>',
+  flag:'<path d="M5 21V4m0 0h11l-2 4 2 4H5"/>'
+};
+const svg=p=>`<svg class="ic-s" viewBox="0 0 24 24">${p}</svg>`;
+
+/* ---------- nav ---------- */
+const views=[...document.querySelectorAll('.view')];
+const crumb=document.getElementById('crumb');
+const labels={overview:'Overview',inbox:'Inbox',processes:'Processes',caseload:'My caseload',detail:'Process detail',agents:'Agents',audit:'Audit & compliance',traces:'Traces',trace:'Trace inspector'};
+document.querySelectorAll('.nav-item').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  b.classList.add('active');
+  const v=b.dataset.view;
+  views.forEach(s=>s.hidden=s.dataset.view!==v);
+  crumb.textContent=labels[v];
+  window.scrollTo({top:0,behavior:'smooth'});
+}));
+
+/* ---------- overview spark ---------- */
+const data=[58,72,69,84,91,46,38];
+const mx=Math.max(...data);
+document.getElementById('spark').innerHTML=data.map(d=>
+  `<div class="bar" title="${d} started"><i style="height:${Math.round(d/mx*100)}%"></i></div>`).join('');
+
+/* ---------- inbox data ---------- */
+const tasks=[
+ {id:1,type:'review',claim:'CLM-2026-04417',title:'Approve motor payout of 18,400 PLN',sub:'Adjudication Agent · confidence 0.86',sla:'cool',slatxt:'2h left',
+  agent:'Adjudication Agent',ai:'AD',conf:'0.86',verdict:'Approve & pay',amt:'18,400 PLN',
+  ctx:[['Policyholder','A. Kowalska'],['Policy','MOT-88241-PL'],['Coverage','Confirmed · own damage'],['Estimate','18,400 PLN']],
+  reasons:[['ok','Coverage confirmed by Coverage Analyst — own-damage clause active, no exclusions matched.'],
+           ['ok','Damage estimate of 18,400 PLN within 4% of independent workshop quote.'],
+           ['ok','Fraud Signal Agent score 0.12 — well below the 0.40 review threshold.'],
+           ['flag','Amount exceeds the 10,000 PLN auto-pay ceiling, so the payout is gated to you.']],
+  gate:'Payout > 10,000 PLN — supervisor approval required before funds release.'},
+ {id:2,type:'review',claim:'CLM-2026-04211',title:'Fraud signal over threshold — hold or release?',sub:'Fraud Signal Agent · score 0.61',sla:'hot',slatxt:'SLA 12m',
+  agent:'Fraud Signal Agent',ai:'FR',conf:'0.61',verdict:'Hold for investigation',amt:'9,250 PLN',
+  ctx:[['Policyholder','M. Nowak'],['Policy','PROP-41902-PL'],['Signal','Velocity + device reuse'],['Claimed','9,250 PLN']],
+  reasons:[['flag','Third claim from this device in 30 days across two policyholders.'],
+           ['flag','Incident photos share EXIF metadata with an unrelated 2025 claim.'],
+           ['ok','Policy itself is valid and premiums are current.']],
+  gate:'Fraud score 0.61 > 0.40 — cannot auto-decline; needs a human call.'},
+ {id:3,type:'question',claim:'CLM-2026-04372',title:'Which damage date applies — reported or inspection?',sub:'Coverage Analyst is blocked',sla:'warm',slatxt:'48m',
+  agent:'Coverage Analyst',ai:'CV',conf:'—',verdict:'Needs your input',amt:'',
+  ctx:[['Policyholder','J. Wiśniewski'],['Policy','MOT-77310-PL'],['Conflict','Two dates on file'],['Claimed','6,100 PLN']],
+  reasons:[['flag','Claim form lists 14 May; police report lists 12 May.'],
+           ['ok','Both dates fall inside the active coverage window, so payout is unaffected.'],
+           ['flag','The date drives the no-claims-bonus reset — agent needs the authoritative one.']],
+  gate:'Agent paused rather than guess. Pick the date to unblock it.'},
+ {id:4,type:'notify',claim:'CLM-2026-04358',title:'Regulatory response deadline in 6 hours',sub:'Bodily injury — disputed liability',sla:'warm',slatxt:'6h',
+  agent:'Adjudication Agent',ai:'AD',conf:'—',verdict:'For your awareness',amt:'',
+  ctx:[['Policyholder','T. Lewandowska'],['Policy','MOT-90021-PL'],['Stage','Awaiting third party'],['Claimed','42,000 PLN']],
+  reasons:[['flag','KNF complaint response is due by 18:00 today.'],
+           ['ok','Draft response is ready and queued — no action needed unless you want to review.']],
+  gate:'Notify only. The agent is not empowered to file this — you are.'},
+ {id:5,type:'review',claim:'CLM-2026-04390',title:'Send shortfall-documents request to customer?',sub:'Comms Drafter · confidence 0.79',sla:'cool',slatxt:'3h',
+  agent:'Comms Drafter',ai:'CM',conf:'0.79',verdict:'Send email',amt:'',
+  ctx:[['Policyholder','R. Zając'],['Policy','THEFT-22087-PL'],['Missing','Purchase receipts'],['Claimed','4,800 PLN']],
+  reasons:[['ok','Two receipts are missing for items over 1,000 PLN — request is justified.'],
+           ['ok','Draft uses approved template and correct policyholder details.'],
+           ['flag','Customer-facing send is gated — comms always pass a human before going out.']],
+  gate:'Outbound customer message — review before send.'}
+];
+
+const segState={f:'all'};
+const qlist=document.getElementById('qlist');
+const typeLabel={review:'Review',question:'Question',notify:'Notify'};
+let selId=1;
+
+function renderQueue(){
+  const items=tasks.filter(t=>segState.f==='all'||t.type===segState.f);
+  if(!items.length){qlist.innerHTML='<div class="qempty">Nothing waiting here. The agents have it.</div>';return;}
+  qlist.innerHTML=items.map(t=>`
+    <button class="qitem ${t.id===selId?'sel':''}" data-id="${t.id}">
+      <div class="qi-top">
+        <span class="qi-type ${t.type}">${typeLabel[t.type]}</span>
+        <span class="qi-sla ${t.sla}">${t.slatxt}</span>
+      </div>
+      <div class="qi-title">${t.title}</div>
+      <div class="qi-sub"><span class="mono">${t.claim}</span> · ${t.sub}</div>
+    </button>`).join('');
+  qlist.querySelectorAll('.qitem').forEach(b=>b.addEventListener('click',()=>{selId=+b.dataset.id;renderQueue();renderDetail();}));
+}
+function renderDetail(){
+  const t=tasks.find(x=>x.id===selId);
+  const pane=document.getElementById('detailPane');
+  if(!t){pane.innerHTML='<div class="qempty" style="padding:80px 20px">Select an item to review.</div>';return;}
+  const isPay=!!t.amt;
+  pane.innerHTML=`
+    <div class="d-head">
+      <div class="d-eyebrow"><span class="qi-type ${t.type}">${typeLabel[t.type]}</span><span class="d-claim mono">${t.claim}</span><span class="qi-sla ${t.sla}" style="margin-left:auto">${t.slatxt}</span></div>
+      <div class="d-title">${t.title}</div>
+      <div class="d-ctx">${t.ctx.map(c=>`<div class="f"><div class="k">${c[0]}</div><div class="v">${c[1]}</div></div>`).join('')}</div>
+    </div>
+    <div class="proposal">
+      <div class="prop-h">
+        <span class="padot">${t.ai}</span>
+        <span class="pwho">${t.agent} <small>proposes</small></span>
+        ${t.conf!=='—'?`<span class="pconf">confidence ${t.conf}</span>`:''}
+      </div>
+      <div class="prop-b">
+        <div class="prop-verdict" style="${isPay?'':'background:var(--violet-soft)'}">
+          <span class="pv-ic" style="${isPay?'':'background:var(--violet)'}">${svg(isPay?I.check:I.ask)}</span>
+          <span class="pv-t" style="${isPay?'':'color:var(--violet-ink)'}">${t.verdict}</span>
+          ${t.amt?`<span class="pv-amt">${t.amt}</span>`:''}
+        </div>
+        <div class="prop-why">Why</div>
+        <ul class="reasons">
+          ${t.reasons.map(r=>`<li class="${r[0]==='flag'?'flag':''}">${svg(r[0]==='flag'?I.flag:I.check)}<span>${r[1]}</span></li>`).join('')}
+        </ul>
+        <div class="gate">${svg(I.flag)}<span><b>Gate:</b> ${t.gate}</span></div>
+      </div>
+    </div>
+    <div class="d-actions">
+      ${t.type==='notify'
+        ? `<button class="btn grow" data-act="ack">Acknowledge</button><button class="btn btn-primary" data-act="open">Open draft</button>`
+        : t.type==='question'
+        ? `<button class="btn" data-act="reject">Send back</button><button class="btn btn-approve grow" data-act="approve">Use inspection date</button><button class="btn btn-primary" data-act="approve2">Use reported date</button>`
+        : `<button class="btn btn-reject" data-act="reject">${svg(I.x)}Reject</button><button class="btn" data-act="edit">${svg(I.edit)}Edit</button><button class="btn btn-approve grow" data-act="approve">${svg(I.check)}${isPay?'Approve & pay':'Approve & send'}</button>`}
+    </div>`;
+  pane.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()=>handle(b.dataset.act,t)));
+}
+function handle(act,t){
+  const map={
+    approve:['ok',I.check,`${t.claim} approved — Open Mercato is executing`],
+    approve2:['ok',I.check,`${t.claim} unblocked — agent resuming`],
+    reject:['no',I.x,`${t.claim} sent back to the agent with your note`],
+    edit:['info',I.edit,`Editing proposal for ${t.claim}`],
+    ack:['info',I.bell,`Acknowledged — ${t.claim}`],
+    open:['info',I.send,`Opening draft for ${t.claim}`]
+  };
+  const [kind,icon,msg]=map[act]||['info',I.check,'Done'];
+  toast(kind,icon,msg);
+  if(['approve','approve2','reject','ack'].includes(act)){
+    const i=tasks.findIndex(x=>x.id===t.id);
+    if(i>-1){tasks.splice(i,1);selId=tasks[0]?tasks[0].id:null;updateCounts();renderQueue();renderDetail();}
+  }
+}
+function updateCounts(){
+  const n=tasks.length;
+  document.getElementById('navBadge').textContent=n;
+  document.getElementById('qNum').textContent=n;
+}
+document.querySelectorAll('#inboxSeg button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#inboxSeg button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');segState.f=b.dataset.f;
+  const vis=tasks.filter(t=>segState.f==='all'||t.type===segState.f);
+  if(vis.length&&!vis.find(t=>t.id===selId))selId=vis[0].id;
+  renderQueue();renderDetail();
+}));
+
+/* ---------- processes ---------- */
+const procs=[
+ ['CLM-2026-04417','Motor','Adjudication',['AD','DM'],'amber','Waiting on you','2d 4h','4.20'],
+ ['CLM-2026-04211','Property','Fraud screen',['FR','CV'],'red','Fraud hold','1d 9h','6.85'],
+ ['CLM-2026-04358','Bodily injury','Awaiting 3rd party',['AD','IN'],'red','SLA 4h12m','3d 1h','9.10'],
+ ['CLM-2026-04372','Motor','Coverage check',['CV'],'amber','Question open','22h','2.40'],
+ ['CLM-2026-04390','Theft','Comms',['CM','IN'],'amber','Docs requested','1d 2h','1.95'],
+ ['CLM-2026-04401','Motor','Payout & comms',['AD','CM'],'green','Auto-completing','6h','3.05'],
+ ['CLM-2026-04405','Property','Damage estimate',['DM'],'green','Running','4h','2.10'],
+ ['CLM-2026-04408','Motor','Intake',['IN'],'green','Running','51m','0.62'],
+ ['CLM-2026-04412','Glass','Payout & comms',['AD'],'green','Auto-completed','3h','0.88'],
+ ['CLM-2026-04415','Property','Fraud screen',['FR','CV','DM'],'green','Running','1h','3.40']
+];
+const stPill={amber:'amber',red:'red',green:'green'};
+document.getElementById('procBody').innerHTML=procs.map(p=>`
+  <tr data-go="detail">
+    <td><span class="t-id">${p[0]}</span></td>
+    <td class="t-what">${p[1]}</td>
+    <td>${p[2]}</td>
+    <td><span class="t-agents">${p[3].map(a=>`<span class="av">${a}</span>`).join('')}</span></td>
+    <td><span class="pill ${stPill[p[4]]}"><span class="pd"></span>${p[5]}</span></td>
+    <td class="t-age">${p[6]}</td>
+    <td class="t-cost">${p[7]} zł</td>
+  </tr>`).join('');
+document.querySelectorAll('#procBody tr').forEach(r=>r.addEventListener('click',()=>{
+  document.querySelector('.nav-item[data-view="detail"]').click();
+}));
+document.querySelectorAll('#segbar .chip').forEach(c=>c.addEventListener('click',()=>{
+  document.querySelectorAll('#segbar .chip').forEach(x=>x.classList.remove('on'));c.classList.add('on');
+}));
+
+/* ---------- timeline (signature) ---------- */
+const tl=[
+ {k:'system',ic:I.bot,actor:'Intake Agent',time:'D-2 · 09:14',body:'Parsed FNOL submission, extracted policy MOT-88241-PL and incident details. Created claim record.',tag:'tool: ocr · policy-lookup',
+  io:{meta:[['confidence','0.95'],['latency','3.1s'],['cost','0.41 zł']],
+   input:[['Source','FNOL web form + 1 PDF'],['Raw fields','14 extracted'],['Attachments','police_report.pdf']],
+   output:[['policy_no','MOT-88241-PL'],['incident_date','2026-05-12'],['parties','2'],['claim_type','motor / collision']],
+   tools:[['ocr.extract','14 fields'],['policy.lookup','1 match']],
+   raw:'{\n  "policy_no": "MOT-88241-PL",\n  "incident_date": "2026-05-12",\n  "vehicle_vin": "WVWZZ…0214",\n  "third_party": true\n}'}},
+ {k:'agent',ic:I.bot,actor:'Coverage Analyst',time:'D-2 · 09:15',body:'Proposes: coverage confirmed. Own-damage clause active, no exclusions matched.',tag:'confidence 0.93',
+  io:{meta:[['confidence','0.93'],['latency','5.4s'],['cost','0.88 zł']],
+   input:[['claim_record','from Intake Agent'],['policy_terms','MOT-88241-PL · v2024.3'],['incident_report','police_report.pdf']],
+   output:[['coverage','confirmed'],['clause','own-damage (§4.2)'],['exclusions','none matched'],['deductible','500 PLN']],
+   tools:[['policy.terms.fetch','38 clauses'],['exclusion.match','0 hits']],
+   raw:'{\n  "coverage": "confirmed",\n  "clause": "own_damage",\n  "exclusions": [],\n  "deductible_pln": 500\n}'}},
+ {k:'handoff',actor:'',body:'Coverage Analyst → Damage Estimator'},
+ {k:'agent',ic:I.bot,actor:'Damage Estimator',time:'D-1 · 14:02',body:'Proposes: repair estimate 18,400 PLN, within 4% of independent workshop quote.',tag:'2 tools · 11 photos',
+  io:{meta:[['confidence','0.88'],['latency','22.7s'],['cost','1.62 zł']],
+   input:[['photos','11 damage images'],['vehicle','VW Passat B8 · 2019'],['vin','WVWZZ…0214']],
+   output:[['estimate','18,400 PLN'],['parts','11,250 PLN'],['labour','7,150 PLN'],['variance vs workshop','+4%']],
+   tools:[['vision.assess','11 images'],['parts.catalog','27 line items']],
+   raw:'{\n  "estimate_pln": 18400,\n  "parts_pln": 11250,\n  "labour_pln": 7150,\n  "workshop_delta_pct": 4.0\n}'}},
+ {k:'agent',ic:I.bot,actor:'Fraud Signal Agent',time:'D-1 · 14:03',body:'Proposes: fraud score 0.12 — below 0.40 threshold. No velocity or device-reuse signals.',tag:'score 0.12',
+  io:{meta:[['confidence','0.91'],['latency','4.0s'],['cost','1.10 zł']],
+   input:[['claim','CLM-2026-04417'],['device_fingerprint','d3f…91a'],['claim_history','policyholder · 24 mo']],
+   output:[['score','0.12'],['threshold','0.40'],['signals','none'],['recommendation','pass']],
+   tools:[['fraud.graph.query','0 edges'],['device.reuse.check','clean']],
+   raw:'{\n  "score": 0.12,\n  "threshold": 0.40,\n  "signals": [],\n  "decision": "pass"\n}'}},
+ {k:'system',ic:I.check,actor:'Open Mercato',time:'D-1 · 14:03',body:'Disposed: all upstream proposals accepted automatically. No gate triggered yet.',tag:'auto · policy: low-risk',
+  io:{meta:[['mode','auto-dispose'],['gates checked','3'],['gates fired','0']],
+   input:[['coverage','confirmed'],['estimate','18,400 PLN'],['fraud_score','0.12']],
+   output:[['disposition','accepted'],['next','→ Adjudication'],['audit_id','EVT-9f21']],
+   tools:[['rules.evaluate','3 policies']],
+   raw:'{\n  "disposition": "accepted",\n  "gates_fired": [],\n  "routed_to": "adjudication"\n}'}},
+ {k:'handoff',actor:'',body:'→ Adjudication Agent'},
+ {k:'agent',ic:I.bot,actor:'Adjudication Agent',time:'today · 08:22',body:'Proposes: approve and pay 18,400 PLN to policyholder account.',tag:'confidence 0.86',
+  io:{meta:[['confidence','0.86'],['latency','9.8s'],['cost','2.05 zł']],
+   input:[['coverage','confirmed'],['estimate','18,400 PLN'],['fraud_score','0.12'],['policy_limit','120,000 PLN']],
+   output:[['decision','approve'],['payout','18,400 PLN'],['payee','policyholder IBAN'],['rationale','coverage + estimate + clean fraud']],
+   tools:[['rules.engine','settlement calc'],['limit.check','within limit']],
+   raw:'{\n  "decision": "approve",\n  "payout_pln": 18400,\n  "requires_human": true,\n  "reason": "payout_ceiling"\n}'}},
+ {k:'system',ic:I.flag,actor:'Open Mercato',time:'today · 08:22',body:'Gate fired: payout 18,400 PLN exceeds 10,000 PLN ceiling. Routed to supervisor inbox. Execution paused.',tag:'policy: payout-ceiling',
+  io:{meta:[['mode','gate'],['policy','payout-ceiling'],['threshold','10,000 PLN']],
+   input:[['proposed_payout','18,400 PLN'],['ceiling','10,000 PLN']],
+   output:[['disposition','paused'],['routed_to','supervisor inbox'],['sla','2h']],
+   tools:[['rules.evaluate','1 gate fired']],
+   raw:'{\n  "gate": "payout_ceiling",\n  "action": "pause_and_route",\n  "target": "inbox:supervisor"\n}'}},
+ {k:'human',ic:I.user,actor:'You',time:'now',body:'Decision pending in your inbox.',tag:'waiting 41m'}
+];
+function ioBlock(title,cls,ic,tag,fields){
+  return `<div class="io-block ${cls}">
+    <div class="io-bh"><span class="iob-ic">${svg(ic)}</span><h4>${title}</h4>${tag?`<span class="iob-tag">${tag}</span>`:''}</div>
+    <div class="io-fields">${fields.map(f=>`<div class="io-f"><span class="fk">${f[0]}</span><span class="fv mono">${f[1]}</span></div>`).join('')}</div>
+  </div>`;
+}
+function openIO(idx){
+  const e=tl[idx]; if(!e.io) return;
+  const lane=e.k==='agent'?'agent':'system';
+  const laneLbl=e.k==='agent'?'Agent · proposes':'Open Mercato · disposes';
+  const accent=e.k==='agent'?'var(--violet)':'var(--indigo)';
+  const dw=document.getElementById('drawer');
+  dw.innerHTML=`
+    <div class="dw-head">
+      <div class="dw-eyebrow"><span class="lane ${lane}">${laneLbl}</span><span class="mono" style="font-size:11px;color:var(--ink-3)">${e.time}</span>
+        <button class="dw-close" id="dwClose">${svg(I.x)}</button></div>
+      <div class="dw-title"><span class="dwic" style="background:${accent}">${svg(e.ic)}</span>${e.actor}</div>
+      <div class="dw-meta">${e.io.meta.map(m=>`<div class="m"><div class="k">${m[0]}</div><div class="v">${m[1]}</div></div>`).join('')}</div>
+    </div>
+    <div class="dw-body">
+      ${ioBlock('Input — what it received','io-in',I.bot,`${e.io.input.length} fields`,e.io.input)}
+      ${ioBlock('Output — what it produced','io-out',I.check,`${e.io.output.length} fields`,e.io.output)}
+      <div class="io-block io-tools">
+        <div class="io-bh"><span class="iob-ic">${svg(I.cog)}</span><h4>Tools called</h4><span class="iob-tag">${e.io.tools.length}</span></div>
+        <div class="io-tools-list">${e.io.tools.map(t=>`<div class="tool-row"><span class="tdot"></span><span class="tname">${t[0]}</span><span class="tres">${t[1]}</span></div>`).join('')}</div>
+      </div>
+      <div class="io-block">
+        <div class="io-bh"><span class="iob-ic" style="background:var(--ink)">${svg('<path d="M8 6 3 12l5 6M16 6l5 6-5 6"/>')}</span><h4>Output payload</h4><span class="iob-tag">json</span></div>
+        <div class="io-raw"><pre>${e.io.raw}</pre></div>
+      </div>
+    </div>
+    <div class="dw-foot"><span class="grow">Stored as a typed record in Open Mercato · full trace in Foundry</span>
+      <button class="btn btn-sm" id="dwTrace">Open full trace</button></div>`;
+  dw.classList.add('open');dw.setAttribute('aria-hidden','false');
+  document.getElementById('scrim').classList.add('open');
+  document.getElementById('dwClose').addEventListener('click',closeIO);
+  document.getElementById('dwTrace').addEventListener('click',()=>{
+    closeIO();
+    setPersona('engineer');
+    document.querySelector('[data-roles="engineer"] .nav-item[data-view="trace"]').click();
+  });
+}
+function closeIO(){
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawer').setAttribute('aria-hidden','true');
+  document.getElementById('scrim').classList.remove('open');
+}
+document.getElementById('scrim').addEventListener('click',closeIO);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeIO();});
+
+document.getElementById('timeline').innerHTML=tl.map((e,idx)=>{
+  if(e.k==='handoff') return `<div class="tev handoff"><div class="node"><span class="dot">${svg('<path d="M7 12h10m0 0-3-3m3 3-3 3"/>')}</span></div><div class="tcard"><span class="handoff-lbl">${svg('<path d="M7 12h10m0 0-3-3m3 3-3 3"/>')}${e.body}</span></div></div>`;
+  const clickable=!!e.io;
+  return `<div class="tev ${e.k}">
+    <div class="tcard" ${clickable?`data-io="${idx}" role="button" tabindex="0"`:''}>
+      <div class="tc-h"><span class="tc-actor">${e.actor}</span><span class="tc-time mono">${e.time}</span></div>
+      <div class="tc-body">${e.body}</div>
+      ${e.tag?`<span class="tc-tag">${e.tag}</span>`:''}
+      ${clickable?`<div class="io-hint">${svg('<circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/>')} View input &amp; output</div>`:''}
+    </div>
+    <div class="node"><span class="dot">${svg(e.ic)}</span></div>
+  </div>`;
+}).join('');
+document.querySelectorAll('#timeline [data-io]').forEach(c=>{
+  const open=()=>openIO(+c.dataset.io);
+  c.addEventListener('click',open);
+  c.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});
+});
+
+/* ---------- agents ---------- */
+const agents=[
+ {ic:'IN',name:'Intake Agent',ver:'v4.2',ov:'6%',ovc:'var(--green)',sc:'97%',runs:'1,840',cost:'0.41',auto:'Auto'},
+ {ic:'CV',name:'Coverage Analyst',ver:'v3.1',ov:'11%',ovc:'var(--green)',sc:'94%',runs:'1,610',cost:'0.88',auto:'Auto'},
+ {ic:'DM',name:'Damage Estimator',ver:'v2.7',ov:'19%',ovc:'var(--amber)',sc:'89%',runs:'1,290',cost:'1.62',auto:'Review'},
+ {ic:'FR',name:'Fraud Signal Agent',ver:'v1.9',ov:'34%',ovc:'var(--amber)',sc:'81%',runs:'880',cost:'1.10',auto:'Review'},
+ {ic:'AD',name:'Adjudication Agent',ver:'v2.0',ov:'14%',ovc:'var(--green)',sc:'92%',runs:'1,440',cost:'2.05',auto:'Gated'},
+ {ic:'CM',name:'Comms Drafter',ver:'v1.4',ov:'21%',ovc:'var(--amber)',sc:'88%',runs:'970',cost:'0.54',auto:'Gated'}
+];
+const autoPill={'Auto':'green','Review':'amber','Gated':'indigo'};
+document.getElementById('agrid').innerHTML=agents.map(a=>`
+  <div class="acard">
+    <div class="ac-top">
+      <div class="ac-ic">${a.ic}</div>
+      <div style="flex:1"><div class="ac-name">${a.name}</div><div class="ac-ver mono">${a.ver} · ${a.runs} runs</div></div>
+      <span class="pill ${autoPill[a.auto]}"><span class="pd"></span>${a.auto}</span>
+    </div>
+    <div class="ac-stats">
+      <div class="ac-stat"><div class="k">Override rate</div><div class="v" style="color:${a.ovc}">${a.ov}</div></div>
+      <div class="ac-stat"><div class="k">Success</div><div class="v">${a.sc}</div></div>
+    </div>
+    <div class="ac-foot">
+      <span class="ac-ver mono" style="flex:1">~${a.cost} zł / run</span>
+      <button class="btn btn-sm">${svg(I.cog)}Configure</button>
+    </div>
+  </div>`).join('');
+
+/* ---------- audit ---------- */
+const logs=[
+ ['today 08:22','Open Mercato','Gate fired — payout-ceiling on','CLM-2026-04417','indigo'],
+ ['today 08:05','M. Adamska','Approved fraud release','CLM-2026-04188','green'],
+ ['today 07:51','Open Mercato','Auto-completed within policy','CLM-2026-04401','green'],
+ ['today 07:40','Patryk L.','Override — rejected estimate','CLM-2026-04372','red'],
+ ['today 07:33','Adjudication Agent','Proposed payout 6,100 PLN','CLM-2026-04372','violet'],
+ ['today 07:20','M. Adamska','Edited customer comms before send','CLM-2026-04390','amber'],
+ ['today 06:58','Open Mercato','Logged correction → eval set','CLM-2026-04301','indigo']
+];
+document.getElementById('logTable').innerHTML=
+  '<div class="logrow" style="background:#FBFCFD;font-weight:600;color:var(--ink-3);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase">'+
+  '<span>Time</span><span>Actor</span><span>Event</span><span>Claim</span></div>'+
+  logs.map(l=>`<div class="logrow">
+    <span class="lt">${l[0]}</span>
+    <span class="lactor">${l[1]}</span>
+    <span class="lwhat"><span class="pill ${l[4]}" style="margin-right:8px"><span class="pd"></span></span>${l[2]}</span>
+    <span class="lwhat"><code>${l[3]}</code></span>
+  </div>`).join('');
+
+/* ---------- toast ---------- */
+function toast(kind,icon,msg){
+  const wrap=document.getElementById('toasts');
+  const el=document.createElement('div');
+  el.className='toast '+kind;
+  el.innerHTML=`<span class="tk">${svg(icon)}</span>${msg}`;
+  wrap.appendChild(el);
+  setTimeout(()=>{el.style.transition='opacity .3s,transform .3s';el.style.opacity='0';el.style.transform='translateY(10px)';
+    setTimeout(()=>el.remove(),300);},2600);
+}
+
+/* ---------- persona switch ---------- */
+const personas={
+  admin:{who:'Patryk L.',role:'Claims supervisor',av:'PL',def:'overview'},
+  operator:{who:'M. Adamska',role:'Claims operator',av:'MA',def:'caseload'},
+  engineer:{who:'Patryk L.',role:'AgentOps engineer',av:'PL',def:'traces'}
+};
+function setPersona(role){
+  document.querySelectorAll('#personaSwitch button').forEach(b=>b.classList.toggle('on',b.dataset.role===role));
+  document.querySelectorAll('[data-roles]').forEach(el=>{el.hidden=el.dataset.roles!==role;});
+  const p=personas[role];
+  document.getElementById('railWho').textContent=p.who;
+  document.getElementById('railRole').textContent=p.role;
+  document.getElementById('railAvatar').textContent=p.av;
+  const target=document.querySelector(`[data-roles="${role}"] .nav-item[data-view="${p.def}"]`)
+            || document.querySelector(`[data-roles="${role}"] .nav-item`);
+  if(target) target.click();
+}
+document.querySelectorAll('#personaSwitch button').forEach(b=>
+  b.addEventListener('click',()=>setPersona(b.dataset.role)));
+
+/* ---------- caseload (operator) ---------- */
+const verbMeta={
+  decide:{label:'Decide',sub:'agent proposed — you dispose',ic:I.check},
+  answer:{label:'Answer',sub:'agent is blocked, asking you',ic:I.ask},
+  do:{label:'Do',sub:'a human step the process assigns you',ic:I.user},
+  know:{label:'Know',sub:'for your awareness',ic:I.bell}
+};
+const caseload=[
+ {v:'decide',id:'CLM-2026-04417',type:'Motor',stage:'Adjudication',ask:'Approve payout of 18,400 PLN',agents:['AD','DM'],sla:'2h',slc:'cool',f:'need'},
+ {v:'decide',id:'CLM-2026-04211',type:'Property',stage:'Fraud screen',ask:'Fraud score 0.61 — hold or release?',agents:['FR','CV'],sla:'12m',slc:'hot',f:'need'},
+ {v:'decide',id:'CLM-2026-04390',type:'Theft',stage:'Comms',ask:'Approve shortfall-docs email before send',agents:['CM'],sla:'3h',slc:'cool',f:'need'},
+ {v:'decide',id:'CLM-2026-04455',type:'Motor',stage:'Adjudication',ask:'Approve total-loss settlement 31,200 PLN',agents:['AD'],sla:'5h',slc:'cool',f:'need'},
+ {v:'answer',id:'CLM-2026-04372',type:'Motor',stage:'Coverage check',ask:'Which damage date applies — reported or inspection?',agents:['CV'],sla:'48m',slc:'warm',f:'need'},
+ {v:'answer',id:'CLM-2026-04461',type:'Property',stage:'Coverage check',ask:'Does endorsement E-12 cover basement flooding?',agents:['CV'],sla:'1h',slc:'warm',f:'need'},
+ {v:'do',id:'CLM-2026-04358',type:'Bodily injury',stage:'Liability',ask:'Call claimant to confirm liability statement',agents:['AD','IN'],sla:'4h',slc:'cool',f:'need'},
+ {v:'do',id:'CLM-2026-04477',type:'Motor',stage:'Intake',ask:'Verify the uploaded police report is legible',agents:['IN'],sla:'2h',slc:'cool',f:'need'},
+ {v:'do',id:'CLM-2026-04480',type:'Property',stage:'Damage estimate',ask:'Schedule on-site inspection for high-value claim',agents:['DM'],sla:'today',slc:'warm',f:'need'},
+ {v:'know',id:'CLM-2026-04412',type:'Property',stage:'Waiting',ask:'Third-party insurer response overdue by 1 day',agents:['AD'],sla:'—',slc:'cool',f:'waiting'},
+ {v:'know',id:'CLM-2026-04390',type:'Theft',stage:'Waiting',ask:'Customer documents requested — awaiting upload',agents:['CM'],sla:'—',slc:'cool',f:'waiting'},
+ {v:'know',id:'CLM-2026-04501',type:'Motor',stage:'Damage estimate',ask:'Damage Estimator running — 11 photos in progress',agents:['DM'],sla:'—',slc:'cool',f:'running'},
+ {v:'know',id:'CLM-2026-04503',type:'Glass',stage:'Payout & comms',ask:'Auto-completing — within policy, no action',agents:['AD','CM'],sla:'—',slc:'cool',f:'running'}
+];
+const caseFilter={f:'need'};
+function caseRow(c){
+  return `<div class="ccard ${c.v} ${c.f!=='need'?'cwait':''}" data-go>
+    <div class="cc-main">
+      <div class="cc-top"><span class="cc-id mono">${c.id}</span><span class="cc-type">${c.type}</span><span class="cc-stage">· ${c.stage}</span></div>
+      <div class="cc-ask">${c.ask}</div>
+    </div>
+    <div class="cc-agents">${c.agents.map(a=>`<span class="av">${a}</span>`).join('')}</div>
+    <span class="cc-sla ${c.slc}">${c.sla}</span>
+    <span class="cc-go">${svg('<path d="M9 6l6 6-6 6"/>')}</span>
+  </div>`;
+}
+function renderCaseload(){
+  const body=document.getElementById('caseBody');
+  if(caseFilter.f==='need'){
+    body.innerHTML=['decide','answer','do'].map(v=>{
+      const items=caseload.filter(c=>c.f==='need'&&c.v===v);
+      if(!items.length) return '';
+      const m=verbMeta[v];
+      return `<div class="vgroup">
+        <div class="vgroup-h"><span class="vchip ${v}">${svg(m.ic)}${m.label} · ${items.length}</span><span class="vsub">${m.sub}</span></div>
+        <div class="cases">${items.map(caseRow).join('')}</div>
+      </div>`;
+    }).join('');
+  } else {
+    const items=caseFilter.f==='all'?caseload:caseload.filter(c=>c.f===caseFilter.f);
+    body.innerHTML=`<div class="cases">${items.map(caseRow).join('')}</div>`;
+  }
+  body.querySelectorAll('[data-go]').forEach(r=>r.addEventListener('click',()=>{
+    document.querySelector('[data-roles="operator"] .nav-item[data-view="detail"]').click();
+  }));
+}
+document.querySelectorAll('#caseSeg .chip').forEach(c=>c.addEventListener('click',()=>{
+  document.querySelectorAll('#caseSeg .chip').forEach(x=>x.classList.remove('on'));c.classList.add('on');
+  caseFilter.f=c.dataset.f;renderCaseload();
+}));
+
+/* ---------- traces (engineer) ---------- */
+const traceRows=[
+ ['RUN-7f3a2c','Adjudication Agent','CLM-2026-04417','Approve · 18,400 PLN','0.86','6/6','full','ok','green','2m'],
+ ['RUN-7f2e91','Fraud Signal Agent','CLM-2026-04211','Hold · score 0.61','0.61','5/6','part','overridden','amber','18m'],
+ ['RUN-7f1907','Damage Estimator','CLM-2026-04372','Estimate · 6,100 PLN','0.71','4/6','part','overridden','amber','40m'],
+ ['RUN-7ef0b4','Coverage Analyst','CLM-2026-04461','Blocked · asked human','—','—','none','question','violet','52m'],
+ ['RUN-7ee2a0','Adjudication Agent','CLM-2026-04401','Approve · 3,050 PLN','0.94','6/6','full','ok','green','1h'],
+ ['RUN-7ed51f','Comms Drafter','CLM-2026-04390','Draft email','0.79','6/6','full','ok','green','1h'],
+ ['RUN-7ec1d8','Fraud Signal Agent','CLM-2026-04415','Pass · score 0.08','0.93','6/6','full','ok','green','2h']
+];
+const stLabel={ok:'OK',overridden:'Overridden',question:'Question'};
+document.getElementById('traceBody').innerHTML=traceRows.map(r=>`
+  <tr data-go="trace">
+    <td><span class="run-id">${r[0]}</span></td>
+    <td class="t-what">${r[1]}</td>
+    <td><span class="t-id">${r[2]}</span></td>
+    <td>${r[3]}</td>
+    <td class="mono" style="color:var(--ink-2)">${r[4]}</td>
+    <td><span class="escore ${r[6]}">${r[5]}</span></td>
+    <td><span class="pill ${r[8]}"><span class="pd"></span>${stLabel[r[7]]}</span></td>
+    <td class="t-cost">${r[7]==='question'?'0.40':r[0]==='RUN-7f3a2c'?'2.05':'1.'+(Math.floor(Math.random()*9))+'0'} zł</td>
+    <td class="t-age">${r[9]} ago</td>
+  </tr>`).join('');
+document.querySelectorAll('#traceBody tr').forEach(r=>r.addEventListener('click',()=>{
+  document.querySelector('[data-roles="engineer"] .nav-item[data-view="trace"]').click();
+}));
+document.querySelectorAll('#traceSeg .chip').forEach(c=>c.addEventListener('click',()=>{
+  document.querySelectorAll('#traceSeg .chip').forEach(x=>x.classList.remove('on'));c.classList.add('on');
+}));
+
+/* ---------- trace inspector ---------- */
+const spans=[
+ {t:'context.assemble',type:'sys',s:0,e:0.4},
+ {t:'llm.plan',type:'llm',s:0.4,e:2.1},
+ {t:'policy.terms.fetch',type:'tool',s:2.1,e:2.6},
+ {t:'rules.engine',type:'tool',s:2.6,e:4.0},
+ {t:'limit.check',type:'tool',s:4.0,e:4.3},
+ {t:'llm.synthesize',type:'llm',s:4.3,e:9.1},
+ {t:'output.validate',type:'sys',s:9.1,e:9.8}
+];
+const TOT=9.8;
+document.getElementById('wf').innerHTML=spans.map(sp=>{
+  const left=(sp.s/TOT*100).toFixed(1), w=((sp.e-sp.s)/TOT*100).toFixed(1);
+  const ms=Math.round((sp.e-sp.s)*1000);
+  return `<div class="wf-row" title="${sp.t}">
+    <span class="wf-lbl"><span class="wd ${sp.type}"></span>${sp.t}</span>
+    <span class="wf-track"><span class="wf-bar ${sp.type}" style="left:${left}%;width:${w}%"></span></span>
+    <span class="wf-ms">${ms<1000?ms+'ms':(ms/1000).toFixed(1)+'s'}</span>
+  </div>`;
+}).join('');
+
+const reasoning=[
+ ['Loaded coverage result from Coverage Analyst — own-damage confirmed, no exclusions matched.',0],
+ ['Compared repair estimate 18,400 PLN against policy limit 120,000 PLN — within limit.',0],
+ ['Read fraud score 0.12 < 0.40 threshold — no investigation hold required.',0],
+ ['Computed settlement 18,400 PLN; deductible 500 PLN handled downstream.',0],
+ ['Payout 18,400 PLN exceeds 10,000 PLN auto-pay ceiling → set requires_human=true, reason=payout_ceiling.',1]
+];
+document.getElementById('rsteps').innerHTML=reasoning.map((r,i)=>`
+  <div class="rstep ${r[1]?'gate':''}"><span class="rnum">${i+1}</span><span class="rtext">${r[0]}</span></div>`).join('');
+
+const traceTools=[
+ {name:'policy.terms.fetch',ms:512,req:'{\n  "policy_no": "MOT-88241-PL"\n}',res:'{\n  "clauses": 38,\n  "own_damage": true,\n  "exclusions": []\n}'},
+ {name:'rules.engine',ms:1400,req:'{\n  "estimate_pln": 18400,\n  "coverage": "confirmed",\n  "fraud_score": 0.12\n}',res:'{\n  "decision": "approve",\n  "settlement_pln": 18400\n}'},
+ {name:'limit.check',ms:300,req:'{\n  "payout_pln": 18400,\n  "policy_limit_pln": 120000\n}',res:'{\n  "within_limit": true\n}'}
+];
+document.getElementById('tacc').innerHTML=traceTools.map((t,i)=>`
+  <div class="tacc ${i===0?'open':''}">
+    <div class="tacc-h" data-acc="${i}"><span class="tdot"></span><span class="tn">${t.name}</span><span class="tms">${t.ms}ms</span>
+      <span class="pill green" style="margin-right:4px"><span class="pd"></span>ok</span>
+      <span class="chev">${svg('<path d="M9 6l6 6-6 6"/>')}</span></div>
+    <div class="tacc-b">
+      <div class="tacc-io">Request</div><div class="code"><pre>${t.req}</pre></div>
+      <div class="tacc-io out">Response</div><div class="code"><pre>${t.res}</pre></div>
+    </div>
+  </div>`).join('');
+document.querySelectorAll('#tacc .tacc-h').forEach(h=>h.addEventListener('click',()=>{
+  h.parentElement.classList.toggle('open');
+}));
+
+const evalChecks=[
+ ['coverage_clause_cited',1],['estimate_within_tolerance (±5%)',1],['fraud_score_below_threshold',1],
+ ['payout_gate_triggered',1],['rationale_no_pii',1],['output_schema_valid',1]
+];
+document.getElementById('evals').innerHTML=evalChecks.map(c=>`
+  <div class="eval-row ${c[1]?'pass':'fail'}"><span class="ev-ic">${svg(c[1]?I.check:I.x)}</span><span class="ev-n">${c[0]}</span></div>`).join('');
+
+document.querySelectorAll('[data-tact]').forEach(b=>b.addEventListener('click',()=>{
+  const m={eval:['ok',I.check,'Run RUN-7f3a2c added to the eval set'],
+           rerun:['info',I.send,'Re-running with your edits…'],
+           flag:['no',I.flag,'Flagged as a regression candidate']};
+  const [k,ic,msg]=m[b.dataset.tact];toast(k,ic,msg);
+}));
+
+/* init */
+renderQueue();renderDetail();updateCounts();renderCaseload();
+</script>
+</body>
+</html>

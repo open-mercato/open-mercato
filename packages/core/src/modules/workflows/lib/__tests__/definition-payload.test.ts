@@ -40,6 +40,19 @@ describe('buildDefinitionPayload', () => {
     const payload = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [], contextSchema: null }))
     expect(payload).not.toHaveProperty('contextSchema')
   })
+
+  it('carries the io port contract through a wire round trip', () => {
+    const io = { inputs: [{ name: 'orderId', type: 'text' as const, label: 'Order', required: true }] }
+    const payload = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [], contextSchema: undefined, io }))
+    expect(payload.io).toEqual(io)
+  })
+
+  it('omits io from the wire payload when absent or null', () => {
+    const absent = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [], contextSchema: undefined }))
+    expect(absent).not.toHaveProperty('io')
+    const nulled = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [], contextSchema: undefined, io: null }))
+    expect(nulled).not.toHaveProperty('io')
+  })
 })
 
 describe('buildMetadataPayload', () => {

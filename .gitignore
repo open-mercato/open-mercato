@@ -118,6 +118,7 @@ newrelic_agent.log
 .devcontainer/docker-compose.local.yml
 # Personal compose overrides (auto-discovered by docker-exec.mjs)
 docker-compose.*.local.yml
+starters/docker/compose.*.local.yml
 
 # OpenCode local config (generated at runtime, may contain secrets)
 docker/opencode/opencode.jsonc
@@ -142,6 +143,7 @@ docker/opencode/opencode.jsonc
 # generated them (shell, ports, process tools) — keep them local, never commit
 .ai/scripts/test-env-*
 .agents/
+.ai/cezar/
 
 apps/mercato/data/
 
@@ -155,3 +157,13 @@ apps/mercato/src/module-facts.generated.json
 
 # skills CLI lockfile (external skills are re-resolved on each install)
 skills-lock.json
+
+# Corporate proxy root CAs picked up by image builds (machine-specific, never commit)
+docker/certs/*
+!docker/certs/README.md
+docker/opencode/certs/*
+!docker/opencode/certs/README.md
+
+# Starter company overlay: per-machine override + private CA bundles stay local
+starters/company/config.local.mjs
+starters/company/certs/

@@ -3,6 +3,33 @@ import { Buffer } from 'node:buffer'
 import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
+// Windows: AV scanners, indexers, and watchers briefly hold freshly written
+// destination files open, and rename-over-existing fails with EPERM/EACCES
+// until the handle closes (the same transient race graceful-fs retries
+// around). Back off and retry before surfacing the error; a genuinely locked
+// file (open in an editor) still throws once the deadline passes.
+const RETRYABLE_RENAME_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+const sleepBuffer = new Int32Array(new SharedArrayBuffer(4))
+
+function sleepSync(ms) {
+  Atomics.wait(sleepBuffer, 0, 0, ms)
+}
+
+export function renameReplaceSync(tmpPath, filePath, { renameImpl = renameSync, platform = process.platform, maxWaitMs = 2000, sleepImpl = sleepSync } = {}) {
+  const deadline = Date.now() + maxWaitMs
+  let delay = 10
+  for (;;) {
+    try {
+      renameImpl(tmpPath, filePath)
+      return
+    } catch (error) {
+      if (platform !== 'win32' || !RETRYABLE_RENAME_CODES.has(error?.code) || Date.now() >= deadline) throw error
+    }
+    sleepImpl(delay)
+    delay = Math.min(delay * 2, 250)
+  }
+}
+
 // Atomic write: write to a temp sibling file, then rename over the target.
 // rename() is atomic on POSIX (and replaces the destination on Windows since Node 16),
 // so concurrent readers never observe a truncated file — they see either the old
@@ -12,7 +39,7 @@ export function atomicWriteFileSync(filePath, data) {
   const tmpPath = `${filePath}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
   try {
     writeFileSync(tmpPath, data)
-    renameSync(tmpPath, filePath)
+    renameReplaceSync(tmpPath, filePath)
   } catch (error) {
     try {
       unlinkSync(tmpPath)

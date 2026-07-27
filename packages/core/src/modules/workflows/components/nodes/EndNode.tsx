@@ -2,7 +2,7 @@
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
-import { WorkflowStatus } from '../../lib/status-colors'
+import { toWorkflowStatus } from '../../lib/status-colors'
 
 export interface EndNodeData {
   label: string
@@ -20,26 +20,17 @@ export interface EndNodeData {
  * EndNode - End point of a workflow
  * Uses WorkflowNodeCard for consistent styling
  */
-export function EndNode({ data, isConnectable, selected }: NodeProps) {
+export function EndNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as EndNodeData
 
-  // Map old status values to new WorkflowStatus types
-  const mapStatus = (status?: string): WorkflowStatus => {
-    if (!status || status === 'pending') return 'not_started'
-    if (status === 'running' || status === 'in_progress') return 'in_progress'
-    if (status === 'completed') return 'completed'
-    if (status === 'error') return 'error'
-    return 'not_started'
-  }
-
-  const workflowStatus = mapStatus(nodeData.status)
+  const workflowStatus = toWorkflowStatus(nodeData.status)
 
   return (
     <div className="end-node" title={nodeData.tooltip}>
       {/* Target Handle */}
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="target"
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"
@@ -53,6 +44,8 @@ export function EndNode({ data, isConnectable, selected }: NodeProps) {
         selected={selected}
         hasError={nodeData.hasError}
         errorCount={nodeData.errorCount}
+        nodeId={id}
+        editable={isConnectable}
       />
     </div>
   )

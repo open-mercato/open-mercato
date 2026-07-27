@@ -582,6 +582,108 @@ describe('computeContextLedger', () => {
     })
   })
 
+  describe('io.inputs read-through alias', () => {
+    test('reads io.inputs as START entries when contextSchema.input is absent', () => {
+      const definition: LedgerWorkflowDefinition = {
+        steps: [step('start', 'START'), step('end', 'END')],
+        transitions: [transition('start', 'end')],
+        io: {
+          inputs: [
+            { name: 'orderId', type: 'text', required: true },
+            { name: 'amount', type: 'number' },
+          ],
+        },
+      }
+      const ledger = computeContextLedger(definition)
+      expect(entryAt(ledger, 'start', 'orderId')).toMatchObject({
+        type: 'text',
+        presence: 'always',
+        source: { kind: 'contextSchema', label: 'io.inputs (read-through)' },
+      })
+      expect(entryAt(ledger, 'start', 'amount')).toMatchObject({ type: 'number', presence: 'maybe' })
+    })
+
+    test('contextSchema.input stays canonical when both are declared', () => {
+      const definition: LedgerWorkflowDefinition = {
+        steps: [step('start', 'START'), step('end', 'END')],
+        transitions: [transition('start', 'end')],
+        contextSchema: { input: { fields: [{ name: 'dealId', type: 'text', required: true }] } },
+        io: { inputs: [{ name: 'orderId', type: 'text', required: true }] },
+      }
+      const ledger = computeContextLedger(definition)
+      expect(entryAt(ledger, 'start', 'dealId')).toMatchObject({
+        source: { label: 'contextSchema.input' },
+      })
+      expect(entryAt(ledger, 'start', 'orderId')).toBeUndefined()
+    })
+  })
+
+  describe('INVOKE_AGENT contributions', () => {
+    const invokeAgentStep = (extra: Record<string, unknown> = {}) =>
+      step('agent', 'AUTOMATED', {
+        signalConfig: { signalName: 'agent_orchestrator.proposal.ready' },
+        activities: [
+          {
+            activityId: 'invoke-risk-agent',
+            activityType: 'INVOKE_AGENT',
+            config: { agentId: 'risk-scorer', ...extra },
+          },
+        ],
+      })
+
+    test('advertises outputMapping target keys as maybe when a mapping is declared', () => {
+      const definition: LedgerWorkflowDefinition = {
+        steps: [step('start', 'START'), invokeAgentStep({ outputMapping: { riskScore: 'proposalPayload.score' } }), step('end', 'END')],
+        transitions: [transition('start', 'agent'), transition('agent', 'end')],
+      }
+      const ledger = computeContextLedger(definition)
+      expect(entryAt(ledger, 'end', 'riskScore')).toMatchObject({
+        presence: 'maybe',
+        source: { kind: 'invokeAgent', stepId: 'agent', activityId: 'invoke-risk-agent' },
+      })
+      expect(entryAt(ledger, 'end', 'agentProposalId')).toBeUndefined()
+    })
+
+    test('advertises the legacy fixed keys as maybe when no mapping is declared', () => {
+      const definition: LedgerWorkflowDefinition = {
+        steps: [step('start', 'START'), invokeAgentStep(), step('end', 'END')],
+        transitions: [transition('start', 'agent'), transition('agent', 'end')],
+      }
+      const ledger = computeContextLedger(definition)
+      for (const path of ['agentId', 'agentProposalId', 'agent_agent', 'disposition', 'proposalId', 'proposalPayload']) {
+        expect(entryAt(ledger, 'end', path)).toMatchObject({ presence: 'maybe', source: { kind: 'invokeAgent' } })
+      }
+    })
+
+    test('always advertises the human-dispose and signal envelope keys, even with a mapping', () => {
+      const definition: LedgerWorkflowDefinition = {
+        steps: [step('start', 'START'), invokeAgentStep({ outputMapping: { riskScore: 'proposalPayload.score' } }), step('end', 'END')],
+        transitions: [transition('start', 'agent'), transition('agent', 'end')],
+      }
+      const ledger = computeContextLedger(definition)
+      expect(entryAt(ledger, 'end', 'disposition')).toMatchObject({ presence: 'maybe', type: 'text' })
+      expect(entryAt(ledger, 'end', 'proposalId')).toMatchObject({ presence: 'maybe' })
+      expect(entryAt(ledger, 'end', 'signal_agent_orchestrator.proposal.ready_payload')).toMatchObject({
+        presence: 'maybe',
+        type: 'object',
+      })
+      expect(entryAt(ledger, 'end', 'signal_agent_orchestrator.proposal.ready_receivedAt')).toMatchObject({
+        presence: 'maybe',
+        type: 'date',
+      })
+    })
+
+    test('contributes only to steps AFTER the invoke-agent step, not its own incoming view', () => {
+      const definition: LedgerWorkflowDefinition = {
+        steps: [step('start', 'START'), invokeAgentStep(), step('end', 'END')],
+        transitions: [transition('start', 'agent'), transition('agent', 'end')],
+      }
+      const ledger = computeContextLedger(definition)
+      expect(entryAt(ledger, 'agent', 'disposition')).toBeUndefined()
+      expect(entryAt(ledger, 'end', 'disposition')).toBeDefined()
+    })
+  })
+
   describe('graph edge cases', () => {
     test('steps unreachable from any START get an empty ledger view', () => {
       const definition: LedgerWorkflowDefinition = {

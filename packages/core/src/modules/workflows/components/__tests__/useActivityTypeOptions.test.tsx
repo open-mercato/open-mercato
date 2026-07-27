@@ -3,7 +3,7 @@
  *
  * Step 4.1: activity-type selects are driven by the Activity Registry instead
  * of hardcoded label arrays. The hook must return one option per registered
- * type (all eight built-ins, including SET_VARIABLE) with labels resolved
+ * type (all nine built-ins, including SET_VARIABLE and INVOKE_AGENT) with labels resolved
  * through the i18n t function.
  */
 import { renderHook } from '@testing-library/react'
@@ -22,6 +22,7 @@ const BUILTIN_ACTIVITY_TYPE_IDS = [
   'WAIT',
   'CALL_API',
   'SET_VARIABLE',
+  'INVOKE_AGENT',
 ]
 
 describe('useActivityTypeOptions', () => {

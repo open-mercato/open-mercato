@@ -209,6 +209,20 @@ describe('POST /api/workflows/definitions/[id]/test-step', () => {
     expect(payload).toEqual({ refused: true, reason: 'noMock', activityType: NO_MOCK_ACTIVITY_TYPE })
   })
 
+  it('returns a 200 noMock refusal for INVOKE_AGENT (agent runs are not simulatable)', async () => {
+    const response = await POST(
+      makeRequest({
+        activityType: 'INVOKE_AGENT',
+        config: { agentId: 'risk-scorer', onResult: { autoApproved: 'CONTINUE' } },
+        context: {},
+      }) as never,
+      makeContext(),
+    )
+    expect(response.status).toBe(200)
+    const payload = await response.json()
+    expect(payload).toEqual({ refused: true, reason: 'noMock', activityType: 'INVOKE_AGENT' })
+  })
+
   it('simulates SEND_EMAIL with {{context.*}} and synthetic {{workflow.*}} interpolation', async () => {
     const response = await POST(
       makeRequest({

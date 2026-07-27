@@ -29,6 +29,7 @@ import {
   callWebhookConfigSchema,
   emitEventConfigSchema,
   executeFunctionConfigSchema,
+  invokeAgentConfigSchema,
   sendEmailConfigSchema,
   setVariableConfigSchema,
   updateEntityConfigSchema,
@@ -46,6 +47,7 @@ const BUILTIN_ACTIVITY_TYPE_IDS = [
   'WAIT',
   'CALL_API',
   'SET_VARIABLE',
+  'INVOKE_AGENT',
 ] as const
 
 const i18nKeyFor = (id: string): string => `workflows.activities.types.${id}`
@@ -59,6 +61,7 @@ export type ActivityExecutorBinding = Pick<
   | 'executeFunction'
   | 'executeCallApi'
   | 'executeSetVariable'
+  | 'executeInvokeAgent'
 >
 
 let boundExecutor: ActivityExecutorBinding | null = null
@@ -251,6 +254,27 @@ export function registerBuiltinActivityTypes(): void {
     execute: async (config, ctx) => (await loadExecutor()).executeSetVariable(config, ctx),
     async: { capable: false, reason: 'asyncResumeMergeDoesNotApplyAssignments' },
     mock: (config) => ({ simulated: true, assignments: config.assignments }),
+  })
+
+  registerActivityType({
+    id: 'INVOKE_AGENT',
+    icon: 'Bot',
+    i18nKey: i18nKeyFor('INVOKE_AGENT'),
+    configSchema: invokeAgentConfigSchema,
+    form: [
+      { id: 'agentId', component: 'text', required: true },
+      { id: 'input', component: 'json' },
+      { id: 'onResult', component: 'json', required: true },
+      { id: 'outputMapping', component: 'json' },
+    ],
+    // SYNC-dispatched by design: execute() enqueues an 'invoke_agent' job onto
+    // the dedicated workflow-invoke-agent queue and returns a `__park` marker so
+    // the step handler PAUSES the instance on INVOKE_AGENT_SIGNAL_NAME. The job
+    // rides its own queue and resumes via sendSignal — not the generic
+    // resumeWorkflowAfterActivities path — so the activity is not async-capable
+    // in the registry's sense. No mock: agent runs are not simulatable here.
+    execute: async (config, ctx, deps) => (await loadExecutor()).executeInvokeAgent(config, ctx, deps.container),
+    async: { capable: false, reason: 'parksOnDedicatedQueue' },
   })
 }
 

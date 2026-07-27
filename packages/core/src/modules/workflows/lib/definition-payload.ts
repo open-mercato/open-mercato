@@ -3,30 +3,34 @@
  *
  * The editor rebuilds the definition from the graph and rebuilds metadata from
  * three edited fields on every save, so anything it does not explicitly carry
- * (the declared contextSchema, future metadata.editor.* keys) would be
- * silently dropped. These helpers centralize that assembly: the definition
- * payload re-attaches triggers and contextSchema next to the graph output, and
- * the metadata payload spreads the metadata object loaded from the server
- * before overlaying the edited fields so unknown keys survive load → save.
+ * (the declared contextSchema, the sub-workflow io port contract, future
+ * metadata.editor.* keys) would be silently dropped. These helpers centralize
+ * that assembly: the definition payload re-attaches triggers, contextSchema,
+ * and io next to the graph output, and the metadata payload spreads the
+ * metadata object loaded from the server before overlaying the edited fields
+ * so unknown keys survive load → save.
  */
 
 import type {
   WorkflowContextSchema,
   WorkflowDefinitionData,
   WorkflowDefinitionTrigger,
+  WorkflowIoContract,
 } from '../data/entities'
 
 export type DefinitionPayloadInput = {
   graphDefinition: WorkflowDefinitionData
   triggers: WorkflowDefinitionTrigger[]
   contextSchema?: WorkflowContextSchema | null
+  io?: WorkflowIoContract | null
 }
 
-export function buildDefinitionPayload({ graphDefinition, triggers, contextSchema }: DefinitionPayloadInput): WorkflowDefinitionData {
+export function buildDefinitionPayload({ graphDefinition, triggers, contextSchema, io }: DefinitionPayloadInput): WorkflowDefinitionData {
   return {
     ...graphDefinition,
     triggers: triggers.length > 0 ? triggers : undefined,
     contextSchema: contextSchema ?? undefined,
+    io: io ?? undefined,
   }
 }
 

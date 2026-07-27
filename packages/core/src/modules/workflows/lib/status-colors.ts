@@ -1,6 +1,13 @@
 import type { CSSProperties } from 'react'
 
-export type WorkflowStatus = 'completed' | 'in_progress' | 'pending' | 'not_started' | 'error'
+export type WorkflowStatus =
+  | 'completed'
+  | 'in_progress'
+  | 'pending'
+  | 'failed'
+  | 'paused'
+  | 'not_started'
+  | 'error'
 
 export const STATUS_COLORS = {
   completed: {
@@ -24,6 +31,20 @@ export const STATUS_COLORS = {
     icon: 'text-status-warning-icon',
     hex: 'var(--status-warning-icon)',
   },
+  failed: {
+    bg: 'bg-status-error-bg',
+    border: 'border-status-error-border',
+    text: 'text-status-error-text',
+    icon: 'text-status-error-icon',
+    hex: 'var(--status-error-icon)',
+  },
+  paused: {
+    bg: 'bg-status-warning-bg',
+    border: 'border-status-warning-border',
+    text: 'text-status-warning-text',
+    icon: 'text-status-warning-icon',
+    hex: 'var(--status-warning-icon)',
+  },
   not_started: {
     bg: 'bg-muted',
     border: 'border-border',
@@ -40,6 +61,21 @@ export const STATUS_COLORS = {
   },
 } as const
 
+/**
+ * Normalize a raw execution/step status (any of the vocabularies used across the
+ * instance viewer, events, and definition graph) into a `WorkflowStatus` for
+ * node/minimap coloring. Keep this the single source of truth so every node
+ * type colors failed (red) and paused (yellow) steps consistently.
+ */
+export function toWorkflowStatus(status?: string): WorkflowStatus {
+  if (!status || status === 'pending') return 'not_started'
+  if (status === 'running' || status === 'in_progress' || status === 'active') return 'in_progress'
+  if (status === 'completed') return 'completed'
+  if (status === 'failed' || status === 'error') return 'failed'
+  if (status === 'paused' || status === 'waiting' || status === 'waiting_for_activities') return 'paused'
+  return 'not_started'
+}
+
 export type EdgeState = 'completed' | 'pending'
 
 export const EDGE_COLORS = {
@@ -55,7 +91,7 @@ export const EDGE_COLORS = {
   },
 } as const
 
-export type StepRunStatus = 'completed' | 'active' | 'failed' | 'skipped' | 'pending'
+export type StepRunStatus = 'completed' | 'active' | 'failed' | 'skipped' | 'paused' | 'pending'
 
 export const STEP_STATUS_STYLES: Record<StepRunStatus, CSSProperties> = {
   completed: {
@@ -84,6 +120,13 @@ export const STEP_STATUS_STYLES: Record<StepRunStatus, CSSProperties> = {
     backgroundColor: 'var(--status-warning-bg)',
     color: 'var(--status-warning-text)',
     borderColor: 'var(--status-warning-border)',
+    borderWidth: '3px',
+    borderRadius: '16px',
+  },
+  paused: {
+    backgroundColor: 'var(--status-warning-bg)',
+    color: 'var(--status-warning-text)',
+    borderColor: 'var(--status-warning-icon)',
     borderWidth: '3px',
     borderRadius: '16px',
   },

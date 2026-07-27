@@ -819,6 +819,8 @@
   "ui.dataTable.empty.title": "Aún no hay {entity}",
   "ui.dataTable.emptyState.default": "Sin resultados.",
   "ui.dataTable.emptyState.defaultDescription": "Los elementos aparecerán aquí cuando se agreguen.",
+  "ui.dataTable.expand.collapseRow": "Contraer fila",
+  "ui.dataTable.expand.expandRow": "Expandir fila",
   "ui.dataTable.export.format.markdown": "Markdown",
   "ui.dataTable.export.label": "Exportar",
   "ui.dataTable.fieldset.label": "Columns",
