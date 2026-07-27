@@ -31,6 +31,8 @@ export {
   emitEventConfigSchema,
   updateEntityConfigSchema,
   executeFunctionConfigSchema,
+  setVariableAssignmentSchema,
+  setVariableConfigSchema,
   waitConfigSchema,
 } from './activity-config-schemas'
 export type {
@@ -39,6 +41,7 @@ export type {
   EmitEventConfig,
   UpdateEntityConfig,
   ExecuteFunctionConfig,
+  SetVariableConfig,
   WaitConfig,
 } from './activity-config-schemas'
 

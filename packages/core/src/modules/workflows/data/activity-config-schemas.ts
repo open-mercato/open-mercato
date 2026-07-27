@@ -105,6 +105,18 @@ export const executeFunctionConfigSchema = z.looseObject({
 })
 export type ExecuteFunctionConfig = z.infer<typeof executeFunctionConfigSchema>
 
+export const setVariableAssignmentSchema = z.looseObject({
+  path: z.string().min(1, 'SET_VARIABLE assignment requires "path"'),
+  value: z.unknown(),
+})
+
+export const setVariableConfigSchema = z.looseObject({
+  assignments: z
+    .array(setVariableAssignmentSchema)
+    .min(1, 'SET_VARIABLE requires at least one assignment'),
+})
+export type SetVariableConfig = z.infer<typeof setVariableConfigSchema>
+
 export const waitConfigSchema = z.looseObject({
   duration: z.string().optional(),
   until: z.string().optional(),

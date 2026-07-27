@@ -110,6 +110,7 @@ describe('Workflows Validators', () => {
       expect(activityTypeSchema.parse('CALL_WEBHOOK')).toBe('CALL_WEBHOOK')
       expect(activityTypeSchema.parse('EXECUTE_FUNCTION')).toBe('EXECUTE_FUNCTION')
       expect(activityTypeSchema.parse('WAIT')).toBe('WAIT')
+      expect(activityTypeSchema.parse('SET_VARIABLE')).toBe('SET_VARIABLE')
     })
 
     test('should reject invalid activity types', () => {
@@ -123,6 +124,7 @@ describe('Workflows Validators', () => {
         'EMIT_EVENT',
         'EXECUTE_FUNCTION',
         'SEND_EMAIL',
+        'SET_VARIABLE',
         'UPDATE_ENTITY',
         'WAIT',
       ])

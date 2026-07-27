@@ -1,7 +1,7 @@
 /**
  * Workflows Module - Built-in Activity Types
  *
- * Registers the 7 built-in activity types with the Activity Registry (spec
+ * Registers the built-in activity types with the Activity Registry (spec
  * 2026-07-26-workflows-ux-redesign.md section 3.2). Each entry delegates to
  * the existing STABLE executeX handlers in activity-executor.ts — the
  * handlers keep their exported signatures; the registry only adapts them to
@@ -24,8 +24,10 @@ import {
   emitEventConfigSchema,
   executeFunctionConfigSchema,
   sendEmailConfigSchema,
+  setVariableConfigSchema,
   updateEntityConfigSchema,
   waitConfigSchema,
+  type SetVariableConfig,
   type WaitConfig,
 } from '../data/activity-config-schemas'
 
@@ -37,6 +39,7 @@ const BUILTIN_ACTIVITY_TYPE_IDS = [
   'EXECUTE_FUNCTION',
   'WAIT',
   'CALL_API',
+  'SET_VARIABLE',
 ] as const
 
 const i18nKeyFor = (id: string): string => `workflows.activities.types.${id}`
@@ -150,6 +153,19 @@ export function registerBuiltinActivityTypes(): void {
     ],
     execute: async (config, ctx, deps) => (await loadExecutor()).executeCallApi(deps.em, config, ctx, deps.container, deps.signal),
     async: { capable: false, reason: 'mintsPerRequestKey' },
+  })
+
+  registerActivityType<SetVariableConfig>({
+    id: 'SET_VARIABLE',
+    icon: 'Variable',
+    i18nKey: i18nKeyFor('SET_VARIABLE'),
+    configSchema: setVariableConfigSchema,
+    form: [
+      { id: 'assignments', component: 'json', required: true },
+    ],
+    execute: async (config, ctx) => (await loadExecutor()).executeSetVariable(config, ctx),
+    async: { capable: true },
+    mock: (config) => ({ assignments: config.assignments }),
   })
 }
 

@@ -833,6 +833,81 @@ describe('Transition Handler (Unit Tests)', () => {
   })
 
   // ============================================================================
+  // SET_VARIABLE Context Merge Tests
+  // ============================================================================
+
+  describe('executeTransition with SET_VARIABLE activities', () => {
+    const definitionWithSetVariable = (assignments: Array<{ path: string; value: unknown }>) => ({
+      ...mockDefinition,
+      definition: {
+        ...mockDefinition.definition,
+        transitions: [
+          { fromStepId: 'start', toStepId: 'step-1' },
+          {
+            fromStepId: 'step-1',
+            toStepId: 'step-2',
+            activities: [
+              { activityId: 'set-vars', activityType: 'SET_VARIABLE', config: { assignments } },
+            ],
+          },
+          { fromStepId: 'step-2', toStepId: 'end' },
+        ],
+      },
+    })
+
+    const mockSetVariableResult = (assignments: Array<{ path: string; value: unknown }>) => {
+      ;(activityExecutor.executeActivities as jest.Mock).mockResolvedValue([
+        {
+          activityId: 'set-vars',
+          activityType: 'SET_VARIABLE',
+          success: true,
+          output: { assignments },
+          retryCount: 0,
+          executionTimeMs: 1,
+        },
+      ])
+    }
+
+    test('applies assignments at their context paths after the transition executes', async () => {
+      const assignments = [{ path: 'customer.priority', value: 'high' }]
+      mockInstance.context = {
+        initiatedBy: 'user@example.com',
+        customer: { name: 'Ada' },
+      }
+      mockEm.findOne.mockReset()
+      mockEm.findOne.mockResolvedValue(definitionWithSetVariable(assignments))
+      mockEm.create.mockReturnValue({} as any)
+      mockSetVariableResult(assignments)
+
+      const result = await transitionHandler.executeTransition(
+        mockEm, mockContainer, mockInstance, 'step-1', 'step-2', { workflowContext: {} }
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockInstance.context.customer).toEqual({ name: 'Ada', priority: 'high' })
+      expect(mockInstance.context.initiatedBy).toBe('user@example.com')
+      expect(mockInstance.context.SET_VARIABLE).toBeUndefined()
+      expect(mockInstance.context['set-vars']).toBeUndefined()
+    })
+
+    test('creates intermediate objects for paths missing from context', async () => {
+      const assignments = [{ path: 'escalation.owner.team', value: 'support' }]
+      mockInstance.context = { initiatedBy: 'user@example.com' }
+      mockEm.findOne.mockReset()
+      mockEm.findOne.mockResolvedValue(definitionWithSetVariable(assignments))
+      mockEm.create.mockReturnValue({} as any)
+      mockSetVariableResult(assignments)
+
+      const result = await transitionHandler.executeTransition(
+        mockEm, mockContainer, mockInstance, 'step-1', 'step-2', { workflowContext: {} }
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockInstance.context.escalation).toEqual({ owner: { team: 'support' } })
+    })
+  })
+
+  // ============================================================================
   // Business Rules Integration Tests
   // ============================================================================
 

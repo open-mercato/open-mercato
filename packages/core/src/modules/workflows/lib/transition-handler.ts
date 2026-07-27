@@ -23,6 +23,7 @@ import * as activityExecutor from './activity-executor'
 import type { ActivityDefinition } from './activity-executor'
 import * as stepHandler from './step-handler'
 import { findDefinitionForInstance } from './find-definition'
+import { buildSetVariableContextPatch, isSetVariableOutput } from './set-variable'
 import {
   type ExecutionToken,
   rootToken,
@@ -483,11 +484,26 @@ export async function executeTransitionForToken(
         }
       }
 
-      // Collect activity outputs for context update
+      // Collect activity outputs for context update. SET_VARIABLE outputs are
+      // applied at their assignment paths in top-level context (preserving
+      // sibling keys of any nested target); other outputs merge under the
+      // activity name/type key.
       results.forEach(result => {
         if (result.success && result.output) {
-          const key = result.activityName || result.activityType
-          activityOutputs[key] = result.output
+          if (result.activityType === 'SET_VARIABLE' && isSetVariableOutput(result.output)) {
+            const assignmentBase = {
+              ...tokenReadContext(token),
+              ...context.workflowContext,
+              ...activityOutputs,
+            }
+            Object.assign(
+              activityOutputs,
+              buildSetVariableContextPatch(assignmentBase, result.output.assignments)
+            )
+          } else {
+            const key = result.activityName || result.activityType
+            activityOutputs[key] = result.output
+          }
         }
       })
     }

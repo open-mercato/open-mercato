@@ -23,7 +23,12 @@ import {
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
-import { callWebhookConfigSchema } from '../data/activity-config-schemas'
+import { callWebhookConfigSchema, setVariableConfigSchema } from '../data/activity-config-schemas'
+import {
+  buildSetVariableContextPatch,
+  isSetVariableOutput,
+  splitAssignmentPath,
+} from './set-variable'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import './activity-registry-bootstrap'
 import { getActivityType } from './activity-registry'
@@ -102,6 +107,7 @@ export type ActivityType =
   | 'CALL_WEBHOOK'
   | 'EXECUTE_FUNCTION'
   | 'WAIT'
+  | 'SET_VARIABLE'
 
 export interface ActivityDefinition {
   activityId: string // Unique identifier for activity
@@ -464,12 +470,21 @@ export async function executeActivities(
         break
       }
 
-      // Update workflow context with activity output
+      // Update workflow context with activity output. SET_VARIABLE outputs
+      // land at their assignment paths in top-level context; every other
+      // output merges under the activity name/type key.
       if (result.output && typeof result.output === 'object') {
-        const key = activity.activityName || activity.activityType
-        context.workflowContext = {
-          ...context.workflowContext,
-          [key]: result.output,
+        if (activity.activityType === 'SET_VARIABLE' && isSetVariableOutput(result.output)) {
+          context.workflowContext = {
+            ...context.workflowContext,
+            ...buildSetVariableContextPatch(context.workflowContext, result.output.assignments),
+          }
+        } else {
+          const key = activity.activityName || activity.activityType
+          context.workflowContext = {
+            ...context.workflowContext,
+            [key]: result.output,
+          }
         }
       }
     }
@@ -912,6 +927,37 @@ export async function executeWait(config: any): Promise<any> {
   await sleep(durationMs)
 
   return { waited: true, durationMs }
+}
+
+/**
+ * SET_VARIABLE activity handler
+ *
+ * Validates the (already interpolated) assignments and echoes them back as
+ * `{ assignments }`. The sync merge points detect this output shape via
+ * `isSetVariableOutput` and apply each assignment at its dot path in
+ * top-level workflow context (see lib/set-variable.ts) instead of
+ * namespacing the output under the activity name/type key.
+ */
+export async function executeSetVariable(
+  config: any,
+  context: ActivityContext
+): Promise<any> {
+  const parsed = setVariableConfigSchema.safeParse(config)
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((issue) => `${issue.path.join('.') || 'config'}: ${issue.message}`)
+      .join('; ')
+    throw new Error(`SET_VARIABLE config invalid: ${issues}`)
+  }
+
+  const blankPath = parsed.data.assignments.find(
+    (assignment) => splitAssignmentPath(assignment.path).length === 0
+  )
+  if (blankPath) {
+    throw new Error(`SET_VARIABLE assignment path is blank: "${blankPath.path}"`)
+  }
+
+  return { assignments: parsed.data.assignments }
 }
 
 /**

@@ -30,6 +30,7 @@ const EXPECTED_IDS = [
   'EXECUTE_FUNCTION',
   'WAIT',
   'CALL_API',
+  'SET_VARIABLE',
 ]
 
 const requireEntry = (registryModule: ActivityRegistryModule, id: string): ActivityTypeEntry => {
@@ -39,7 +40,7 @@ const requireEntry = (registryModule: ActivityRegistryModule, id: string): Activ
 }
 
 describe('built-in activity types', () => {
-  test('registers all 7 built-in types with i18n keys and icons', () => {
+  test('registers all 8 built-in types with i18n keys and icons', () => {
     const { registryModule } = loadIsolated()
     expect(registryModule.activityTypeIds()).toEqual(EXPECTED_IDS)
     for (const id of EXPECTED_IDS) {
@@ -65,6 +66,16 @@ describe('built-in activity types', () => {
       capable: false,
       reason: 'mintsPerRequestKey',
     })
+  })
+
+  test('SET_VARIABLE registers with the Variable icon and a mock returning the would-be assignments', () => {
+    const { registryModule } = loadIsolated()
+    const entry = requireEntry(registryModule, 'SET_VARIABLE')
+    expect(entry.icon).toBe('Variable')
+    expect(entry.async).toEqual({ capable: true })
+    if (!entry.mock) throw new Error('[internal] SET_VARIABLE entry must declare a mock')
+    const assignments = [{ path: 'customer.priority', value: 'high' }]
+    expect(entry.mock({ assignments }, {} as never)).toEqual({ assignments })
   })
 
   test('WAIT exposes an enqueueDelayMs hint mirroring enqueueActivity semantics', () => {
@@ -123,6 +134,12 @@ describe('built-in activity types', () => {
         valid: { duration: 'PT5M' },
         templated: { duration: '{{context.delay}}' },
         invalid: {},
+      },
+      {
+        id: 'SET_VARIABLE',
+        valid: { assignments: [{ path: 'customer.priority', value: 'high' }] },
+        templated: { assignments: [{ path: 'customer.priority', value: '{{context.priority}}' }] },
+        invalid: { assignments: [] },
       },
       {
         id: 'CALL_API',

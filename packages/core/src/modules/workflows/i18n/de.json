@@ -92,6 +92,7 @@
   "workflows.activities.types.EMIT_EVENT": "Ereignis auslösen",
   "workflows.activities.types.EXECUTE_FUNCTION": "Funktion ausführen",
   "workflows.activities.types.SEND_EMAIL": "E-Mail senden",
+  "workflows.activities.types.SET_VARIABLE": "Variable setzen",
   "workflows.activities.types.UPDATE_ENTITY": "Entität aktualisieren",
   "workflows.activities.types.WAIT": "Warten / Verzögerung",
   "workflows.activities.waitDuration": "Dauer",
