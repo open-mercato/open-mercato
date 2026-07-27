@@ -46,7 +46,7 @@ There are exactly four conditions, all in `packages/core/src/modules/query_index
 | No index rows exist for the entity type | `no_index_rows` | Only evaluated when the query wants custom fields |
 | A coverage gap was detected and `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES` is off | `partial_index` | Additionally requires the entity to have at least one active custom-field definition. See [Partial coverage](#partial-coverage) |
 
-The last two are gated on the query actually wanting custom-field data — `opts.fields` containing a `cf:`/`l10n:` selector, a `cf:`/`l10n:` filter, or an array-form `includeCustomFields`. **A query that asks for no custom fields never falls back for coverage reasons**; it runs the hybrid engine's own SQL, which joins `entity_indexes` onto the base table only where needed.
+The last two are gated on the query actually wanting custom-field data — `opts.fields` containing a `cf:`/`l10n:` selector, a `cf:`/`l10n:` filter, or an array-form `includeCustomFields`. **A query that asks for no custom fields never falls back for coverage reasons**; it still runs the hybrid engine's own SQL. The data query currently left-joins `entity_indexes` even when no custom fields are requested, while the optimized count path can skip that join.
 
 ### 3. The index path
 

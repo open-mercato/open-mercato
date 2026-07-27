@@ -27,7 +27,7 @@ Goal: make querying base entities together with custom fields fast and simple by
   - Six hand-written partial covering indexes for `customers:customer_entity`, `customers:customer_person_profile`, and `customers:customer_company_profile` — one org-scoped and one tenant-scoped variant each:
     - org-scoped: `(entity_id, organization_id, tenant_id) include (doc) where deleted_at is null and entity_type = '<id>' and organization_id is not null and tenant_id is not null`
     - tenant-scoped: `(tenant_id, entity_id) include (doc) where deleted_at is null and entity_type = '<id>' and organization_id is null and tenant_id is not null`
-    
+
     They are not generated. Any other entity type gets only the generic btrees above.
   - There is **no GIN index on `doc`**. Adding one is a tuning decision you make per deployment — see [Performance tips](#performance-tips).
 
