@@ -19,8 +19,11 @@ designing a new module for a capability the app already has:
 - `OMH-188` — editable per-organization value lists (`dictionaries`)
 - `OMH-189` — unattended, revocable partner API access (`api_keys`)
 
-Both are `facts`-owner cases with empty `requiredSkills`, so the assertion stays on routing, observed
-context and decisions rather than on a guessed skill chain.
+Both are `facts`-owner cases. They shipped with empty `requiredSkills` to keep the assertion on routing,
+observed context and decisions rather than a guessed skill chain; the #4556 review (finding 6) showed
+that reasoning did not apply here, because `AGENTS.md` routes a comparative installed-versus-new choice
+through `om-help` explicitly. Both now require that skill and observe the architecture guide, matching
+the OMH-002 precedent — see Phase 4.
 
 ## Non-goals
 
