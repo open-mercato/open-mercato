@@ -758,6 +758,27 @@ export const upsertWorkflowDefinitionDraftInputSchema = z.object({
 export type UpsertWorkflowDefinitionDraftApiInput = z.infer<typeof upsertWorkflowDefinitionDraftInputSchema>
 
 // ============================================================================
+// Test-Step (mock-first dry run) Schemas
+// ============================================================================
+
+/**
+ * Input for POST /definitions/[id]/test-step (spec §3.6). `config` is the raw
+ * (possibly still-templated) activity config exactly as the editor holds it;
+ * `context` is the caller-supplied sample workflow context the server
+ * interpolates against. Both are intentionally shape-only records: per-type
+ * config validation is the registry's concern (warnings, not gates), and a
+ * sample context is arbitrary user data.
+ */
+export const testWorkflowStepInputSchema = z.object({
+  stepId: z.string().min(1).optional(),
+  activityType: z.string().min(1),
+  config: z.record(z.string(), z.unknown()),
+  context: z.record(z.string(), z.unknown()).default({}),
+}).strict()
+
+export type TestWorkflowStepApiInput = z.infer<typeof testWorkflowStepInputSchema>
+
+// ============================================================================
 // WorkflowInstance Schemas
 // ============================================================================
 

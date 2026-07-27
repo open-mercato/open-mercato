@@ -13,6 +13,7 @@ import { openApi as definitionDetailOpenApi } from '../definitions/[id]/route'
 import { openApi as customizeOpenApi } from '../definitions/[id]/customize/route'
 import { openApi as resetToCodeOpenApi } from '../definitions/[id]/reset-to-code/route'
 import { openApi as contextSchemaOpenApi } from '../definitions/[id]/context-schema/route'
+import { openApi as testStepOpenApi } from '../definitions/[id]/test-step/route'
 
 type SchemaNode = {
   type?: string
@@ -20,9 +21,10 @@ type SchemaNode = {
   properties?: Record<string, SchemaNode>
   items?: SchemaNode
   anyOf?: SchemaNode[]
+  oneOf?: SchemaNode[]
   required?: string[]
   additionalProperties?: SchemaNode | boolean
-  enum?: string[]
+  enum?: Array<string | boolean>
 }
 
 type MediaTypeNode = { schema?: SchemaNode; example?: unknown }
@@ -61,6 +63,11 @@ function buildDoc() {
           path: '/workflows/definitions/[id]/context-schema',
           handlers: { GET: noopHandler },
           docs: contextSchemaOpenApi,
+        },
+        {
+          path: '/workflows/definitions/[id]/test-step',
+          handlers: { POST: noopHandler },
+          docs: testStepOpenApi,
         },
       ],
     } as unknown as Module,
@@ -150,6 +157,18 @@ describe('Workflow Definitions OpenAPI response schemas', () => {
     expect(entry?.properties?.type?.enum).toContain('unknown')
     expect(entry?.properties?.presence?.enum).toEqual(['always', 'maybe'])
     expect(entry?.properties?.source?.properties?.kind?.enum).toContain('asyncResult')
+  })
+
+  it('types the test-step POST 200 response as a simulated/refused union', () => {
+    const schema = schemaFor('/workflows/definitions/{id}/test-step', 'post', '200')
+    expect(schema.description).not.toBe('Schema not declared')
+    const branches = schema.oneOf ?? schema.anyOf
+    expect(branches).toBeDefined()
+    const simulatedBranch = branches?.find((branch) => branch.properties?.simulated)
+    expect(simulatedBranch?.properties?.interpolatedConfig?.type).toBe('object')
+    expect(simulatedBranch?.properties?.activityType?.type).toBe('string')
+    const refusedBranch = branches?.find((branch) => branch.properties?.refused)
+    expect(refusedBranch?.properties?.reason?.enum).toEqual(['refused', 'noMock'])
   })
 
   it('types the error responses with the shared error schema', () => {

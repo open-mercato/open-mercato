@@ -483,3 +483,32 @@ export const workflowContextSchemaStepSchema = z.object({
 export const workflowContextSchemaResponseSchema = z.object({
   steps: z.record(z.string(), workflowContextSchemaStepSchema).describe('Per-step incoming context ledger, keyed by stepId'),
 })
+
+// ---------------------------------------------------------------------------
+// Workflow Test-Step (mock-first dry run) Schemas
+// ---------------------------------------------------------------------------
+
+export const workflowTestStepRequestSchema = z.object({
+  stepId: z.string().optional().describe('Editor step the test targets; used as the synthetic currentStepId during interpolation'),
+  activityType: z.string().describe('Registered activity type id (e.g. SEND_EMAIL)'),
+  config: z.record(z.string(), z.unknown()).describe('Raw activity config, possibly containing {{...}} templates'),
+  context: z.record(z.string(), z.unknown()).optional().describe('Caller-supplied sample workflow context interpolated into the config'),
+})
+
+export const workflowTestStepSimulatedResponseSchema = z.object({
+  simulated: z.literal(true),
+  activityType: z.string(),
+  output: z.unknown().describe('The would-do mock output for the activity type'),
+  interpolatedConfig: z.record(z.string(), z.unknown()).describe('Config after variable interpolation, so the UI can show resolved values'),
+})
+
+export const workflowTestStepRefusedResponseSchema = z.object({
+  refused: z.literal(true),
+  reason: z.enum(['refused', 'noMock']).describe('"refused": the type opts out of simulation; "noMock": the type declares no mock'),
+  activityType: z.string(),
+})
+
+export const workflowTestStepResponseSchema = z.union([
+  workflowTestStepSimulatedResponseSchema,
+  workflowTestStepRefusedResponseSchema,
+])
