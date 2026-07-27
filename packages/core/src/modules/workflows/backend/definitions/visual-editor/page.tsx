@@ -221,7 +221,7 @@ async function loadSubWorkflowContracts(
   return contracts
 }
 
-const PALETTE_NODE_TYPES = ['start', 'userTask', 'automated', 'invokeAgent', 'ifElse', 'switch', 'waitForSignal', 'waitForTimer', 'subWorkflow', 'end'] as const
+const PALETTE_NODE_TYPES = ['start', 'userTask', 'automated', 'invokeAgent', 'ifElse', 'switch', 'waitForSignal', 'waitForTimer', 'waitForCondition', 'subWorkflow', 'end'] as const
 
 export default function VisualEditorPage() {
   const t = useT()
@@ -2202,6 +2202,7 @@ function getDefaultLabel(nodeType: string): string {
     decision: 'Decision Point',
     waitForSignal: 'Wait for Signal',
     waitForTimer: 'Wait for Timer',
+    waitForCondition: 'Wait for Condition',
     invokeAgent: 'Invoke Agent',
     ifElse: 'If / Else',
     switch: 'Switch',
@@ -2218,6 +2219,7 @@ function getDefaultBadge(nodeType: string): string {
     decision: 'Decision',
     waitForSignal: 'Wait for Signal',
     waitForTimer: 'Wait for Timer',
+    waitForCondition: 'Wait for Condition',
     invokeAgent: 'Invoke Agent',
     ifElse: 'If / Else',
     switch: 'Switch',

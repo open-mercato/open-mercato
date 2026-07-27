@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { conditionExpressionSchema } from '@open-mercato/core/modules/business_rules/data/validators'
+import { validateConditionExpressionForApi } from '@open-mercato/core/modules/business_rules/lib/payload-validation'
+import { parseDuration } from '../lib/duration'
 import '../lib/activity-registry-bootstrap'
 import { activityTypeIds } from '../lib/activity-registry'
 import {
@@ -307,6 +309,81 @@ export const startPreConditionSchema = z.object({
 
 export type StartPreCondition = z.infer<typeof startPreConditionSchema>
 
+// WAIT_FOR_CONDITION save-time bounds. Mirrors lib/condition-handler.ts, which
+// clamps at runtime; the validator fails closed instead so a definition that
+// would degenerate into a plain timer never saves.
+export const CONDITION_POLL_INTERVAL_MIN_MS = 5000
+export const CONDITION_POLL_INTERVAL_MAX_MS = 3600000
+
+const CONDITION_REQUIRED_ERROR = 'WAIT_FOR_CONDITION step requires a "condition" expression'
+const CONDITION_TIMEOUT_REQUIRED_ERROR = 'WAIT_FOR_CONDITION step requires a "timeout" duration'
+const CONDITION_ON_TIMEOUT_ERROR = 'WAIT_FOR_CONDITION "onTimeout" must be "FAIL" or "CONTINUE"'
+const CONDITION_POLL_INTERVAL_RANGE_ERROR = `WAIT_FOR_CONDITION "pollIntervalMs" must be an integer between ${CONDITION_POLL_INTERVAL_MIN_MS} and ${CONDITION_POLL_INTERVAL_MAX_MS}`
+const CONDITION_POLL_INTERVAL_EXCEEDS_TIMEOUT_ERROR =
+  'WAIT_FOR_CONDITION "pollIntervalMs" must not exceed "timeout" — the first poll would land after the deadline'
+
+/**
+ * Fail-closed save-time validation for a WAIT_FOR_CONDITION step's config.
+ * The predicate is checked with the business_rules API validator rather than a
+ * hand-rolled shape check, so it inherits that module's safety bounds
+ * (nesting depth, rules per group, field-path length, regex linearity).
+ */
+function refineWaitForConditionStep(config: Record<string, unknown>, ctx: z.RefinementCtx): void {
+  const condition = config.condition
+  if (condition == null) {
+    ctx.addIssue({ code: 'custom', path: ['config', 'condition'], message: CONDITION_REQUIRED_ERROR })
+  } else {
+    const conditionResult = validateConditionExpressionForApi(condition)
+    if (!conditionResult.valid) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'condition'],
+        message: conditionResult.error ?? CONDITION_REQUIRED_ERROR,
+      })
+    }
+  }
+
+  const timeout = config.timeout
+  const hasTimeout = typeof timeout === 'string' && timeout.length > 0
+  if (!hasTimeout) {
+    ctx.addIssue({ code: 'custom', path: ['config', 'timeout'], message: CONDITION_TIMEOUT_REQUIRED_ERROR })
+  } else if (!isValidDurationString(timeout)) {
+    ctx.addIssue({ code: 'custom', path: ['config', 'timeout'], message: DURATION_ERROR })
+  }
+
+  if (config.onTimeout != null && config.onTimeout !== 'FAIL' && config.onTimeout !== 'CONTINUE') {
+    ctx.addIssue({ code: 'custom', path: ['config', 'onTimeout'], message: CONDITION_ON_TIMEOUT_ERROR })
+  }
+
+  if (config.pollIntervalMs == null) return
+
+  const pollIntervalMs = config.pollIntervalMs
+  if (
+    typeof pollIntervalMs !== 'number'
+    || !Number.isInteger(pollIntervalMs)
+    || pollIntervalMs < CONDITION_POLL_INTERVAL_MIN_MS
+    || pollIntervalMs > CONDITION_POLL_INTERVAL_MAX_MS
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config', 'pollIntervalMs'],
+      message: CONDITION_POLL_INTERVAL_RANGE_ERROR,
+    })
+    return
+  }
+
+  if (hasTimeout && isValidDurationString(timeout)) {
+    const timeoutMs = parseDuration(timeout)
+    if (pollIntervalMs > timeoutMs) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'pollIntervalMs'],
+        message: CONDITION_POLL_INTERVAL_EXCEEDS_TIMEOUT_ERROR,
+      })
+    }
+  }
+}
+
 // Step definition
 export const workflowStepSchema = z.object({
   stepId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Step ID must contain only lowercase letters, numbers, hyphens, and underscores'),
@@ -330,6 +407,10 @@ export const workflowStepSchema = z.object({
   // and code-authored definitions omit it and auto-arrange on load.
   _editorPosition: z.object({ x: z.number(), y: z.number() }).optional(),
 }).superRefine((step, ctx) => {
+  if (step.stepType === 'WAIT_FOR_CONDITION') {
+    refineWaitForConditionStep(step.config || {}, ctx)
+    return
+  }
   if (step.stepType !== 'WAIT_FOR_TIMER') return
   const config = step.config || {}
   const hasDuration = config.duration != null && config.duration !== ''
@@ -675,6 +756,21 @@ export const workflowDefinitionDataSchema = z.object({
       message: `[${issue.code}] ${issue.message}`,
     })
   }
+
+  // A waiting step with no way out strands the run once its predicate holds,
+  // so the graph-level rule the other waiting step types carry applies here too.
+  definition.steps.forEach((step, index) => {
+    if (step.stepType !== 'WAIT_FOR_CONDITION') return
+    const hasOutgoing = definition.transitions.some(
+      (transition) => transition.fromStepId === step.stepId,
+    )
+    if (hasOutgoing) return
+    ctx.addIssue({
+      code: 'custom',
+      path: ['steps', index],
+      message: `WAIT_FOR_CONDITION step "${step.stepId}" requires at least one outgoing transition`,
+    })
+  })
 })
 
 // Pinned per-step sample envelope (spec §3.6). Samples are stored verbatim

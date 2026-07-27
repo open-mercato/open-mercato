@@ -470,6 +470,160 @@ describe('Workflows Validators', () => {
         ).not.toThrow()
       })
     })
+
+    describe('WAIT_FOR_CONDITION step config', () => {
+      const baseConditionStep = {
+        stepId: 'wait-for-payment',
+        stepName: 'Wait for payment',
+        stepType: 'WAIT_FOR_CONDITION' as const,
+      }
+      const validCondition = {
+        operator: 'AND',
+        rules: [{ field: 'payment.status', operator: '==', value: 'captured' }],
+      }
+
+      function parseConfig(config: Record<string, unknown>) {
+        return workflowStepSchema.safeParse({ ...baseConditionStep, config })
+      }
+
+      test('accepts a valid condition with a timeout', () => {
+        expect(parseConfig({ condition: validCondition, timeout: 'PT30M' }).success).toBe(true)
+      })
+
+      test('accepts the IS_NOT_EMPTY "wait for variable" shorthand', () => {
+        const result = parseConfig({
+          condition: { field: 'invoiceId', operator: 'IS_NOT_EMPTY', value: null },
+          timeout: 'PT30M',
+        })
+        expect(result.success).toBe(true)
+      })
+
+      test('rejects a missing condition', () => {
+        const result = parseConfig({ timeout: 'PT30M' })
+        expect(result.success).toBe(false)
+        expect(JSON.stringify(result)).toContain('condition')
+      })
+
+      test('rejects a malformed condition expression through the business-rules validator', () => {
+        const result = parseConfig({
+          condition: { operator: 'AND', rules: [{ operator: 'NOPE' }] },
+          timeout: 'PT30M',
+        })
+        expect(result.success).toBe(false)
+      })
+
+      test('rejects a missing timeout', () => {
+        const result = parseConfig({ condition: validCondition })
+        expect(result.success).toBe(false)
+        expect(JSON.stringify(result)).toContain('timeout')
+      })
+
+      test('rejects an invalid timeout duration', () => {
+        expect(parseConfig({ condition: validCondition, timeout: '30 minutes' }).success).toBe(false)
+      })
+
+      test('rejects an invalid onTimeout value', () => {
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT30M', onTimeout: 'RETRY' }).success
+        ).toBe(false)
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT30M', onTimeout: 'CONTINUE' }).success
+        ).toBe(true)
+      })
+
+      test('rejects a poll interval below the floor or above the ceiling', () => {
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT30M', pollIntervalMs: 4999 }).success
+        ).toBe(false)
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT2H', pollIntervalMs: 3600001 }).success
+        ).toBe(false)
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT30M', pollIntervalMs: 60000 }).success
+        ).toBe(true)
+      })
+
+      test('rejects a poll interval longer than the timeout', () => {
+        const result = parseConfig({
+          condition: validCondition,
+          timeout: 'PT10S',
+          pollIntervalMs: 60000,
+        })
+        expect(result.success).toBe(false)
+      })
+
+      test('does not affect non-WAIT_FOR_CONDITION steps', () => {
+        expect(
+          workflowStepSchema.safeParse({
+            stepId: 'do-something',
+            stepName: 'Automated',
+            stepType: 'AUTOMATED' as const,
+            config: { condition: 'nonsense' },
+          }).success
+        ).toBe(true)
+      })
+    })
+  })
+
+  describe('WAIT_FOR_CONDITION outgoing-transition rule', () => {
+    const conditionStep = {
+      stepId: 'wait_for_payment',
+      stepName: 'Wait for payment',
+      stepType: 'WAIT_FOR_CONDITION' as const,
+      config: {
+        condition: { field: 'invoiceId', operator: 'IS_NOT_EMPTY', value: null },
+        timeout: 'PT30M',
+      },
+    }
+
+    function buildDefinition(transitions: Array<Record<string, unknown>>) {
+      return {
+        steps: [
+          { stepId: 'start', stepName: 'Start', stepType: 'START' as const },
+          conditionStep,
+          { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+        ],
+        transitions,
+      }
+    }
+
+    test('rejects a waiting step with no way out', () => {
+      const result = workflowDefinitionDataSchema.safeParse(
+        buildDefinition([
+          {
+            transitionId: 'e_start_wait',
+            fromStepId: 'start',
+            toStepId: 'wait_for_payment',
+            trigger: 'auto' as const,
+            priority: 0,
+          },
+        ])
+      )
+      expect(result.success).toBe(false)
+      expect(JSON.stringify(result)).toContain('outgoing transition')
+    })
+
+    test('accepts a waiting step with an outgoing transition', () => {
+      const result = workflowDefinitionDataSchema.safeParse(
+        buildDefinition([
+          {
+            transitionId: 'e_start_wait',
+            fromStepId: 'start',
+            toStepId: 'wait_for_payment',
+            trigger: 'auto' as const,
+            priority: 0,
+          },
+          {
+            transitionId: 'e_wait_end',
+            fromStepId: 'wait_for_payment',
+            toStepId: 'end',
+            trigger: 'auto' as const,
+            priority: 0,
+          },
+        ])
+      )
+      expect(result.success).toBe(true)
+    })
   })
 
   describe('workflowTransitionSchema', () => {

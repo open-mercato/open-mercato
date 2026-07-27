@@ -1,0 +1,60 @@
+'use client'
+
+import { Handle, Position, NodeProps } from '@xyflow/react'
+import { WorkflowNodeCard } from '../WorkflowNodeCard'
+import { toWorkflowStatus } from '../../lib/status-colors'
+
+/**
+ * WaitForConditionNode display data.
+ *
+ * A WAIT_FOR_CONDITION step pauses the workflow — or a single parallel branch —
+ * until a predicate over the run context holds. It always carries a timeout, so
+ * a stuck predicate surfaces as a timed-out step rather than a hung run.
+ */
+export interface WaitForConditionNodeData {
+  label: string
+  description?: string
+  status?: 'pending' | 'running' | 'completed' | 'error' | 'not_started' | 'in_progress'
+  stepNumber?: number
+  badge?: string
+  tooltip?: string
+  executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  errorCount?: number
+}
+
+export function WaitForConditionNode({ id, data, isConnectable, selected }: NodeProps) {
+  const nodeData = data as unknown as WaitForConditionNodeData
+
+  return (
+    <div className="wait-for-condition-node" title={nodeData.tooltip}>
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="target"
+        isConnectable={isConnectable}
+        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
+      />
+
+      <WorkflowNodeCard
+        title={nodeData.label}
+        description={nodeData.description}
+        status={toWorkflowStatus(nodeData.status)}
+        nodeType="waitForCondition"
+        selected={selected}
+        hasError={nodeData.hasError}
+        errorCount={nodeData.errorCount}
+        nodeId={id}
+        editable={isConnectable}
+      />
+
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="source"
+        isConnectable={isConnectable}
+        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
+      />
+    </div>
+  )
+}

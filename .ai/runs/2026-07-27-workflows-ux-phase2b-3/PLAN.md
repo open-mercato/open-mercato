@@ -31,7 +31,7 @@
 | 2 | 2.2 | If/Else + Switch editor (nodes, inspectors, otherwise warnings) | done | e9686c8b5 |
 | 2 | 2.3 | WAIT_FOR_CONDITION engine core (condition-handler, queue backstop, DI) | done | f33055221 |
 | 2 | 2.4 | WAIT_FOR_CONDITION wake API (scoped context PATCH + ACL + lock) | done | a602631f8 |
-| 2 | 2.5 | WAIT_FOR_CONDITION visual editor (node, config, fail-closed validators) | todo | — |
+| 2 | 2.5 | WAIT_FOR_CONDITION visual editor (node, config, fail-closed validators) | done | dc1732f2a |
 | 2 | 2.6 | Error routes model + engine (kind:'error' transitions, directives, ERROR_ROUTED) | todo | — |
 | 2 | 2.7 | Workflow-level error handler (engine construct) + failure-queue park | todo | — |
 | 2 | 2.8 | Error-route canvas rendering + directive UI | todo | — |

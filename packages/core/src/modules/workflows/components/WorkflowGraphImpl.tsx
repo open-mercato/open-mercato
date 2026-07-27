@@ -24,7 +24,7 @@ import {
   MarkerType,
   type ReactFlowInstance,
 } from '@xyflow/react'
-import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode, IfElseNode, SwitchNode} from './nodes'
+import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, WaitForConditionNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode, IfElseNode, SwitchNode} from './nodes'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
 import { WorkflowDataMappingEdge } from './WorkflowDataMappingEdge'
 import { STATUS_COLORS, toWorkflowStatus } from '../lib/status-colors'
@@ -228,6 +228,7 @@ export default function WorkflowGraphImpl({
       subWorkflow: SubWorkflowNode,
       waitForSignal: WaitForSignalNode,
       waitForTimer: WaitForTimerNode,
+      waitForCondition: WaitForConditionNode,
       parallelFork: ParallelForkNode,
       parallelJoin: ParallelJoinNode,
       invokeAgent: InvokeAgentNode,

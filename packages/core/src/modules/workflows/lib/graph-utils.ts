@@ -579,6 +579,7 @@ function mapNodeTypeToStepType(nodeType: string): string {
     decision: 'DECISION',
     waitForSignal: 'WAIT_FOR_SIGNAL',
     waitForTimer: 'WAIT_FOR_TIMER',
+    waitForCondition: 'WAIT_FOR_CONDITION',
     parallelFork: 'PARALLEL_FORK',
     parallelJoin: 'PARALLEL_JOIN',
     // The invoke-agent node is a specialization of an AUTOMATED step.
@@ -602,6 +603,7 @@ function mapStepTypeToNodeType(stepType: string): string {
     DECISION: 'decision',
     WAIT_FOR_SIGNAL: 'waitForSignal',
     WAIT_FOR_TIMER: 'waitForTimer',
+    WAIT_FOR_CONDITION: 'waitForCondition',
     PARALLEL_FORK: 'parallelFork',
     PARALLEL_JOIN: 'parallelJoin',
     IF_ELSE: 'ifElse',
@@ -623,6 +625,7 @@ function getBadgeForNodeType(nodeType: string): string {
     subWorkflow: 'Sub-Workflow',
     waitForSignal: 'Wait for Signal',
     waitForTimer: 'Wait for Timer',
+    waitForCondition: 'Wait for Condition',
     parallelFork: 'Parallel Fork',
     parallelJoin: 'Parallel Join',
     invokeAgent: 'Invoke Agent',

@@ -21,6 +21,8 @@ import { RolesMultiSelect } from './fields/RolesMultiSelect'
 import { StartPreConditionsEditor } from './fields/StartPreConditionsEditor'
 import { AgentInvokeConfigField } from './fields/AgentInvokeConfigField'
 import { IfElseRoutesField, SwitchRoutesField } from './fields/BranchingRoutesEditor'
+import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
+import type { GroupCondition } from '@open-mercato/core/modules/business_rules/components/utils/conditionValidation'
 import { InputDataPanel } from './InputDataPanel'
 import { nodeToFormValues, formValuesToNodeUpdates, isJsonSchemaFormat, type NodeFormValues } from '../lib/nodeFormTransforms'
 import { sanitizeId } from '../lib/graph-utils'
@@ -111,6 +113,7 @@ export interface NodeEditDialogCrudFormProps {
  * - subWorkflow: Workflow selector + input/output mappings
  * - waitForSignal: Signal name + timeout
  * - waitForTimer: Duration XOR wait-until timer configuration
+ * - waitForCondition: ConditionBuilder predicate + mandatory timeout policy
  * - decision: Basic fields only
  */
 export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries, definitionId, samples, onPinSample, onUnpinSample, branchingRoutes, onSaveBranchingRoutes }: NodeEditDialogCrudFormProps) {
@@ -339,6 +342,39 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       ]
     }
 
+    // WaitForCondition specific groups
+    if (node.type === 'waitForCondition') {
+      return [
+        {
+          id: 'basic',
+          title: t('workflows.form.groups.basic'),
+          column: 1,
+          fields: ['stepName', 'description'],
+        },
+        {
+          id: 'waitCondition',
+          title: t('workflows.nodeEditor.groups.waitCondition', 'Wait Condition'),
+          column: 1,
+          description: t(
+            'workflows.nodeEditor.groups.waitConditionDescription',
+            'The workflow pauses here until this condition over the run context becomes true. It is re-checked whenever the context is written and on a periodic poll.',
+          ),
+          fields: ['waitCondition'],
+        },
+        {
+          id: 'waitConditionTimeout',
+          title: t('workflows.nodeEditor.groups.waitConditionTimeout', 'Timeout Policy'),
+          column: 1,
+          description: t(
+            'workflows.nodeEditor.groups.waitConditionTimeoutDescription',
+            'A timeout is required so a condition that never becomes true cannot hang the run forever.',
+          ),
+          fields: ['waitConditionTimeout', 'waitConditionOnTimeout', 'waitConditionPollIntervalMs'],
+        },
+        advancedGroup,
+      ]
+    }
+
     // InvokeAgent specific groups
     if (node.type === 'invokeAgent') {
       return [
@@ -548,6 +584,50 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       type: 'datetime',
       minDate: new Date(),
       description: t('workflows.nodeEditor.timerUntilDescription'),
+    },
+
+    // WaitForCondition fields
+    {
+      id: 'waitCondition',
+      label: '',
+      type: 'custom',
+      component: (props) => (
+        <ConditionBuilder
+          value={(props.value as GroupCondition | null) ?? null}
+          onChangeAction={(next: GroupCondition) => props.setValue(next)}
+          entityType="workflow:wait_condition"
+        />
+      ),
+    },
+    {
+      id: 'waitConditionTimeout',
+      label: t('workflows.form.waitCondition.timeout', 'Timeout'),
+      type: 'custom',
+      description: t('workflows.form.descriptions.waitConditionTimeout', 'How long to wait before the timeout policy applies. Required.'),
+      component: (props) => <DurationCrudField {...props} />,
+    },
+    {
+      id: 'waitConditionOnTimeout',
+      label: t('workflows.form.waitCondition.onTimeout', 'On timeout'),
+      type: 'select',
+      options: [
+        { value: 'FAIL', label: t('workflows.form.waitCondition.onTimeoutFail', 'Fail the step') },
+        { value: 'CONTINUE', label: t('workflows.form.waitCondition.onTimeoutContinue', 'Continue with timedOut') },
+      ],
+      description: t(
+        'workflows.form.descriptions.waitConditionOnTimeout',
+        'Fail the step, or continue with "timedOut" set so an outgoing route can branch on it.',
+      ),
+    },
+    {
+      id: 'waitConditionPollIntervalMs',
+      label: t('workflows.form.waitCondition.pollIntervalMs', 'Poll interval (ms)'),
+      type: 'number',
+      placeholder: '30000',
+      description: t(
+        'workflows.form.descriptions.waitConditionPollIntervalMs',
+        'Optional backstop poll interval between 5000 and 3600000 ms, and never longer than the timeout. Defaults to 30000.',
+      ),
     },
 
     // InvokeAgent configuration

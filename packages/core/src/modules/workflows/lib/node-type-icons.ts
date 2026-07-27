@@ -1,6 +1,6 @@
-import { CircleDot, CircleStop, User, Zap, Workflow, Clock, Timer, Split, Merge, Bot, GitBranch, ListTree, LucideIcon } from 'lucide-react'
+import { CircleDot, CircleStop, User, Zap, Workflow, Clock, Timer, Split, Merge, Bot, GitBranch, ListTree, Filter, LucideIcon } from 'lucide-react'
 
-export type NodeType = 'start' | 'end' | 'userTask' | 'automated' | 'subWorkflow' | 'waitForSignal' | 'waitForTimer' | 'parallelFork' | 'parallelJoin' | 'invokeAgent' | 'ifElse' | 'switch'
+export type NodeType = 'start' | 'end' | 'userTask' | 'automated' | 'subWorkflow' | 'waitForSignal' | 'waitForTimer' | 'waitForCondition' | 'parallelFork' | 'parallelJoin' | 'invokeAgent' | 'ifElse' | 'switch'
 
 export const NODE_TYPE_ICONS: Record<NodeType, LucideIcon> = {
   start: CircleDot,
@@ -10,6 +10,7 @@ export const NODE_TYPE_ICONS: Record<NodeType, LucideIcon> = {
   subWorkflow: Workflow,
   waitForSignal: Clock,
   waitForTimer: Timer,
+  waitForCondition: Filter,
   parallelFork: Split,
   parallelJoin: Merge,
   invokeAgent: Bot,
@@ -28,6 +29,8 @@ export const NODE_TYPE_COLORS: Record<NodeType, string> = {
   subWorkflow: 'text-purple-500',
   waitForSignal: 'text-purple-500',
   waitForTimer: 'text-cyan-500',
+  // Predicate wait is a routing/guard construct, not a status indicator.
+  waitForCondition: 'text-primary',
   // New nodes use a semantic token (DS rule: no hardcoded color shades).
   parallelFork: 'text-primary',
   parallelJoin: 'text-primary',
@@ -47,6 +50,7 @@ export const NODE_TYPE_LABELS: Record<NodeType, { title: string; description: st
   subWorkflow: { title: 'SUB-WORKFLOW', description: 'Invoke workflow' },
   waitForSignal: { title: 'WAIT FOR SIGNAL', description: 'Pause for external event' },
   waitForTimer: { title: 'WAIT FOR TIMER', description: 'Pause for a duration' },
+  waitForCondition: { title: 'WAIT FOR CONDITION', description: 'Pause until a condition holds' },
   parallelFork: { title: 'PARALLEL FORK', description: 'Split into parallel branches' },
   parallelJoin: { title: 'PARALLEL JOIN', description: 'Wait for all branches' },
   invokeAgent: { title: 'INVOKE AGENT', description: 'Run an AI agent' },
@@ -62,6 +66,7 @@ const STEP_TYPE_TO_NODE_TYPE: Record<string, NodeType> = {
   SUB_WORKFLOW: 'subWorkflow',
   WAIT_FOR_SIGNAL: 'waitForSignal',
   WAIT_FOR_TIMER: 'waitForTimer',
+  WAIT_FOR_CONDITION: 'waitForCondition',
   PARALLEL_FORK: 'parallelFork',
   PARALLEL_JOIN: 'parallelJoin',
   // The Invoke-Agent node compiles to an AUTOMATED step carrying a single

@@ -127,6 +127,13 @@ export interface NodeFormValues {
   timerDuration?: string
   timerUntil?: string
 
+  // WaitForCondition fields. The predicate is a business_rules
+  // ConditionExpression, edited with the shared ConditionBuilder.
+  waitCondition?: unknown
+  waitConditionTimeout?: string
+  waitConditionOnTimeout?: string
+  waitConditionPollIntervalMs?: string | number
+
   // Start node pre-conditions
   preConditions?: StartPreCondition[]
 
@@ -304,6 +311,16 @@ export function nodeToFormValues(node: Node): NodeFormValues {
   if (node.type === 'waitForTimer') {
     values.timerDuration = nodeData?.config?.duration || ''
     values.timerUntil = nodeData?.config?.until || ''
+  }
+
+  // WaitForCondition fields
+  if (node.type === 'waitForCondition') {
+    const config = nodeData?.config || {}
+    values.waitCondition = config.condition ?? null
+    values.waitConditionTimeout = config.timeout || ''
+    values.waitConditionOnTimeout = config.onTimeout === 'CONTINUE' ? 'CONTINUE' : 'FAIL'
+    values.waitConditionPollIntervalMs =
+      typeof config.pollIntervalMs === 'number' ? String(config.pollIntervalMs) : ''
   }
 
   // Start node pre-conditions
@@ -484,6 +501,42 @@ export function formValuesToNodeUpdates(
     }
 
     updates.config = duration ? { duration } : { until }
+  }
+
+  // WaitForCondition specific fields. Fail closed at author time on the two
+  // mandatory pieces; the full rule set (expression safety, poll bounds,
+  // outgoing transition) is enforced by the definition schema on save.
+  if (node.type === 'waitForCondition') {
+    const condition = values.waitCondition
+    if (!isPlainRecord(condition)) {
+      throw new Error('workflows.validation.conditionRequired')
+    }
+
+    const timeout = typeof values.waitConditionTimeout === 'string' ? values.waitConditionTimeout.trim() : ''
+    if (!timeout) {
+      throw new Error('workflows.validation.conditionTimeoutRequired')
+    }
+    if (!isValidDurationString(timeout)) {
+      throw new Error('workflows.validation.invalidDuration')
+    }
+
+    const config: Record<string, unknown> = {
+      condition,
+      timeout,
+      onTimeout: values.waitConditionOnTimeout === 'CONTINUE' ? 'CONTINUE' : 'FAIL',
+    }
+
+    const rawPollInterval = values.waitConditionPollIntervalMs
+    const pollIntervalText = typeof rawPollInterval === 'number' ? String(rawPollInterval) : (rawPollInterval ?? '').trim()
+    if (pollIntervalText) {
+      const pollIntervalMs = Number(pollIntervalText)
+      if (!Number.isInteger(pollIntervalMs)) {
+        throw new Error('workflows.validation.conditionPollIntervalInvalid')
+      }
+      config.pollIntervalMs = pollIntervalMs
+    }
+
+    updates.config = config
   }
 
   // Start node pre-conditions
