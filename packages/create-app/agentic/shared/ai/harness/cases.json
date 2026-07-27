@@ -1088,6 +1088,7 @@
       ]
     },
     "requiredDecisions": [
+      "page-route-convention",
       "crudform-datatable",
       "stable-host-id",
       "conflict-surfacing"

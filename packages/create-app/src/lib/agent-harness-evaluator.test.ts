@@ -25,6 +25,9 @@ type HarnessCase = {
   owner: { ruleIds: string[] }
   context: { required: string[]; allowedExtra?: string[] }
   validators: string[]
+  requiredDecisions?: string[]
+  allowedWrites?: string[]
+  oracle?: { expectedArtifacts?: string[] }
   fixture?: unknown
   timeoutMs?: number
 }
@@ -302,6 +305,30 @@ test('the catalog count and release coverage are derived from the validator regi
     assert.ok(context, `${id} must exist`)
     assert.ok(![...context.required, ...(context.allowedExtra ?? [])].includes(compatibilityPath), `${id} must exclude compatibility context`)
   }
+})
+
+test('backend page cases pin module-owned auto-discovered placement, never the app route group', () => {
+  const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
+  const backendPages = cases.find((entry) => entry.id === 'OMH-014')
+  assert.ok(backendPages, 'OMH-014 must exist')
+  assert.ok(
+    backendPages.requiredDecisions?.includes('page-route-convention'),
+    'OMH-014 must force the page-route-convention decision so backend pages land in the module',
+  )
+  const writeRoots = backendPages.allowedWrites ?? []
+  assert.ok(writeRoots.length > 0, 'OMH-014 must constrain writable paths')
+  assert.ok(
+    writeRoots.every((glob) => !glob.startsWith('src/app/')),
+    'OMH-014 must never allow authoring pages under the src/app route group',
+  )
+  assert.ok(
+    (backendPages.oracle?.expectedArtifacts ?? []).some((glob) => glob.startsWith('src/modules/library/backend/')),
+    'OMH-014 oracle must require pages under the module backend directory',
+  )
+
+  const guide = fs.readFileSync(path.join(guidesRoot, 'backend-ui.md'), 'utf8')
+  assert.match(guide, /src\/modules\/<id>\/backend\/\*\*\/page\.tsx/, 'backend-ui guide must show module-relative backend page paths')
+  assert.match(guide, /Never place a `page\.tsx`/, 'backend-ui guide must forbid app-route-group page placement')
 })
 
 test('runner selection distinguishes explicit primary all-cases from the default portability sample', async () => {

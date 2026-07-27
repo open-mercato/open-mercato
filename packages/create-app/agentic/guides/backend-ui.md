@@ -8,13 +8,15 @@ Use shared backend/page primitives and keep UI behavior aligned with API scope, 
 
 ## Page Selection
 
+Every app page is module-owned and auto-discovered: author it under `src/modules/<id>/{backend,frontend}/**/page.tsx` and run `yarn generate` so it registers into the route registry served by the app's `(backend)`/`(frontend)` catch-all. Never place a `page.tsx`/`page.meta.ts` directly under `src/app/(backend)/**` or `src/app/(frontend)/**` — a page added to the Next.js route group instead of the module renders unregistered, skipping nav injection, ACL feature-gating, and breadcrumbs. The paths below are all relative to the owning `src/modules/<id>/`.
+
 | Page | Location and rules |
 |---|---|
-| Backend list/detail/create/edit | `backend/**/page.tsx` plus sibling `page.meta.ts`; require staff auth/features. |
+| Backend list/detail/create/edit | `src/modules/<id>/backend/**/page.tsx` plus sibling `page.meta.ts`; require staff auth/features. |
 | Settings | Backend metadata with `pageContext: 'settings' as const` and `navHidden: true`. |
 | Profile | Backend metadata with `pageContext: 'profile' as const`. |
-| Public frontend | `frontend/**/page.tsx`; explicitly declare auth posture in metadata. |
-| Customer portal | `frontend/[orgSlug]/portal/**/page.tsx`; public login/signup/verify/landing pages are `navHidden` without customer auth, authenticated pages require customer auth/features, and only sidebar destinations add `nav`. |
+| Public frontend | `src/modules/<id>/frontend/**/page.tsx`; explicitly declare auth posture in metadata. |
+| Customer portal | `src/modules/<id>/frontend/[orgSlug]/portal/**/page.tsx`; public login/signup/verify/landing pages are `navHidden` without customer auth, authenticated pages require customer auth/features, and only sidebar destinations add `nav`. |
 
 List destinations need stable `pageGroup`, `pageGroupKey`, and order. Prefer a registered string icon name in `page.meta.ts` so generated metadata stays serializable; use `lucide-react` components in page-body UI. Hide create/edit/detail destinations from navigation when they are reached from a list.
 
