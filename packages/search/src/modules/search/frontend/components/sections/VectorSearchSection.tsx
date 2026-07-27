@@ -570,7 +570,7 @@ export function VectorSearchSection({
                             ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
                             : isConfigured
                               ? 'border-border hover:border-primary/50 hover:bg-muted/50'
-                              : 'border-border bg-muted/30 opacity-50'
+                              : 'cursor-not-allowed border-border bg-muted/30 opacity-50'
                         }`}
                       >
                         <Button
@@ -579,9 +579,9 @@ export function VectorSearchSection({
                           onClick={() => handleProviderChange(providerId)}
                           disabled={!isConfigured || embeddingLoading || embeddingSaving}
                           aria-pressed={isSelected}
-                          aria-expanded={isSelected && isConfigured}
+                          aria-expanded={isConfigured ? isSelected : undefined}
                           aria-controls={isSelected && isConfigured ? `provider-${providerId}-configuration` : undefined}
-                          className="h-auto w-full justify-start whitespace-normal rounded-lg p-3 text-left hover:bg-transparent disabled:bg-transparent disabled:text-inherit dark:hover:bg-transparent"
+                          className="h-auto w-full justify-start whitespace-normal rounded-lg p-3 text-left"
                         >
                           <div className="flex w-full items-start justify-between gap-2">
                             <div className="min-w-0 flex-1">
@@ -617,7 +617,7 @@ export function VectorSearchSection({
                                   : 'bg-muted text-muted-foreground'
                             }`}>
                               {isConfigured ? (
-                                <Check className="size-3" strokeWidth={isSelected ? 3 : 2} aria-hidden="true" />
+                                <Check className="size-3" aria-hidden="true" />
                               ) : (
                                 <Plus className="size-3" aria-hidden="true" />
                               )}
@@ -661,23 +661,35 @@ export function VectorSearchSection({
 
                             {isCustomModel && (
                               <div className="space-y-2 rounded border border-input bg-muted/30 p-2">
-                                <Input
-                                  type="text"
-                                  size="sm"
-                                  value={customModelName}
-                                  onChange={(e) => setCustomModelName(e.target.value)}
-                                  placeholder={t('search.settings.model.namePlaceholder', 'Model name')}
-                                  disabled={embeddingLoading || embeddingSaving}
-                                />
-                                <Input
-                                  type="number"
-                                  size="sm"
-                                  value={customDimension}
-                                  onChange={(e) => setCustomDimension(Number(e.target.value) || 768)}
-                                  placeholder="768"
-                                  min={1}
-                                  disabled={embeddingLoading || embeddingSaving}
-                                />
+                                <div className="space-y-1">
+                                  <Label htmlFor={`custom-model-name-${providerId}`} className="text-xs font-medium">
+                                    {t('search.settings.model.namePlaceholder', 'Model name')}
+                                  </Label>
+                                  <Input
+                                    id={`custom-model-name-${providerId}`}
+                                    type="text"
+                                    size="sm"
+                                    value={customModelName}
+                                    onChange={(e) => setCustomModelName(e.target.value)}
+                                    placeholder={t('search.settings.model.namePlaceholder', 'Model name')}
+                                    disabled={embeddingLoading || embeddingSaving}
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label htmlFor={`custom-model-dimension-${providerId}`} className="text-xs font-medium">
+                                    {t('search.settings.dimension.label', 'Dimensions')}
+                                  </Label>
+                                  <Input
+                                    id={`custom-model-dimension-${providerId}`}
+                                    type="number"
+                                    size="sm"
+                                    value={customDimension}
+                                    onChange={(e) => setCustomDimension(Number(e.target.value) || 768)}
+                                    placeholder="768"
+                                    min={1}
+                                    disabled={embeddingLoading || embeddingSaving}
+                                  />
+                                </div>
                               </div>
                             )}
 

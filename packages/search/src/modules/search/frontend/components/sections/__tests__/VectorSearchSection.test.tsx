@@ -48,11 +48,13 @@ const vectorStoreConfig: NonNullable<VectorSearchSectionProps['vectorStoreConfig
   ],
 }
 
-function renderSection() {
+function renderSection(
+  settings: NonNullable<VectorSearchSectionProps['embeddingSettings']> = embeddingSettings,
+) {
   return render(
     <I18nProvider locale="en" dict={{}}>
       <VectorSearchSection
-        embeddingSettings={embeddingSettings}
+        embeddingSettings={settings}
         embeddingLoading={false}
         vectorStoreConfig={vectorStoreConfig}
         vectorStoreConfigLoading={false}
@@ -88,5 +90,26 @@ describe('VectorSearchSection provider controls', () => {
     expect(configuration?.contains(cancelButton)).toBe(true)
     expect(providerButton.contains(configuration)).toBe(false)
     expect(container.querySelector('button button')).toBeNull()
+  })
+
+  it('does not expose disclosure metadata for unavailable providers', () => {
+    const unavailableSettings = {
+      ...embeddingSettings,
+      configuredProviders: ['openai'],
+      providerAvailability: [
+        { providerId: 'openai', available: true },
+        { providerId: 'ollama', available: false, reason: 'Unavailable' },
+      ],
+    }
+
+    renderSection(unavailableSettings)
+
+    const providerButton = screen.getByRole('button', { name: /Ollama \(Local\)/ })
+
+    expect(providerButton).toHaveProperty('disabled', true)
+    expect(providerButton.getAttribute('aria-expanded')).toBeNull()
+    expect(providerButton.getAttribute('aria-controls')).toBeNull()
+    expect(providerButton.parentElement?.classList.contains('cursor-not-allowed')).toBe(true)
+    expect(document.getElementById('provider-ollama-configuration')).toBeNull()
   })
 })
