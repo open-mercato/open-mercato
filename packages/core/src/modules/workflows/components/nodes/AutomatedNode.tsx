@@ -29,6 +29,8 @@ export interface AutomatedNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  errorCount?: number
 }
 
 /**
@@ -57,6 +59,8 @@ export function AutomatedNode({ id, data, isConnectable, selected }: NodeProps) 
         status={workflowStatus}
         nodeType="automated"
         selected={selected}
+        hasError={nodeData.hasError}
+        errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
       />

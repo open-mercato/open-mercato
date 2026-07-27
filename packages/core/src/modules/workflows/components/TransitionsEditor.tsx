@@ -11,9 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ConfigJsonTextarea } from './ConfigJsonTextarea'
 
 interface Activity {
   activityId: string
@@ -23,8 +23,9 @@ interface Activity {
   async?: boolean
   retryPolicy?: {
     maxAttempts?: number
-    retryDelay?: number
-    backoffMultiplier?: number
+    initialIntervalMs?: number
+    backoffCoefficient?: number
+    maxIntervalMs?: number
   }
   timeout?: number
   compensation?: Record<string, any>
@@ -45,8 +46,18 @@ interface Transition {
 interface TransitionsEditorProps {
   value: Transition[]
   onChange: (transitions: Transition[]) => void
+  onInvalidActivityConfigsChange?: (activityLabels: string[]) => void
   steps?: any[]
   error?: string
+}
+
+function resolveActivityLabel(activity: { activityName?: string; activityId?: string } | undefined, index: number): string {
+  return activity?.activityName || activity?.activityId || String(index + 1)
+}
+
+function parseActivityConfigKey(key: string): { transitionIndex: number; activityIndex: number } {
+  const [transitionIndex, activityIndex] = key.split(':').map((part) => Number.parseInt(part, 10))
+  return { transitionIndex, activityIndex }
 }
 
 const TRIGGER_TYPES = [
@@ -66,8 +77,47 @@ const ACTIVITY_TYPES = [
   { value: 'WAIT', label: 'Wait' },
 ]
 
-export function TransitionsEditor({ value = [], onChange, steps = [], error }: TransitionsEditorProps) {
+export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfigsChange, steps = [], error }: TransitionsEditorProps) {
   const t = useT()
+  const [invalidConfigKeys, setInvalidConfigKeys] = React.useState<ReadonlySet<string>>(() => new Set())
+  const lastReportedLabelsRef = React.useRef<string>('')
+
+  const handleConfigValidityChange = React.useCallback((transitionIndex: number, activityIndex: number, valid: boolean) => {
+    const key = `${transitionIndex}:${activityIndex}`
+    setInvalidConfigKeys((prev) => {
+      if (prev.has(key) === !valid) return prev
+      const next = new Set(prev)
+      if (valid) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
+  React.useEffect(() => {
+    setInvalidConfigKeys((prev) => {
+      const next = new Set(
+        [...prev].filter((key) => {
+          const { transitionIndex, activityIndex } = parseActivityConfigKey(key)
+          return Boolean(value[transitionIndex]?.activities?.[activityIndex])
+        }),
+      )
+      return next.size === prev.size ? prev : next
+    })
+  }, [value])
+
+  React.useEffect(() => {
+    if (!onInvalidActivityConfigsChange) return
+    const labels = [...invalidConfigKeys]
+      .map(parseActivityConfigKey)
+      .sort((left, right) => left.transitionIndex - right.transitionIndex || left.activityIndex - right.activityIndex)
+      .map(({ transitionIndex, activityIndex }) =>
+        resolveActivityLabel(value[transitionIndex]?.activities?.[activityIndex], activityIndex),
+      )
+    const serializedLabels = JSON.stringify(labels)
+    if (serializedLabels === lastReportedLabelsRef.current) return
+    lastReportedLabelsRef.current = serializedLabels
+    onInvalidActivityConfigsChange(labels)
+  }, [invalidConfigKeys, value, onInvalidActivityConfigsChange])
 
   const addTransition = () => {
     const newTransition: Transition = {
@@ -114,8 +164,9 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
       async: false,
       retryPolicy: {
         maxAttempts: 3,
-        retryDelay: 1000,
-        backoffMultiplier: 2,
+        initialIntervalMs: 1000,
+        backoffCoefficient: 2,
+        maxIntervalMs: 10000,
       },
     }
     const updated = [...value]
@@ -483,7 +534,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           <div>
                             <Label htmlFor={`activity-${index}-${activityIndex}-retry-attempts`} className="text-xs">
                               {t('workflows.form.maxRetryAttempts')}
@@ -491,33 +542,51 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                             <Input
                               id={`activity-${index}-${activityIndex}-retry-attempts`}
                               type="number"
+                              min="1"
+                              max="10"
                               value={activity.retryPolicy?.maxAttempts || 3}
                               onChange={(e) => updateRetryPolicy(index, activityIndex, 'maxAttempts', parseInt(e.target.value))}
                               className="mt-1 text-xs h-8"
                             />
                           </div>
                           <div>
-                            <Label htmlFor={`activity-${index}-${activityIndex}-retry-delay`} className="text-xs">
-                              {t('workflows.form.retryDelay')} (ms)
+                            <Label htmlFor={`activity-${index}-${activityIndex}-initial-interval`} className="text-xs">
+                              {t('workflows.fieldEditors.activities.initialInterval')}
                             </Label>
                             <Input
-                              id={`activity-${index}-${activityIndex}-retry-delay`}
+                              id={`activity-${index}-${activityIndex}-initial-interval`}
                               type="number"
-                              value={activity.retryPolicy?.retryDelay || 1000}
-                              onChange={(e) => updateRetryPolicy(index, activityIndex, 'retryDelay', parseInt(e.target.value))}
+                              min="0"
+                              value={activity.retryPolicy?.initialIntervalMs || 1000}
+                              onChange={(e) => updateRetryPolicy(index, activityIndex, 'initialIntervalMs', parseInt(e.target.value))}
                               className="mt-1 text-xs h-8"
                             />
                           </div>
                           <div>
                             <Label htmlFor={`activity-${index}-${activityIndex}-backoff`} className="text-xs">
-                              {t('workflows.form.backoffMultiplier')}
+                              {t('workflows.fieldEditors.activities.backoffCoefficient')}
                             </Label>
                             <Input
                               id={`activity-${index}-${activityIndex}-backoff`}
                               type="number"
                               step="0.1"
-                              value={activity.retryPolicy?.backoffMultiplier || 2}
-                              onChange={(e) => updateRetryPolicy(index, activityIndex, 'backoffMultiplier', parseFloat(e.target.value))}
+                              min="1"
+                              max="10"
+                              value={activity.retryPolicy?.backoffCoefficient || 2}
+                              onChange={(e) => updateRetryPolicy(index, activityIndex, 'backoffCoefficient', parseFloat(e.target.value))}
+                              className="mt-1 text-xs h-8"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor={`activity-${index}-${activityIndex}-max-interval`} className="text-xs">
+                              {t('workflows.fieldEditors.activities.maxInterval')}
+                            </Label>
+                            <Input
+                              id={`activity-${index}-${activityIndex}-max-interval`}
+                              type="number"
+                              min="0"
+                              value={activity.retryPolicy?.maxIntervalMs || 10000}
+                              onChange={(e) => updateRetryPolicy(index, activityIndex, 'maxIntervalMs', parseInt(e.target.value))}
                               className="mt-1 text-xs h-8"
                             />
                           </div>
@@ -527,18 +596,11 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                           <Label htmlFor={`activity-${index}-${activityIndex}-config`} className="text-xs">
                             {t('workflows.activities.config')} (JSON)
                           </Label>
-                          <Textarea
+                          <ConfigJsonTextarea
                             id={`activity-${index}-${activityIndex}-config`}
-                            value={JSON.stringify(activity.config || {}, null, 2)}
-                            onChange={(e) => {
-                              try {
-                                const parsed = JSON.parse(e.target.value)
-                                updateActivity(index, activityIndex, 'config', parsed)
-                              } catch {
-                                // Invalid JSON, don't update
-                              }
-                            }}
-                            placeholder='{"key": "value"}'
+                            value={activity.config}
+                            onChange={(config) => updateActivity(index, activityIndex, 'config', config)}
+                            onValidityChange={(valid) => handleConfigValidityChange(index, activityIndex, valid)}
                             rows={2}
                             className="mt-1 font-mono text-xs"
                           />

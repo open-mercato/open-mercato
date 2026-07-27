@@ -11,6 +11,14 @@ export const setup: ModuleSetupConfig = {
 
   defaultRoleFeatures: {
     admin: ['workflows.*'],
+    employee: [
+      'workflows.view',
+      'workflows.view_tasks',
+      'workflows.tasks.view',
+      'workflows.tasks.claim',
+      'workflows.tasks.complete',
+      'workflows.instances.view',
+    ],
   },
 }
 

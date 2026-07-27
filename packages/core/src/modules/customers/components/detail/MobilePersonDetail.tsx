@@ -3,8 +3,7 @@
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { cn } from '@open-mercato/shared/lib/utils'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 
 export type MobilePersonZone = 'details' | 'activity'
 
@@ -80,35 +79,30 @@ export function MobilePersonDetail({
 
   return (
     <div className="space-y-4">
-      <div
-        role="tablist"
-        aria-label={t(
-          'customers.people.mobile.zoneSwitcher.ariaLabel',
-          'Zone selector',
-        )}
-        className="grid grid-cols-2 gap-1 rounded-lg border border-border/70 bg-muted/20 p-1"
-        onKeyDown={handleKeyDown}
-      >
-        {ZONES.map((entry) => {
-          const isActive = zone === entry.id
-          return (
-            <Button
-              key={entry.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`mobile-person-zone-${entry.id}`}
-              variant={isActive ? 'default' : 'ghost'}
-              className={cn(
-                'h-11 rounded-lg text-sm font-semibold',
-                isActive ? '' : 'text-muted-foreground',
-              )}
-              onClick={() => handleZoneChange(entry.id)}
-            >
-              {t(entry.labelKey, entry.fallback)}
-            </Button>
-          )
-        })}
+      <div onKeyDown={handleKeyDown}>
+        <Tabs
+          value={zone}
+          onValueChange={(value) => handleZoneChange(value as MobilePersonZone)}
+          variant="underline"
+        >
+          <TabsList
+            aria-label={t(
+              'customers.people.mobile.zoneSwitcher.ariaLabel',
+              'Zone selector',
+            )}
+            className="w-full"
+          >
+            {ZONES.map((entry) => (
+              <TabsTrigger
+                key={entry.id}
+                value={entry.id}
+                className="flex-1 justify-center"
+              >
+                {t(entry.labelKey, entry.fallback)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
       <div
         id={`mobile-person-zone-${zone}`}

@@ -5,7 +5,10 @@ import {
   roleWidgetSettingsSchema,
   userWidgetSettingsSchema,
 } from '@open-mercato/core/modules/dashboards/data/validators'
-import { resolveWidgetAssignmentReadScope } from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
+import {
+  resolveWidgetAssignmentReadScope,
+  resolveWidgetAssignmentTargetAccess,
+} from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
 
 describe('dashboards role/user widget settings schema — mass-assign scope', () => {
   // Zod v4 .uuid() requires versioned UUID (v1-v8 variant bits).
@@ -108,5 +111,73 @@ describe('resolveWidgetAssignmentReadScope — GET scope hardening', () => {
       queryOrganizationId: '',
     })
     expect(scope).toEqual({ tenantId: callerTenant, organizationId: callerOrg })
+  })
+})
+
+describe('resolveWidgetAssignmentTargetAccess — null-tenant fail-open hardening', () => {
+  const callerTenant = '55555555-5555-4555-8555-555555555555'
+  const foreignTenant = '77777777-7777-4777-8777-777777777777'
+
+  test('non-superadmin without a tenant scope is rejected, never allowed through', () => {
+    const access = resolveWidgetAssignmentTargetAccess({
+      isSuperAdmin: false,
+      scopeTenantId: null,
+      target: { tenantId: foreignTenant },
+    })
+    expect(access).toBe('forbidden')
+  })
+
+  test('non-superadmin without a tenant scope is rejected even for a tenant-less target', () => {
+    const access = resolveWidgetAssignmentTargetAccess({
+      isSuperAdmin: false,
+      scopeTenantId: null,
+      target: { tenantId: null },
+    })
+    expect(access).toBe('forbidden')
+  })
+
+  test('tenant-scoped caller cannot reach a target in another tenant', () => {
+    const access = resolveWidgetAssignmentTargetAccess({
+      isSuperAdmin: false,
+      scopeTenantId: callerTenant,
+      target: { tenantId: foreignTenant },
+    })
+    expect(access).toBe('not-found')
+  })
+
+  test('tenant-scoped caller reaches a target in its own tenant', () => {
+    const access = resolveWidgetAssignmentTargetAccess({
+      isSuperAdmin: false,
+      scopeTenantId: callerTenant,
+      target: { tenantId: callerTenant },
+    })
+    expect(access).toBe('allowed')
+  })
+
+  test('missing target is not-found rather than allowed', () => {
+    const access = resolveWidgetAssignmentTargetAccess({
+      isSuperAdmin: false,
+      scopeTenantId: callerTenant,
+      target: null,
+    })
+    expect(access).toBe('not-found')
+  })
+
+  test('superadmin without a tenant scope still reaches any tenant', () => {
+    const access = resolveWidgetAssignmentTargetAccess({
+      isSuperAdmin: true,
+      scopeTenantId: null,
+      target: { tenantId: foreignTenant },
+    })
+    expect(access).toBe('allowed')
+  })
+
+  test('superadmin pinned to a scope is still limited to that scope', () => {
+    const access = resolveWidgetAssignmentTargetAccess({
+      isSuperAdmin: true,
+      scopeTenantId: callerTenant,
+      target: { tenantId: foreignTenant },
+    })
+    expect(access).toBe('not-found')
   })
 })

@@ -11,6 +11,8 @@ export interface StartNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  errorCount?: number
 }
 
 /**
@@ -30,6 +32,8 @@ export function StartNode({ id, data, isConnectable, selected }: NodeProps) {
         status={workflowStatus}
         nodeType="start"
         selected={selected}
+        hasError={nodeData.hasError}
+        errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
       />

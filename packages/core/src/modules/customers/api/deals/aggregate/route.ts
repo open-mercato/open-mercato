@@ -5,6 +5,7 @@ import type { EntityManager as PgEntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveDealsOrganizationIds } from '../../../lib/dealsOrganizationScope'
 import type { ExchangeRateService } from '@open-mercato/core/modules/currencies/services/exchangeRateService'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -139,7 +140,7 @@ function restrictToIds(where: string[], values: Array<string | number | null>, i
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -170,14 +171,10 @@ export async function GET(req: Request) {
   // when rbacService cannot be resolved (e.g. in unit tests with a minimal container).
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const effectiveTenantId = scope.tenantId ?? auth.tenantId
-  const orgFilterIds = Array.isArray(scope.filterIds) && scope.filterIds.length > 0
-    ? scope.filterIds.filter((id) => typeof id === 'string' && id.length > 0)
-    : auth.orgId
-      ? [auth.orgId]
-      : []
-  if (!effectiveTenantId || orgFilterIds.length === 0) {
+  if (!effectiveTenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const orgFilterIds = await resolveDealsOrganizationIds({ em, scope, auth, tenantId: effectiveTenantId })
 
   // Raw SQL is used here intentionally — the route only projects non-encrypted columns
   // (`pipeline_stage_id`, `value_amount`, `value_currency`, `status`, plus filters). It

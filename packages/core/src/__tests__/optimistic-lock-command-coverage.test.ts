@@ -75,6 +75,8 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'Exempt — delegation-grant revoke guards updated_at against the caller-supplied expectedUpdatedAt (re-revoke is idempotent, gone-record maps to structured 409); a one-shot revocation, not a collaborative edit surface. record_locks seam migration deferred.',
   'packages/enterprise/src/modules/agent_orchestrator/api/tasks/[id]/event-triggers/[triggerId]/route.ts':
     'Exempt — agentic-task event-trigger PUT/DELETE guards the trigger row on its own updated_at (child version, not the parent task header); an admin config sub-resource, not a collaborative merge-dialog surface, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
+  'packages/enterprise/src/modules/agent_orchestrator/api/agents/[id]/settings/route.ts':
+    'Exempt — per-agent icon setting write guards the AgentSetting row on its own updated_at only when a row already exists (first write has nothing to conflict with); a single-admin cosmetic config surface, not a collaborative merge-dialog target, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
 }
 
 // `enforceCommandOptimisticLock(` but NOT `enforceCommandOptimisticLockWithGuards(`.

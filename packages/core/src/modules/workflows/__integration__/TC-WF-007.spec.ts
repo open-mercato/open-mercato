@@ -124,10 +124,10 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
     }
   })
 
-  // Covers branch db48d0295: WAIT_FOR_TIMER renders as a dedicated node in the
-  // visual editor and its NodeEditDialog exposes duration/until inputs. The
-  // definition is seeded via API so the assertion stays scoped to the React
-  // Flow + NodeEditDialog surface.
+  // WAIT_FOR_TIMER renders as a dedicated node in the visual editor and the
+  // CrudForm node dialog (default since the crud-form-dialogs flag flip)
+  // exposes its timer configuration. The definition is seeded via API so the
+  // assertion stays scoped to the React Flow + node dialog surface.
   test('renders WAIT_FOR_TIMER as a dedicated node with timer-config inputs', async ({ page, request }) => {
     const timestamp = Date.now()
     const workflowId = `qa-wf-007-timer-${timestamp}`
@@ -176,21 +176,26 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       const dialog = page.getByRole('dialog').first()
       await expect(dialog).toBeVisible({ timeout: 10_000 })
 
-      // The waitForTimer branch of NodeEditDialog renders the "Wait for Timer"
-      // section heading plus a Duration input pre-filled from config and a
-      // datetime-local "Wait Until" input — assertions target those surfaces.
-      await expect(dialog.getByRole('heading', { name: /wait for timer/i })).toBeVisible()
-      await expect(dialog.locator('input[placeholder="PT5M"]')).toHaveValue('PT5M')
-      await expect(dialog.locator('input[type="datetime-local"]')).toBeVisible()
+      // The CrudForm node dialog renders WAIT_FOR_TIMER config in a "Timer
+      // Configuration" group: a composite duration control (DurationInput's
+      // amount spinbutton + unit select) pre-filled from config.duration=PT5M,
+      // plus a "Wait Until" date-time picker. Labels are the English strings
+      // from workflows/i18n/en.json and ui.durationInput.* / ui.dateTimePicker.*.
+      await expect(dialog.getByText('WAIT FOR TIMER', { exact: true })).toBeVisible()
+      await expect(dialog.getByText('Timer Configuration', { exact: true })).toBeVisible()
+      await expect(dialog.getByRole('spinbutton', { name: 'Duration amount' })).toHaveValue('5')
+      await expect(dialog.getByRole('combobox', { name: 'Duration unit' })).toContainText('Minutes')
+      await expect(dialog.getByText('Wait Until', { exact: true })).toBeVisible()
+      await expect(dialog.getByRole('button', { name: 'Pick date and time' })).toBeVisible()
     } finally {
       await deleteWorkflowDefinitionIfExists(request, token, definitionId)
     }
   })
 
-  // Covers branch d8aa7f499: NodeEditDialog's activity-type dropdown lists the
-  // WAIT option on AUTOMATED steps. Uses Radix Select semantics (the dropdown
-  // migrated from native <select> on develop) — we open the combobox and
-  // assert the option role is present.
+  // The node dialog's activity-type dropdown lists the WAIT option on
+  // AUTOMATED steps. Under the CrudForm dialog (default since the
+  // crud-form-dialogs flag flip) activities render via ActivityArrayEditor —
+  // we mount an activity, open its Radix Select, and assert the option role.
   test('NodeEditDialog activity-type dropdown offers the WAIT option on AUTOMATED steps', async ({ page, request }) => {
     const timestamp = Date.now()
     const workflowId = `qa-wf-007-automated-${timestamp}`
@@ -232,24 +237,20 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       const dialog = page.getByRole('dialog').first()
       await expect(dialog).toBeVisible({ timeout: 10_000 })
 
-      // Mount the first activity and expand its accordion so the Activity Type
-      // Select trigger renders. The accordion's accessible name is
-      // "Activity 1 CALL_API ID: activity_1" (header text + badge + id), so
-      // anchor only at the start.
+      // ActivityArrayEditor mounts a new activity already expanded, so its
+      // "Activity Type *" Select trigger renders right after Add Activity.
       await dialog.getByRole('button', { name: /add activity/i }).click()
-      await dialog.getByRole('button', { name: /^Activity 1\b/i }).click()
 
-      // Open the Radix Select for activity-type. The combobox role is unique
-      // inside the dialog because no other Select is visible on AUTOMATED
-      // nodes when no form fields exist.
-      const trigger = dialog.getByRole('combobox').first()
-      await trigger.click()
+      const activityTypeTrigger = dialog.getByRole('combobox', { name: 'Activity Type *' })
+      await expect(activityTypeTrigger).toBeVisible({ timeout: 10_000 })
+      await activityTypeTrigger.click()
 
       // Radix portals SelectContent to <body>, not inside the dialog — assert
-      // at the page level instead of scoping to the dialog locator.
+      // at the page level instead of scoping to the dialog locator. The WAIT
+      // activity is labelled "Wait / Delay" in workflows/i18n/en.json.
       await expect(
-        page.getByRole('option', { name: /wait \/ delay/i }),
-        'NodeEditDialog activity-type dropdown should offer the WAIT option',
+        page.getByRole('option', { name: 'Wait / Delay' }),
+        'node dialog activity-type dropdown should offer the WAIT option',
       ).toBeVisible({ timeout: 10_000 })
     } finally {
       await deleteWorkflowDefinitionIfExists(request, token, definitionId)

@@ -18,6 +18,8 @@ export interface SubWorkflowNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  errorCount?: number
   /** Declared input/output ports of the referenced sub-workflow (definition.io). */
   inputs?: PortField[]
   outputs?: PortField[]
@@ -88,6 +90,8 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
         status={workflowStatus}
         nodeType="subWorkflow"
         selected={selected}
+        hasError={nodeData.hasError}
+        errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
       />

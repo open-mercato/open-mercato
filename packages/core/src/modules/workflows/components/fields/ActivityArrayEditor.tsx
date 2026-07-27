@@ -15,6 +15,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
+import { DurationInput } from '@open-mercato/ui/backend/inputs/DurationInput'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -241,6 +242,11 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                           <SelectItem value="WAIT">{t('workflows.activities.types.WAIT')}</SelectItem>
                         </SelectContent>
                       </Select>
+                      {activity.activityType === 'SEND_EMAIL' && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {t('workflows.activities.sendEmailSimulatedHint')}
+                        </p>
+                      )}
                     </div>
 
                     {/* Timeout */}
@@ -248,13 +254,11 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                       <Label htmlFor={`${id}-${index}-timeout`} className="text-xs font-medium mb-1">
                         {t('workflows.fieldEditors.activities.timeout')}
                       </Label>
-                      <Input
+                      <DurationInput
                         id={`${id}-${index}-timeout`}
-                        type="text"
                         value={activity.timeout || ''}
-                        onChange={(e) => updateActivity(index, 'timeout', e.target.value)}
-                        placeholder={t('workflows.fieldEditors.activities.timeoutPlaceholder')}
-                        className="text-xs"
+                        onChange={(value) => updateActivity(index, 'timeout', value)}
+                        aria-label={t('workflows.fieldEditors.activities.timeout')}
                         disabled={disabled}
                       />
                       <p className="text-xs text-muted-foreground mt-1">

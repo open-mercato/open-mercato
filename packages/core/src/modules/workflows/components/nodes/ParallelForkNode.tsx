@@ -20,6 +20,8 @@ export interface ParallelForkNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  errorCount?: number
 }
 
 /**
@@ -45,6 +47,8 @@ export function ParallelForkNode({ id, data, isConnectable, selected }: NodeProp
         status={toWorkflowStatus(nodeData.status)}
         nodeType="parallelFork"
         selected={selected}
+        hasError={nodeData.hasError}
+        errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
       />

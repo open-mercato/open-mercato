@@ -16,6 +16,8 @@ export interface WaitForTimerNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  errorCount?: number
 }
 
 /**
@@ -48,6 +50,8 @@ export function WaitForTimerNode({ id, data, isConnectable, selected }: NodeProp
         status={workflowStatus}
         nodeType="waitForTimer"
         selected={selected}
+        hasError={nodeData.hasError}
+        errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
       />

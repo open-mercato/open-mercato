@@ -12,6 +12,8 @@ export interface EndNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  errorCount?: number
 }
 
 /**
@@ -40,6 +42,8 @@ export function EndNode({ id, data, isConnectable, selected }: NodeProps) {
         status={workflowStatus}
         nodeType="end"
         selected={selected}
+        hasError={nodeData.hasError}
+        errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
       />

@@ -22,8 +22,73 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.6.6 → 0.6.7 (unreleased)
+
+### Scheduler queue targets now deliver one flat payload contract in both execution modes (#4221)
+
+The local scheduler used to wrap a scheduled queue target's configured `targetPayload` in an undocumented envelope (`{ scheduleId, scheduleName, scopeType, tenantId, organizationId, payload: { …targetPayload }, triggeredAt }`), while the asynchronous execute-schedule worker already spread `targetPayload` onto the worker payload root. Both paths now build their payload through one scheduler-owned helper (`packages/scheduler/src/modules/scheduler/lib/queueTargetPayload.ts`) and deliver the documented flat contract:
+
+```ts
+{ ...targetPayload, tenantId, organizationId, _idempotencyKey }
+```
+
+Scheduler-owned `tenantId`/`organizationId`/`_idempotencyKey` are applied after the spread, so they always win over conflicting `targetPayload` fields. Scheduler execution metadata (`scheduleId`, `scheduleName`, `scopeType`, `triggeredAt`) is no longer injected into the application payload. The async worker's idempotency key is now derived from the retry-stable execute-schedule job id instead of `Date.now()`, so BullMQ retries of one logical firing reuse the same `_idempotencyKey`.
+
+**Action for downstream:** workers written to the documented flat contract need no change and now also work under the local scheduler. A worker that relied on the undocumented local envelope (reading `job.payload.payload.*` or `scheduleId`/`scheduleName`/`triggeredAt` from the payload) must switch to the flat fields; include any identifiers it needs in `targetPayload` when registering the schedule.
+
 ## 0.6.5 → 0.6.6 (unreleased)
 
+### Standalone apps: optimistic-lock guard restored; `src/di.ts` now requires explicit bootstrap wiring (#4201)
+
+Two related DI defects affected standalone (npm) apps:
+
+1. **The default OSS optimistic-lock guard was silently disabled.** The request container is built in Awilix CLASSIC injection mode, and the guard's factory destructured a renamed parameter (`({ em: scopedEm })`), which CLASSIC cannot resolve. The resolution error was swallowed, so every `makeCrudRoute` PUT/DELETE ignored the `x-om-ext-optimistic-lock-expected-updated-at` header and stale writes returned `200` instead of `409`. *Action for downstream:* none — upgrading `@open-mercato/shared` restores the guard. A failed guard resolution now logs a warning (once per process) instead of failing silently.
+
+2. **`src/di.ts` `register()` never ran in standalone apps.** The `@/di` dynamic import inside the published package does not resolve to the app's `src/di.ts`, so the documented app-level DI override hook was dead. Apps now wire it explicitly from `src/bootstrap.ts`. *Action for downstream:* apps scaffolded before 0.6.6 that want `src/di.ts` to work must add the wiring to their `src/bootstrap.ts` (new scaffolds include it):
+
+```ts
+import { register as registerAppDi } from '@/di'
+
+export const bootstrap = createBootstrap(
+  { /* existing generated data */ },
+  { appDiRegistrar: registerAppDi },
+)
+```
+
+Additionally, two core-module registrations that destructured factory parameters without opting into per-registration PROXY resolution (`catalogPricingService`, `notificationService`) silently received `undefined` dependencies under CLASSIC mode; both now chain `.proxy()`. *Action for downstream:* none, but if your own module's `di.ts` registers `asFunction(({ dep }) => ...)`, chain `.proxy()` (or take plain named parameters) — a guard test (`packages/core/src/__tests__/di-classic-proxy.test.ts`) now enforces this for in-repo modules.
+
+### Opt-in per-entity ACL for custom-entity records (#3857)
+
+Follow-up to the #2612 records-API hardening, which deliberately left custom/EAV entities on the coarse `entities.records.view` / `entities.records.manage` path. Those two features were **entity-agnostic**: any holder could read/modify/delete records of *every* custom entity in their tenant, so sensitive custom entities (salaries, board minutes) could not be compartmentalized from ordinary ones (intra-tenant horizontal privilege; cross-tenant was already blocked).
+
+Custom entities can now be flagged **`access_restricted`**. The change is **additive and default-off**, so existing entities and grants behave exactly as before — no migration, no lockout:
+
+- **Unrestricted (default):** unchanged — the coarse route feature is the whole authorization.
+- **Restricted:** `assertEntityAclForRequest` additionally requires a **synthesized per-entity feature** `entities.records.<entityId>.view` / `entities.records.<entityId>.manage` (e.g. `entities.records.hr:salaries.view`). The coarse feature alone no longer grants it; `entities.records.*`, `entities.*`, and super-admin still do (normal wildcard semantics).
+
+Grant the per-entity features in the Role/User ACL editor — `GET /api/auth/features` now appends them for the calling tenant's restricted entities. New DB column `custom_entities.access_restricted` (`boolean not null default false`, migration `Migration20260716120000`). Toggle it per entity on the custom-entity create/edit page, or declare `accessRestricted: true` in a module's `ce.ts` `CustomEntitySpec`. An optional tenant policy `entities.newEntitiesRestrictedByDefault` (module config, default off; read/set via `GET/PUT /api/entities/entity-settings`) makes new entities restricted-by-default for tenants that want deny-by-default.
+
+*Action for downstream:* none to keep current behavior. **If you flag an in-use entity as restricted, existing coarse-feature holders lose access to it** until granted the per-entity feature — this is the intended compartmentalization. If you ship a sensitive custom entity via `ce.ts`, set `accessRestricted: true` and grant the per-entity features to the roles that should see it. See [`.ai/specs/2026-07-16-custom-entity-record-acl-per-entity.md`](.ai/specs/2026-07-16-custom-entity-record-acl-per-entity.md).
+
+### Skills install into the canonical `.agents/skills/` directory (#4155)
+
+`yarn install-skills` (monorepo) and `mercato agentic:init` / `yarn install-skills` (standalone apps) used to write every skill into each agent's own folder — local tier skills were symlinked into both `.claude/skills/` and `.codex/skills/`, and external skills landed in `.agents/skills/` **plus** `.claude/skills/` **plus** a hand-made `.codex/skills/` mirror: three copies of the same skill.
+
+Skills now install **once**, into the canonical cross-agent directory `.agents/skills/`. An agent only gets its own per-skill symlinks when it cannot read that directory: Claude Code does (automatic, unchanged for its users), while Codex and Cursor read `.agents/skills/` natively and no longer get a `.codex/skills/` or `.cursor/skills/` directory at all. Scaffolded apps no longer seed `.codex/skills` / `.cursor/skills` symlinks either.
+
+All existing flags and exit behavior of `yarn install-skills` are unchanged; the new flags are additive. Only gitignored dev-tooling directories are affected — no application code, no committed files.
+
+Contributor action:
+
+- Re-run the installer once so stale `.codex/skills/` (and any `.cursor/skills/`) links from the old layout are swept away:
+
+  ```bash
+  yarn install-skills --clean && yarn install-skills
+  ```
+
+  A plain `yarn install-skills` also self-heals (it sweeps the legacy per-agent links); the `--clean` form just makes it explicit.
+- If a setup still depends on the old layout, `yarn install-skills --legacy-links` restores it.
+- To keep an agent's directory from being written at all, pass `--ignore-agents <csv>` or add a persistent `{ "agents": { "ignore": ["cursor"] } }` block to `.ai/skills/tiers.json`.
 ### Dev-environment starters moved to `starters/`; hybrid mode is the new default
 
 The dev-environment startup surface was consolidated into a top-level [`starters/`](starters/README.md) directory, and the default dev mode changed to **hybrid**: the app and the MCP server run natively on your machine (`yarn dev` now starts both), while OpenCode + postgres/redis/meilisearch run in containers. The fully containerized stack remains as the enterprise path. See `.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md`.
@@ -55,6 +120,12 @@ Contributor action:
 - Re-run `yarn install-skills` (network required for the npx step; pass `--no-external` or set `OM_SKIP_EXTERNAL_SKILLS=1` when offline — local tier skills still install).
 - Repo-specific behavior for the external skills is configured in [`.ai/agentic.config.json`](.ai/agentic.config.json) (validation gate, labels, base branch), the tracker descriptor [`.ai/trackers/github.md`](.ai/trackers/github.md), the review checklist [`.ai/review-checklist.md`](.ai/review-checklist.md), and repo-local override skills under `.ai/skills/<external-name>/SKILL.md`.
 - The local `om-auto-fix-github` skill has been removed and replaced by the external `om-auto-fix-issue` (installed under `.agents/skills/` from the shared open-mercato/skills collection). Update any `/om-auto-fix-github` callers to `/om-auto-fix-issue`.
+
+### Rate-limit proxy trust now defaults to safe direct mode (#4041)
+
+`RATE_LIMIT_TRUST_PROXY_DEPTH` now defaults to `0` instead of `1`. Direct deployments therefore ignore client-supplied forwarding headers and use endpoint-scoped `global` fallback buckets, so missing trusted IP data no longer disables auth, metadata-driven, or checkout throttles. Invalid, negative, and fractional depth values emit a warning and also fall back to `0`; forwarded chains shorter than an explicitly configured positive depth use the same bounded fallback.
+
+**Action for proxied deployments:** set `RATE_LIMIT_TRUST_PROXY_DEPTH` to the exact number of trusted reverse proxies between the client and the app (for example, `1` for a single nginx/ALB hop). Without that explicit setting, all traffic shares each endpoint's configured fallback bucket, which is secure against header spoofing but can reduce availability under load. Direct deployments should leave the value unset or set it to `0`.
 
 
 ### Tenant-scoped search settings + verified provider availability (#3092)

@@ -13,9 +13,21 @@ import type { StartPreCondition } from '../components/fields/StartPreConditionsE
 import type { AgentInvokeConfigValue } from '../components/fields/AgentInvokeConfigField'
 import type { InvokeAgentConfig } from '../data/validators'
 import { sanitizeId } from './graph-utils'
-import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isFutureIsoDateString, isValidDurationString } from '../data/validators'
+import { isPlainRecord, parseAdvancedConfigValue } from './advanced-config'
 
-const logger = createLogger('workflows')
+// userTaskConfig keys owned by dedicated form fields. At dialog load they are
+// EXCLUDED from the Advanced Configuration blob (only genuinely unhandled keys
+// travel through it), and at save the freshly built structured config is
+// authoritative over anything the advanced blob still carries for these keys.
+const USER_TASK_STRUCTURED_CONFIG_KEYS = [
+  'formSchema',
+  'assignedTo',
+  'assignedToRoles',
+  'assignmentRule',
+  'slaDuration',
+  'escalationRules',
+] as const
 
 // Signal name the INVOKE_AGENT step parks on when a proposal is routed to a
 // human. Mirrors INVOKE_AGENT_SIGNAL_NAME in lib/activity-executor.ts —
@@ -58,7 +70,7 @@ export interface NodeFormValues {
 
   // UserTask fields
   assignedTo?: string
-  assignedToRoles?: string // Comma-separated in form
+  assignedToRoles?: string[] | string // Array from RolesMultiSelect; legacy comma-separated string still accepted
   formKey?: string
   formFields?: FormField[]
   assignmentRule?: string
@@ -80,14 +92,31 @@ export interface NodeFormValues {
   signalName?: string
   signalTimeout?: string
 
+  // WaitForTimer fields
+  timerDuration?: string
+  timerUntil?: string
+
   // Start node pre-conditions
   preConditions?: StartPreCondition[]
 
   // InvokeAgent fields
   agentConfig?: AgentInvokeConfigValue
 
-  // Advanced configuration (JSON)
-  advancedConfig?: string
+  // Advanced configuration. JsonBuilder emits the parsed object; legacy
+  // callers may still provide a JSON string.
+  advancedConfig?: Record<string, unknown> | string
+}
+
+function normalizeAssignedToRoles(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((role) => (typeof role === 'string' ? role.trim() : ''))
+      .filter(Boolean)
+  }
+  if (typeof value === 'string') {
+    return value.split(',').map((role) => role.trim()).filter(Boolean)
+  }
+  return []
 }
 
 /**
@@ -168,7 +197,7 @@ export function nodeToFormValues(node: Node): NodeFormValues {
   // UserTask fields
   if (node.type === 'userTask') {
     values.assignedTo = nodeData?.assignedTo || ''
-    values.assignedToRoles = nodeData?.assignedToRoles?.join(', ') || ''
+    values.assignedToRoles = normalizeAssignedToRoles(nodeData?.assignedToRoles)
     values.formKey = nodeData?.formKey || ''
 
     // Advanced userTaskConfig fields
@@ -236,6 +265,12 @@ export function nodeToFormValues(node: Node): NodeFormValues {
     values.signalTimeout = nodeData.signalConfig.timeout || 'PT5M'
   }
 
+  // WaitForTimer fields
+  if (node.type === 'waitForTimer') {
+    values.timerDuration = nodeData?.config?.duration || ''
+    values.timerUntil = nodeData?.config?.until || ''
+  }
+
   // Start node pre-conditions
   if (node.type === 'start' && nodeData?.preConditions) {
     values.preConditions = nodeData.preConditions
@@ -268,17 +303,24 @@ export function nodeToFormValues(node: Node): NodeFormValues {
     }
   }
 
-  // Advanced config (preserve all fields not explicitly handled)
-  const advancedFields: any = {}
-  if (nodeData?.userTaskConfig) {
-    advancedFields.userTaskConfig = nodeData.userTaskConfig
+  // Advanced config (preserve only fields not explicitly handled by form fields)
+  const advancedFields: Record<string, unknown> = {}
+  if (isPlainRecord(nodeData?.userTaskConfig)) {
+    if (node.type === 'userTask') {
+      const unhandledEntries = Object.entries(nodeData.userTaskConfig).filter(
+        ([key]) => !USER_TASK_STRUCTURED_CONFIG_KEYS.includes(key as (typeof USER_TASK_STRUCTURED_CONFIG_KEYS)[number]),
+      )
+      if (unhandledEntries.length > 0) {
+        advancedFields.userTaskConfig = Object.fromEntries(unhandledEntries)
+      }
+    } else {
+      advancedFields.userTaskConfig = nodeData.userTaskConfig
+    }
   }
   if (nodeData?.retryPolicy) {
     advancedFields.retryPolicy = nodeData.retryPolicy
   }
-  values.advancedConfig = Object.keys(advancedFields).length > 0
-    ? JSON.stringify(advancedFields, null, 2)
-    : ''
+  values.advancedConfig = Object.keys(advancedFields).length > 0 ? advancedFields : undefined
 
   return values
 }
@@ -302,10 +344,9 @@ export function formValuesToNodeUpdates(
 
   // UserTask specific fields
   if (node.type === 'userTask') {
+    const assignedToRoles = normalizeAssignedToRoles(values.assignedToRoles)
     updates.assignedTo = values.assignedTo || undefined
-    updates.assignedToRoles = values.assignedToRoles
-      ? values.assignedToRoles.split(',').map((r) => r.trim()).filter(Boolean)
-      : []
+    updates.assignedToRoles = assignedToRoles
     updates.formKey = values.formKey || undefined
 
     // Build userTaskConfig with all fields
@@ -316,9 +357,7 @@ export function formValuesToNodeUpdates(
         },
       }),
       ...(values.assignedTo && { assignedTo: values.assignedTo }),
-      ...(values.assignedToRoles && {
-        assignedToRoles: values.assignedToRoles.split(',').map((r) => r.trim()).filter(Boolean)
-      }),
+      ...(assignedToRoles.length > 0 && { assignedToRoles }),
       // Preserve advanced fields
       ...(values.assignmentRule && { assignmentRule: values.assignmentRule }),
       ...(values.slaDuration && { slaDuration: values.slaDuration }),
@@ -390,6 +429,27 @@ export function formValuesToNodeUpdates(
     }
   }
 
+  // WaitForTimer specific fields (duration XOR until)
+  if (node.type === 'waitForTimer') {
+    const duration = typeof values.timerDuration === 'string' ? values.timerDuration.trim() : ''
+    const until = typeof values.timerUntil === 'string' ? values.timerUntil.trim() : ''
+
+    if (duration && until) {
+      throw new Error('workflows.validation.timerDurationXorUntil')
+    }
+    if (!duration && !until) {
+      throw new Error('workflows.validation.timerDurationOrUntilRequired')
+    }
+    if (duration && !isValidDurationString(duration)) {
+      throw new Error('workflows.validation.invalidDuration')
+    }
+    if (until && !isFutureIsoDateString(until)) {
+      throw new Error('workflows.validation.untilMustBeFuture')
+    }
+
+    updates.config = duration ? { duration } : { until }
+  }
+
   // Start node pre-conditions
   if (node.type === 'start') {
     if (values.preConditions && values.preConditions.length > 0) {
@@ -439,14 +499,20 @@ export function formValuesToNodeUpdates(
     updates.signalConfig = { signalName: INVOKE_AGENT_SIGNAL_NAME }
   }
 
-  // Parse advanced config (JSON) and merge
-  if (values.advancedConfig && values.advancedConfig.trim()) {
-    try {
-      const parsed = JSON.parse(values.advancedConfig)
-      Object.assign(updates, parsed)
-    } catch (error) {
-      logger.error('Invalid JSON in Advanced Configuration', { err: error })
-      throw new Error('Invalid JSON in Advanced Configuration. Please check your syntax.')
+  // Merge the advanced config (object from JsonBuilder, or legacy JSON string).
+  // For user tasks the structured fields are authoritative: the advanced blob
+  // only contributes keys the dialog does not handle structurally.
+  const advanced = parseAdvancedConfigValue(values.advancedConfig)
+  if (advanced) {
+    const structuredUserTaskConfig =
+      node.type === 'userTask' && isPlainRecord(updates.userTaskConfig) ? updates.userTaskConfig : undefined
+    Object.assign(updates, advanced)
+    if (structuredUserTaskConfig) {
+      const advancedUserTaskConfig = isPlainRecord(advanced.userTaskConfig) ? { ...advanced.userTaskConfig } : {}
+      for (const key of USER_TASK_STRUCTURED_CONFIG_KEYS) {
+        delete advancedUserTaskConfig[key]
+      }
+      updates.userTaskConfig = { ...advancedUserTaskConfig, ...structuredUserTaskConfig }
     }
   }
 

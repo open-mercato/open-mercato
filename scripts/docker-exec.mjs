@@ -72,7 +72,7 @@ if (args.length === 0) {
 function discoverComposeFiles() {
   const localOverrides = [];
   try {
-    for (const file of readdirSync(join(repoRoot, 'starters', 'docker')).sort()) {
+    for (const file of readdirSync(join(repoRoot, 'starters', 'docker')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
       if (/^compose.*dev.*\.local\.yml$/.test(file)) {
         localOverrides.push(join('starters', 'docker', file));
       }
@@ -81,7 +81,7 @@ function discoverComposeFiles() {
     // Ignore — readdirSync can fail in restricted environments.
   }
   try {
-    for (const file of readdirSync(repoRoot).sort()) {
+    for (const file of readdirSync(repoRoot).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
       if (/^docker-compose.*dev.*\.local\.yml$/.test(file)) {
         localOverrides.push(file);
       }

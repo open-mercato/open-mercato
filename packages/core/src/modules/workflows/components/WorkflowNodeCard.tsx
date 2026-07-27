@@ -1,4 +1,7 @@
-import { Check, Play, Pause, Circle, XCircle, Trash2 } from 'lucide-react'
+'use client'
+
+import { Check, Play, Pause, Circle, CircleAlert, XCircle, Trash2 } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../lib/node-type-icons'
 
@@ -28,6 +31,8 @@ interface WorkflowNodeCardProps {
   status?: WorkflowStatus
   nodeType: NodeType
   selected?: boolean
+  hasError?: boolean
+  errorCount?: number
   /** Node id — required to render the inline delete affordance. */
   nodeId?: string
   /** When true (and `nodeId` is set), show the hover/selected trash button. */
@@ -40,9 +45,12 @@ export function WorkflowNodeCard({
   status = 'not_started',
   nodeType,
   selected = false,
+  hasError = false,
+  errorCount,
   nodeId,
   editable = false,
 }: WorkflowNodeCardProps) {
+  const t = useT()
   // In edit mode (not_started), use white background
   const isEditMode = status === 'not_started'
   const colors = STATUS_COLORS[status]
@@ -54,6 +62,7 @@ export function WorkflowNodeCard({
     failed: XCircle,
     paused: Pause,
     not_started: Circle,
+    error: CircleAlert,
   }[status]
 
   const NodeTypeIcon = NODE_TYPE_ICONS[nodeType]
@@ -61,20 +70,49 @@ export function WorkflowNodeCard({
   const nodeTypeLabel = NODE_TYPE_LABELS[nodeType]?.title ?? nodeType
   const showDelete = editable && !!nodeId
 
+  const backgroundClass = isEditMode ? 'bg-card' : colors.bg
+  const borderClass = selected
+    ? 'border-primary'
+    : hasError
+      ? 'border-status-error-border'
+      : isEditMode
+        ? 'border-border'
+        : colors.border
+  const errorBadgeLabel = t(
+    'workflows.visualEditor.problems.nodeErrorBadge',
+    '{count} validation error(s)',
+    { count: typeof errorCount === 'number' && errorCount > 0 ? errorCount : 1 },
+  )
+
   return (
     <div
       style={{ minWidth: NODE_MIN_WIDTH, maxWidth: NODE_MAX_WIDTH }}
       className={`
         group w-fit rounded-lg border
-        ${isEditMode ? 'bg-card border-border' : `${colors.bg} ${colors.border}`}
+        ${backgroundClass} ${borderClass}
         transition-all duration-200 relative
         ${
           selected
-            ? 'ring-2 ring-primary border-primary'
+            ? 'ring-2 ring-primary'
             : 'shadow-sm hover:shadow-md'
         }
       `}
     >
+      {hasError && (
+        <span
+          role="status"
+          aria-label={errorBadgeLabel}
+          title={errorBadgeLabel}
+          className="absolute -top-2 -right-2 z-10 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-background bg-status-error-icon px-1 text-xs font-bold text-primary-foreground"
+        >
+          {typeof errorCount === 'number' && errorCount > 0 ? (
+            errorCount
+          ) : (
+            <CircleAlert className="h-3 w-3" aria-hidden="true" />
+          )}
+        </span>
+      )}
+
       {/* Type label + (editable) inline delete */}
       <div className="flex items-center justify-between gap-2 px-2.5 pt-2">
         <div className="flex min-w-0 items-center gap-1">
@@ -86,7 +124,7 @@ export function WorkflowNodeCard({
         {showDelete && (
           <button
             type="button"
-            aria-label="Delete step"
+            aria-label={t('workflows.visualEditor.deleteStep', 'Delete step')}
             className="nodrag nopan -mr-1 -mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-status-error-icon focus-visible:opacity-100 group-hover:opacity-100"
             onClick={(event) => {
               event.stopPropagation()

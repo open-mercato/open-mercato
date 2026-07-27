@@ -11,7 +11,7 @@ import {
   type PipelineDeleteInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
   enforceCommandOptimisticLockWithGuards,
   enforceRecordGoneIsConflict,
@@ -62,7 +62,7 @@ const updatePipelineCommand: CommandHandler<PipelineUpdateInput, void> = {
     const pipeline = await em.findOne(CustomerPipeline, { id: parsed.id })
     if (!pipeline) {
       enforceRecordGoneIsConflict({ resourceKind: 'customers.pipeline', resourceId: parsed.id, request: ctx.request ?? null })
-      throw new CrudHttpError(404, { error: 'Pipeline not found' })
+      throw notFound('Pipeline not found')
     }
 
     ensureTenantScope(ctx, pipeline.tenantId)
@@ -102,7 +102,7 @@ const deletePipelineCommand: CommandHandler<PipelineDeleteInput, void> = {
     const pipeline = await em.findOne(CustomerPipeline, { id: parsed.id })
     if (!pipeline) {
       enforceRecordGoneIsConflict({ resourceKind: 'customers.pipeline', resourceId: parsed.id, request: ctx.request ?? null })
-      throw new CrudHttpError(404, { error: 'Pipeline not found' })
+      throw notFound('Pipeline not found')
     }
 
     ensureTenantScope(ctx, pipeline.tenantId)

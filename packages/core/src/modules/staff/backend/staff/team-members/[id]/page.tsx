@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -432,29 +433,22 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
             </div>
           </div>
 
-          <div className="border-b">
-            <nav
-              className="flex flex-wrap items-center gap-5 text-sm"
+          <Tabs
+            value={activePanel}
+            onValueChange={(value) => setActivePanel(value as 'details' | 'availability' | 'jobHistory')}
+            variant="underline"
+          >
+            <TabsList
+              className="w-full flex-wrap"
               aria-label={t('staff.teamMembers.detail.tabs.label', 'Team member sections')}
             >
               {panelTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activePanel === tab.id}
-                  onClick={() => setActivePanel(tab.id)}
-                  className={`relative -mb-px border-b-2 px-0 py-2 text-sm font-medium transition-colors ${
-                    activePanel === tab.id
-                      ? 'border-accent-indigo text-foreground'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                >
+                <TabsTrigger key={tab.id} value={tab.id}>
                   {tab.label}
-                </button>
+                </TabsTrigger>
               ))}
-            </nav>
-          </div>
+            </TabsList>
+          </Tabs>
 
           {activePanel === 'details' ? (
             <>
@@ -500,22 +494,19 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
 
                   <div className="rounded-lg border bg-card p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex gap-2">
-                        {tabs.map((tab) => (
-                          <button
-                            key={tab.id}
-                            type="button"
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors ${
-                              activeTab === tab.id
-                                ? 'border-accent-indigo text-foreground'
-                                : 'border-transparent text-muted-foreground hover:text-foreground'
-                            }`}
-                          >
-                            {tab.label}
-                          </button>
-                        ))}
-                      </div>
+                      <Tabs
+                        value={activeTab}
+                        onValueChange={(value) => setActiveTab(value as 'notes' | 'activities' | 'addresses')}
+                        variant="underline"
+                      >
+                        <TabsList className="h-auto flex-wrap border-b-0">
+                          {tabs.map((tab) => (
+                            <TabsTrigger key={tab.id} value={tab.id}>
+                              {tab.label}
+                            </TabsTrigger>
+                          ))}
+                        </TabsList>
+                      </Tabs>
                       {sectionAction ? (
                         <Button
                           type="button"

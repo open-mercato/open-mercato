@@ -10,7 +10,11 @@ import type { Node, Edge, Connection } from '@xyflow/react'
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { graphToDefinition, definitionToGraph, applyAutoLayout, validateWorkflowGraph, generateStepId, generateTransitionId, appendWorkflowEdge, ValidationError } from '../../../lib/graph-utils'
+import { collectValidationIssues, countIssuesBySeverity, type WorkflowValidationIssue, type ZodIssueLike } from '../../../lib/collect-validation-issues'
+import { formatWorkflowValidationError } from '../../../lib/format-validation-error'
+import type { WorkflowGraphFocusTarget } from '../../../components/WorkflowGraph'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
+import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-flag'
 import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard'
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
@@ -43,7 +47,7 @@ import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { CircleQuestionMark, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, Trash2, TriangleAlert, X } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
 import { useSidebarCollapse } from '@open-mercato/ui/backend/AppShell'
@@ -186,6 +190,22 @@ export default function VisualEditorPage() {
   const [showNodeDialog, setShowNodeDialog] = useState(false)
   const [showEdgeDialog, setShowEdgeDialog] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [problems, setProblems] = useState<WorkflowValidationIssue[]>([])
+  const [showProblems, setShowProblems] = useState(false)
+  const [problemsCollapsed, setProblemsCollapsed] = useState(false)
+  const [focusTarget, setFocusTarget] = useState<WorkflowGraphFocusTarget | null>(null)
+  const focusRequestRef = React.useRef(0)
+
+  // Error-severity issue counts per node id — drives the per-node error badges
+  // on the canvas; clearing the problems list clears every badge.
+  const nodeErrorCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const issue of problems) {
+      if (issue.severity !== 'error' || !issue.nodeId) continue
+      counts[issue.nodeId] = (counts[issue.nodeId] ?? 0) + 1
+    }
+    return counts
+  }, [problems])
 
   // Workflow metadata state
   const [workflowId, setWorkflowId] = useState('')
@@ -479,44 +499,55 @@ export default function VisualEditorPage() {
     setEdges((eds) => appendWorkflowEdge(eds, newEdge))
   }, [])
 
-  // Validate workflow
+  // Validate workflow — collect every graph and schema issue into the problems panel
   const handleValidate = useCallback(() => {
     const graphErrors = validateWorkflowGraph(nodes, edges)
-    const allErrors: ValidationError[] = [...graphErrors]
+    let zodIssues: ZodIssueLike[] = []
+    let schemaFailureMessage: string | null = null
 
-    // Run Zod schema validation
     try {
       const definitionData = graphToDefinition(nodes, edges, { includePositions: true })
       const result = workflowDefinitionDataSchema.safeParse(definitionData)
-
       if (!result.success) {
-        // Convert Zod errors to validation errors
-        result.error.issues.forEach((issue) => {
-          allErrors.push({
-            type: 'error',
-            message: `Schema validation: ${issue.path.join('.')} - ${issue.message}`,
-          })
-        })
+        zodIssues = result.error.issues
       }
     } catch (error) {
-      allErrors.push({
-        type: 'error',
-        message: `Schema validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      })
+      schemaFailureMessage = error instanceof Error ? error.message : String(error)
     }
 
-    if (allErrors.length === 0) {
-      flash('Validation passed! Your workflow is valid and ready to save.', 'success')
-    } else {
-      // Show first error/warning message
-      const firstError = allErrors[0]
-      const errorCount = allErrors.length
-      const message = errorCount > 1
-        ? `${firstError.message} (and ${errorCount - 1} more ${errorCount === 2 ? 'issue' : 'issues'})`
-        : firstError.message
-      flash(message, firstError.type === 'error' ? 'error' : 'warning')
+    const issues = collectValidationIssues({ graphErrors, zodIssues, nodes, edges })
+    if (schemaFailureMessage) {
+      issues.unshift({
+        id: 'schema-exception',
+        severity: 'error',
+        message: t('workflows.visualEditor.problems.schemaValidationFailed', 'Schema validation failed: {message}', { message: schemaFailureMessage }),
+      })
     }
-  }, [nodes, edges])
+    setProblems(issues)
+
+    if (issues.length === 0) {
+      setShowProblems(false)
+      flash(t('workflows.visualEditor.problems.validationPassed', 'Validation passed! Your workflow is valid and ready to save.'), 'success')
+    } else {
+      setShowProblems(true)
+      setProblemsCollapsed(false)
+      const { errors, warnings } = countIssuesBySeverity(issues)
+      flash(
+        t('workflows.visualEditor.problems.summary', 'Validation found {errors} error(s) and {warnings} warning(s).', { errors, warnings }),
+        errors > 0 ? 'error' : 'warning',
+      )
+    }
+  }, [nodes, edges, t])
+
+  // Focus the offending node or edge on the canvas when a problem row is clicked
+  const handleProblemClick = useCallback((issue: WorkflowValidationIssue) => {
+    if (!issue.nodeId && !issue.edgeId) return
+    focusRequestRef.current += 1
+    setFocusTarget({
+      ...(issue.nodeId ? { nodeId: issue.nodeId } : { edgeId: issue.edgeId }),
+      requestId: focusRequestRef.current,
+    })
+  }, [])
 
   // Save workflow definition
   const handleSave = useCallback(async () => {
@@ -526,13 +557,8 @@ export default function VisualEditorPage() {
       return
     }
 
-    // Validate workflow structure
-    const errors = validateWorkflowGraph(nodes, edges)
-    const criticalErrors = errors.filter(e => e.type === 'error')
-    if (criticalErrors.length > 0) {
-      flash(`Cannot save: ${criticalErrors.length} validation error(s) found. Please fix them first.`, 'error')
-      return
-    }
+    // Validate workflow structure and schema, surfacing every issue in the problems panel
+    const graphErrors = validateWorkflowGraph(nodes, edges)
 
     // Generate definition data and include triggers
     const graphDefinition = graphToDefinition(nodes, edges, { includePositions: true })
@@ -541,11 +567,19 @@ export default function VisualEditorPage() {
       triggers: triggers.length > 0 ? triggers : undefined,
     }
 
-    // Run Zod schema validation before saving
     const schemaResult = workflowDefinitionDataSchema.safeParse(definitionData)
-    if (!schemaResult.success) {
-      const firstIssue = schemaResult.error.issues[0]
-      flash(`Schema error: ${firstIssue.path.join('.')} - ${firstIssue.message}`, 'error')
+    const issues = collectValidationIssues({
+      graphErrors,
+      zodIssues: schemaResult.success ? [] : schemaResult.error.issues,
+      nodes,
+      edges,
+    })
+    setProblems(issues)
+    const { errors } = countIssuesBySeverity(issues)
+    if (errors > 0) {
+      setShowProblems(true)
+      setProblemsCollapsed(false)
+      flash(t('workflows.visualEditor.problems.saveBlocked', 'Cannot save: {count} validation error(s) found. Please fix them first.', { count: errors }), 'error')
       return
     }
 
@@ -609,7 +643,7 @@ export default function VisualEditorPage() {
           ...(result.result && typeof result.result === 'object' ? result.result : {}),
         })
         if (!surfaceRecordConflict(conflictError, t)) {
-          flash(`Failed to save: ${result.result?.error || 'Unknown error'}`, 'error')
+          flash(formatWorkflowValidationError(result.result, t('workflows.messages.saveFailed', 'Failed to save')), 'error')
         }
         return
       }
@@ -637,7 +671,7 @@ export default function VisualEditorPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, definitionId, updatedAt, router])
+  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, definitionId, updatedAt, router, t])
 
   // Quiet autosave routine (no redirect, no success flash). Mirrors the update
   // branch of `handleSave` exactly — same payload and the same optimistic-lock
@@ -966,14 +1000,16 @@ export default function VisualEditorPage() {
     setEffectiveFrom, setEffectiveTo, setTriggers,
   }
 
+  const crudFormDialogsEnabled = resolveCrudFormDialogsEnabled(process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED)
+
   const sharedDialogs = (
     <>
-      {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
+      {crudFormDialogsEnabled ? (
         <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       ) : (
         <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       )}
-      {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
+      {crudFormDialogsEnabled ? (
         <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
       ) : (
         <EdgeEditDialog edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
@@ -1024,6 +1060,66 @@ export default function VisualEditorPage() {
       </Dialog>
     </>
   )
+
+  const { errors: problemErrorCount, warnings: problemWarningCount } = countIssuesBySeverity(problems)
+
+  const problemsPanel = showProblems && problems.length > 0 ? (
+    <div className="shrink-0 border-t border-border bg-background px-3 py-2 md:px-6 md:py-3">
+      <div className={`rounded-lg border bg-card ${problemErrorCount > 0 ? 'border-status-error-border' : 'border-status-warning-border'}`}>
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setProblemsCollapsed((collapsed) => !collapsed)}
+            aria-expanded={!problemsCollapsed}
+            className="h-auto gap-2 p-0 text-sm font-semibold text-foreground hover:bg-transparent"
+          >
+            {problemsCollapsed ? <ChevronRight className="h-4 w-4" aria-hidden="true" /> : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
+            {t('workflows.visualEditor.problems.title', 'Problems')}
+            <span className="text-xs font-normal text-muted-foreground">
+              {t('workflows.visualEditor.problems.counts', '{errors} error(s) · {warnings} warning(s)', { errors: problemErrorCount, warnings: problemWarningCount })}
+            </span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowProblems(false)}
+            aria-label={t('workflows.visualEditor.problems.dismiss', 'Dismiss problems')}
+            className="h-7 w-7 p-0"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </div>
+        {!problemsCollapsed && (
+          <ul className="max-h-56 overflow-y-auto border-t border-border">
+            {problems.map((issue) => {
+              const isNavigable = Boolean(issue.nodeId || issue.edgeId)
+              return (
+                <li key={issue.id}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleProblemClick(issue)}
+                    disabled={!isNavigable}
+                    className={`flex h-auto w-full items-start justify-start gap-2 rounded-none px-3 py-1.5 text-left text-sm font-normal ${isNavigable ? 'hover:bg-muted' : 'cursor-default hover:bg-transparent'}`}
+                  >
+                    {issue.severity === 'error' ? (
+                      <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-status-error-text" aria-hidden="true" />
+                    ) : (
+                      <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-status-warning-text" aria-hidden="true" />
+                    )}
+                    <span className="min-w-0 flex-1 text-foreground">{issue.message}</span>
+                    {issue.nodeLabel && (
+                      <span className="shrink-0 text-xs text-muted-foreground">{issue.nodeLabel}</span>
+                    )}
+                  </Button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  ) : null
 
   if (isMobile) {
     return (
@@ -1393,6 +1489,8 @@ export default function VisualEditorPage() {
                 onConnect={handleConnect}
                 editable={!isCodeOnly}
                 height="100%"
+                focusTarget={focusTarget}
+                nodeErrorCounts={nodeErrorCounts}
               />
             </div>
 
@@ -1539,6 +1637,8 @@ export default function VisualEditorPage() {
                   onConnect={handleConnect}
                   editable={!isCodeOnly}
                   height="100%"
+                  focusTarget={focusTarget}
+                  nodeErrorCounts={nodeErrorCounts}
                 />
               </div>
 
@@ -1565,6 +1665,7 @@ export default function VisualEditorPage() {
           </div>
         </div>
       )}
+      {problemsPanel}
       {sharedDialogs}
       {ConfirmDialogElement}
     </Page>

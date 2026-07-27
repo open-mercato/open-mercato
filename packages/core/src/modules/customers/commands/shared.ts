@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, CustomerDictionaryEntry, type CustomerEntityKind } from '../data/entities'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -47,7 +47,7 @@ export async function requireCustomerEntity(
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
   })
-  if (!entity) throw new CrudHttpError(404, { error: message })
+  if (!entity) throw notFound(message)
   if (kind && entity.kind !== kind) {
     throw new CrudHttpError(400, { error: 'Invalid entity type' })
   }
@@ -80,7 +80,7 @@ export async function requireTimelineParentEntity(
   if (deal) {
     throw new CrudHttpError(422, { error: 'entityId must reference a person or company, not a deal' })
   }
-  throw new CrudHttpError(404, { error: 'Customer not found' })
+  throw notFound('Customer not found')
 }
 
 export async function syncEntityTags(

@@ -30,8 +30,13 @@ import { WorkflowDataMappingEdge } from './WorkflowDataMappingEdge'
 import { STATUS_COLORS, toWorkflowStatus } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
-import { useTheme } from '@open-mercato/ui/theme'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+export interface WorkflowGraphFocusTarget {
+  nodeId?: string
+  edgeId?: string
+  requestId: number
+}
 
 export interface WorkflowGraphImplProps {
   initialNodes?: Node[]
@@ -44,6 +49,8 @@ export interface WorkflowGraphImplProps {
   editable?: boolean
   className?: string
   height?: string
+  focusTarget?: WorkflowGraphFocusTarget | null
+  nodeErrorCounts?: Record<string, number>
 }
 
 export default function WorkflowGraphImpl({
@@ -57,6 +64,8 @@ export default function WorkflowGraphImpl({
   editable = false,
   className = '',
   height = '600px',
+  focusTarget = null,
+  nodeErrorCounts,
 }: WorkflowGraphImplProps) {
   const t = useT()
   const [nodes, setNodes] = useNodesState(initialNodes)
@@ -70,9 +79,7 @@ export default function WorkflowGraphImpl({
   const latestEdgesRef = useRef(edges)
   latestEdgesRef.current = edges
 
-  const { resolvedTheme } = useTheme()
-  const isDark = resolvedTheme === 'dark'
-  const backgroundDotColor = isDark ? '#374151' : '#e5e7eb'
+  const backgroundDotColor = 'var(--border)'
   const [isCompactViewport, setIsCompactViewport] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null)
@@ -126,6 +133,37 @@ export default function WorkflowGraphImpl({
     setEdges(initialEdges)
   }, [initialEdges, setEdges])
 
+  useEffect(() => {
+    if (!focusTarget) return
+    const instance = reactFlowInstanceRef.current
+    if (!instance) return
+    const focusOptions = { zoom: 1, duration: 300 }
+    if (focusTarget.nodeId) {
+      const node = latestNodesRef.current.find((candidate) => candidate.id === focusTarget.nodeId)
+      if (!node) return
+      const width = node.measured?.width ?? 0
+      const height = node.measured?.height ?? 0
+      void instance.setCenter(node.position.x + width / 2, node.position.y + height / 2, focusOptions)
+      setNodes((currentNodes) =>
+        currentNodes.map((candidate) => ({ ...candidate, selected: candidate.id === focusTarget.nodeId }))
+      )
+    } else if (focusTarget.edgeId) {
+      const edge = latestEdgesRef.current.find((candidate) => candidate.id === focusTarget.edgeId)
+      if (!edge) return
+      const source = latestNodesRef.current.find((candidate) => candidate.id === edge.source)
+      const target = latestNodesRef.current.find((candidate) => candidate.id === edge.target)
+      if (!source || !target) return
+      void instance.setCenter(
+        (source.position.x + target.position.x) / 2,
+        (source.position.y + target.position.y) / 2,
+        focusOptions
+      )
+      setEdges((currentEdges) =>
+        currentEdges.map((candidate) => ({ ...candidate, selected: candidate.id === focusTarget.edgeId }))
+      )
+    }
+  }, [focusTarget, setNodes, setEdges])
+
   const onConnect = useCallback(
     (connection: Connection) => {
       if (onConnectProp) {
@@ -139,7 +177,7 @@ export default function WorkflowGraphImpl({
             type: MarkerType.ArrowClosed,
             width: 16,
             height: 16,
-            color: '#9ca3af',
+            color: 'var(--muted-foreground)',
           },
         }
         setEdges((eds) => addEdge(newEdge, eds))
@@ -169,6 +207,17 @@ export default function WorkflowGraphImpl({
     },
     [setEdges, onEdgesChangeProp]
   )
+
+  // Decorate nodes with validation-error state at render time only, so the
+  // error flags never enter the committed graph state or the saved definition.
+  const displayNodes = useMemo(() => {
+    if (!nodeErrorCounts) return nodes
+    return nodes.map((node) => {
+      const errorCount = nodeErrorCounts[node.id]
+      if (!errorCount) return node
+      return { ...node, data: { ...node.data, hasError: true, errorCount } }
+    })
+  }, [nodes, nodeErrorCounts])
 
   const nodeTypes = useMemo(
     () => ({
@@ -207,7 +256,7 @@ export default function WorkflowGraphImpl({
       } as React.CSSProperties}
     >
       <ReactFlow
-        nodes={nodes}
+        nodes={displayNodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
@@ -216,7 +265,9 @@ export default function WorkflowGraphImpl({
         onConnect={editable ? onConnect : undefined}
         onNodeClick={onNodeClickProp}
         onEdgeClick={onEdgeClickProp}
-        onInit={(instance) => { reactFlowInstanceRef.current = instance }}
+        onInit={(instance) => {
+          reactFlowInstanceRef.current = instance
+        }}
         connectionMode={ConnectionMode.Loose}
         fitView
         fitViewOptions={fitViewOptions}
@@ -229,7 +280,7 @@ export default function WorkflowGraphImpl({
             type: MarkerType.ArrowClosed,
             width: 16,
             height: 16,
-            color: '#9ca3af',
+            color: 'var(--muted-foreground)',
           },
         }}
         nodesDraggable={editable}

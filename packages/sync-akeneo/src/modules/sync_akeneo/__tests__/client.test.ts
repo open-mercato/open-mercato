@@ -17,6 +17,7 @@ function createTestAkeneoClient(
 ): ReturnType<typeof createAkeneoClient> {
   return createAkeneoClient(credentialsInput, {
     lookupHost: publicAkeneoLookupHost,
+    fetchImpl: global.fetch,
     ...deps,
   })
 }
@@ -28,6 +29,15 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
       'content-type': 'application/json',
     },
     ...init,
+  })
+}
+
+function redirectResponse(): Response {
+  return new Response('redirected', {
+    status: 302,
+    headers: {
+      location: 'http://169.254.169.254/latest/meta-data/',
+    },
   })
 }
 
@@ -171,6 +181,60 @@ describe('akeneo client security', () => {
         authorization: 'Bearer token-123',
       }),
     }))
+  })
+
+  it('does not automatically follow redirects while acquiring an access token', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock.mockImplementation(async (_input, init) => (
+      (init as RequestInit | undefined)?.redirect === 'manual'
+        ? redirectResponse()
+        : new Response('internal metadata leaked through redirect', { status: 500 })
+    ))
+
+    const client = createTestAkeneoClient()
+    await expect(client.getSystemProbe()).rejects.toThrow('Akeneo authentication failed (302)')
+  })
+
+  it('does not automatically follow redirects on authenticated API requests', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/api/oauth/v1/token')) {
+        return jsonResponse({ access_token: 'token-123', expires_in: 3600 })
+      }
+      return (init as RequestInit | undefined)?.redirect === 'manual'
+        ? redirectResponse()
+        : new Response('internal metadata leaked through redirect', { status: 500 })
+    })
+
+    const client = createTestAkeneoClient()
+    await expect(client.getSystemProbe()).rejects.toThrow('Akeneo request failed (302)')
+  })
+
+  it('does not automatically follow redirects on media downloads', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/api/oauth/v1/token')) {
+        return jsonResponse({ access_token: 'token-123', expires_in: 3600 })
+      }
+      if (url.endsWith('/api/rest/v1/media-files/asset-1')) {
+        return jsonResponse({
+          code: 'asset-1',
+          original_filename: 'asset.jpg',
+          _links: {
+            download: {
+              href: 'https://tenant.cloud.akeneo.com/api/rest/v1/media-files/asset-1/download',
+            },
+          },
+        })
+      }
+      return (init as RequestInit | undefined)?.redirect === 'manual'
+        ? redirectResponse()
+        : new Response('internal metadata leaked through redirect', { status: 500 })
+    })
+
+    const client = createTestAkeneoClient()
+    await expect(client.downloadMediaFile('asset-1')).rejects.toThrow('Akeneo request failed (302)')
   })
 
   it('falls back to the attributes reachability probe and reports an unknown version (issue #3621)', async () => {

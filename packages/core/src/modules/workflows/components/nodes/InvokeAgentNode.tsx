@@ -15,6 +15,8 @@ export interface InvokeAgentNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  errorCount?: number
 }
 
 /**
@@ -82,6 +84,8 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
           status={workflowStatus}
           nodeType="invokeAgent"
           selected={selected}
+          hasError={nodeData.hasError}
+          errorCount={nodeData.errorCount}
           nodeId={id}
           editable={isConnectable}
         />

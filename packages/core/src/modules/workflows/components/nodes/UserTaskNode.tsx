@@ -15,6 +15,8 @@ export interface UserTaskNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  errorCount?: number
 }
 
 /**
@@ -43,6 +45,8 @@ export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
         status={workflowStatus}
         nodeType="userTask"
         selected={selected}
+        hasError={nodeData.hasError}
+        errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
       />

@@ -332,7 +332,7 @@ function AndOrToggle({
   const andLabel = t('ui.advancedFilter.combinator.and', 'And')
   const orLabel = t('ui.advancedFilter.combinator.or', 'Or')
   const baseBtn = 'h-8 px-3 text-sm font-medium outline-none focus-visible:shadow-focus disabled:cursor-not-allowed'
-  const selBtn = 'bg-brand-violet text-white hover:bg-brand-violet/90'
+  const selBtn = 'bg-brand-violet text-brand-violet-foreground hover:bg-brand-violet/90'
   const unselBtn = 'bg-background text-foreground hover:bg-accent'
   return (
     <div

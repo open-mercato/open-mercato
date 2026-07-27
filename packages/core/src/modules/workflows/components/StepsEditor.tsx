@@ -24,8 +24,9 @@ interface Step {
   timeout?: number
   retryPolicy?: {
     maxAttempts?: number
-    retryDelay?: number
-    backoffMultiplier?: number
+    initialIntervalMs?: number
+    backoffCoefficient?: number
+    maxIntervalMs?: number
   }
 }
 

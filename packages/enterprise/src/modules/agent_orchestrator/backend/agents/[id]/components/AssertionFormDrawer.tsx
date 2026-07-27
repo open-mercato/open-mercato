@@ -140,7 +140,7 @@ export function AssertionFormDrawer({ open, onOpenChange, assertion, agentId, on
       const names = (Array.isArray(call.result?.tools) ? call.result.tools : [])
         .map((tool) => (typeof tool?.name === 'string' ? tool.name : ''))
         .filter(Boolean)
-      setToolNames(Array.from(new Set(names)).sort())
+      setToolNames(Array.from(new Set(names)).sort((a, b) => a.localeCompare(b)))
     })
     return () => { cancelled = true }
   }, [open])

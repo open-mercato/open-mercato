@@ -29,6 +29,7 @@ import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
 import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
+import {DurationInput} from '@open-mercato/ui/backend/inputs/DurationInput'
 
 export interface EdgeEditDialogProps {
   edge: Edge | null
@@ -802,12 +803,10 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           {/* Timeout */}
                           <div>
                             <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.timeout')}</label>
-                            <Input
-                              type="text"
-                              size="sm"
+                            <DurationInput
                               value={activity.timeout || ''}
-                              onChange={(e) => updateActivity(index, 'timeout', e.target.value)}
-                              placeholder={t('workflows.edgeEditor.timeoutPlaceholder')}
+                              onChange={(value) => updateActivity(index, 'timeout', value)}
+                              aria-label={t('workflows.edgeEditor.timeout')}
                             />
                             <p className="text-xs text-muted-foreground mt-0.5">{t('workflows.edgeEditor.timeoutHint')}</p>
                           </div>

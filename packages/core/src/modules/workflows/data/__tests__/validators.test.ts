@@ -8,6 +8,7 @@ import {
   activityTypeSchema,
   workflowStepSchema,
   workflowTransitionSchema,
+  activityRetryPolicySchema,
   activityDefinitionSchema,
   createWorkflowDefinitionSchema,
   updateWorkflowDefinitionSchema,
@@ -328,6 +329,27 @@ describe('Workflows Validators', () => {
     })
   })
 
+  describe('activityRetryPolicySchema', () => {
+    test('should accept the canonical field quadruple', () => {
+      const result = activityRetryPolicySchema.parse({
+        maxAttempts: 3,
+        initialIntervalMs: 1000,
+        backoffCoefficient: 2,
+        maxIntervalMs: 10000,
+      })
+      expect(result.maxAttempts).toBe(3)
+      expect(result.initialIntervalMs).toBe(1000)
+      expect(result.backoffCoefficient).toBe(2)
+      expect(result.maxIntervalMs).toBe(10000)
+    })
+
+    test('should reject legacy retryDelay/backoffMultiplier field names', () => {
+      expect(() =>
+        activityRetryPolicySchema.parse({ retryDelay: 1000, backoffMultiplier: 2 })
+      ).toThrow()
+    })
+  })
+
   describe('activityDefinitionSchema', () => {
     const validActivity = {
       activityId: 'send-email-1',
@@ -362,6 +384,15 @@ describe('Workflows Validators', () => {
       const result = activityDefinitionSchema.parse(withRetry)
       expect(result.retryPolicy?.maxAttempts).toBe(5)
       expect(result.retryPolicy?.backoffCoefficient).toBe(2)
+    })
+
+    test('should reject retry policy using legacy field names', () => {
+      const withLegacyRetry = {
+        ...validActivity,
+        retryPolicy: { retryDelay: 1000, backoffMultiplier: 2 },
+      }
+
+      expect(() => activityDefinitionSchema.parse(withLegacyRetry)).toThrow()
     })
 
     test('should validate activity with compensation flag', () => {
