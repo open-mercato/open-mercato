@@ -12924,21 +12924,24 @@
       "required": ["architecture"],
       "allowedExtra": ["module-data", "umes", "backend-ui", "framework-context"]
     },
-    "requiredSkills": [],
+    "requiredSkills": ["om-help"],
     "context": {
-      "required": ["AGENTS.md", ".ai/guides/modules/dictionaries.md"],
-      "allowedExtra": [
+      "required": [
+        "AGENTS.md",
         ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/dictionaries.md"
+      ],
+      "allowedExtra": [
         ".ai/guides/contracts.md",
         ".ai/guides/extensions.md",
-        ".ai/skills/om-help/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-system-extension/references/mechanism-selector.md",
         ".ai/skills/om-data-model-design/SKILL.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
-    "requiredDecisions": ["facts-first", "tenant-scope"],
+    "requiredDecisions": ["facts-first", "tenant-scope", "acl-features", "smallest-validation"],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
       "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
@@ -12975,20 +12978,23 @@
       "required": ["architecture"],
       "allowedExtra": ["module-data", "integration", "framework-context", "umes"]
     },
-    "requiredSkills": [],
+    "requiredSkills": ["om-help"],
     "context": {
-      "required": ["AGENTS.md", ".ai/guides/modules/api_keys.md"],
-      "allowedExtra": [
+      "required": [
+        "AGENTS.md",
         ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/api_keys.md"
+      ],
+      "allowedExtra": [
         ".ai/guides/contracts.md",
         ".ai/guides/integrations.md",
-        ".ai/skills/om-help/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-system-extension/references/mechanism-selector.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
-    "requiredDecisions": ["facts-first", "acl-features"],
+    "requiredDecisions": ["facts-first", "acl-features", "tenant-scope", "smallest-validation"],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
       "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"

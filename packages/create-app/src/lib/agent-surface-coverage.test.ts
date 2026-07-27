@@ -149,6 +149,7 @@ test('the 189-case catalog routes audited installed-module, runtime, and AI/prov
     prompt: string
     context: { required: string[]; allowedExtra?: string[] }
     requiredDecisions: string[]
+    requiredSkills: string[]
     expectedRouter: { required: string[] }
   }>
   assert.equal(cases.length, 189)
@@ -191,6 +192,14 @@ test('the 189-case catalog routes audited installed-module, runtime, and AI/prov
       contexts: ['.ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md'],
       decisions: ['module-queue-factory', 'discovered-worker-metadata', 'scoped-serializable-job', 'queue-retry-idempotency'],
     },
+    'OMH-188': {
+      contexts: ['.ai/guides/modules/dictionaries.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
+    },
+    'OMH-189': {
+      contexts: ['.ai/guides/modules/api_keys.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'acl-features', 'tenant-scope', 'smallest-validation'],
+    },
   }
   for (const [caseId, expected] of Object.entries(expectations)) {
     const record = byId.get(caseId)
@@ -210,6 +219,16 @@ test('the 189-case catalog routes audited installed-module, runtime, and AI/prov
   assert.ok(byId.get('OMH-185')?.context.allowedExtra?.includes('.ai/skills/om-system-extension/references/read-write-roundtrip.md'))
   assert.deepEqual(byId.get('OMH-186')?.expectedRouter.required, ['module-data'])
   assert.deepEqual(byId.get('OMH-187')?.expectedRouter.required, ['module-data'])
+
+  for (const caseId of ['OMH-188', 'OMH-189']) {
+    const record = byId.get(caseId)
+    assert.deepEqual(record?.expectedRouter.required, ['architecture'], `${caseId}: reuse-installed routing is an architecture decision`)
+    assert.ok(record?.requiredSkills.includes('om-help'), `${caseId}: a comparative installed-versus-new choice must open om-help`)
+    assert.ok(record?.context.required.includes('.ai/guides/architecture.md'), `${caseId}: the architecture guide must be observed, not merely allowed`)
+    assert.ok(record?.context.required.includes('.ai/skills/om-help/SKILL.md'), `${caseId}: the om-help skill must be observed, not merely allowed`)
+  }
+  assert.ok(byId.get('OMH-188')?.context.required.includes('.ai/guides/modules/dictionaries.md'))
+  assert.ok(byId.get('OMH-189')?.context.required.includes('.ai/guides/modules/api_keys.md'))
 })
 
 test('the second-round cohort is exactly 92 business-language prompts without leaked framework contracts', () => {
@@ -228,6 +247,44 @@ test('the second-round cohort is exactly 92 business-language prompts without le
   const prohibitedImplementationVocabulary = /(?:\b(?:IntegrationDefinition|ChannelAdapter|GatewayAdapter|ShippingAdapter|availabilityAccessResolver|checkAttachmentAccess|onTenantCreated|seedDefaults|seedExamples|registerGatewayAdapter|registerWebhookHandler|registerPaymentGatewayDescriptor|registerShippingAdapter|tenantId|organizationId)\b|\/api\/staff\/team-members\/assignable\b|--no-examples\b|\bsetup\.ts\b)/
   for (const entry of cohort) {
     assert.doesNotMatch(entry.prompt, prohibitedImplementationVocabulary, `${entry.id} leaks an implementation contract into its business prompt`)
+  }
+})
+
+test('the published case schema accepts the shipped catalog it pins', () => {
+  const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<Record<string, unknown>>
+  const schema = JSON.parse(read('shared/ai/harness/cases.schema.json')) as {
+    minItems: number
+    maxItems: number
+    items: {
+      required: string[]
+      properties: Record<string, { pattern?: string; items?: { pattern?: string }; properties?: Record<string, { items?: { pattern?: string } }> }>
+    }
+  }
+
+  assert.equal(schema.minItems, cases.length, 'schema minItems must pin the shipped catalog size')
+  assert.equal(schema.maxItems, cases.length, 'schema maxItems must pin the shipped catalog size')
+
+  const idPattern = new RegExp(schema.items.properties.id.pattern ?? '')
+  const relatedPattern = new RegExp(schema.items.properties.relatedCases.items?.pattern ?? '')
+  const oraclePattern = new RegExp(schema.items.properties.oracle.properties?.validatorIds.items?.pattern ?? '')
+  const declaredProperties = new Set(Object.keys(schema.items.properties))
+
+  for (const entry of cases) {
+    const id = entry.id as string
+    assert.match(id, idPattern, `${id}: schema id pattern rejects a shipped case`)
+    for (const required of schema.items.required) {
+      assert.ok(required in entry, `${id}: missing schema-required property ${required}`)
+    }
+    for (const property of Object.keys(entry)) {
+      assert.ok(declaredProperties.has(property), `${id}: undeclared property ${property} under additionalProperties:false`)
+    }
+    for (const related of (entry.relatedCases as string[] | undefined) ?? []) {
+      assert.match(related, relatedPattern, `${id}: schema relatedCases pattern rejects ${related}`)
+    }
+    const oracle = entry.oracle as { validatorIds?: string[] } | undefined
+    for (const validatorId of oracle?.validatorIds ?? []) {
+      assert.match(validatorId, oraclePattern, `${id}: schema oracle validatorId pattern rejects ${validatorId}`)
+    }
   }
 })
 
