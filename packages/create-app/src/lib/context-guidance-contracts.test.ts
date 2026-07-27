@@ -88,6 +88,8 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(integrity, /Never ship an empty or stub `undo`/)
   assert.match(integrity, /must call `buildCustomFieldResetMap`/)
   assert.match(integrity, /`Object\.assign` alone does not replace/)
+  assert.match(integrity, /`logEntry\.resourceId` is nullable/)
+  assert.match(integrity, /store the stable record ID in the undo payload/)
 })
 
 test('progressive module references pin search, i18n, and intentional extension hosts', () => {
