@@ -17,6 +17,11 @@
  * Step 4.5: EXECUTE_FUNCTION graduates to form-first with a FunctionPicker
  * combobox for config.functionName fed by /api/workflows/functions (free text
  * stays authorable; fetch failure degrades to free text with a hint).
+ *
+ * Step 4.6: SET_VARIABLE graduates to form-first with an assignments row
+ * editor — a path input plus a value field with a per-row JSON toggle (plain
+ * strings preserve {{template}} expressions; JSON mode round-trips structured
+ * values through a keystroke-safe textarea).
  */
 import * as React from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
@@ -79,7 +84,7 @@ describe('hasActivityConfigForm', () => {
     expect(hasActivityConfigForm('EMIT_EVENT')).toBe(true)
     expect(hasActivityConfigForm('UPDATE_ENTITY')).toBe(true)
     expect(hasActivityConfigForm('EXECUTE_FUNCTION')).toBe(true)
-    expect(hasActivityConfigForm('SET_VARIABLE')).toBe(false)
+    expect(hasActivityConfigForm('SET_VARIABLE')).toBe(true)
     expect(hasActivityConfigForm('UNKNOWN_TYPE')).toBe(false)
   })
 })
@@ -328,6 +333,114 @@ describe('ActivityConfigFields', () => {
     fireEvent.keyDown(pickerInput, { key: 'Enter' })
     expect(onChange).toHaveBeenCalledWith({ functionName: 'custom.unregistered.function' })
   })
+
+  it('renders SET_VARIABLE assignment rows from existing config', () => {
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="SET_VARIABLE"
+        idPrefix="set-config"
+        config={{ assignments: [{ path: 'customer.priority', value: 'high' }] }}
+        onChange={jest.fn()}
+      />,
+    )
+
+    const pathInput = screen.getByPlaceholderText('workflows.fieldEditors.activities.assignmentPathPlaceholder')
+    expect(pathInput).toHaveValue('customer.priority')
+    expect(screen.getByDisplayValue('high')).toBeInTheDocument()
+    expect(screen.getByText('workflows.activityConfig.SET_VARIABLE.assignmentsHint')).toBeInTheDocument()
+  })
+
+  it('adds and removes assignment rows, updating config.assignments', () => {
+    const onChange = jest.fn()
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="SET_VARIABLE"
+        idPrefix="set-config"
+        config={{ assignments: [{ path: 'customer.priority', value: 'high' }] }}
+        onChange={onChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'workflows.fieldEditors.activities.assignmentAddRow' }))
+    const pathInputs = screen.getAllByPlaceholderText('workflows.fieldEditors.activities.assignmentPathPlaceholder')
+    expect(pathInputs).toHaveLength(2)
+
+    fireEvent.change(pathInputs[1], { target: { value: 'customer.segment' } })
+    expect(onChange).toHaveBeenCalledWith({
+      assignments: [
+        { path: 'customer.priority', value: 'high' },
+        { path: 'customer.segment', value: '' },
+      ],
+    })
+
+    const removeButtons = screen.getAllByRole('button', { name: 'workflows.fieldEditors.activities.assignmentRemoveRow' })
+    fireEvent.click(removeButtons[0])
+    fireEvent.click(screen.getByRole('button', { name: 'workflows.fieldEditors.activities.assignmentRemoveRow' }))
+    expect(onChange).toHaveBeenLastCalledWith({})
+  })
+
+  it('round-trips an object value through the per-row JSON toggle', () => {
+    const onChange = jest.fn()
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="SET_VARIABLE"
+        idPrefix="set-config"
+        config={{ assignments: [{ path: 'customer.flags', value: { vip: true } }] }}
+        onChange={onChange}
+      />,
+    )
+
+    const toggle = screen.getByRole('button', { name: 'workflows.fieldEditors.activities.assignmentJsonToggle' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+    const valueTextarea = screen.getByLabelText(/assignmentValue/)
+    expect((valueTextarea as HTMLTextAreaElement).value).toContain('"vip": true')
+
+    fireEvent.change(valueTextarea, { target: { value: '{"vip": false}' } })
+    expect(onChange).toHaveBeenCalledWith({
+      assignments: [{ path: 'customer.flags', value: { vip: false } }],
+    })
+  })
+
+  it('does not emit while JSON is invalid and keeps the typed text', () => {
+    const onChange = jest.fn()
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="SET_VARIABLE"
+        idPrefix="set-config"
+        config={{ assignments: [{ path: 'customer.flags', value: { vip: true } }] }}
+        onChange={onChange}
+      />,
+    )
+
+    const valueTextarea = screen.getByLabelText(/assignmentValue/)
+    fireEvent.change(valueTextarea, { target: { value: '{"vip": fal' } })
+
+    expect(onChange).not.toHaveBeenCalled()
+    expect((valueTextarea as HTMLTextAreaElement).value).toBe('{"vip": fal')
+    expect(screen.getByText('workflows.fieldEditors.activities.invalidJson')).toBeInTheDocument()
+  })
+
+  it('preserves {{template}} strings as plain text values', () => {
+    const onChange = jest.fn()
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="SET_VARIABLE"
+        idPrefix="set-config"
+        config={{ assignments: [{ path: 'order.ref', value: '{{context.orderId}}' }] }}
+        onChange={onChange}
+      />,
+    )
+
+    const valueInput = screen.getByLabelText(/assignmentValue/)
+    expect(valueInput).toHaveValue('{{context.orderId}}')
+    expect(valueInput.tagName).toBe('INPUT')
+
+    fireEvent.change(valueInput, { target: { value: '{{context.orderNumber}}' } })
+    expect(onChange).toHaveBeenCalledWith({
+      assignments: [{ path: 'order.ref', value: '{{context.orderNumber}}' }],
+    })
+  })
 })
 
 describe('ActivityArrayEditor — registry-driven forms with Advanced (JSON)', () => {
@@ -361,15 +474,35 @@ describe('ActivityArrayEditor — registry-driven forms with Advanced (JSON)', (
   it('keeps the JSON builder primary for types without a form yet', () => {
     renderWithProviders(
       <StatefulEditor
-        initial={[{ ...emailActivity, activityName: 'Set Variable', activityType: 'SET_VARIABLE', config: {} }]}
+        initial={[{ ...emailActivity, activityName: 'Custom Step', activityType: 'CUSTOM_UNREGISTERED', config: {} }]}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Custom Step'))
+
+    expect(screen.queryByRole('button', { name: /advancedJson/ })).toBeNull()
+    expect(screen.getByText('workflows.fieldEditors.activities.configurationJson')).toBeInTheDocument()
+    expect(screen.getByText('workflows.fieldEditors.activities.configurationHint')).toBeInTheDocument()
+  })
+
+  it('renders SET_VARIABLE form-first with the assignments editor and Advanced (JSON) collapsed', () => {
+    renderWithProviders(
+      <StatefulEditor
+        initial={[{
+          ...emailActivity,
+          activityName: 'Set Variable',
+          activityType: 'SET_VARIABLE',
+          config: { assignments: [{ path: 'customer.priority', value: 'high' }] },
+        }]}
       />,
     )
 
     fireEvent.click(screen.getByText('Set Variable'))
 
-    expect(screen.queryByRole('button', { name: /advancedJson/ })).toBeNull()
-    expect(screen.getByText('workflows.fieldEditors.activities.configurationJson')).toBeInTheDocument()
-    expect(screen.getByText('workflows.fieldEditors.activities.configurationHint')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('workflows.fieldEditors.activities.assignmentPathPlaceholder')).toHaveValue('customer.priority')
+    expect(screen.getByDisplayValue('high')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /advancedJson/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('workflows.fieldEditors.activities.configurationHint')).toBeNull()
   })
 
   it('renders EMIT_EVENT form-first with the Advanced (JSON) section collapsed', () => {

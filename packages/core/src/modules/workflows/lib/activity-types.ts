@@ -172,7 +172,12 @@ export function registerBuiltinActivityTypes(): void {
     i18nKey: i18nKeyFor('SET_VARIABLE'),
     configSchema: setVariableConfigSchema,
     form: [
-      { id: 'assignments', component: 'json', required: true },
+      {
+        id: 'assignments',
+        component: 'assignments',
+        required: true,
+        descriptionKey: 'workflows.activityConfig.SET_VARIABLE.assignmentsHint',
+      },
     ],
     execute: async (config, ctx) => (await loadExecutor()).executeSetVariable(config, ctx),
     async: { capable: true },

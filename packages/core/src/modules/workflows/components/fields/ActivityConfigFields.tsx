@@ -22,11 +22,10 @@ import { FunctionPicker } from './FunctionPicker'
  *
  * Renders an activity's `config` object from the registry entry's
  * `form: ActivityFormFieldSpec[]` via a component-hint map. Unknown hints
- * (including the select hint that arrives in step 4.6) fall back to a plain
- * text input.
+ * fall back to a plain text input.
  */
 
-const TYPES_WITH_CONFIG_FORM = new Set(['WAIT', 'SEND_EMAIL', 'CALL_WEBHOOK', 'CALL_API', 'EMIT_EVENT', 'UPDATE_ENTITY', 'EXECUTE_FUNCTION'])
+const TYPES_WITH_CONFIG_FORM = new Set(['WAIT', 'SEND_EMAIL', 'CALL_WEBHOOK', 'CALL_API', 'EMIT_EVENT', 'UPDATE_ENTITY', 'EXECUTE_FUNCTION', 'SET_VARIABLE'])
 
 export function hasActivityConfigForm(activityType: string): boolean {
   return TYPES_WITH_CONFIG_FORM.has(activityType) && getActivityType(activityType) != null
@@ -152,6 +151,184 @@ function KeyValueRowsEditor({ idPrefix, label, value, onChange, disabled }: KeyV
       >
         <Plus className="size-3 mr-1" />
         {t('workflows.fieldEditors.activities.keyValueAddRow')}
+      </Button>
+    </div>
+  )
+}
+
+type AssignmentValue = { path: string; value: unknown }
+
+type AssignmentRow = { path: string; jsonMode: boolean; text: string; invalid: boolean }
+
+function assignmentsToRows(value: unknown): AssignmentRow[] {
+  if (!Array.isArray(value)) return []
+  return value.map((entry) => {
+    const record = entry != null && typeof entry === 'object' && !Array.isArray(entry) ? (entry as Record<string, unknown>) : {}
+    const path = typeof record.path === 'string' ? record.path : ''
+    const rawValue = record.value
+    if (typeof rawValue === 'string') return { path, jsonMode: false, text: rawValue, invalid: false }
+    return {
+      path,
+      jsonMode: true,
+      text: rawValue === undefined ? '' : JSON.stringify(rawValue, null, 2),
+      invalid: false,
+    }
+  })
+}
+
+function parseAssignmentRowValue(row: AssignmentRow): { value: unknown; invalid: boolean } {
+  if (!row.jsonMode) return { value: row.text, invalid: false }
+  if (row.text.trim().length === 0) return { value: undefined, invalid: false }
+  try {
+    return { value: JSON.parse(row.text) as unknown, invalid: false }
+  } catch {
+    return { value: undefined, invalid: true }
+  }
+}
+
+interface AssignmentRowsEditorProps {
+  idPrefix: string
+  label: string
+  value: unknown
+  onChange: (value: AssignmentValue[] | undefined) => void
+  disabled?: boolean
+}
+
+function AssignmentRowsEditor({ idPrefix, label, value, onChange, disabled }: AssignmentRowsEditorProps) {
+  const t = useT()
+  const [rows, setRows] = React.useState<AssignmentRow[]>(() => assignmentsToRows(value))
+  const emittedRef = React.useRef(JSON.stringify(Array.isArray(value) ? value : []))
+
+  React.useEffect(() => {
+    const serialized = JSON.stringify(Array.isArray(value) ? value : [])
+    if (serialized === emittedRef.current) return
+    emittedRef.current = serialized
+    setRows(assignmentsToRows(value))
+  }, [value])
+
+  const commit = (nextRows: AssignmentRow[]) => {
+    const markedRows = nextRows.map((row) => ({ ...row, invalid: parseAssignmentRowValue(row).invalid }))
+    setRows(markedRows)
+    if (markedRows.some((row) => row.invalid)) return
+    const assignments: AssignmentValue[] = []
+    for (const row of markedRows) {
+      if (row.path.trim().length === 0) continue
+      assignments.push({ path: row.path, value: parseAssignmentRowValue(row).value })
+    }
+    const next = assignments.length > 0 ? assignments : undefined
+    emittedRef.current = JSON.stringify(next ?? [])
+    onChange(next)
+  }
+
+  const toggleJsonMode = (rowIndex: number) => {
+    commit(
+      rows.map((row, entryIndex) => {
+        if (entryIndex !== rowIndex) return row
+        if (row.jsonMode) {
+          let nextText = row.text
+          try {
+            const parsed = JSON.parse(row.text) as unknown
+            if (typeof parsed === 'string') nextText = parsed
+          } catch {
+            nextText = row.text
+          }
+          return { ...row, jsonMode: false, text: nextText }
+        }
+        let nextText = row.text
+        if (row.text.trim().length > 0) {
+          try {
+            JSON.parse(row.text)
+          } catch {
+            nextText = JSON.stringify(row.text)
+          }
+        }
+        return { ...row, jsonMode: true, text: nextText }
+      }),
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {rows.map((row, rowIndex) => (
+        <div key={rowIndex} className="flex items-start gap-2">
+          <Input
+            id={`${idPrefix}-${rowIndex}-path`}
+            type="text"
+            value={row.path}
+            onChange={(event) =>
+              commit(rows.map((entry, entryIndex) => (entryIndex === rowIndex ? { ...entry, path: event.target.value } : entry)))
+            }
+            placeholder={t('workflows.fieldEditors.activities.assignmentPathPlaceholder')}
+            aria-label={`${label} — ${t('workflows.fieldEditors.activities.assignmentPath')}`}
+            className="text-xs"
+            disabled={disabled}
+          />
+          <div className="flex-1 min-w-0">
+            {row.jsonMode ? (
+              <Textarea
+                id={`${idPrefix}-${rowIndex}-value`}
+                value={row.text}
+                onChange={(event) =>
+                  commit(rows.map((entry, entryIndex) => (entryIndex === rowIndex ? { ...entry, text: event.target.value } : entry)))
+                }
+                rows={3}
+                placeholder='{"key": "value"}'
+                aria-label={`${label} — ${t('workflows.fieldEditors.activities.assignmentValue')}`}
+                aria-invalid={row.invalid || undefined}
+                className="text-xs font-mono"
+                disabled={disabled}
+              />
+            ) : (
+              <Input
+                id={`${idPrefix}-${rowIndex}-value`}
+                type="text"
+                value={row.text}
+                onChange={(event) =>
+                  commit(rows.map((entry, entryIndex) => (entryIndex === rowIndex ? { ...entry, text: event.target.value } : entry)))
+                }
+                placeholder={t('workflows.fieldEditors.activities.assignmentValuePlaceholder')}
+                aria-label={`${label} — ${t('workflows.fieldEditors.activities.assignmentValue')}`}
+                className="text-xs"
+                disabled={disabled}
+              />
+            )}
+            {row.invalid && (
+              <p className="text-xs text-status-error-text mt-1">
+                {t('workflows.fieldEditors.activities.invalidJson')}
+              </p>
+            )}
+          </div>
+          <Button
+            type="button"
+            variant={row.jsonMode ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => toggleJsonMode(rowIndex)}
+            aria-pressed={row.jsonMode}
+            aria-label={t('workflows.fieldEditors.activities.assignmentJsonToggle')}
+            disabled={disabled}
+          >
+            {t('workflows.fieldEditors.activities.assignmentJsonToggle')}
+          </Button>
+          <IconButton
+            variant="ghost"
+            size="sm"
+            onClick={() => commit(rows.filter((_, entryIndex) => entryIndex !== rowIndex))}
+            aria-label={t('workflows.fieldEditors.activities.assignmentRemoveRow')}
+            disabled={disabled}
+          >
+            <Trash2 className="size-3.5" />
+          </IconButton>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setRows([...rows, { path: '', jsonMode: false, text: '', invalid: false }])}
+        disabled={disabled}
+      >
+        <Plus className="size-3 mr-1" />
+        {t('workflows.fieldEditors.activities.assignmentAddRow')}
       </Button>
     </div>
   )
@@ -332,6 +509,16 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
         return (
           <FunctionPicker
             value={stringValue(rawValue)}
+            onChange={(nextValue) => setField(spec, nextValue)}
+            disabled={disabled}
+          />
+        )
+      case 'assignments':
+        return (
+          <AssignmentRowsEditor
+            idPrefix={fieldId}
+            label={label}
+            value={rawValue}
             onChange={(nextValue) => setField(spec, nextValue)}
             disabled={disabled}
           />
