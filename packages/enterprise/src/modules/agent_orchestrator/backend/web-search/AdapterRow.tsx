@@ -38,6 +38,15 @@ export type InstalledAdapter = {
   configurationHint: string | null
 }
 
+export type AdapterHealth = {
+  id: string
+  enabled: boolean
+  ready: boolean
+  ok: boolean
+  detail: string | null
+  latencyMs: number | null
+}
+
 export const SECRET_PLACEHOLDER = '__om_secret_unchanged__'
 
 const ACRONYMS: Readonly<Record<string, string>> = {
@@ -149,6 +158,7 @@ export type AdapterRowProps = {
   enabled: boolean
   weight: number
   meta?: InstalledAdapter
+  health?: AdapterHealth
   options: Record<string, unknown>
   onToggle: (enabled: boolean) => void
   onWeight: (weight: number) => void
@@ -160,6 +170,7 @@ export function AdapterRow({
   enabled,
   weight,
   meta,
+  health,
   options,
   onToggle,
   onWeight,
@@ -169,6 +180,15 @@ export function AdapterRow({
   const [open, setOpen] = React.useState(false)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   const fields = meta?.fields ?? []
+
+  // Health is shown per row rather than in a separate card: a standalone summary
+  // goes stale the moment an adapter is toggled or reordered, and it separated a
+  // fact from the control that changes it.
+  const needsConfig = meta ? !meta.configured : false
+  const statusDetail =
+    (needsConfig ? meta?.configurationHint : null) ??
+    health?.detail ??
+    (health?.ok && health.latencyMs !== null ? `${health.latencyMs}ms` : null)
 
   return (
     <div
@@ -193,15 +213,21 @@ export function AdapterRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-medium">{id}</span>
-            {meta && !meta.configured ? (
+            {needsConfig ? (
               <StatusBadge variant="warning">
                 {t('agent_orchestrator.settings.webSearch.needsConfig', 'Configuration required')}
+              </StatusBadge>
+            ) : enabled && health ? (
+              <StatusBadge variant={health.ok ? 'success' : 'warning'} dot>
+                {health.ok
+                  ? t('agent_orchestrator.settings.webSearch.healthOk', 'Healthy')
+                  : t('agent_orchestrator.settings.webSearch.healthProblem', 'Problem')}
               </StatusBadge>
             ) : null}
           </div>
           <p className="truncate text-xs text-muted-foreground">
-            {meta?.packageName ?? t('agent_orchestrator.settings.webSearch.notInstalled', 'Not installed')}
-            {meta && !meta.configured && meta.configurationHint ? ` — ${meta.configurationHint}` : ''}
+            <span className="font-mono">{meta?.packageName ?? '—'}</span>
+            {statusDetail ? <span className="ml-2">{statusDetail}</span> : null}
           </p>
         </div>
 

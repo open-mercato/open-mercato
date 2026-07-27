@@ -25,12 +25,14 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
+import { RotateCw } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -38,10 +40,10 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { WebSearchHealthCard } from '../../components/WebSearchHealthCard'
-import { AdapterRow, type InstalledAdapter } from './AdapterRow'
+import { AdapterRow, type AdapterHealth, type InstalledAdapter } from './AdapterRow'
 
 const SETTINGS_URL = '/api/agent_orchestrator/web-search/settings'
+const HEALTH_URL = '/api/agent_orchestrator/web-search/health'
 
 type AdapterEntry = { id: string; enabled: boolean; order: number; weight: number }
 
@@ -85,6 +87,73 @@ function mergeAdapters(policy: Policy, installed: InstalledAdapter[]): AdapterEn
         },
     )
     .sort((left, right) => left.order - right.order)
+}
+
+/**
+ * Whether web search is usable at all, which is what an operator wants to know at
+ * a glance. A save receipt is transient noise; this stays meaningful.
+ */
+function HeaderStatus({
+  activeCount,
+  saveState,
+  isRefreshing,
+  onRefresh,
+}: {
+  activeCount: number
+  saveState: 'idle' | 'saving' | 'saved' | 'error'
+  isRefreshing: boolean
+  onRefresh: () => void
+}) {
+  const t = useT()
+  const refresh = (
+    <Button
+      variant="outline"
+      size="sm"
+      aria-label={t('agent_orchestrator.settings.webSearch.recheck', 'Re-check adapters')}
+      disabled={isRefreshing}
+      onClick={onRefresh}
+    >
+      <RotateCw className={isRefreshing ? 'size-4 animate-spin' : 'size-4'} />
+    </Button>
+  )
+  const badge =
+    saveState === 'saving' ? (
+      <span className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Spinner className="size-3.5" />
+        {t('agent_orchestrator.settings.webSearch.saving', 'Saving…')}
+      </span>
+    ) : saveState === 'error' ? (
+      <StatusBadge variant="error" dot>
+        {t('agent_orchestrator.settings.webSearch.saveFailed', 'Not saved')}
+      </StatusBadge>
+    ) : activeCount > 0 ? (
+      <StatusBadge variant="success" dot>
+        {t('agent_orchestrator.settings.webSearch.statusActive', 'Active - {count} adapter(s)', {
+          count: String(activeCount),
+        })}
+      </StatusBadge>
+    ) : (
+      <StatusBadge variant="neutral" dot>
+        {t('agent_orchestrator.settings.webSearch.statusInactive', 'Inactive - no adapter enabled')}
+      </StatusBadge>
+    )
+
+  return (
+    <div className="flex items-center gap-2">
+      {badge}
+      {refresh}
+    </div>
+  )
+}
+
+/** A labelled subsection inside a card, so a long knob grid reads in chunks. */
+function FieldGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h3>
+      {children}
+    </section>
+  )
 }
 
 function NumberField({
@@ -145,12 +214,16 @@ export default function WebSearchSettingsPage() {
   const t = useT()
   const [policy, setPolicy] = React.useState<Policy | null>(null)
   const [installed, setInstalled] = React.useState<InstalledAdapter[]>([])
+  const [health, setHealth] = React.useState<AdapterHealth[]>([])
   const [adapterOptions, setAdapterOptions] = React.useState<AdapterOptions>({})
   const [source, setSource] = React.useState<'tenant' | 'instance'>('instance')
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
-  const [isSaving, setIsSaving] = React.useState(false)
+  const [saveState, setSaveState] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const { runMutation } = useGuardedMutation({ contextId: 'agent_orchestrator.web_search.settings' })
+  // Nothing is persisted until the first load has populated state, otherwise the
+  // mount would immediately write the instance defaults back as a tenant override.
+  const hydrated = React.useRef(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -172,6 +245,7 @@ export default function WebSearchSettingsPage() {
       setSource(next.source)
       setPolicy({ ...next.policy, adapters: mergeAdapters(next.policy, adapters) })
       setLoadError(null)
+      hydrated.current = true
     } catch {
       setLoadError(t('agent_orchestrator.settings.webSearch.loadError', 'Could not load web search settings.'))
     } finally {
@@ -179,9 +253,24 @@ export default function WebSearchSettingsPage() {
     }
   }, [t])
 
+  const [isRefreshing, setIsRefreshing] = React.useState(false)
+
+  const loadHealth = React.useCallback(async () => {
+    setIsRefreshing(true)
+    try {
+      const call = await apiCall<{ adapters?: AdapterHealth[] }>(HEALTH_URL)
+      if (call.ok && Array.isArray(call.result?.adapters)) setHealth(call.result.adapters)
+    } catch {
+      // Health is advisory; a failed probe must not break the settings screen.
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [])
+
   React.useEffect(() => {
     void load()
-  }, [load])
+    void loadHealth()
+  }, [load, loadHealth])
 
   const update = (patch: Partial<Policy>) => {
     setPolicy((current) => (current ? { ...current, ...patch } : current))
@@ -224,18 +313,18 @@ export default function WebSearchSettingsPage() {
     })
   }
 
-  const save = async () => {
-    if (!policy) return
-    setIsSaving(true)
-    try {
+  const persist = React.useCallback(
+    async (nextPolicy: Policy, nextOptions: AdapterOptions) => {
+      setSaveState('saving')
       await runMutation({
         context: { contextId: 'agent_orchestrator.web_search.settings' },
         operation: async () => {
           const call = await apiCall(SETTINGS_URL, {
             method: 'PUT',
-            body: JSON.stringify({ ...policy, adapterOptions }),
+            body: JSON.stringify({ ...nextPolicy, adapterOptions: nextOptions }),
           })
           if (!call.ok) {
+            setSaveState('error')
             flash(
               t('agent_orchestrator.settings.webSearch.saveError', 'Could not save web search settings.'),
               'error',
@@ -243,13 +332,26 @@ export default function WebSearchSettingsPage() {
             return
           }
           setSource('tenant')
-          flash(t('agent_orchestrator.settings.webSearch.saved', 'Web search settings saved.'), 'success')
+          setSaveState('saved')
+          // Enabling or reordering changes what is actually live, so re-probe
+          // rather than leaving stale badges on the rows.
+          void loadHealth()
         },
       })
-    } finally {
-      setIsSaving(false)
-    }
-  }
+    },
+    [runMutation, t, loadHealth],
+  )
+
+  // Autosave: these are independent knobs, not a form with cross-field validation,
+  // so an explicit Save button only adds a step you can forget. Debounced so a
+  // typed number or key is written once, when you stop, rather than per keystroke.
+  React.useEffect(() => {
+    if (!hydrated.current || !policy) return
+    const timer = setTimeout(() => {
+      void persist(policy, adapterOptions)
+    }, 700)
+    return () => clearTimeout(timer)
+  }, [policy, adapterOptions, persist])
 
   if (isLoading) {
     return (
@@ -284,16 +386,16 @@ export default function WebSearchSettingsPage() {
           'Choose which search sources agents may use, in which order, and how long they may take.',
         )}
         actions={
-          <Button onClick={() => void save()} disabled={isSaving}>
-            {isSaving ? <Spinner className="size-4" /> : null}
-            {t('agent_orchestrator.settings.webSearch.save', 'Save')}
-          </Button>
+          <HeaderStatus
+            activeCount={enabledCount}
+            saveState={saveState}
+            isRefreshing={isRefreshing}
+            onRefresh={() => void loadHealth()}
+          />
         }
       />
 
       <PageBody>
-        <WebSearchHealthCard />
-
         <Card>
           <CardHeader>
             <CardTitle>{t('agent_orchestrator.settings.webSearch.adapters', 'Adapters')}</CardTitle>
@@ -327,6 +429,7 @@ export default function WebSearchSettingsPage() {
                         enabled={entry.enabled}
                         weight={entry.weight}
                         meta={installed.find((adapter) => adapter.id === entry.id)}
+                        health={health.find((report) => report.id === entry.id)}
                         options={adapterOptions[entry.id] ?? {}}
                         onToggle={(enabled) => updateAdapter(entry.id, { enabled })}
                         onWeight={(weight) => updateAdapter(entry.id, { weight })}
