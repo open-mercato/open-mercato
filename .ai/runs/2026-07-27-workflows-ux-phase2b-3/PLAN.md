@@ -29,7 +29,7 @@
 | 1 | 1.13 | InputDataPanel + drag-from-input-panel | done | e521512be |
 | 2 | 2.1 | IF_ELSE + SWITCH step types (enum, pass-through handlers, minEngineVersion guard) | done | 3a427bbfc |
 | 2 | 2.2 | If/Else + Switch editor (nodes, inspectors, otherwise warnings) | done | e9686c8b5 |
-| 2 | 2.3 | WAIT_FOR_CONDITION engine core (condition-handler, queue backstop, DI) | todo | — |
+| 2 | 2.3 | WAIT_FOR_CONDITION engine core (condition-handler, queue backstop, DI) | done | f33055221 |
 | 2 | 2.4 | WAIT_FOR_CONDITION wake API (scoped context PATCH + ACL + lock) | todo | — |
 | 2 | 2.5 | WAIT_FOR_CONDITION visual editor (node, config, fail-closed validators) | todo | — |
 | 2 | 2.6 | Error routes model + engine (kind:'error' transitions, directives, ERROR_ROUTED) | todo | — |

@@ -5,6 +5,8 @@
  * Jobs are discriminated by the optional `kind` field:
  *   - `'activity'` (default, back-compat): background execution of a workflow activity
  *   - `'timer'`: delayed fire-timer job for a WAIT_FOR_TIMER step
+ *   - `'condition'`: delayed poll job for a WAIT_FOR_CONDITION step — the
+ *     durability backstop behind the event-driven context-write wake
  *   - `'invoke_agent'`: run an INVOKE_AGENT step's agent OUTSIDE the workflow
  *     transaction, then resume the parked step via the proposal-ready signal
  */
@@ -47,6 +49,19 @@ export interface WorkflowActivityJobTimer extends WorkflowActivityJobBase {
   fireAt: string // ISO 8601 timestamp for when the timer should fire
 }
 
+/**
+ * Poll job for a WAIT_FOR_CONDITION step. `deadlineAt` is absolute and carried
+ * on the payload rather than recomputed per tick, so a slow queue can never
+ * silently extend the configured timeout. `attempt` is 1-based and guards
+ * against a runaway re-enqueue loop (see OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS).
+ */
+export interface WorkflowActivityJobCondition extends WorkflowActivityJobBase {
+  kind: 'condition'
+  stepInstanceId: string
+  deadlineAt: string
+  attempt: number
+}
+
 export interface WorkflowActivityJobInvokeAgent extends WorkflowActivityJobBase {
   kind: 'invoke_agent'
   stepInstanceId: string
@@ -87,6 +102,7 @@ export interface WorkflowActivityJobResumeSubWorkflowParent extends WorkflowActi
 export type WorkflowActivityJob =
   | WorkflowActivityJobActivity
   | WorkflowActivityJobTimer
+  | WorkflowActivityJobCondition
   | WorkflowActivityJobInvokeAgent
   | WorkflowActivityJobResumeSubWorkflowParent
 

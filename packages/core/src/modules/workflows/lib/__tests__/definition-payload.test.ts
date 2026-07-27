@@ -1,6 +1,6 @@
 import { buildDefinitionPayload, buildMetadataPayload } from '../definition-payload'
 import { workflowMetadataSchema } from '../../data/validators'
-import { WORKFLOW_ENGINE_VERSION } from '../engine-version'
+import { STEP_TYPE_MIN_ENGINE_VERSIONS } from '../engine-version'
 import type { WorkflowContextSchema, WorkflowDefinitionData, WorkflowDefinitionTrigger } from '../../data/entities'
 
 const graphDefinition: WorkflowDefinitionData = {
@@ -139,7 +139,26 @@ describe('buildMetadataPayload', () => {
       icon: '',
       definition: branchingDefinition,
     })
-    expect(payload).toEqual({ minEngineVersion: WORKFLOW_ENGINE_VERSION })
+    expect(payload).toEqual({ minEngineVersion: STEP_TYPE_MIN_ENGINE_VERSIONS.IF_ELSE })
+  })
+
+  it('stamps the WAIT_FOR_CONDITION engine version when the definition uses that step type', () => {
+    const conditionDefinition: WorkflowDefinitionData = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'wait', stepName: 'Wait', stepType: 'WAIT_FOR_CONDITION' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: graphDefinition.transitions,
+    }
+    const payload = buildMetadataPayload({
+      loadedMetadata: null,
+      category: '',
+      tags: [],
+      icon: '',
+      definition: conditionDefinition,
+    })
+    expect(payload).toEqual({ minEngineVersion: STEP_TYPE_MIN_ENGINE_VERSIONS.WAIT_FOR_CONDITION })
   })
 
   it('leaves baseline definitions without a minEngineVersion key', () => {

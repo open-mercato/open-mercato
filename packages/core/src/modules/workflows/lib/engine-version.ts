@@ -12,8 +12,9 @@
  * Version log:
  * - 1: baseline (all step types up to and including WAIT_FOR_TIMER)
  * - 2: IF_ELSE and SWITCH branching steps
+ * - 3: WAIT_FOR_CONDITION predicate wait step
  */
-export const WORKFLOW_ENGINE_VERSION = 2
+export const WORKFLOW_ENGINE_VERSION = 3
 
 /**
  * Engine version required by the step types a definition actually uses. Kept
@@ -23,6 +24,7 @@ export const WORKFLOW_ENGINE_VERSION = 2
 export const STEP_TYPE_MIN_ENGINE_VERSIONS: Record<string, number> = {
   IF_ELSE: 2,
   SWITCH: 2,
+  WAIT_FOR_CONDITION: 3,
 }
 
 export function resolveRequiredEngineVersion(definition: { steps?: unknown } | null | undefined): number {

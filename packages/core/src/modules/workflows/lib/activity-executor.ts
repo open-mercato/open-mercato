@@ -418,6 +418,56 @@ export async function enqueueTimerJob(params: {
   return jobId
 }
 
+/**
+ * Enqueue a delayed poll job for a WAIT_FOR_CONDITION step.
+ *
+ * The activity worker handles `kind: 'condition'` jobs by calling
+ * `conditionHandler.evaluateWaitCondition`. This job is the durability
+ * backstop behind the event-driven wake: `deadlineAt` travels unchanged across
+ * every re-enqueue so the timeout stays anchored to the original step entry.
+ */
+export async function enqueueConditionCheckJob(params: {
+  workflowInstanceId: string
+  stepInstanceId: string
+  branchInstanceId?: string | null
+  tenantId: string
+  organizationId: string
+  userId?: string
+  deadlineAt: string
+  attempt: number
+  delayMs: number
+}): Promise<string> {
+  const {
+    workflowInstanceId,
+    stepInstanceId,
+    branchInstanceId,
+    tenantId,
+    organizationId,
+    userId,
+    deadlineAt,
+    attempt,
+    delayMs,
+  } = params
+
+  const queue = getActivityQueue()
+  const jobId = await queue.enqueue(
+    {
+      kind: 'condition',
+      workflowInstanceId,
+      stepInstanceId,
+      branchInstanceId: branchInstanceId ?? undefined,
+      tenantId,
+      organizationId,
+      userId,
+      deadlineAt,
+      attempt,
+    },
+    { delayMs: delayMs > 0 ? delayMs : undefined }
+  )
+
+  return jobId
+}
+
 // ============================================================================
 // Main Activity Execution Functions
 // ============================================================================

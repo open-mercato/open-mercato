@@ -20,6 +20,12 @@ import {
   type WorkflowStepType,
 } from '../data/entities'
 import { parseDuration } from './duration'
+import {
+  CONDITION_STEP_TYPE,
+  conditionReadContext,
+  evaluateConditionExpression,
+  readWaitForConditionConfig,
+} from './condition-handler'
 import { mapAgentResultToContext } from './agent-result-mapping'
 import { logWorkflowEvent } from './event-logger'
 import { findDefinitionForInstance } from './find-definition'
@@ -47,7 +53,7 @@ export interface StepExecutionResult {
   status: 'COMPLETED' | 'WAITING' | 'FAILED'
   outputData?: any
   nextSteps?: string[] // For parallel forks (Phase 7)
-  waitReason?: 'USER_TASK' | 'SIGNAL' | 'TIMER' | 'FORK'
+  waitReason?: 'USER_TASK' | 'SIGNAL' | 'TIMER' | 'FORK' | 'CONDITION'
   error?: string
 }
 
@@ -357,6 +363,9 @@ async function executeStepByType(
 
     case 'WAIT_FOR_TIMER':
       return await handleWaitForTimerStep(em, instance, stepInstance, stepDef, context, branch)
+
+    case 'WAIT_FOR_CONDITION':
+      return await handleWaitForConditionStep(em, instance, stepInstance, stepDef, context, branch)
 
     case 'PARALLEL_FORK': {
       // Entering a fork opens branch tokens and parks the root token in the
@@ -1097,6 +1106,120 @@ async function handleWaitForTimerStep(
       fireAt,
       duration,
       until,
+      jobId,
+    },
+  }
+}
+
+/**
+ * Handle WAIT_FOR_CONDITION step - pause until a context predicate holds.
+ *
+ * Evaluates the step's ConditionExpression against the token read context. A
+ * predicate that already holds completes the step inline with no queue job at
+ * all. Otherwise the token parks and a delayed `kind: 'condition'` poll job is
+ * enqueued carrying an ABSOLUTE `deadlineAt`, so neither a slow queue nor a
+ * re-enqueue can extend the configured timeout. The event-driven wake
+ * (`conditionHandler.wakeConditionWaiters`) is the fast path on top of it.
+ */
+async function handleWaitForConditionStep(
+  em: EntityManager,
+  instance: WorkflowInstance,
+  stepInstance: StepInstance,
+  stepDef: any,
+  context: StepExecutionContext,
+  branch?: WorkflowBranchInstance | null
+): Promise<StepExecutionResult> {
+  const config = readWaitForConditionConfig(stepDef)
+
+  const data = {
+    ...conditionReadContext(instance, branch ?? null),
+    ...(context.workflowContext || {}),
+  }
+
+  const met = await evaluateConditionExpression({
+    condition: config.condition,
+    data,
+    instanceId: instance.id,
+    userId: context.userId,
+  })
+
+  const now = new Date()
+
+  if (met) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      stepInstanceId: stepInstance.id,
+      ...(branch ? { branchInstanceId: branch.id } : {}),
+      eventType: 'CONDITION_MET',
+      eventData: { stepId: stepDef.stepId, attempts: 1, waitedMs: 0, wokenBy: 'immediate' },
+      userId: context.userId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+
+    return {
+      status: 'COMPLETED',
+      outputData: {
+        stepType: CONDITION_STEP_TYPE,
+        conditionMet: true,
+        attempts: 1,
+        waitedMs: 0,
+        wokenBy: 'immediate',
+      },
+    }
+  }
+
+  const deadlineAt = new Date(now.getTime() + config.timeoutMs)
+
+  const { enqueueConditionCheckJob } = await import('./activity-executor')
+  const jobId = await enqueueConditionCheckJob({
+    workflowInstanceId: instance.id,
+    stepInstanceId: stepInstance.id,
+    branchInstanceId: branch ? branch.id : undefined,
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+    userId: context.userId,
+    deadlineAt: deadlineAt.toISOString(),
+    attempt: 1,
+    delayMs: Math.min(config.pollIntervalMs, config.timeoutMs),
+  })
+
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instance.id,
+    stepInstanceId: stepInstance.id,
+    ...(branch ? { branchInstanceId: branch.id } : {}),
+    eventType: 'CONDITION_AWAITING',
+    eventData: {
+      stepId: stepDef.stepId,
+      condition: config.condition,
+      deadlineAt: deadlineAt.toISOString(),
+      pollIntervalMs: config.pollIntervalMs,
+      onTimeout: config.onTimeout,
+      jobId,
+    },
+    userId: context.userId,
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
+
+  if (branch) {
+    branch.status = 'PAUSED'
+    branch.updatedAt = now
+  } else {
+    instance.status = 'PAUSED'
+    instance.pausedAt = now
+    instance.updatedAt = now
+  }
+  await em.flush()
+
+  return {
+    status: 'WAITING',
+    waitReason: 'CONDITION',
+    outputData: {
+      stepType: CONDITION_STEP_TYPE,
+      deadlineAt: deadlineAt.toISOString(),
+      pollIntervalMs: config.pollIntervalMs,
+      onTimeout: config.onTimeout,
       jobId,
     },
   }

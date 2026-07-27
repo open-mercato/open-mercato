@@ -21,6 +21,7 @@ export type WorkflowStepType =
   | 'SUB_WORKFLOW'
   | 'WAIT_FOR_SIGNAL'
   | 'WAIT_FOR_TIMER'
+  | 'WAIT_FOR_CONDITION'
   | 'IF_ELSE'
   | 'SWITCH'
 

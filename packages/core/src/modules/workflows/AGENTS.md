@@ -81,6 +81,7 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 | `SUB_WORKFLOW` | When invoking a nested workflow definition |
 | `WAIT_FOR_SIGNAL` | When the workflow must pause for an external signal (e.g., payment confirmed) |
 | `WAIT_FOR_TIMER` | When the workflow must pause for a duration |
+| `WAIT_FOR_CONDITION` | When the workflow must pause until a predicate over the run context holds — mandatory `timeout` with `onTimeout: 'FAIL'\|'CONTINUE'`, event-driven wake plus a polled backstop |
 | `PARALLEL_FORK` / `PARALLEL_JOIN` | When splitting/merging parallel execution paths |
 
 ## Activity Types
@@ -114,6 +115,7 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 | Variable | Effect | Default |
 |----------|--------|---------|
 | `OM_WORKFLOWS_ALLOW_PRIVATE_URLS` | When `1`/`true`/`yes`, bypasses the SSRF guard in `CALL_WEBHOOK` so workflow authors can hit `localhost`, RFC1918, and `.internal` targets. For dev only — MUST remain unset in production. | unset (guard enforced) |
+| `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` | Hard cap on WAIT_FOR_CONDITION poll re-enqueues; reaching it forces `CONDITION_TIMED_OUT` so a never-satisfiable predicate cannot saturate the queue. | `1000` |
 | `OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST` | Comma-separated non-secret process env keys allowed for `{{env.*}}` interpolation in workflow activity config. `APP_URL` is always allowed. Never include secrets. | unset (`APP_URL` only) |
 
 ## DI Services
@@ -124,6 +126,7 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 | `stepHandler` | Enter/exit/execute individual steps (called by executor) |
 | `transitionHandler` | Find valid transitions and execute them (called by executor) |
 | `activityExecutor` | Execute or enqueue activities (called by transition handler) |
+| `conditionHandler` | Evaluate and wake WAIT_FOR_CONDITION waiters (`evaluateWaitCondition` from the queue backstop, `wakeConditionWaiters` from a context write) |
 | `eventLogger` | Log workflow events for audit trail |
 
 ## Adding a New Activity Type
