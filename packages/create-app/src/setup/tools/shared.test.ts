@@ -18,10 +18,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 // pin the contract: the templates must be ESM-safe.
 const AGENTIC_SHARED_DIR = join(__dirname, '..', '..', '..', 'agentic', 'shared')
 
-test('agentic setup installs the reviewed pin and exposes explicit shared-skill refresh', () => {
+test('agentic setup refreshes and pins the current shared skill collection', () => {
   const wizardSource = readFileSync(join(__dirname, '..', 'wizard.ts'), 'utf8')
-  assert.match(wizardSource, /spawnSync\(process\.execPath, \[installScript\]/)
-  assert.doesNotMatch(wizardSource, /spawnSync\(process\.execPath, \[installScript, '--update'\]/)
+  assert.match(wizardSource, /spawnSync\(process\.execPath, \[installScript, '--update'\]/)
   assert.match(wizardSource, /yarn install-skills --update/)
 })
 
