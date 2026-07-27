@@ -28,6 +28,9 @@ const TOOLS = [
 
 const SELECTABLE_TOOLS = TOOLS.filter((t) => t.id !== 'multiple' && t.id !== 'skip')
 
+/** The selection the prompt advertises as its default (`[1]`), used when no TTY can answer it. */
+const DEFAULT_TOOL_ID = TOOLS[0].id
+
 /** Concrete agent tool ids accepted by the `--agents` CLI flag. */
 export const AGENT_TOOL_IDS: readonly string[] = SELECTABLE_TOOLS.map((t) => t.id)
 
@@ -78,7 +81,12 @@ export function parseAgentsValue(raw: string): ParsedAgentsArg {
   return { skip: false, tools: [...new Set(toolTokens)] }
 }
 
-async function promptSelection(ask: AskFn): Promise<string[]> {
+/**
+ * Resolve the agent-tool selection interactively. Without a TTY there is nothing
+ * to answer the prompt, so this takes the default the prompt itself advertises
+ * rather than awaiting an answer that can never arrive.
+ */
+export async function promptSelection(ask: AskFn): Promise<string[]> {
   console.log('')
   console.log('🤖  Agentic workflow setup')
   console.log('')
@@ -88,6 +96,13 @@ async function promptSelection(ask: AskFn): Promise<string[]> {
     console.log(`   ${tool.key}. ${tool.label}`)
   }
   console.log('')
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.log(`   Non-interactive shell; using the default (${DEFAULT_TOOL_ID}).`)
+    console.log('   Pass --agents <list|all|none> to choose explicitly.')
+    console.log('')
+    return [DEFAULT_TOOL_ID]
+  }
 
   const answer = (await ask('   Enter number(s) separated by comma [1]: ')).trim() || '1'
 
