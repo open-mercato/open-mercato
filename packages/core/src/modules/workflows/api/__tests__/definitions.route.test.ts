@@ -385,7 +385,22 @@ describe('Workflow Definitions API', () => {
 
       expect(response.status).toBe(400)
       expect(data.error).toBe('Validation failed')
-      expect(data.details).toBeDefined()
+      expect(Array.isArray(data.details)).toBe(true)
+      expect(data.details.length).toBeGreaterThan(0)
+      for (const detail of data.details) {
+        expect(Array.isArray(detail.path)).toBe(true)
+        expect(typeof detail.code).toBe('string')
+        expect(typeof detail.message).toBe('string')
+      }
+      const definitionIssue = data.details.find(
+        (detail: { path: Array<string | number> }) => detail.path[0] === 'definition'
+      )
+      expect(definitionIssue).toMatchObject({
+        path: ['definition'],
+        code: 'invalid_type',
+        expected: 'object',
+        got: 'undefined',
+      })
     })
 
     test('should prevent duplicate workflowId', async () => {
@@ -673,8 +688,17 @@ describe('Workflow Definitions API', () => {
       })
 
       const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
+      const data = await response.json()
 
       expect(response.status).toBe(400)
+      expect(data.error).toBe('Validation failed')
+      expect(data.details[0]).toMatchObject({
+        path: ['definition'],
+        code: 'invalid_type',
+        expected: 'object',
+        got: 'string',
+      })
+      expect(typeof data.details[0].message).toBe('string')
     })
 
     test('should allow partial updates', async () => {

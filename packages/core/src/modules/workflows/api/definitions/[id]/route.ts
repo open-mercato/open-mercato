@@ -26,6 +26,7 @@ import {
   workflowErrorSchema,
 } from '../../openapi'
 import { invalidateTriggerCache } from '../../../lib/event-trigger-service'
+import { normalizeDefinitionValidationIssues } from '../../../lib/definition-error-body'
 import { getCodeWorkflow, getAllCodeWorkflows } from '../../../lib/code-registry'
 import { codeWorkflowUuid } from '../../../lib/find-definition'
 import { createGenericOptimisticLockReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
@@ -181,7 +182,7 @@ export async function PUT(
       return NextResponse.json(
         {
           error: 'Validation failed',
-          details: validation.error.issues,
+          details: normalizeDefinitionValidationIssues(validation.error),
         },
         { status: 400 }
       )
@@ -770,9 +771,11 @@ export const openApi = {
             error: 'Validation failed',
             details: [
               {
-                code: 'invalid_type',
-                message: 'Expected object, received string',
                 path: ['definition'],
+                code: 'invalid_type',
+                message: 'Invalid input: expected object, received string',
+                expected: 'object',
+                got: 'string',
               },
             ],
           },
