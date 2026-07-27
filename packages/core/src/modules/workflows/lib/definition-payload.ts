@@ -17,6 +17,7 @@ import type {
   WorkflowDefinitionTrigger,
   WorkflowIoContract,
 } from '../data/entities'
+import { resolveRequiredEngineVersion } from './engine-version'
 import type { WorkflowInterpolationMode } from './interpolation-pipeline'
 
 export type DefinitionPayloadInput = {
@@ -42,9 +43,16 @@ export type MetadataPayloadInput = {
   tags: string[]
   category: string
   icon: string
+  /**
+   * Definition being saved. Used to stamp `minEngineVersion` when the graph
+   * contains a step type older engines cannot execute (spec section 5.8).
+   * Definitions that need nothing beyond the baseline keep no such key, so
+   * saving an existing workflow stays byte-identical.
+   */
+  definition?: { steps?: unknown } | null
 }
 
-export function buildMetadataPayload({ loadedMetadata, tags, category, icon }: MetadataPayloadInput): Record<string, unknown> | null {
+export function buildMetadataPayload({ loadedMetadata, tags, category, icon, definition }: MetadataPayloadInput): Record<string, unknown> | null {
   const metadata: Record<string, unknown> = { ...(loadedMetadata ?? {}) }
   if (category) metadata.category = category
   else delete metadata.category
@@ -52,5 +60,8 @@ export function buildMetadataPayload({ loadedMetadata, tags, category, icon }: M
   else delete metadata.tags
   if (icon) metadata.icon = icon
   else delete metadata.icon
+  const requiredEngineVersion = resolveRequiredEngineVersion(definition ?? null)
+  if (requiredEngineVersion > 1) metadata.minEngineVersion = requiredEngineVersion
+  else delete metadata.minEngineVersion
   return Object.keys(metadata).length > 0 ? metadata : null
 }

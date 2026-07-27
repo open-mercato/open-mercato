@@ -20,9 +20,12 @@ import { WorkflowSelectorField } from './fields/WorkflowSelectorField'
 import { RolesMultiSelect } from './fields/RolesMultiSelect'
 import { StartPreConditionsEditor } from './fields/StartPreConditionsEditor'
 import { AgentInvokeConfigField } from './fields/AgentInvokeConfigField'
+import { IfElseRoutesField, SwitchRoutesField } from './fields/BranchingRoutesEditor'
 import { InputDataPanel } from './InputDataPanel'
 import { nodeToFormValues, formValuesToNodeUpdates, isJsonSchemaFormat, type NodeFormValues } from '../lib/nodeFormTransforms'
 import { sanitizeId } from '../lib/graph-utils'
+import { isBranchingNodeType } from '../lib/branching-routes'
+import type { BranchingRouteDraft, SwitchRoutesValue } from '../lib/branching-routes'
 import type { LedgerEntry } from '../lib/context-ledger'
 import type { PinnedSampleEnvelope } from '../lib/sample-resolver'
 
@@ -82,6 +85,13 @@ export interface NodeEditDialogCrudFormProps {
   samples?: Record<string, PinnedSampleEnvelope>
   onPinSample?: (stepId: string, data: unknown) => void
   onUnpinSample?: (stepId: string) => void
+  /**
+   * Outgoing routes of a branching step (IF_ELSE / SWITCH). The inspector edits
+   * transitions rather than step data, so the value round-trips through a
+   * dedicated callback instead of the node-update payload.
+   */
+  branchingRoutes?: SwitchRoutesValue
+  onSaveBranchingRoutes?: (nodeId: string, value: SwitchRoutesValue) => void
 }
 
 /**
@@ -103,7 +113,7 @@ export interface NodeEditDialogCrudFormProps {
  * - waitForTimer: Duration XOR wait-until timer configuration
  * - decision: Basic fields only
  */
-export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries, definitionId, samples, onPinSample, onUnpinSample }: NodeEditDialogCrudFormProps) {
+export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries, definitionId, samples, onPinSample, onUnpinSample, branchingRoutes, onSaveBranchingRoutes }: NodeEditDialogCrudFormProps) {
   const t = useT()
   const activityTypeOptions = useActivityTypeOptions()
   const [initialValues, setInitialValues] = useState<Partial<NodeFormValues>>({})
@@ -125,10 +135,14 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
   useEffect(() => {
     if (node && isOpen) {
       const values = nodeToFormValues(node)
-      setInitialValues(values)
+      setInitialValues(
+        isBranchingNodeType(node.type)
+          ? { ...values, branchingRoutes: branchingRoutes ?? { field: '', routes: [] } }
+          : values,
+      )
       setShowJsonSchemaWarning(isJsonSchemaFormat(node))
     }
-  }, [node, isOpen])
+  }, [node, isOpen, branchingRoutes])
 
   const handleSubmit = useCallback(async (values: Record<string, unknown>) => {
     if (!node) return
@@ -142,12 +156,16 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     try {
       const updates = formValuesToNodeUpdates(values as unknown as NodeFormValues, node)
       onSave(node.id, updates)
+      if (isBranchingNodeType(node.type) && onSaveBranchingRoutes) {
+        const routesValue = values.branchingRoutes as SwitchRoutesValue | undefined
+        onSaveBranchingRoutes(node.id, routesValue ?? { field: '', routes: [] })
+      }
       onClose()
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       throw new Error(t(message))
     }
-  }, [node, onSave, onClose, t])
+  }, [node, onSave, onSaveBranchingRoutes, onClose, t])
 
   const handleDelete = useCallback(() => {
     if (!node || !onDelete) return
@@ -342,6 +360,24 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       ]
     }
 
+    // Branching steps: the routes inspector edits the outgoing transitions
+    if (isBranchingNodeType(node.type)) {
+      return [
+        ...baseGroups,
+        {
+          id: 'branchingRoutes',
+          title: t('workflows.branching.groupTitle', 'Routes'),
+          column: 1,
+          description: t(
+            'workflows.branching.groupDescription',
+            'Routing happens on the outgoing transitions: each case is evaluated by priority, and the otherwise route runs when none matches.',
+          ),
+          fields: ['branchingRoutes'],
+        },
+        advancedGroup,
+      ]
+    }
+
     // Decision and other types: just basic fields + advanced
     return [
       ...baseGroups,
@@ -523,6 +559,33 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         <AgentInvokeConfigField {...props} value={props.value as any} ledgerEntries={ledgerEntries} />
       ),
     },
+    {
+      id: 'branchingRoutes',
+      label: '',
+      type: 'custom',
+      component: (props) => {
+        const routesValue = (props.value as SwitchRoutesValue | undefined) ?? { field: '', routes: [] }
+        if (node?.type === 'switch') {
+          return (
+            <SwitchRoutesField
+              id={props.id}
+              value={routesValue}
+              setValue={props.setValue}
+              disabled={props.disabled}
+              ledgerEntries={ledgerEntries}
+            />
+          )
+        }
+        return (
+          <IfElseRoutesField
+            id={props.id}
+            value={routesValue.routes}
+            setValue={(routes: BranchingRouteDraft[]) => props.setValue({ ...routesValue, routes })}
+            disabled={props.disabled}
+          />
+        )
+      },
+    },
 
     // Advanced configuration
     {
@@ -541,7 +604,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       description: t('workflows.fieldEditors.preConditions.description'),
       component: (props) => <StartPreConditionsEditor {...props} value={props.value as any} />,
     },
-  ], [activityTypeOptions, showJsonSchemaWarning, ledgerEntries, activityTestContext, t])
+  ], [activityTypeOptions, showJsonSchemaWarning, ledgerEntries, activityTestContext, node?.type, t])
 
   if (!isOpen || !node) return null
 

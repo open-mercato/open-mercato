@@ -32,7 +32,10 @@ import {
   type CreateStepInstanceInput,
   type CreateUserTaskInput,
 } from '../validators'
-import { collectBranchingRouteWarnings } from '../branching-route-warnings'
+import {
+  collectBranchingRouteWarnings,
+  collectDuplicateBranchingCaseWarnings,
+} from '../branching-route-warnings'
 
 describe('Workflows Validators', () => {
   describe('workflowStepTypeSchema', () => {
@@ -153,6 +156,55 @@ describe('Workflows Validators', () => {
           transitions: [],
         }),
       ).toEqual([])
+    })
+
+    test('should warn when two Switch routes test the same value', () => {
+      const duplicated = {
+        steps: [
+          { stepId: 'switch', stepName: 'Switch', stepType: 'SWITCH' as const },
+          { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+        ],
+        transitions: [
+          {
+            transitionId: 'e_switch_a',
+            fromStepId: 'switch',
+            toStepId: 'end',
+            condition: { operator: 'AND', rules: [{ field: 'channel', operator: '==', value: 'web' }] },
+          },
+          {
+            transitionId: 'e_switch_b',
+            fromStepId: 'switch',
+            toStepId: 'end',
+            condition: { operator: 'AND', rules: [{ field: 'channel', operator: '==', value: 'web' }] },
+          },
+          { transitionId: 'e_switch_other', fromStepId: 'switch', toStepId: 'end' },
+        ],
+      }
+
+      expect(collectDuplicateBranchingCaseWarnings(duplicated)).toEqual([
+        { path: ['steps', 0], stepId: 'switch', stepType: 'SWITCH', caseValue: 'channel=web' },
+      ])
+    })
+
+    test('should not warn when Switch routes test distinct values', () => {
+      const distinct = {
+        steps: [{ stepId: 'switch', stepName: 'Switch', stepType: 'SWITCH' as const }],
+        transitions: [
+          {
+            transitionId: 'e_switch_a',
+            fromStepId: 'switch',
+            toStepId: 'end',
+            condition: { operator: 'AND', rules: [{ field: 'channel', operator: '==', value: 'web' }] },
+          },
+          {
+            transitionId: 'e_switch_b',
+            fromStepId: 'switch',
+            toStepId: 'end',
+            condition: { operator: 'AND', rules: [{ field: 'channel', operator: '==', value: 'pos' }] },
+          },
+        ],
+      }
+      expect(collectDuplicateBranchingCaseWarnings(distinct)).toEqual([])
     })
 
     test('should not warn for non-branching steps', () => {

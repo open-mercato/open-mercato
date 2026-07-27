@@ -22,7 +22,15 @@ import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
 import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
-import { collectBranchingRouteWarnings } from '../../../data/branching-route-warnings'
+import { collectBranchingRouteWarnings, collectDuplicateBranchingCaseWarnings } from '../../../data/branching-route-warnings'
+import {
+  applyIfElseRoutes,
+  applySwitchRoutes,
+  isBranchingNodeType,
+  readBranchingRoutes,
+  readSwitchField,
+  type SwitchRoutesValue,
+} from '../../../lib/branching-routes'
 import {
   buildTriggerPayloadContracts,
   computeContextLedger,
@@ -138,6 +146,20 @@ function collectOtherwiseRouteWarnings(
   }))
 }
 
+function collectDuplicateCaseWarnings(
+  definitionData: WorkflowDefinitionData,
+  translate: ReturnType<typeof useT>,
+): ZodIssueLike[] {
+  return collectDuplicateBranchingCaseWarnings(definitionData).map((warning) => ({
+    path: warning.path,
+    message: translate(
+      'workflows.visualEditor.problems.duplicateBranchingCase',
+      'Branching step "{stepId}" has more than one route for {caseValue}; only the highest-priority one can ever match',
+      { stepId: warning.stepId, caseValue: warning.caseValue },
+    ),
+  }))
+}
+
 function collectContextRefWarnings(
   definitionData: WorkflowDefinitionData,
   translate: ReturnType<typeof useT>,
@@ -199,7 +221,7 @@ async function loadSubWorkflowContracts(
   return contracts
 }
 
-const PALETTE_NODE_TYPES = ['start', 'userTask', 'automated', 'invokeAgent', 'waitForSignal', 'waitForTimer', 'subWorkflow', 'end'] as const
+const PALETTE_NODE_TYPES = ['start', 'userTask', 'automated', 'invokeAgent', 'ifElse', 'switch', 'waitForSignal', 'waitForTimer', 'subWorkflow', 'end'] as const
 
 export default function VisualEditorPage() {
   const t = useT()
@@ -707,6 +729,22 @@ export default function VisualEditorPage() {
     flash('Node updated successfully', 'success')
   }, [])
 
+  // Branching (IF_ELSE / SWITCH) routes are read from and written back to the
+  // node's outgoing edges — the inspector never introduces a bespoke shape.
+  const branchingRoutesValue = useMemo<SwitchRoutesValue | undefined>(() => {
+    if (!selectedNode || !isBranchingNodeType(selectedNode.type)) return undefined
+    return {
+      field: readSwitchField(edges, selectedNode.id),
+      routes: readBranchingRoutes(edges, selectedNode.id),
+    }
+  }, [selectedNode, edges])
+
+  const handleSaveBranchingRoutes = useCallback((nodeId: string, value: SwitchRoutesValue) => {
+    const nodeType = nodes.find((node) => node.id === nodeId)?.type
+    setEdges((eds) => (nodeType === 'switch' ? applySwitchRoutes(eds, nodeId, value) : applyIfElseRoutes(eds, nodeId, value.routes)))
+    scheduleAutosave()
+  }, [nodes, scheduleAutosave])
+
   // Save edge updates
   const handleSaveEdge = useCallback((edgeId: string, updates: Partial<Edge['data']>) => {
     setEdges((eds) =>
@@ -906,6 +944,7 @@ export default function VisualEditorPage() {
       configWarnings = [
         ...collectActivityConfigWarnings(definitionData),
         ...collectOtherwiseRouteWarnings(definitionData, t),
+        ...collectDuplicateCaseWarnings(definitionData, t),
         ...collectContextRefWarnings(ledgerDefinition, t, triggerPayloadContracts),
       ]
     } catch (error) {
@@ -974,6 +1013,7 @@ export default function VisualEditorPage() {
       configWarnings: [
         ...collectActivityConfigWarnings(definitionData),
         ...collectOtherwiseRouteWarnings(definitionData, t),
+        ...collectDuplicateCaseWarnings(definitionData, t),
         ...collectContextRefWarnings(definitionData, t, triggerPayloadContracts),
       ],
       nodes,
@@ -992,7 +1032,7 @@ export default function VisualEditorPage() {
 
     try {
 
-      const metadataPayload = buildMetadataPayload({ loadedMetadata, tags, category, icon })
+      const metadataPayload = buildMetadataPayload({ loadedMetadata, tags, category, icon, definition: definitionData })
 
       // Determine if creating new or updating existing
       const isUpdate = !!definitionId
@@ -1115,7 +1155,7 @@ export default function VisualEditorPage() {
     })
     if (!workflowDefinitionDataSchema.safeParse(definitionData).success) return
 
-    const metadataPayload = buildMetadataPayload({ loadedMetadata, tags, category, icon })
+    const metadataPayload = buildMetadataPayload({ loadedMetadata, tags, category, icon, definition: definitionData })
 
     setAutosaveState('saving')
     try {
@@ -1401,7 +1441,7 @@ export default function VisualEditorPage() {
   const sharedDialogs = (
     <>
       {crudFormDialogsEnabled ? (
-        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} definitionId={definitionId} samples={editorSamples} onPinSample={handlePinSample} onUnpinSample={handleUnpinSample} />
+        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} definitionId={definitionId} samples={editorSamples} onPinSample={handlePinSample} onUnpinSample={handleUnpinSample} branchingRoutes={branchingRoutesValue} onSaveBranchingRoutes={handleSaveBranchingRoutes} />
       ) : (
         <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       )}
@@ -2163,6 +2203,8 @@ function getDefaultLabel(nodeType: string): string {
     waitForSignal: 'Wait for Signal',
     waitForTimer: 'Wait for Timer',
     invokeAgent: 'Invoke Agent',
+    ifElse: 'If / Else',
+    switch: 'Switch',
   }
   return labels[nodeType] || 'New Step'
 }
@@ -2177,6 +2219,8 @@ function getDefaultBadge(nodeType: string): string {
     waitForSignal: 'Wait for Signal',
     waitForTimer: 'Wait for Timer',
     invokeAgent: 'Invoke Agent',
+    ifElse: 'If / Else',
+    switch: 'Switch',
   }
   return badges[nodeType] || 'Task'
 }

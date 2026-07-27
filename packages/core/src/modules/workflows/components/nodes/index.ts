@@ -27,3 +27,9 @@ export type { ParallelJoinNodeData } from './ParallelJoinNode'
 
 export { InvokeAgentNode } from './InvokeAgentNode'
 export type { InvokeAgentNodeData } from './InvokeAgentNode'
+
+export { IfElseNode } from './IfElseNode'
+export type { IfElseNodeData } from './IfElseNode'
+
+export { SwitchNode } from './SwitchNode'
+export type { SwitchNodeData } from './SwitchNode'

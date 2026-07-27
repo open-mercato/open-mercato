@@ -6,6 +6,7 @@
  */
 
 import type { Node } from '@xyflow/react'
+import type { SwitchRoutesValue } from './branching-routes'
 import type { FormField } from '../components/fields/FormFieldArrayEditor'
 import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { Mapping } from '../components/fields/MappingArrayEditor'
@@ -128,6 +129,10 @@ export interface NodeFormValues {
 
   // Start node pre-conditions
   preConditions?: StartPreCondition[]
+
+  // Branching (IF_ELSE / SWITCH) outgoing routes — edited in the node dialog,
+  // applied to edges by the editor page, never written into step data.
+  branchingRoutes?: SwitchRoutesValue
 
   // InvokeAgent fields
   agentConfig?: AgentInvokeConfigValue

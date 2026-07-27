@@ -42,13 +42,17 @@ function hasCondition(transition: TransitionLike): boolean {
   return false
 }
 
-export function collectBranchingRouteWarnings(definition: {
-  steps?: unknown
-  transitions?: unknown
-}): BranchingRouteWarning[] {
+function forEachBranchingStep(
+  definition: { steps?: unknown; transitions?: unknown },
+  visit: (context: {
+    stepIndex: number
+    stepId: string
+    stepType: BranchingStepType
+    outgoing: TransitionLike[]
+  }) => void,
+): void {
   const steps = Array.isArray(definition?.steps) ? definition.steps : []
   const transitions = Array.isArray(definition?.transitions) ? definition.transitions : []
-  const warnings: BranchingRouteWarning[] = []
 
   steps.forEach((step, stepIndex) => {
     const { stepId, stepType } = (step && typeof step === 'object' ? step : {}) as StepLike
@@ -59,10 +63,62 @@ export function collectBranchingRouteWarnings(definition: {
       return from.fromStepId === stepId
     }) as TransitionLike[]
 
+    visit({ stepIndex, stepId, stepType, outgoing })
+  })
+}
+
+export function collectBranchingRouteWarnings(definition: {
+  steps?: unknown
+  transitions?: unknown
+}): BranchingRouteWarning[] {
+  const warnings: BranchingRouteWarning[] = []
+
+  forEachBranchingStep(definition, ({ stepIndex, stepId, stepType, outgoing }) => {
     if (outgoing.length === 0) return
     if (outgoing.some((transition) => !hasCondition(transition))) return
-
     warnings.push({ path: ['steps', stepIndex], stepId, stepType })
+  })
+
+  return warnings
+}
+
+export interface DuplicateBranchingCaseWarning extends BranchingRouteWarning {
+  caseValue: string
+}
+
+function readCaseValue(condition: unknown): string | null {
+  if (!condition || typeof condition !== 'object') return null
+  const group = condition as { rules?: unknown }
+  const rules = Array.isArray(group.rules) ? group.rules : []
+  const [firstRule] = rules
+  if (!firstRule || typeof firstRule !== 'object') return null
+  const simple = firstRule as { field?: unknown; value?: unknown }
+  if (typeof simple.field !== 'string' || simple.value === undefined || simple.value === null) return null
+  return `${simple.field}=${String(simple.value)}`
+}
+
+/**
+ * Duplicate Switch case values: two routes that test the same field for the
+ * same value make the lower-priority one unreachable.
+ */
+export function collectDuplicateBranchingCaseWarnings(definition: {
+  steps?: unknown
+  transitions?: unknown
+}): DuplicateBranchingCaseWarning[] {
+  const warnings: DuplicateBranchingCaseWarning[] = []
+
+  forEachBranchingStep(definition, ({ stepIndex, stepId, stepType, outgoing }) => {
+    const seen = new Set<string>()
+    const reported = new Set<string>()
+    for (const transition of outgoing) {
+      const caseValue = readCaseValue(transition.condition)
+      if (!caseValue) continue
+      if (seen.has(caseValue) && !reported.has(caseValue)) {
+        reported.add(caseValue)
+        warnings.push({ path: ['steps', stepIndex], stepId, stepType, caseValue })
+      }
+      seen.add(caseValue)
+    }
   })
 
   return warnings

@@ -1,5 +1,6 @@
 import { buildDefinitionPayload, buildMetadataPayload } from '../definition-payload'
 import { workflowMetadataSchema } from '../../data/validators'
+import { WORKFLOW_ENGINE_VERSION } from '../engine-version'
 import type { WorkflowContextSchema, WorkflowDefinitionData, WorkflowDefinitionTrigger } from '../../data/entities'
 
 const graphDefinition: WorkflowDefinitionData = {
@@ -120,6 +121,36 @@ describe('buildMetadataPayload', () => {
     const payload = buildMetadataPayload({ loadedMetadata, category: 'Sales', tags: [], icon: '' })
     const parsed = workflowMetadataSchema.parse(asWirePayload(payload))
     expect(parsed.editor).toEqual(loadedMetadata.editor)
+  })
+
+  it('stamps minEngineVersion when the definition uses a branching step type', () => {
+    const branchingDefinition: WorkflowDefinitionData = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'branch', stepName: 'Branch', stepType: 'IF_ELSE' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: graphDefinition.transitions,
+    }
+    const payload = buildMetadataPayload({
+      loadedMetadata: null,
+      category: '',
+      tags: [],
+      icon: '',
+      definition: branchingDefinition,
+    })
+    expect(payload).toEqual({ minEngineVersion: WORKFLOW_ENGINE_VERSION })
+  })
+
+  it('leaves baseline definitions without a minEngineVersion key', () => {
+    const payload = buildMetadataPayload({
+      loadedMetadata: { category: 'Sales', minEngineVersion: 2 },
+      category: 'Sales',
+      tags: [],
+      icon: '',
+      definition: graphDefinition,
+    })
+    expect(payload).toEqual({ category: 'Sales' })
   })
 
   it('does not mutate the carried loaded-metadata object', () => {
