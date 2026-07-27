@@ -15,7 +15,7 @@ const MAX_SOURCE_BYTES = 256 * 1024
 const WORKER_TIMEOUT_MS = 3_000
 
 const CASES = {
-  'OMH-045': { file: 'src/modules/external_sync/lib/client.ts' },
+  'OMH-045': { file: 'src/modules/external_sync/lib/client.ts', allowCompiledImports: true },
   'OMH-054': { file: 'src/modules/automation/workflows/call-api.ts' },
   'OMH-057': { file: 'src/modules/harness_fixture/api/scope/route.ts' },
   'OMH-060': { file: 'src/modules/harness_fixture/commands/update-record.ts' },
@@ -25,7 +25,7 @@ const CASES = {
   },
   'OMH-070': { file: 'src/modules/harness_fixture/workers/sync.ts' },
   'OMH-093': { file: 'src/modules/customer_merge/commands/merge-contacts.ts', family: 'business-command', exportName: 'mergeContacts', requiredFlags: ['scopeValid', 'survivorSelected'] },
-  'OMH-105': { file: 'src/modules/deal_stages/commands/change-stage.ts', family: 'business-command', exportName: 'changeDealStage', requiredFlags: ['transitionAllowed', 'requiredFieldsPresent'] },
+  'OMH-105': { file: 'src/modules/deal_stages/commands/change-stage.ts', family: 'business-command', exportName: 'changeDealStage', requiredFlags: ['transitionAllowed', 'requiredFieldsPresent'], allowCompiledImports: true },
   'OMH-107': { file: 'src/modules/quote_approval/commands/request-discount.ts', family: 'business-command', exportName: 'requestQuoteDiscount', requiredFlags: ['approvalSatisfied', 'separationOfDuties'] },
   'OMH-115': { file: 'src/modules/deal_accessibility/lib/move-deal.ts', family: 'ui-business-surface', exportName: 'moveDealAccessibly', requiredFlags: ['accessGranted', 'keyboardEquivalent'] },
   'OMH-122': { file: 'src/modules/stock_reservations/commands/reserve-stock.ts', family: 'business-command', exportName: 'reserveStock', requiredFlags: ['stockAvailable', 'reservationKeyPresent'] },
@@ -663,13 +663,25 @@ function transpileTarget(root, caseRecord, source) {
     throw new Error(`target TypeScript compilation failed (${codes})`)
   }
   let output = result.outputText
-  if (caseRecord.allowedCompiledImport) {
+  let importStub = ''
+  if (caseRecord.allowCompiledImports) {
+    importStub = `
+const __harnessImportStub = new Proxy(function (...args) {
+  const callback = args.find((argument) => typeof argument === 'function')
+  return callback ? callback() : __harnessImportStub
+}, {
+  get(_target, property) { return property === 'then' ? undefined : __harnessImportStub },
+  construct() { return __harnessImportStub },
+})
+`
+    output = output.replace(/\brequire\((['"])[^'"]+\1\)/g, '__harnessImportStub')
+  } else if (caseRecord.allowedCompiledImport) {
     const escaped = caseRecord.allowedCompiledImport.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const importExpression = new RegExp(`require\\(["']${escaped}["']\\)`, 'g')
     output = output.replace(importExpression, '({ CrudForm: function CrudForm() {} })')
   }
   if (/\brequire\s*\(/.test(output)) throw new Error('behavior-oracle target must not execute imports')
-  return output
+  return `${importStub}${output}`
 }
 
 function executeWorker(caseId, compiledSource) {

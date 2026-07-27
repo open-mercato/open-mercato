@@ -172,6 +172,8 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(verification, /Jest/)
   assert.match(verification, /commands\/__tests__\//)
   assert.match(verification, /never Vitest/)
+  const testingGuide = readAgentic('guides/testing-debugging.md')
+  assert.match(testingGuide, /om-module-scaffold\/references\/verification\.md/)
 
   const discoveryCatalog = readAgentic(
     'shared/ai/skills/om-module-scaffold/references/discovery-surface-catalog.md',

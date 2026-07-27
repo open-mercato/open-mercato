@@ -114,6 +114,30 @@ enabledModules.push({ id: 'library', from: '@app' })
   }
 })
 
+test('the entity oracle accepts camelCase properties mapped to canonical database columns', () => {
+  const root = stageTarget('src/modules/library/data/entities.ts', `
+import { Entity, Property } from '@mikro-orm/core'
+
+@Entity()
+export class LibraryBook {
+  @Property({ fieldName: 'tenant_id' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id' })
+  organizationId!: string
+
+  @Property({ fieldName: 'updated_at' })
+  updatedAt!: Date
+}
+`)
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-009')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'entity.declaration')?.passed, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the complete module oracle rejects activation that hides baseline entries in computed spreads', () => {
   const root = stageTarget('src/modules.ts', `
 export const enabledModules = [

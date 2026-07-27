@@ -62,6 +62,8 @@ Then stop. Budgets here are tight — several fixes allow only five files — so
 
 ## Validation Ladder
 
+Before authoring a test file, read `.ai/skills/om-module-scaffold/references/verification.md` for the scaffold's test-runner contract.
+
 1. Focused unit/regression test.
 2. `yarn generate` when discovery is involved.
 3. Focused package/app typecheck or test.

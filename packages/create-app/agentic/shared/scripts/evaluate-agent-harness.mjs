@@ -635,7 +635,7 @@ function processFailureDiagnostic(runner, processResult) {
   return [terminalEvent, stderr].filter(Boolean).join('\n') || `runner exited ${processResult.status}`
 }
 
-const RETRYABLE_CLAUDE_FAILURES = [
+const RETRYABLE_PROVIDER_FAILURES = [
   /\b(?:rate[- ]?limit(?:ed|ing)?|too many requests|rate_limit_error)\b/i,
   /\b(?:overloaded(?:_error)?|service (?:is )?unavailable|temporar(?:y|ily) unavailable|internal server error)\b/i,
   /\b(?:HTTP|status(?: code)?|API error)\s*(?:429|500|502|503|504|529)\b/i,
@@ -643,8 +643,24 @@ const RETRYABLE_CLAUDE_FAILURES = [
   /\b(?:connection (?:reset|closed|terminated|timed out)|failed to connect|request timed out|api_connection_error)\b/i,
 ]
 
-function isRetryableClaudeFailure(execution) {
-  return execution.kind === 'process-failure' && RETRYABLE_CLAUDE_FAILURES.some((pattern) => pattern.test(execution.error))
+const PROVIDER_ENVIRONMENT_FAILURES = [
+  /\b(?:usage|weekly|monthly) limit\b/i,
+  /\b(?:quota (?:exhausted|exceeded)|insufficient_quota)\b/i,
+  /\bnot logged in\b/i,
+  /\b(?:authentication|authorization) failed\b/i,
+  /\b(?:invalid|missing|expired) (?:account|credential|token|api key)\b/i,
+]
+
+function isRetryableProviderFailure(execution) {
+  return execution.kind === 'process-failure'
+    && !isProviderEnvironmentFailure(execution)
+    && RETRYABLE_PROVIDER_FAILURES.some((pattern) => pattern.test(execution.error))
+}
+
+function isProviderEnvironmentFailure(execution) {
+  return execution.kind === 'environment-failure'
+    || (execution.kind === 'process-failure'
+      && PROVIDER_ENVIRONMENT_FAILURES.some((pattern) => pattern.test(execution.error)))
 }
 
 function validateRoutingResponse(response) {
@@ -2336,7 +2352,10 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [],
       })]
       let execution = executions[0]
-      if (execution.kind === 'invalid-structured-output' || (options.runner === 'claude' && isRetryableClaudeFailure(execution))) {
+      if (isProviderEnvironmentFailure(execution)) {
+        throw new Error(`provider environment failure after executing ${offset + batch.indexOf(caseRecord) + 1} of ${selected.length} cases: ${execution.error}`)
+      }
+      if (execution.kind === 'invalid-structured-output' || isRetryableProviderFailure(execution)) {
         const retryPrompt = execution.kind === 'invalid-structured-output'
           ? `${prompt}\n\nYour previous response was not valid structured output. Return only the schema object.`
           : `${prompt}\n\nThis is retry attempt 2 after a transient provider failure. Continue with the same routing contract.`
@@ -2345,6 +2364,9 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
           allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [],
         })
         executions.push(execution)
+        if (isProviderEnvironmentFailure(execution)) {
+          throw new Error(`provider environment failure after executing ${offset + batch.indexOf(caseRecord) + 1} of ${selected.length} cases: ${execution.error}`)
+        }
       }
       let response = { selectedRouter: [], selectedSkills: [], selectedContext: [], decisions: [], violations: [] }
       if (execution.kind === 'success') response = canonicalizeSelectedContextAliases(runRoot, execution.response)

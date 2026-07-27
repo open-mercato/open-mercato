@@ -450,6 +450,8 @@ test('fixture preparer safely seeds one writable case and refuses reuse', () => 
       encoding: 'utf8',
     })
     assert.equal(prepared.status, 0, `${prepared.stdout}\n${prepared.stderr}`)
+    assert.match(prepared.stdout, /run `yarn generate` in the target/)
+    assert.match(prepared.stdout, /link its node_modules to the controller dependency tree/)
     assert.equal(fs.existsSync(path.join(target, '.ai', 'harness', 'DISPOSABLE')), true)
     assert.equal(fs.existsSync(path.join(target, 'src', 'modules', 'library', 'index.ts')), true)
 
@@ -980,7 +982,7 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
   }
 })
 
-test('live Claude preserves its terminal error event without retrying a non-transient failure', { skip: !targetSandboxAvailable }, () => {
+test('live Claude classifies authentication failures as environment failures', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'claude', `
 const args = process.argv.slice(2)
@@ -994,11 +996,34 @@ process.exit(1)
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
-    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
-    const [stored] = storedResults(root)
-    assert.equal(stored.attempts, 1)
-    assert.match(stored.sanitizedError ?? '', /authentication failed: invalid account/)
-    assert.doesNotMatch(stored.sanitizedError ?? '', /plugin-0/)
+    assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /provider environment failure after executing 1 of 1 cases/)
+    assert.match(result.stderr, /authentication failed: invalid account/)
+    assert.doesNotMatch(result.stderr, /plugin-0/)
+    assert.deepEqual(storedResults(root), [])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live Codex aborts a partial matrix when provider quota is exhausted', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+if (args[0] === 'features' && args[1] === 'list') process.exit(0)
+console.log(JSON.stringify({ type: 'error', message: "You've hit your usage limit" }))
+process.exit(1)
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /provider environment failure after executing 1 of 1 cases/)
+    assert.match(result.stderr, /usage limit/)
+    assert.deepEqual(storedResults(root), [])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

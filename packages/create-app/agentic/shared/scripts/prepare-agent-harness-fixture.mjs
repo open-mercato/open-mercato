@@ -208,6 +208,7 @@ function main() {
     0o600,
   )
   console.log(`Prepared ${options.caseId} (${fixtureId}) in ${target}`)
+  console.log('Before validation, run `yarn generate` in the target and link its node_modules to the controller dependency tree.')
   console.log(`Run: yarn harness:validate --runner <codex|claude> --case ${options.caseId} --writable-root ${target} --acknowledge-writes`)
   return 0
 }

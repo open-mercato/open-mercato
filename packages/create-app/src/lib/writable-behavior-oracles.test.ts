@@ -209,6 +209,28 @@ test('corrected fixtures pass the fixed after-phase behavior probes', { skip: pr
   }
 })
 
+test('OMH-045 uses inert dependency stubs for trusted imported helpers', { skip: process.platform === 'win32' }, () => {
+  const caseId = 'OMH-045'
+  const definition = cases[caseId]
+  const source = `
+import { z } from 'zod'
+import { registerCommand } from '@open-mercato/shared/modules/commands'
+
+const importedSchema = z.object({})
+registerCommand({ id: 'harness.probe', schema: importedSchema })
+
+${definition.corrected}
+`
+  const root = stageTarget(caseId, source)
+  try {
+    const result = runOracle(root, caseId, 'after')
+    assert.equal(result.status, 0, `${caseId}\n${result.stdout}\n${result.stderr}`)
+    assert.equal(result.parsed?.passed, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the fixed worker refuses target imports instead of executing case-controlled commands', { skip: process.platform === 'win32' }, () => {
   const sentinel = path.join(os.tmpdir(), `om-writable-oracle-sentinel-${process.pid}-${Date.now()}`)
   const source = `

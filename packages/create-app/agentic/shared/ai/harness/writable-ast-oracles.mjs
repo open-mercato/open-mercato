@@ -620,6 +620,29 @@ function addCall(facts, name, optionNames = []) {
   facts.callOptions.get(name).push(new Set(optionNames))
 }
 
+function classMemberNames(ts, member) {
+  const names = new Set()
+  const identifier = propertyName(ts, member.name)
+  if (identifier) names.add(identifier)
+  const decorators = typeof ts.getDecorators === 'function' && ts.canHaveDecorators(member)
+    ? ts.getDecorators(member) ?? []
+    : []
+  for (const decorator of decorators) {
+    if (!ts.isCallExpression(decorator.expression)) continue
+    if (expressionName(ts, decorator.expression.expression) !== 'Property') continue
+    for (const argument of decorator.expression.arguments) {
+      if (!ts.isObjectLiteralExpression(argument)) continue
+      for (const option of argument.properties) {
+        if (!ts.isPropertyAssignment(option)) continue
+        const optionName = propertyName(ts, option.name)
+        if (!['name', 'fieldName'].includes(optionName) || !ts.isStringLiteralLike(option.initializer)) continue
+        names.add(option.initializer.text)
+      }
+    }
+  }
+  return names
+}
+
 function collectFacts(ts, sourceFiles) {
   const facts = newFacts()
   for (const file of sourceFiles) {
@@ -646,7 +669,7 @@ function collectFacts(ts, sourceFiles) {
       if (ts.isImportEqualsDeclaration(node) || ts.isExportDeclaration(node)) return
 
       if (ts.isClassDeclaration(node)) {
-        const members = new Set(node.members.map((member) => propertyName(ts, member.name)).filter(Boolean))
+        const members = new Set(node.members.flatMap((member) => [...classMemberNames(ts, member)]))
         const decorators = typeof ts.getDecorators === 'function' && ts.canHaveDecorators(node)
           ? (ts.getDecorators(node) ?? []).map((decorator) => expressionName(ts, decorator.expression.expression ?? decorator.expression)).filter(Boolean)
           : []

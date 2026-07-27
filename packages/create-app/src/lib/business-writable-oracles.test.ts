@@ -674,6 +674,29 @@ test('controlled seeds fail and corrected production seams pass both trusted ora
   }
 })
 
+test('behavior oracles inert imported helpers instead of executing target dependencies', { skip: !targetSandboxAvailable }, () => {
+  const caseId = 'OMH-105'
+  const root = stageTarget(caseId, true)
+  const target = cases[caseId].file
+  const source = fs.readFileSync(path.join(root, target), 'utf8')
+  writeFile(root, target, `
+import { z } from 'zod'
+import { registerCommand } from '@open-mercato/shared/modules/commands'
+
+const importedSchema = z.object({})
+registerCommand({ id: 'harness.probe', schema: importedSchema })
+
+${source}
+`)
+  try {
+    const result = runOracle(behaviorOracle, root, caseId, 'after')
+    assert.equal(result.status, 0, `${caseId}\n${result.stdout}\n${result.stderr}`)
+    assert.equal(result.parsed?.passed, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('generated tests reject common disabled, focused, todo, and expected-failure modifiers', () => {
   const scenarios = [
     ['describe.skip', `describe.skip('disabled suite', () => {})`],
