@@ -21,6 +21,7 @@ import { workflowDefinitionDataSchema } from '../../../data/validators'
 import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
 import { computeContextLedger, type LedgerWorkflowDefinition } from '../../../lib/context-ledger'
 import { collectUnresolvedContextRefWarnings } from '../../../lib/expression-refs'
+import type { PinnedSampleEnvelope } from '../../../lib/sample-resolver'
 import { Page } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -573,6 +574,59 @@ export default function VisualEditorPage() {
     [dialogLedger, selectedNode],
   )
 
+  // Pinned per-step samples carried inside metadata.editor.samples (spec
+  // section 3.6, step 4.4). The page owns the metadata object, so pin/unpin
+  // write through setLoadedMetadata and the explicit Save (and draft
+  // autosave) persist them via buildMetadataPayload's spread.
+  const editorSamples = useMemo(() => {
+    const editorValue = loadedMetadata?.editor
+    if (!editorValue || typeof editorValue !== 'object' || Array.isArray(editorValue)) return undefined
+    const samplesValue = (editorValue as Record<string, unknown>).samples
+    if (!samplesValue || typeof samplesValue !== 'object' || Array.isArray(samplesValue)) return undefined
+    return samplesValue as Record<string, PinnedSampleEnvelope>
+  }, [loadedMetadata])
+
+  const handlePinSample = useCallback((stepId: string, data: unknown) => {
+    setLoadedMetadata((previous) => {
+      const base: Record<string, unknown> = { ...(previous ?? {}) }
+      const editorValue = base.editor
+      const editor: Record<string, unknown> =
+        editorValue && typeof editorValue === 'object' && !Array.isArray(editorValue)
+          ? { ...(editorValue as Record<string, unknown>) }
+          : {}
+      const samplesValue = editor.samples
+      const samples: Record<string, unknown> =
+        samplesValue && typeof samplesValue === 'object' && !Array.isArray(samplesValue)
+          ? { ...(samplesValue as Record<string, unknown>) }
+          : {}
+      samples[stepId] = { pinnedAt: new Date().toISOString(), source: 'test', data }
+      editor.samples = samples
+      base.editor = editor
+      return base
+    })
+    flash(t('workflows.testStep.pinnedFlash', 'Sample pinned — it is stored with the definition on save'), 'success')
+  }, [t])
+
+  const handleUnpinSample = useCallback((stepId: string) => {
+    setLoadedMetadata((previous) => {
+      if (!previous) return previous
+      const editorValue = previous.editor
+      if (!editorValue || typeof editorValue !== 'object' || Array.isArray(editorValue)) return previous
+      const editor = { ...(editorValue as Record<string, unknown>) }
+      const samplesValue = editor.samples
+      if (!samplesValue || typeof samplesValue !== 'object' || Array.isArray(samplesValue)) return previous
+      const samples = { ...(samplesValue as Record<string, unknown>) }
+      if (!(stepId in samples)) return previous
+      delete samples[stepId]
+      if (Object.keys(samples).length > 0) editor.samples = samples
+      else delete editor.samples
+      const base = { ...previous }
+      if (Object.keys(editor).length > 0) base.editor = editor
+      else delete base.editor
+      return Object.keys(base).length > 0 ? base : null
+    })
+  }, [])
+
   const edgeDialogLedgerEntries = useMemo(
     () => (dialogLedger && selectedEdge ? dialogLedger.steps[selectedEdge.target]?.entries : undefined),
     [dialogLedger, selectedEdge],
@@ -957,7 +1011,7 @@ export default function VisualEditorPage() {
   const sharedDialogs = (
     <>
       {crudFormDialogsEnabled ? (
-        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} />
+        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} definitionId={definitionId} samples={editorSamples} onPinSample={handlePinSample} onUnpinSample={handleUnpinSample} />
       ) : (
         <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       )}

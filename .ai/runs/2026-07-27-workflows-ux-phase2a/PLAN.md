@@ -22,7 +22,7 @@
 | 4 | 4.1 | Pinned samples storage with size cap and precedence resolver | done | d27500957 |
 | 4 | 4.2 | Registry mock widening and would-do mocks for effectors | done | 7e222d2d3 |
 | 4 | 4.3 | Test-step API route with mock-first semantics and new ACL feature | done | 19cacc385 |
-| 4 | 4.4 | Editor Test-step UI with output preview and pin-as-sample | todo | — |
+| 4 | 4.4 | Editor Test-step UI with output preview and pin-as-sample | done | 17d213ffd |
 | 5 | 5.1 | Structured validation error bodies on definition routes | todo | — |
 | 5 | 5.2 | Docs, UPGRADE notes, and spec changelog | todo | — |
 
