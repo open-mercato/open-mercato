@@ -13,6 +13,7 @@ import {
   createFieldDefinitions,
   defaultFormValues,
   buildWorkflowPayload,
+  assertNoInvalidActivityConfigs,
   type WorkflowDefinitionFormValues,
 } from '../../../components/formConfig'
 import { StepsEditor } from '../../../components/StepsEditor'
@@ -24,8 +25,10 @@ import { formatWorkflowValidationError } from '../../../lib/format-validation-er
 export default function CreateWorkflowDefinitionPage() {
   const router = useRouter()
   const t = useT()
+  const [invalidActivityConfigs, setInvalidActivityConfigs] = React.useState<string[]>([])
 
   const handleSubmit = async (values: WorkflowDefinitionFormValues) => {
+    assertNoInvalidActivityConfigs(invalidActivityConfigs, t)
     const payload = buildWorkflowPayload(values)
 
     const response = await apiFetch('/api/workflows/definitions', {
@@ -46,7 +49,7 @@ export default function CreateWorkflowDefinitionPage() {
   const fields = React.useMemo(() => createFieldDefinitions(t), [t])
 
   const formGroups = React.useMemo(
-    () => createFormGroups(t, StepsEditor, TransitionsEditor),
+    () => createFormGroups(t, StepsEditor, TransitionsEditor, { onInvalidActivityConfigsChange: setInvalidActivityConfigs }),
     [t]
   )
 

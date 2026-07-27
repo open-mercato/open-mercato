@@ -8,6 +8,7 @@ interface ConfigJsonTextareaProps {
   id: string
   value: Record<string, unknown> | undefined
   onChange: (config: Record<string, unknown>) => void
+  onValidityChange?: (valid: boolean) => void
   rows?: number
   placeholder?: string
   className?: string
@@ -17,6 +18,7 @@ export function ConfigJsonTextarea({
   id,
   value,
   onChange,
+  onValidityChange,
   rows = 3,
   placeholder = '{"key": "value"}',
   className,
@@ -27,6 +29,15 @@ export function ConfigJsonTextarea({
   const [isInvalid, setIsInvalid] = React.useState(false)
   const isFocusedRef = React.useRef(false)
   const lastSerializedRef = React.useRef(serialized)
+  const onValidityChangeRef = React.useRef(onValidityChange)
+
+  React.useEffect(() => {
+    onValidityChangeRef.current = onValidityChange
+  }, [onValidityChange])
+
+  React.useEffect(() => {
+    onValidityChangeRef.current?.(!isInvalid)
+  }, [isInvalid])
 
   React.useEffect(() => {
     if (serialized === lastSerializedRef.current) return

@@ -47,8 +47,18 @@ interface Transition {
 interface TransitionsEditorProps {
   value: Transition[]
   onChange: (transitions: Transition[]) => void
+  onInvalidActivityConfigsChange?: (activityLabels: string[]) => void
   steps?: any[]
   error?: string
+}
+
+function resolveActivityLabel(activity: { activityName?: string; activityId?: string } | undefined, index: number): string {
+  return activity?.activityName || activity?.activityId || String(index + 1)
+}
+
+function parseActivityConfigKey(key: string): { transitionIndex: number; activityIndex: number } {
+  const [transitionIndex, activityIndex] = key.split(':').map((part) => Number.parseInt(part, 10))
+  return { transitionIndex, activityIndex }
 }
 
 const TRIGGER_TYPES = [
@@ -58,9 +68,48 @@ const TRIGGER_TYPES = [
   { value: 'timer', label: 'Timer' },
 ]
 
-export function TransitionsEditor({ value = [], onChange, steps = [], error }: TransitionsEditorProps) {
+export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfigsChange, steps = [], error }: TransitionsEditorProps) {
   const t = useT()
   const activityTypeOptions = useActivityTypeOptions()
+  const [invalidConfigKeys, setInvalidConfigKeys] = React.useState<ReadonlySet<string>>(() => new Set())
+  const lastReportedLabelsRef = React.useRef<string>('')
+
+  const handleConfigValidityChange = React.useCallback((transitionIndex: number, activityIndex: number, valid: boolean) => {
+    const key = `${transitionIndex}:${activityIndex}`
+    setInvalidConfigKeys((prev) => {
+      if (prev.has(key) === !valid) return prev
+      const next = new Set(prev)
+      if (valid) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
+  React.useEffect(() => {
+    setInvalidConfigKeys((prev) => {
+      const next = new Set(
+        [...prev].filter((key) => {
+          const { transitionIndex, activityIndex } = parseActivityConfigKey(key)
+          return Boolean(value[transitionIndex]?.activities?.[activityIndex])
+        }),
+      )
+      return next.size === prev.size ? prev : next
+    })
+  }, [value])
+
+  React.useEffect(() => {
+    if (!onInvalidActivityConfigsChange) return
+    const labels = [...invalidConfigKeys]
+      .map(parseActivityConfigKey)
+      .sort((left, right) => left.transitionIndex - right.transitionIndex || left.activityIndex - right.activityIndex)
+      .map(({ transitionIndex, activityIndex }) =>
+        resolveActivityLabel(value[transitionIndex]?.activities?.[activityIndex], activityIndex),
+      )
+    const serializedLabels = JSON.stringify(labels)
+    if (serializedLabels === lastReportedLabelsRef.current) return
+    lastReportedLabelsRef.current = serializedLabels
+    onInvalidActivityConfigsChange(labels)
+  }, [invalidConfigKeys, value, onInvalidActivityConfigsChange])
 
   const addTransition = () => {
     const newTransition: Transition = {
@@ -543,6 +592,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                             id={`activity-${index}-${activityIndex}-config`}
                             value={activity.config}
                             onChange={(config) => updateActivity(index, activityIndex, 'config', config)}
+                            onValidityChange={(valid) => handleConfigValidityChange(index, activityIndex, valid)}
                             rows={2}
                             className="mt-1 font-mono text-xs"
                           />

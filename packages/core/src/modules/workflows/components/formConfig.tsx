@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { z } from 'zod'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import type { WorkflowDefinitionTrigger } from '../data/entities'
 
 /**
@@ -165,8 +166,11 @@ export function createFieldDefinitions(t: (key: string) => string): CrudField[] 
 export function createFormGroups(
   t: (key: string) => string,
   StepsEditorComponent: React.ComponentType<any>,
-  TransitionsEditorComponent: React.ComponentType<any>
+  TransitionsEditorComponent: React.ComponentType<any>,
+  options?: { onInvalidActivityConfigsChange?: (activityLabels: string[]) => void }
 ): CrudFormGroup[] {
+  const onInvalidActivityConfigsChange = options?.onInvalidActivityConfigsChange
+
   // Wrapper components to adapt CrudForm props
   const StepsEditorWrapper = (props: { value: any; setValue: (v: any) => void; error?: string; values?: any }) => {
     return <StepsEditorComponent value={props.value} onChange={props.setValue} error={props.error} />
@@ -174,7 +178,15 @@ export function createFormGroups(
 
   const TransitionsEditorWrapper = (props: { value: any; setValue: (v: any) => void; error?: string; values?: any }) => {
     // Pass the steps from values (all form values) so transitions can reference them
-    return <TransitionsEditorComponent value={props.value} onChange={props.setValue} steps={props.values?.steps || []} error={props.error} />
+    return (
+      <TransitionsEditorComponent
+        value={props.value}
+        onChange={props.setValue}
+        steps={props.values?.steps || []}
+        error={props.error}
+        onInvalidActivityConfigsChange={onInvalidActivityConfigsChange}
+      />
+    )
   }
 
   return [
@@ -231,6 +243,25 @@ export function createFormGroups(
       ],
     },
   ]
+}
+
+/**
+ * Save gate for invalid activity configuration JSON.
+ *
+ * The activity config textareas keep invalid text local (so keystrokes are not
+ * lost), which means the form values still hold the last VALID config. Without
+ * this gate, saving while a textarea holds invalid JSON silently persists the
+ * stale config. Pages wire `createFormGroups`'s `onInvalidActivityConfigsChange`
+ * into state and call this at the top of their submit handler.
+ */
+export function assertNoInvalidActivityConfigs(
+  invalidActivityLabels: string[],
+  t: (key: string, params?: Record<string, string | number>) => string,
+): void {
+  if (invalidActivityLabels.length === 0) return
+  throw createCrudFormError(
+    t('workflows.validation.invalidActivityConfigJson', { activity: invalidActivityLabels.join(', ') }),
+  )
 }
 
 import { toDateInputValue } from '@open-mercato/shared/lib/date/format'
