@@ -13,3 +13,6 @@
 ## 2026-07-28T08:15:00Z — checkpoint 2
 - Steps 2.1..2.3 (892e73b61..d9caa2097): the ledger shipped — pure fixpoint module, schema flattener, API. 977 tests green.
 - Honesty findings: AUTOMATED sync outputs and SUB_WORKFLOW outputMapping never reach instance.context (ledger refuses to advertise; sub-workflow case flagged as candidate engine defect for a follow-up issue).
+
+## 2026-07-28T10:30:00Z — checkpoint 3
+- Steps 3.1..3.3 (8dbf86e1b..f274bf78c): ref warnings + variable picker landed. 1012 tests green. Honest scope: no picker where the ledger cannot speak (trigger payloads, child-workflow outputs).

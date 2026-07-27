@@ -3,14 +3,14 @@
 **Last updated:** 2026-07-28T04:10:00Z
 **Branch:** feat/workflows-ux-phase2a (stacked on feat/workflows-ux-phase1, PR #4551)
 **PR:** not yet opened
-**Current phase/step:** Phase 3 Step 3.1
-**Last commit:** d9caa2097 — feat(workflows): context-schema API serving the per-step ledger
+**Current phase/step:** Phase 4 Step 4.1
+**Last commit:** f274bf78c — feat(workflows): variable picker on sub-workflow input mappings
 
 ## What just happened
-- Checkpoint 2 passed (977 tests). Ledger complete: pure fixpoint module (39 tests), Zod flattener + server contract resolver, context-schema API with maybe-at-join and typed-async fixtures.
+- Checkpoint 3 passed (1012 tests). Picker phase closed: unresolved-ref warnings in Problems, ledger-fed VariablePickerButton in config fields and sub-workflow input mappings.
 
 ## Next concrete action
-- Step 3.1: expression-reference extraction + ledger-checked warnings in Problems.
+- Step 4.1: pinned samples storage with size cap and precedence resolver.
 
 ## Blockers / open questions
 - none
