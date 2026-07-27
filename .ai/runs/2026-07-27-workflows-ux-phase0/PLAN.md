@@ -29,8 +29,8 @@
 | 6 | 6.4-review-fix | Update TC-WF-007 integration spec for CrudForm-default dialogs | done | ede714698 |
 | 7 | 7.1 | Instance detail and canvas status colors to DS tokens | done | 630232cbf |
 | 7 | 7.2 | Fix pre-existing sort-comparator guard violation in agents-budget script | done | 5927f65d7 |
-| 3 | 3.1-ds-fix | Problems panel raw buttons to Button primitive (DS pass) | done | pending-ds |
-| 5 | 5.1-review-fix | Retry role lookup on transient failure; StepsEditor retry-policy type rename | done | pending-rf |
+| 3 | 3.1-ds-fix | Problems panel raw buttons to Button primitive (DS pass) | done | 277c05bfb |
+| 5 | 5.1-review-fix | Retry role lookup on transient failure; StepsEditor retry-policy type rename | done | c0c2f037c |
 | 6 | 6.3-review-fix | Update duration adoption tests for i18n key rendering | done | b931f3322 |
 
 ## Goal

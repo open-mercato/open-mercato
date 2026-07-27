@@ -52,7 +52,7 @@ export function RolesMultiSelect({ id, value, onChange, disabled }: RolesMultiSe
         onChange={onChange}
         disabled={disabled}
         allowCustomValues
-        loadSuggestions={lookupFailed ? undefined : loadRoleSuggestions}
+        loadSuggestions={loadRoleSuggestions}
         placeholder={t('workflows.rolesSelect.placeholder')}
       />
       {lookupFailed ? (
