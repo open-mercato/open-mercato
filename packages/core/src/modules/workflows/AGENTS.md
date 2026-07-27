@@ -68,6 +68,7 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 - **UserTask** — human-in-the-loop tasks. MUST have `assignedTo` or `assignedToRoles`; MUST respect `dueDate` for SLA tracking
 - **WorkflowEvent** — immutable audit log. MUST NOT be updated or deleted after creation
 - **WorkflowEventTrigger** — maps domain events to workflow starts. MUST specify `filterConditions` and `contextMapping`
+- **WorkflowDefinitionDraft** — per-user editor autosave (`workflow_definition_drafts`, unique per definition+user+tenant). Served by `api/definitions/[id]/draft` (GET/PUT/DELETE, gated on `workflows.definitions.edit`); MUST NOT mutate the definition or its optimistic lock — only explicit Save does
 
 ## Step Types
 
@@ -93,6 +94,7 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 | `EMIT_EVENT` | Emit a domain event to the event bus |
 | `EXECUTE_FUNCTION` | Run a registered custom function |
 | `WAIT` | Delay execution for a configured duration |
+| `SET_VARIABLE` | Write values into workflow context at dot paths (assignments land at top-level context, not namespaced under the activity) |
 
 ## Environment
 
@@ -113,13 +115,17 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 
 ## Adding a New Activity Type
 
-1. Add the type to the `ActivityType` enum in `data/entities.ts`
-2. Add a handler case in `lib/activity-executor.ts` → `executeActivityByType()`
-3. Add variable interpolation support for any new config fields
-4. Add i18n labels in `i18n/en.json` under `workflows.activityTypes`
-5. Add form fields in `components/ActivityEditor.tsx` for the visual editor
-6. Run `yarn db:generate` if the entity schema changed
-7. Test with both sync and async execution modes
+Activity types are registry-driven: one `ActivityTypeEntry` carries dispatch, validation, form spec, async capability, and dry-run behavior. The definition-schema enum, editor pickers, and OpenAPI derive from the registry (`activityTypeIds()` / `listActivityTypes()`) — there is no enum or hardcoded UI list to edit.
+
+1. Register one `ActivityTypeEntry` — built-ins live in `lib/activity-types.ts`; extensions call `registerActivityType` from `lib/activity-registry.ts`. Keep the registering module UI-safe: lazy-import the executor inside `execute`.
+2. Add the config zod schema in `data/activity-config-schemas.ts` and pass it as `configSchema` — per-type config validation surfaces as editor/API **warnings** in Phase 1 (non-blocking; strict mode is a later opt-in).
+3. Add the label key `workflows.activities.types.<ID>` to all four locales in `i18n/`.
+4. Declare `form: ActivityFormFieldSpec[]` hints (components resolved from `components/fields/`); the JSON editor stays available as the collapsed "Advanced" escape hatch on every type.
+5. Honor the sync/async contract: `async: { capable: true }` or `{ capable: false, reason }` — non-capable types are refused at enqueue time; optional `executeAsync` (worker-side variant) and `enqueueDelayMs(config)` for delayed queueing.
+6. Optional: `mock(config, ctx)` for dry-run output and `outputContract` for the output ledger (UPDATE_ENTITY resolves it via `commandRegistry.outputSchemaOf(commandId)`, degrading to `'unknown'`).
+7. Test with both sync and async execution modes.
+
+Editor picker registries (both keep free-text fallback): UPDATE_ENTITY only executes commands declared via `registerWorkflowSafeCommands` (`lib/workflow-safe-commands.ts`; `listWorkflowSafeCommands()` backs `GET /api/workflows/commands`); EXECUTE_FUNCTION's picker lists `registerWorkflowFunctions` descriptors (`lib/workflow-function-registry.ts`).
 
 ## Adding a New Step Type
 
@@ -156,11 +162,11 @@ When adding new injected widgets, follow this pattern — keep the widget self-c
 
 | Directory | When to modify |
 |-----------|---------------|
-| `api/` | When adding/modifying REST endpoints for definitions, instances, tasks, events, signals |
+| `api/` | When adding/modifying REST endpoints for definitions, instances, tasks, events, signals, templates, per-user drafts |
 | `backend/` | When changing admin pages (definition list, visual editor, instance viewer, task inbox) |
 | `components/` | When modifying the visual workflow editor (React Flow nodes, edges, dialogs) |
 | `data/` | When changing ORM entities, validators, or extensions |
-| `examples/` | When adding/updating seed workflow definitions (JSON) |
+| `examples/` | When adding/updating seed workflow definitions (JSON) or gallery templates (`examples/templates/*.json`; each MUST validate against `workflowDefinitionDataSchema` — a test enforces it) |
 | `frontend/` | When modifying public-facing workflow pages |
 | `i18n/` | When adding/updating translations (en, es, de, pl) |
 | `lib/` | When changing core engine logic (executor, handlers, compensation, signals) |

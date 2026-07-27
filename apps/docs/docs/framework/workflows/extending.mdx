@@ -9,99 +9,52 @@ The workflow engine is designed for extensibility. This guide shows how to creat
 
 ## Creating Custom Activity Types
 
-Custom activities allow you to extend the workflow engine with domain-specific actions.
+Activity types are registry-driven. A single `ActivityTypeEntry` declares everything the engine and the visual editor need: the execute function, the config validation schema, the editor form spec, async capability, and dry-run behavior. The definition schema enum, the editor's type pickers, and the OpenAPI document all derive from the registry — registering the entry is the whole integration.
 
-### 1. Define the Activity Executor
-
-Create a new file in `src/modules/workflows/lib/activities/`:
+### 1. Register the Activity Type
 
 ```typescript
-// src/modules/workflows/lib/activities/send-sms.ts
-import { ActivityDefinition, ActivityExecutionContext, ActivityResult } from '../types'
-import { SmsService } from '@/modules/notifications/lib/sms-service'
+import { z } from 'zod'
+import { registerActivityType } from '@open-mercato/core/modules/workflows/lib/activity-registry'
+import type { SmsService } from '@/modules/notifications/lib/sms-service'
 
-export async function executeSendSmsActivity(
-  definition: ActivityDefinition,
-  context: ActivityExecutionContext
-): Promise<ActivityResult> {
-  const { to, message } = definition.config
+const sendSmsConfigSchema = z.looseObject({
+  to: z.string().min(1, 'SEND_SMS requires "to"'),
+  message: z.string().min(1, 'SEND_SMS requires "message"'),
+})
 
-  // Variable interpolation
-  const interpolatedTo = interpolateVariables(to, context.workflowContext)
-  const interpolatedMessage = interpolateVariables(message, context.workflowContext)
-
-  try {
-    // Inject SMS service via DI
-    const smsService = context.container.resolve<SmsService>('smsService')
-
-    // Send SMS
-    const result = await smsService.send({
-      to: interpolatedTo,
-      message: interpolatedMessage
-    })
-
-    return {
-      success: true,
-      output: {
-        messageId: result.messageId,
-        sentAt: new Date().toISOString(),
-        to: interpolatedTo
-      }
-    }
-  } catch (error: any) {
-    return {
-      success: false,
-      error: error.message,
-      retryable: error.code === 'NETWORK_ERROR'
-    }
-  }
-}
-
-function interpolateVariables(template: string, context: any): string {
-  return template.replace(/\{\{(.+?)\}\}/g, (match, path) => {
-    const value = path.split('.').reduce((obj: any, key: string) => obj?.[key], context)
-    return value !== undefined ? String(value) : match
-  })
-}
+registerActivityType<z.infer<typeof sendSmsConfigSchema>>({
+  id: 'SEND_SMS',
+  icon: 'MessageSquare',
+  i18nKey: 'workflows.activities.types.SEND_SMS',
+  configSchema: sendSmsConfigSchema,
+  form: [
+    { id: 'to', component: 'text', required: true },
+    { id: 'message', component: 'textarea', required: true },
+  ],
+  execute: async (config, ctx, deps) => {
+    const smsService = deps.container.resolve<SmsService>('smsService')
+    const result = await smsService.send({ to: config.to, message: config.message })
+    return { messageId: result.messageId, sentAt: new Date().toISOString() }
+  },
+  async: { capable: true },
+})
 ```
 
-### 2. Register the Activity Executor
+Entry contract:
 
-Add your executor to the activity registry:
+- `configSchema` — zod schema checked when a definition is saved; failures surface as **non-blocking warnings** in the editor and the definitions API (strict mode is a later opt-in)
+- `form` — field specs the editor renders as a typed configuration form; the raw JSON editor stays available as the collapsed "Advanced" escape hatch
+- `i18nKey` — label key; add `workflows.activities.types.SEND_SMS` to your module's locale files
+- `async` — `{ capable: true }` or `{ capable: false, reason }`; activities of a non-capable type are refused at enqueue time with a clear error instead of failing later in the worker
+- `executeAsync` — optional worker-side variant; the worker falls back to `execute` when absent
+- `enqueueDelayMs(config)` — optional delay before the async job runs (used by `WAIT`)
+- `mock(config, ctx)` — optional dry-run output
+- `outputContract` — optional output-shape descriptor for downstream tooling (see command output schemas below)
 
-```typescript
-// src/modules/workflows/lib/activity-executor.ts
-import { executeSendSmsActivity } from './activities/send-sms'
-import { executeSendEmailActivity } from './activities/send-email'
-import { executeCallApiActivity } from './activities/call-api'
+Variable interpolation (`{{context.*}}`, `{{workflow.*}}`, `{{now}}`, allow-listed `{{env.*}}`) is applied by the engine before your `execute` receives the config — at dispatch time for sync activities and at enqueue time for async ones. Do not re-implement it.
 
-export const activityExecutors = {
-  SEND_EMAIL: executeSendEmailActivity,
-  CALL_API: executeCallApiActivity,
-  SEND_SMS: executeSendSmsActivity, // Register custom activity
-  EMIT_EVENT: executeEmitEventActivity,
-  UPDATE_ENTITY: executeUpdateEntityActivity,
-  CALL_WEBHOOK: executeCallWebhookActivity,
-  EXECUTE_FUNCTION: executeExecuteFunctionActivity
-}
-
-export async function executeActivity(
-  definition: ActivityDefinition,
-  context: ActivityExecutionContext
-): Promise<ActivityResult> {
-  const executor = activityExecutors[definition.activityType]
-
-  if (!executor) {
-    throw new Error(`Unknown activity type: ${definition.activityType}`)
-  }
-
-  return await executor(definition, context)
-}
-```
-
-### 3. Use the Custom Activity
-
-Now you can use the custom activity in workflow definitions:
+### 2. Use the Custom Activity
 
 ```json
 {
@@ -115,35 +68,50 @@ Now you can use the custom activity in workflow definitions:
 }
 ```
 
-### Async Activity Support
+## Workflow Function Descriptors (EXECUTE_FUNCTION)
 
-For long-running activities, support async execution:
+`EXECUTE_FUNCTION` resolves functions through DI at run time. To make a function discoverable in the editor's picker, register a descriptor:
 
 ```typescript
-export async function executeSendSmsActivity(
-  definition: ActivityDefinition,
-  context: ActivityExecutionContext
-): Promise<ActivityResult> {
-  // Check if activity should run async
-  if (definition.async) {
-    // Enqueue for background processing
-    await context.queue.add('send-sms', {
-      activityId: definition.activityId,
-      workflowInstanceId: context.workflowInstanceId,
-      to: definition.config.to,
-      message: definition.config.message
-    })
+import { registerWorkflowFunctions } from '@open-mercato/core/modules/workflows/lib/workflow-function-registry'
 
-    return {
-      success: true,
-      output: { status: 'QUEUED' }
-    }
-  }
+registerWorkflowFunctions([
+  { name: 'calculateVolumeDiscount', labelKey: 'my_module.workflows.functions.calculateVolumeDiscount' },
+])
+```
 
-  // Synchronous execution
-  // ...
+`listWorkflowFunctions()` returns all registered descriptors; the picker keeps a free-text fallback for unregistered names.
+
+## Workflow-Safe Commands (UPDATE_ENTITY)
+
+`UPDATE_ENTITY` executes commands through the command bus, but only commands explicitly declared workflow-safe are allowed — anything else is rejected at execution time. Register the allowlist from the module that owns the command:
+
+```typescript
+import { registerWorkflowSafeCommands } from '@open-mercato/core/modules/workflows/lib/workflow-safe-commands'
+
+registerWorkflowSafeCommands([
+  { commandId: 'my_module.things.update', requiredFeatures: ['my_module.edit'] },
+])
+```
+
+`requiredFeatures` are checked against the workflow user's ACL before the command runs. `listWorkflowSafeCommands()` backs the editor's command picker via `GET /api/workflows/commands`.
+
+## Command Output Schemas
+
+Command handlers can declare an `outputSchema` so workflow tooling knows what an `UPDATE_ENTITY` activity returns:
+
+```typescript
+import { z } from 'zod'
+import type { CommandHandler } from '@open-mercato/shared/lib/commands/types'
+
+const updateThingCommand: CommandHandler<UpdateThingInput, { thingId: string }> = {
+  id: 'my_module.things.update',
+  outputSchema: z.object({ thingId: z.string().uuid() }),
+  async execute(input, ctx) { /* ... */ },
 }
 ```
+
+`commandRegistry.outputSchemaOf(commandId)` returns the declared schema (or `null`). `UPDATE_ENTITY`'s registry entry uses it for its output contract and degrades honestly to `'unknown'` when a command has not declared one.
 
 ## Custom Step Handlers
 

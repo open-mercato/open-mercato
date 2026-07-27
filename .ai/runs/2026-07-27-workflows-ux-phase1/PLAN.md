@@ -29,7 +29,7 @@
 | 8 | 8.1 | workflow_definition_drafts entity and migration | done | a830038a2 |
 | 8 | 8.2 | Draft API routes (GET/PUT/DELETE, user-scoped) | done | 8167b6d2a |
 | 8 | 8.3 | Editor draft wiring: debounced draft save + restore banner | done | 7710c7957 |
-| 9 | 9.1 | Docs: AGENTS.md activity-type recipe rewrite + user-guide updates | todo | — |
+| 9 | 9.1 | Docs: AGENTS.md activity-type recipe rewrite + user-guide updates | done | f4555d693 |
 
 ## Goal
 

@@ -27,8 +27,14 @@ An activity is a discrete unit of work performed by the workflow engine. While s
 | **UPDATE_ENTITY** | Modify database records | Update order status, mark tasks complete, change flags |
 | **CALL_WEBHOOK** | Generic webhook calls | Integrate with Zapier, Slack, custom services |
 | **EXECUTE_FUNCTION** | Run custom JavaScript/TypeScript code | Custom business logic, complex transformations |
+| **SET_VARIABLE** | Write values into workflow context | Set flags, compute defaults, stage data for later steps |
+| **WAIT** | Pause for a duration or until a timestamp | Cool-down periods, scheduled follow-ups |
 
 ## Configuring Activities
+
+Each activity type has a dedicated configuration form in the visual editor — for example SEND_EMAIL shows recipient, subject, and body fields, and EMIT_EVENT offers an event picker. The raw JSON editor is still available under the collapsed **Advanced** section of every activity for copy-pasting or fields the form doesn't cover.
+
+Configurations are validated against each type's schema when you save. Problems appear as **warnings** in the editor — they don't block saving, so existing definitions keep working while you fix them.
 
 ### SEND_EMAIL
 
@@ -216,6 +222,32 @@ Run custom JavaScript or TypeScript functions for complex business logic.
 }
 ```
 
+### SET_VARIABLE
+
+Write values directly into workflow context. Each assignment lands at its dot path in top-level context (unlike other activities, whose output is namespaced under the activity name).
+
+**Configuration:**
+
+```json
+{
+  "activityId": "stage-approval-data",
+  "activityName": "Stage Approval Data",
+  "activityType": "SET_VARIABLE",
+  "config": {
+    "assignments": [
+      { "path": "approval.required", "value": true },
+      { "path": "approval.threshold", "value": 10000 },
+      { "path": "requesterName", "value": "{{context.customerName}}" }
+    ]
+  }
+}
+```
+
+**Parameters:**
+- `assignments`: List of `{ path, value }` pairs (at least one). `path` is a dot path into workflow context; `value` accepts any JSON value and supports variable interpolation.
+
+After this activity runs, later steps can read `{{context.approval.required}}` or use `context.approval.threshold` in transition conditions.
+
 ## Execution Modes
 
 ### Synchronous (Default)
@@ -250,6 +282,8 @@ The workflow continues immediately while the activity runs in the background.
 - Processing can happen in parallel
 
 > 💡 **Tip**: Long-running API calls should be async to avoid blocking the workflow.
+
+> ⚠️ **Note**: Not every activity type can run asynchronously. `CALL_API` is sync-only — marking it `async` is refused immediately with a clear error when the workflow tries to enqueue it, instead of failing later in the background worker.
 
 ## Retry Policies
 
