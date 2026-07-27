@@ -566,6 +566,36 @@ test('accepts contained package files through a symlinked node_modules root', { 
   }
 })
 
+test('accepts contained package files through a symlinked node_modules root without ripgrep', { skip: process.platform === 'win32' }, () => {
+  const root = createFixture()
+  const controller = realpathSync(mkdtempSync(join(tmpdir(), 'om-framework-context-controller-')))
+  const controllerNodeModules = join(controller, 'node_modules')
+  renameSync(join(root, 'node_modules'), controllerNodeModules)
+  symlinkSync(controllerNodeModules, join(root, 'node_modules'), 'dir')
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/framework-context.mjs', '--module', 'customers', '--query', 'Person', '--json'],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        env: { ...process.env, PATH: '', Path: '' },
+      },
+    )
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const parsed = JSON.parse(result.stdout) as {
+      searchResult: string
+      boundedSearch: { matches: number }
+    }
+    assert.ok(parsed.boundedSearch.matches >= 1)
+    assert.match(readFileSync(join(root, parsed.searchResult), 'utf8'), /export class Person/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(controller, { recursive: true, force: true })
+  }
+})
+
 test('uses bounded filesystem fallbacks when ripgrep is not installed', () => {
   const root = createFixture()
   installPackage(root, '@open-mercato/core', '0.6.5', {

@@ -392,7 +392,6 @@ function comparePaths(left, right) {
 
 function fallbackRegularFiles(root, label) {
   const scanRoot = realpathSync(root)
-  assertInside(root, scanRoot, label)
   const pending = [scanRoot]
   const files = []
   let entriesVisited = 0
@@ -424,7 +423,6 @@ function fallbackRegularFiles(root, label) {
 
 function fallbackInstalledPackageManifests(nodeModulesRoot) {
   const scanRoot = realpathSync(nodeModulesRoot)
-  assertInside(nodeModulesRoot, scanRoot, 'installed package scan failed')
   const manifests = []
   const pendingNodeModules = [scanRoot]
   const visitedNodeModules = new Set()
