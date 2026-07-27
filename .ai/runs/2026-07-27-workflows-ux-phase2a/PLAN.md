@@ -25,6 +25,7 @@
 | 4 | 4.4 | Editor Test-step UI with output preview and pin-as-sample | done | 1972a0992 |
 | 5 | 5.1 | Structured validation error bodies on definition routes | done | fd0b938e5 |
 | 5 | 5.2 | Docs, UPGRADE notes, and spec changelog | done | e6e0823c3 |
+| 2 | 2.1-review-fix | Explicit comparator in ledger serialization | done | db12744ff |
 
 ## Goal
 

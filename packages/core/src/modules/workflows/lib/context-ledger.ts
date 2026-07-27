@@ -494,7 +494,7 @@ const UNREACHABLE_SENTINEL = '<unreachable>'
 function serializeLedgerMap(ledger: LedgerMap | null): string {
   if (ledger === null) return UNREACHABLE_SENTINEL
   const parts: string[] = []
-  for (const path of [...ledger.keys()].sort()) {
+  for (const path of [...ledger.keys()].sort((left, right) => left.localeCompare(right))) {
     const entry = ledger.get(path) as LedgerEntry
     parts.push(`${path}|${entry.type}|${entry.presence}|${entry.source.kind}|${entry.source.label}`)
   }
