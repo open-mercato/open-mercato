@@ -19,9 +19,9 @@
 | 4 | 4.1 | Shared activity-type options hook; kill hardcoded label arrays | done | 94b50edd3 |
 | 4 | 4.2 | Registry-driven config forms in ActivityArrayEditor (WAIT, SEND_EMAIL, CALL_WEBHOOK, CALL_API) | done | 6c986ee52 |
 | 4 | 4.3 | Event picker field for EMIT_EVENT | done | fd323ee66 |
-| 4 | 4.4 | Command picker for UPDATE_ENTITY with safe-command list API | done | 7be0f3566 |
-| 4 | 4.5 | Workflow function registry seam and function picker | done | f0a4a1c18 |
-| 4 | 4.6 | SET_VARIABLE assignments form | done | 42c1cd348 |
+| 4 | 4.4 | Command picker for UPDATE_ENTITY with safe-command list API | done | 8ded5a899 |
+| 4 | 4.5 | Workflow function registry seam and function picker | done | fd1b2f2cd |
+| 4 | 4.6 | SET_VARIABLE assignments form | done | be5841f08 |
 | 5 | 5.1 | #4230 typed OpenAPI responses for workflows definition routes | todo | — |
 | 6 | 6.1 | CommandHandler outputSchema seam with customers.deals.update exemplar | todo | — |
 | 7 | 7.1 | Template assets and templates list API | todo | — |

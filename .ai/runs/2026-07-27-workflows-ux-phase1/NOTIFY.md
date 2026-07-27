@@ -15,3 +15,6 @@
 - Steps 2.1..4.3 (352ccb1c4..fd323ee66) verified: build/generate/typecheck/i18n green; 779 workflows tests.
 - SET_VARIABLE merge semantics decided: path-patch at the two existing sync merge points; async keeps namespaced result.
 - Executor delegations: one sequential executor per step; 4.1's missed CrudForm activity-type select folded into 4.2.
+
+## 2026-07-27T15:30:00Z — checkpoint 3
+- Steps 4.4..4.6 (8ded5a899..be5841f08): Phase 4 closed — every activity type edits through a schema form; JSON demoted to Advanced everywhere. 810 workflows tests green.
