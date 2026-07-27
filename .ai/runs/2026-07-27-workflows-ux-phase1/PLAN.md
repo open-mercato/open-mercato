@@ -10,7 +10,7 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 1 | 1.1 | Activity Registry module with types, lookups, and import-boundary test | todo | — |
+| 1 | 1.1 | Activity Registry module with types, lookups, and import-boundary test | done | 9c29ce7ad |
 | 1 | 1.2 | Register the 7 built-in activity types with config schemas | todo | — |
 | 1 | 1.3 | Sync dispatch through the registry | todo | — |
 | 1 | 1.4 | Async worker dispatch through the registry + CALL_API enqueue-time refusal | todo | — |
