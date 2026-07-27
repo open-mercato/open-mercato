@@ -124,6 +124,7 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'until', component: 'text' },
     ],
     execute: (config) => executeWait(config),
+    executeAsync: async () => ({ waited: true, async: true }),
     async: { capable: true },
     enqueueDelayMs: (config) =>
       config.duration || config.until ? calculateWaitDelayMs(config) : null,

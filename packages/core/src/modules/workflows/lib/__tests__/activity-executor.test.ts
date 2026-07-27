@@ -2388,4 +2388,22 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.output.durationMs).toBe(10000)
     })
   })
+
+  describe('enqueueActivity capability gate', () => {
+    test('refuses to enqueue CALL_API async with the registry reason', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'call-api-async-1',
+        activityName: 'Async Call API',
+        activityType: 'CALL_API',
+        config: { endpoint: '/api/example' },
+        async: true,
+      }
+
+      await expect(
+        activityExecutor.enqueueActivity(mockEm, activity, mockContext)
+      ).rejects.toThrow(
+        'Activity type CALL_API cannot run asynchronously (mintsPerRequestKey)'
+      )
+    })
+  })
 })

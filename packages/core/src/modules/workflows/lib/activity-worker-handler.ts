@@ -8,16 +8,12 @@
 import { JobHandler } from '@open-mercato/queue'
 import { WorkflowActivityJob } from './activity-queue-types'
 import { EntityManager } from '@mikro-orm/core'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
 import { logWorkflowEvent } from './event-logger'
-import {
-  executeSendEmail,
-  executeEmitEvent,
-  executeUpdateEntity,
-  executeCallWebhook,
-  executeFunction,
-} from './activity-executor'
+import './activity-registry-bootstrap'
+import { getActivityType } from './activity-registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows').child({ component: 'activity-worker' })
@@ -84,29 +80,20 @@ export function createActivityWorkerHandler(
       let result: any
 
       const executeActivityByType = async () => {
-        switch (payload.activityType) {
-          case 'SEND_EMAIL':
-            return await executeSendEmail(payload.activityConfig, activityContext, container)
-          case 'EMIT_EVENT':
-            return await executeEmitEvent(payload.activityConfig, activityContext, container)
-          case 'UPDATE_ENTITY':
-            return await executeUpdateEntity(
-              em,
-              payload.activityConfig,
-              activityContext,
-              container
-            )
-          case 'CALL_WEBHOOK':
-            return await executeCallWebhook(payload.activityConfig, activityContext)
-          case 'EXECUTE_FUNCTION':
-            return await executeFunction(payload.activityConfig, activityContext, container)
-          case 'WAIT':
-            // Delay already applied by the queue via delayMs; the worker
-            // only needs to record completion so the workflow can resume.
-            return { waited: true, async: true }
-          default:
-            throw new Error(`Unsupported activity type: ${payload.activityType}`)
+        const entry = getActivityType(payload.activityType)
+        if (!entry) {
+          throw new Error(`Unsupported activity type: ${payload.activityType}`)
         }
+        if (entry.async.capable === false) {
+          throw new Error(
+            `[internal] Activity type ${payload.activityType} cannot run asynchronously (${entry.async.reason})`
+          )
+        }
+        const runActivity = entry.executeAsync ?? entry.execute
+        return await runActivity(payload.activityConfig, activityContext, {
+          em: em as PostgreSqlEntityManager,
+          container,
+        })
       }
 
       // Apply timeout if specified

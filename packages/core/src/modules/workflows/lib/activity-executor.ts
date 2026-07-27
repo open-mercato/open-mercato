@@ -216,6 +216,15 @@ export async function enqueueActivity(
   const { workflowInstance, workflowContext, stepContext, transitionId, stepInstanceId, branchInstanceId } =
     context
 
+  const registryEntry = getActivityType(activity.activityType)
+  if (registryEntry && registryEntry.async.capable === false) {
+    throw new ActivityExecutionError(
+      `[internal] Activity type ${activity.activityType} cannot run asynchronously (${registryEntry.async.reason})`,
+      activity.activityType,
+      activity.activityName
+    )
+  }
+
   // Interpolate config variables NOW (before queuing)
   const interpolatedConfig = interpolateVariables(activity.config, workflowContext, workflowInstance)
 
@@ -238,11 +247,12 @@ export async function enqueueActivity(
     userId: context.userId,
   }
 
-  // Enqueue to queue (WAIT activities use delayMs for the actual delay)
+  // Enqueue to queue (entries with enqueueDelayMs, e.g. WAIT, use delayMs for the actual delay)
   const queue = getActivityQueue()
-  const enqueueOptions = activity.activityType === 'WAIT' && (interpolatedConfig.duration || interpolatedConfig.until)
-    ? { delayMs: calculateWaitDelayMs(interpolatedConfig) }
-    : undefined
+  const registryDelayMs = registryEntry?.enqueueDelayMs
+    ? registryEntry.enqueueDelayMs(interpolatedConfig)
+    : null
+  const enqueueOptions = registryDelayMs !== null ? { delayMs: registryDelayMs } : undefined
   const jobId = await queue.enqueue(job, enqueueOptions)
 
   // Log event

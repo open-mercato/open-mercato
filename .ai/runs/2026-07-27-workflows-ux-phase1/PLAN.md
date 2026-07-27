@@ -13,7 +13,7 @@
 | 1 | 1.1 | Activity Registry module with types, lookups, and import-boundary test | done | 9c29ce7ad |
 | 1 | 1.2 | Register the 7 built-in activity types with config schemas | done | 0f6fa136f |
 | 1 | 1.3 | Sync dispatch through the registry | done | 802e2f15f |
-| 1 | 1.4 | Async worker dispatch through the registry + CALL_API enqueue-time refusal | todo | — |
+| 1 | 1.4 | Async worker dispatch through the registry + CALL_API enqueue-time refusal | done | 5c817d42c |
 | 2 | 2.1 | Registry-driven activityTypeSchema and per-type config validation (warning severity) | todo | — |
 | 3 | 3.1 | SET_VARIABLE activity type end-to-end | todo | — |
 | 4 | 4.1 | Shared activity-type options hook; kill hardcoded label arrays | todo | — |

@@ -51,6 +51,11 @@ export interface ActivityTypeEntry<TConfig = unknown> {
     ctx: ActivityContext,
     deps: ActivityExecuteDeps
   ) => Promise<unknown>
+  executeAsync?: (
+    config: TConfig,
+    ctx: ActivityContext,
+    deps: ActivityExecuteDeps
+  ) => Promise<unknown>
   async: ActivityAsyncCapability
   enqueueDelayMs?: (config: TConfig) => number | null
   mock?: (config: TConfig, ctx: ActivityContext) => unknown
