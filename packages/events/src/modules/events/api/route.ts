@@ -18,6 +18,17 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['workflows.view'] },
 }
 
+const eventPayloadFieldSchema = z.object({
+  path: z.string(),
+  type: z.enum(['text', 'number', 'boolean', 'select', 'date', 'object', 'unknown']),
+  label: z.string().optional(),
+  optional: z.boolean().optional(),
+})
+
+const eventPayloadSchemaSchema = z.object({
+  fields: z.array(eventPayloadFieldSchema),
+})
+
 const eventDefinitionSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -28,6 +39,7 @@ const eventDefinitionSchema = z.object({
   excludeFromTriggers: z.boolean().optional(),
   clientBroadcast: z.boolean().optional(),
   portalBroadcast: z.boolean().optional(),
+  payloadSchema: eventPayloadSchemaSchema.optional(),
 })
 
 const eventsResponseSchema = z.object({
@@ -65,7 +77,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List declared events',
-      description: 'Returns every declared event. Filters: category, module, excludeTriggerExcluded (default true).',
+      description: 'Returns every declared event, including its declared payloadSchema when the module (or the generated CRUD default) provides one. Filters: category, module, excludeTriggerExcluded (default true).',
       responses: [{ status: 200, description: 'Declared events', schema: eventsResponseSchema }],
     },
   },

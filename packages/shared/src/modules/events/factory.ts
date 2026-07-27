@@ -9,6 +9,7 @@ import type {
   EventDefinition,
   EventModuleConfig,
   EventPayload,
+  EventPayloadSchema,
   EmitOptions,
   CreateModuleEventsOptions,
   ModuleEventEmitter,
@@ -71,11 +72,37 @@ const allDeclaredEventIds = new Set<string>()
 // Global registry of all declared events with their full definitions
 const allDeclaredEvents: EventDefinition[] = []
 
+const CRUD_AFTER_EVENT_SUFFIXES = ['.created', '.updated', '.deleted'] as const
+
+/**
+ * Generated payload schema for platform-emitted CRUD after-events. Mirrors the
+ * default payload built by the data engine's `emitOrmEntityEvent` when no
+ * `buildPayload` override is configured: `{ id, organizationId, tenantId }`
+ * plus `syncOrigin` when the write originated from a sync. organizationId and
+ * tenantId keys are always present but may be null, so they are `optional`.
+ */
+export const DEFAULT_CRUD_PAYLOAD_SCHEMA: EventPayloadSchema = {
+  fields: [
+    { path: 'id', type: 'text' },
+    { path: 'organizationId', type: 'text', optional: true },
+    { path: 'tenantId', type: 'text', optional: true },
+    { path: 'syncOrigin', type: 'text', optional: true },
+  ],
+}
+
+function applyDefaultCrudPayloadSchema(event: EventDefinition): EventDefinition {
+  if (event.payloadSchema) return event
+  if (event.category !== 'crud') return event
+  if (!CRUD_AFTER_EVENT_SUFFIXES.some(suffix => event.id.endsWith(suffix))) return event
+  return { ...event, payloadSchema: DEFAULT_CRUD_PAYLOAD_SCHEMA }
+}
+
 function addDeclaredEvent(event: EventDefinition): void {
-  allDeclaredEventIds.add(event.id)
+  const declared = applyDefaultCrudPayloadSchema(event)
+  allDeclaredEventIds.add(declared.id)
   // Avoid duplicates if createModuleEvents/registerEventModuleConfigs is called multiple times (e.g., HMR)
-  if (!allDeclaredEvents.find(e => e.id === event.id)) {
-    allDeclaredEvents.push(event)
+  if (!allDeclaredEvents.find(e => e.id === declared.id)) {
+    allDeclaredEvents.push(declared)
   }
 }
 
@@ -199,11 +226,15 @@ export function createModuleEvents<
   // Build set of valid event IDs for runtime validation
   const validEventIds = new Set(events.map(e => e.id))
 
-  // Build full event definitions with module added
-  const fullEvents: EventDefinition[] = events.map(e => ({
-    ...e,
-    module: moduleId,
-  }))
+  // Build full event definitions with module added and the generated CRUD
+  // payload-schema default applied, so config consumers and the global
+  // registry see the same definitions.
+  const fullEvents: EventDefinition[] = events.map(e =>
+    applyDefaultCrudPayloadSchema({
+      ...e,
+      module: moduleId,
+    }),
+  )
 
   // Register all event IDs and definitions in the global registry.
   for (const event of fullEvents) {
