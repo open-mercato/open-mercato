@@ -145,6 +145,8 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(crudSurfaces, /CrudForm has no `mapServerError` prop/)
   assert.match(crudSurfaces, /type `CrudField`/)
   assert.match(crudSurfaces, /never `CrudFormField`/)
+  assert.match(crudSurfaces, /`const fields: CrudField\[\]`/)
+  assert.match(crudSurfaces, /`CrudField` is not generic/)
   assert.match(crudSurfaces, /pagination=\{\{ page, pageSize, total, totalPages, onPageChange/)
   assert.match(crudSurfaces, /not top-level pagination props/)
   assert.match(crudSurfaces, /`onDelete` receives no values argument/)
