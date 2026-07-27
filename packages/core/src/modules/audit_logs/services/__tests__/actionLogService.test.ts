@@ -141,6 +141,21 @@ describe('ActionLogService normalizeInput', () => {
     expect(normalized.relatedResourceId).toBeNull()
   })
 
+  it('normalizes onBehalfOfUserId: keeps a valid uuid, defaults null otherwise (Wave 4 P2)', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      normalizeInput: (input: Record<string, unknown> | null) => Record<string, unknown>
+    }
+
+    // Additive default: absent on-behalf-of is null (existing rows/readers unaffected).
+    expect(serviceWithPrivateAccess.normalizeInput(null).onBehalfOfUserId).toBeNull()
+    expect(serviceWithPrivateAccess.normalizeInput({ commandId: 'cmd' }).onBehalfOfUserId).toBeNull()
+    expect(serviceWithPrivateAccess.normalizeInput({
+      commandId: 'cmd',
+      onBehalfOfUserId: '33333333-3333-4333-8333-333333333333',
+    }).onBehalfOfUserId).toBe('33333333-3333-4333-8333-333333333333')
+  })
+
   it('normalizes only UUID actor ids into the uuid-backed actor column', () => {
     const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
     const serviceWithPrivateAccess = service as unknown as {

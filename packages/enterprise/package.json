@@ -65,12 +65,19 @@
     }
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.1",
+    "@ai-sdk/openai": "^4.0.2",
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/core": "workspace:*",
+    "@open-mercato/queue": "workspace:*",
+    "@open-mercato/scheduler": "workspace:*",
     "@open-mercato/ui": "workspace:*",
+    "@open-mercato/web-search": "workspace:*",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
     "@simplewebauthn/types": "^12.0.0",
     "@types/qrcode": "^1.5.5",
+    "ai": "^7.0.4",
     "openid-client": "^6.8.4",
     "otpauth": "9.5.1",
     "qrcode": "^1.5.4"

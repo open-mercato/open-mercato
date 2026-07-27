@@ -1,6 +1,6 @@
-import { CircleDot, CircleStop, User, Zap, Workflow, Clock, Timer, Split, Merge, LucideIcon } from 'lucide-react'
+import { CircleDot, CircleStop, User, Zap, Workflow, Clock, Timer, Split, Merge, Bot, LucideIcon } from 'lucide-react'
 
-export type NodeType = 'start' | 'end' | 'userTask' | 'automated' | 'subWorkflow' | 'waitForSignal' | 'waitForTimer' | 'parallelFork' | 'parallelJoin'
+export type NodeType = 'start' | 'end' | 'userTask' | 'automated' | 'subWorkflow' | 'waitForSignal' | 'waitForTimer' | 'parallelFork' | 'parallelJoin' | 'invokeAgent'
 
 export const NODE_TYPE_ICONS: Record<NodeType, LucideIcon> = {
   start: CircleDot,
@@ -12,11 +12,15 @@ export const NODE_TYPE_ICONS: Record<NodeType, LucideIcon> = {
   waitForTimer: Timer,
   parallelFork: Split,
   parallelJoin: Merge,
+  invokeAgent: Bot,
 }
 
 export const NODE_TYPE_COLORS: Record<NodeType, string> = {
-  start: 'text-emerald-500',
-  end: 'text-red-500',
+  start: 'text-status-success-icon',
+  end: 'text-status-error-icon',
+  // Decorative node-type accents (not status semantics): no 1:1 semantic DS
+  // token exists for these hues, so they are intentionally left as accent
+  // shades to avoid mislabeling them with status meaning.
   userTask: 'text-blue-500',
   automated: 'text-amber-500',
   subWorkflow: 'text-purple-500',
@@ -25,6 +29,8 @@ export const NODE_TYPE_COLORS: Record<NodeType, string> = {
   // New nodes use a semantic token (DS rule: no hardcoded color shades).
   parallelFork: 'text-primary',
   parallelJoin: 'text-primary',
+  // AI / agent touchpoint — brand-violet is reserved for AI features (DS rule).
+  invokeAgent: 'text-brand-violet',
 }
 
 export const NODE_TYPE_LABELS: Record<NodeType, { title: string; description: string }> = {
@@ -37,6 +43,7 @@ export const NODE_TYPE_LABELS: Record<NodeType, { title: string; description: st
   waitForTimer: { title: 'WAIT FOR TIMER', description: 'Pause for a duration' },
   parallelFork: { title: 'PARALLEL FORK', description: 'Split into parallel branches' },
   parallelJoin: { title: 'PARALLEL JOIN', description: 'Wait for all branches' },
+  invokeAgent: { title: 'INVOKE AGENT', description: 'Run an AI agent' },
 }
 
 const STEP_TYPE_TO_NODE_TYPE: Record<string, NodeType> = {
@@ -49,6 +56,12 @@ const STEP_TYPE_TO_NODE_TYPE: Record<string, NodeType> = {
   WAIT_FOR_TIMER: 'waitForTimer',
   PARALLEL_FORK: 'parallelFork',
   PARALLEL_JOIN: 'parallelJoin',
+  // The Invoke-Agent node compiles to an AUTOMATED step carrying a single
+  // INVOKE_AGENT activity; the editor detects that activity to round-trip it
+  // back to this node type (see graph-utils mapStepToNodeType). This synthetic
+  // entry keeps the lookup table complete for any caller keying off the
+  // activity type directly.
+  INVOKE_AGENT: 'invokeAgent',
 }
 
 export function stepTypeToNodeType(stepType: string): NodeType {

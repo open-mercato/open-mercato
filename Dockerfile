@@ -5,6 +5,36 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
+# Corporate TLS-intercepting proxies re-sign HTTPS with a root CA the host
+# trusts but this build does not, breaking every in-build download (apk, yarn).
+# Trust any PEM dropped into docker/certs/ (see its README); no-op when empty.
+# The certs land in /usr/local/share/ca-certificates so a later
+# update-ca-certificates keeps them, AND get appended to the live bundle so the
+# very first apk fetch below already trusts the proxy.
+# cert[s] is a glob + docker/README.md an always-present anchor: the COPY then
+# succeeds even when docker/certs/ is missing from a partial checkout.
+# The anchor MUST live inside docker/: BuildKit only transfers the paths a
+# COPY names, so anchoring outside it leaves the whole docker/ directory out
+# of the filtered context and the unmatched glob fails on `lstat /docker`.
+COPY docker/README.md docker/cert[s] /tmp/om-certs/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates; \
+    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
+        cat "$cert" >> /etc/ssl/certs/ca-certificates.crt; \
+        printf '\n' >> /etc/ssl/certs/ca-certificates.crt; \
+    done; \
+    rm -rf /tmp/om-certs
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
+# Corporate networks that category-block dl-cdn.alpinelinux.org can point apk
+# at an internal mirror (e.g. Artifactory alpine remote): set ALPINE_MIRROR in
+# the repo-root .env; empty (the default) leaves the official CDN in place.
+ARG ALPINE_MIRROR=""
+RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_MIRROR|g" /etc/apk/repositories
+
 # Install system deps required by optional native modules (Alpine uses apk)
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
 
@@ -34,9 +64,11 @@ COPY packages/queue/package.json ./packages/queue/
 COPY packages/scheduler/package.json ./packages/scheduler/
 COPY packages/search/package.json ./packages/search/
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/starter/package.json ./packages/starter/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY packages/ui/package.json ./packages/ui/
+COPY packages/web-search/package.json ./packages/web-search/
 COPY packages/webhooks/package.json ./packages/webhooks/
 COPY scripts/official-modules-setup.mjs ./scripts/
 COPY scripts/lib/official-modules.mjs ./scripts/lib/
@@ -78,6 +110,29 @@ ENV NODE_ENV=development     NEXT_TELEMETRY_DISABLED=1     TURBO_CACHE_DIR=/app/
 
 WORKDIR /app
 
+# Corporate proxy CA trust - see the builder stage comment / docker/certs/README.md.
+# cert[s] is a glob + docker/README.md an always-present anchor: the COPY then
+# succeeds even when docker/certs/ is missing from a partial checkout.
+# The anchor MUST live inside docker/: BuildKit only transfers the paths a
+# COPY names, so anchoring outside it leaves the whole docker/ directory out
+# of the filtered context and the unmatched glob fails on `lstat /docker`.
+COPY docker/README.md docker/cert[s] /tmp/om-certs/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates; \
+    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
+        cat "$cert" >> /etc/ssl/certs/ca-certificates.crt; \
+        printf '\n' >> /etc/ssl/certs/ca-certificates.crt; \
+    done; \
+    rm -rf /tmp/om-certs
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
+# Optional internal Alpine mirror - see the builder stage comment.
+ARG ALPINE_MIRROR=""
+RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_MIRROR|g" /etc/apk/repositories
+
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
 RUN corepack enable
 
@@ -104,9 +159,11 @@ COPY packages/queue/package.json ./packages/queue/
 COPY packages/scheduler/package.json ./packages/scheduler/
 COPY packages/search/package.json ./packages/search/
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/starter/package.json ./packages/starter/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY packages/ui/package.json ./packages/ui/
+COPY packages/web-search/package.json ./packages/web-search/
 COPY packages/webhooks/package.json ./packages/webhooks/
 COPY scripts/official-modules-setup.mjs ./scripts/
 COPY scripts/lib/official-modules.mjs ./scripts/lib/
@@ -134,6 +191,31 @@ FROM node:24-alpine AS dev
 ENV NODE_ENV=development     NEXT_TELEMETRY_DISABLED=1     TURBO_CACHE_DIR=/app/node_modules/.cache/turbo
 
 WORKDIR /app
+
+# Corporate proxy CA trust - see the builder stage comment / docker/certs/README.md.
+# Baked into the runtime stage too: the entrypoint's fallback `yarn install`
+# and any in-container downloads hit the same intercepting proxy.
+# cert[s] is a glob + docker/README.md an always-present anchor: the COPY then
+# succeeds even when docker/certs/ is missing from a partial checkout.
+# The anchor MUST live inside docker/: BuildKit only transfers the paths a
+# COPY names, so anchoring outside it leaves the whole docker/ directory out
+# of the filtered context and the unmatched glob fails on `lstat /docker`.
+COPY docker/README.md docker/cert[s] /tmp/om-certs/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates; \
+    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
+        cat "$cert" >> /etc/ssl/certs/ca-certificates.crt; \
+        printf '\n' >> /etc/ssl/certs/ca-certificates.crt; \
+    done; \
+    rm -rf /tmp/om-certs
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
+# Optional internal Alpine mirror - see the builder stage comment.
+ARG ALPINE_MIRROR=""
+RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_MIRROR|g" /etc/apk/repositories
 
 # Build toolchain kept: the entrypoint's fallback `yarn install` (stale
 # lockfile vs prebuilt image) still compiles native modules.
@@ -182,6 +264,29 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
+# Corporate proxy CA trust - see the builder stage comment / docker/certs/README.md.
+# cert[s] is a glob + docker/README.md an always-present anchor: the COPY then
+# succeeds even when docker/certs/ is missing from a partial checkout.
+# The anchor MUST live inside docker/: BuildKit only transfers the paths a
+# COPY names, so anchoring outside it leaves the whole docker/ directory out
+# of the filtered context and the unmatched glob fails on `lstat /docker`.
+COPY docker/README.md docker/cert[s] /tmp/om-certs/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates; \
+    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
+        cat "$cert" >> /etc/ssl/certs/ca-certificates.crt; \
+        printf '\n' >> /etc/ssl/certs/ca-certificates.crt; \
+    done; \
+    rm -rf /tmp/om-certs
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
+# Optional internal Alpine mirror - see the builder stage comment.
+ARG ALPINE_MIRROR=""
+RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_MIRROR|g" /etc/apk/repositories
+
 # Install only production system dependencies (Alpine uses apk)
 # sudo: allows non-root user to chown the Railway-mounted volume at startup
 RUN apk add --no-cache ca-certificates openssl sudo
@@ -212,9 +317,11 @@ COPY --from=builder /app/packages/queue/package.json ./packages/queue/
 COPY --from=builder /app/packages/scheduler/package.json ./packages/scheduler/
 COPY --from=builder /app/packages/search/package.json ./packages/search/
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
+COPY --from=builder /app/packages/starter/package.json ./packages/starter/
 COPY --from=builder /app/packages/storage-s3/package.json ./packages/storage-s3/
 COPY --from=builder /app/packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY --from=builder /app/packages/ui/package.json ./packages/ui/
+COPY --from=builder /app/packages/web-search/package.json ./packages/web-search/
 COPY --from=builder /app/packages/webhooks/package.json ./packages/webhooks/
 
 # Install only production dependencies
