@@ -87,6 +87,14 @@ const resolveCommandOutputContract = (config: unknown): ZodTypeAny | 'unknown' =
   return commandRegistry.outputSchemaOf(commandId) ?? 'unknown'
 }
 
+/**
+ * Would-do mocks receive raw (possibly still-templated) config, so they read
+ * keys defensively instead of trusting a schema parse: callers like the
+ * test-step route interpolate before invoking, but nothing guarantees it.
+ */
+const asConfigRecord = (config: unknown): Record<string, unknown> =>
+  typeof config === 'object' && config !== null ? (config as Record<string, unknown>) : {}
+
 export function registerBuiltinActivityTypes(): void {
   if (BUILTIN_ACTIVITY_TYPE_IDS.every((id) => getActivityType(id) != null)) return
 
@@ -103,6 +111,10 @@ export function registerBuiltinActivityTypes(): void {
     ],
     execute: async (config, ctx, deps) => (await loadExecutor()).executeSendEmail(config, ctx, deps.container),
     async: { capable: true },
+    mock: (config) => {
+      const record = asConfigRecord(config)
+      return { sent: false, simulated: true, wouldSendTo: record.to, subject: record.subject }
+    },
   })
 
   registerActivityType({
@@ -116,6 +128,10 @@ export function registerBuiltinActivityTypes(): void {
     ],
     execute: async (config, ctx, deps) => (await loadExecutor()).executeEmitEvent(config, ctx, deps.container),
     async: { capable: true },
+    mock: (config) => {
+      const record = asConfigRecord(config)
+      return { emitted: false, simulated: true, eventName: record.eventName }
+    },
   })
 
   registerActivityType({
@@ -136,6 +152,10 @@ export function registerBuiltinActivityTypes(): void {
     execute: async (config, ctx, deps) => (await loadExecutor()).executeUpdateEntity(deps.em, config, ctx, deps.container),
     async: { capable: true },
     outputContract: resolveCommandOutputContract,
+    mock: (config) => {
+      const record = asConfigRecord(config)
+      return { executed: false, simulated: true, commandId: record.commandId }
+    },
   })
 
   registerActivityType({
@@ -151,6 +171,10 @@ export function registerBuiltinActivityTypes(): void {
     ],
     execute: async (config, ctx, deps) => (await loadExecutor()).executeCallWebhook(config, ctx, { signal: deps.signal }),
     async: { capable: true },
+    mock: (config) => {
+      const record = asConfigRecord(config)
+      return { simulated: true, wouldCall: { url: record.url, method: record.method ?? 'POST' } }
+    },
   })
 
   registerActivityType({
@@ -169,6 +193,7 @@ export function registerBuiltinActivityTypes(): void {
     ],
     execute: async (config, ctx, deps) => (await loadExecutor()).executeFunction(config, ctx, deps.container),
     async: { capable: true },
+    mock: 'refuse',
   })
 
   registerActivityType<WaitConfig>({
@@ -190,6 +215,7 @@ export function registerBuiltinActivityTypes(): void {
     async: { capable: true },
     enqueueDelayMs: (config) =>
       config.duration || config.until ? calculateWaitDelayMs(config) : null,
+    mock: () => ({ waited: true, simulated: true }),
   })
 
   registerActivityType({
@@ -206,6 +232,7 @@ export function registerBuiltinActivityTypes(): void {
     ],
     execute: async (config, ctx, deps) => (await loadExecutor()).executeCallApi(deps.em, config, ctx, deps.container, deps.signal),
     async: { capable: false, reason: 'mintsPerRequestKey' },
+    mock: 'refuse',
   })
 
   registerActivityType<SetVariableConfig>({
@@ -223,7 +250,7 @@ export function registerBuiltinActivityTypes(): void {
     ],
     execute: async (config, ctx) => (await loadExecutor()).executeSetVariable(config, ctx),
     async: { capable: false, reason: 'asyncResumeMergeDoesNotApplyAssignments' },
-    mock: (config) => ({ assignments: config.assignments }),
+    mock: (config) => ({ simulated: true, assignments: config.assignments }),
   })
 }
 
