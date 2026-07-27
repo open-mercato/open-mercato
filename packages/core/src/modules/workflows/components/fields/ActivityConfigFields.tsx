@@ -18,6 +18,7 @@ import { CommandPicker } from './CommandPicker'
 import { EndpointPicker } from './EndpointPicker'
 import { FunctionPicker } from './FunctionPicker'
 import { VariablePickerButton } from './VariablePickerButton'
+import { ledgerDropTargetProps } from './ledgerDropTarget'
 
 /**
  * Registry-driven config form for workflow activities (spec
@@ -469,6 +470,11 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
                 onChange={(event) => setField(spec, event.target.value)}
                 className="flex-1 text-xs"
                 disabled={disabled}
+                {...ledgerDropTargetProps({
+                  value: current,
+                  onValueChange: (nextValue) => setField(spec, nextValue),
+                  disabled,
+                })}
               />
               <VariablePickerButton
                 targetId={fieldId}
@@ -501,6 +507,11 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
               rows={4}
               className="flex-1 text-xs"
               disabled={disabled}
+              {...ledgerDropTargetProps({
+                value: stringValue(rawValue),
+                onValueChange: (nextValue) => setField(spec, nextValue),
+                disabled,
+              })}
             />
             <VariablePickerButton
               targetId={fieldId}
@@ -609,6 +620,11 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
               onChange={(event) => setField(spec, event.target.value)}
               className="flex-1 text-xs"
               disabled={disabled}
+              {...ledgerDropTargetProps({
+                value: stringValue(rawValue),
+                onValueChange: (nextValue) => setField(spec, nextValue),
+                disabled,
+              })}
             />
             <VariablePickerButton
               targetId={fieldId}

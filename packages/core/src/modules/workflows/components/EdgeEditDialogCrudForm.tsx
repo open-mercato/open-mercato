@@ -9,6 +9,7 @@ import { Trash2 } from 'lucide-react'
 import { CrudForm, type CrudFormGroup, type CrudField, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { InputDataPanel } from './InputDataPanel'
 import { BusinessRuleConditionsEditor } from './fields/BusinessRuleConditionsEditor'
 import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
 import { edgeToFormValues, formValuesToEdgeUpdates, type EdgeFormValues } from '../lib/edgeFormTransforms'
@@ -232,24 +233,31 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto min-h-0 px-6 ">
-          <CrudForm
-            fields={fields}
-            groups={groups}
-            initialValues={initialValues}
-            onSubmit={handleSubmit}
-            embedded={true}
-            submitLabel={t('workflows.edgeEditor.saveTransition')}
-            extraActions={
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={handleDelete}
-              >
-                <Trash2 className="size-4 mr-2" />
-                {t('workflows.edgeEditor.deleteTransition')}
-              </Button>
-            }
+        <div className="flex flex-1 min-h-0 gap-4 overflow-hidden px-6">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <CrudForm
+              fields={fields}
+              groups={groups}
+              initialValues={initialValues}
+              onSubmit={handleSubmit}
+              embedded={true}
+              submitLabel={t('workflows.edgeEditor.saveTransition')}
+              extraActions={
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleDelete}
+                >
+                  <Trash2 className="size-4 mr-2" />
+                  {t('workflows.edgeEditor.deleteTransition')}
+                </Button>
+              }
+            />
+          </div>
+          <InputDataPanel
+            entries={ledgerEntries}
+            stepId={edge.target}
+            className="hidden w-72 shrink-0 self-start lg:flex max-h-full"
           />
         </div>
       </DialogContent>

@@ -10,6 +10,7 @@ import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import type { LedgerEntry } from '../../lib/context-ledger'
 import { VariablePickerButton } from './VariablePickerButton'
+import { ledgerDropTargetProps } from './ledgerDropTarget'
 
 /**
  * Mapping definition structure for SubWorkflow input/output
@@ -206,6 +207,12 @@ export function MappingArrayEditor({
                           placeholder={t('workflows.fieldEditors.mappings.valuePlaceholder')}
                           className="flex-1 text-xs font-mono"
                           disabled={disabled}
+                          {...ledgerDropTargetProps({
+                            value: mapping.value,
+                            onValueChange: (nextValue) => updateMapping(index, 'value', nextValue),
+                            insertMode: variablePicker ? 'bare' : 'template',
+                            disabled,
+                          })}
                         />
                         {variablePicker && (
                           <VariablePickerButton

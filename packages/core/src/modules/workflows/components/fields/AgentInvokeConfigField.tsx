@@ -22,6 +22,7 @@ import {
   type AgentResultKind,
 } from '../../lib/agent-outcome-paths'
 import { VariablePickerButton } from './VariablePickerButton'
+import { ledgerDropTargetProps } from './ledgerDropTarget'
 import type { Mapping } from './MappingArrayEditor'
 
 /**
@@ -307,6 +308,11 @@ export function AgentInvokeConfigField({
                     placeholder={t('workflows.form.invokeAgent.inputValuePlaceholder')}
                     className="flex-1 font-mono"
                     disabled={disabled}
+                    {...ledgerDropTargetProps({
+                      value: row.value,
+                      onValueChange: (next) => update({ inputs: updateRow(inputs, index, 'value', next) }),
+                      disabled,
+                    })}
                   />
                   <VariablePickerButton
                     targetId={`${id}-input-${index}-value`}
@@ -399,6 +405,12 @@ export function AgentInvokeConfigField({
                       placeholder={t('workflows.form.invokeAgent.outputKeyPlaceholder')}
                       className="flex-1"
                       disabled={disabled}
+                      {...ledgerDropTargetProps({
+                        value: row.key,
+                        onValueChange: (next) => update({ outputs: updateRow(outputs, index, 'key', next) }),
+                        insertMode: 'bare',
+                        disabled,
+                      })}
                     />
                     <VariablePickerButton
                       targetId={`${id}-output-${index}-key`}
@@ -477,6 +489,11 @@ export function AgentInvokeConfigField({
               aria-label={t('workflows.form.invokeAgent.subjectId')}
               className="flex-1 font-mono"
               disabled={disabled}
+              {...ledgerDropTargetProps({
+                value: subject.subjectId,
+                onValueChange: (next) => update({ subject: { ...subject, subjectId: next } }),
+                disabled,
+              })}
             />
             <VariablePickerButton
               targetId={`${id}-subject-id`}

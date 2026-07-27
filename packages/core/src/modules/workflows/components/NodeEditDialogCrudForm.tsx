@@ -20,6 +20,7 @@ import { WorkflowSelectorField } from './fields/WorkflowSelectorField'
 import { RolesMultiSelect } from './fields/RolesMultiSelect'
 import { StartPreConditionsEditor } from './fields/StartPreConditionsEditor'
 import { AgentInvokeConfigField } from './fields/AgentInvokeConfigField'
+import { InputDataPanel } from './InputDataPanel'
 import { nodeToFormValues, formValuesToNodeUpdates, isJsonSchemaFormat, type NodeFormValues } from '../lib/nodeFormTransforms'
 import { sanitizeId } from '../lib/graph-utils'
 import type { LedgerEntry } from '../lib/context-ledger'
@@ -572,35 +573,43 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto min-h-0 px-6">
-          {/* JSON Schema Conversion Warning */}
-          {showJsonSchemaWarning && (
-            <Alert variant="info" className="mb-4">
-              <AlertDescription className="text-xs">
-                {t('workflows.nodeEditor.jsonSchemaFormat')}
-              </AlertDescription>
-            </Alert>
-          )}
+        <div className="flex flex-1 min-h-0 gap-4 overflow-hidden px-6">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {/* JSON Schema Conversion Warning */}
+            {showJsonSchemaWarning && (
+              <Alert variant="info" className="mb-4">
+                <AlertDescription className="text-xs">
+                  {t('workflows.nodeEditor.jsonSchemaFormat')}
+                </AlertDescription>
+              </Alert>
+            )}
 
-          <CrudForm
-            fields={fields}
-            groups={groups}
-            initialValues={initialValues}
-            onSubmit={handleSubmit}
-            embedded={true}
-            submitLabel={t('workflows.form.saveStep')}
-            extraActions={
-              canDelete ? (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={handleDelete}
-                >
-                  <Trash2 className="size-4 mr-2" />
-                  {t('workflows.form.deleteStep')}
-                </Button>
-              ) : undefined
-            }
+            <CrudForm
+              fields={fields}
+              groups={groups}
+              initialValues={initialValues}
+              onSubmit={handleSubmit}
+              embedded={true}
+              submitLabel={t('workflows.form.saveStep')}
+              extraActions={
+                canDelete ? (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={handleDelete}
+                  >
+                    <Trash2 className="size-4 mr-2" />
+                    {t('workflows.form.deleteStep')}
+                  </Button>
+                ) : undefined
+              }
+            />
+          </div>
+          <InputDataPanel
+            entries={ledgerEntries}
+            stepId={node.id}
+            samples={samples}
+            className="hidden w-72 shrink-0 self-start lg:flex max-h-full"
           />
         </div>
       </DialogContent>
