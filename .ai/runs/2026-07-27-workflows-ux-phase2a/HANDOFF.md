@@ -3,14 +3,14 @@
 **Last updated:** 2026-07-28T04:10:00Z
 **Branch:** feat/workflows-ux-phase2a (stacked on feat/workflows-ux-phase1, PR #4551)
 **PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1
-**Last commit:** — (run folder about to land)
+**Current phase/step:** Phase 2 Step 2.1
+**Last commit:** 5050cb370 — feat(workflows): context schema editor on the definition panel
 
 ## What just happened
-- Run initialized. Triage key finding: no definition.io/ports on this lineage (lives on feat/agent-orchestrator-mvp) → contextSchema defined fresh, no alias work. PLAN: 15 steps / 5 phases.
+- Checkpoint 1 passed (913 tests). contextSchema declared, editor round-trip fixed (anti-stripping), ContextSchemaEditor live in the metadata panel.
 
 ## Next concrete action
-- Step 1.1: contextSchema field on the definition with round-trip tests.
+- Step 2.1: pure context-ledger module (fixpoint, maybe semantics).
 
 ## Blockers / open questions
 - none

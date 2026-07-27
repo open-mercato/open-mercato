@@ -6,3 +6,6 @@
 - Brief: Phase 2a of the workflows UX redesign — context schema, per-step ledger, variable picker + reference warnings, pinned samples, mock-first Test step, context-schema API, structured error bodies.
 - External skill URLs: none
 - Decisions: no definition.io alias (ports absent on this lineage); mock-first test step (no real effectors); samples without redaction envelope (explicit warning instead); pills/drag/strict/endpoint-picker deferred to 2b per spec cut lines.
+
+## 2026-07-28T06:00:00Z — checkpoint 1
+- Steps 1.1..1.3 (fe3694ae0..5050cb370): contextSchema end-to-end (schema, round-trip plumbing, editor UI). 913 workflows tests green; typecheck green after re-adding yarn generate to the chain (dispatcher omission, noted).
