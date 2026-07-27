@@ -12905,5 +12905,106 @@
     "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 122880,
     "relatedCases": ["OMH-019", "OMH-063", "OMH-185"]
+  },
+  {
+    "id": "OMH-188",
+    "title": "Let operations own order cancellation reasons without a new module",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, order cancellation reasons are a hard-coded list in application code, and operations staff want to add, rename, and retire reasons themselves per organization without waiting for a developer release. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for managing versus reading those values, and identify the smallest relevant validation. Do not introduce a new application module before establishing whether an installed module already owns this capability.",
+    "tags": ["architecture", "module-facts", "reuse-installed", "editable-value-lists"],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/dictionaries.md",
+      "ruleIds": ["BC-01", "BC-04"]
+    },
+    "expectedRouter": {
+      "required": ["architecture"],
+      "allowedExtra": ["module-data", "umes", "backend-ui", "framework-context"]
+    },
+    "requiredSkills": [],
+    "context": {
+      "required": ["AGENTS.md", ".ai/guides/modules/dictionaries.md"],
+      "allowedExtra": [
+        ".ai/guides/architecture.md",
+        ".ai/guides/contracts.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-data-model-design/SKILL.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**"]
+    },
+    "requiredDecisions": ["facts-first", "tenant-scope"],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 11,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 147456,
+    "relatedCases": ["OMH-002", "OMH-177"]
+  },
+  {
+    "id": "OMH-189",
+    "title": "Give a partner system unattended revocable API access",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, a partner warehouse system must call the application API unattended, with no interactive login, and the operations team must be able to revoke that access immediately without disturbing staff sessions. Decide the smallest safe design against what the installed modules already provide, state the access-control posture and how the credential is stored and revoked, keep tenant and organization boundaries intact, and identify the smallest relevant validation. Do not design a bespoke token mechanism before establishing whether an installed module already owns this capability.",
+    "tags": ["architecture", "module-facts", "reuse-installed", "unattended-access"],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/api_keys.md",
+      "ruleIds": ["BC-01", "BC-04"]
+    },
+    "expectedRouter": {
+      "required": ["architecture"],
+      "allowedExtra": ["module-data", "integration", "framework-context", "umes"]
+    },
+    "requiredSkills": [],
+    "context": {
+      "required": ["AGENTS.md", ".ai/guides/modules/api_keys.md"],
+      "allowedExtra": [
+        ".ai/guides/architecture.md",
+        ".ai/guides/contracts.md",
+        ".ai/guides/integrations.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/mechanism-selector.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**"]
+    },
+    "requiredDecisions": ["facts-first", "acl-features"],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 11,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 147456,
+    "relatedCases": ["OMH-002", "OMH-188"]
   }
 ]
