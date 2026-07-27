@@ -900,7 +900,7 @@ export async function executeFunction(
  * Calculate delay in milliseconds from a WAIT activity config.
  * Supports either `duration` (relative, e.g. "PT5M") or `until` (absolute ISO 8601 datetime).
  */
-function calculateWaitDelayMs(config: { duration?: string; until?: string }): number {
+export function calculateWaitDelayMs(config: { duration?: string; until?: string }): number {
   if (config.until) {
     const targetDate = new Date(config.until)
     if (isNaN(targetDate.getTime())) {
@@ -927,7 +927,7 @@ function calculateWaitDelayMs(config: { duration?: string; until?: string }): nu
  * - Async mode: delay is handled by the queue's delayMs option;
  *   this handler returns immediately when called from the worker
  */
-async function executeWait(config: any): Promise<any> {
+export async function executeWait(config: any): Promise<any> {
   const durationMs = calculateWaitDelayMs(config)
 
   // In sync mode, actually sleep for the duration

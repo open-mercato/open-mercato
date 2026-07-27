@@ -170,23 +170,112 @@ export const subWorkflowConfigSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
 })
 
+// Fields that are semantically enums/numbers/booleans still accept
+// {{interpolation}} template strings resolved at run time.
+const templateStringSchema = z
+  .string()
+  .refine(containsTemplate, 'Must be a {{template}} expression')
+
 // CALL_API activity configuration
 export const callApiConfigSchema = z.object({
   endpoint: z.string().min(1, 'API endpoint is required'),
-  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']).default('GET'),
+  method: z
+    .union([z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']), templateStringSchema])
+    .default('GET'),
   headers: z.record(z.string(), z.string()).optional(),
   body: z.any().optional(),
-  validateTenantMatch: z.boolean().default(true).optional(),
-  timeout: z.number().int().positive().optional(),
+  validateTenantMatch: z.union([z.boolean(), templateStringSchema]).default(true).optional(),
+  timeout: z.union([z.number().int().positive(), templateStringSchema]).optional(),
 })
 
 export const callWebhookConfigSchema = z.object({
   url: z.string().min(1, 'Webhook URL is required'),
-  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('POST'),
+  method: z
+    .union([z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']), templateStringSchema])
+    .default('POST'),
   headers: z.record(z.string(), z.string()).optional(),
   body: z.any().optional(),
 })
 export type CallWebhookConfig = z.infer<typeof callWebhookConfigSchema>
+
+// Per-type activity config schemas for the Activity Registry (spec
+// 2026-07-26-workflows-ux-redesign.md section 3.2). Loose objects: configs in
+// the wild carry extra keys, and every field tolerates {{interpolation}}
+// template strings resolved at run time.
+export const sendEmailConfigSchema = z.looseObject({
+  to: z.string().min(1, 'SEND_EMAIL requires "to"'),
+  subject: z.string().min(1, 'SEND_EMAIL requires "subject"'),
+  template: z.string().optional(),
+  templateData: z.record(z.string(), z.any()).optional(),
+  body: z.any().optional(),
+})
+export type SendEmailConfig = z.infer<typeof sendEmailConfigSchema>
+
+export const emitEventConfigSchema = z.looseObject({
+  eventName: z.string().min(1, 'EMIT_EVENT requires "eventName"'),
+  payload: z.record(z.string(), z.any()).optional(),
+})
+export type EmitEventConfig = z.infer<typeof emitEventConfigSchema>
+
+export const updateEntityConfigSchema = z.looseObject({
+  commandId: z.string().min(1, 'UPDATE_ENTITY requires "commandId"'),
+  input: z.record(z.string(), z.any()),
+  statusDictionary: z.string().optional(),
+})
+export type UpdateEntityConfig = z.infer<typeof updateEntityConfigSchema>
+
+export const executeFunctionConfigSchema = z.looseObject({
+  functionName: z.string().min(1, 'EXECUTE_FUNCTION requires "functionName"'),
+  args: z.record(z.string(), z.any()).optional(),
+})
+export type ExecuteFunctionConfig = z.infer<typeof executeFunctionConfigSchema>
+
+export const waitConfigSchema = z.looseObject({
+  duration: z.string().optional(),
+  until: z.string().optional(),
+}).superRefine((config, ctx) => {
+  const hasDuration = config.duration != null && config.duration !== ''
+  const hasUntil = config.until != null && config.until !== ''
+  if (!hasDuration && !hasUntil) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [],
+      message: 'WAIT activity requires "duration" or "until"',
+    })
+    return
+  }
+  if (hasDuration && hasUntil) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [],
+      message: 'WAIT activity accepts "duration" OR "until", not both',
+    })
+    return
+  }
+  if (hasDuration && !isValidDurationString(config.duration)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['duration'],
+      message: DURATION_ERROR,
+    })
+  }
+  if (hasUntil) {
+    if (!isValidIsoDateString(config.until)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['until'],
+        message: UNTIL_ERROR,
+      })
+    } else if (!isFutureIsoDateString(config.until)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['until'],
+        message: UNTIL_PAST_ERROR,
+      })
+    }
+  }
+})
+export type WaitConfig = z.infer<typeof waitConfigSchema>
 
 // Retry policy
 export const retryPolicySchema = z.object({
