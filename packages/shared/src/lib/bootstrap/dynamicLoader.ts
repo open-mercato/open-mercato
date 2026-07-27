@@ -91,7 +91,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
   // Import the compiled JavaScript
   try {
     const fileUrl = `${pathToFileURL(jsPath).href}?mtime=${fs.statSync(jsPath).mtimeMs}`
-    return import(fileUrl)
+    return await import(fileUrl)
   } catch (error) {
     if (!allowRecovery) {
       throw error
