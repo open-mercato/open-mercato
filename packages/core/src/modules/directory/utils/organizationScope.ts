@@ -5,7 +5,7 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import type { CacheStrategy } from '@open-mercato/cache'
+import { getCurrentCacheTenant, runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { parseSelectedOrganizationCookie, parseSelectedTenantCookie } from './scopeCookies'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -104,11 +104,15 @@ function resolveCacheFromContainer(container: AwilixContainer | null | undefined
 export async function invalidateOrganizationScopeCacheForUser(
   container: AwilixContainer,
   userId: string,
+  tenantId?: string | null,
 ): Promise<void> {
   const cache = resolveCacheFromContainer(container)
   if (!cache?.deleteByTags) return
   try {
-    await cache.deleteByTags([buildOrgScopeUserCacheTag(userId)])
+    const cacheTenantId = tenantId === undefined ? getCurrentCacheTenant() : tenantId
+    await runWithCacheTenant(cacheTenantId, () =>
+      cache.deleteByTags([buildOrgScopeUserCacheTag(userId)]),
+    )
   } catch (err) {
     logger.warn('Cache invalidate user failed', { err })
   }
@@ -121,7 +125,9 @@ export async function invalidateOrganizationScopeCacheForTenant(
   const cache = resolveCacheFromContainer(container)
   if (!cache?.deleteByTags) return
   try {
-    await cache.deleteByTags([buildOrgScopeTenantCacheTag(tenantId)])
+    await runWithCacheTenant(tenantId, () =>
+      cache.deleteByTags([buildOrgScopeTenantCacheTag(tenantId)]),
+    )
   } catch (err) {
     logger.warn('Cache invalidate tenant failed', { err })
   }
