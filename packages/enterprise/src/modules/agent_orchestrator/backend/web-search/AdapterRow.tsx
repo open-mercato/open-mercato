@@ -15,7 +15,6 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
-import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -214,15 +213,19 @@ export function AdapterRow({
           <div className="flex items-center gap-2">
             <span className="truncate font-medium">{id}</span>
             {needsConfig ? (
-              <StatusBadge variant="warning">
+              <span className="text-xs text-status-warning-text">
                 {t('agent_orchestrator.settings.webSearch.needsConfig', 'Configuration required')}
-              </StatusBadge>
+              </span>
             ) : enabled && health ? (
-              <StatusBadge variant={health.ok ? 'success' : 'warning'} dot>
+              <span
+                className={
+                  health.ok ? 'text-xs text-status-success-text' : 'text-xs text-status-warning-text'
+                }
+              >
                 {health.ok
                   ? t('agent_orchestrator.settings.webSearch.healthOk', 'Healthy')
                   : t('agent_orchestrator.settings.webSearch.healthProblem', 'Problem')}
-              </StatusBadge>
+              </span>
             ) : null}
           </div>
           <p className="truncate text-xs text-muted-foreground">
