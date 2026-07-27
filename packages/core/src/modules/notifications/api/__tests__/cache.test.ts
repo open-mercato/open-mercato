@@ -33,6 +33,7 @@ const resolveNotificationContextMock = jest.fn(async () => ({
 }))
 
 const runWithCacheTenantMock = jest.fn((_tenantId: string, fn: () => unknown) => fn())
+const mockDebugCrudCache = jest.fn()
 
 jest.mock('@open-mercato/core/modules/notifications/lib/routeHelpers', () => ({
   resolveNotificationContext: (...args: unknown[]) => resolveNotificationContextMock(...args),
@@ -40,6 +41,11 @@ jest.mock('@open-mercato/core/modules/notifications/lib/routeHelpers', () => ({
 
 jest.mock('@open-mercato/cache', () => ({
   runWithCacheTenant: (...args: unknown[]) => runWithCacheTenantMock(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/crud/cache'),
+  debugCrudCache: (...args: unknown[]) => mockDebugCrudCache(...args),
 }))
 
 const ORIGINAL_ENV = { ...process.env }
@@ -94,7 +100,12 @@ describe('GET /api/notifications caching', () => {
       pageSize: 50,
       totalPages: 1,
     })
-    expect(options).toEqual({ ttl: 10_000 })
+    expect(options).toEqual({
+      ttl: 10_000,
+      tags: [
+        `crud:notifications.notification:tenant:${tenantId}:org:null:collection`,
+      ],
+    })
   })
 
   it('serves a cached page without querying the database', async () => {
@@ -169,6 +180,14 @@ describe('GET /api/notifications caching', () => {
     })
     expect(find).toHaveBeenCalledTimes(1)
     expect(count).toHaveBeenCalledTimes(1)
+    expect(mockDebugCrudCache).toHaveBeenCalledWith(
+      'notifications-list-cache-read-failed',
+      { error: 'cache backend unavailable' },
+    )
+    expect(mockDebugCrudCache).toHaveBeenCalledWith(
+      'notifications-list-cache-write-failed',
+      { error: 'cache backend unavailable' },
+    )
   })
 
   it('falls back to the database when the cache service is unavailable', async () => {

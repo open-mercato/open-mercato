@@ -2,6 +2,8 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/core'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import {
+  buildCollectionTags,
+  debugCrudCache,
   isCrudCacheEnabled,
   resolveCrudCache,
 } from '@open-mercato/shared/lib/crud/cache'
@@ -28,6 +30,7 @@ export const metadata = {
 
 const NOTIFICATIONS_LIST_TTL_MS = 10_000
 const NOTIFICATIONS_LIST_CACHE_VERSION = 1
+const NOTIFICATIONS_LIST_RESOURCE = 'notifications.notification'
 
 type NotificationsListPayload = {
   items: ReturnType<typeof toNotificationDto>[]
@@ -87,7 +90,11 @@ export async function GET(req: Request) {
       if (isNotificationsListPayload(cached)) {
         return Response.json(cached)
       }
-    } catch {}
+    } catch (error) {
+      debugCrudCache('notifications-list-cache-read-failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   const filters: Record<string, unknown> = {
@@ -138,9 +145,16 @@ export async function GET(req: Request) {
   if (cache && cacheKey) {
     try {
       await runWithCacheTenant(scope.tenantId, () =>
-        cache.set(cacheKey, payload, { ttl: NOTIFICATIONS_LIST_TTL_MS }),
+        cache.set(cacheKey, payload, {
+          ttl: NOTIFICATIONS_LIST_TTL_MS,
+          tags: buildCollectionTags(NOTIFICATIONS_LIST_RESOURCE, scope.tenantId, [null]),
+        }),
       )
-    } catch {}
+    } catch (error) {
+      debugCrudCache('notifications-list-cache-write-failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   return Response.json(payload)
