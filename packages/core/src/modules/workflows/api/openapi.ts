@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { workflowDefinitionDataSchema } from '../data/validators'
+import { workflowDefinitionDataSchema, workflowDefinitionDraftDataSchema } from '../data/validators'
 
 export const workflowsTag = 'Workflows'
 
@@ -419,4 +419,31 @@ export const workflowTemplateSchema = z.object({
 
 export const workflowTemplateListResponseSchema = z.object({
   items: z.array(workflowTemplateSchema),
+})
+
+// ---------------------------------------------------------------------------
+// Workflow Definition Draft Schemas
+// ---------------------------------------------------------------------------
+
+export const workflowDefinitionDraftResponseSchema = z.object({
+  id: z.string().describe('Draft row UUID'),
+  definitionId: z.string().nullable().describe('The workflow definition this draft belongs to'),
+  definition: workflowDefinitionDraftDataSchema.describe('The autosaved (possibly incomplete) workflow definition'),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
+  baseUpdatedAt: z.string().nullable().describe('The definition updatedAt the draft forked from, for conflict-aware restore'),
+  createdAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+})
+
+export const workflowDefinitionDraftDetailResponseSchema = z.object({
+  data: workflowDefinitionDraftResponseSchema,
+})
+
+export const workflowDefinitionDraftMutationResponseSchema = z.object({
+  data: workflowDefinitionDraftResponseSchema,
+  message: z.string(),
+})
+
+export const workflowDefinitionDraftDeleteResponseSchema = z.object({
+  message: z.string(),
 })

@@ -675,6 +675,36 @@ export const workflowDefinitionFilterSchema = z.object({
 export type WorkflowDefinitionFilter = z.infer<typeof workflowDefinitionFilterSchema>
 
 // ============================================================================
+// WorkflowDefinitionDraft Schemas
+// ============================================================================
+
+/**
+ * Lenient shape-only schema for per-user editor drafts (spec §4.7).
+ *
+ * A draft is autosaved mid-edit and may be structurally incomplete — missing
+ * START/END steps, dangling transitions, empty graphs — so it deliberately
+ * does NOT reuse workflowDefinitionDataSchema (min counts, fork/join graph
+ * rules). Only truly malformed payloads are rejected: steps and transitions
+ * must be arrays of objects. Unknown keys (triggers, queries, signals, timers,
+ * future fields) pass through untouched so a draft round-trips losslessly.
+ * Full validation runs when the draft is promoted via the definition PUT.
+ */
+export const workflowDefinitionDraftDataSchema = z.object({
+  steps: z.array(z.record(z.string(), z.unknown())),
+  transitions: z.array(z.record(z.string(), z.unknown())),
+}).passthrough()
+
+export type WorkflowDefinitionDraftData = z.infer<typeof workflowDefinitionDraftDataSchema>
+
+export const upsertWorkflowDefinitionDraftInputSchema = z.object({
+  definition: workflowDefinitionDraftDataSchema,
+  metadata: workflowMetadataSchema.optional().nullable(),
+  baseUpdatedAt: dateOrNull.optional(),
+}).strict()
+
+export type UpsertWorkflowDefinitionDraftApiInput = z.infer<typeof upsertWorkflowDefinitionDraftInputSchema>
+
+// ============================================================================
 // WorkflowInstance Schemas
 // ============================================================================
 
