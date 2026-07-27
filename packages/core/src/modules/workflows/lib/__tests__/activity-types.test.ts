@@ -1,14 +1,17 @@
 /** @jest-environment node */
 
 import { describe, test, expect, jest } from '@jest/globals'
+import { z } from 'zod'
 import type { ActivityTypeEntry } from '../activity-registry'
 
 type ActivityRegistryModule = typeof import('../activity-registry')
 type ActivityTypesModule = typeof import('../activity-types')
+type CommandRegistryModule = typeof import('@open-mercato/shared/lib/commands/registry')
 
 type LoadedModules = {
   registryModule: ActivityRegistryModule
   typesModule: ActivityTypesModule
+  commandRegistryModule: CommandRegistryModule
 }
 
 const loadIsolated = (): LoadedModules => {
@@ -16,7 +19,8 @@ const loadIsolated = (): LoadedModules => {
   jest.isolateModules(() => {
     const typesModule = require('../activity-types') as ActivityTypesModule
     const registryModule = require('../activity-registry') as ActivityRegistryModule
-    loaded = { registryModule, typesModule }
+    const commandRegistryModule = require('@open-mercato/shared/lib/commands/registry') as CommandRegistryModule
+    loaded = { registryModule, typesModule, commandRegistryModule }
   })
   if (!loaded) throw new Error('[internal] failed to load activity-types in isolation')
   return loaded
@@ -178,6 +182,41 @@ describe('built-in activity types', () => {
       expect(schema.safeParse({ duration: '5m', until: '2099-01-01T00:00:00Z' }).success).toBe(false)
       expect(schema.safeParse({ duration: 'not-a-duration' }).success).toBe(false)
       expect(schema.safeParse({ until: '2001-01-01T00:00:00Z' }).success).toBe(false)
+    })
+  })
+
+  describe('UPDATE_ENTITY outputContract', () => {
+    const resolveContract = (registryModule: ActivityRegistryModule): ((config: unknown) => unknown) => {
+      const contract = requireEntry(registryModule, 'UPDATE_ENTITY').outputContract
+      if (typeof contract !== 'function') {
+        throw new Error('[internal] UPDATE_ENTITY must declare a function outputContract')
+      }
+      return contract
+    }
+
+    test('resolves the registered command outputSchema by commandId', () => {
+      const { registryModule, commandRegistryModule } = loadIsolated()
+      const dealOutputSchema = z.object({ dealId: z.string().uuid() })
+      commandRegistryModule.commandRegistry.register({
+        id: 'customers.deals.update',
+        execute: async () => ({ dealId: 'noop' }),
+        outputSchema: dealOutputSchema,
+      })
+      try {
+        const contract = resolveContract(registryModule)
+        expect(contract({ commandId: 'customers.deals.update', input: {} })).toBe(dealOutputSchema)
+      } finally {
+        commandRegistryModule.commandRegistry.clear()
+      }
+    })
+
+    test("degrades to 'unknown' for unregistered commands and malformed config", () => {
+      const { registryModule } = loadIsolated()
+      const contract = resolveContract(registryModule)
+      expect(contract({ commandId: 'not.registered.command', input: {} })).toBe('unknown')
+      expect(contract({ commandId: '', input: {} })).toBe('unknown')
+      expect(contract({ input: {} })).toBe('unknown')
+      expect(contract(null)).toBe('unknown')
     })
   })
 })

@@ -16,6 +16,7 @@
  * observable behavior under fake timers).
  */
 
+import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { getActivityType, registerActivityType } from './activity-registry'
 import { calculateWaitDelayMs } from './duration'
 import {
@@ -45,6 +46,19 @@ const BUILTIN_ACTIVITY_TYPE_IDS = [
 const i18nKeyFor = (id: string): string => `workflows.activities.types.${id}`
 
 const loadExecutor = () => import('./activity-executor')
+
+/**
+ * Resolves UPDATE_ENTITY's output contract from the command registry (import
+ * is UI-safe: `commands/registry` pulls in only the logger, no ORM). The
+ * lookup is sync over already-registered handlers; a missing or not-yet-loaded
+ * handler — or one without an `outputSchema` — degrades honestly to 'unknown'.
+ */
+const resolveCommandOutputContract = (config: unknown): unknown => {
+  if (typeof config !== 'object' || config === null) return 'unknown'
+  const commandId = (config as Record<string, unknown>).commandId
+  if (typeof commandId !== 'string' || commandId.length === 0) return 'unknown'
+  return commandRegistry.outputSchemaOf(commandId) ?? 'unknown'
+}
 
 export function registerBuiltinActivityTypes(): void {
   if (BUILTIN_ACTIVITY_TYPE_IDS.every((id) => getActivityType(id) != null)) return
@@ -94,6 +108,7 @@ export function registerBuiltinActivityTypes(): void {
     ],
     execute: async (config, ctx, deps) => (await loadExecutor()).executeUpdateEntity(deps.em, config, ctx, deps.container),
     async: { capable: true },
+    outputContract: resolveCommandOutputContract,
   })
 
   registerActivityType({
