@@ -1,7 +1,7 @@
 # Standalone harness — module-facts coverage cases
 
 Source doc: `.ai/specs/2026-07-24-standalone-ai-development-harness.md`
-Status: in-progress
+Status: complete
 
 Stacked on #4529 (`305c68fce`). `packages/create-app/agentic/shared/ai/harness/cases.json` does not
 exist on `develop`, so this work cannot be branched independently — the same stacking pattern #4528 uses.
@@ -87,4 +87,4 @@ does not know `api_keys` exists will invent a bespoke token mechanism.
 
 - [x] 3.1 Deterministic catalog gate over the full catalog — 189/189 on the committed bytes
 - [x] 3.2 Live routing runs for both new cases — OMH-188 and OMH-189 pass on claude/sonnet
-- [ ] 3.3 Repository validation gate for the touched package
+- [x] 3.3 Repository validation gate for the touched package — create-app 328 pass / 4 pre-existing fail / 5 skipped, typecheck clean
