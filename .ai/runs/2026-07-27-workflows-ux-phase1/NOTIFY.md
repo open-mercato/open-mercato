@@ -25,3 +25,6 @@
 ## 2026-07-28T01:30:00Z — final gate passed
 - Validation green (build:app needed 7.1-review-fix: static template imports + executor binding seam; base A/B test proved regression ours). Integration: 1699 passed; TC-WF-011 toast-literal assertion aligned + proven 5/5 scoped; onboarding failures same unrelated-env signature as Phase 0.
 - DS CLEAN (advisories landed in 7.2-ds-fix). Code review REQUEST_CHANGES → all majors fixed in 3.1-review-fix (second worker switch unified via executeRegistryActivity; SET_VARIABLE async refusal + proto-pollution guard).
+
+## 2026-07-28T02:20:00Z — run complete
+- PR: https://github.com/open-mercato/open-mercato/pull/4551 (undrafted, APPROVED via comment, merge-queue + needs-qa; stacked on #4532 — merge order documented)

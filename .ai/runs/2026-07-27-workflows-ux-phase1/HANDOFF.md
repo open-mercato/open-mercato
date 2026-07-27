@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-07-28T01:30:00Z
 **Branch:** feat/workflows-ux-phase1 (stacked on feat/workflows-ux-phase0, PR #4532)
-**PR:** not yet opened
+**PR:** https://github.com/open-mercato/open-mercato/pull/4551 (stacked on #4532)
 **Current phase/step:** complete — all 25 Tasks rows done, final gate passed
 **Last commit:** 1affb12c0 — style(workflows): focus ring and valid labeling for gallery cards and pickers
 
@@ -10,7 +10,7 @@
 - Final gate passed: full validation green, integration 1699 passed + TC-WF-011 fixed and proven (5/5 scoped), DS CLEAN + advisories landed, code review majors all fixed (worker unification, SET_VARIABLE hardening).
 
 ## Next concrete action
-- Open the stacked PR (base feat/workflows-ux-phase0), claim, labels, review pass, summary.
+- None for automation. Human: QA per PR instructions; merge #4532 first, confirm retarget, then merge after qa-approved.
 
 ## Blockers / open questions
 - none
