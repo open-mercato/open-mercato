@@ -24,3 +24,6 @@ export type { ParallelForkNodeData } from './ParallelForkNode'
 
 export { ParallelJoinNode } from './ParallelJoinNode'
 export type { ParallelJoinNodeData } from './ParallelJoinNode'
+
+export { InvokeAgentNode } from './InvokeAgentNode'
+export type { InvokeAgentNodeData } from './InvokeAgentNode'

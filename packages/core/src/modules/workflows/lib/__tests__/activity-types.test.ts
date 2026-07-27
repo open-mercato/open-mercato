@@ -35,6 +35,7 @@ const EXPECTED_IDS = [
   'WAIT',
   'CALL_API',
   'SET_VARIABLE',
+  'INVOKE_AGENT',
 ]
 
 const requireEntry = (registryModule: ActivityRegistryModule, id: string): ActivityTypeEntry => {
@@ -44,7 +45,7 @@ const requireEntry = (registryModule: ActivityRegistryModule, id: string): Activ
 }
 
 describe('built-in activity types', () => {
-  test('registers all 8 built-in types with i18n keys and icons', () => {
+  test('registers all 9 built-in types with i18n keys and icons', () => {
     const { registryModule } = loadIsolated()
     expect(registryModule.activityTypeIds()).toEqual(EXPECTED_IDS)
     for (const id of EXPECTED_IDS) {
@@ -61,9 +62,9 @@ describe('built-in activity types', () => {
     expect(registryModule.activityTypeIds()).toEqual(EXPECTED_IDS)
   })
 
-  test('async capability: all types are capable except CALL_API and SET_VARIABLE', () => {
+  test('async capability: all types are capable except CALL_API, SET_VARIABLE, and INVOKE_AGENT', () => {
     const { registryModule } = loadIsolated()
-    const nonCapableIds = ['CALL_API', 'SET_VARIABLE']
+    const nonCapableIds = ['CALL_API', 'SET_VARIABLE', 'INVOKE_AGENT']
     for (const id of EXPECTED_IDS.filter((typeId) => !nonCapableIds.includes(typeId))) {
       expect(requireEntry(registryModule, id).async).toEqual({ capable: true })
     }
@@ -75,6 +76,20 @@ describe('built-in activity types', () => {
       capable: false,
       reason: 'asyncResumeMergeDoesNotApplyAssignments',
     })
+    expect(requireEntry(registryModule, 'INVOKE_AGENT').async).toEqual({
+      capable: false,
+      reason: 'parksOnDedicatedQueue',
+    })
+  })
+
+  test('INVOKE_AGENT registers sync-only, with no mock, and delegates through the executor binding seam', () => {
+    const { registryModule } = loadIsolated()
+    const entry = requireEntry(registryModule, 'INVOKE_AGENT')
+    expect(entry.icon).toBe('Bot')
+    expect(entry.i18nKey).toBe('workflows.activities.types.INVOKE_AGENT')
+    expect(entry.mock).toBeUndefined()
+    expect(entry.executeAsync).toBeUndefined()
+    expect(entry.form.map((field) => field.id)).toEqual(['agentId', 'input', 'onResult', 'outputMapping'])
   })
 
   test('SET_VARIABLE registers with the Variable icon and a mock returning the would-be assignments', () => {
@@ -149,6 +164,12 @@ describe('built-in activity types', () => {
         valid: { assignments: [{ path: 'customer.priority', value: 'high' }] },
         templated: { assignments: [{ path: 'customer.priority', value: '{{context.priority}}' }] },
         invalid: { assignments: [] },
+      },
+      {
+        id: 'INVOKE_AGENT',
+        valid: { agentId: 'company_researcher', input: { dealId: 'd-1' }, onResult: { alwaysAsk: true } },
+        templated: { agentId: '{{context.agentId}}', input: { dealId: '{{context.dealId}}' }, onResult: { autoApproveThreshold: 0.8 } },
+        invalid: { input: { dealId: 'd-1' } },
       },
       {
         id: 'CALL_API',

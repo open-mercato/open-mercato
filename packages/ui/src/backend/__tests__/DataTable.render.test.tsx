@@ -88,6 +88,82 @@ describe('DataTable SSR render', () => {
     }
   })
 
+  it('renders no expand toggle when expansion props are absent (back-compat)', () => {
+    const columns: ColumnDef<Row>[] = [{ accessorKey: 'name', header: 'Name' }]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable columns={columns} data={[{ id: '1', name: 'Ada' }]} />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+      expect(screen.queryByRole('button', { name: /expand row/i })).toBeNull()
+      expect(screen.queryByRole('button', { name: /collapse row/i })).toBeNull()
+    } finally {
+      queryClient.clear()
+    }
+  })
+
+  it('shows an expand toggle and reveals sub-rows when expansion is enabled', () => {
+    type TreeRow = { id: string; name: string; children?: TreeRow[] }
+    const columns: ColumnDef<TreeRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable<TreeRow>
+              columns={columns}
+              data={[{ id: 'parent', name: 'Parent', children: [{ id: 'child', name: 'Child' }] }]}
+              getSubRows={(row) => row.children}
+              expandable={(row) => Boolean(row.children?.length)}
+            />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+
+      // Child hidden until expanded.
+      expect(screen.queryByText('Child')).toBeNull()
+      const toggle = screen.getByRole('button', { name: /expand row/i })
+      fireEvent.click(toggle)
+      expect(screen.getByText('Child')).toBeInTheDocument()
+      // Toggle flips to collapse affordance.
+      expect(screen.getByRole('button', { name: /collapse row/i })).toBeInTheDocument()
+    } finally {
+      queryClient.clear()
+    }
+  })
+
+  it('uses controlled expanded state and reports changes for lazy loading', () => {
+    type TreeRow = { id: string; name: string; children?: TreeRow[] }
+    const columns: ColumnDef<TreeRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    const onExpandedChange = jest.fn()
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable<TreeRow>
+              columns={columns}
+              data={[{ id: 'parent', name: 'Parent' }]}
+              getSubRows={(row) => row.children}
+              expandable={() => true}
+              expanded={{}}
+              onExpandedChange={onExpandedChange}
+            />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+      // A row with no loaded children still shows a toggle (lazy-load affordance).
+      fireEvent.click(screen.getByRole('button', { name: /expand row/i }))
+      expect(onExpandedChange).toHaveBeenCalled()
+    } finally {
+      queryClient.clear()
+    }
+  })
+
   it('keeps provided row order in manual sorting mode and reports sorting changes', () => {
     const columns: ColumnDef<Row>[] = [
       { accessorKey: 'name', header: 'Name' },

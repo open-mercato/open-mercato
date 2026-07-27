@@ -12,6 +12,7 @@ const events = [
   { id: 'workflows.definition.deleted', label: 'Workflow Definition Deleted', entity: 'definition', category: 'crud' },
   { id: 'workflows.definition.customized', label: 'Workflow Definition Customized', entity: 'definition', category: 'lifecycle' },
   { id: 'workflows.definition.reset_to_code', label: 'Workflow Definition Reset to Code', entity: 'definition', category: 'lifecycle' },
+  { id: 'workflows.definition.published', label: 'Workflow Definition Published', entity: 'definition', category: 'lifecycle' },
 
   // Workflow Instances
   { id: 'workflows.instance.created', label: 'Workflow Instance Created', entity: 'instance', category: 'crud' },

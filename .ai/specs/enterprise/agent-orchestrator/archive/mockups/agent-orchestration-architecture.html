@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Orchestration Layer — Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F4F6F9; --card:#FFFFFF; --ink:#161B24; --muted:#566072; --faint:#8B95A6;
+  --hair:#E1E5EC; --hair2:#CDD3DE;
+  --build:#7A55EE; --build-soft:#F0EAFD; --build-ink:#5B36C9;
+  --adopt:#3142C7; --adopt-soft:#ECEEFB; --adopt-ink:#27349E;
+  --extend:#C9821F; --extend-soft:#FBF0DD;
+  --ext:#5B6472; --ext-soft:#EAEDF2;
+  --green:#118A63; --green-soft:#E1F3EC;
+  --d:"Space Grotesk",sans-serif; --m:"IBM Plex Mono",monospace;
+  --b:"IBM Plex Mono",-apple-system,Segoe UI,Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Space Grotesk",-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink);
+  line-height:1.4;-webkit-font-smoothing:antialiased;padding:30px 20px 60px}
+.wrap{max-width:1180px;margin:0 auto}
+.mono{font-family:var(--m)}
+
+header{margin-bottom:24px}
+h1{font-family:var(--d);font-size:27px;font-weight:600;letter-spacing:-.02em}
+.sub{color:var(--muted);font-size:14px;margin-top:5px;max-width:760px}
+.principle{margin-top:12px;display:inline-flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--hair);
+  border-radius:10px;padding:8px 14px;font-size:13px;box-shadow:0 1px 2px rgba(20,25,35,.04)}
+.principle b{font-family:var(--d)}
+.pp-v{color:var(--build-ink);font-weight:600}.pp-i{color:var(--adopt-ink);font-weight:600}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin:16px 0 26px}
+.lg{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);font-weight:500}
+.lg .sw{width:13px;height:13px;border-radius:4px;border:1px solid rgba(0,0,0,.08)}
+.sw.build{background:var(--build-soft);border-color:var(--build)}
+.sw.adopt{background:var(--adopt-soft);border-color:var(--adopt)}
+.sw.extend{background:var(--extend-soft);border-color:var(--extend)}
+.sw.ext{background:var(--ext-soft);border-color:var(--ext)}
+
+.sec-title{font-family:var(--d);font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--faint);margin:34px 0 14px;display:flex;align-items:center;gap:10px}
+.sec-title::after{content:"";flex:1;height:1px;background:var(--hair)}
+
+/* ---- layered architecture ---- */
+.band{background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:12px 14px;
+  box-shadow:0 1px 2px rgba(20,25,35,.04),0 6px 18px rgba(20,25,35,.05);display:flex;gap:14px;align-items:stretch}
+.band-lbl{flex:none;width:120px;display:flex;flex-direction:column;justify-content:center;gap:3px;padding-left:4px}
+.band-lbl .bl-t{font-family:var(--d);font-size:13px;font-weight:600}
+.band-lbl .bl-s{font-size:10.5px;color:var(--faint);font-family:var(--m)}
+.band-row{flex:1;display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+.node{border-radius:9px;padding:9px 12px;font-size:12.5px;font-weight:600;border:1px solid;white-space:nowrap;
+  display:flex;flex-direction:column;gap:1px;min-width:0}
+.node small{font-size:10px;font-weight:500;opacity:.8;font-family:var(--m)}
+.node.build{background:var(--build-soft);border-color:#D9CBFA;color:var(--build-ink)}
+.node.adopt{background:var(--adopt-soft);border-color:#C8CEF2;color:var(--adopt-ink)}
+.node.extend{background:var(--extend-soft);border-color:#E9D3A8;color:#8a5a14}
+.node.ext{background:var(--ext-soft);border-color:#D2D7DE;color:#3f4654}
+.node.key{background:linear-gradient(135deg,var(--build) 0%,#9579F4 100%);color:#fff;border-color:var(--build);
+  box-shadow:0 4px 14px rgba(122,85,238,.3);padding:11px 16px}
+.node.key small{color:#fff;opacity:.85}
+.node.key .kt{font-family:var(--d);font-size:13.5px}
+.flowdown{display:flex;justify-content:center;margin:7px 0;color:var(--hair2)}
+.flowdown svg{width:22px;height:22px;stroke:var(--hair2);fill:none;stroke-width:2}
+.modbox{flex:1;border:1.5px solid var(--build);border-radius:12px;background:linear-gradient(180deg,#FBF9FF 0%,#F6F2FE 100%);
+  padding:11px 12px 12px;box-shadow:0 2px 10px rgba(122,85,238,.08)}
+.modbox-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px;padding:0 2px 9px;border-bottom:1px dashed #D9CBFA}
+.modbox-t{font-family:var(--m);font-size:13px;font-weight:600;color:var(--build-ink)}
+.modbox-s{font-size:10.5px;color:var(--build);font-weight:500;font-family:var(--m)}
+.modbox-grid{display:flex;flex-wrap:wrap;gap:9px}
+.modbox-grid .node{flex:1;min-width:156px}
+
+/* ---- propose/dispose flow ---- */
+.flow{display:flex;flex-wrap:wrap;gap:8px 6px;align-items:stretch}
+.fstep{position:relative;background:var(--card);border:1px solid var(--hair);border-radius:10px;
+  padding:10px 13px 10px 14px;min-width:128px;flex:1;box-shadow:0 1px 2px rgba(20,25,35,.04)}
+.fstep .fn{position:absolute;top:-8px;left:11px;width:19px;height:19px;border-radius:50%;background:var(--ink);
+  color:#fff;font-family:var(--m);font-size:10.5px;font-weight:600;display:grid;place-items:center}
+.fstep .ft{font-size:12px;font-weight:600;margin-bottom:2px;margin-top:2px}
+.fstep .fm{font-size:10.5px;color:var(--muted);font-family:var(--m)}
+.fstep.prop{border-color:#D9CBFA;background:var(--build-soft)}
+.fstep.prop .fn{background:var(--build)}
+.fstep.disp{border-color:#C8CEF2;background:var(--adopt-soft)}
+.fstep.disp .fn{background:var(--adopt)}
+.flow-key{display:flex;gap:16px;margin-bottom:13px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.flow-key span{display:flex;align-items:center;gap:6px;font-weight:500}
+.flow-key .d{width:11px;height:11px;border-radius:3px}
+.flow-key .d.v{background:var(--build)}.flow-key .d.i{background:var(--adopt)}
+
+/* ---- build plan ---- */
+.gates{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
+.gate{background:var(--card);border:1px dashed var(--hair2);border-radius:10px;padding:9px 14px;font-size:12.5px;
+  font-weight:600;display:flex;flex-direction:column;gap:1px}
+.gate small{font-size:10px;color:var(--faint);font-weight:500;font-family:var(--m)}
+.gate.seq{border-style:solid;border-color:var(--ink);background:var(--ink);color:#fff}
+.gate.seq small{color:#c7ccd8}
+.garrow{color:var(--faint);font-weight:700}
+
+.lanes{background:var(--card);border:1px solid var(--hair);border-radius:14px;overflow:hidden;
+  box-shadow:0 1px 2px rgba(20,25,35,.04),0 6px 18px rgba(20,25,35,.05)}
+.lane{display:grid;grid-template-columns:230px repeat(5,1fr);border-top:1px solid var(--hair)}
+.lane:first-child{border-top:none}
+.lane.head .cell{background:#FBFCFD;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--faint);
+  font-weight:600;font-family:var(--m)}
+.lane-lbl{padding:11px 14px;border-right:1px solid var(--hair);min-width:0}
+.lane-lbl .ll-t{font-size:12.5px;font-weight:600}
+.lane-lbl .ll-s{font-size:10.5px;color:var(--muted);margin-top:1px}
+.cell{padding:11px 8px;border-right:1px solid var(--hair);display:flex;align-items:center;justify-content:center}
+.cell:last-child{border-right:none}
+.bar{width:100%;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:600;font-family:var(--m);color:#fff}
+.bar.a{background:var(--ink)}.bar.b{background:var(--build)}.bar.c{background:var(--adopt)}
+.bar.d{background:var(--green)}.bar.e{background:#C9821F}.bar.f{background:#5B6472}.bar.g{background:#9aa0ab}
+.bar.ghost{background:transparent;border:1px dashed var(--hair2);color:var(--faint)}
+.note{font-size:11.5px;color:var(--muted);margin-top:12px;font-style:italic}
+
+.foot{margin-top:30px;font-size:11px;color:var(--faint);font-family:var(--m);text-align:center}
+@media (max-width:840px){
+  .band{flex-direction:column}.band-lbl{width:auto;flex-direction:row;gap:8px;align-items:baseline}
+  .lane{grid-template-columns:130px repeat(5,1fr)}.lane-lbl .ll-s{display:none}
+}
+@media print{body{background:#fff;padding:0}.band,.lanes{box-shadow:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Agent Orchestration Layer — Architecture</h1>
+  <p class="sub">Deterministic Open Mercato workflow as the spine; agents invoked as steps; business rules dispose. Built on OM (adopt) with a thin agent layer (build). Runtimes are pluggable (Foundry, Bedrock, OpenAI, Vertex, in-house) via adapters — A2A is the cross-runtime standard.</p>
+  <div class="principle"><b>Principle:</b> <span class="pp-v">LLM proposes</span> → <span class="pp-i">OM disposes</span> — the workflow controls flow, never the model.</div>
+  <div class="legend">
+    <span class="lg"><span class="sw build"></span>Build (new module)</span>
+    <span class="lg"><span class="sw adopt"></span>Adopt (OM platform)</span>
+    <span class="lg"><span class="sw extend"></span>Extend</span>
+    <span class="lg"><span class="sw ext"></span>External runtime</span>
+  </div>
+</header>
+
+<!-- LAYERS -->
+<div class="sec-title">Layered architecture</div>
+
+<div class="band">
+  <div class="band-lbl"><div class="bl-t">UI / Clients</div><div class="bl-s">humans</div></div>
+  <div class="band-row">
+    <div class="node extend">Agent Cockpit <small>operator · admin · engineer</small></div>
+    <div class="node extend">Claimant Portal <small>explain · contest</small></div>
+    <div class="node adopt">workflow monitor + My&nbsp;Tasks <small>reused base</small></div>
+  </div>
+</div>
+<div class="flowdown"><svg viewBox="0 0 24 24"><path d="M12 4v16m0 0-6-6m6 6 6-6"/></svg></div>
+
+<div class="band">
+  <div class="band-lbl"><div class="bl-t">Agent Layer</div><div class="bl-s">the build · one module</div></div>
+  <div class="band-row">
+    <div class="modbox">
+      <div class="modbox-h"><span class="modbox-t">@open-mercato/agent-orchestrator</span><span class="modbox-s">one OM core module · subdomains ↓</span></div>
+      <div class="modbox-grid">
+        <div class="node key"><span class="kt">orchestration</span><small>INVOKE_AGENT · Proposal · disposition · KEYSTONE</small></div>
+        <div class="node build">identity <small>principal · on-behalf-of</small></div>
+        <div class="node build">dispatch <small>queue · transports · runtime adapters</small></div>
+        <div class="node build">trace <small>trace · eval · flywheel</small></div>
+        <div class="node build">guardrails <small>injection · PII · schema</small></div>
+        <div class="node build">context <small>TDCR · retrieval · lineage</small></div>
+        <div class="node build">compliance <small>GDPR · AI Act · bias</small></div>
+        <div class="node build">lifecycle <small>canary · budgets · gating</small></div>
+        <div class="node build">cockpit <small>operator · admin · engineer</small></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="flowdown"><svg viewBox="0 0 24 24"><path d="M12 4v16m0 0-6-6m6 6 6-6"/></svg></div>
+
+<div class="band">
+  <div class="band-lbl"><div class="bl-t">OM Foundation</div><div class="bl-s">adopt as-is</div></div>
+  <div class="band-row">
+    <div class="node adopt">workflows <small>engine · saga · USER_TASK</small></div>
+    <div class="node adopt">business_rules <small>GUARD/VALIDATION gates</small></div>
+    <div class="node adopt">auth <small>users · RBAC · JWT</small></div>
+    <div class="node adopt">audit_logs <small>auto-attribution</small></div>
+    <div class="node adopt">queue</div>
+    <div class="node adopt">storage-s3 <small>artifacts</small></div>
+    <div class="node adopt">query_index + search <small>retrieval</small></div>
+    <div class="node adopt">feature_toggles</div>
+    <div class="node adopt">api_keys</div>
+    <div class="node adopt">notifications</div>
+    <div class="node adopt">eval-runner <small>Inspect AI</small></div>
+  </div>
+</div>
+<div class="flowdown"><svg viewBox="0 0 24 24"><path d="M12 4v16m0 0-6-6m6 6 6-6"/></svg></div>
+
+<div class="band">
+  <div class="band-lbl"><div class="bl-t">Runtimes</div><div class="bl-s">pluggable · adapters</div></div>
+  <div class="band-row">
+    <div class="node ext">OM-internal <small>in-process</small></div>
+    <div class="node ext">A2A runtimes <small>Foundry · Bedrock · Vertex …</small></div>
+    <div class="node ext">Provider adapters <small>OpenAI · custom</small></div>
+    <div class="node ext">Pull / BYO <small>bring-your-own-compute</small></div>
+  </div>
+</div>
+
+<!-- FLOW -->
+<div class="sec-title">Request flow — one claim, propose → dispose</div>
+<div class="flow-key">
+  <span><span class="d v"></span>agent proposes</span>
+  <span><span class="d i"></span>OM disposes</span>
+</div>
+<div class="flow">
+  <div class="fstep disp"><span class="fn">1</span><div class="ft">Workflow step</div><div class="fm">INVOKE_AGENT</div></div>
+  <div class="fstep prop"><span class="fn">2</span><div class="ft">Assemble context</div><div class="fm">agent-context</div></div>
+  <div class="fstep prop"><span class="fn">3</span><div class="ft">Dispatch task</div><div class="fm">internal/pull/A2A</div></div>
+  <div class="fstep prop"><span class="fn">4</span><div class="ft">Agent runs</div><div class="fm">as principal · on-behalf-of</div></div>
+  <div class="fstep prop"><span class="fn">5</span><div class="ft">Guardrails</div><div class="fm">in / out checks</div></div>
+  <div class="fstep prop"><span class="fn">6</span><div class="ft">Proposal + trace</div><div class="fm">AgentRun · confidence</div></div>
+  <div class="fstep disp"><span class="fn">7</span><div class="ft">Disposition</div><div class="fm">business_rules</div></div>
+  <div class="fstep disp"><span class="fn">8</span><div class="ft">Human or auto</div><div class="fm">USER_TASK · 4 verbs</div></div>
+  <div class="fstep disp"><span class="fn">9</span><div class="ft">Effector</div><div class="fm">CALL_API · payment</div></div>
+  <div class="fstep prop"><span class="fn">10</span><div class="ft">Correction → eval</div><div class="fm">flywheel</div></div>
+  <div class="fstep disp"><span class="fn">11</span><div class="ft">Claimant</div><div class="fm">explain · contest</div></div>
+</div>
+<p class="note">Every write in steps 4–9 flows through OM Commands/CRUD → attributed &amp; audited identically to a human action, with the on-behalf-of chain intact.</p>
+
+<!-- BUILD PLAN -->
+<div class="sec-title">Build plan — sequential gates, then parallel tracks</div>
+<div class="gates">
+  <div class="gate seq">De-risk gate <small>load-test engine · rule expressiveness</small></div>
+  <span class="garrow">→</span>
+  <div class="gate seq">Contract freeze <small>shared Zod types</small></div>
+  <span class="garrow">→</span>
+  <div class="gate seq">Walking skeleton <small>1 claim end-to-end</small></div>
+  <span class="garrow">→</span>
+  <div class="gate">Parallel tracks <small>fan out ↓</small></div>
+</div>
+
+<div class="lanes">
+  <div class="lane head">
+    <div class="lane-lbl cell" style="justify-content:flex-start;border-right:1px solid var(--hair)">Track</div>
+    <div class="cell">Phase 0</div><div class="cell">Phase 1</div><div class="cell">Phase 2</div><div class="cell">Phase 3</div><div class="cell">Phase 4</div>
+  </div>
+  <div class="lane">
+    <div class="lane-lbl"><div class="ll-t">A · Engine &amp; keystone</div><div class="ll-s">AGENTINT spine</div></div>
+    <div class="cell"></div><div class="cell"><div class="bar a">skeleton</div></div><div class="cell"><div class="bar a">harden</div></div><div class="cell"><div class="bar a">·</div></div><div class="cell"></div>
+  </div>
+  <div class="lane">
+    <div class="lane-lbl"><div class="ll-t">B · Identity &amp; audit</div><div class="ll-s">IDENTITY-01</div></div>
+    <div class="cell"></div><div class="cell"><div class="bar b">start</div></div><div class="cell"><div class="bar b">·</div></div><div class="cell"><div class="bar b">ext auth</div></div><div class="cell"></div>
+  </div>
+  <div class="lane">
+    <div class="lane-lbl"><div class="ll-t">C · Trace &amp; flywheel</div><div class="ll-s">TRACE-01</div></div>
+    <div class="cell"></div><div class="cell"><div class="bar c">ingest</div></div><div class="cell"><div class="bar c">evals</div></div><div class="cell"><div class="bar c">flywheel</div></div><div class="cell"></div>
+  </div>
+  <div class="lane">
+    <div class="lane-lbl"><div class="ll-t">D · Safety &amp; context</div><div class="ll-s">GUARD + CONTEXT</div></div>
+    <div class="cell"></div><div class="cell"></div><div class="cell"><div class="bar d">build</div></div><div class="cell"><div class="bar d">·</div></div><div class="cell"></div>
+  </div>
+  <div class="lane">
+    <div class="lane-lbl"><div class="ll-t">E · Dispatch connectivity</div><div class="ll-s">DISPATCH-01</div></div>
+    <div class="cell"></div><div class="cell"><div class="bar e">internal</div></div><div class="cell"><div class="bar e">pull</div></div><div class="cell"><div class="bar e">A2A</div></div><div class="cell"></div>
+  </div>
+  <div class="lane">
+    <div class="lane-lbl"><div class="ll-t">F · Cockpit UI</div><div class="ll-s">COCKPIT-01</div></div>
+    <div class="cell"><div class="bar ghost">design</div></div><div class="cell"><div class="bar ghost">design</div></div><div class="cell"><div class="bar f">build</div></div><div class="cell"><div class="bar f">·</div></div><div class="cell"></div>
+  </div>
+  <div class="lane">
+    <div class="lane-lbl"><div class="ll-t">G · Govern &amp; ship</div><div class="ll-s">COMPLY + LIFECYCLE</div></div>
+    <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"><div class="bar g">build</div></div>
+  </div>
+</div>
+<p class="note">Sequential: de-risk → contract freeze → walking skeleton (small team). After the skeleton, tracks A–G run in parallel — they meet only at the frozen contracts (the INVOKE_AGENT hooks and ExecutionContext), so devs rarely touch the same files.</p>
+
+<div class="foot">Open Mercato · Agent Orchestration Layer · companion to SPEC-00 + ADR-001 + the nine specs</div>
+</div>
+</body>
+</html>

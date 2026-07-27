@@ -92,6 +92,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | AI agent loop controls + overrides (`loop.stopWhen/prepareStep/budget`, per-tenant settings, replacing/disabling agents/tools, `entry.overrides`) | `ai-assistant` → Loop controls + How to Override; in `.ai/specs/implemented/`: `2026-04-28-ai-agents-agentic-loop-controls`, `2026-04-30-ai-overrides-and-module-disable`, `2026-05-04-modules-ts-unified-overrides` |
 | **Specific Modules** | |
 | Module-specific work (customers as CRUD reference, plus sales, catalog, auth, customer_accounts, currencies, workflows, integrations, data_sync, progress) | `packages/core/src/modules/<module>/AGENTS.md` |
+| Agent orchestration (enterprise): propose-only AI agents, runs/proposals/disposition (auto-approve vs human `USER_TASK`), traces, evals, guardrails, context (TDCR), agent identity/principals, operations cockpit, file-defined OpenCode agents (`agents/<id>/`), the `INVOKE_AGENT` workflow bridge | `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md` + `.ai/skills/om-create-opencode-agent/SKILL.md` |
 | Webhooks (outbound/inbound, Standard Webhooks signing, delivery queues, admin UI) | `webhooks` (cross-refs `queue`, `events`, `core:integrations`, `ui`) |
 | New integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `core:integrations` + `core:data_sync` |
 | **Packages** | |
