@@ -577,11 +577,33 @@ export function validateParallelForkJoin(definition: ForkJoinDefinitionLike): Fo
   return issues
 }
 
+// Declared context schema (spec §3.1) — the typed-input contract for a
+// definition. Field vocabulary mirrors userTaskConfigSchema's formSchema
+// fields so form-driven and context-driven inputs share one shape language.
+export const contextSchemaFieldSchema = z.object({
+  name: z.string().min(1),
+  type: z.enum(['text', 'number', 'boolean', 'select', 'date']),
+  label: z.string().optional(),
+  required: z.boolean().optional(),
+  options: z.array(z.string()).optional(),
+})
+
+export type WorkflowContextSchemaField = z.infer<typeof contextSchemaFieldSchema>
+
+export const contextSchemaSchema = z.object({
+  input: z.object({
+    fields: z.array(contextSchemaFieldSchema),
+  }).optional(),
+})
+
+export type WorkflowContextSchema = z.infer<typeof contextSchemaSchema>
+
 // Workflow definition data (JSONB structure)
 export const workflowDefinitionDataSchema = z.object({
   steps: z.array(workflowStepSchema).min(2, 'Workflow must have at least START and END steps'),
   transitions: z.array(workflowTransitionSchema).min(1, 'Workflow must have at least one transition'),
   triggers: z.array(workflowDefinitionTriggerSchema).optional(), // Event triggers for automatic workflow start
+  contextSchema: contextSchemaSchema.optional(), // Declared typed-input contract (spec §3.1)
   queries: z.array(z.any()).optional(), // For Phase 7
   signals: z.array(z.any()).optional(), // For Phase 9
   timers: z.array(z.any()).optional(), // For Phase 9

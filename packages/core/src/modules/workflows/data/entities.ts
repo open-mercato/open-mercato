@@ -117,10 +117,25 @@ export interface WorkflowDefinitionTrigger {
 // JSONB Structure Interfaces
 // ============================================================================
 
+export interface WorkflowContextSchemaField {
+  name: string
+  type: 'text' | 'number' | 'boolean' | 'select' | 'date'
+  label?: string
+  required?: boolean
+  options?: string[]
+}
+
+export interface WorkflowContextSchema {
+  input?: {
+    fields: WorkflowContextSchemaField[]
+  }
+}
+
 export interface WorkflowDefinitionData {
   steps: any[] // WorkflowStep[] - will define schema in validators.ts
   transitions: any[] // WorkflowTransition[] - will define schema in validators.ts
   triggers?: WorkflowDefinitionTrigger[] // Event triggers for automatic workflow start
+  contextSchema?: WorkflowContextSchema // Declared typed-input contract (spec §3.1)
   activities?: any[] // ActivityDefinition[] - will define schema in validators.ts
   queries?: any[]
   signals?: any[]

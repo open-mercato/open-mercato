@@ -10,8 +10,14 @@ import {
   workflowTransitionSchema,
   activityRetryPolicySchema,
   activityDefinitionSchema,
+  contextSchemaFieldSchema,
+  contextSchemaSchema,
+  workflowDefinitionDataSchema,
+  workflowDefinitionDraftDataSchema,
   createWorkflowDefinitionSchema,
+  createWorkflowDefinitionInputSchema,
   updateWorkflowDefinitionSchema,
+  updateWorkflowDefinitionInputSchema,
   workflowDefinitionFilterSchema,
   createWorkflowInstanceSchema,
   updateWorkflowInstanceSchema,
@@ -672,6 +678,130 @@ describe('Workflows Validators', () => {
       }
 
       expect(() => updateWorkflowDefinitionSchema.parse(noId)).toThrow()
+    })
+  })
+
+  describe('contextSchema on workflow definitions', () => {
+    const minimalGraph = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' as const },
+        { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+      ],
+      transitions: [
+        {
+          transitionId: 'start-to-end',
+          fromStepId: 'start',
+          toStepId: 'end',
+          trigger: 'auto' as const,
+          priority: 0,
+        },
+      ],
+    }
+
+    const declaredContextSchema = {
+      input: {
+        fields: [
+          { name: 'dealId', type: 'text' as const, label: 'Deal ID', required: true },
+          { name: 'amount', type: 'number' as const },
+          { name: 'stage', type: 'select' as const, options: ['new', 'won', 'lost'] },
+        ],
+      },
+    }
+
+    test('definition data schema parses and retains a declared contextSchema', () => {
+      const result = workflowDefinitionDataSchema.parse({
+        ...minimalGraph,
+        contextSchema: declaredContextSchema,
+      })
+      expect(result.contextSchema).toEqual(declaredContextSchema)
+    })
+
+    test('definition data without contextSchema stays without it', () => {
+      const result = workflowDefinitionDataSchema.parse(minimalGraph)
+      expect(result.contextSchema).toBeUndefined()
+    })
+
+    test('rejects an invalid field type', () => {
+      const invalid = {
+        ...minimalGraph,
+        contextSchema: {
+          input: {
+            fields: [{ name: 'dealId', type: 'json' }],
+          },
+        },
+      }
+      expect(workflowDefinitionDataSchema.safeParse(invalid).success).toBe(false)
+    })
+
+    test('rejects a field with an empty name', () => {
+      const invalid = {
+        ...minimalGraph,
+        contextSchema: {
+          input: {
+            fields: [{ name: '', type: 'text' }],
+          },
+        },
+      }
+      expect(workflowDefinitionDataSchema.safeParse(invalid).success).toBe(false)
+    })
+
+    test('contextSchemaSchema accepts an empty object', () => {
+      expect(contextSchemaSchema.parse({})).toEqual({})
+    })
+
+    test('contextSchemaFieldSchema retains all declared attributes', () => {
+      const field = {
+        name: 'dueDate',
+        type: 'date' as const,
+        label: 'Due date',
+        required: false,
+      }
+      expect(contextSchemaFieldSchema.parse(field)).toEqual(field)
+    })
+
+    test('create input schema retains contextSchema end-to-end', () => {
+      const result = createWorkflowDefinitionInputSchema.parse({
+        workflowId: 'ctx-schema-flow',
+        workflowName: 'Context Schema Flow',
+        definition: {
+          ...minimalGraph,
+          contextSchema: declaredContextSchema,
+        },
+      })
+      expect(result.definition.contextSchema).toEqual(declaredContextSchema)
+    })
+
+    test('create schema retains contextSchema end-to-end', () => {
+      const result = createWorkflowDefinitionSchema.parse({
+        workflowId: 'ctx-schema-flow',
+        workflowName: 'Context Schema Flow',
+        definition: {
+          ...minimalGraph,
+          contextSchema: declaredContextSchema,
+        },
+        tenantId: '123e4567-e89b-12d3-a456-426614174000',
+        organizationId: '123e4567-e89b-12d3-a456-426614174001',
+      })
+      expect(result.definition.contextSchema).toEqual(declaredContextSchema)
+    })
+
+    test('update input schema retains contextSchema end-to-end', () => {
+      const result = updateWorkflowDefinitionInputSchema.parse({
+        definition: {
+          ...minimalGraph,
+          contextSchema: declaredContextSchema,
+        },
+      })
+      expect(result.definition?.contextSchema).toEqual(declaredContextSchema)
+    })
+
+    test('draft schema passes contextSchema through untouched', () => {
+      const result = workflowDefinitionDraftDataSchema.parse({
+        steps: [{ stepId: 'start' }],
+        transitions: [],
+        contextSchema: declaredContextSchema,
+      })
+      expect(result.contextSchema).toEqual(declaredContextSchema)
     })
   })
 
