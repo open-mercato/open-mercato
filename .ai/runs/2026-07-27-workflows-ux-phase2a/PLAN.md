@@ -24,7 +24,7 @@
 | 4 | 4.3 | Test-step API route with mock-first semantics and new ACL feature | done | 7558db879 |
 | 4 | 4.4 | Editor Test-step UI with output preview and pin-as-sample | done | 1972a0992 |
 | 5 | 5.1 | Structured validation error bodies on definition routes | done | fd0b938e5 |
-| 5 | 5.2 | Docs, UPGRADE notes, and spec changelog | todo | — |
+| 5 | 5.2 | Docs, UPGRADE notes, and spec changelog | done | e6e0823c3 |
 
 ## Goal
 

@@ -125,6 +125,42 @@ Your workflow is now live and ready to accept new instances.
 
 While you edit, the editor autosaves your work as a personal draft every few seconds. Drafts never change the published definition — only clicking **Save** does. If you leave and come back with unsaved changes, a banner offers to **Restore draft** or **Discard** it; if someone else saved the definition in the meantime, the banner says so before you restore. A successful save removes the draft.
 
+## Declaring Workflow Inputs (Context Panel)
+
+The definition panel has a collapsible **Context** section where you declare the inputs your workflow expects — each with a name, a type (`text`, `number`, `boolean`, `select`, `date`), an optional label, a required flag, and options for selects.
+
+Declared inputs power the rest of the editor: they appear in the variable picker at every step with their types, required inputs are shown as always available, and optional ones carry a *maybe* marker. Declaring inputs is optional, but workflows with a declared context are far easier to configure and test.
+
+## The Variable Picker
+
+Every configuration field that accepts `{{ }}` templates — activity config inputs, mapping value cells, and trigger expressions — has a variable picker button. It opens a popover listing exactly what is available in context at that point in the workflow:
+
+- Entries are **grouped by source** (workflow inputs, trigger data, activity outputs, user-task form fields, signals, and so on)
+- Each entry shows a **type badge** (`text`, `number`, `boolean`, `select`, `date`, `object`, or `unknown` when the engine cannot know the shape)
+- Entries that are only present on some paths through the workflow carry a **maybe** marker — guard against their absence before relying on them
+- When a sample is available for the step, the entry shows its sample value
+
+Clicking an entry inserts `{{path}}` at the cursor.
+
+### Unresolved Reference Warnings
+
+The **Problems** panel warns when an expression references context that nothing in the workflow produces — a typo in a path, or a reference to an output of a step that never runs before this one. These are **warnings, never blockers**: the definition still saves, because the editor cannot always prove a value will be absent at runtime.
+
+## Testing a Step
+
+You can dry-run a single activity without executing the workflow. Open an activity's configuration and use the **Test step** panel:
+
+1. The editor builds a sample context for the step — from your pinned sample if you have one, otherwise from the last test output, otherwise from typed placeholders
+2. Running the test interpolates the config against that context and shows the resolved values plus the activity's output preview
+3. Side-effecting activities never actually execute — they return a simulated "would do" result (for example, `wouldSendTo` for an email) or a structured refusal when the activity cannot be safely simulated
+4. **Pin as sample** stores the test output as the step's sample so the picker and future tests reuse it
+
+Testing steps requires the *Test workflow definition steps* permission.
+
+:::warning Samples are stored as-is
+Pinned samples are saved inside the workflow definition **without redaction or encryption** and are visible to anyone who can view the definition. Do not pin real customer data or secrets — use representative fake values instead.
+:::
+
 ## Using the Form Editor
 
 The form editor provides a JSON-based interface for defining workflows. It's useful for:
@@ -168,10 +204,11 @@ For most users, the visual editor is more intuitive. Switch to the form editor w
 
 Before going live:
 
-1. Create a test instance with sample data
-2. Complete each step manually to verify behavior
-3. Check the execution timeline for errors
-4. Review email notifications and API calls in the monitoring view
+1. Dry-run individual activities with the [Test step panel](#testing-a-step)
+2. Create a test instance with sample data
+3. Complete each step manually to verify behavior
+4. Check the execution timeline for errors
+5. Review email notifications and API calls in the monitoring view
 
 [**Learn more about monitoring →**](./monitoring)
 

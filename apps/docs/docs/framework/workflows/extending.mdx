@@ -49,8 +49,8 @@ Entry contract:
 - `async` — `{ capable: true }` or `{ capable: false, reason }`; activities of a non-capable type are refused at enqueue time with a clear error instead of failing later in the worker
 - `executeAsync` — optional worker-side variant; the worker falls back to `execute` when absent
 - `enqueueDelayMs(config)` — optional delay before the async job runs (used by `WAIT`)
-- `mock(config, ctx)` — optional dry-run output
-- `outputContract` — optional output-shape descriptor for downstream tooling (see command output schemas below)
+- `mock` — `((config, ctx) => unknown) | 'refuse'`; powers the mock-first Test-step endpoint (see below). Return a would-do payload (e.g. `{ sent: false, simulated: true, wouldSendTo }`) for side-effecting types, or declare `'refuse'` when the activity cannot be safely simulated
+- `outputContract` — optional `(config) => ZodTypeAny | 'unknown'` output-shape resolver feeding the context ledger (see below and command output schemas)
 
 Variable interpolation (`{{context.*}}`, `{{workflow.*}}`, `{{now}}`, allow-listed `{{env.*}}`) is applied by the engine before your `execute` receives the config — at dispatch time for sync activities and at enqueue time for async ones. Do not re-implement it.
 
@@ -112,6 +112,27 @@ const updateThingCommand: CommandHandler<UpdateThingInput, { thingId: string }> 
 ```
 
 `commandRegistry.outputSchemaOf(commandId)` returns the declared schema (or `null`). `UPDATE_ENTITY`'s registry entry uses it for its output contract and degrades honestly to `'unknown'` when a command has not declared one.
+
+## The Context Ledger
+
+The editor's variable picker and unresolved-reference warnings are fed by a **per-step context ledger** — a pure computation of which context paths are available when each step runs.
+
+- `computeContextLedger(definition, { resolveOutputContract })` in `lib/context-ledger.ts` is pure and dependency-free (no React, ORM, DI, or registry imports). It runs a topological fixpoint over the step graph: entries carry `{ path, type, presence: 'always' | 'maybe', source }`, joins degrade presence to `maybe`, cycles are tolerated, and opaque producers stay honest `unknown` entries.
+- Output-contract resolution is an **injected seam**: server callers (the context-schema API route) inject `resolveServerOutputContract` from `lib/server-output-contract.ts`, which looks up the registry entry's `outputContract` and flattens the resolved Zod schema with `flattenSchemaToContract` from `lib/ledger-schema-flatten.ts` (object roots flatten to dot paths, scalars map to ledger types, unmappable shapes become `unknown`). The browser never resolves contracts locally — it consumes `GET /api/workflows/definitions/[id]/context-schema` (optionally `?stepId=`), gated on `workflows.definitions.view`.
+- Two engine facts the ledger deliberately reflects: an AUTOMATED step's **sync** activity outputs are stored only in `stepInstance.outputData` and never merged into `instance.context`, and a SUB_WORKFLOW step's `outputMapping` results likewise never reach `instance.context`. Do not model either as available downstream context in your own tooling.
+
+## Test-Step Endpoint (Mock-First)
+
+`POST /api/workflows/definitions/[id]/test-step` dry-runs a single activity config against a caller-supplied sample context. It is gated on the `workflows.definitions.test_run` ACL feature and is strictly **mock-first**: the route never calls `entry.execute`. The config is interpolated exactly like real execution (via the exported `interpolateVariables`), then:
+
+- If the registry entry declares a `mock` function, its return value is the test output (with `simulated`/would-do fields by convention)
+- If the entry declares `mock: 'refuse'` or has no mock, the route responds `200` with a structured `{ refused: true, reason }` body — a refusal is a normal, renderable outcome, not an error
+
+Declare a `mock` on your custom activity types so workflow authors can test steps that use them.
+
+## Structured Validation Error Bodies
+
+Schema failures on the definitions POST/PUT respond `400` with `{ error: 'Validation failed', details: [...] }`. Each `details` entry is normalized by `lib/definition-error-body.ts` to `{ path, code, message, expected?, got? }` — `path` and `message` are preserved from the previous shape, so existing parsers (including `formatWorkflowValidationError`) keep working, while `code`/`expected`/`got` enable precise editor diagnostics.
 
 ## Custom Step Handlers
 

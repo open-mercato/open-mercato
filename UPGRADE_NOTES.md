@@ -24,6 +24,15 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.6 → 0.6.7 (unreleased)
 
+### Workflows UX Phase 2a: context schema, ledger, pinned samples, mock-first test step
+
+Phase 2a of the workflows UX redesign (`.ai/specs/2026-07-26-workflows-ux-redesign.md`) is additive, but four items deserve downstream attention:
+
+- **New ACL feature `workflows.definitions.test_run`** gates the new mock-first `POST /api/workflows/definitions/[id]/test-step` endpoint (`dependsOn: workflows.definitions.edit`). The default `admin` grant (`workflows.*`) already covers it via wildcard matching; if you grant workflow editing to other roles and want them to test steps, add the feature to those roles and run `yarn mercato auth sync-role-acls` so existing tenants receive it.
+- **`metadata.editor.samples` stores pinned per-step sample context UNREDACTED.** Pins live inside the definition's metadata, capped at 64 KB total (`WORKFLOW_EDITOR_SAMPLES_MAX_CHARS`), with no redaction or encryption — anything a user pins (including real customer data) is stored verbatim and visible to anyone who can read the definition. The editor warns at pin time; establish a team policy (fake/representative values only) before using pins on definitions that process sensitive data.
+- **Definition 400 bodies now carry enriched `details` entries.** Schema failures on the definitions POST/PUT keep `{ error: 'Validation failed', details: [...] }` with `path` + `message` intact, and each entry additionally carries `code` and, where derivable, `expected`/`got`. Additive — existing parsers keep working.
+- **New optional `contextSchema` field on the definition payload** declares typed workflow inputs (same field vocabulary as user-task form schemas) and feeds the editor's context ledger and variable picker. Additive — definitions without it behave exactly as before.
+
 ### Workflows UX Phase 1: activity registry, per-type config warnings, SET_VARIABLE, drafts table
 
 Phase 1 of the workflows UX redesign (`.ai/specs/2026-07-26-workflows-ux-redesign.md`) lands several changes downstream authors should know about:

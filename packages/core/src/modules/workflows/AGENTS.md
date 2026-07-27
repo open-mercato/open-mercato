@@ -96,6 +96,16 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 | `WAIT` | Delay execution for a configured duration |
 | `SET_VARIABLE` | Write values into workflow context at dot paths (assignments land at top-level context, not namespaced under the activity) |
 
+## Context Backbone (contextSchema · ledger · picker · samples · test step)
+
+- **`contextSchema`** — optional definition field declaring typed workflow inputs (`{ input: { fields: [{ name, type, label?, required?, options? }] } }`, same field vocabulary as `userTaskConfig.formSchema`). Edited via the definition panel's Context section; feeds the ledger's START entries (`required` → `always`, else `maybe`). Additive — absent stays absent through save round-trips.
+- **Context ledger** — `lib/context-ledger.ts` is PURE (no React/ORM/DI/registry imports): `computeContextLedger` derives per-step incoming entries `{path, type, presence: always|maybe, source, sample?}` as a topological fixpoint over the graph (joins degrade presence to `maybe`; cycles tolerated). Output-contract resolution is an injected seam: the server injects `resolveServerOutputContract` (`lib/server-output-contract.ts` — activity registry + `commandRegistry.outputSchemaOf` + `flattenSchemaToContract` from `lib/ledger-schema-flatten.ts`); the browser never resolves contracts locally, it consumes the API response.
+- **Engine facts (verified — never model these as available):** AUTOMATED steps' sync activity outputs land only in `stepInstance.outputData`, never `instance.context`; SUB_WORKFLOW `outputMapping` results likewise stay in `stepInstance.outputData` and are never merged into `instance.context`. The ledger deliberately advertises neither. Transition-activity sync outputs DO persist (namespaced under `activityName || activityType`), async outputs land under `${activityId}_result` at resume, SET_VARIABLE writes land at its dot paths.
+- **Context-schema API** — `GET api/definitions/[id]/context-schema` (`?stepId=` narrows; feature `workflows.definitions.view`) serves the server-computed ledger; same id forms as the definition GET (UUID, `code:<workflowId>`, synthetic uuid).
+- **Variable picker + ref warnings** — `lib/expression-refs.ts` (pure) extracts `{{context.*}}` refs and checks them against the ledger; misses surface as Problems-panel WARNINGS, never blocking. `VariablePickerButton` (fed by the API ledger) inserts `{{path}}` at the cursor in activity config fields, mapping value cells, and trigger expressions.
+- **Samples** — `metadata.editor.samples` (`record(stepId, { pinnedAt, source: manual|test, data })`, total ≤64KB via `WORKFLOW_EDITOR_SAMPLES_MAX_CHARS`). Samples are NOT redacted or encrypted — pinned data is stored verbatim in definition metadata; keep the warning copy wherever pinning is offered. Precedence: pin > last test output > ledger placeholder (`lib/sample-resolver.ts`, pure).
+- **Test step** — `POST api/definitions/[id]/test-step` (feature `workflows.definitions.test_run`, dependsOn `definitions.edit`) is MOCK-FIRST: it never calls `entry.execute`. Registry `mock` is `((config, ctx) => unknown) | 'refuse'`; `'refuse'` or a missing mock returns 200 `{ refused: true, reason }`. Config is interpolated via the exported `interpolateVariables` against the caller-supplied sample context.
+
 ## Environment
 
 | Variable | Effect | Default |
@@ -122,7 +132,7 @@ Activity types are registry-driven: one `ActivityTypeEntry` carries dispatch, va
 3. Add the label key `workflows.activities.types.<ID>` to all four locales in `i18n/`.
 4. Declare `form: ActivityFormFieldSpec[]` hints (components resolved from `components/fields/`); the JSON editor stays available as the collapsed "Advanced" escape hatch on every type.
 5. Honor the sync/async contract: `async: { capable: true }` or `{ capable: false, reason }` — non-capable types are refused at enqueue time; optional `executeAsync` (worker-side variant) and `enqueueDelayMs(config)` for delayed queueing.
-6. Optional: `mock(config, ctx)` for dry-run output and `outputContract` for the output ledger (UPDATE_ENTITY resolves it via `commandRegistry.outputSchemaOf(commandId)`, degrading to `'unknown'`).
+6. Optional: `mock` — `((config, ctx) => unknown) | 'refuse'` — powers the mock-first Test step (`'refuse'` and missing mocks return structured refusals; side-effecting types return would-do payloads like `{ sent: false, simulated: true }`), and `outputContract` for the context ledger (UPDATE_ENTITY resolves it via `commandRegistry.outputSchemaOf(commandId)`, degrading to `'unknown'`).
 7. Test with both sync and async execution modes.
 
 Editor picker registries (both keep free-text fallback): UPDATE_ENTITY only executes commands declared via `registerWorkflowSafeCommands` (`lib/workflow-safe-commands.ts`; `listWorkflowSafeCommands()` backs `GET /api/workflows/commands`); EXECUTE_FUNCTION's picker lists `registerWorkflowFunctions` descriptors (`lib/workflow-function-registry.ts`).
@@ -178,7 +188,7 @@ When adding new injected widgets, follow this pattern — keep the widget self-c
 
 ```
 src/modules/workflows/
-├── acl.ts                    # 22 RBAC features
+├── acl.ts                    # 19 RBAC features
 ├── ce.ts                     # Custom entities (empty)
 ├── cli.ts                    # CLI: seed-demo, start-worker, process-activities
 ├── di.ts                     # DI: workflowExecutor, stepHandler, transitionHandler, activityExecutor, eventLogger

@@ -336,6 +336,8 @@ Use `{{variable}}` syntax to inject workflow data into activity configurations.
 }
 ```
 
+You do not have to type these paths by hand: template-capable fields carry a **variable picker** that lists exactly what is available at that step, with type badges and *maybe* markers for values that only exist on some paths. References to context nothing produces surface as warnings in the editor's Problems panel. To verify an activity's config against sample data without running the workflow, use the [Test step panel](./creating-workflows#testing-a-step) — side-effecting activities are simulated, never executed.
+
 ## Common Patterns
 
 ### Send Approval Email on Transition
