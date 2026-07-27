@@ -848,7 +848,7 @@ function caseChecks(ts, caseId, facts) {
     const scopedEntity = facts.classes.some((entry) => entry.decorators.has('Entity') && ['tenant_id', 'organization_id', 'updated_at'].every((name) => entry.members.has(name)))
     const uiFailures = uiPolicyFailures(facts)
     return [
-      check('module.activation', facts.moduleEntries.some((entry) => entry.id === 'library' && entry.from === '@app'), 'src/modules.ts activates library from @app'),
+      check('module.activation', facts.moduleEntries.some((entry) => entry.id === 'library' && entry.from === '@app') && facts.moduleEntries.some((entry) => entry.id === 'directory' && entry.from === '@open-mercato/core') && facts.moduleEntries.some((entry) => entry.id === 'example' && entry.from === '@app'), 'src/modules.ts preserves statically discoverable baseline entries and activates library from @app'),
       check('module.entity', scopedEntity, 'a scoped editable @Entity includes tenant_id, organization_id, and updated_at'),
       check('module.validator', hasCall(facts, 'z.object', 'object'), 'the book input boundary uses a concrete validator object'),
       check('module.acl', facts.exportedVariables.has('features') && hasString(facts, 'library.books.view') && hasString(facts, 'library.books.manage'), 'acl.ts exports stable view/manage features'),

@@ -100,12 +100,31 @@ test('the complete module oracle enforces connected customers-level CRUD', () =>
 
 test('the complete module oracle accepts canonical enabledModules.push activation', () => {
   const root = stageTarget('src/modules.ts', `
-export const enabledModules = [{ id: 'example', from: '@app' }]
+export const enabledModules = [
+  { id: 'directory', from: '@open-mercato/core' },
+  { id: 'example', from: '@app' },
+]
 enabledModules.push({ id: 'library', from: '@app' })
 `)
   try {
     const result = runOracle(root, 'before', process.env, 'OMH-185')
     assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.activation')?.passed, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle rejects activation that hides baseline entries in computed spreads', () => {
+  const root = stageTarget('src/modules.ts', `
+export const enabledModules = [
+  ...['directory'].map((id) => ({ id, from: '@open-mercato/core' })),
+  { id: 'example', from: '@app' },
+  { id: 'library', from: '@app' },
+]
+`)
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.activation')?.passed, false)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
