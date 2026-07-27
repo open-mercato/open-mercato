@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { workflowDefinitionDataSchema } from '../data/validators'
 
 export const workflowsTag = 'Workflows'
 
@@ -137,6 +138,60 @@ export const validateStartResponseSchema = z.object({
   workflowId: z.string(),
   errors: z.array(validateStartErrorSchema).optional(),
   validatedRules: z.array(validateStartRuleSchema).optional(),
+})
+
+// ---------------------------------------------------------------------------
+// Workflow Definition Response Schemas
+// ---------------------------------------------------------------------------
+
+export const workflowDefinitionSourceSchema = z.enum(['code', 'code_override', 'user'])
+
+export const workflowDefinitionResponseSchema = z
+  .object({
+    id: z.string().describe('UUID for DB definitions, or "code:<workflowId>" for code-based definitions'),
+    workflowId: z.string(),
+    workflowName: z.string(),
+    description: z.string().nullable(),
+    version: z.number().int(),
+    definition: workflowDefinitionDataSchema,
+    metadata: z.record(z.string(), z.unknown()).nullable(),
+    enabled: z.boolean(),
+    effectiveFrom: z.string().nullable(),
+    effectiveTo: z.string().nullable(),
+    tenantId: z.string().nullable(),
+    organizationId: z.string().nullable(),
+    createdBy: z.string().nullable(),
+    updatedBy: z.string().nullable(),
+    createdAt: z.string().nullable(),
+    updatedAt: z.string().nullable(),
+    deletedAt: z.string().nullable(),
+    source: workflowDefinitionSourceSchema,
+    isCodeBased: z.boolean(),
+    codeModuleId: z.string().nullable(),
+  })
+  .passthrough()
+
+export const workflowDefinitionListResponseSchema = z.object({
+  data: z.array(workflowDefinitionResponseSchema),
+  pagination: paginationSchema,
+})
+
+export const workflowDefinitionDetailResponseSchema = z.object({
+  data: workflowDefinitionResponseSchema,
+})
+
+export const workflowDefinitionMutationResponseSchema = z.object({
+  data: workflowDefinitionResponseSchema,
+  message: z.string(),
+})
+
+export const workflowDefinitionResetResponseSchema = z.object({
+  data: workflowDefinitionResponseSchema.nullable(),
+  message: z.string(),
+})
+
+export const workflowDefinitionDeleteResponseSchema = z.object({
+  message: z.string(),
 })
 
 // ---------------------------------------------------------------------------

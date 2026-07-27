@@ -22,7 +22,7 @@
 | 4 | 4.4 | Command picker for UPDATE_ENTITY with safe-command list API | done | 8ded5a899 |
 | 4 | 4.5 | Workflow function registry seam and function picker | done | fd1b2f2cd |
 | 4 | 4.6 | SET_VARIABLE assignments form | done | be5841f08 |
-| 5 | 5.1 | #4230 typed OpenAPI responses for workflows definition routes | todo | — |
+| 5 | 5.1 | #4230 typed OpenAPI responses for workflows definition routes | done | afec27fb4 |
 | 6 | 6.1 | CommandHandler outputSchema seam with customers.deals.update exemplar | todo | — |
 | 7 | 7.1 | Template assets and templates list API | todo | — |
 | 7 | 7.2 | Template gallery dialog wired into list page, empty state, and editor | todo | — |
