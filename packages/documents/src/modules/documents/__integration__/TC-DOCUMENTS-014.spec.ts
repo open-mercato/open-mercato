@@ -144,7 +144,9 @@ test.describe('TC-DOCUMENTS-014: UMES related documents across host records', ()
       await page.getByRole('button', { name: 'New from template' }).click()
       const templateDialog = page.getByRole('dialog', { name: 'New from template' })
       await templateDialog.getByLabel('Search templates').fill(`TC-DOCUMENTS-014 Person brief ${stamp}`)
-      await templateDialog.getByRole('option', { name: new RegExp(`TC-DOCUMENTS-014 Person brief ${stamp}`) }).click()
+      // The template picker is a RadioGroup, so each entry exposes role="radio" — not
+      // role="option", which only exists inside a listbox.
+      await templateDialog.getByRole('radio', { name: new RegExp(`TC-DOCUMENTS-014 Person brief ${stamp}`) }).click()
       await expect(templateDialog.getByText(personLabel)).toBeVisible({ timeout: 20_000 })
       await expect(templateDialog.getByText('Context-ready brief')).toBeVisible({ timeout: 20_000 })
       await templateDialog.getByLabel('Document title').fill(`TC-DOCUMENTS-014 instantiated ${stamp}`)

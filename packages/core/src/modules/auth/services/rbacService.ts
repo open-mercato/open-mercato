@@ -420,7 +420,12 @@ export class RbacService {
           if (isRestrictedRoleAcl(r)) hasApplicableRestrictedRole = true
         }
         if (organizations !== null) {
-          if (r.organizationsJson == null || (Array.isArray(r.organizationsJson) && r.organizationsJson.length === 0)) organizations = null
+          // For a user principal an empty allowlist is a deny-all scope (#4033), not
+          // "unrestricted": it must merge to an empty set so scoped reads and deletes
+          // fail closed. Only an absent allowlist or an explicit '__all__' widens to
+          // every organization. (The API-key branch above deliberately differs — an
+          // empty role list there means the key inherits the key's own scope.)
+          if (r.organizationsJson == null) organizations = null
           else if (Array.isArray(r.organizationsJson) && r.organizationsJson.includes('__all__')) organizations = null
           else organizations = Array.from(new Set([...(organizations || []), ...r.organizationsJson]))
         }

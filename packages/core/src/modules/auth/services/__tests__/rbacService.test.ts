@@ -119,7 +119,7 @@ describe('RbacService', () => {
       expect(tenantAcl.features.sort()).toEqual(['entities.*', 'example.todos.view'])
     })
 
-    it('treats an empty role organization list as all-org visibility for a human user', async () => {
+    it('treats an empty role organization list as a deny-all scope for a human user (#4033)', async () => {
       const roleA: Partial<Role> = { id: 'role-a' }
       const links: Array<Partial<UserRole>> = [{ role: roleA as any }]
       const racls: Array<Partial<RoleAcl>> = [
@@ -138,7 +138,10 @@ describe('RbacService', () => {
       })
 
       const acl = await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: 'org-3' })
-      expect(acl.organizations).toBeNull()
+      // The role's features still apply, but its empty organization allowlist must project
+      // to an empty accessible set so scoped reads and deletes fail closed. Collapsing it to
+      // null would mean "every organization" and reopen the scoped-deletion hole from #4033.
+      expect(acl.organizations).toEqual([])
       expect(acl.features).toEqual(['entities.records.view'])
     })
 
