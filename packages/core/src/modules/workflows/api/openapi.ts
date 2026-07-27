@@ -334,3 +334,17 @@ export const workflowSafeCommandSchema = z.object({
 export const workflowSafeCommandListResponseSchema = z.object({
   items: z.array(workflowSafeCommandSchema),
 })
+
+// ---------------------------------------------------------------------------
+// Workflow Function Schemas
+// ---------------------------------------------------------------------------
+
+export const workflowFunctionSchema = z.object({
+  name: z.string().min(1).describe('DI-registered function name resolved as workflowFunction:<name> by EXECUTE_FUNCTION activities'),
+  labelKey: z.string().optional().describe('Optional i18n key for a human-readable label'),
+  description: z.string().optional().describe('Optional description of what the function does'),
+})
+
+export const workflowFunctionListResponseSchema = z.object({
+  items: z.array(workflowFunctionSchema),
+})

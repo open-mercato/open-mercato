@@ -13,6 +13,10 @@
  * Step 4.4: UPDATE_ENTITY graduates to form-first with a CommandPicker
  * combobox for config.commandId fed by /api/workflows/commands (free text
  * stays authorable; fetch failure degrades to free text with a hint).
+ *
+ * Step 4.5: EXECUTE_FUNCTION graduates to form-first with a FunctionPicker
+ * combobox for config.functionName fed by /api/workflows/functions (free text
+ * stays authorable; fetch failure degrades to free text with a hint).
  */
 import * as React from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
@@ -46,6 +50,15 @@ function mockSafeCommands(commands: Array<{ commandId: string; requiredFeatures:
   })
 }
 
+function mockWorkflowFunctions(functions: Array<{ name: string; labelKey?: string }>, ok = true) {
+  apiCallMock.mockImplementation(async (url: unknown) => {
+    if (typeof url === 'string' && url.startsWith('/api/workflows/functions')) {
+      return { ok, status: ok ? 200 : 500, result: { items: functions }, response: {}, cacheStatus: null }
+    }
+    return { ok: true, status: 200, result: { data: [], total: 0 }, response: {}, cacheStatus: null }
+  })
+}
+
 beforeEach(() => {
   apiCallMock.mockReset()
   mockDeclaredEvents([])
@@ -65,7 +78,7 @@ describe('hasActivityConfigForm', () => {
     expect(hasActivityConfigForm('CALL_API')).toBe(true)
     expect(hasActivityConfigForm('EMIT_EVENT')).toBe(true)
     expect(hasActivityConfigForm('UPDATE_ENTITY')).toBe(true)
-    expect(hasActivityConfigForm('EXECUTE_FUNCTION')).toBe(false)
+    expect(hasActivityConfigForm('EXECUTE_FUNCTION')).toBe(true)
     expect(hasActivityConfigForm('SET_VARIABLE')).toBe(false)
     expect(hasActivityConfigForm('UNKNOWN_TYPE')).toBe(false)
   })
@@ -245,6 +258,76 @@ describe('ActivityConfigFields', () => {
     fireEvent.keyDown(pickerInput, { key: 'Enter' })
     expect(onChange).toHaveBeenCalledWith({ commandId: 'custom.records.archive' })
   })
+
+  it('renders the EXECUTE_FUNCTION function picker with API options selectable into config.functionName', async () => {
+    mockWorkflowFunctions([{ name: 'inventory.recalculateStock' }])
+    const onChange = jest.fn()
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="EXECUTE_FUNCTION"
+        idPrefix="function-config"
+        config={{}}
+        onChange={onChange}
+      />,
+    )
+
+    expect(screen.getByText(/workflows\.activityConfig\.EXECUTE_FUNCTION\.args/)).toBeInTheDocument()
+
+    const pickerInput = screen.getByPlaceholderText('workflows.functionPicker.placeholder')
+    fireEvent.focus(pickerInput)
+    await waitFor(() => {
+      expect(screen.getByText('inventory.recalculateStock')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('inventory.recalculateStock'))
+    expect(onChange).toHaveBeenCalledWith({ functionName: 'inventory.recalculateStock' })
+  })
+
+  it('keeps free-text function names authorable and preserved in the picker', async () => {
+    mockWorkflowFunctions([{ name: 'inventory.recalculateStock' }])
+    const onChange = jest.fn()
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="EXECUTE_FUNCTION"
+        idPrefix="function-config"
+        config={{ functionName: 'custom.unregistered.function' }}
+        onChange={onChange}
+      />,
+    )
+
+    const pickerInput = screen.getByPlaceholderText('workflows.functionPicker.placeholder')
+    await waitFor(() => {
+      expect(pickerInput).toHaveValue('custom.unregistered.function')
+    })
+
+    ;(pickerInput as HTMLInputElement).focus()
+    fireEvent.change(pickerInput, { target: { value: 'another.custom.function' } })
+    fireEvent.keyDown(pickerInput, { key: 'Enter' })
+    expect(onChange).toHaveBeenCalledWith({ functionName: 'another.custom.function' })
+  })
+
+  it('degrades to free text with a hint when the function list fails to load', async () => {
+    mockWorkflowFunctions([], false)
+    const onChange = jest.fn()
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="EXECUTE_FUNCTION"
+        idPrefix="function-config"
+        config={{}}
+        onChange={onChange}
+      />,
+    )
+
+    const pickerInput = screen.getByPlaceholderText('workflows.functionPicker.placeholder')
+    fireEvent.focus(pickerInput)
+    await waitFor(() => {
+      expect(screen.getByText('workflows.functionPicker.lookupUnavailable')).toBeInTheDocument()
+    })
+
+    fireEvent.change(pickerInput, { target: { value: 'custom.unregistered.function' } })
+    fireEvent.keyDown(pickerInput, { key: 'Enter' })
+    expect(onChange).toHaveBeenCalledWith({ functionName: 'custom.unregistered.function' })
+  })
 })
 
 describe('ActivityArrayEditor — registry-driven forms with Advanced (JSON)', () => {
@@ -278,11 +361,11 @@ describe('ActivityArrayEditor — registry-driven forms with Advanced (JSON)', (
   it('keeps the JSON builder primary for types without a form yet', () => {
     renderWithProviders(
       <StatefulEditor
-        initial={[{ ...emailActivity, activityName: 'Execute Function', activityType: 'EXECUTE_FUNCTION', config: {} }]}
+        initial={[{ ...emailActivity, activityName: 'Set Variable', activityType: 'SET_VARIABLE', config: {} }]}
       />,
     )
 
-    fireEvent.click(screen.getByText('Execute Function'))
+    fireEvent.click(screen.getByText('Set Variable'))
 
     expect(screen.queryByRole('button', { name: /advancedJson/ })).toBeNull()
     expect(screen.getByText('workflows.fieldEditors.activities.configurationJson')).toBeInTheDocument()
@@ -316,6 +399,24 @@ describe('ActivityArrayEditor — registry-driven forms with Advanced (JSON)', (
     const pickerInput = screen.getByPlaceholderText('workflows.commandPicker.placeholder')
     await waitFor(() => {
       expect(pickerInput).toHaveValue('sales.orders.update')
+    })
+    expect(screen.getByRole('button', { name: /advancedJson/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('workflows.fieldEditors.activities.configurationHint')).toBeNull()
+  })
+
+  it('renders EXECUTE_FUNCTION form-first with the function picker and Advanced (JSON) collapsed', async () => {
+    mockWorkflowFunctions([{ name: 'inventory.recalculateStock' }])
+    renderWithProviders(
+      <StatefulEditor
+        initial={[{ ...emailActivity, activityName: 'Execute Function', activityType: 'EXECUTE_FUNCTION', config: { functionName: 'inventory.recalculateStock' } }]}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Execute Function'))
+
+    const pickerInput = screen.getByPlaceholderText('workflows.functionPicker.placeholder')
+    await waitFor(() => {
+      expect(pickerInput).toHaveValue('inventory.recalculateStock')
     })
     expect(screen.getByRole('button', { name: /advancedJson/ })).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('workflows.fieldEditors.activities.configurationHint')).toBeNull()

@@ -117,7 +117,12 @@ export function registerBuiltinActivityTypes(): void {
     i18nKey: i18nKeyFor('EXECUTE_FUNCTION'),
     configSchema: executeFunctionConfigSchema,
     form: [
-      { id: 'functionName', component: 'functionName', required: true },
+      {
+        id: 'functionName',
+        component: 'functionName',
+        required: true,
+        descriptionKey: 'workflows.activityConfig.EXECUTE_FUNCTION.functionNameHint',
+      },
       { id: 'args', component: 'json' },
     ],
     execute: async (config, ctx, deps) => (await loadExecutor()).executeFunction(config, ctx, deps.container),

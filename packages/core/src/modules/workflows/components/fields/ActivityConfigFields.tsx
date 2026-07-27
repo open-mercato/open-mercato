@@ -14,6 +14,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import '../../lib/activity-registry-bootstrap'
 import { getActivityType, type ActivityFormFieldSpec } from '../../lib/activity-registry'
 import { CommandPicker } from './CommandPicker'
+import { FunctionPicker } from './FunctionPicker'
 
 /**
  * Registry-driven config form for workflow activities (spec
@@ -21,11 +22,11 @@ import { CommandPicker } from './CommandPicker'
  *
  * Renders an activity's `config` object from the registry entry's
  * `form: ActivityFormFieldSpec[]` via a component-hint map. Unknown hints
- * (including the picker hints that arrive in steps 4.5-4.6: functionName,
- * select) fall back to a plain text input.
+ * (including the select hint that arrives in step 4.6) fall back to a plain
+ * text input.
  */
 
-const TYPES_WITH_CONFIG_FORM = new Set(['WAIT', 'SEND_EMAIL', 'CALL_WEBHOOK', 'CALL_API', 'EMIT_EVENT', 'UPDATE_ENTITY'])
+const TYPES_WITH_CONFIG_FORM = new Set(['WAIT', 'SEND_EMAIL', 'CALL_WEBHOOK', 'CALL_API', 'EMIT_EVENT', 'UPDATE_ENTITY', 'EXECUTE_FUNCTION'])
 
 export function hasActivityConfigForm(activityType: string): boolean {
   return TYPES_WITH_CONFIG_FORM.has(activityType) && getActivityType(activityType) != null
@@ -322,6 +323,14 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
       case 'commandId':
         return (
           <CommandPicker
+            value={stringValue(rawValue)}
+            onChange={(nextValue) => setField(spec, nextValue)}
+            disabled={disabled}
+          />
+        )
+      case 'functionName':
+        return (
+          <FunctionPicker
             value={stringValue(rawValue)}
             onChange={(nextValue) => setField(spec, nextValue)}
             disabled={disabled}
