@@ -16,6 +16,7 @@ import type { WorkflowGraphFocusTarget } from '../../../components/WorkflowGraph
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-flag'
 import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } from '../../../lib/draft-restore'
+import { buildDefinitionPayload, buildMetadataPayload } from '../../../lib/definition-payload'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
 import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
 import { Page } from '@open-mercato/ui/backend/Page'
@@ -50,18 +51,16 @@ import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggers
 import { TemplateGalleryDialog, type WorkflowTemplateGalleryItem } from '../../../components/TemplateGalleryDialog'
 import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
-import type { WorkflowDefinitionTrigger } from '../../../data/entities'
+import type { WorkflowContextSchema, WorkflowDefinitionTrigger } from '../../../data/entities'
 import type { WorkflowMetadataState, WorkflowMetadataHandlers } from '../../../data/types'
 import * as React from 'react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
 
-type WorkflowDraftMetadata = { category?: string; tags?: string[]; icon?: string }
-
 type WorkflowDefinitionDraftPayload = {
   definition: Record<string, unknown>
-  metadata?: WorkflowDraftMetadata | null
+  metadata?: Record<string, unknown> | null
   baseUpdatedAt: string | null
   updatedAt: string | null
 }
@@ -151,6 +150,8 @@ export default function VisualEditorPage() {
   const [effectiveFrom, setEffectiveFrom] = useState('')
   const [effectiveTo, setEffectiveTo] = useState('')
   const [triggers, setTriggers] = useState<WorkflowDefinitionTrigger[]>([])
+  const [contextSchema, setContextSchema] = useState<WorkflowContextSchema | undefined>(undefined)
+  const [loadedMetadata, setLoadedMetadata] = useState<Record<string, unknown> | null>(null)
   const [source, setSource] = useState<'code' | 'code_override' | 'user' | null>(null)
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
 
@@ -211,6 +212,16 @@ export default function VisualEditorPage() {
         const loadedTriggers = definition.definition?.triggers || []
         setTriggers(loadedTriggers)
 
+        // Carry the declared context schema and the FULL metadata object so
+        // save/draft rebuilds cannot silently strip keys the editor does not
+        // edit (contextSchema, future metadata.editor.* keys).
+        const loadedContextSchema = (definition.definition?.contextSchema ?? undefined) as WorkflowContextSchema | undefined
+        setContextSchema(loadedContextSchema)
+        const loadedMetadataObject = definition.metadata && typeof definition.metadata === 'object'
+          ? { ...(definition.metadata as Record<string, unknown>) }
+          : null
+        setLoadedMetadata(loadedMetadataObject)
+
         // Track source so the editor mirrors the non-visual edit page UX:
         // code → read-only with Customize button; code_override → editable
         // with Reset to code; user → editable, no banner.
@@ -222,17 +233,20 @@ export default function VisualEditorPage() {
         // Draft layer: compare against the ROUND-TRIPPED definition (graph →
         // definition with the same normalization the autosave uses) so a mere
         // load/serialize drift never looks like an unsaved draft.
-        const comparableDefinition = {
-          ...graphToDefinition(graph.nodes, graph.edges, { includePositions: true }),
-          triggers: loadedTriggers.length > 0 ? loadedTriggers : undefined,
-        }
-        const loadedDraftMetadata: WorkflowDraftMetadata = {}
-        if (definition.metadata?.category) loadedDraftMetadata.category = definition.metadata.category
-        if (Array.isArray(definition.metadata?.tags) && definition.metadata.tags.length > 0) loadedDraftMetadata.tags = definition.metadata.tags
-        if (definition.metadata?.icon) loadedDraftMetadata.icon = definition.metadata.icon
+        const comparableDefinition = buildDefinitionPayload({
+          graphDefinition: graphToDefinition(graph.nodes, graph.edges, { includePositions: true }),
+          triggers: loadedTriggers,
+          contextSchema: loadedContextSchema,
+        })
+        const loadedDraftMetadata = buildMetadataPayload({
+          loadedMetadata: loadedMetadataObject,
+          category: definition.metadata?.category || '',
+          tags: definition.metadata?.tags || [],
+          icon: definition.metadata?.icon || '',
+        })
         lastPersistedDraftRef.current = stableSerializeDefinition({
           definition: comparableDefinition,
-          metadata: Object.keys(loadedDraftMetadata).length > 0 ? loadedDraftMetadata : null,
+          metadata: loadedDraftMetadata,
         })
 
         if (loadedSource !== 'code' && isServerDraftEligible(definitionId)) {
@@ -267,13 +281,10 @@ export default function VisualEditorPage() {
     loadDefinition()
   }, [definitionId])
 
-  const draftMetadata = useMemo(() => {
-    const metadata: WorkflowDraftMetadata = {}
-    if (category) metadata.category = category
-    if (tags.length > 0) metadata.tags = tags
-    if (icon) metadata.icon = icon
-    return metadata
-  }, [category, tags, icon])
+  const draftMetadata = useMemo(
+    () => buildMetadataPayload({ loadedMetadata, tags, category, icon }),
+    [loadedMetadata, tags, category, icon],
+  )
 
   // Debounced autosave-to-draft (~2s): watches the same editor-state dep set
   // the save handler uses and PUTs the per-user draft. Never fires for
@@ -282,14 +293,15 @@ export default function VisualEditorPage() {
   useEffect(() => {
     if (!draftAutosaveReady || !draftEligible || !definitionId) return
     if (draftSuspendedRef.current) return
-    let payload: { definition: Record<string, unknown>; metadata: WorkflowDraftMetadata | null; baseUpdatedAt: string | null }
+    let payload: { definition: ReturnType<typeof buildDefinitionPayload>; metadata: Record<string, unknown> | null; baseUpdatedAt: string | null }
     try {
       payload = {
-        definition: {
-          ...graphToDefinition(nodes, edges, { includePositions: true }),
-          triggers: triggers.length > 0 ? triggers : undefined,
-        },
-        metadata: Object.keys(draftMetadata).length > 0 ? draftMetadata : null,
+        definition: buildDefinitionPayload({
+          graphDefinition: graphToDefinition(nodes, edges, { includePositions: true }),
+          triggers,
+          contextSchema,
+        }),
+        metadata: draftMetadata,
         baseUpdatedAt: updatedAt,
       }
     } catch {
@@ -320,7 +332,7 @@ export default function VisualEditorPage() {
       }
     }, DRAFT_AUTOSAVE_DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [draftAutosaveReady, draftEligible, definitionId, nodes, edges, triggers, draftMetadata, updatedAt, workflowName, description, version, enabled, effectiveFrom, effectiveTo])
+  }, [draftAutosaveReady, draftEligible, definitionId, nodes, edges, triggers, contextSchema, draftMetadata, updatedAt, workflowName, description, version, enabled, effectiveFrom, effectiveTo])
 
   // Keep the "Draft saved Xs ago" label fresh without re-rendering per second.
   useEffect(() => {
@@ -344,10 +356,14 @@ export default function VisualEditorPage() {
       setEdges(graph.edges)
       const draftTriggers = pendingDraft.draft.definition.triggers
       setTriggers(Array.isArray(draftTriggers) ? (draftTriggers as WorkflowDefinitionTrigger[]) : [])
-      if (pendingDraft.draft.metadata) {
-        setCategory(pendingDraft.draft.metadata.category || '')
-        setTags(pendingDraft.draft.metadata.tags || [])
-        setIcon(pendingDraft.draft.metadata.icon || '')
+      const draftContextSchema = pendingDraft.draft.definition.contextSchema
+      setContextSchema(draftContextSchema ? (draftContextSchema as WorkflowContextSchema) : undefined)
+      const restoredMetadata = pendingDraft.draft.metadata ?? null
+      setLoadedMetadata(restoredMetadata)
+      if (restoredMetadata) {
+        setCategory(typeof restoredMetadata.category === 'string' ? restoredMetadata.category : '')
+        setTags(Array.isArray(restoredMetadata.tags) ? restoredMetadata.tags.filter((tag): tag is string => typeof tag === 'string') : [])
+        setIcon(typeof restoredMetadata.icon === 'string' ? restoredMetadata.icon : '')
       }
       lastPersistedDraftRef.current = stableSerializeDefinition({
         definition: pendingDraft.draft.definition,
@@ -558,12 +574,12 @@ export default function VisualEditorPage() {
     // Validate workflow structure and schema, surfacing every issue in the problems panel
     const graphErrors = validateWorkflowGraph(nodes, edges)
 
-    // Generate definition data and include triggers
-    const graphDefinition = graphToDefinition(nodes, edges, { includePositions: true })
-    const definitionData = {
-      ...graphDefinition,
-      triggers: triggers.length > 0 ? triggers : undefined,
-    }
+    // Generate definition data and re-attach triggers and contextSchema
+    const definitionData = buildDefinitionPayload({
+      graphDefinition: graphToDefinition(nodes, edges, { includePositions: true }),
+      triggers,
+      contextSchema,
+    })
 
     const schemaResult = workflowDefinitionDataSchema.safeParse(definitionData)
     const issues = collectValidationIssues({
@@ -586,10 +602,7 @@ export default function VisualEditorPage() {
 
     try {
 
-      const metadata: any = {}
-      if (category) metadata.category = category
-      if (tags.length > 0) metadata.tags = tags
-      if (icon) metadata.icon = icon
+      const metadataPayload = buildMetadataPayload({ loadedMetadata, tags, category, icon })
 
       // Determine if creating new or updating existing
       const isUpdate = !!definitionId
@@ -610,7 +623,7 @@ export default function VisualEditorPage() {
               description: description || null,
               version,
               definition: definitionData,
-              metadata: Object.keys(metadata).length > 0 ? metadata : null,
+              metadata: metadataPayload,
               enabled,
               effectiveFrom: effectiveFrom || null,
               effectiveTo: effectiveTo || null,
@@ -628,7 +641,7 @@ export default function VisualEditorPage() {
             description: description || null,
             version,
             definition: definitionData,
-            metadata: Object.keys(metadata).length > 0 ? metadata : null,
+            metadata: metadataPayload,
             enabled,
             effectiveFrom: effectiveFrom || null,
             effectiveTo: effectiveTo || null,
@@ -678,7 +691,7 @@ export default function VisualEditorPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, definitionId, updatedAt, router, t])
+  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, contextSchema, loadedMetadata, definitionId, updatedAt, router, t])
 
   // Customize a code-defined workflow → creates an override and reloads the
   // editor pointed at the new UUID. Mirrors the non-visual edit page button.
@@ -764,6 +777,8 @@ export default function VisualEditorPage() {
     setNodes(graph.nodes)
     setEdges(graph.edges)
     setTriggers(template.definition.triggers || [])
+    setContextSchema(template.definition.contextSchema ?? undefined)
+    setLoadedMetadata(null)
     flash(t('workflows.visualEditor.templateLoaded', 'Template loaded'), 'success')
   }, [t])
 
@@ -820,6 +835,8 @@ export default function VisualEditorPage() {
     setEffectiveFrom('')
     setEffectiveTo('')
     setTriggers([])
+    setContextSchema(undefined)
+    setLoadedMetadata(null)
     setShowClearConfirm(false)
     flash('Canvas cleared', 'success')
   }, [])
