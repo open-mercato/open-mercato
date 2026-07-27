@@ -17,3 +17,8 @@
 - UI integration + screenshots still deferred to final gate (dev env not provisioned in worktree).
 - Flake note: one jest worker SIGSEGV on step-handler.test.ts during 4.2; passes in isolation (16/16), confirmed flake.
 - Executor delegations: steps 3.2, 3.3, 4.1, 4.2, 4.3 each one sequential executor subagent.
+
+## 2026-07-27T12:30:00Z — final gate passed
+- Validation gate green (yarn test required one develop-side fix, Step 7.2); integration: run 1 full (1700 pass, 4 analyzed), run 2 invalidated (dispatcher-caused contention — lesson recorded), run 3 scoped quiet 69/69 workflows specs green.
+- DS pass: 2 MUST-fix fixed (3.1-ds-fix); code review APPROVE, minors fixed (5.1-review-fix); TC-WF-007 adapted (6.4-review-fix); onboarding failures classified unrelated-env.
+- Steps 6.4, 7.2, 3.1-ds-fix, 5.1-review-fix, 6.3-review-fix driven by dispatcher; 6.4-review-fix + DS/code reviews by subagents.
