@@ -12,6 +12,8 @@ import { openApi as definitionsOpenApi } from '../definitions/route'
 import { openApi as definitionDetailOpenApi } from '../definitions/[id]/route'
 import { openApi as customizeOpenApi } from '../definitions/[id]/customize/route'
 import { openApi as resetToCodeOpenApi } from '../definitions/[id]/reset-to-code/route'
+import { openApi as contextSchemaOpenApi } from '../definitions/[id]/context-schema/route'
+import { openApi as testStepOpenApi } from '../definitions/[id]/test-step/route'
 
 type SchemaNode = {
   type?: string
@@ -19,7 +21,10 @@ type SchemaNode = {
   properties?: Record<string, SchemaNode>
   items?: SchemaNode
   anyOf?: SchemaNode[]
+  oneOf?: SchemaNode[]
   required?: string[]
+  additionalProperties?: SchemaNode | boolean
+  enum?: Array<string | boolean>
 }
 
 type MediaTypeNode = { schema?: SchemaNode; example?: unknown }
@@ -53,6 +58,16 @@ function buildDoc() {
           path: '/workflows/definitions/[id]/reset-to-code',
           handlers: { POST: noopHandler },
           docs: resetToCodeOpenApi,
+        },
+        {
+          path: '/workflows/definitions/[id]/context-schema',
+          handlers: { GET: noopHandler },
+          docs: contextSchemaOpenApi,
+        },
+        {
+          path: '/workflows/definitions/[id]/test-step',
+          handlers: { POST: noopHandler },
+          docs: testStepOpenApi,
         },
       ],
     } as unknown as Module,
@@ -125,6 +140,35 @@ describe('Workflow Definitions OpenAPI response schemas', () => {
     const objectBranch = dataSchema?.anyOf?.find((branch) => branch.type === 'object')
     expectTypedDefinition(objectBranch)
     expect(schema.properties?.message?.type).toBe('string')
+  })
+
+  it('types the context-schema GET 200 response as a per-step ledger map', () => {
+    const schema = schemaFor('/workflows/definitions/{id}/context-schema', 'get', '200')
+    expect(schema.type).toBe('object')
+    expect(schema.description).not.toBe('Schema not declared')
+    const steps = schema.properties?.steps
+    expect(steps?.type).toBe('object')
+    const stepSchema = steps?.additionalProperties
+    expect(typeof stepSchema).toBe('object')
+    const entries = (stepSchema as SchemaNode).properties?.entries
+    expect(entries?.type).toBe('array')
+    const entry = entries?.items
+    expect(entry?.properties?.path?.type).toBe('string')
+    expect(entry?.properties?.type?.enum).toContain('unknown')
+    expect(entry?.properties?.presence?.enum).toEqual(['always', 'maybe'])
+    expect(entry?.properties?.source?.properties?.kind?.enum).toContain('asyncResult')
+  })
+
+  it('types the test-step POST 200 response as a simulated/refused union', () => {
+    const schema = schemaFor('/workflows/definitions/{id}/test-step', 'post', '200')
+    expect(schema.description).not.toBe('Schema not declared')
+    const branches = schema.oneOf ?? schema.anyOf
+    expect(branches).toBeDefined()
+    const simulatedBranch = branches?.find((branch) => branch.properties?.simulated)
+    expect(simulatedBranch?.properties?.interpolatedConfig?.type).toBe('object')
+    expect(simulatedBranch?.properties?.activityType?.type).toBe('string')
+    const refusedBranch = branches?.find((branch) => branch.properties?.refused)
+    expect(refusedBranch?.properties?.reason?.enum).toEqual(['refused', 'noMock'])
   })
 
   it('types the error responses with the shared error schema', () => {

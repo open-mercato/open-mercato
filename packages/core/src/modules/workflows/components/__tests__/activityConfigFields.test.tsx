@@ -29,6 +29,7 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { ActivityConfigFields, hasActivityConfigForm } from '../fields/ActivityConfigFields'
 import { ActivityArrayEditor, type Activity } from '../fields/ActivityArrayEditor'
+import type { LedgerEntry } from '../../lib/context-ledger'
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
@@ -569,5 +570,75 @@ describe('ActivityArrayEditor — registry-driven forms with Advanced (JSON)', (
     )
     expect(jsonTextareas).toHaveLength(1)
     expect((jsonTextareas[0] as HTMLTextAreaElement).value).toContain('"to": "ops@example.com"')
+  })
+})
+
+describe('variable picker wiring (step 3.2)', () => {
+  const ledgerEntries: LedgerEntry[] = [
+    {
+      path: 'dealId',
+      type: 'text',
+      presence: 'always',
+      source: { kind: 'contextSchema', label: 'contextSchema.input' },
+    },
+  ]
+
+  it('renders a picker button beside every SEND_EMAIL text and textarea field', () => {
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="SEND_EMAIL"
+        idPrefix="email-config"
+        config={{}}
+        onChange={jest.fn()}
+        ledgerEntries={ledgerEntries}
+      />,
+    )
+
+    const pickerButtons = screen.getAllByRole('button', { name: 'workflows.variablePicker.buttonLabel' })
+    expect(pickerButtons).toHaveLength(4)
+  })
+
+  it('renders picker buttons even without ledger entries so the affordance stays discoverable', () => {
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="SEND_EMAIL"
+        idPrefix="email-config"
+        config={{}}
+        onChange={jest.fn()}
+      />,
+    )
+
+    expect(
+      screen.getAllByRole('button', { name: 'workflows.variablePicker.buttonLabel' }).length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('renders a picker button on the WAIT datetime field only in template mode', () => {
+    const { unmount } = renderWithProviders(
+      <ActivityConfigFields
+        activityType="WAIT"
+        idPrefix="wait-config"
+        config={{ until: '{{context.deadline}}' }}
+        onChange={jest.fn()}
+        ledgerEntries={ledgerEntries}
+      />,
+    )
+    expect(
+      screen.getAllByRole('button', { name: 'workflows.variablePicker.buttonLabel' }).length,
+    ).toBeGreaterThan(0)
+    unmount()
+
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="WAIT"
+        idPrefix="wait-config"
+        config={{ until: '2099-01-01T00:00:00.000Z' }}
+        onChange={jest.fn()}
+        ledgerEntries={ledgerEntries}
+      />,
+    )
+    expect(
+      screen.queryAllByRole('button', { name: 'workflows.variablePicker.buttonLabel' }),
+    ).toHaveLength(0)
   })
 })

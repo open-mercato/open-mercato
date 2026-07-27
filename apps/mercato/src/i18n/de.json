@@ -819,6 +819,8 @@
   "ui.dataTable.empty.title": "Noch keine {entity}",
   "ui.dataTable.emptyState.default": "Keine Ergebnisse.",
   "ui.dataTable.emptyState.defaultDescription": "Einträge erscheinen hier, sobald sie hinzugefügt wurden.",
+  "ui.dataTable.expand.collapseRow": "Zeile einklappen",
+  "ui.dataTable.expand.expandRow": "Zeile ausklappen",
   "ui.dataTable.export.format.markdown": "Markdown",
   "ui.dataTable.export.label": "Exportieren",
   "ui.dataTable.fieldset.label": "Columns",

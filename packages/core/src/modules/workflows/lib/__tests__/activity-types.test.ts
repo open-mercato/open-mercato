@@ -44,6 +44,17 @@ const requireEntry = (registryModule: ActivityRegistryModule, id: string): Activ
   return entry
 }
 
+const requireMockFn = (
+  registryModule: ActivityRegistryModule,
+  id: string,
+): ((config: unknown, ctx: never) => unknown) => {
+  const entryMock = requireEntry(registryModule, id).mock
+  if (typeof entryMock !== 'function') {
+    throw new Error(`[internal] expected a mock function on activity type: ${id}`)
+  }
+  return entryMock as (config: unknown, ctx: never) => unknown
+}
+
 describe('built-in activity types', () => {
   test('registers all 9 built-in types with i18n keys and icons', () => {
     const { registryModule } = loadIsolated()
@@ -97,9 +108,9 @@ describe('built-in activity types', () => {
     const entry = requireEntry(registryModule, 'SET_VARIABLE')
     expect(entry.icon).toBe('Variable')
     expect(entry.async).toEqual({ capable: false, reason: 'asyncResumeMergeDoesNotApplyAssignments' })
-    if (!entry.mock) throw new Error('[internal] SET_VARIABLE entry must declare a mock')
+    const mock = requireMockFn(registryModule, 'SET_VARIABLE')
     const assignments = [{ path: 'customer.priority', value: 'high' }]
-    expect(entry.mock({ assignments }, {} as never)).toEqual({ assignments })
+    expect(mock({ assignments }, {} as never)).toEqual({ simulated: true, assignments })
   })
 
   test('WAIT exposes an enqueueDelayMs hint mirroring enqueueActivity semantics', () => {
@@ -108,6 +119,104 @@ describe('built-in activity types', () => {
     if (!waitEntry.enqueueDelayMs) throw new Error('[internal] WAIT entry must declare enqueueDelayMs')
     expect(waitEntry.enqueueDelayMs({ duration: '5m' })).toBe(5 * 60 * 1000)
     expect(waitEntry.enqueueDelayMs({})).toBeNull()
+  })
+
+  describe('would-do mocks', () => {
+    test('SEND_EMAIL mock reports what it would send without sending', () => {
+      const { registryModule } = loadIsolated()
+      const mock = requireMockFn(registryModule, 'SEND_EMAIL')
+      expect(mock({ to: 'ops@example.com', subject: 'Order approved' }, {} as never)).toEqual({
+        sent: false,
+        simulated: true,
+        wouldSendTo: 'ops@example.com',
+        subject: 'Order approved',
+      })
+    })
+
+    test('EMIT_EVENT mock reports the event it would emit without emitting', () => {
+      const { registryModule } = loadIsolated()
+      const mock = requireMockFn(registryModule, 'EMIT_EVENT')
+      expect(mock({ eventName: 'sales.order.completed', payload: { orderId: 'o-1' } }, {} as never)).toEqual({
+        emitted: false,
+        simulated: true,
+        eventName: 'sales.order.completed',
+      })
+    })
+
+    test('CALL_WEBHOOK mock reports the call it would make, defaulting method to POST', () => {
+      const { registryModule } = loadIsolated()
+      const mock = requireMockFn(registryModule, 'CALL_WEBHOOK')
+      expect(mock({ url: 'https://example.com/hook' }, {} as never)).toEqual({
+        simulated: true,
+        wouldCall: { url: 'https://example.com/hook', method: 'POST' },
+      })
+      expect(mock({ url: 'https://example.com/hook', method: 'PUT' }, {} as never)).toEqual({
+        simulated: true,
+        wouldCall: { url: 'https://example.com/hook', method: 'PUT' },
+      })
+    })
+
+    test('UPDATE_ENTITY mock reports the command it would run without executing', () => {
+      const { registryModule } = loadIsolated()
+      const mock = requireMockFn(registryModule, 'UPDATE_ENTITY')
+      expect(mock({ commandId: 'sales.orders.update', input: { id: 'o-1' } }, {} as never)).toEqual({
+        executed: false,
+        simulated: true,
+        commandId: 'sales.orders.update',
+      })
+    })
+
+    test('WAIT mock returns a synthetic completed wait', () => {
+      const { registryModule } = loadIsolated()
+      const mock = requireMockFn(registryModule, 'WAIT')
+      expect(mock({ duration: 'PT5M' }, {} as never)).toEqual({ waited: true, simulated: true })
+    })
+
+    test("EXECUTE_FUNCTION and CALL_API refuse simulation with the 'refuse' marker", () => {
+      const { registryModule } = loadIsolated()
+      expect(requireEntry(registryModule, 'EXECUTE_FUNCTION').mock).toBe('refuse')
+      expect(requireEntry(registryModule, 'CALL_API').mock).toBe('refuse')
+    })
+
+    test('mocks echo uninterpolated template strings from raw config', () => {
+      const { registryModule } = loadIsolated()
+      const sendEmailMock = requireMockFn(registryModule, 'SEND_EMAIL')
+      expect(sendEmailMock({ to: '{{context.customerEmail}}', subject: '{{context.subject}}' }, {} as never)).toEqual({
+        sent: false,
+        simulated: true,
+        wouldSendTo: '{{context.customerEmail}}',
+        subject: '{{context.subject}}',
+      })
+      const webhookMock = requireMockFn(registryModule, 'CALL_WEBHOOK')
+      expect(webhookMock({ url: '{{context.webhookUrl}}', method: '{{context.method}}' }, {} as never)).toEqual({
+        simulated: true,
+        wouldCall: { url: '{{context.webhookUrl}}', method: '{{context.method}}' },
+      })
+    })
+
+    test('mocks tolerate non-object config without throwing', () => {
+      const { registryModule } = loadIsolated()
+      expect(requireMockFn(registryModule, 'SEND_EMAIL')(null, {} as never)).toEqual({
+        sent: false,
+        simulated: true,
+        wouldSendTo: undefined,
+        subject: undefined,
+      })
+      expect(requireMockFn(registryModule, 'EMIT_EVENT')('not-a-config', {} as never)).toEqual({
+        emitted: false,
+        simulated: true,
+        eventName: undefined,
+      })
+      expect(requireMockFn(registryModule, 'CALL_WEBHOOK')(undefined, {} as never)).toEqual({
+        simulated: true,
+        wouldCall: { url: undefined, method: 'POST' },
+      })
+      expect(requireMockFn(registryModule, 'UPDATE_ENTITY')(42, {} as never)).toEqual({
+        executed: false,
+        simulated: true,
+        commandId: undefined,
+      })
+    })
   })
 
   describe('config schemas', () => {

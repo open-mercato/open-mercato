@@ -42,6 +42,7 @@ describe('workflows ACL dependency declarations', () => {
     expect(dependsOnById.get('workflows.definitions.create')).toEqual(['workflows.definitions.view'])
     expect(dependsOnById.get('workflows.definitions.edit')).toEqual(['workflows.definitions.view'])
     expect(dependsOnById.get('workflows.definitions.delete')).toEqual(['workflows.definitions.view'])
+    expect(dependsOnById.get('workflows.definitions.test_run')).toEqual(['workflows.definitions.edit'])
     expect(dependsOnById.get('workflows.instances.view')).toEqual(['workflows.view'])
     expect(dependsOnById.get('workflows.instances.create')).toEqual([
       'workflows.definitions.view',

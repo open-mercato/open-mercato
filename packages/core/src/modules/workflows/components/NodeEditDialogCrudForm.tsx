@@ -13,7 +13,7 @@ import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { DurationInput } from '@open-mercato/ui/backend/inputs/DurationInput'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { FormFieldArrayEditor } from './fields/FormFieldArrayEditor'
-import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
+import { ActivityArrayEditor, type ActivityTestContext } from './fields/ActivityArrayEditor'
 import { useActivityTypeOptions } from './fields/useActivityTypeOptions'
 import { MappingArrayEditor } from './fields/MappingArrayEditor'
 import { WorkflowSelectorField } from './fields/WorkflowSelectorField'
@@ -22,6 +22,8 @@ import { StartPreConditionsEditor } from './fields/StartPreConditionsEditor'
 import { AgentInvokeConfigField } from './fields/AgentInvokeConfigField'
 import { nodeToFormValues, formValuesToNodeUpdates, isJsonSchemaFormat, type NodeFormValues } from '../lib/nodeFormTransforms'
 import { sanitizeId } from '../lib/graph-utils'
+import type { LedgerEntry } from '../lib/context-ledger'
+import type { PinnedSampleEnvelope } from '../lib/sample-resolver'
 
 /**
  * JsonConfigEditor - Custom field wrapper for JsonBuilder
@@ -74,6 +76,11 @@ export interface NodeEditDialogCrudFormProps {
   onClose: () => void
   onSave: (nodeId: string, updates: Partial<Node['data']>) => void
   onDelete?: (nodeId: string) => void
+  ledgerEntries?: LedgerEntry[]
+  definitionId?: string | null
+  samples?: Record<string, PinnedSampleEnvelope>
+  onPinSample?: (stepId: string, data: unknown) => void
+  onUnpinSample?: (stepId: string) => void
 }
 
 /**
@@ -95,11 +102,23 @@ export interface NodeEditDialogCrudFormProps {
  * - waitForTimer: Duration XOR wait-until timer configuration
  * - decision: Basic fields only
  */
-export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete }: NodeEditDialogCrudFormProps) {
+export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries, definitionId, samples, onPinSample, onUnpinSample }: NodeEditDialogCrudFormProps) {
   const t = useT()
   const activityTypeOptions = useActivityTypeOptions()
   const [initialValues, setInitialValues] = useState<Partial<NodeFormValues>>({})
   const [showJsonSchemaWarning, setShowJsonSchemaWarning] = useState(false)
+
+  const activityTestContext = useMemo<ActivityTestContext | undefined>(() => {
+    if (!node || !onPinSample || !onUnpinSample) return undefined
+    const stepId = node.id
+    return {
+      definitionId: definitionId ?? null,
+      stepId,
+      pinnedSample: samples?.[stepId],
+      onPinSample: (data: unknown) => onPinSample(stepId, data),
+      onUnpinSample: () => onUnpinSample(stepId),
+    }
+  }, [node, definitionId, samples, onPinSample, onUnpinSample])
 
   // Load node data when dialog opens
   useEffect(() => {
@@ -416,7 +435,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       id: 'stepActivities',
       label: t('workflows.nodeEditor.groups.stepActivities'),
       type: 'custom',
-      component: (props) => <ActivityArrayEditor {...props} value={props.value as any} />,
+      component: (props) => <ActivityArrayEditor {...props} value={props.value as any} ledgerEntries={ledgerEntries} testContext={activityTestContext} />,
     },
 
     // SubWorkflow fields
@@ -443,6 +462,8 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           value={props.value as any}
           label={t('workflows.nodeEditor.inputMappings')}
           description={t('workflows.form.descriptions.inputMapping')}
+          variablePicker
+          ledgerEntries={ledgerEntries}
         />
       ),
     },
@@ -517,7 +538,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       description: t('workflows.fieldEditors.preConditions.description'),
       component: (props) => <StartPreConditionsEditor {...props} value={props.value as any} />,
     },
-  ], [activityTypeOptions, showJsonSchemaWarning, t])
+  ], [activityTypeOptions, showJsonSchemaWarning, ledgerEntries, activityTestContext, t])
 
   if (!isOpen || !node) return null
 

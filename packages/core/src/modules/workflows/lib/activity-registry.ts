@@ -58,9 +58,9 @@ export interface ActivityTypeEntry<TConfig = unknown> {
   ) => Promise<unknown>
   async: ActivityAsyncCapability
   enqueueDelayMs?: (config: TConfig) => number | null
-  mock?: (config: TConfig, ctx: ActivityContext) => unknown
+  mock?: ((config: TConfig, ctx: ActivityContext) => unknown) | 'refuse'
   compensable?: boolean
-  outputContract?: 'unknown' | ((config: TConfig) => unknown)
+  outputContract?: 'unknown' | ((config: TConfig) => ZodTypeAny | 'unknown')
 }
 
 const registry = new Map<string, ActivityTypeEntry>()

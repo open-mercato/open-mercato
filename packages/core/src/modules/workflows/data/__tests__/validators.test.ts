@@ -10,8 +10,17 @@ import {
   workflowTransitionSchema,
   activityRetryPolicySchema,
   activityDefinitionSchema,
+  contextSchemaFieldSchema,
+  contextSchemaSchema,
+  sampleEnvelopeSchema,
+  workflowMetadataSchema,
+  WORKFLOW_EDITOR_SAMPLES_MAX_CHARS,
+  workflowDefinitionDataSchema,
+  workflowDefinitionDraftDataSchema,
   createWorkflowDefinitionSchema,
+  createWorkflowDefinitionInputSchema,
   updateWorkflowDefinitionSchema,
+  updateWorkflowDefinitionInputSchema,
   workflowDefinitionFilterSchema,
   createWorkflowInstanceSchema,
   updateWorkflowInstanceSchema,
@@ -674,6 +683,267 @@ describe('Workflows Validators', () => {
       }
 
       expect(() => updateWorkflowDefinitionSchema.parse(noId)).toThrow()
+    })
+  })
+
+  describe('contextSchema on workflow definitions', () => {
+    const minimalGraph = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' as const },
+        { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+      ],
+      transitions: [
+        {
+          transitionId: 'start-to-end',
+          fromStepId: 'start',
+          toStepId: 'end',
+          trigger: 'auto' as const,
+          priority: 0,
+        },
+      ],
+    }
+
+    const declaredContextSchema = {
+      input: {
+        fields: [
+          { name: 'dealId', type: 'text' as const, label: 'Deal ID', required: true },
+          { name: 'amount', type: 'number' as const },
+          { name: 'stage', type: 'select' as const, options: ['new', 'won', 'lost'] },
+        ],
+      },
+    }
+
+    test('definition data schema parses and retains a declared contextSchema', () => {
+      const result = workflowDefinitionDataSchema.parse({
+        ...minimalGraph,
+        contextSchema: declaredContextSchema,
+      })
+      expect(result.contextSchema).toEqual(declaredContextSchema)
+    })
+
+    test('definition data without contextSchema stays without it', () => {
+      const result = workflowDefinitionDataSchema.parse(minimalGraph)
+      expect(result.contextSchema).toBeUndefined()
+    })
+
+    test('rejects an invalid field type', () => {
+      const invalid = {
+        ...minimalGraph,
+        contextSchema: {
+          input: {
+            fields: [{ name: 'dealId', type: 'json' }],
+          },
+        },
+      }
+      expect(workflowDefinitionDataSchema.safeParse(invalid).success).toBe(false)
+    })
+
+    test('rejects a field with an empty name', () => {
+      const invalid = {
+        ...minimalGraph,
+        contextSchema: {
+          input: {
+            fields: [{ name: '', type: 'text' }],
+          },
+        },
+      }
+      expect(workflowDefinitionDataSchema.safeParse(invalid).success).toBe(false)
+    })
+
+    test('contextSchemaSchema accepts an empty object', () => {
+      expect(contextSchemaSchema.parse({})).toEqual({})
+    })
+
+    test('contextSchemaFieldSchema retains all declared attributes', () => {
+      const field = {
+        name: 'dueDate',
+        type: 'date' as const,
+        label: 'Due date',
+        required: false,
+      }
+      expect(contextSchemaFieldSchema.parse(field)).toEqual(field)
+    })
+
+    test('create input schema retains contextSchema end-to-end', () => {
+      const result = createWorkflowDefinitionInputSchema.parse({
+        workflowId: 'ctx-schema-flow',
+        workflowName: 'Context Schema Flow',
+        definition: {
+          ...minimalGraph,
+          contextSchema: declaredContextSchema,
+        },
+      })
+      expect(result.definition.contextSchema).toEqual(declaredContextSchema)
+    })
+
+    test('create schema retains contextSchema end-to-end', () => {
+      const result = createWorkflowDefinitionSchema.parse({
+        workflowId: 'ctx-schema-flow',
+        workflowName: 'Context Schema Flow',
+        definition: {
+          ...minimalGraph,
+          contextSchema: declaredContextSchema,
+        },
+        tenantId: '123e4567-e89b-12d3-a456-426614174000',
+        organizationId: '123e4567-e89b-12d3-a456-426614174001',
+      })
+      expect(result.definition.contextSchema).toEqual(declaredContextSchema)
+    })
+
+    test('update input schema retains contextSchema end-to-end', () => {
+      const result = updateWorkflowDefinitionInputSchema.parse({
+        definition: {
+          ...minimalGraph,
+          contextSchema: declaredContextSchema,
+        },
+      })
+      expect(result.definition?.contextSchema).toEqual(declaredContextSchema)
+    })
+
+    test('draft schema passes contextSchema through untouched', () => {
+      const result = workflowDefinitionDraftDataSchema.parse({
+        steps: [{ stepId: 'start' }],
+        transitions: [],
+        contextSchema: declaredContextSchema,
+      })
+      expect(result.contextSchema).toEqual(declaredContextSchema)
+    })
+  })
+
+  describe('editor samples in workflow metadata', () => {
+    const minimalGraph = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' as const },
+        { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+      ],
+      transitions: [
+        {
+          transitionId: 'start-to-end',
+          fromStepId: 'start',
+          toStepId: 'end',
+          trigger: 'auto' as const,
+          priority: 0,
+        },
+      ],
+    }
+
+    const metadataWithSamples = {
+      tags: ['approval'],
+      category: 'workflow',
+      editor: {
+        samples: {
+          step_1: {
+            pinnedAt: '2026-07-27T00:00:00.000Z',
+            source: 'manual' as const,
+            data: { orderId: 'ord_42', total: 99.5 },
+          },
+          step_2: {
+            pinnedAt: '2026-07-27T12:30:00+02:00',
+            source: 'test' as const,
+            data: null,
+          },
+        },
+      },
+    }
+
+    test('metadata schema retains editor.samples', () => {
+      const result = workflowMetadataSchema.parse(metadataWithSamples)
+      expect(result.editor).toEqual(metadataWithSamples.editor)
+    })
+
+    test('metadata schema keeps unknown editor keys via passthrough', () => {
+      const result = workflowMetadataSchema.parse({
+        editor: { samples: {}, layout: { zoom: 1.5 } },
+      })
+      expect(result.editor).toEqual({ samples: {}, layout: { zoom: 1.5 } })
+    })
+
+    test('sample envelope rejects a non-ISO pinnedAt', () => {
+      const invalid = { pinnedAt: 'yesterday', source: 'manual', data: {} }
+      expect(sampleEnvelopeSchema.safeParse(invalid).success).toBe(false)
+    })
+
+    test('sample envelope rejects an unknown source', () => {
+      const invalid = { pinnedAt: '2026-07-27T00:00:00.000Z', source: 'import', data: {} }
+      expect(sampleEnvelopeSchema.safeParse(invalid).success).toBe(false)
+    })
+
+    test('create input schema retains editor.samples end-to-end', () => {
+      const result = createWorkflowDefinitionInputSchema.parse({
+        workflowId: 'samples-flow',
+        workflowName: 'Samples Flow',
+        definition: minimalGraph,
+        metadata: metadataWithSamples,
+      })
+      expect(result.metadata?.editor).toEqual(metadataWithSamples.editor)
+    })
+
+    test('update input schema retains editor.samples end-to-end', () => {
+      const result = updateWorkflowDefinitionInputSchema.parse({
+        definition: minimalGraph,
+        metadata: metadataWithSamples,
+      })
+      expect(result.metadata?.editor).toEqual(metadataWithSamples.editor)
+    })
+
+    test('metadata without editor stays without it', () => {
+      const result = workflowMetadataSchema.parse({ tags: ['plain'] })
+      expect(result.editor).toBeUndefined()
+    })
+
+    test('rejects samples exceeding the total size cap', () => {
+      const oversized = {
+        editor: {
+          samples: {
+            step_1: {
+              pinnedAt: '2026-07-27T00:00:00.000Z',
+              source: 'manual',
+              data: { blob: 'x'.repeat(WORKFLOW_EDITOR_SAMPLES_MAX_CHARS) },
+            },
+          },
+        },
+      }
+      const result = workflowMetadataSchema.safeParse(oversized)
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        const issue = result.error.issues.find((candidate) => candidate.path.join('.') === 'editor.samples')
+        expect(issue?.message).toContain(`${WORKFLOW_EDITOR_SAMPLES_MAX_CHARS}`)
+      }
+    })
+
+    test('rejects oversized samples on the update input schema', () => {
+      const oversized = {
+        metadata: {
+          editor: {
+            samples: {
+              step_1: {
+                pinnedAt: '2026-07-27T00:00:00.000Z',
+                source: 'test',
+                data: 'x'.repeat(WORKFLOW_EDITOR_SAMPLES_MAX_CHARS + 1),
+              },
+            },
+          },
+        },
+      }
+      expect(updateWorkflowDefinitionInputSchema.safeParse(oversized).success).toBe(false)
+    })
+
+    test('accepts samples right at the size boundary', () => {
+      const envelopeOverhead = JSON.stringify({
+        step_1: { pinnedAt: '2026-07-27T00:00:00.000Z', source: 'manual', data: '' },
+      }).length
+      const withinCap = {
+        editor: {
+          samples: {
+            step_1: {
+              pinnedAt: '2026-07-27T00:00:00.000Z',
+              source: 'manual' as const,
+              data: 'x'.repeat(WORKFLOW_EDITOR_SAMPLES_MAX_CHARS - envelopeOverhead),
+            },
+          },
+        },
+      }
+      expect(workflowMetadataSchema.safeParse(withinCap).success).toBe(true)
     })
   })
 

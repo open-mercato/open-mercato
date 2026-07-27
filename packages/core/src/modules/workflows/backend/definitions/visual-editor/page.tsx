@@ -16,10 +16,14 @@ import type { WorkflowGraphFocusTarget } from '../../../components/WorkflowGraph
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-flag'
 import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } from '../../../lib/draft-restore'
+import { buildDefinitionPayload, buildMetadataPayload } from '../../../lib/definition-payload'
 import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard'
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
 import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
+import { computeContextLedger, type LedgerWorkflowDefinition } from '../../../lib/context-ledger'
+import { collectUnresolvedContextRefWarnings } from '../../../lib/expression-refs'
+import type { PinnedSampleEnvelope } from '../../../lib/sample-resolver'
 import { Page } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -56,27 +60,59 @@ import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersis
 import { useSidebarCollapse } from '@open-mercato/ui/backend/AppShell'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
 import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
+import { ContextSchemaEditor } from '../../../components/ContextSchemaEditor'
 import { TemplateGalleryDialog, type WorkflowTemplateGalleryItem } from '../../../components/TemplateGalleryDialog'
 import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
-import type { WorkflowDefinitionTrigger } from '../../../data/entities'
+import type { WorkflowContextSchema, WorkflowDefinitionData, WorkflowDefinitionTrigger } from '../../../data/entities'
 import type { WorkflowMetadataState, WorkflowMetadataHandlers } from '../../../data/types'
 import * as React from 'react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
 
-type WorkflowDraftMetadata = { category?: string; tags?: string[]; icon?: string }
-
 type WorkflowDefinitionDraftPayload = {
   definition: Record<string, unknown>
-  metadata?: WorkflowDraftMetadata | null
+  metadata?: Record<string, unknown> | null
   baseUpdatedAt: string | null
   updatedAt: string | null
 }
 
 const DRAFT_AUTOSAVE_DEBOUNCE_MS = 2000
 const DRAFT_SAVED_LABEL_REFRESH_MS = 30000
+
+/**
+ * Ledger-checked context-reference warnings for the Problems panel (spec
+ * section 3.5). The editor validates UNSAVED state, so the ledger is computed
+ * CLIENT-side with `resolveOutputContract` pinned to 'unknown' instead of
+ * fetching the server ledger from the context-schema API: the client ledger is
+ * type-poorer (activity outputs stay single `unknown` nodes rather than typed
+ * contract entries) but structurally identical, and since `unknown` entries
+ * resolve every sub-path in the checker, the degradation can only suppress
+ * warnings, never fabricate them. Warnings merge into the same ZodIssueLike
+ * channel as activity-config warnings, so `collectValidationIssues` maps them
+ * to nodes/edges and they never block saves.
+ */
+function computeClientContextLedger(definitionData: WorkflowDefinitionData) {
+  return computeContextLedger(definitionData as unknown as LedgerWorkflowDefinition, {
+    resolveOutputContract: () => 'unknown',
+  })
+}
+
+function collectContextRefWarnings(
+  definitionData: WorkflowDefinitionData,
+  translate: ReturnType<typeof useT>,
+): ZodIssueLike[] {
+  const ledger = computeClientContextLedger(definitionData)
+  return collectUnresolvedContextRefWarnings(definitionData, ledger).map((warning) => ({
+    path: warning.path,
+    message: translate(
+      'workflows.visualEditor.problems.unresolvedContextRef',
+      'Context reference "{path}" is not provided by any earlier step, trigger, or input',
+      { path: warning.refPath },
+    ),
+  }))
+}
 
 /**
  * VisualEditorPage - Visual workflow definition editor
@@ -237,6 +273,12 @@ export default function VisualEditorPage() {
   const [effectiveFrom, setEffectiveFrom] = useState('')
   const [effectiveTo, setEffectiveTo] = useState('')
   const [triggers, setTriggers] = useState<WorkflowDefinitionTrigger[]>([])
+  const [contextSchema, setContextSchema] = useState<WorkflowContextSchema | undefined>(undefined)
+  // The sub-workflow io port contract is not edited on this page, but it must
+  // survive the graph → definition rebuild on save/draft, so it is carried as
+  // pass-through state exactly like contextSchema.
+  const [definitionIo, setDefinitionIo] = useState<WorkflowIoContract | undefined>(undefined)
+  const [loadedMetadata, setLoadedMetadata] = useState<Record<string, unknown> | null>(null)
   const [source, setSource] = useState<'code' | 'code_override' | 'user' | null>(null)
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
 
@@ -340,6 +382,18 @@ export default function VisualEditorPage() {
         const loadedTriggers = definition.definition?.triggers || []
         setTriggers(loadedTriggers)
 
+        // Carry the declared context schema and the FULL metadata object so
+        // save/draft rebuilds cannot silently strip keys the editor does not
+        // edit (contextSchema, future metadata.editor.* keys).
+        const loadedContextSchema = (definition.definition?.contextSchema ?? undefined) as WorkflowContextSchema | undefined
+        setContextSchema(loadedContextSchema)
+        const loadedIo = (definition.definition?.io ?? undefined) as WorkflowIoContract | undefined
+        setDefinitionIo(loadedIo)
+        const loadedMetadataObject = definition.metadata && typeof definition.metadata === 'object'
+          ? { ...(definition.metadata as Record<string, unknown>) }
+          : null
+        setLoadedMetadata(loadedMetadataObject)
+
         // Track source so the editor mirrors the non-visual edit page UX:
         // code → read-only with Customize button; code_override → editable
         // with Reset to code; user → editable, no banner.
@@ -351,17 +405,21 @@ export default function VisualEditorPage() {
         // Draft layer: compare against the ROUND-TRIPPED definition (graph →
         // definition with the same normalization the autosave uses) so a mere
         // load/serialize drift never looks like an unsaved draft.
-        const comparableDefinition = {
-          ...graphToDefinition(graph.nodes, graph.edges, { includePositions: true }),
-          triggers: loadedTriggers.length > 0 ? loadedTriggers : undefined,
-        }
-        const loadedDraftMetadata: WorkflowDraftMetadata = {}
-        if (definition.metadata?.category) loadedDraftMetadata.category = definition.metadata.category
-        if (Array.isArray(definition.metadata?.tags) && definition.metadata.tags.length > 0) loadedDraftMetadata.tags = definition.metadata.tags
-        if (definition.metadata?.icon) loadedDraftMetadata.icon = definition.metadata.icon
+        const comparableDefinition = buildDefinitionPayload({
+          graphDefinition: graphToDefinition(graph.nodes, graph.edges, { includePositions: true }),
+          triggers: loadedTriggers,
+          contextSchema: loadedContextSchema,
+          io: loadedIo,
+        })
+        const loadedDraftMetadata = buildMetadataPayload({
+          loadedMetadata: loadedMetadataObject,
+          category: definition.metadata?.category || '',
+          tags: definition.metadata?.tags || [],
+          icon: definition.metadata?.icon || '',
+        })
         lastPersistedDraftRef.current = stableSerializeDefinition({
           definition: comparableDefinition,
-          metadata: Object.keys(loadedDraftMetadata).length > 0 ? loadedDraftMetadata : null,
+          metadata: loadedDraftMetadata,
         })
 
         if (loadedSource !== 'code' && isServerDraftEligible(definitionId)) {
@@ -396,13 +454,10 @@ export default function VisualEditorPage() {
     loadDefinition()
   }, [definitionId])
 
-  const draftMetadata = useMemo(() => {
-    const metadata: WorkflowDraftMetadata = {}
-    if (category) metadata.category = category
-    if (tags.length > 0) metadata.tags = tags
-    if (icon) metadata.icon = icon
-    return metadata
-  }, [category, tags, icon])
+  const draftMetadata = useMemo(
+    () => buildMetadataPayload({ loadedMetadata, tags, category, icon }),
+    [loadedMetadata, tags, category, icon],
+  )
 
   // Debounced autosave-to-draft (~2s): watches the same editor-state dep set
   // the save handler uses and PUTs the per-user draft. Never fires for
@@ -411,14 +466,16 @@ export default function VisualEditorPage() {
   useEffect(() => {
     if (!draftAutosaveReady || !draftEligible || !definitionId) return
     if (draftSuspendedRef.current) return
-    let payload: { definition: Record<string, unknown>; metadata: WorkflowDraftMetadata | null; baseUpdatedAt: string | null }
+    let payload: { definition: ReturnType<typeof buildDefinitionPayload>; metadata: Record<string, unknown> | null; baseUpdatedAt: string | null }
     try {
       payload = {
-        definition: {
-          ...graphToDefinition(nodes, edges, { includePositions: true }),
-          triggers: triggers.length > 0 ? triggers : undefined,
-        },
-        metadata: Object.keys(draftMetadata).length > 0 ? draftMetadata : null,
+        definition: buildDefinitionPayload({
+          graphDefinition: graphToDefinition(nodes, edges, { includePositions: true }),
+          triggers,
+          contextSchema,
+          io: definitionIo,
+        }),
+        metadata: draftMetadata,
         baseUpdatedAt: updatedAt,
       }
     } catch {
@@ -449,7 +506,7 @@ export default function VisualEditorPage() {
       }
     }, DRAFT_AUTOSAVE_DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [draftAutosaveReady, draftEligible, definitionId, nodes, edges, triggers, draftMetadata, updatedAt, workflowName, description, version, enabled, effectiveFrom, effectiveTo])
+  }, [draftAutosaveReady, draftEligible, definitionId, nodes, edges, triggers, contextSchema, definitionIo, draftMetadata, updatedAt, workflowName, description, version, enabled, effectiveFrom, effectiveTo])
 
   // Keep the "Draft saved Xs ago" label fresh without re-rendering per second.
   useEffect(() => {
@@ -473,10 +530,16 @@ export default function VisualEditorPage() {
       setEdges(graph.edges)
       const draftTriggers = pendingDraft.draft.definition.triggers
       setTriggers(Array.isArray(draftTriggers) ? (draftTriggers as WorkflowDefinitionTrigger[]) : [])
-      if (pendingDraft.draft.metadata) {
-        setCategory(pendingDraft.draft.metadata.category || '')
-        setTags(pendingDraft.draft.metadata.tags || [])
-        setIcon(pendingDraft.draft.metadata.icon || '')
+      const draftContextSchema = pendingDraft.draft.definition.contextSchema
+      setContextSchema(draftContextSchema ? (draftContextSchema as WorkflowContextSchema) : undefined)
+      const draftIo = (pendingDraft.draft.definition as { io?: WorkflowIoContract }).io
+      setDefinitionIo(draftIo ?? undefined)
+      const restoredMetadata = pendingDraft.draft.metadata ?? null
+      setLoadedMetadata(restoredMetadata)
+      if (restoredMetadata) {
+        setCategory(typeof restoredMetadata.category === 'string' ? restoredMetadata.category : '')
+        setTags(Array.isArray(restoredMetadata.tags) ? restoredMetadata.tags.filter((tag): tag is string => typeof tag === 'string') : [])
+        setIcon(typeof restoredMetadata.icon === 'string' ? restoredMetadata.icon : '')
       }
       lastPersistedDraftRef.current = stableSerializeDefinition({
         definition: pendingDraft.draft.definition,
@@ -679,6 +742,91 @@ export default function VisualEditorPage() {
     setEdges((eds) => appendWorkflowEdge(eds, newEdge))
   }, [])
 
+  // Ledger entries for the variable picker in the open edit dialog (spec
+  // section 3.5, step 3.2). Computed lazily — only while a dialog is open —
+  // with the same client-side 'unknown'-contract ledger the Problems warnings
+  // use, so the picker never offers a path the ref checker would then flag.
+  // Node dialogs get the edited step's incoming view; edge dialogs get the
+  // TARGET step's incoming view, matching the transition scope rule in
+  // lib/expression-refs.ts.
+  const dialogLedger = useMemo(() => {
+    if (!showNodeDialog && !showEdgeDialog) return null
+    try {
+      const definitionData = buildDefinitionPayload({
+        graphDefinition: graphToDefinition(nodes, edges),
+        triggers,
+        contextSchema,
+        io: definitionIo,
+      })
+      return computeClientContextLedger(definitionData)
+    } catch {
+      return null
+    }
+  }, [showNodeDialog, showEdgeDialog, nodes, edges, triggers, contextSchema, definitionIo])
+
+  const nodeDialogLedgerEntries = useMemo(
+    () => (dialogLedger && selectedNode ? dialogLedger.steps[selectedNode.id]?.entries : undefined),
+    [dialogLedger, selectedNode],
+  )
+
+  // Pinned per-step samples carried inside metadata.editor.samples (spec
+  // section 3.6, step 4.4). The page owns the metadata object, so pin/unpin
+  // write through setLoadedMetadata and the explicit Save (and draft
+  // autosave) persist them via buildMetadataPayload's spread.
+  const editorSamples = useMemo(() => {
+    const editorValue = loadedMetadata?.editor
+    if (!editorValue || typeof editorValue !== 'object' || Array.isArray(editorValue)) return undefined
+    const samplesValue = (editorValue as Record<string, unknown>).samples
+    if (!samplesValue || typeof samplesValue !== 'object' || Array.isArray(samplesValue)) return undefined
+    return samplesValue as Record<string, PinnedSampleEnvelope>
+  }, [loadedMetadata])
+
+  const handlePinSample = useCallback((stepId: string, data: unknown) => {
+    setLoadedMetadata((previous) => {
+      const base: Record<string, unknown> = { ...(previous ?? {}) }
+      const editorValue = base.editor
+      const editor: Record<string, unknown> =
+        editorValue && typeof editorValue === 'object' && !Array.isArray(editorValue)
+          ? { ...(editorValue as Record<string, unknown>) }
+          : {}
+      const samplesValue = editor.samples
+      const samples: Record<string, unknown> =
+        samplesValue && typeof samplesValue === 'object' && !Array.isArray(samplesValue)
+          ? { ...(samplesValue as Record<string, unknown>) }
+          : {}
+      samples[stepId] = { pinnedAt: new Date().toISOString(), source: 'test', data }
+      editor.samples = samples
+      base.editor = editor
+      return base
+    })
+    flash(t('workflows.testStep.pinnedFlash', 'Sample pinned — it is stored with the definition on save'), 'success')
+  }, [t])
+
+  const handleUnpinSample = useCallback((stepId: string) => {
+    setLoadedMetadata((previous) => {
+      if (!previous) return previous
+      const editorValue = previous.editor
+      if (!editorValue || typeof editorValue !== 'object' || Array.isArray(editorValue)) return previous
+      const editor = { ...(editorValue as Record<string, unknown>) }
+      const samplesValue = editor.samples
+      if (!samplesValue || typeof samplesValue !== 'object' || Array.isArray(samplesValue)) return previous
+      const samples = { ...(samplesValue as Record<string, unknown>) }
+      if (!(stepId in samples)) return previous
+      delete samples[stepId]
+      if (Object.keys(samples).length > 0) editor.samples = samples
+      else delete editor.samples
+      const base = { ...previous }
+      if (Object.keys(editor).length > 0) base.editor = editor
+      else delete base.editor
+      return Object.keys(base).length > 0 ? base : null
+    })
+  }, [])
+
+  const edgeDialogLedgerEntries = useMemo(
+    () => (dialogLedger && selectedEdge ? dialogLedger.steps[selectedEdge.target]?.entries : undefined),
+    [dialogLedger, selectedEdge],
+  )
+
   // Validate workflow — collect every graph and schema issue into the problems panel
   const handleValidate = useCallback(() => {
     const graphErrors = validateWorkflowGraph(nodes, edges)
@@ -692,7 +840,11 @@ export default function VisualEditorPage() {
       if (!result.success) {
         zodIssues = result.error.issues
       }
-      configWarnings = collectActivityConfigWarnings(definitionData)
+      const ledgerDefinition = buildDefinitionPayload({ graphDefinition: definitionData, triggers, contextSchema, io: definitionIo })
+      configWarnings = [
+        ...collectActivityConfigWarnings(definitionData),
+        ...collectContextRefWarnings(ledgerDefinition, t),
+      ]
     } catch (error) {
       schemaFailureMessage = error instanceof Error ? error.message : String(error)
     }
@@ -719,7 +871,7 @@ export default function VisualEditorPage() {
         errors > 0 ? 'error' : 'warning',
       )
     }
-  }, [nodes, edges, t])
+  }, [nodes, edges, triggers, contextSchema, definitionIo, t])
 
   // Focus the offending node or edge on the canvas when a problem row is clicked
   const handleProblemClick = useCallback((issue: WorkflowValidationIssue) => {
@@ -742,18 +894,22 @@ export default function VisualEditorPage() {
     // Validate workflow structure and schema, surfacing every issue in the problems panel
     const graphErrors = validateWorkflowGraph(nodes, edges)
 
-    // Generate definition data and include triggers
-    const graphDefinition = graphToDefinition(nodes, edges, { includePositions: true })
-    const definitionData = {
-      ...graphDefinition,
-      triggers: triggers.length > 0 ? triggers : undefined,
-    }
+    // Generate definition data and re-attach triggers, contextSchema, and io
+    const definitionData = buildDefinitionPayload({
+      graphDefinition: graphToDefinition(nodes, edges, { includePositions: true }),
+      triggers,
+      contextSchema,
+      io: definitionIo,
+    })
 
     const schemaResult = workflowDefinitionDataSchema.safeParse(definitionData)
     const issues = collectValidationIssues({
       graphErrors,
       zodIssues: schemaResult.success ? [] : schemaResult.error.issues,
-      configWarnings: collectActivityConfigWarnings(definitionData),
+      configWarnings: [
+        ...collectActivityConfigWarnings(definitionData),
+        ...collectContextRefWarnings(definitionData, t),
+      ],
       nodes,
       edges,
     })
@@ -770,10 +926,7 @@ export default function VisualEditorPage() {
 
     try {
 
-      const metadata: any = {}
-      if (category) metadata.category = category
-      if (tags.length > 0) metadata.tags = tags
-      if (icon) metadata.icon = icon
+      const metadataPayload = buildMetadataPayload({ loadedMetadata, tags, category, icon })
 
       // Determine if creating new or updating existing
       const isUpdate = !!definitionId
@@ -794,7 +947,7 @@ export default function VisualEditorPage() {
               description: description || null,
               version,
               definition: definitionData,
-              metadata: Object.keys(metadata).length > 0 ? metadata : null,
+              metadata: metadataPayload,
               enabled,
               effectiveFrom: effectiveFrom || null,
               effectiveTo: effectiveTo || null,
@@ -812,7 +965,7 @@ export default function VisualEditorPage() {
             description: description || null,
             version,
             definition: definitionData,
-            metadata: Object.keys(metadata).length > 0 ? metadata : null,
+            metadata: metadataPayload,
             enabled,
             effectiveFrom: effectiveFrom || null,
             effectiveTo: effectiveTo || null,
@@ -870,7 +1023,7 @@ export default function VisualEditorPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, definitionId, updatedAt, router, t])
+  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, contextSchema, definitionIo, loadedMetadata, definitionId, updatedAt, router, t])
 
   // Quiet autosave routine (no redirect, no success flash). Mirrors the update
   // branch of `handleSave` exactly — same payload and the same optimistic-lock
@@ -884,17 +1037,17 @@ export default function VisualEditorPage() {
     const criticalErrors = validateWorkflowGraph(nodes, edges).filter((e) => e.type === 'error')
     if (criticalErrors.length > 0) return
 
-    const graphDefinition = graphToDefinition(nodes, edges, { includePositions: true })
-    const definitionData = {
-      ...graphDefinition,
-      triggers: triggers.length > 0 ? triggers : undefined,
-    }
+    // Same payload builders as the explicit Save: the quiet autosave must not
+    // strip contextSchema, io, or unedited metadata keys (editor samples).
+    const definitionData = buildDefinitionPayload({
+      graphDefinition: graphToDefinition(nodes, edges, { includePositions: true }),
+      triggers,
+      contextSchema,
+      io: definitionIo,
+    })
     if (!workflowDefinitionDataSchema.safeParse(definitionData).success) return
 
-    const metadata: any = {}
-    if (category) metadata.category = category
-    if (tags.length > 0) metadata.tags = tags
-    if (icon) metadata.icon = icon
+    const metadataPayload = buildMetadataPayload({ loadedMetadata, tags, category, icon })
 
     setAutosaveState('saving')
     try {
@@ -908,7 +1061,7 @@ export default function VisualEditorPage() {
             description: description || null,
             version,
             definition: definitionData,
-            metadata: Object.keys(metadata).length > 0 ? metadata : null,
+            metadata: metadataPayload,
             enabled,
             effectiveFrom: effectiveFrom || null,
             effectiveTo: effectiveTo || null,
@@ -1071,6 +1224,9 @@ export default function VisualEditorPage() {
     setNodes(graph.nodes)
     setEdges(graph.edges)
     setTriggers(template.definition.triggers || [])
+    setContextSchema(template.definition.contextSchema ?? undefined)
+    setDefinitionIo((template.definition.io ?? undefined) as WorkflowIoContract | undefined)
+    setLoadedMetadata(null)
     flash(t('workflows.visualEditor.templateLoaded', 'Template loaded'), 'success')
   }, [t])
 
@@ -1127,6 +1283,9 @@ export default function VisualEditorPage() {
     setEffectiveFrom('')
     setEffectiveTo('')
     setTriggers([])
+    setContextSchema(undefined)
+    setDefinitionIo(undefined)
+    setLoadedMetadata(null)
     setShowClearConfirm(false)
     flash('Canvas cleared', 'success')
   }, [])
@@ -1173,12 +1332,12 @@ export default function VisualEditorPage() {
   const sharedDialogs = (
     <>
       {crudFormDialogsEnabled ? (
-        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
+        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} definitionId={definitionId} samples={editorSamples} onPinSample={handlePinSample} onUnpinSample={handleUnpinSample} />
       ) : (
         <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       )}
       {crudFormDialogsEnabled ? (
-        <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
+        <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} ledgerEntries={edgeDialogLedgerEntries} />
       ) : (
         <EdgeEditDialog edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
       )}
@@ -1678,6 +1837,14 @@ export default function VisualEditorPage() {
             <DefinitionTriggersEditor
               value={triggers}
               onChange={setTriggers}
+            />
+          </fieldset>
+
+          {/* Declared context inputs (spec §3.1) — same lock as triggers */}
+          <fieldset disabled={isCodeOnly} className="mt-3 disabled:opacity-70">
+            <ContextSchemaEditor
+              value={contextSchema}
+              onChange={setContextSchema}
             />
           </fieldset>
         </div>

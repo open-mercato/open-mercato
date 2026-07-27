@@ -1563,7 +1563,7 @@ function classifyAndThrowError(status: number, body: any, url: string): never {
  * - {{env.VAR_NAME}} - server-allowlisted environment variables
  * - {{now}} - current ISO timestamp
  */
-function interpolateVariables(
+export function interpolateVariables(
   config: any,
   context: Record<string, any>,
   workflowInstance?: WorkflowInstance

@@ -26,6 +26,7 @@ import {
   workflowErrorSchema,
 } from '../openapi'
 import { invalidateTriggerCache } from '../../lib/event-trigger-service'
+import { normalizeDefinitionValidationIssues } from '../../lib/definition-error-body'
 import { getAllCodeWorkflows } from '../../lib/code-registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -247,7 +248,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: 'Validation failed',
-          details: validation.error.issues,
+          details: normalizeDefinitionValidationIssues(validation.error),
         },
         { status: 400 }
       )
@@ -533,9 +534,9 @@ export const openApi = {
             error: 'Validation failed',
             details: [
               {
-                code: 'invalid_type',
-                message: 'Workflow must have at least START and END steps',
                 path: ['definition', 'steps'],
+                code: 'custom',
+                message: 'Workflow must have at least START and END steps',
               },
             ],
           },

@@ -626,12 +626,34 @@ export function validateParallelForkJoin(definition: ForkJoinDefinitionLike): Fo
   return issues
 }
 
+// Declared context schema (spec §3.1) — the typed-input contract for a
+// definition. Field vocabulary mirrors userTaskConfigSchema's formSchema
+// fields so form-driven and context-driven inputs share one shape language.
+export const contextSchemaFieldSchema = z.object({
+  name: z.string().min(1),
+  type: z.enum(['text', 'number', 'boolean', 'select', 'date']),
+  label: z.string().optional(),
+  required: z.boolean().optional(),
+  options: z.array(z.string()).optional(),
+})
+
+export type WorkflowContextSchemaField = z.infer<typeof contextSchemaFieldSchema>
+
+export const contextSchemaSchema = z.object({
+  input: z.object({
+    fields: z.array(contextSchemaFieldSchema),
+  }).optional(),
+})
+
+export type WorkflowContextSchema = z.infer<typeof contextSchemaSchema>
+
 // Workflow definition data (JSONB structure)
 export const workflowDefinitionDataSchema = z.object({
   steps: z.array(workflowStepSchema).min(2, 'Workflow must have at least START and END steps'),
   transitions: z.array(workflowTransitionSchema).min(1, 'Workflow must have at least one transition'),
   triggers: z.array(workflowDefinitionTriggerSchema).optional(), // Event triggers for automatic workflow start
-  io: workflowIoContractSchema.optional(), // Sub-workflow input/output port contract
+  contextSchema: contextSchemaSchema.optional(), // Declared typed-input contract (spec §3.1) — canonical input contract
+  io: workflowIoContractSchema.optional(), // Sub-workflow input/output port contract; io.input is a read-through alias of contextSchema.input for the ledger
   queries: z.array(z.any()).optional(), // For Phase 7
   signals: z.array(z.any()).optional(), // For Phase 9
   timers: z.array(z.any()).optional(), // For Phase 9
@@ -645,11 +667,37 @@ export const workflowDefinitionDataSchema = z.object({
   }
 })
 
+// Pinned per-step sample envelope (spec §3.6). Samples are stored verbatim
+// with no redaction layer in Phase 2a — the editor surfaces an explicit
+// warning where pinning happens instead.
+export const sampleEnvelopeSchema = z.object({
+  pinnedAt: z.string().datetime({ offset: true }),
+  source: z.enum(['manual', 'test']),
+  data: z.unknown(),
+})
+
+export type WorkflowSampleEnvelopeInput = z.infer<typeof sampleEnvelopeSchema>
+
+export const WORKFLOW_EDITOR_SAMPLES_MAX_CHARS = 65536
+
 // Workflow metadata
 export const workflowMetadataSchema = z.object({
   tags: z.array(z.string().max(50)).optional(),
   category: z.string().max(100).optional(),
   icon: z.string().max(100).optional(),
+  editor: z.object({
+    samples: z.record(z.string(), sampleEnvelopeSchema).optional(),
+  }).passthrough().optional(),
+}).superRefine((metadata, ctx) => {
+  const samples = metadata.editor?.samples
+  if (!samples) return
+  if (JSON.stringify(samples).length > WORKFLOW_EDITOR_SAMPLES_MAX_CHARS) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['editor', 'samples'],
+      message: `Pinned samples exceed the ${WORKFLOW_EDITOR_SAMPLES_MAX_CHARS}-character limit; unpin or shrink samples before saving`,
+    })
+  }
 })
 
 // Date preprocessing helper
@@ -796,6 +844,27 @@ export const upsertWorkflowDefinitionDraftInputSchema = z.object({
 }).strict()
 
 export type UpsertWorkflowDefinitionDraftApiInput = z.infer<typeof upsertWorkflowDefinitionDraftInputSchema>
+
+// ============================================================================
+// Test-Step (mock-first dry run) Schemas
+// ============================================================================
+
+/**
+ * Input for POST /definitions/[id]/test-step (spec §3.6). `config` is the raw
+ * (possibly still-templated) activity config exactly as the editor holds it;
+ * `context` is the caller-supplied sample workflow context the server
+ * interpolates against. Both are intentionally shape-only records: per-type
+ * config validation is the registry's concern (warnings, not gates), and a
+ * sample context is arbitrary user data.
+ */
+export const testWorkflowStepInputSchema = z.object({
+  stepId: z.string().min(1).optional(),
+  activityType: z.string().min(1),
+  config: z.record(z.string(), z.unknown()),
+  context: z.record(z.string(), z.unknown()).default({}),
+}).strict()
+
+export type TestWorkflowStepApiInput = z.infer<typeof testWorkflowStepInputSchema>
 
 // ============================================================================
 // WorkflowInstance Schemas

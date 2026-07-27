@@ -819,6 +819,8 @@
   "ui.dataTable.empty.title": "Brak {entity}",
   "ui.dataTable.emptyState.default": "Brak wyników.",
   "ui.dataTable.emptyState.defaultDescription": "Elementy pojawią się tutaj po dodaniu.",
+  "ui.dataTable.expand.collapseRow": "Zwiń wiersz",
+  "ui.dataTable.expand.expandRow": "Rozwiń wiersz",
   "ui.dataTable.export.format.markdown": "Markdown",
   "ui.dataTable.export.label": "Eksportuj",
   "ui.dataTable.fieldset.label": "Kolumny",

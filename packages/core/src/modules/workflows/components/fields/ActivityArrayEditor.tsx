@@ -18,8 +18,11 @@ import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { DurationInput } from '@open-mercato/ui/backend/inputs/DurationInput'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { LedgerEntry } from '../../lib/context-ledger'
+import type { PinnedSampleEnvelope } from '../../lib/sample-resolver'
 import { useActivityTypeOptions } from './useActivityTypeOptions'
 import { ActivityConfigFields, hasActivityConfigForm } from './ActivityConfigFields'
+import { ActivityTestPanel } from './ActivityTestPanel'
 
 /**
  * Activity definition structure
@@ -41,8 +44,18 @@ export interface Activity {
   }
 }
 
+export interface ActivityTestContext {
+  definitionId: string | null
+  stepId: string
+  pinnedSample?: PinnedSampleEnvelope
+  onPinSample: (data: unknown) => void
+  onUnpinSample: () => void
+}
+
 interface ActivityArrayEditorProps extends CrudCustomFieldRenderProps {
   value: Activity[]
+  ledgerEntries?: LedgerEntry[]
+  testContext?: ActivityTestContext
 }
 
 /**
@@ -57,7 +70,7 @@ interface ActivityArrayEditorProps extends CrudCustomFieldRenderProps {
  *
  * Used by both EdgeEditDialog and NodeEditDialog (automated type)
  */
-export function ActivityArrayEditor({ id, value = [], error, setValue, disabled }: ActivityArrayEditorProps) {
+export function ActivityArrayEditor({ id, value = [], error, setValue, disabled, ledgerEntries, testContext }: ActivityArrayEditorProps) {
   const t = useT()
   const activityTypeOptions = useActivityTypeOptions()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -392,6 +405,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                             idPrefix={`${id}-${index}-config`}
                             config={activity.config || {}}
                             onChange={(config) => updateActivity(index, 'config', config)}
+                            ledgerEntries={ledgerEntries}
                             disabled={disabled}
                           />
                           <div>
@@ -437,6 +451,23 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                         </div>
                       )}
                     </div>
+
+                    {/* Test step */}
+                    {testContext && (
+                      <div className="border-t border-border pt-3">
+                        <ActivityTestPanel
+                          definitionId={testContext.definitionId}
+                          stepId={testContext.stepId}
+                          activityType={activity.activityType}
+                          config={activity.config || {}}
+                          ledgerEntries={ledgerEntries}
+                          pinnedSample={testContext.pinnedSample}
+                          onPinSample={testContext.onPinSample}
+                          onUnpinSample={testContext.onUnpinSample}
+                          disabled={disabled}
+                        />
+                      </div>
+                    )}
 
                     {/* Delete Button */}
                     <div className="border-t border-gray-200 pt-3">
