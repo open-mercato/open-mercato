@@ -11,7 +11,11 @@
  * `{{ path }}` tokens inside string values; `workflow.*`, `env.*`, and `now`
  * are engine-provided and always valid, so they are skipped; every other token
  * is a context reference, with an optional leading `context.` stripped (the
- * interpolator defaults bare paths to context lookups).
+ * interpolator defaults bare paths to context lookups). Tokens may carry a
+ * transform pipeline tail (`{{ path | fn(args) }}`) — the shared parser in
+ * `lib/interpolation-pipeline.ts` strips it so the ledger check validates the
+ * base path only; unparseable tokens are skipped (warnings-only surface, so
+ * false negatives beat false positives).
  *
  * Extraction surfaces, each verified against the runtime consumer:
  * - Step and transition activity `config` values (all strings, recursively) —
@@ -50,6 +54,7 @@
  */
 
 import type { ContextLedger, LedgerEntry } from './context-ledger'
+import { parseInterpolationToken } from './interpolation-pipeline'
 
 export interface ContextRefLocation {
   stepIndex?: number
@@ -94,12 +99,13 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 function normalizeContextPath(token: string): string | null {
-  const trimmed = token.trim()
-  if (!trimmed) return null
-  if (trimmed === 'now') return null
-  if (trimmed.startsWith('workflow.')) return null
-  if (trimmed.startsWith('env.')) return null
-  const path = trimmed.startsWith(CONTEXT_PREFIX) ? trimmed.slice(CONTEXT_PREFIX.length) : trimmed
+  const parsed = parseInterpolationToken(token)
+  if (!parsed.ok) return null
+  const basePath = parsed.path
+  if (basePath === 'now') return null
+  if (basePath.startsWith('workflow.')) return null
+  if (basePath.startsWith('env.')) return null
+  const path = basePath.startsWith(CONTEXT_PREFIX) ? basePath.slice(CONTEXT_PREFIX.length) : basePath
   return path.length > 0 ? path : null
 }
 

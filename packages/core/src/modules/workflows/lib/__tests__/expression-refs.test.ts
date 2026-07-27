@@ -17,10 +17,13 @@ const stepRef = (refs: ContextRef[], path: string): ContextRef | undefined =>
   refs.find((ref) => ref.path === path)
 
 describe('expression-refs purity boundary', () => {
-  test('has no value imports (type-only dependency on the ledger)', () => {
+  test('only value-imports the pure interpolation-pipeline parser', () => {
     const source = readFileSync(join(__dirname, '..', 'expression-refs.ts'), 'utf8')
     const statements = source.match(/^import\b[\s\S]*?from\s+['"][^'"]+['"]/gm) ?? []
-    expect(statements.filter((statement) => !/^import\s+type\b/.test(statement))).toEqual([])
+    const valueSpecifiers = statements
+      .filter((statement) => !/^import\s+type\b/.test(statement))
+      .map((statement) => statement.match(/from\s+['"]([^'"]+)['"]/)?.[1] ?? statement)
+    expect(valueSpecifiers).toEqual(['./interpolation-pipeline'])
   })
 })
 
@@ -110,6 +113,50 @@ describe('extractContextRefs', () => {
       location: { stepIndex: 0, field: 'subWorkflowConfig.inputMapping.orderId' },
       scope: { kind: 'step', stepId: 'child' },
     })
+  })
+
+  test('piped tokens contribute their base path only, with the transform tail stripped', () => {
+    const refs = extractContextRefs({
+      steps: [
+        {
+          stepId: 'notify',
+          stepType: 'AUTOMATED',
+          activities: [
+            {
+              activityId: 'send',
+              activityType: 'SEND_EMAIL',
+              config: {
+                closeDate: "{{context.deal.closeDate | date('yyyy-MM-dd')}}",
+                greeting: "Hello {{customer.name | title | default('there')}}!",
+                engine: "{{workflow.instanceId | upper}} at {{now | date('yyyy')}} via {{env.APP_URL | lower}}",
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(refs.map((ref) => ref.path).sort()).toEqual(['customer.name', 'deal.closeDate'])
+  })
+
+  test('tokens with an unparseable transform tail are skipped, not misread as literal paths', () => {
+    const refs = extractContextRefs({
+      steps: [
+        {
+          stepId: 'notify',
+          stepType: 'AUTOMATED',
+          activities: [
+            {
+              activityId: 'send',
+              activityType: 'SEND_EMAIL',
+              config: { broken: "{{customer.name | concat('open}}" },
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(refs).toEqual([])
   })
 
   test('extracts only template refs from trigger sourceExpressions, not bare payload paths', () => {

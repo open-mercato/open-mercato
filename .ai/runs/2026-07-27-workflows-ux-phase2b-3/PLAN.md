@@ -15,7 +15,7 @@
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Pure interpolation-pipeline parser + transform table | done | 1c8cd9a36 |
-| 1 | 1.2 | Rewire interpolateVariables + expression-refs for piped tokens | todo | — |
+| 1 | 1.2 | Rewire interpolateVariables + expression-refs for piped tokens | done | 3284a86ea |
 | 1 | 1.3 | Strict interpolation mode (schema field, threading, create default, editor toggle) | todo | — |
 | 1 | 1.4 | Workflows endpoint-catalog API (OpenAPI projection) | todo | — |
 | 1 | 1.5 | EndpointPicker component + CALL_API/CALL_WEBHOOK form wiring | todo | — |

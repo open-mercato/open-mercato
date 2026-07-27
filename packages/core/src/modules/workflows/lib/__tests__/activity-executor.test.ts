@@ -2030,6 +2030,117 @@ describe('Activity Executor (Unit Tests)', () => {
     })
   })
 
+  describe('interpolateVariables transform pipeline', () => {
+    const pipelineContext = {
+      orderId: 'order-123',
+      orderTotal: 120.5,
+      customer: { name: 'ada lovelace', email: 'ada@example.com' },
+      items: [{ name: 'first' }, { name: 'second' }],
+      closeDate: '2026-07-27T13:05:09.000Z',
+    }
+
+    test('pipe-free tokens behave exactly as before', () => {
+      expect(activityExecutor.interpolateVariables('{{orderId}}', pipelineContext, mockInstance)).toBe('order-123')
+      expect(activityExecutor.interpolateVariables('{{customer}}', pipelineContext, mockInstance)).toEqual(
+        pipelineContext.customer
+      )
+      expect(activityExecutor.interpolateVariables('{{missing.path}}', pipelineContext, mockInstance)).toBe(
+        '{{missing.path}}'
+      )
+    })
+
+    test('single-token transforms preserve the transformed value type', () => {
+      expect(activityExecutor.interpolateVariables('{{items | pick(0)}}', pipelineContext, mockInstance)).toEqual({
+        name: 'first',
+      })
+      expect(
+        activityExecutor.interpolateVariables('{{orderTotal | number(2)}}', pipelineContext, mockInstance)
+      ).toBe('120.50')
+      expect(
+        activityExecutor.interpolateVariables(
+          "{{items | pick(1) | pick('name') | upper}}",
+          pipelineContext,
+          mockInstance
+        )
+      ).toBe('SECOND')
+    })
+
+    test('mixed text folds transforms and stringifies', () => {
+      expect(
+        activityExecutor.interpolateVariables(
+          "Deal closes {{closeDate | date('yyyy-MM-dd')}} for {{customer.name | title}}",
+          pipelineContext,
+          mockInstance
+        )
+      ).toBe('Deal closes 2026-07-27 for Ada Lovelace')
+    })
+
+    test('unknown transform passes the original token through unchanged', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{orderId | nonsense}}', pipelineContext, mockInstance)
+      ).toBe('{{orderId | nonsense}}')
+      expect(
+        activityExecutor.interpolateVariables('Ref {{orderId | nonsense}}!', pipelineContext, mockInstance)
+      ).toBe('Ref {{orderId | nonsense}}!')
+    })
+
+    test('failed transform passes the original token through unchanged', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{customer | upper}}', pipelineContext, mockInstance)
+      ).toBe('{{customer | upper}}')
+    })
+
+    test('unparseable pipeline passes the original token through unchanged', () => {
+      expect(
+        activityExecutor.interpolateVariables("{{orderId | concat('open}}", pipelineContext, mockInstance)
+      ).toBe("{{orderId | concat('open}}")
+    })
+
+    test('default rescues an unresolved context path', () => {
+      expect(
+        activityExecutor.interpolateVariables("{{missing.path | default('n/a')}}", pipelineContext, mockInstance)
+      ).toBe('n/a')
+      expect(
+        activityExecutor.interpolateVariables(
+          "Value: {{missing.path | default('n/a')}}",
+          pipelineContext,
+          mockInstance
+        )
+      ).toBe('Value: n/a')
+    })
+
+    test('unresolved path without a rescuing default passes through', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{missing.path | upper}}', pipelineContext, mockInstance)
+      ).toBe('{{missing.path | upper}}')
+    })
+
+    test('transforms apply to workflow.* and now base values', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{workflow.instanceId | upper}}', pipelineContext, mockInstance)
+      ).toBe('TEST-INSTANCE-ID')
+      expect(
+        activityExecutor.interpolateVariables("{{now | date('yyyy')}}", pipelineContext, mockInstance)
+      ).toBe(String(new Date().getUTCFullYear()))
+    })
+
+    test('unknown workflow key stays a pass-through even with transforms', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{workflow.bogus | upper}}', pipelineContext, mockInstance)
+      ).toBe('{{workflow.bogus | upper}}')
+    })
+
+    test('non-allowlisted env resolves empty so default applies', () => {
+      expect(
+        activityExecutor.interpolateVariables(
+          "{{env.OM_WORKFLOWS_TEST_TYPE_SECRET | default('hidden')}}",
+          pipelineContext,
+          mockInstance
+        )
+      ).toBe('hidden')
+    })
+  })
+
   // ============================================================================
   // Multiple Activities Tests
   // ============================================================================

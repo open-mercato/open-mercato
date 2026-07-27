@@ -35,6 +35,11 @@ import {
   type SetVariableOutput,
 } from './set-variable'
 import {
+  applyTransforms,
+  parseInterpolationToken,
+  type ParsedTransform,
+} from './interpolation-pipeline'
+import {
   WorkflowActivityJob,
   WorkflowActivityJobInvokeAgent,
   WORKFLOW_ACTIVITIES_QUEUE_NAME,
@@ -96,14 +101,6 @@ function getWorkflowEnvInterpolationAllowlist(): Set<string> {
   }
 
   return allowlist
-}
-
-function resolveWorkflowEnvInterpolation(envKey: string): string {
-  if (!getWorkflowEnvInterpolationAllowlist().has(envKey)) {
-    return ''
-  }
-
-  return process.env[envKey] ?? ''
 }
 
 // ============================================================================
@@ -1551,6 +1548,75 @@ function classifyAndThrowError(status: number, body: any, url: string): never {
 // Helper Functions
 // ============================================================================
 
+type InterpolationBaseResolution =
+  | { status: 'resolved'; value: unknown }
+  | { status: 'unresolved-context'; contextPath: string }
+  | { status: 'unknown-workflow-key'; workflowKey: string }
+  | { status: 'env-not-allowlisted'; envKey: string }
+
+function resolveInterpolationBaseValue(
+  path: string,
+  context: Record<string, any>,
+  workflowInstance?: WorkflowInstance
+): InterpolationBaseResolution {
+  if (path.startsWith('workflow.') && workflowInstance) {
+    const workflowKey = path.substring('workflow.'.length)
+    switch (workflowKey) {
+      case 'instanceId':
+        return { status: 'resolved', value: workflowInstance.id }
+      case 'tenantId':
+        return { status: 'resolved', value: workflowInstance.tenantId }
+      case 'organizationId':
+        return { status: 'resolved', value: workflowInstance.organizationId }
+      case 'currentStepId':
+        return { status: 'resolved', value: workflowInstance.currentStepId }
+      case 'workflowId':
+        return { status: 'resolved', value: workflowInstance.workflowId }
+      case 'version':
+        return { status: 'resolved', value: workflowInstance.version }
+      default:
+        return { status: 'unknown-workflow-key', workflowKey }
+    }
+  }
+
+  if (path.startsWith('env.')) {
+    const envKey = path.substring('env.'.length)
+    if (!getWorkflowEnvInterpolationAllowlist().has(envKey)) {
+      return { status: 'env-not-allowlisted', envKey }
+    }
+    return { status: 'resolved', value: process.env[envKey] ?? '' }
+  }
+
+  if (path === 'now') {
+    return { status: 'resolved', value: new Date().toISOString() }
+  }
+
+  const contextPath = path.startsWith('context.') ? path.substring('context.'.length) : path
+  const value = getNestedValue(context, contextPath)
+  if (value !== undefined) return { status: 'resolved', value }
+  return { status: 'unresolved-context', contextPath }
+}
+
+function foldInterpolationTransforms(
+  resolution: InterpolationBaseResolution,
+  transforms: ParsedTransform[]
+): { resolved: boolean; value?: unknown } {
+  if (resolution.status === 'unknown-workflow-key') return { resolved: false }
+  const baseValue =
+    resolution.status === 'resolved'
+      ? resolution.value
+      : resolution.status === 'env-not-allowlisted'
+        ? ''
+        : undefined
+  if (transforms.length === 0) {
+    if (resolution.status === 'unresolved-context') return { resolved: false }
+    return { resolved: true, value: baseValue }
+  }
+  const transformed = applyTransforms(baseValue, transforms)
+  if (!transformed.ok || transformed.value === undefined) return { resolved: false }
+  return { resolved: true, value: transformed.value }
+}
+
 /**
  * Interpolate variables in config from workflow context
  *
@@ -1562,6 +1628,11 @@ function classifyAndThrowError(status: number, body: any, url: string): never {
  * - {{workflow.currentStepId}} - current step ID
  * - {{env.VAR_NAME}} - server-allowlisted environment variables
  * - {{now}} - current ISO timestamp
+ * - {{ path | transform(args) | ... }} - pill transform pipeline
+ *   (`lib/interpolation-pipeline.ts`): a fixed table of pure transforms folded
+ *   over the resolved base value. Lenient behavior: an unparseable token, an
+ *   unresolved path without a rescuing `default`, or a failed transform passes
+ *   the original token/config through unchanged.
  */
 export function interpolateVariables(
   config: any,
@@ -1574,92 +1645,20 @@ export function interpolateVariables(
     const singleVarMatch = config.match(/^\{\{([^}]+)\}\}$/)
 
     if (singleVarMatch) {
-      const trimmedPath = singleVarMatch[1].trim()
-
-      // Handle {{workflow.*}} variables
-      if (trimmedPath.startsWith('workflow.') && workflowInstance) {
-        const workflowKey = trimmedPath.substring('workflow.'.length)
-        switch (workflowKey) {
-          case 'instanceId':
-            return workflowInstance.id
-          case 'tenantId':
-            return workflowInstance.tenantId
-          case 'organizationId':
-            return workflowInstance.organizationId
-          case 'currentStepId':
-            return workflowInstance.currentStepId
-          case 'workflowId':
-            return workflowInstance.workflowId
-          case 'version':
-            return workflowInstance.version // Return as number
-          default:
-            return config // Return original if unknown
-        }
-      }
-
-      // Handle {{env.*}} variables
-      if (trimmedPath.startsWith('env.')) {
-        const envKey = trimmedPath.substring('env.'.length)
-        return resolveWorkflowEnvInterpolation(envKey)
-      }
-
-      // Handle {{now}} - current timestamp
-      if (trimmedPath === 'now') {
-        return new Date().toISOString()
-      }
-
-      // Handle {{context.*}} variables (default behavior)
-      const contextPath = trimmedPath.startsWith('context.')
-        ? trimmedPath.substring('context.'.length)
-        : trimmedPath
-
-      const value = getNestedValue(context, contextPath)
-      return value !== undefined ? value : config // Return raw value to preserve type
+      const parsedToken = parseInterpolationToken(singleVarMatch[1])
+      if (!parsedToken.ok) return config
+      const resolution = resolveInterpolationBaseValue(parsedToken.path, context, workflowInstance)
+      const folded = foldInterpolationTransforms(resolution, parsedToken.transforms)
+      return folded.resolved ? folded.value : config
     }
 
     // Multiple interpolations or mixed text - return string
-    return config.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
-      const trimmedPath = path.trim()
-
-      // Handle {{workflow.*}} variables
-      if (trimmedPath.startsWith('workflow.') && workflowInstance) {
-        const workflowKey = trimmedPath.substring('workflow.'.length)
-        switch (workflowKey) {
-          case 'instanceId':
-            return workflowInstance.id
-          case 'tenantId':
-            return workflowInstance.tenantId
-          case 'organizationId':
-            return workflowInstance.organizationId
-          case 'currentStepId':
-            return workflowInstance.currentStepId
-          case 'workflowId':
-            return workflowInstance.workflowId
-          case 'version':
-            return String(workflowInstance.version)
-          default:
-            return match // Unknown workflow key
-        }
-      }
-
-      // Handle {{env.*}} variables
-      if (trimmedPath.startsWith('env.')) {
-        const envKey = trimmedPath.substring('env.'.length)
-        return resolveWorkflowEnvInterpolation(envKey)
-      }
-
-      // Handle {{now}} - current timestamp
-      if (trimmedPath === 'now') {
-        return new Date().toISOString()
-      }
-
-      // Handle {{context.*}} variables (default behavior)
-      const contextPath = trimmedPath.startsWith('context.')
-        ? trimmedPath.substring('context.'.length)
-        : trimmedPath
-
-      const value = getNestedValue(context, contextPath)
-      return value !== undefined ? String(value) : match
+    return config.replace(/\{\{([^}]+)\}\}/g, (match, token) => {
+      const parsedToken = parseInterpolationToken(token)
+      if (!parsedToken.ok) return match
+      const resolution = resolveInterpolationBaseValue(parsedToken.path, context, workflowInstance)
+      const folded = foldInterpolationTransforms(resolution, parsedToken.transforms)
+      return folded.resolved ? String(folded.value) : match
     })
   }
 
