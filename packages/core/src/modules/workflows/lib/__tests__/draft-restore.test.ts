@@ -91,6 +91,25 @@ describe('decideDraftRestore', () => {
     ).toEqual({ offerRestore: true, baseMismatch: false })
   })
 
+  it('a draft differing only in the interpolation mode is a real draft', () => {
+    expect(
+      decideDraftRestore({
+        draftDefinition: { ...loadedDefinition, interpolation: 'strict' },
+        draftBaseUpdatedAt: '2026-07-27T10:00:00.000Z',
+        loadedDefinition,
+        definitionUpdatedAt: '2026-07-27T10:00:00.000Z',
+      }),
+    ).toEqual({ offerRestore: true, baseMismatch: false })
+    expect(
+      decideDraftRestore({
+        draftDefinition: { ...loadedDefinition, interpolation: 'strict' },
+        draftBaseUpdatedAt: '2026-07-27T10:00:00.000Z',
+        loadedDefinition: { ...loadedDefinition, interpolation: 'strict' },
+        definitionUpdatedAt: '2026-07-27T10:00:00.000Z',
+      }),
+    ).toEqual({ offerRestore: false })
+  })
+
   it('treats equivalent timestamps in different string forms as the same base', () => {
     expect(
       decideDraftRestore({

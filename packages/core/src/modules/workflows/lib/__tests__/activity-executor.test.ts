@@ -2141,6 +2141,151 @@ describe('Activity Executor (Unit Tests)', () => {
     })
   })
 
+  describe('strict interpolation mode', () => {
+    const strictContext = {
+      orderId: 'order-123',
+      customer: { name: 'ada lovelace' },
+    }
+    const strictOptions = { mode: 'strict' as const }
+
+    test('resolvable tokens behave exactly like lenient mode', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{orderId}}', strictContext, mockInstance, strictOptions)
+      ).toBe('order-123')
+      expect(
+        activityExecutor.interpolateVariables(
+          'Order {{orderId}} for {{customer.name | title}}',
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toBe('Order order-123 for Ada Lovelace')
+    })
+
+    test('unresolved context path throws naming the token', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables('{{missing.path}}', strictContext, mockInstance, strictOptions)
+      ).toThrow(activityExecutor.WorkflowInterpolationError)
+      expect(() =>
+        activityExecutor.interpolateVariables('Ref {{missing.path}}!', strictContext, mockInstance, strictOptions)
+      ).toThrow('Cannot interpolate {{missing.path}}')
+    })
+
+    test('unknown workflow key throws', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables('{{workflow.bogus}}', strictContext, mockInstance, strictOptions)
+      ).toThrow('unknown workflow key "bogus"')
+    })
+
+    test('non-allowlisted env key throws even with a default', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables(
+          '{{env.OM_WORKFLOWS_TEST_TYPE_SECRET}}',
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toThrow('is not allowlisted')
+      expect(() =>
+        activityExecutor.interpolateVariables(
+          "{{env.OM_WORKFLOWS_TEST_TYPE_SECRET | default('hidden')}}",
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toThrow('is not allowlisted')
+    })
+
+    test('unknown transform and failed transform throw', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables('{{orderId | nonsense}}', strictContext, mockInstance, strictOptions)
+      ).toThrow('unknown transform "nonsense"')
+      expect(() =>
+        activityExecutor.interpolateVariables('{{customer | upper}}', strictContext, mockInstance, strictOptions)
+      ).toThrow('Cannot interpolate {{customer | upper}}')
+    })
+
+    test('unparseable pipeline throws', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables("{{orderId | concat('open}}", strictContext, mockInstance, strictOptions)
+      ).toThrow(activityExecutor.WorkflowInterpolationError)
+    })
+
+    test('default rescues an unresolved context path in strict mode', () => {
+      expect(
+        activityExecutor.interpolateVariables(
+          "{{missing.path | default('n/a')}}",
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toBe('n/a')
+    })
+
+    test('nested config objects surface strict failures', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables(
+          { args: { to: '{{missing.path}}' } },
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toThrow(activityExecutor.WorkflowInterpolationError)
+    })
+
+    test('absent mode stays lenient', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{missing.path}}', strictContext, mockInstance, {})
+      ).toBe('{{missing.path}}')
+    })
+
+    test('sync execution under strict mode fails the activity with the offending token', async () => {
+      const mockFunction = jest.fn()
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-strict-sync',
+        activityName: 'Strict Sync',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'testFunction',
+          args: { value: '{{missing.path}}' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(mockEm, mockContainer, activity, {
+        ...mockContext,
+        interpolationMode: 'strict',
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Cannot interpolate {{missing.path}}')
+      expect(mockFunction).not.toHaveBeenCalled()
+    })
+
+    test('async enqueue under strict mode refuses at enqueue-time', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'activity-strict-async',
+        activityName: 'Strict Async',
+        activityType: 'SEND_EMAIL',
+        config: { to: '{{missing.path}}', subject: 'Hi' },
+      }
+
+      await expect(
+        activityExecutor.enqueueActivity(mockEm, activity, {
+          ...mockContext,
+          interpolationMode: 'strict',
+        })
+      ).rejects.toThrow(activityExecutor.ActivityExecutionError)
+      await expect(
+        activityExecutor.enqueueActivity(mockEm, activity, {
+          ...mockContext,
+          interpolationMode: 'strict',
+        })
+      ).rejects.toThrow('Cannot interpolate {{missing.path}}')
+    })
+  })
+
   // ============================================================================
   // Multiple Activities Tests
   // ============================================================================

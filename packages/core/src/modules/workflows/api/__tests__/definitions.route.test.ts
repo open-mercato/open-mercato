@@ -310,6 +310,49 @@ describe('Workflow Definitions API', () => {
       expect(mockEm.flush).toHaveBeenCalled()
     })
 
+    test('should default new definitions to strict interpolation', async () => {
+      mockEm.findOne.mockResolvedValue(null)
+      mockEm.create.mockReturnValue({ id: 'new-def-id' })
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions', {
+        method: 'POST',
+        body: JSON.stringify(validDefinition),
+      })
+
+      const response = await createDefinition(request)
+
+      expect(response.status).toBe(201)
+      expect(mockEm.create).toHaveBeenCalledWith(
+        WorkflowDefinition,
+        expect.objectContaining({
+          definition: expect.objectContaining({ interpolation: 'strict' }),
+        })
+      )
+    })
+
+    test('should keep an explicitly lenient interpolation mode on create', async () => {
+      mockEm.findOne.mockResolvedValue(null)
+      mockEm.create.mockReturnValue({ id: 'new-def-id' })
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...validDefinition,
+          definition: { ...validDefinition.definition, interpolation: 'lenient' },
+        }),
+      })
+
+      const response = await createDefinition(request)
+
+      expect(response.status).toBe(201)
+      expect(mockEm.create).toHaveBeenCalledWith(
+        WorkflowDefinition,
+        expect.objectContaining({
+          definition: expect.objectContaining({ interpolation: 'lenient' }),
+        })
+      )
+    })
+
     test('should prevent duplicate workflowId even with a different version', async () => {
       mockEm.findOne.mockResolvedValue({
         id: 'existing-def',
@@ -631,6 +674,45 @@ describe('Workflow Definitions API', () => {
       expect(data.message).toBe('Workflow definition updated successfully')
       expect(mockDefinition.enabled).toBe(false)
       expect(mockEm.flush).toHaveBeenCalled()
+    })
+
+    test('should leave an absent interpolation mode absent on update', async () => {
+      mockEm.findOne.mockResolvedValue(mockDefinition)
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions/def-1', {
+        method: 'PUT',
+        body: JSON.stringify({
+          definition: {
+            steps: mockDefinition.definition.steps,
+            transitions: mockDefinition.definition.transitions,
+          },
+        }),
+      })
+
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
+
+      expect(response.status).toBe(200)
+      expect(mockDefinition.definition).not.toHaveProperty('interpolation')
+    })
+
+    test('should apply an explicit interpolation mode on update', async () => {
+      mockEm.findOne.mockResolvedValue(mockDefinition)
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions/def-1', {
+        method: 'PUT',
+        body: JSON.stringify({
+          definition: {
+            steps: mockDefinition.definition.steps,
+            transitions: mockDefinition.definition.transitions,
+            interpolation: 'strict',
+          },
+        }),
+      })
+
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
+
+      expect(response.status).toBe(200)
+      expect((mockDefinition.definition as { interpolation?: string }).interpolation).toBe('strict')
     })
 
     test('should check edit permission', async () => {

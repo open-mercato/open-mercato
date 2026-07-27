@@ -26,6 +26,16 @@
  * pass-through or strict failure.
  */
 
+export type WorkflowInterpolationMode = 'strict' | 'lenient'
+
+export function resolveDefinitionInterpolationMode(
+  definitionData: unknown,
+): WorkflowInterpolationMode | undefined {
+  if (!definitionData || typeof definitionData !== 'object') return undefined
+  const mode = (definitionData as { interpolation?: unknown }).interpolation
+  return mode === 'strict' || mode === 'lenient' ? mode : undefined
+}
+
 export type TransformArg = string | number | boolean | null
 
 export interface ParsedTransform {

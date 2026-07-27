@@ -508,7 +508,15 @@ export const workflowTestStepRefusedResponseSchema = z.object({
   activityType: z.string(),
 })
 
+export const workflowTestStepInterpolationFailedResponseSchema = z.object({
+  interpolationFailed: z.literal(true),
+  token: z.string().describe('The offending {{ }} token, without the braces'),
+  message: z.string().describe('Why the token could not be interpolated under strict mode'),
+  activityType: z.string(),
+})
+
 export const workflowTestStepResponseSchema = z.union([
   workflowTestStepSimulatedResponseSchema,
   workflowTestStepRefusedResponseSchema,
+  workflowTestStepInterpolationFailedResponseSchema,
 ])

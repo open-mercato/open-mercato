@@ -17,6 +17,7 @@ import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visua
 import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-flag'
 import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } from '../../../lib/draft-restore'
 import { buildDefinitionPayload, buildMetadataPayload } from '../../../lib/definition-payload'
+import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from '../../../lib/interpolation-pipeline'
 import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard'
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
@@ -30,6 +31,13 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import {
   Dialog,
   DialogContent,
@@ -278,6 +286,11 @@ export default function VisualEditorPage() {
   // survive the graph → definition rebuild on save/draft, so it is carried as
   // pass-through state exactly like contextSchema.
   const [definitionIo, setDefinitionIo] = useState<WorkflowIoContract | undefined>(undefined)
+  // Interpolation mode (spec §3.6): new definitions start strict (matching the
+  // POST create default); loaded definitions keep their stored value, and
+  // ABSENT stays absent through save round-trips so existing lenient
+  // definitions are never flipped by an unrelated edit.
+  const [interpolation, setInterpolation] = useState<WorkflowInterpolationMode | undefined>(undefined)
   const [loadedMetadata, setLoadedMetadata] = useState<Record<string, unknown> | null>(null)
   const [source, setSource] = useState<'code' | 'code_override' | 'user' | null>(null)
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
@@ -342,6 +355,7 @@ export default function VisualEditorPage() {
   useEffect(() => {
     const loadDefinition = async () => {
       if (!definitionId) {
+        setInterpolation('strict')
         setIsLoading(false)
         return
       }
@@ -389,6 +403,8 @@ export default function VisualEditorPage() {
         setContextSchema(loadedContextSchema)
         const loadedIo = (definition.definition?.io ?? undefined) as WorkflowIoContract | undefined
         setDefinitionIo(loadedIo)
+        const loadedInterpolation = resolveDefinitionInterpolationMode(definition.definition)
+        setInterpolation(loadedInterpolation)
         const loadedMetadataObject = definition.metadata && typeof definition.metadata === 'object'
           ? { ...(definition.metadata as Record<string, unknown>) }
           : null
@@ -410,6 +426,7 @@ export default function VisualEditorPage() {
           triggers: loadedTriggers,
           contextSchema: loadedContextSchema,
           io: loadedIo,
+          interpolation: loadedInterpolation,
         })
         const loadedDraftMetadata = buildMetadataPayload({
           loadedMetadata: loadedMetadataObject,
@@ -474,6 +491,7 @@ export default function VisualEditorPage() {
           triggers,
           contextSchema,
           io: definitionIo,
+          interpolation,
         }),
         metadata: draftMetadata,
         baseUpdatedAt: updatedAt,
@@ -506,7 +524,7 @@ export default function VisualEditorPage() {
       }
     }, DRAFT_AUTOSAVE_DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [draftAutosaveReady, draftEligible, definitionId, nodes, edges, triggers, contextSchema, definitionIo, draftMetadata, updatedAt, workflowName, description, version, enabled, effectiveFrom, effectiveTo])
+  }, [draftAutosaveReady, draftEligible, definitionId, nodes, edges, triggers, contextSchema, definitionIo, interpolation, draftMetadata, updatedAt, workflowName, description, version, enabled, effectiveFrom, effectiveTo])
 
   // Keep the "Draft saved Xs ago" label fresh without re-rendering per second.
   useEffect(() => {
@@ -534,6 +552,7 @@ export default function VisualEditorPage() {
       setContextSchema(draftContextSchema ? (draftContextSchema as WorkflowContextSchema) : undefined)
       const draftIo = (pendingDraft.draft.definition as { io?: WorkflowIoContract }).io
       setDefinitionIo(draftIo ?? undefined)
+      setInterpolation(resolveDefinitionInterpolationMode(pendingDraft.draft.definition))
       const restoredMetadata = pendingDraft.draft.metadata ?? null
       setLoadedMetadata(restoredMetadata)
       if (restoredMetadata) {
@@ -840,7 +859,7 @@ export default function VisualEditorPage() {
       if (!result.success) {
         zodIssues = result.error.issues
       }
-      const ledgerDefinition = buildDefinitionPayload({ graphDefinition: definitionData, triggers, contextSchema, io: definitionIo })
+      const ledgerDefinition = buildDefinitionPayload({ graphDefinition: definitionData, triggers, contextSchema, io: definitionIo, interpolation })
       configWarnings = [
         ...collectActivityConfigWarnings(definitionData),
         ...collectContextRefWarnings(ledgerDefinition, t),
@@ -871,7 +890,7 @@ export default function VisualEditorPage() {
         errors > 0 ? 'error' : 'warning',
       )
     }
-  }, [nodes, edges, triggers, contextSchema, definitionIo, t])
+  }, [nodes, edges, triggers, contextSchema, definitionIo, interpolation, t])
 
   // Focus the offending node or edge on the canvas when a problem row is clicked
   const handleProblemClick = useCallback((issue: WorkflowValidationIssue) => {
@@ -894,12 +913,14 @@ export default function VisualEditorPage() {
     // Validate workflow structure and schema, surfacing every issue in the problems panel
     const graphErrors = validateWorkflowGraph(nodes, edges)
 
-    // Generate definition data and re-attach triggers, contextSchema, and io
+    // Generate definition data and re-attach triggers, contextSchema, io, and
+    // the interpolation mode
     const definitionData = buildDefinitionPayload({
       graphDefinition: graphToDefinition(nodes, edges, { includePositions: true }),
       triggers,
       contextSchema,
       io: definitionIo,
+      interpolation,
     })
 
     const schemaResult = workflowDefinitionDataSchema.safeParse(definitionData)
@@ -1023,7 +1044,7 @@ export default function VisualEditorPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, contextSchema, definitionIo, loadedMetadata, definitionId, updatedAt, router, t])
+  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, contextSchema, definitionIo, interpolation, loadedMetadata, definitionId, updatedAt, router, t])
 
   // Quiet autosave routine (no redirect, no success flash). Mirrors the update
   // branch of `handleSave` exactly — same payload and the same optimistic-lock
@@ -1038,12 +1059,14 @@ export default function VisualEditorPage() {
     if (criticalErrors.length > 0) return
 
     // Same payload builders as the explicit Save: the quiet autosave must not
-    // strip contextSchema, io, or unedited metadata keys (editor samples).
+    // strip contextSchema, io, interpolation, or unedited metadata keys
+    // (editor samples).
     const definitionData = buildDefinitionPayload({
       graphDefinition: graphToDefinition(nodes, edges, { includePositions: true }),
       triggers,
       contextSchema,
       io: definitionIo,
+      interpolation,
     })
     if (!workflowDefinitionDataSchema.safeParse(definitionData).success) return
 
@@ -1226,6 +1249,7 @@ export default function VisualEditorPage() {
     setTriggers(template.definition.triggers || [])
     setContextSchema(template.definition.contextSchema ?? undefined)
     setDefinitionIo((template.definition.io ?? undefined) as WorkflowIoContract | undefined)
+    setInterpolation(resolveDefinitionInterpolationMode(template.definition) ?? 'strict')
     setLoadedMetadata(null)
     flash(t('workflows.visualEditor.templateLoaded', 'Template loaded'), 'success')
   }, [t])
@@ -1846,6 +1870,41 @@ export default function VisualEditorPage() {
               value={contextSchema}
               onChange={setContextSchema}
             />
+          </fieldset>
+
+          {/* Interpolation mode (spec §3.6) — same lock as triggers/context */}
+          <fieldset disabled={isCodeOnly} className="mt-3 disabled:opacity-70">
+            <div className="flex flex-wrap items-center gap-2">
+              <Label htmlFor="interpolation-mode" className="text-xs">
+                {t('workflows.visualEditor.interpolation.label', 'Missing variables')}
+              </Label>
+              <Select
+                value={interpolation ?? 'lenient'}
+                onValueChange={(mode) => setInterpolation(mode as WorkflowInterpolationMode)}
+              >
+                <SelectTrigger
+                  id="interpolation-mode"
+                  className="w-full sm:w-[280px]"
+                  aria-label={t('workflows.visualEditor.interpolation.label', 'Missing variables')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="strict">
+                    {t('workflows.visualEditor.interpolation.strict', 'Strict — fail the step')}
+                  </SelectItem>
+                  <SelectItem value="lenient">
+                    {t('workflows.visualEditor.interpolation.lenient', 'Lenient — keep the text as written')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t(
+                'workflows.visualEditor.interpolation.help',
+                'Controls what happens when a variable placeholder cannot be resolved at run time: strict fails the step so problems surface immediately; lenient keeps the unresolved text unchanged. New workflows start strict.',
+              )}
+            </p>
           </fieldset>
         </div>
       )}

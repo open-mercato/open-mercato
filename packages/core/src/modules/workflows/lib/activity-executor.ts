@@ -37,8 +37,10 @@ import {
 import {
   applyTransforms,
   parseInterpolationToken,
-  type ParsedTransform,
+  type WorkflowInterpolationMode,
 } from './interpolation-pipeline'
+
+export { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from './interpolation-pipeline'
 import {
   WorkflowActivityJob,
   WorkflowActivityJobInvokeAgent,
@@ -188,6 +190,10 @@ export interface ActivityContext {
   branchInstanceId?: string | null
   transitionId?: string
   userId?: string
+  // The owning definition's `interpolation` mode; absent means lenient.
+  // Async activities enforce strict mode at enqueue-time, so the worker-side
+  // context deliberately leaves this unset.
+  interpolationMode?: WorkflowInterpolationMode
 }
 
 type RbacFeatureResolver = {
@@ -236,6 +242,23 @@ export class ActivityExecutionError extends Error {
   ) {
     super(message)
     this.name = 'ActivityExecutionError'
+  }
+}
+
+/**
+ * Thrown by `interpolateVariables` in strict mode when a token cannot be
+ * resolved (unresolved context path, env-allowlist miss, unknown workflow.*
+ * key, failed or unparseable transform pipeline). Activity call sites rethrow
+ * it as `ActivityExecutionError` so it flows through the normal retry/failure
+ * machinery.
+ */
+export class WorkflowInterpolationError extends Error {
+  constructor(
+    message: string,
+    public token: string
+  ) {
+    super(message)
+    this.name = 'WorkflowInterpolationError'
   }
 }
 
@@ -303,8 +326,14 @@ export async function enqueueActivity(
     )
   }
 
-  // Interpolate config variables NOW (before queuing)
-  const interpolatedConfig = interpolateVariables(activity.config, workflowContext, workflowInstance)
+  // Interpolate config variables NOW (before queuing) — strict mode is
+  // enforced here, at enqueue-time, before the job serializes frozen config.
+  const interpolatedConfig = interpolateActivityConfig(
+    activity.config,
+    context,
+    activity.activityType,
+    activity.activityName
+  )
 
   // Create job payload
   const job: WorkflowActivityJob = {
@@ -577,7 +606,12 @@ async function executeActivityByType(
   context: ActivityContext
 ): Promise<any> {
   // Interpolate config variables from context (including workflow metadata)
-  const interpolatedConfig = interpolateVariables(activity.config, context.workflowContext, context.workflowInstance)
+  const interpolatedConfig = interpolateActivityConfig(
+    activity.config,
+    context,
+    activity.activityType,
+    activity.activityName
+  )
 
   const entry = getActivityType(activity.activityType)
   if (!entry) {
@@ -1215,7 +1249,7 @@ export async function executeCallApi(
   signal?: AbortSignal
 ): Promise<any> {
   // 1. Interpolate variables in config (including {{workflow.*}}, {{context.*}}, allowlisted {{env.*}}, {{now}})
-  const interpolatedConfig = interpolateVariables(config, context.workflowContext, context.workflowInstance)
+  const interpolatedConfig = interpolateActivityConfig(config, context, 'CALL_API')
 
   const {
     endpoint,
@@ -1597,23 +1631,54 @@ function resolveInterpolationBaseValue(
   return { status: 'unresolved-context', contextPath }
 }
 
-function foldInterpolationTransforms(
-  resolution: InterpolationBaseResolution,
-  transforms: ParsedTransform[]
+function strictInterpolationError(rawToken: string, reason: string): WorkflowInterpolationError {
+  return new WorkflowInterpolationError(
+    `Cannot interpolate {{${rawToken}}}: ${reason}`,
+    rawToken
+  )
+}
+
+function interpolateToken(
+  rawToken: string,
+  context: Record<string, any>,
+  workflowInstance: WorkflowInstance | undefined,
+  strict: boolean
 ): { resolved: boolean; value?: unknown } {
-  if (resolution.status === 'unknown-workflow-key') return { resolved: false }
+  const parsedToken = parseInterpolationToken(rawToken)
+  if (!parsedToken.ok) {
+    if (strict) throw strictInterpolationError(rawToken, parsedToken.error)
+    return { resolved: false }
+  }
+  const resolution = resolveInterpolationBaseValue(parsedToken.path, context, workflowInstance)
+  if (resolution.status === 'unknown-workflow-key') {
+    if (strict) throw strictInterpolationError(rawToken, `unknown workflow key "${resolution.workflowKey}"`)
+    return { resolved: false }
+  }
+  if (resolution.status === 'env-not-allowlisted') {
+    if (strict) throw strictInterpolationError(rawToken, `env variable "${resolution.envKey}" is not allowlisted`)
+  }
   const baseValue =
     resolution.status === 'resolved'
       ? resolution.value
       : resolution.status === 'env-not-allowlisted'
         ? ''
         : undefined
-  if (transforms.length === 0) {
-    if (resolution.status === 'unresolved-context') return { resolved: false }
+  if (parsedToken.transforms.length === 0) {
+    if (resolution.status === 'unresolved-context') {
+      if (strict) throw strictInterpolationError(rawToken, `context path "${resolution.contextPath}" is not defined`)
+      return { resolved: false }
+    }
     return { resolved: true, value: baseValue }
   }
-  const transformed = applyTransforms(baseValue, transforms)
-  if (!transformed.ok || transformed.value === undefined) return { resolved: false }
+  const transformed = applyTransforms(baseValue, parsedToken.transforms)
+  if (!transformed.ok) {
+    if (strict) throw strictInterpolationError(rawToken, transformed.error.message)
+    return { resolved: false }
+  }
+  if (transformed.value === undefined) {
+    if (strict) throw strictInterpolationError(rawToken, 'the transform pipeline produced no value')
+    return { resolved: false }
+  }
   return { resolved: true, value: transformed.value }
 }
 
@@ -1630,51 +1695,68 @@ function foldInterpolationTransforms(
  * - {{now}} - current ISO timestamp
  * - {{ path | transform(args) | ... }} - pill transform pipeline
  *   (`lib/interpolation-pipeline.ts`): a fixed table of pure transforms folded
- *   over the resolved base value. Lenient behavior: an unparseable token, an
- *   unresolved path without a rescuing `default`, or a failed transform passes
- *   the original token/config through unchanged.
+ *   over the resolved base value. Lenient behavior (the default): an
+ *   unparseable token, an unresolved path without a rescuing `default`, or a
+ *   failed transform passes the original token/config through unchanged. In
+ *   strict mode (`options.mode: 'strict'`, opted in per definition) the same
+ *   situations throw `WorkflowInterpolationError` naming the offending token;
+ *   only a `default(...)` transform can rescue an unresolved context path.
  */
 export function interpolateVariables(
   config: any,
   context: Record<string, any>,
-  workflowInstance?: WorkflowInstance
+  workflowInstance?: WorkflowInstance,
+  options?: { mode?: WorkflowInterpolationMode }
 ): any {
+  const strict = options?.mode === 'strict'
   if (typeof config === 'string') {
     // Check if this is a single variable reference (e.g., "{{context.cart.items}}")
     // This preserves the original type (array, object, number, boolean)
     const singleVarMatch = config.match(/^\{\{([^}]+)\}\}$/)
 
     if (singleVarMatch) {
-      const parsedToken = parseInterpolationToken(singleVarMatch[1])
-      if (!parsedToken.ok) return config
-      const resolution = resolveInterpolationBaseValue(parsedToken.path, context, workflowInstance)
-      const folded = foldInterpolationTransforms(resolution, parsedToken.transforms)
-      return folded.resolved ? folded.value : config
+      const outcome = interpolateToken(singleVarMatch[1], context, workflowInstance, strict)
+      return outcome.resolved ? outcome.value : config
     }
 
     // Multiple interpolations or mixed text - return string
     return config.replace(/\{\{([^}]+)\}\}/g, (match, token) => {
-      const parsedToken = parseInterpolationToken(token)
-      if (!parsedToken.ok) return match
-      const resolution = resolveInterpolationBaseValue(parsedToken.path, context, workflowInstance)
-      const folded = foldInterpolationTransforms(resolution, parsedToken.transforms)
-      return folded.resolved ? String(folded.value) : match
+      const outcome = interpolateToken(token, context, workflowInstance, strict)
+      return outcome.resolved ? String(outcome.value) : match
     })
   }
 
   if (Array.isArray(config)) {
-    return config.map((item) => interpolateVariables(item, context, workflowInstance))
+    return config.map((item) => interpolateVariables(item, context, workflowInstance, options))
   }
 
   if (config && typeof config === 'object') {
     const result: Record<string, any> = {}
     for (const [key, value] of Object.entries(config)) {
-      result[key] = interpolateVariables(value, context, workflowInstance)
+      result[key] = interpolateVariables(value, context, workflowInstance, options)
     }
     return result
   }
 
   return config
+}
+
+function interpolateActivityConfig(
+  config: any,
+  context: ActivityContext,
+  activityType: ActivityType,
+  activityName?: string
+): any {
+  try {
+    return interpolateVariables(config, context.workflowContext, context.workflowInstance, {
+      mode: context.interpolationMode,
+    })
+  } catch (error) {
+    if (error instanceof WorkflowInterpolationError) {
+      throw new ActivityExecutionError(error.message, activityType, activityName, { token: error.token })
+    }
+    throw error
+  }
 }
 
 /**

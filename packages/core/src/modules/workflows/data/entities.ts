@@ -150,6 +150,7 @@ export interface WorkflowDefinitionData {
   triggers?: WorkflowDefinitionTrigger[] // Event triggers for automatic workflow start
   contextSchema?: WorkflowContextSchema // Declared typed-input contract (spec §3.1) — canonical input contract
   io?: WorkflowIoContract // Sub-workflow port contract; io.inputs is a read-through alias of contextSchema.input
+  interpolation?: 'strict' | 'lenient' // Interpolation mode (spec §3.6): absent = lenient; create path defaults new definitions to 'strict'
   activities?: any[] // ActivityDefinition[] - will define schema in validators.ts
   queries?: any[]
   signals?: any[]

@@ -256,6 +256,13 @@ export async function POST(request: NextRequest) {
 
     const input: CreateWorkflowDefinitionApiInput = validation.data
 
+    // New definitions default to strict interpolation (spec §3.6). The default
+    // lives on the create path only — a schema-level default would flip
+    // existing lenient definitions on their next full-body update.
+    const definitionData = input.definition.interpolation
+      ? input.definition
+      : { ...input.definition, interpolation: 'strict' as const }
+
     // Create always mints version 1. A workflowId that already exists (any
     // version) is a conflict — new versions are produced via the publish flow,
     // not by re-creating. orderBy keeps the existence check deterministic now
@@ -280,7 +287,7 @@ export async function POST(request: NextRequest) {
       workflowName: input.workflowName,
       description: input.description,
       version: input.version,
-      definition: input.definition,
+      definition: definitionData,
       metadata: input.metadata,
       enabled: input.enabled ?? true,
       tenantId,

@@ -654,6 +654,7 @@ export const workflowDefinitionDataSchema = z.object({
   triggers: z.array(workflowDefinitionTriggerSchema).optional(), // Event triggers for automatic workflow start
   contextSchema: contextSchemaSchema.optional(), // Declared typed-input contract (spec §3.1) — canonical input contract
   io: workflowIoContractSchema.optional(), // Sub-workflow input/output port contract; io.input is a read-through alias of contextSchema.input for the ledger
+  interpolation: z.enum(['strict', 'lenient']).optional(), // Interpolation mode (spec §3.6): absent = lenient; the POST create route defaults NEW definitions to 'strict' — never default here, it would flip existing lenient definitions on their next full-body update
   queries: z.array(z.any()).optional(), // For Phase 7
   signals: z.array(z.any()).optional(), // For Phase 9
   timers: z.array(z.any()).optional(), // For Phase 9

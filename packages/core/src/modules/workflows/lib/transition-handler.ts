@@ -23,6 +23,7 @@ import * as activityExecutor from './activity-executor'
 import type { ActivityDefinition } from './activity-executor'
 import * as stepHandler from './step-handler'
 import { findDefinitionForInstance } from './find-definition'
+import { resolveDefinitionInterpolationMode } from './interpolation-pipeline'
 import { buildSetVariableContextPatch, isSetVariableOutput } from './set-variable'
 import {
   type ExecutionToken,
@@ -430,6 +431,7 @@ export async function executeTransitionForToken(
     const activityResults: activityExecutor.ActivityExecutionResult[] = []
 
     if (transition.activities && transition.activities.length > 0) {
+      const definitionForInterpolation = await findDefinitionForInstance(em, instance)
       const activityContext: activityExecutor.ActivityContext = {
         workflowInstance: instance,
         workflowContext: {
@@ -438,6 +440,7 @@ export async function executeTransitionForToken(
         },
         branchInstanceId,
         userId: context.userId,
+        interpolationMode: resolveDefinitionInterpolationMode(definitionForInterpolation?.definition),
       }
 
       // Execute all activities

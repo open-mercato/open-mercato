@@ -16,7 +16,11 @@
  * context, the server-side `{{env.*}}` allowlist, and a SYNTHETIC workflow
  * scope (`instanceId: 'test'`, the authenticated tenant/organization, the
  * target stepId as currentStepId) since no real instance exists. The response
- * includes the interpolated config so the UI can show resolved values.
+ * includes the interpolated config so the UI can show resolved values. The
+ * definition's `interpolation` mode is honored: under strict mode an
+ * unresolvable token responds 200 with a structured
+ * `{ interpolationFailed: true, token, message }` body — a normal authoring
+ * outcome the editor renders, mirroring what the runtime would throw.
  *
  * The route does not read the definition's content, but it still RESOLVES the
  * [id] within the caller's tenant/organization scope (same id forms as the
@@ -36,7 +40,15 @@ import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/direc
 import { WorkflowDefinition, type WorkflowInstance } from '../../../../data/entities'
 import { testWorkflowStepInputSchema } from '../../../../data/validators'
 import { getActivityType } from '../../../../lib/activity-registry'
-import { interpolateVariables, type ActivityContext } from '../../../../lib/activity-executor'
+import {
+  interpolateVariables,
+  WorkflowInterpolationError,
+  type ActivityContext,
+} from '../../../../lib/activity-executor'
+import {
+  resolveDefinitionInterpolationMode,
+  type WorkflowInterpolationMode,
+} from '../../../../lib/interpolation-pipeline'
 import { getCodeWorkflow, getAllCodeWorkflows } from '../../../../lib/code-registry'
 import { codeWorkflowUuid } from '../../../../lib/find-definition'
 import {
@@ -63,6 +75,7 @@ interface RouteContext {
 type ResolvedDefinitionRef = {
   workflowId: string
   version: number
+  interpolation?: WorkflowInterpolationMode
 }
 
 /**
@@ -128,7 +141,11 @@ export async function POST(
       const workflowId = params.id.slice(5)
       const codeDef = getCodeWorkflow(workflowId)
       if (codeDef) {
-        definitionRef = { workflowId: codeDef.workflowId, version: 1 }
+        definitionRef = {
+          workflowId: codeDef.workflowId,
+          version: 1,
+          interpolation: resolveDefinitionInterpolationMode(codeDef.definition),
+        }
       }
     } else {
       const orgFilter = resolveOrganizationScopeFilter(scope, auth)
@@ -140,13 +157,21 @@ export async function POST(
       })) as WorkflowDefinition | null
 
       if (definition) {
-        definitionRef = { workflowId: definition.workflowId, version: definition.version }
+        definitionRef = {
+          workflowId: definition.workflowId,
+          version: definition.version,
+          interpolation: resolveDefinitionInterpolationMode(definition.definition),
+        }
       } else {
         const codeDef = getAllCodeWorkflows().find(
           (workflow) => codeWorkflowUuid(workflow.workflowId) === params.id,
         )
         if (codeDef) {
-          definitionRef = { workflowId: codeDef.workflowId, version: 1 }
+          definitionRef = {
+            workflowId: codeDef.workflowId,
+            version: 1,
+            interpolation: resolveDefinitionInterpolationMode(codeDef.definition),
+          }
         }
       }
     }
@@ -172,11 +197,25 @@ export async function POST(
       currentStepId: input.stepId ?? 'test',
     } as unknown as WorkflowInstance
 
-    const interpolatedConfig = interpolateVariables(
-      input.config,
-      input.context,
-      syntheticWorkflowInstance,
-    ) as Record<string, unknown>
+    let interpolatedConfig: Record<string, unknown>
+    try {
+      interpolatedConfig = interpolateVariables(
+        input.config,
+        input.context,
+        syntheticWorkflowInstance,
+        { mode: definitionRef.interpolation },
+      ) as Record<string, unknown>
+    } catch (error) {
+      if (error instanceof WorkflowInterpolationError) {
+        return NextResponse.json({
+          interpolationFailed: true,
+          token: error.token,
+          message: error.message,
+          activityType: input.activityType,
+        })
+      }
+      throw error
+    }
 
     if (entry.mock === 'refuse' || entry.mock === undefined) {
       return NextResponse.json({

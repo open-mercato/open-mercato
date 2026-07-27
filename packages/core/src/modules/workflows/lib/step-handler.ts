@@ -23,6 +23,7 @@ import { parseDuration } from './duration'
 import { mapAgentResultToContext } from './agent-result-mapping'
 import { logWorkflowEvent } from './event-logger'
 import { findDefinitionForInstance } from './find-definition'
+import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from './interpolation-pipeline'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from './find-definition'
 import { validateAgainstPorts } from './port-contract'
@@ -38,6 +39,8 @@ export interface StepExecutionContext {
   workflowContext: Record<string, any>
   userId?: string
   triggerData?: any
+  // Populated by executeStep from the loaded definition; absent means lenient.
+  interpolationMode?: WorkflowInterpolationMode
 }
 
 export interface StepExecutionResult {
@@ -240,7 +243,10 @@ export async function executeStep(
       instance,
       stepInstance,
       stepDef,
-      context,
+      {
+        ...context,
+        interpolationMode: resolveDefinitionInterpolationMode(definition.definition),
+      },
       container,
       branch
     )
@@ -460,6 +466,7 @@ async function handleAutomatedStep(
       stepContext: { stepId: stepDef.stepId, stepName: stepDef.stepName },
       stepInstanceId: stepInstance.id,
       userId: context.userId,
+      interpolationMode: context.interpolationMode,
     })
 
     // Check if there are pending async activities

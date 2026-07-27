@@ -17,20 +17,23 @@ import type {
   WorkflowDefinitionTrigger,
   WorkflowIoContract,
 } from '../data/entities'
+import type { WorkflowInterpolationMode } from './interpolation-pipeline'
 
 export type DefinitionPayloadInput = {
   graphDefinition: WorkflowDefinitionData
   triggers: WorkflowDefinitionTrigger[]
   contextSchema?: WorkflowContextSchema | null
   io?: WorkflowIoContract | null
+  interpolation?: WorkflowInterpolationMode | null
 }
 
-export function buildDefinitionPayload({ graphDefinition, triggers, contextSchema, io }: DefinitionPayloadInput): WorkflowDefinitionData {
+export function buildDefinitionPayload({ graphDefinition, triggers, contextSchema, io, interpolation }: DefinitionPayloadInput): WorkflowDefinitionData {
   return {
     ...graphDefinition,
     triggers: triggers.length > 0 ? triggers : undefined,
     contextSchema: contextSchema ?? undefined,
     io: io ?? undefined,
+    interpolation: interpolation ?? undefined,
   }
 }
 

@@ -53,6 +53,20 @@ describe('buildDefinitionPayload', () => {
     const nulled = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [], contextSchema: undefined, io: null }))
     expect(nulled).not.toHaveProperty('io')
   })
+
+  it('carries the interpolation mode through a wire round trip', () => {
+    const strict = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [], interpolation: 'strict' }))
+    expect(strict.interpolation).toBe('strict')
+    const lenient = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [], interpolation: 'lenient' }))
+    expect(lenient.interpolation).toBe('lenient')
+  })
+
+  it('omits interpolation from the wire payload when absent or null', () => {
+    const absent = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [] }))
+    expect(absent).not.toHaveProperty('interpolation')
+    const nulled = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [], interpolation: null }))
+    expect(nulled).not.toHaveProperty('interpolation')
+  })
 })
 
 describe('buildMetadataPayload', () => {
