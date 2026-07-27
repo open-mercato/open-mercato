@@ -24,7 +24,7 @@ function stableSerializeValue(value: unknown): string | undefined {
   }
   const record = value as Record<string, unknown>
   const entries = Object.keys(record)
-    .sort()
+    .sort((left, right) => left.localeCompare(right))
     .map((key) => {
       const serialized = stableSerializeValue(record[key])
       return serialized === undefined ? undefined : `${JSON.stringify(key)}:${serialized}`
