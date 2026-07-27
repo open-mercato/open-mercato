@@ -20,6 +20,7 @@
  * timers).
  */
 
+import type { ZodTypeAny } from 'zod'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { getActivityType, registerActivityType } from './activity-registry'
 import { calculateWaitDelayMs } from './duration'
@@ -79,7 +80,7 @@ const loadExecutor = async (): Promise<ActivityExecutorBinding> => {
  * lookup is sync over already-registered handlers; a missing or not-yet-loaded
  * handler — or one without an `outputSchema` — degrades honestly to 'unknown'.
  */
-const resolveCommandOutputContract = (config: unknown): unknown => {
+const resolveCommandOutputContract = (config: unknown): ZodTypeAny | 'unknown' => {
   if (typeof config !== 'object' || config === null) return 'unknown'
   const commandId = (config as Record<string, unknown>).commandId
   if (typeof commandId !== 'string' || commandId.length === 0) return 'unknown'
