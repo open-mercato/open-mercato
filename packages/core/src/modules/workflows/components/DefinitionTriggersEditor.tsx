@@ -25,7 +25,10 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { EventPatternInput } from '@open-mercato/ui/backend/inputs/EventPatternInput'
+import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
+import { useAvailableEvents } from '@open-mercato/ui/backend/inputs/EventSelect'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { EventPayloadSchemaField } from '@open-mercato/shared/modules/events'
 import { Plus, Trash2, Edit2, Zap, X } from 'lucide-react'
 import type { WorkflowDefinitionTrigger } from '../data/entities'
 
@@ -94,6 +97,41 @@ export function DefinitionTriggersEditor({
   const [editingTrigger, setEditingTrigger] = useState<WorkflowDefinitionTrigger | null>(null)
   const [formValues, setFormValues] = useState<TriggerFormValues>(defaultFormValues)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const { events: availableEvents } = useAvailableEvents()
+
+  // Declared payload fields for the selected event. Only an EXACT event id
+  // resolves a schema — wildcard patterns can match events with different
+  // payloads, so they stay free-text with the untyped-payload chip.
+  const payloadFields = React.useMemo<ReadonlyArray<EventPayloadSchemaField> | null>(() => {
+    const pattern = formValues.eventPattern.trim()
+    if (!pattern || pattern.includes('*')) return null
+    const event = availableEvents.find(candidate => candidate.id === pattern)
+    const fields = event?.payloadSchema?.fields
+    return fields && fields.length > 0 ? fields : null
+  }, [availableEvents, formValues.eventPattern])
+
+  const payloadPathOptions = React.useMemo<ComboboxOption[]>(
+    () =>
+      (payloadFields ?? []).map(field => ({
+        value: field.path,
+        label: field.path,
+        description: field.optional
+          ? `${field.type} · ${t('workflows.triggers.payloadField.optional', 'optional')}`
+          : field.type,
+      })),
+    [payloadFields, t],
+  )
+
+  const payloadFieldType = useCallback(
+    (path: string) => payloadFields?.find(field => field.path === path)?.type,
+    [payloadFields],
+  )
+
+  const untypedPayloadChip = formValues.eventPattern.trim() && !payloadFields ? (
+    <Badge variant="outline" className="text-muted-foreground">
+      {t('workflows.triggers.untypedPayload', 'Untyped event payload')}
+    </Badge>
+  ) : null
 
   // Generate trigger ID from name
   const generateTriggerId = useCallback((name: string) => {
@@ -324,13 +362,19 @@ export function DefinitionTriggersEditor({
                   </div>
                 </div>
                 <div className="flex items-center gap-2 self-end sm:self-auto">
-                  <Button size="sm" variant="ghost" onClick={() => handleEdit(trigger)}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={t('workflows.triggers.actions.edit', 'Edit trigger')}
+                    onClick={() => handleEdit(trigger)}
+                  >
                     <Edit2 className="w-4 h-4" />
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
                     className="text-destructive hover:text-destructive"
+                    aria-label={t('workflows.triggers.actions.delete', 'Delete trigger')}
                     onClick={() => setDeleteConfirmId(trigger.triggerId)}
                   >
                     <Trash2 className="w-4 h-4" />
@@ -420,7 +464,10 @@ export function DefinitionTriggersEditor({
             {/* Filter Conditions */}
             <div className="space-y-2">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <Label>{t('workflows.triggers.fields.filterConditions', 'Filter Conditions')}</Label>
+                <div className="flex items-center gap-2">
+                  <Label>{t('workflows.triggers.fields.filterConditions', 'Filter Conditions')}</Label>
+                  {untypedPayloadChip}
+                </div>
                 <Button size="sm" variant="ghost" onClick={addFilterCondition} className="w-full sm:w-auto">
                   <Plus className="w-4 h-4 mr-1" />
                   {t('workflows.triggers.addCondition', 'Add Condition')}
@@ -429,46 +476,80 @@ export function DefinitionTriggersEditor({
               <p className="text-xs text-muted-foreground">
                 {t('workflows.triggers.hints.filterConditions', 'Only trigger when the event payload matches these conditions (all must match)')}
               </p>
-              {formValues.filterConditions.map((fc, index) => (
-                <div key={index} className="flex flex-wrap items-center gap-2">
-                  <Input
-                    value={fc.field}
-                    onChange={e => updateFilterCondition(index, 'field', e.target.value)}
-                    placeholder="status"
-                    className="w-full sm:w-1/3"
-                  />
-                  <Select
-                    value={fc.operator}
-                    onValueChange={(value) => updateFilterCondition(index, 'operator', value)}
-                  >
-                    <SelectTrigger size="lg" className="w-full sm:w-[140px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {FILTER_OPERATORS.map(op => (
-                        <SelectItem key={op.value} value={op.value}>
-                          {op.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    value={fc.value}
-                    onChange={e => updateFilterCondition(index, 'value', e.target.value)}
-                    placeholder="submitted"
-                    className="flex-1 min-w-0"
-                  />
-                  <Button size="icon" variant="ghost" className="shrink-0" onClick={() => removeFilterCondition(index)}>
-                    <X className="w-4 h-4" />
-                  </Button>
-                </div>
-              ))}
+              {formValues.filterConditions.map((fc, index) => {
+                const conditionFieldType = payloadFieldType(fc.field)
+                return (
+                  <div key={index} className="flex flex-wrap items-center gap-2">
+                    {payloadFields ? (
+                      <div className="w-full sm:w-1/3">
+                        <ComboboxInput
+                          value={fc.field}
+                          onChange={next => updateFilterCondition(index, 'field', next)}
+                          suggestions={payloadPathOptions}
+                          placeholder={t('workflows.triggers.placeholders.status', 'status')}
+                          allowCustomValues
+                        />
+                      </div>
+                    ) : (
+                      <Input
+                        value={fc.field}
+                        onChange={e => updateFilterCondition(index, 'field', e.target.value)}
+                        placeholder={t('workflows.triggers.placeholders.status', 'status')}
+                        className="w-full sm:w-1/3"
+                      />
+                    )}
+                    <Select
+                      value={fc.operator}
+                      onValueChange={(value) => updateFilterCondition(index, 'operator', value)}
+                    >
+                      <SelectTrigger size="lg" className="w-full sm:w-[140px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FILTER_OPERATORS.map(op => (
+                          <SelectItem key={op.value} value={op.value}>
+                            {op.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {conditionFieldType === 'boolean' ? (
+                      <Select
+                        value={fc.value || undefined}
+                        onValueChange={(value) => updateFilterCondition(index, 'value', value ?? '')}
+                      >
+                        <SelectTrigger size="lg" className="flex-1 min-w-0">
+                          <SelectValue placeholder={t('workflows.triggers.values.placeholder', 'Select value')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">{t('workflows.triggers.values.true', 'True')}</SelectItem>
+                          <SelectItem value="false">{t('workflows.triggers.values.false', 'False')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        type={conditionFieldType === 'number' ? 'number' : 'text'}
+                        value={fc.value}
+                        onChange={e => updateFilterCondition(index, 'value', e.target.value)}
+                        placeholder={t('workflows.triggers.placeholders.submitted', 'submitted')}
+                        className="flex-1 min-w-0"
+                      />
+                    )}
+                    <Button size="icon" variant="ghost" className="shrink-0" onClick={() => removeFilterCondition(index)}>
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )
+              })}
             </div>
 
             {/* Context Mapping */}
             <div className="space-y-2">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <Label>{t('workflows.triggers.fields.contextMapping', 'Context Mapping')}</Label>
+                <div className="flex items-center gap-2">
+                  <Label>{t('workflows.triggers.fields.contextMapping', 'Context Mapping')}</Label>
+                  {untypedPayloadChip}
+                </div>
                 <Button size="sm" variant="ghost" onClick={addContextMapping} className="w-full sm:w-auto">
                   <Plus className="w-4 h-4 mr-1" />
                   {t('workflows.triggers.addMapping', 'Add Mapping')}
@@ -482,20 +563,32 @@ export function DefinitionTriggersEditor({
                   <Input
                     value={cm.targetKey}
                     onChange={e => updateContextMapping(index, 'targetKey', e.target.value)}
-                    placeholder="orderId"
+                    placeholder={t('workflows.triggers.placeholders.orderId', 'orderId')}
                     className="w-full sm:w-1/3"
                   />
                   <span className="hidden sm:inline text-muted-foreground">=</span>
-                  <Input
-                    value={cm.sourceExpression}
-                    onChange={e => updateContextMapping(index, 'sourceExpression', e.target.value)}
-                    placeholder="id"
-                    className="flex-1 min-w-0"
-                  />
+                  {payloadFields ? (
+                    <div className="flex-1 min-w-0">
+                      <ComboboxInput
+                        value={cm.sourceExpression}
+                        onChange={next => updateContextMapping(index, 'sourceExpression', next)}
+                        suggestions={payloadPathOptions}
+                        placeholder={t('workflows.triggers.placeholders.sourceExpression', 'id')}
+                        allowCustomValues
+                      />
+                    </div>
+                  ) : (
+                    <Input
+                      value={cm.sourceExpression}
+                      onChange={e => updateContextMapping(index, 'sourceExpression', e.target.value)}
+                      placeholder={t('workflows.triggers.placeholders.sourceExpression', 'id')}
+                      className="flex-1 min-w-0"
+                    />
+                  )}
                   <Input
                     value={cm.defaultValue}
                     onChange={e => updateContextMapping(index, 'defaultValue', e.target.value)}
-                    placeholder="default"
+                    placeholder={t('workflows.triggers.placeholders.defaultValue', 'default')}
                     className="w-full sm:w-24"
                   />
                   <Button size="icon" variant="ghost" className="shrink-0" onClick={() => removeContextMapping(index)}>
@@ -514,10 +607,10 @@ export function DefinitionTriggersEditor({
                   type="number"
                   value={formValues.debounceMs}
                   onChange={e => setFormValues(prev => ({ ...prev, debounceMs: e.target.value }))}
-                  placeholder="0"
+                  placeholder={t('workflows.triggers.placeholders.debounce', 'e.g. 1000')}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {t('workflows.triggers.hints.debounce', 'Delay to prevent rapid re-triggers')}
+                  {t('workflows.triggers.hints.debounce', 'Wait this many milliseconds after an event before starting, so a burst of similar events starts only one workflow. Leave empty to start immediately.')}
                 </p>
               </div>
               <div className="space-y-1">
@@ -530,7 +623,7 @@ export function DefinitionTriggersEditor({
                   placeholder={t('workflows.triggers.placeholders.unlimited', 'Unlimited')}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {t('workflows.triggers.hints.maxConcurrent', 'Limit simultaneous workflow instances')}
+                  {t('workflows.triggers.hints.maxConcurrent', 'Cap how many instances this trigger can have running at the same time; events past the cap are skipped. Leave empty for no limit.')}
                 </p>
               </div>
             </div>
