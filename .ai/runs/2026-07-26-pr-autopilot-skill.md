@@ -103,6 +103,20 @@ PR: #4525
 - [x] 4.4 Add the `update-comment` fallback and list the operation in SKILL.md
 - [x] 4.5 Read the specs path from `paths.specs` instead of hardcoding it
 - [x] 4.6 Register the skill in the om-help catalog; fix README row ordering
-- [ ] 4.7 Decide on @pkarw's request: port as an agnostic skill to
-      `open-mercato/skills` with a repo-local override here (**needs a decision —
-      spans two repositories, out of scope for this PR alone**)
+- [x] 4.7 Decide on @pkarw's request — port as an agnostic skill to
+      `open-mercato/skills` with a repo-local override here. Decision: do it.
+
+### Phase 5: Split per @pkarw — agnostic upstream + repo-local override
+
+- [x] 5.1 Port the skill to `open-mercato/skills` as an agnostic skill —
+      open-mercato/skills#65 (tracker operations instead of `gh`, own copies of
+      the standard step files, roster + README + docs entry, `scripts/lint.sh`
+      passes)
+- [x] 5.2 Reduce `.ai/skills/om-pr-autopilot/` here to a thin override —
+      diff-scope layers, label taxonomy + QA gate, the no-triage-rights reality,
+      validation pointer; `references/` deleted (they live upstream now)
+- [x] 5.3 Move the registration from the `automation` tier to `external` in
+      `tiers.json`, and the README row into the external list
+- [ ] 5.4 Merge order — this PR waits for open-mercato/skills#65 to land, since
+      the override is inert until `yarn install-skills` can fetch the shared
+      skill

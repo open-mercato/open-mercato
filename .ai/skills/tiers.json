@@ -29,7 +29,8 @@
       "om-spec-writing",
       "om-auto-fix-pr",
       "om-close-fixed-issues",
-      "om-verify-in-repo"
+      "om-verify-in-repo",
+      "om-pr-autopilot"
     ]
   },
   "tiers": {
@@ -53,8 +54,7 @@
       "description": "PR/issue automation skills. Opt-in; agent-driven workflows.",
       "skills": [
         "om-auto-publish-pr",
-        "om-auto-qa-scenarios",
-        "om-pr-autopilot"
+        "om-auto-qa-scenarios"
       ]
     },
     "security": {
