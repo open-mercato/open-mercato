@@ -25,6 +25,8 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
+import './activity-registry-bootstrap'
+import { getActivityType } from './activity-registry'
 import { logWorkflowEvent } from './event-logger'
 import { parseDuration } from './duration'
 import { getWorkflowSafeCommand } from './workflow-safe-commands'
@@ -480,35 +482,19 @@ async function executeActivityByType(
   // Interpolate config variables from context (including workflow metadata)
   const interpolatedConfig = interpolateVariables(activity.config, context.workflowContext, context.workflowInstance)
 
-  switch (activity.activityType) {
-    case 'SEND_EMAIL':
-      return await executeSendEmail(interpolatedConfig, context, container)
-
-    case 'CALL_API':
-      return await executeCallApi(em, interpolatedConfig, context, container)
-
-    case 'EMIT_EVENT':
-      return await executeEmitEvent(interpolatedConfig, context, container)
-
-    case 'UPDATE_ENTITY':
-      return await executeUpdateEntity(em, interpolatedConfig, context, container)
-
-    case 'CALL_WEBHOOK':
-      return await executeCallWebhook(interpolatedConfig, context)
-
-    case 'EXECUTE_FUNCTION':
-      return await executeFunction(interpolatedConfig, context, container)
-
-    case 'WAIT':
-      return await executeWait(interpolatedConfig)
-
-    default:
-      throw new ActivityExecutionError(
-        `Unknown activity type: ${activity.activityType}`,
-        activity.activityType,
-        activity.activityName
-      )
+  const entry = getActivityType(activity.activityType)
+  if (!entry) {
+    throw new ActivityExecutionError(
+      `Unknown activity type: ${activity.activityType}`,
+      activity.activityType,
+      activity.activityName
+    )
   }
+
+  return await entry.execute(interpolatedConfig, context, {
+    em: em as PostgreSqlEntityManager,
+    container,
+  })
 }
 
 /**
