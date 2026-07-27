@@ -26,6 +26,7 @@
 | 6 | 6.2 | CrudForm parity: slaDuration field and alert removal | done | 87180ca47 |
 | 6 | 6.3 | CrudForm parity: full i18n of both CrudForm dialogs | done | 5d3664822 |
 | 6 | 6.4 | Flip CrudForm dialog default on via parseBooleanWithDefault | done | 5d48ecc99 |
+| 6 | 6.4-review-fix | Update TC-WF-007 integration spec for CrudForm-default dialogs | done | ede714698 |
 | 7 | 7.1 | Instance detail and canvas status colors to DS tokens | done | 630232cbf |
 | 7 | 7.2 | Fix pre-existing sort-comparator guard violation in agents-budget script | done | 5927f65d7 |
 | 6 | 6.3-review-fix | Update duration adoption tests for i18n key rendering | done | b931f3322 |
