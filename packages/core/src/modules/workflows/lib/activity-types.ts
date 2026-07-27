@@ -83,8 +83,14 @@ export function registerBuiltinActivityTypes(): void {
     i18nKey: i18nKeyFor('UPDATE_ENTITY'),
     configSchema: updateEntityConfigSchema,
     form: [
-      { id: 'commandId', component: 'commandId', required: true },
+      {
+        id: 'commandId',
+        component: 'commandId',
+        required: true,
+        descriptionKey: 'workflows.activityConfig.UPDATE_ENTITY.commandIdHint',
+      },
       { id: 'input', component: 'json', required: true },
+      { id: 'statusDictionary', component: 'text' },
     ],
     execute: async (config, ctx, deps) => (await loadExecutor()).executeUpdateEntity(deps.em, config, ctx, deps.container),
     async: { capable: true },

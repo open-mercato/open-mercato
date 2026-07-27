@@ -321,3 +321,16 @@ export const sendSignalByCorrelationResponseSchema = z.object({
   message: z.string(),
   count: z.number().int().nonnegative(),
 })
+
+// ---------------------------------------------------------------------------
+// Workflow-Safe Command Schemas
+// ---------------------------------------------------------------------------
+
+export const workflowSafeCommandSchema = z.object({
+  commandId: z.string().min(1).describe('Command bus id allowlisted for UPDATE_ENTITY activities'),
+  requiredFeatures: z.array(z.string()).min(1).describe('ACL features the workflow actor must hold to run the command'),
+})
+
+export const workflowSafeCommandListResponseSchema = z.object({
+  items: z.array(workflowSafeCommandSchema),
+})

@@ -9,6 +9,10 @@
  * Step 4.3: EMIT_EVENT graduates to form-first with an EventPatternInput
  * picker for config.eventName (custom values stay legal) plus a payload JSON
  * editor.
+ *
+ * Step 4.4: UPDATE_ENTITY graduates to form-first with a CommandPicker
+ * combobox for config.commandId fed by /api/workflows/commands (free text
+ * stays authorable; fetch failure degrades to free text with a hint).
  */
 import * as React from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
@@ -33,6 +37,15 @@ function mockDeclaredEvents(events: Array<{ id: string; label: string }>) {
   })
 }
 
+function mockSafeCommands(commands: Array<{ commandId: string; requiredFeatures: string[] }>, ok = true) {
+  apiCallMock.mockImplementation(async (url: unknown) => {
+    if (typeof url === 'string' && url.startsWith('/api/workflows/commands')) {
+      return { ok, status: ok ? 200 : 500, result: { items: commands }, response: {}, cacheStatus: null }
+    }
+    return { ok: true, status: 200, result: { data: [], total: 0 }, response: {}, cacheStatus: null }
+  })
+}
+
 beforeEach(() => {
   apiCallMock.mockReset()
   mockDeclaredEvents([])
@@ -51,7 +64,7 @@ describe('hasActivityConfigForm', () => {
     expect(hasActivityConfigForm('CALL_WEBHOOK')).toBe(true)
     expect(hasActivityConfigForm('CALL_API')).toBe(true)
     expect(hasActivityConfigForm('EMIT_EVENT')).toBe(true)
-    expect(hasActivityConfigForm('UPDATE_ENTITY')).toBe(false)
+    expect(hasActivityConfigForm('UPDATE_ENTITY')).toBe(true)
     expect(hasActivityConfigForm('EXECUTE_FUNCTION')).toBe(false)
     expect(hasActivityConfigForm('SET_VARIABLE')).toBe(false)
     expect(hasActivityConfigForm('UNKNOWN_TYPE')).toBe(false)
@@ -161,6 +174,77 @@ describe('ActivityConfigFields', () => {
 
     expect(onChange).toHaveBeenCalledWith({ eventName: 'custom.record.archived' })
   })
+
+  it('renders the UPDATE_ENTITY command picker with API options selectable into config.commandId', async () => {
+    mockSafeCommands([{ commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] }])
+    const onChange = jest.fn()
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="UPDATE_ENTITY"
+        idPrefix="update-config"
+        config={{}}
+        onChange={onChange}
+      />,
+    )
+
+    expect(screen.getByText(/workflows\.activityConfig\.UPDATE_ENTITY\.input/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/workflows\.activityConfig\.UPDATE_ENTITY\.statusDictionary/)).toBeInTheDocument()
+
+    const pickerInput = screen.getByPlaceholderText('workflows.commandPicker.placeholder')
+    fireEvent.focus(pickerInput)
+    await waitFor(() => {
+      expect(screen.getByText('sales.orders.update')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('sales.orders.update'))
+    expect(onChange).toHaveBeenCalledWith({ commandId: 'sales.orders.update' })
+  })
+
+  it('keeps free-text command ids authorable and preserved in the picker', async () => {
+    mockSafeCommands([{ commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] }])
+    const onChange = jest.fn()
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="UPDATE_ENTITY"
+        idPrefix="update-config"
+        config={{ commandId: 'custom.records.archive' }}
+        onChange={onChange}
+      />,
+    )
+
+    const pickerInput = screen.getByPlaceholderText('workflows.commandPicker.placeholder')
+    await waitFor(() => {
+      expect(pickerInput).toHaveValue('custom.records.archive')
+    })
+
+    ;(pickerInput as HTMLInputElement).focus()
+    fireEvent.change(pickerInput, { target: { value: 'another.custom.command' } })
+    fireEvent.keyDown(pickerInput, { key: 'Enter' })
+    expect(onChange).toHaveBeenCalledWith({ commandId: 'another.custom.command' })
+  })
+
+  it('degrades to free text with a hint when the command list fails to load', async () => {
+    mockSafeCommands([], false)
+    const onChange = jest.fn()
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="UPDATE_ENTITY"
+        idPrefix="update-config"
+        config={{}}
+        onChange={onChange}
+      />,
+    )
+
+    const pickerInput = screen.getByPlaceholderText('workflows.commandPicker.placeholder')
+    fireEvent.focus(pickerInput)
+    await waitFor(() => {
+      expect(screen.getByText('workflows.commandPicker.lookupUnavailable')).toBeInTheDocument()
+    })
+
+    fireEvent.change(pickerInput, { target: { value: 'custom.records.archive' } })
+    fireEvent.keyDown(pickerInput, { key: 'Enter' })
+    expect(onChange).toHaveBeenCalledWith({ commandId: 'custom.records.archive' })
+  })
 })
 
 describe('ActivityArrayEditor — registry-driven forms with Advanced (JSON)', () => {
@@ -194,11 +278,11 @@ describe('ActivityArrayEditor — registry-driven forms with Advanced (JSON)', (
   it('keeps the JSON builder primary for types without a form yet', () => {
     renderWithProviders(
       <StatefulEditor
-        initial={[{ ...emailActivity, activityName: 'Update Entity', activityType: 'UPDATE_ENTITY', config: {} }]}
+        initial={[{ ...emailActivity, activityName: 'Execute Function', activityType: 'EXECUTE_FUNCTION', config: {} }]}
       />,
     )
 
-    fireEvent.click(screen.getByText('Update Entity'))
+    fireEvent.click(screen.getByText('Execute Function'))
 
     expect(screen.queryByRole('button', { name: /advancedJson/ })).toBeNull()
     expect(screen.getByText('workflows.fieldEditors.activities.configurationJson')).toBeInTheDocument()
@@ -215,6 +299,24 @@ describe('ActivityArrayEditor — registry-driven forms with Advanced (JSON)', (
     fireEvent.click(screen.getByText('Emit Event'))
 
     expect(screen.getByPlaceholderText('sales.orders.created')).toHaveValue('sales.order.created')
+    expect(screen.getByRole('button', { name: /advancedJson/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('workflows.fieldEditors.activities.configurationHint')).toBeNull()
+  })
+
+  it('renders UPDATE_ENTITY form-first with the command picker and Advanced (JSON) collapsed', async () => {
+    mockSafeCommands([{ commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] }])
+    renderWithProviders(
+      <StatefulEditor
+        initial={[{ ...emailActivity, activityName: 'Update Entity', activityType: 'UPDATE_ENTITY', config: { commandId: 'sales.orders.update' } }]}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Update Entity'))
+
+    const pickerInput = screen.getByPlaceholderText('workflows.commandPicker.placeholder')
+    await waitFor(() => {
+      expect(pickerInput).toHaveValue('sales.orders.update')
+    })
     expect(screen.getByRole('button', { name: /advancedJson/ })).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('workflows.fieldEditors.activities.configurationHint')).toBeNull()
   })
