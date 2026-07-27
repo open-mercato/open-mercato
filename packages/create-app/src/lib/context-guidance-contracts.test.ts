@@ -54,6 +54,7 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(sensitiveData, /@open-mercato\/shared\/modules\/encryption/)
   assert.match(sensitiveData, /ModuleEncryptionMap/)
   assert.match(sensitiveData, /fields: \[\{ field:/)
+  assert.match(sensitiveData, /export default defaultEncryptionMaps/)
 
   const integrity = readAgentic(
     'shared/ai/skills/om-data-model-design/references/integrity-and-concurrency.md',
@@ -112,6 +113,9 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(moduleSurfaces, /@open-mercato\/shared\/modules\/events/)
   assert.match(moduleSurfaces, /category: 'crud'/)
   assert.match(moduleSurfaces, /export const features/)
+  assert.match(moduleSurfaces, /export default features/)
+  assert.match(moduleSurfaces, /export const entities/)
+  assert.match(moduleSurfaces, /export default entities/)
   assert.match(moduleSurfaces, /`i18n\/<locale>\.json`/)
   assert.match(moduleSurfaces, /not `locales\/<locale>\.json`/)
 
