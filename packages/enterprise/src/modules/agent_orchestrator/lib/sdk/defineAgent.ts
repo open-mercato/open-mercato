@@ -4,6 +4,7 @@ import {
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
 import type { ZodTypeAny } from 'zod'
 import { getSkillEntry } from './defineSkill'
+import type { JsonSchemaNode } from './outcomeSchema'
 import type { AgentTokenUsage, FileAgentFile } from '../tokens/types'
 
 export type AgentResultKind = 'actionable' | 'informative'
@@ -142,6 +143,15 @@ export interface AgentRegistryEntry {
   runtime: AgentRuntime
   /** Optional Playground "Insert sample" input (see DefineAgentInput). */
   sampleInput?: unknown
+  /**
+   * Raw OUTCOME JSON-Schema as authored, for file-defined agents. `schema` above
+   * is the compiled envelope; this is the inner shape the author declared, kept
+   * verbatim so consumers (agents API, workflow INVOKE_AGENT mapping pickers)
+   * read the same subset the generator validated. In-process agents leave it
+   * undefined — their outcome is derived from `schema` instead
+   * (lib/sdk/agentOutcomeContract.ts).
+   */
+  outcomeSchema?: JsonSchemaNode
   /** Optional Caseload fact declarations (see DefineAgentInput). */
   facts?: AgentFact[]
   /** File-plane opt-in (#12). OpenCode file agents only; undefined for native agents. */
@@ -402,6 +412,7 @@ async function loadFileAgents(): Promise<void> {
         defaultModel: descriptor.model,
         loop: descriptor.maxSteps != null ? { maxSteps: descriptor.maxSteps } : undefined,
         runtime: 'opencode',
+        outcomeSchema: descriptor.outcomeSchema,
         sampleInput: descriptor.sampleInput,
         facts: descriptor.facts,
         tokenUsage: descriptor.tokenUsage,
