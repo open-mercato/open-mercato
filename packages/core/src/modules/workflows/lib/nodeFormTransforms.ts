@@ -10,7 +10,7 @@ import type { FormField } from '../components/fields/FormFieldArrayEditor'
 import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { Mapping } from '../components/fields/MappingArrayEditor'
 import type { StartPreCondition } from '../components/fields/StartPreConditionsEditor'
-import type { AgentInvokeConfigValue } from '../components/fields/AgentInvokeConfigField'
+import type { AgentInvokeConfigValue, AgentSubjectValue } from '../components/fields/AgentInvokeConfigField'
 import type { InvokeAgentConfig } from '../data/validators'
 import { sanitizeId } from './graph-utils'
 import { isFutureIsoDateString, isValidDurationString } from '../data/validators'
@@ -49,6 +49,36 @@ function findInvokeAgentActivity(node: Node): InvokeAgentActivity | undefined {
 
 function findInvokeAgentConfig(node: Node): Partial<InvokeAgentConfig> {
   return findInvokeAgentActivity(node)?.config || {}
+}
+
+const SUBJECT_FORM_KEYS = ['subjectType', 'subjectId', 'subjectLabel'] as const
+
+function subjectToFormValue(subject: unknown): AgentSubjectValue {
+  const record = isPlainRecord(subject) ? subject : {}
+  return {
+    subjectType: typeof record.subjectType === 'string' ? record.subjectType : '',
+    subjectId: typeof record.subjectId === 'string' ? record.subjectId : '',
+    subjectLabel: typeof record.subjectLabel === 'string' ? record.subjectLabel : '',
+  }
+}
+
+/**
+ * Writes the three edited subject keys back onto the stored descriptor while
+ * preserving every other key the editor does not expose (the enterprise
+ * projection accepts a passthrough shape). A subject left entirely blank is
+ * removed rather than persisted as empty strings.
+ */
+function formValueToSubject(
+  existing: unknown,
+  edited: AgentSubjectValue | undefined,
+): Record<string, unknown> | undefined {
+  const next: Record<string, unknown> = isPlainRecord(existing) ? { ...existing } : {}
+  for (const key of SUBJECT_FORM_KEYS) {
+    const value = edited?.[key]?.trim() ?? ''
+    if (value) next[key] = value
+    else delete next[key]
+  }
+  return Object.keys(next).length > 0 ? next : undefined
 }
 
 function mappingsToRecord(rows: Mapping[] | undefined): Record<string, string> {
@@ -300,6 +330,7 @@ export function nodeToFormValues(node: Node): NodeFormValues {
         key,
         value: String(value),
       })),
+      subject: subjectToFormValue(config.subject),
     }
   }
 
@@ -474,13 +505,16 @@ export function formValuesToNodeUpdates(
         ? { alwaysAsk: true }
         : { autoApproveThreshold: Number.parseFloat(agent?.autoApproveThreshold ?? '') || 0 }
 
+    const subject = formValueToSubject(existingConfig.subject, agent?.subject)
     const config: InvokeAgentConfig = {
-      // Preserve config the visual editor does not expose (e.g. `subject`).
+      // Preserve config the visual editor does not expose.
       ...existingConfig,
       agentId: agent?.agentId || '',
       input: mappingsToRecord(agent?.inputs),
       onResult,
     }
+    if (subject) config.subject = subject
+    else delete config.subject
     if (Object.keys(outputMapping).length > 0) {
       config.outputMapping = outputMapping
     } else {

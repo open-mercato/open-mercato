@@ -518,7 +518,9 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       id: 'agentConfig',
       label: '',
       type: 'custom',
-      component: (props) => <AgentInvokeConfigField {...props} value={props.value as any} />,
+      component: (props) => (
+        <AgentInvokeConfigField {...props} value={props.value as any} ledgerEntries={ledgerEntries} />
+      ),
     },
 
     // Advanced configuration

@@ -40,6 +40,7 @@ describe('nodeFormTransforms — invokeAgent', () => {
       resultMode: 'alwaysAsk',
       autoApproveThreshold: '0.8',
       outputs: [{ key: 'riskScore', value: 'proposalPayload.riskScore' }],
+      subject: { subjectType: '', subjectId: '', subjectLabel: '' },
     })
   })
 
@@ -52,6 +53,7 @@ describe('nodeFormTransforms — invokeAgent', () => {
       resultMode: 'autoApprove',
       autoApproveThreshold: '0.8',
       outputs: [],
+      subject: { subjectType: '', subjectId: '', subjectLabel: '' },
     })
   })
 
@@ -129,5 +131,89 @@ describe('nodeFormTransforms — invokeAgent', () => {
     expect(config.onResult).toEqual({ alwaysAsk: true })
     expect(updates.activities[0].activityId).toBe('agent_step')
     expect(updates.activities[0].activityName).toBe('Client profile')
+  })
+
+  test('round-trips the edited subject keys and keeps the rest of the descriptor', () => {
+    const node = makeNode({
+      stepName: 'Klient',
+      activities: [
+        {
+          activityId: 'agent_step',
+          activityName: 'Client profile',
+          activityType: 'INVOKE_AGENT',
+          config: {
+            agentId: 'client_profile',
+            input: {},
+            onResult: { alwaysAsk: true },
+            subject: { subjectType: 'claim', subjectId: '{{context.claimId}}', valueMinor: 1200 },
+          },
+        },
+      ],
+    })
+
+    const values = nodeToFormValues(node)
+    expect(values.agentConfig?.subject).toEqual({
+      subjectType: 'claim',
+      subjectId: '{{context.claimId}}',
+      subjectLabel: '',
+    })
+
+    const updates = formValuesToNodeUpdates(
+      {
+        stepName: 'Klient',
+        agentConfig: {
+          agentId: 'client_profile',
+          inputs: [],
+          resultMode: 'alwaysAsk',
+          autoApproveThreshold: '0.8',
+          outputs: [],
+          subject: { subjectType: 'claim', subjectId: '{{context.claimId}}', subjectLabel: 'Claim #1' },
+        },
+      },
+      node,
+    ) as any
+
+    expect(updates.activities[0].config.subject).toEqual({
+      subjectType: 'claim',
+      subjectId: '{{context.claimId}}',
+      subjectLabel: 'Claim #1',
+      valueMinor: 1200,
+    })
+  })
+
+  test('drops an emptied subject instead of persisting blank keys', () => {
+    const node = makeNode({
+      stepName: 'Klient',
+      activities: [
+        {
+          activityId: 'agent_step',
+          activityName: 'Client profile',
+          activityType: 'INVOKE_AGENT',
+          config: {
+            agentId: 'client_profile',
+            input: {},
+            onResult: { alwaysAsk: true },
+            subject: { subjectType: 'claim' },
+          },
+        },
+      ],
+    })
+
+    const updates = formValuesToNodeUpdates(
+      {
+        stepName: 'Klient',
+        agentConfig: {
+          agentId: 'client_profile',
+          inputs: [],
+          resultMode: 'alwaysAsk',
+          autoApproveThreshold: '0.8',
+          outputs: [],
+          subject: { subjectType: '', subjectId: '', subjectLabel: '' },
+        },
+      },
+      node,
+    ) as any
+
+    expect(updates.activities[0].config).not.toHaveProperty('subject')
   })
 })
