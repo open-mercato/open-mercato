@@ -124,3 +124,36 @@ describe('interaction validators — extended scheduling fields', () => {
     ).toThrow()
   })
 })
+
+describe('interaction validators — dictionary-backed status (lenient widening)', () => {
+  const createBase = { tenantId, organizationId: orgId, entityId, interactionType: 'task' }
+
+  test('create defaults status to planned when omitted', () => {
+    const parsed = interactionCreateSchema.parse(createBase)
+    expect(parsed.status).toBe('planned')
+  })
+
+  test.each(['in_progress', 'waiting', 'done', 'canceled', 'blocked_by_legal'])(
+    'create accepts seeded and custom status %s',
+    (status) => {
+      const parsed = interactionCreateSchema.parse({ ...createBase, status })
+      expect(parsed.status).toBe(status)
+    },
+  )
+
+  test('update accepts a non-legacy status (in_progress)', () => {
+    const parsed = interactionUpdateSchema.parse({
+      id: interactionId,
+      tenantId,
+      organizationId: orgId,
+      status: 'in_progress',
+    })
+    expect(parsed.status).toBe('in_progress')
+  })
+
+  test('create rejects a status longer than 50 chars', () => {
+    expect(() =>
+      interactionCreateSchema.parse({ ...createBase, status: 'x'.repeat(51) }),
+    ).toThrow()
+  })
+})

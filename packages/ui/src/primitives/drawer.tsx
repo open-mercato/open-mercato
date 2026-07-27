@@ -94,10 +94,11 @@ const drawerContentVariants = cva(
     variants: {
       side: {
         right:
-          'inset-y-0 right-0 h-full w-full max-w-md rounded-l-xl ' +
+          // Figma Drawer [1.1] width: 400px (not the Tailwind max-w-md 448px)
+          'inset-y-0 right-0 h-full w-full max-w-[400px] rounded-l-xl ' +
           'data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right',
         left:
-          'inset-y-0 left-0 h-full w-full max-w-md rounded-r-xl ' +
+          'inset-y-0 left-0 h-full w-full max-w-[400px] rounded-r-xl ' +
           'data-[state=open]:slide-in-from-left data-[state=closed]:slide-out-to-left',
         top:
           'inset-x-0 top-0 max-h-[80vh] w-full rounded-b-xl ' +
@@ -303,7 +304,7 @@ const DrawerTitle = React.forwardRef<
   <DialogPrimitive.Title
     ref={ref}
     data-slot="drawer-title"
-    className={cn('text-base font-semibold leading-tight text-foreground', className)}
+    className={cn('text-lg font-semibold leading-tight text-foreground', className)}
     {...props}
   />
 ))

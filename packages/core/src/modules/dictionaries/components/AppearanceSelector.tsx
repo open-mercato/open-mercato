@@ -31,6 +31,11 @@ type AppearanceSelectorProps = {
   iconSuggestions?: IconOption[]
   iconLibrary?: IconOption[]
   className?: string
+  /**
+   * Title/value shown alongside the icon and color swatch in the preview, so the entry
+   * previews the way it renders elsewhere (icon + color + label). Omit to preview appearance only.
+   */
+  previewLabel?: string | null
 }
 
 const ICON_PICKER_LIMIT = 240
@@ -45,10 +50,13 @@ export function AppearanceSelector({
   iconSuggestions = ICON_SUGGESTIONS,
   iconLibrary,
   className,
+  previewLabel,
 }: AppearanceSelectorProps) {
   const normalizedIcon = icon ?? ''
   const normalizedColor = color ?? '#000000'
   const hasAppearance = Boolean(icon) || Boolean(color)
+  const trimmedPreviewLabel = typeof previewLabel === 'string' ? previewLabel.trim() : ''
+  const hasPreviewContent = hasAppearance || trimmedPreviewLabel.length > 0
   const iconOptions = React.useMemo(() => (iconLibrary && iconLibrary.length ? iconLibrary : ICON_LIBRARY), [iconLibrary])
   const [pickerOpen, setPickerOpen] = React.useState(false)
   const [iconSearch, setIconSearch] = React.useState('')
@@ -240,10 +248,11 @@ export function AppearanceSelector({
       <div>
         <label className="text-sm font-medium">Preview</label>
         <div className="flex items-center gap-3 rounded border border-dashed border-border px-3 py-2">
-          {hasAppearance ? (
+          {hasPreviewContent ? (
             <>
               {renderDictionaryIcon(icon, 'h-5 w-5')}
               {renderDictionaryColor(color, 'h-4 w-4 rounded-full')}
+              {trimmedPreviewLabel ? <span className="text-sm">{trimmedPreviewLabel}</span> : null}
             </>
           ) : (
             <span className="text-sm text-muted-foreground">{labels.previewEmptyLabel}</span>

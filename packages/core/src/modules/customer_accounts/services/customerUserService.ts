@@ -47,8 +47,20 @@ export class CustomerUserService {
     )
   }
 
-  async findById(id: string, tenantId: string): Promise<CustomerUser | null> {
-    return this.em.findOne(CustomerUser, { id, tenantId, deletedAt: null })
+  async findById(
+    id: string,
+    tenantId: string,
+    organizationId?: string | null,
+  ): Promise<CustomerUser | null> {
+    const where: Record<string, unknown> = { id, tenantId, deletedAt: null }
+    if (organizationId !== undefined) where.organizationId = organizationId
+    return findOneWithDecryption(
+      this.em,
+      CustomerUser,
+      where as any,
+      undefined,
+      { tenantId, organizationId },
+    )
   }
 
   async verifyPassword(user: CustomerUser, password: string): Promise<boolean> {
@@ -90,7 +102,11 @@ export class CustomerUserService {
 
   async updatePassword(user: CustomerUser, newPassword: string, em?: EntityManager): Promise<void> {
     const passwordHash = await hash(newPassword, BCRYPT_COST)
-    await (em ?? this.em).nativeUpdate(CustomerUser, { id: user.id }, { passwordHash })
+    await (em ?? this.em).nativeUpdate(CustomerUser, {
+      id: user.id,
+      tenantId: user.tenantId,
+      organizationId: user.organizationId,
+    }, { passwordHash })
     user.passwordHash = passwordHash
   }
 
@@ -102,8 +118,16 @@ export class CustomerUserService {
     if (data.displayName !== undefined) user.displayName = data.displayName
   }
 
-  async softDelete(userId: string): Promise<void> {
-    await this.em.nativeUpdate(CustomerUser, { id: userId }, {
+  async softDelete(
+    userId: string,
+    scope?: { tenantId: string; organizationId: string | null },
+  ): Promise<void> {
+    const where: Record<string, unknown> = { id: userId }
+    if (scope) {
+      where.tenantId = scope.tenantId
+      where.organizationId = scope.organizationId
+    }
+    await this.em.nativeUpdate(CustomerUser, where, {
       deletedAt: new Date(),
       isActive: false,
     })

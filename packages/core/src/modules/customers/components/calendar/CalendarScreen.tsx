@@ -107,7 +107,14 @@ function asEditableItem(item: CalendarItem): CalendarItem {
   return item.isRecurringOccurrence ? { ...item, id: item.raw.id } : item
 }
 
-export function CalendarScreen() {
+export type CalendarScreenProps = {
+  /** True when the optional resources module is loaded (server-resolved). */
+  resourcesEnabled?: boolean
+  /** True when the optional staff module is loaded (server-resolved). */
+  staffEnabled?: boolean
+}
+
+export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }: CalendarScreenProps = {}) {
   const t = useT()
   const [view, setView] = React.useState<CalendarView>('week')
   const [anchor, setAnchor] = React.useState<Date>(() => new Date())
@@ -136,7 +143,7 @@ export function CalendarScreen() {
     () => getVisibleRange(view, anchor, agendaHorizonDays),
     [view, anchor, agendaHorizonDays],
   )
-  const { items, isLoading, error, truncated, typeLabels, typeColors, refetch } = useCalendarItems(range)
+  const { items, isLoading, error, truncated, typeLabels, typeColors, typeIcons, refetch } = useCalendarItems(range)
 
   React.useEffect(() => {
     if (!isLoading) setHasLoadedOnce(true)
@@ -577,11 +584,11 @@ export function CalendarScreen() {
           defaultDate={anchor}
           defaultRange={createRange}
           typeLabels={typeLabels}
-          typeColors={typeColors}
-          surfacedTypes={preferences.activityTypes}
-          eventCategories={preferences.eventCategories}
+          typeIcons={typeIcons}
           conflictScope={preferences.conflictScope}
           currentUserId={currentUserId}
+          resourcesEnabled={resourcesEnabled}
+          staffEnabled={staffEnabled}
           onOpenChange={(open) => setEditor((current) => ({ ...current, open }))}
           onSaved={refetch}
         />

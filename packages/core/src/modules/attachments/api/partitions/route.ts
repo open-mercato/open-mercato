@@ -78,7 +78,7 @@ export async function GET(req: Request) {
   }
   const em = await resolveEm()
   await ensureDefaultPartitions(em)
-  const rows = await findWithDecryption(
+  const rows = await findWithDecryption<AttachmentPartition>(
     em,
     AttachmentPartition,
     partitionVisibilityFilter(auth),

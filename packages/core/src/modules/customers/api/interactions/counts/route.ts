@@ -9,13 +9,16 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { applyEmailVisibilityFilter } from '../../../lib/visibilityFilter'
+import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
 
 const querySchema = z.object({
   entityId: z.string().uuid(),
-  status: z.enum(['done', 'planned']).optional(),
+  // `open` counts every non-terminal status (planned/in_progress/waiting + any custom status);
+  // `planned` is kept as the BC alias for callers that used it to mean "open".
+  status: z.enum(['done', 'planned', 'open']).optional(),
 })
 
 const responseSchema = z.object({
@@ -87,7 +90,9 @@ export async function GET(req: Request) {
       baseQuery = baseQuery.where('organization_id', 'in', organizationIds)
     }
 
-    if (query.status) {
+    if (query.status === 'open' || query.status === 'planned') {
+      baseQuery = baseQuery.where('status', 'not in', [...TERMINAL_INTERACTION_STATUS_LIST])
+    } else if (query.status) {
       baseQuery = baseQuery.where('status', '=', query.status)
     }
 

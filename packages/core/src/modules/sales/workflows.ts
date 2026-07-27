@@ -5,6 +5,11 @@
  */
 
 import { defineWorkflow, createWorkflowsModuleConfig } from '@open-mercato/shared/modules/workflows'
+import { registerWorkflowSafeCommands } from '@open-mercato/core/modules/workflows/lib/workflow-safe-commands'
+
+registerWorkflowSafeCommands([
+  { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+])
 
 const orderApproval = defineWorkflow({
   workflowId: 'sales.order-approval',
@@ -169,7 +174,7 @@ const orderApproval = defineWorkflow({
     triggerId: 'order_approval_trigger',
     name: 'Order Approval Trigger',
     description: 'Triggers when a new sales order is created',
-    eventPattern: 'sales.orders.created',
+    eventPattern: 'sales.order.created',
     config: { entityType: 'SalesOrder' },
     enabled: true,
     priority: 0,

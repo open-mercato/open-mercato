@@ -19,6 +19,21 @@
       },
       "description": "Tier names installed when install-skills.sh is invoked with no flags."
     },
+    "agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Agent harness settings for install-skills.sh. Skills always install into the canonical .agents/skills/ directory; per-agent symlinks are created only for agents that cannot read it.",
+      "properties": {
+        "ignore": {
+          "type": "array",
+          "description": "Agents whose directories install-skills.sh must never write. Overridden by --ignore-agents.",
+          "items": {
+            "type": "string",
+            "enum": ["claude-code", "codex", "cursor"]
+          }
+        }
+      }
+    },
     "external": {
       "type": "object",
       "additionalProperties": false,

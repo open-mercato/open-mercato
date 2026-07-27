@@ -817,6 +817,11 @@ export function SalesDocumentItemsSection({
         organizationId={resolvedOrganizationId}
         tenantId={resolvedTenantId}
         initialLine={lineForEdit}
+        shippedQuantity={
+          lineForEdit
+            ? Math.max(0, shippedTotals.get(lineForEdit.id) ?? 0)
+            : 0
+        }
         onSaved={async () => {
           await loadItems();
           emitSalesDocumentTotalsRefresh({ documentId, kind });

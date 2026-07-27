@@ -413,6 +413,10 @@ export function useMessageCompose({
     const params = new URLSearchParams()
     params.set('page', '1')
     params.set('pageSize', '100')
+    // Scope suggestions to the composer's active organization: a message is stamped with
+    // that org and its detail endpoint denies cross-org recipients, so a recipient from
+    // another org could never open what they were sent.
+    params.set('scopeToActiveOrganization', '1')
     // Recipient lookup is filtered in TagsInput because incremental auth user search is unreliable.
 
     const call = await apiCall<{ items?: UserListItem[] }>(
