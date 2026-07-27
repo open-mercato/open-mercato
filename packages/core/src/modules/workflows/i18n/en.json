@@ -110,6 +110,8 @@
   "workflows.activityConfig.CALL_WEBHOOK.headers": "Headers",
   "workflows.activityConfig.CALL_WEBHOOK.method": "Method",
   "workflows.activityConfig.CALL_WEBHOOK.url": "Webhook URL",
+  "workflows.activityConfig.EMIT_EVENT.eventName": "Event",
+  "workflows.activityConfig.EMIT_EVENT.payload": "Payload (JSON)",
   "workflows.activityConfig.SEND_EMAIL.body": "Body",
   "workflows.activityConfig.SEND_EMAIL.subject": "Subject",
   "workflows.activityConfig.SEND_EMAIL.template": "Template",

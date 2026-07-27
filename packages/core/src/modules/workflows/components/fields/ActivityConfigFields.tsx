@@ -8,6 +8,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { DurationInput } from '@open-mercato/ui/backend/inputs/DurationInput'
+import { EventPatternInput } from '@open-mercato/ui/backend/inputs/EventPatternInput'
 import { Plus, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import '../../lib/activity-registry-bootstrap'
@@ -19,11 +20,11 @@ import { getActivityType, type ActivityFormFieldSpec } from '../../lib/activity-
  *
  * Renders an activity's `config` object from the registry entry's
  * `form: ActivityFormFieldSpec[]` via a component-hint map. Unknown hints
- * (including the picker hints that arrive in steps 4.3-4.6: eventName,
- * commandId, functionName, select) fall back to a plain text input.
+ * (including the picker hints that arrive in steps 4.4-4.6: commandId,
+ * functionName, select) fall back to a plain text input.
  */
 
-const TYPES_WITH_CONFIG_FORM = new Set(['WAIT', 'SEND_EMAIL', 'CALL_WEBHOOK', 'CALL_API'])
+const TYPES_WITH_CONFIG_FORM = new Set(['WAIT', 'SEND_EMAIL', 'CALL_WEBHOOK', 'CALL_API', 'EMIT_EVENT'])
 
 export function hasActivityConfigForm(activityType: string): boolean {
   return TYPES_WITH_CONFIG_FORM.has(activityType) && getActivityType(activityType) != null
@@ -306,6 +307,14 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
             onChange={(event) => setField(spec, event.target.value)}
             rows={4}
             className="text-xs"
+            disabled={disabled}
+          />
+        )
+      case 'eventName':
+        return (
+          <EventPatternInput
+            value={stringValue(rawValue)}
+            onChange={(nextValue) => setField(spec, nextValue)}
             disabled={disabled}
           />
         )

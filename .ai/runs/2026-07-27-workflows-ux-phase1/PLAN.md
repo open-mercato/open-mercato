@@ -18,7 +18,7 @@
 | 3 | 3.1 | SET_VARIABLE activity type end-to-end | done | 6e590017b |
 | 4 | 4.1 | Shared activity-type options hook; kill hardcoded label arrays | done | 71796cb5a |
 | 4 | 4.2 | Registry-driven config forms in ActivityArrayEditor (WAIT, SEND_EMAIL, CALL_WEBHOOK, CALL_API) | done | 373fec54e |
-| 4 | 4.3 | Event picker field for EMIT_EVENT | todo | — |
+| 4 | 4.3 | Event picker field for EMIT_EVENT | done | 144b00832 |
 | 4 | 4.4 | Command picker for UPDATE_ENTITY with safe-command list API | todo | — |
 | 4 | 4.5 | Workflow function registry seam and function picker | todo | — |
 | 4 | 4.6 | SET_VARIABLE assignments form | todo | — |
