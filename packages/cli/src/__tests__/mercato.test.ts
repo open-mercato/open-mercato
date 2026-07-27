@@ -37,7 +37,10 @@ function buildMockChildProcessModule(routeAutoExit: MockChildSpawnRouter) {
     if (autoExit) {
       queueMicrotask(() => {
         if (child.exitCode !== null || child.signalCode !== null) return
-        if (pathIncludes(spawnargs[1] ?? '', 'next/dist/bin/next') && spawnargs.includes('dev')) {
+        // A routed non-zero exit models a crash during startup, so the child must
+        // never announce readiness first — that is what the cold-start retry keys on.
+        const crashesBeforeReady = typeof autoExit.code === 'number' && autoExit.code !== 0
+        if (!crashesBeforeReady && pathIncludes(spawnargs[1] ?? '', 'next/dist/bin/next') && spawnargs.includes('dev')) {
           child.stdout.emit('data', '✓ Ready in 1ms\n')
         }
         queueMicrotask(() => {
@@ -862,6 +865,137 @@ describe('server dev managed process exits', () => {
     expect(exitCode).toBe(1)
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       '💥 Failed: [server] Queue worker (events) exited unexpectedly with exit code 0.',
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('retries the Next.js dev server once when it exits before reporting ready', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+    jest.doMock('child_process', () => {
+      const { EventEmitter } = jest.requireActual('node:events')
+      let nextSpawnCount = 0
+
+      const createChild = (autoExit?: { code: number | null; signal?: NodeJS.Signals | null; ready?: boolean }) => {
+        const child = new EventEmitter() as any
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        child.killed = false
+        child.exitCode = null
+        child.signalCode = null
+        child.kill = jest.fn(() => true)
+
+        if (autoExit) {
+          queueMicrotask(() => {
+            if (autoExit.ready) child.stdout.emit('data', '✓ Ready in 1ms\n')
+            queueMicrotask(() => {
+              child.exitCode = autoExit.code
+              child.signalCode = autoExit.signal ?? null
+              child.emit('exit', child.exitCode, child.signalCode)
+            })
+          })
+        }
+
+        return child
+      }
+
+      return {
+        spawn: jest.fn((_command: string, args: string[]) => {
+          if (pathIncludes(args[0] ?? '', 'next/dist/bin/next')) {
+            nextSpawnCount += 1
+            return nextSpawnCount === 1
+              ? createChild({ code: 1 })
+              : createChild({ code: null, signal: 'SIGTERM', ready: true })
+          }
+          return createChild()
+        }),
+      }
+    })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'server', 'dev'])
+    const { spawn } = await import('child_process')
+    const nextSpawns = (spawn as jest.Mock).mock.calls.filter((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next'),
+    )
+
+    expect(exitCode).toBe(0)
+    expect(nextSpawns).toHaveLength(2)
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[server] Next.js dev server exited before becoming ready (exit code 1). Retrying once...',
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('reports the failure when the retried Next.js dev server also exits before reporting ready', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) =>
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: 1 } : undefined,
+      ),
+    )
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'server', 'dev'])
+    const { spawn } = await import('child_process')
+    const nextSpawns = (spawn as jest.Mock).mock.calls.filter((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next'),
+    )
+
+    expect(exitCode).toBe(1)
+    expect(nextSpawns).toHaveLength(2)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '💥 Failed: [server] Next.js dev server exited unexpectedly with exit code 1.',
     )
 
     consoleErrorSpy.mockRestore()

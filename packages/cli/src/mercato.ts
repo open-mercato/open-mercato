@@ -100,6 +100,11 @@ const TURBOPACK_CORRUPTION_PATTERNS = [
   'TurbopackInternalError',
 ]
 
+// Next.js gives up on `.mercato/next/dev/lock` after 1000ms, so a dev server
+// that lost a startup race against a still-shutting-down sibling needs a
+// slightly longer pause before the retry can win the lock.
+const DEV_COLD_START_RETRY_DELAY_MS = 1500
+
 const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'deploy', 'db', 'server', 'test'])
 
 function collectNestedErrors(error: unknown, seen = new Set<unknown>()): ErrorWithCause[] {
@@ -264,7 +269,7 @@ async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
 }
 
 function isTurbopackCacheCorruption(output: string): boolean {
-  return TURBOPACK_CORRUPTION_PATTERNS.every((pattern) => output.includes(pattern))
+  return TURBOPACK_CORRUPTION_PATTERNS.some((pattern) => output.includes(pattern))
 }
 
 function removeTurbopackDevCache(appDir: string): void {
@@ -1960,6 +1965,7 @@ export async function run(argv = process.argv) {
 
           let processes: ChildProcess[] = []
           let didRetryCorruptedTurbopackCache = false
+          let didRetryFailedColdStart = false
           let stopping = false
           let devRestartPromiseResolve: ((result: DevServerRestartResult) => void) | null = null
           let activeLazySupervisor: ReturnType<typeof startLazyWorkerSupervisor> | null = null
@@ -2121,6 +2127,30 @@ export async function run(argv = process.argv) {
                   const restarted = startNextDev(runtimeEnv)
                   restarted.readyPromise.then(readyResolve)
                   return resolve(await restarted.exitPromise)
+                }
+                // A dev server that dies before it ever reported "ready in" lost a
+                // startup race rather than crashing on user code: a sibling instance
+                // still holding the dev lock, a port that is about to free up, or a
+                // bundler init hiccup on a cold cache. Those all clear on their own,
+                // which is why a second `yarn dev` usually succeeds — retry once here
+                // so the first run succeeds too.
+                if (
+                  !didRetryFailedColdStart
+                  && !reportedReady
+                  && !stopping
+                  && typeof code === 'number'
+                  && code !== 0
+                ) {
+                  didRetryFailedColdStart = true
+                  lastRestartReason = 'a failed cold start'
+                  writeDevSplashRuntimeRestarting(lastRestartReason)
+                  console.log(`[server] Next.js dev server exited before becoming ready (exit code ${code}). Retrying once...`)
+                  await new Promise((wake) => setTimeout(wake, DEV_COLD_START_RETRY_DELAY_MS))
+                  if (!stopping) {
+                    const restarted = startNextDev(runtimeEnv)
+                    restarted.readyPromise.then(readyResolve)
+                    return resolve(await restarted.exitPromise)
+                  }
                 }
                 resolve({
                   label: 'Next.js dev server',

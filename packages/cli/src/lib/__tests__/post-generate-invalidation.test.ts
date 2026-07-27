@@ -47,6 +47,30 @@ describe('runPostGenerateStructuralInvalidation', () => {
     }
   })
 
+  it('advances mtime without reopening generated artifacts for writing', async () => {
+    const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'post-generate-invalidation-mtime-'))
+    try {
+      const generatedDir = path.join(appDir, '.mercato', 'generated')
+      fs.mkdirSync(generatedDir, { recursive: true })
+      const generatedTs = path.join(generatedDir, 'modules.generated.ts')
+      fs.writeFileSync(generatedTs, 'export const modules = []\n')
+      const staleTime = new Date(Date.now() - 60_000)
+      fs.utimesSync(generatedTs, staleTime, staleTime)
+      const before = fs.statSync(generatedTs)
+
+      await runPostGenerateStructuralInvalidation(appDir)
+
+      const after = fs.statSync(generatedTs)
+      expect(after.mtimeMs).toBeGreaterThan(before.mtimeMs)
+      expect(after.size).toBe(before.size)
+      // ctime advances on a metadata-only touch; a rewrite would also bump the
+      // inode's write generation, so assert the content survived byte for byte.
+      expect(fs.readFileSync(generatedTs, 'utf8')).toBe('export const modules = []\n')
+    } finally {
+      fs.rmSync(appDir, { recursive: true, force: true })
+    }
+  })
+
   it('still refreshes generated artifacts when cache maintenance fails', async () => {
     const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'post-generate-invalidation-failure-'))
     const error = new Error('cache unavailable')

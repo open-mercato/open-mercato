@@ -5,6 +5,7 @@ import { collectForwardedSetupFlags } from './dev-database-url.mjs'
 const argv = process.argv.slice(2)
 const reinstall = argv.includes('--reinstall')
 const classic = argv.includes('--classic')
+const verbose = argv.includes('--verbose')
 const forwardedDatabaseFlags = collectForwardedSetupFlags(argv)
 
 if (!existsSync('node_modules/cross-spawn')) {
@@ -22,6 +23,7 @@ const result = spawnSync(
     '--setup',
     ...(reinstall ? ['--reinstall'] : []),
     ...(classic ? ['--classic'] : []),
+    ...(verbose ? ['--verbose'] : []),
     ...forwardedDatabaseFlags,
   ],
   {

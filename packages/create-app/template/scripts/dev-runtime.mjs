@@ -119,6 +119,7 @@ let rawModeEnabled = false
 let lastRenderedStatus = null
 const rawLogBuffer = []
 const maxBufferedLogLines = 2000
+const failureLogTailLines = 20
 const RESET = '\u001B[0m'
 const BRIGHT_CYAN = '\u001B[96m'
 const CYAN_BORDER = '\u001B[46m\u001B[30m'
@@ -574,6 +575,10 @@ function looksLikeFailure(line) {
     || /\bfailed\b/i.test(line)
     || /\bexception\b/i.test(line)
     || /Unable to acquire lock/i.test(line)
+    || /Another next dev server is already running/i.test(line)
+    || /TurbopackInternalError/i.test(line)
+    || /\bpanicked\b/i.test(line)
+    || /EADDRINUSE/i.test(line)
 }
 
 function spawnMercato(args) {
@@ -649,12 +654,23 @@ function resolveUnexpectedExitCode(result) {
 
 function reportUnexpectedChildExit(result) {
   const message = `❌ ${result?.label ?? 'Child process'} exited unexpectedly with ${formatChildExitStatus(result)}`
+  // Compact mode classifies most child output as `ignore`, so the error that
+  // actually killed the runtime never reaches the terminal. Replay the buffered
+  // tail here — without it a startup crash reports only its exit code.
+  const precedingLines = collectRuntimeFailureLines(failureLogTailLines)
   console.error(message)
-  rememberRawLog(message)
+  if (!logsVisible && precedingLines.length > 0) {
+    console.error(`📄 Last ${precedingLines.length} runtime log line(s) before the exit:`)
+    for (const line of precedingLines) {
+      console.error(line)
+    }
+    console.error('ℹ️ Rerun with MERCATO_DEV_OUTPUT=verbose for the full runtime output.')
+  }
+  bufferRawLog(message)
   publishRuntimeFailure(message, {
     progressCurrent: splashState.progressCurrent >= runtimeProgressCurrent ? splashState.progressCurrent : runtimeProgressCurrent,
     progressLabel: splashState.progressLabel || startupProgress.label,
-    failureLines: [...collectRuntimeFailureLines(), message].slice(-10),
+    failureLines: [...precedingLines, message].slice(-10),
   })
 }
 
@@ -1311,11 +1327,15 @@ function shutdown(exitCode = 0) {
 process.on('SIGINT', () => shutdown(130))
 process.on('SIGTERM', () => shutdown(143))
 
-function rememberRawLog(line) {
+function bufferRawLog(line) {
   rawLogBuffer.push(line)
   if (rawLogBuffer.length > maxBufferedLogLines) {
     rawLogBuffer.shift()
   }
+}
+
+function rememberRawLog(line) {
+  bufferRawLog(line)
 
   if (logsVisible) {
     process.stdout.write(`${line}\n`)
@@ -1759,6 +1779,21 @@ function classifyServerLine(line) {
       splashDetail: `Reason: ${reason}`,
       ready: false,
       activity: `App runtime restart: ${reason}`,
+      progressCurrent: runtimeProgressCurrent,
+      progressLabel: 'Restarting app runtime',
+    }
+  }
+
+  if (line.startsWith('[server] Next.js dev server exited before becoming ready')) {
+    const reason = 'a failed cold start'
+    resetWarmupForRuntimeRestart(reason)
+    return {
+      type: 'status',
+      message: `🔄 Restarting Next.js dev server: ${reason}`,
+      splashPhase: 'App runtime is restarting',
+      splashDetail: `Reason: ${reason}`,
+      ready: false,
+      activity: `Next.js restart: ${reason}`,
       progressCurrent: runtimeProgressCurrent,
       progressLabel: 'Restarting app runtime',
     }

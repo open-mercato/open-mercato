@@ -63,6 +63,38 @@ test('standalone template dev wrapper defaults background services to lazy mode'
   assert.match(source, /env: buildAppDevEnv\(/)
 })
 
+test('standalone template dev runtime replays buffered output when a child exits unexpectedly', () => {
+  const runtimeScriptPath = new URL('../../template/scripts/dev-runtime.mjs', import.meta.url)
+  const source = fs.readFileSync(runtimeScriptPath, 'utf8')
+
+  // Compact mode drops unclassified child output, so a crash would otherwise
+  // report nothing but an exit code.
+  assert.match(source, /const precedingLines = collectRuntimeFailureLines\(failureLogTailLines\)/)
+  assert.match(source, /runtime log line\(s\) before the exit/)
+  assert.match(source, /MERCATO_DEV_OUTPUT=verbose/)
+  // The exit banner is printed directly, so buffering it must not echo it again.
+  assert.match(source, /bufferRawLog\(message\)/)
+  assert.doesNotMatch(source, /console\.error\(message\)\n {2}rememberRawLog\(message\)/)
+})
+
+test('standalone template dev runtime surfaces Next.js startup failures and cold-start retries', () => {
+  const runtimeScriptPath = new URL('../../template/scripts/dev-runtime.mjs', import.meta.url)
+  const source = fs.readFileSync(runtimeScriptPath, 'utf8')
+
+  assert.match(source, /Another next dev server is already running/)
+  assert.match(source, /TurbopackInternalError/)
+  assert.match(source, /EADDRINUSE/)
+  assert.match(source, /\[server\] Next\.js dev server exited before becoming ready/)
+})
+
+test('standalone template setup forwards the verbose flag to the dev orchestrator', () => {
+  const setupScriptPath = new URL('../../template/scripts/setup.mjs', import.meta.url)
+  const source = fs.readFileSync(setupScriptPath, 'utf8')
+
+  assert.match(source, /const verbose = argv\.includes\('--verbose'\)/)
+  assert.match(source, /\.\.\.\(verbose \? \['--verbose'\] : \[\]\)/)
+})
+
 test('standalone template dev wrapper owns shutdown notice for managed runtime', () => {
   const devScriptPath = new URL('../../template/scripts/dev.mjs', import.meta.url)
   const runtimeScriptPath = new URL('../../template/scripts/dev-runtime.mjs', import.meta.url)
