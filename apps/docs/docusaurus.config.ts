@@ -29,6 +29,7 @@ const config: Config = {
         language: ['en'],
         indexDocs: true,
         indexBlog: false,
+        docsRouteBasePath: '/',
       },
     ],
     function disableModuleConcatenationPlugin() {
