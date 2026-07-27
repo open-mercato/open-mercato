@@ -29,7 +29,7 @@ Build a four-layer harness:
 1. A boundary-first root `AGENTS.md` that only routes tasks and carries universal safety rules.
 2. Focused guides and thin standalone skills loaded only for the selected task.
 3. Generated module facts plus an exact installed-source/original-AGENTS escape hatch.
-4. A versioned 184-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
+4. A versioned 189-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
 
 ## 📝 Architecture
 
@@ -492,12 +492,17 @@ Every case is evaluated against a fresh standalone scaffold. Cases 57–70 are m
 182. Block order cancellation after dispatch across every entry point.
 183. Award loyalty points after payment while tolerating an absent sales feature.
 184. Add a repeatable harness case for misplaced supplier scorecard work.
+185. Create a complete searchable and extensible book library module in one shot.
+186. Add a scoped cache-aside read and complete post-commit invalidation.
+187. Add a durable module queue and auto-discovered retry-safe worker.
+188. Let operations own order cancellation reasons without a new module.
+189. Give a partner system unattended revocable API access.
 
 ### Evaluation levels and release matrix
 
-All 184 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. The writable release target is 39 representative cases (21.2% of the catalog). A case counts toward that target only after its release-matrix entry, disposable fixture, controller-owned oracle, and narrow write allowlist land together; catalog classification alone does not make a case executable.
+All 189 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. The writable release target is 40 representative cases (21.2% of the catalog). A case counts toward that target only after its release-matrix entry, disposable fixture, controller-owned oracle, and narrow write allowlist land together; catalog classification alone does not make a case executable.
 
-Executable coverage is distributed across these slices; the release matrix and trusted oracles must remain aligned for all 39 cases:
+Executable coverage is distributed across these slices; the release matrix and trusted oracles must remain aligned for all 40 cases:
 
 - module vertical slice: 9, 11, 12, 14;
 - extension/UI: 26, 27, 29, 31;
@@ -517,10 +522,10 @@ Cases 163, 164, and 165 are executable test-authoring evaluations. They produce 
 
 The checked-in `releaseMatrix` pins supported runner model selectors plus required and portability case IDs. The release invocation pins one primary runner for the whole suite; per-case fallback or mixed writable ownership is forbidden. Acceptance for this PR is:
 
-1. deterministic validation: 184/184 pass, including 100% forbidden/safety assertions;
-2. selected primary-runner routing: 184/184 pass with one retry allowed only for invalid structured output;
-3. optional portability routing: when a different `--portability-runner` is explicitly requested, the exact 39-case representative target passes with the same retry rule; when omitted, the release report records `portabilityRunner: null` and does not claim cross-model evidence;
-4. writable implementation/regression: the selected primary runner owns all 39 cases, and every target oracle, fixed target command, declared generated test, and mandatory generated-code review passes;
+1. deterministic validation: 189/189 pass, including 100% forbidden/safety assertions;
+2. selected primary-runner routing: 189/189 pass with one retry allowed only for invalid structured output;
+3. optional portability routing: when a different `--portability-runner` is explicitly requested, the exact 40-case representative target passes with the same retry rule; when omitted, the release report records `portabilityRunner: null` and does not claim cross-model evidence;
+4. writable implementation/regression: the selected primary runner owns all 40 cases, and every target oracle, fixed target command, declared generated test, and mandatory generated-code review passes;
 5. results are produced from the final commit, record CLI/model versions and prompt hashes, and are summarized without committing raw private transcripts.
 
 Primary-runner unavailability blocks claiming live release evidence; it does not invalidate deterministic CI. An unrequested secondary runner is not a release prerequisite. Once the portability lane is explicitly requested, its failures or unavailability fail that extended run. Primary runner, safety, forbidden-pattern, executable-oracle, validation, generated-test, and generated-code-review failures remain non-waivable. No score averaging hides a failed mandatory case.
@@ -564,7 +569,7 @@ The case assertions cover every frozen/stable surface even though the harness do
 
 | Risk | Severity | Mitigation | Residual risk |
 |---|---|---|---|
-| Rewriting generated guidance changes agent behavior broadly. | High | 184 semantic cases, mandatory safety subset, complete selected-runner release evidence, optional explicit cross-model portability evidence, draft PR, and review gate. | Model behavior remains probabilistic and secondary-runner evidence depends on optional provider access. |
+| Rewriting generated guidance changes agent behavior broadly. | High | 189 semantic cases, mandatory safety subset, complete selected-runner release evidence, optional explicit cross-model portability evidence, draft PR, and review gate. | Model behavior remains probabilistic and secondary-runner evidence depends on optional provider access. |
 | Root instructions are silently truncated by a default agent budget. | High | 12 KiB byte cap on both root sources plus representative generated initial-chain checks against 32,768 bytes (issue #4484). | Other tools may impose smaller undocumented budgets. |
 | Context files still drift from framework contracts. | High | Generated facts, installed source/AGENTS escape hatch, semantic contradiction scan, release version stamps. | Hand-written conceptual guides still require maintenance. |
 | Installer removes user content or breaks Windows. | High | Node path-safe implementation, ownership checks, junction tests, preserve stable flags/wrapper, generated-app tests. | Windows junction semantics vary by corporate policy. |
@@ -592,11 +597,11 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 | Windows simulated filesystem/command resolution | Junction/link behavior and `.cmd` spawning. |
 | `yarn framework:context --module customers` | Installed core version, root/package/module AGENTS chain, `src/modules/customers`, bounded no-ignore search. |
 | Missing source/duplicate module/version skew fixtures | Explicit degraded/ambiguous/skew output; no guessed edit path. |
-| Deterministic harness validation | 184 schema-valid cases, existing references, no contradictory stale patterns, context budgets, dependency closure. |
+| Deterministic harness validation | 189 schema-valid cases, existing references, no contradictory stale patterns, context budgets, dependency closure. |
 | Instruction-budget regression | Both root sources ≤12 KiB; named representative generated initial chains ≤32,768 bytes, measured as bytes. |
-| Selected primary live runner | Codex or Claude read-only structured routing/decision result for all 184 cases, one fresh session per case. |
-| Optional portability live runner | A different explicitly requested runner executes the exact 39-case representative read-only target; omission is recorded without blocking release. |
-| Writable live runner | The selected primary runner owns disposable scaffolds and executable oracles for all 39 implementation/regression cases. |
+| Selected primary live runner | Codex or Claude read-only structured routing/decision result for all 189 cases, one fresh session per case. |
+| Optional portability live runner | A different explicitly requested runner executes the exact 40-case representative read-only target; omission is recorded without blocking release. |
+| Writable live runner | The selected primary runner owns disposable scaffolds and executable oracles for all 40 implementation/regression cases. |
 | Generated test execution | Fixed-argv execution of the generated Jest unit plus Linux/Bubblewrap-isolated Playwright API and browser cases in canonical module-local paths; a host-loopback listener remains unreachable. |
 | Mandatory generated-code review | Post-oracle/command/test review of every writable result in a bounded source-only bundle using the pinned installed `om-code-review` skill. |
 | Generated standalone install/generate/typecheck/test/build | Real npm/Verdaccio package boundary and published-path validation. |
@@ -669,7 +674,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Implement deterministic, read-only Codex/Claude routing, and writable disposable-scaffold evaluation modes plus sanitized result artifacts.
 2. Generate a fresh standalone app, install local/external skills, resolve upstream context, and run deterministic validation.
-3. Select Codex or Claude once for the release; run all 184 primary routing cases and all 39 primary-owned writable implementation/regression target oracles, generated tests, target commands, and code reviews. Optionally request the other runner for the exact 39-case read-only portability target. Fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
+3. Select Codex or Claude once for the release; run all 189 primary routing cases and all 40 primary-owned writable implementation/regression target oracles, generated tests, target commands, and code reviews. Optionally request the other runner for the exact 40-case read-only portability target. Fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
 4. Run create-app targeted tests, Verdaccio standalone parity where package boundaries changed, and the configured full repository gate.
 5. Complete automated code review/autofix, final compliance report, PR evidence, and rollback notes.
 

@@ -88,3 +88,24 @@ does not know `api_keys` exists will invent a bespoke token mechanism.
 - [x] 3.1 Deterministic catalog gate over the full catalog — 189/189 on the committed bytes
 - [x] 3.2 Live routing runs for both new cases — OMH-188 and OMH-189 pass on claude/sonnet
 - [x] 3.3 Repository validation gate for the touched package — create-app 328 pass / 4 pre-existing fail / 5 skipped, typecheck clean
+
+### Phase 4: Review response (#4556 review by pkarw, 2026-07-27)
+
+Findings 1, 2, 4, 5 and 8 are not addressed here: they concern generator, framework-context,
+wizard/installer and audit-gate code introduced by the stacked parent #4529, not by this branch's
+four commits. They are raised on #4529 instead of being patched from a stacked branch.
+
+- [x] 4.1 Finding 3 — correct the published schema so it accepts the catalog it pins: `id` and
+      `relatedCases` patterns through OMH-189, `oracle.validatorIds` accepts the registered
+      `writable.allowed-paths`
+- [x] 4.2 Finding 3 — add a drift guard that validates the shipped catalog against the published
+      schema's own pins, verified to fail when the pre-fix pattern is restored
+- [x] 4.3 Finding 6 — OMH-188/189 require `om-help` and observe the architecture guide, matching the
+      OMH-002 precedent for a comparative installed-versus-new choice
+- [x] 4.4 Finding 6 — encode the prompt-mandated decisions: `acl-features` on OMH-188, `tenant-scope`
+      on OMH-189, `smallest-validation` on both
+- [x] 4.5 Finding 6 — semantic assertions for both cases in `agent-surface-coverage.test.ts`
+- [x] 4.6 Finding 7 — align the remaining stale operational counts: RELEASE.md, the release CLI help,
+      two om-evolve-harness references, and the spec's normative claims plus its case list
+- [ ] 4.7 Re-run the live routing lane for OMH-188/189 against the tightened assertions — requires a
+      scaffolded controller; not run in this environment

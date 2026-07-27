@@ -40,7 +40,7 @@ After preflight it runs, in order:
 
 1. deterministic validation for the complete catalog;
 2. the release matrix's fixed `yarn generate`, `yarn typecheck`, `yarn lint`, and `yarn build` foundation;
-3. the selected primary runner across all 184 live-routing cases, followed by the optional distinct portability runner across the exact 39-case read-only sample when requested;
+3. the selected primary runner across all 189 live-routing cases, followed by the optional distinct portability runner across the exact 40-case read-only sample when requested;
 4. fixture preparation and the selected primary runner for every writable case, including the controller-owned AST/behavior oracles and target typecheck;
 5. `yarn generate`, `yarn typecheck`, `yarn lint`, and `yarn build` in every writable target, after its trusted oracles;
 6. real generated-code execution for OMH-163 through fixed Jest, OMH-164 through API-only Playwright, and OMH-165 through real-browser Playwright; and
