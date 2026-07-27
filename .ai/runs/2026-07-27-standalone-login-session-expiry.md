@@ -20,6 +20,8 @@ Ensure a newly scaffolded standalone app accepts its newly issued staff session 
 
 - Session validation is security-sensitive: the fix must preserve immediate revocation for deleted or expired sessions.
 - Standalone scaffolds consume published packages, so coverage must exercise the generated-app path rather than only the monorepo route graph.
+- The standalone Playwright smoke harness could not start because an unrelated `mercato-verdaccio` container already owns its fixed name; it was left untouched.
+- GitHub does not permit the PR author to approve this PR, so an independent reviewer must submit the final approval before the run can complete.
 
 ## Implementation Plan
 
