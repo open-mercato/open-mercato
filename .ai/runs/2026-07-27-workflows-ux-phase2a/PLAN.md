@@ -12,7 +12,7 @@
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | contextSchema field on the definition with round-trip tests | done | 2a1e7a917 |
 | 1 | 1.2 | Editor plumbing: preserve contextSchema and metadata.editor through load/save/draft | done | 5e96ea07c |
-| 1 | 1.3 | ContextSchemaEditor UI on the definition panel | todo | — |
+| 1 | 1.3 | ContextSchemaEditor UI on the definition panel | done | b39d9111d |
 | 2 | 2.1 | Pure context-ledger module with fixpoint and maybe semantics | todo | — |
 | 2 | 2.2 | Zod-to-ledger flattener and outputContract wiring | todo | — |
 | 2 | 2.3 | Context-schema API route | todo | — |

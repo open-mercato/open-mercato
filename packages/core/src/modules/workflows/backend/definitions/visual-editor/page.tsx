@@ -48,6 +48,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, PanelTopClose, PanelTopOpen, Play, Save, Trash2, TriangleAlert, X } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
 import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
+import { ContextSchemaEditor } from '../../../components/ContextSchemaEditor'
 import { TemplateGalleryDialog, type WorkflowTemplateGalleryItem } from '../../../components/TemplateGalleryDialog'
 import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
@@ -1302,6 +1303,14 @@ export default function VisualEditorPage() {
             <DefinitionTriggersEditor
               value={triggers}
               onChange={setTriggers}
+            />
+          </fieldset>
+
+          {/* Declared context inputs (spec §3.1) — same lock as triggers */}
+          <fieldset disabled={isCodeOnly} className="mt-3 disabled:opacity-70">
+            <ContextSchemaEditor
+              value={contextSchema}
+              onChange={setContextSchema}
             />
           </fieldset>
         </div>
