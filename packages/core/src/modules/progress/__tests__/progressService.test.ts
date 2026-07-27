@@ -84,7 +84,7 @@ describe('progress service', () => {
     expect(em.findOneOrFail).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 'job-1' }), detached)
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ id: 'job-1', status: { $in: ['pending', 'running', 'failed'] } }),
+      expect.objectContaining({ id: 'job-1', status: { $in: ['pending', 'failed'] } }),
       expect.objectContaining({ status: 'running' })
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
@@ -139,6 +139,37 @@ describe('progress service', () => {
 
     expect(result.status).toBe('cancelled')
     expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('startJob — concurrent stale readers produce exactly one transition event', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const databaseJob = { id: 'job-1', status: 'pending', jobType: 'import' } as ProgressJob
+    em.findOneOrFail
+      .mockResolvedValueOnce({ ...databaseJob } as ProgressJob)
+      .mockResolvedValueOnce({ ...databaseJob } as ProgressJob)
+    em.findOne.mockImplementation(async () => ({ ...databaseJob }) as ProgressJob)
+    em.nativeUpdate.mockImplementation(async (_entity: unknown, where: unknown, data: unknown) => {
+      const statusFilter = (where as { status?: { $in?: string[] } }).status?.$in ?? []
+      if (!statusFilter.includes(databaseJob.status)) return 0
+      databaseJob.status = (data as { status: ProgressJob['status'] }).status
+      return 1
+    })
+
+    const firstService = createProgressService(em as never, eventBus)
+    const secondService = createProgressService(em as never, eventBus)
+    const [firstResult, secondResult] = await Promise.all([
+      firstService.startJob('job-1', baseCtx),
+      secondService.startJob('job-1', baseCtx),
+    ])
+
+    expect(firstResult.status).toBe('running')
+    expect(secondResult.status).toBe('running')
+    expect(eventBus.emit).toHaveBeenCalledTimes(1)
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_STARTED,
+      expect.objectContaining({ jobId: 'job-1' })
+    )
   })
 
   it('updateProgress — auto-calculates progressPercent and ETA, persists via guarded update', async () => {
@@ -295,6 +326,41 @@ describe('progress service', () => {
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_UPDATED,
       expect.objectContaining({ jobId: 'job-1', processedCount: 50, progressPercent: 50 })
+    )
+  })
+
+  it('incrementProgress — returns and emits the shared database aggregate after a stale-snapshot increment', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const localJob = {
+      id: 'job-1',
+      jobType: 'import',
+      status: 'running',
+      processedCount: 98,
+      totalCount: 100,
+      progressPercent: 98,
+      startedAt: new Date(Date.now() - 10_000),
+    } as unknown as ProgressJob
+    const databaseJob = { ...localJob, processedCount: 99, progressPercent: 99 }
+    em.findOneOrFail.mockResolvedValue(localJob)
+    em.nativeUpdate.mockImplementation(async () => {
+      databaseJob.processedCount += 1
+      databaseJob.progressPercent = 100
+      return 1
+    })
+    em.findOne.mockImplementation(async () => ({ ...databaseJob }) as ProgressJob)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.incrementProgress('job-1', 1, baseCtx)
+
+    expect(result.processedCount).toBe(100)
+    expect(result.progressPercent).toBe(100)
+    const [, , data] = em.nativeUpdate.mock.calls[0]
+    expect(typeof data.processedCount).not.toBe('number')
+    expect(typeof data.progressPercent).not.toBe('number')
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_UPDATED,
+      expect.objectContaining({ jobId: 'job-1', processedCount: 100, progressPercent: 100 })
     )
   })
 

@@ -92,9 +92,9 @@ Use stable, grep-friendly ids:
 
 `progressService` is safe to run across many app/worker instances. Do not reintroduce read-modify-write transitions:
 
-- **Every status transition is a status-guarded `nativeUpdate` (CAS).** An update that matches zero rows lost the race — it MUST NOT emit events or overwrite the row. Allowed transitions: start from `pending|running|failed` (never resurrects `completed`/`cancelled`; `failed` allows queue retries and recovery from a wrong stale sweep), complete from `pending|running|failed`, fail from `pending|running`, cancel from `pending|running|failed`.
+- **Every status transition is a status-guarded `nativeUpdate` (CAS).** An update that matches zero rows lost the race — it MUST NOT emit events or overwrite the row. Allowed transitions: start from `pending|failed` (an already-running start is an idempotent no-op; `failed` allows queue retries and recovery from a wrong stale sweep), complete from `pending|running|failed`, fail from `pending|running`, cancel from `pending|running|failed`.
 - **Progress writes are guarded on `status IN ('pending','running')`** — once another process finishes/cancels a job, buffered updaters stop writing to it.
-- **`incrementProgress` deltas persist as atomic SQL increments** (`processed_count + n`), so concurrent writers never lose counts.
+- **`incrementProgress` deltas persist as atomic SQL increments** (`processed_count + n`), and the service reloads the database winner before returning or emitting, so concurrent writers never lose or report stale counts.
 - **Update-path reads use `disableIdentityMap: true`** — `isCancellationRequested` and lifecycle reads must always see fresh cross-process state, never a stale managed entity.
 - **The stale sweep (`markStaleJobsFailed`) re-checks staleness per row inside the CAS**, so concurrent sweepers emit exactly one `JOB_FAILED` per job, and it also fails `pending` jobs that never started within `STALE_PENDING_TIMEOUT_SECONDS` (a late queue delivery recovers them via `startJob`'s `failed → running` transition).
 

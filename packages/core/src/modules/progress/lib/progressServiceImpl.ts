@@ -38,7 +38,7 @@ const TERMINAL_STATUSES: readonly ProgressJobStatus[] = ['completed', 'failed', 
 const PROGRESS_WRITABLE_STATUSES: readonly ProgressJobStatus[] = ['pending', 'running']
 // `failed` is restartable/completable so a job wrongly swept as stale (worker alive but
 // slow) or retried by an at-least-once queue converges to its true outcome.
-const START_FROM_STATUSES: readonly ProgressJobStatus[] = ['pending', 'running', 'failed']
+const START_FROM_STATUSES: readonly ProgressJobStatus[] = ['pending', 'failed']
 const COMPLETE_FROM_STATUSES: readonly ProgressJobStatus[] = ['pending', 'running', 'failed']
 const FAIL_FROM_STATUSES: readonly ProgressJobStatus[] = ['pending', 'running']
 const CANCEL_FROM_STATUSES: readonly ProgressJobStatus[] = ['pending', 'running', 'failed']
@@ -116,8 +116,17 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       return { processedCount: entry.job.processedCount }
     }
     if (entry.pendingDelta !== 0) {
-      // Atomic SQL increment: concurrent writers on other instances never lose deltas.
-      return { processedCount: raw(`processed_count + ${entry.pendingDelta}`) }
+      const processedCount = raw(`processed_count + ${entry.pendingDelta}`)
+      const totalCount = entry.job.totalCount
+      if (Number.isSafeInteger(totalCount) && totalCount != null && totalCount > 0) {
+        return {
+          processedCount,
+          progressPercent: raw(
+            `least(100, round(((processed_count + ${entry.pendingDelta})::numeric / ${totalCount}) * 100))`,
+          ),
+        }
+      }
+      return { processedCount }
     }
     return {}
   }
@@ -133,6 +142,8 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
 
     if (!shouldPersist) return job
 
+    const usesAtomicIncrement =
+      !entry.absoluteCountsPending && Number.isSafeInteger(entry.pendingDelta) && entry.pendingDelta !== 0
     const data: EntityData<ProgressJob> = {
       progressPercent: job.progressPercent,
       totalCount: job.totalCount ?? null,
@@ -154,21 +165,23 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       return fresh ?? job
     }
 
+    const persistedJob = usesAtomicIncrement ? (await loadFreshJob(job.id, ctx)) ?? job : job
+    entry.job = persistedJob
     entry.pendingDelta = 0
     entry.absoluteCountsPending = false
     entry.lastPersistedAt = now
 
     if (shouldBroadcast) {
       await eventBus.emit(PROGRESS_EVENTS.JOB_UPDATED, {
-        ...buildJobPayload(job),
+        ...buildJobPayload(persistedJob),
         tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
+        organizationId: persistedJob.organizationId ?? null,
       })
       entry.lastBroadcastAt = now
-      entry.lastBroadcastPercent = job.progressPercent
+      entry.lastBroadcastPercent = persistedJob.progressPercent
     }
 
-    return job
+    return persistedJob
   }
 
   return {
@@ -202,7 +215,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
 
     async startJob(jobId, ctx) {
       const job = await em.findOneOrFail(ProgressJob, jobScopeFilter(jobId, ctx), { disableIdentityMap: true })
-      if (job.status === 'cancelled' || job.status === 'completed') {
+      if (job.status === 'running' || job.status === 'cancelled' || job.status === 'completed') {
         return job
       }
 
@@ -314,7 +327,6 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       const data: EntityData<ProgressJob> = {
         status: 'completed',
         finishedAt: now,
-        progressPercent: 100,
         etaSeconds: 0,
         updatedAt: now,
         ...(input?.resultSummary ? { resultSummary: input.resultSummary } : {}),
@@ -325,6 +337,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
               ...buildBufferedCountData(entry),
             }
           : {}),
+        progressPercent: 100,
       }
 
       const affected = await em.nativeUpdate(ProgressJob, {
@@ -346,14 +359,16 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         snapshot.resultSummary = input.resultSummary
       }
 
+      const persistedJob = (await loadFreshJob(jobId, ctx)) ?? snapshot
+
       await eventBus.emit(PROGRESS_EVENTS.JOB_COMPLETED, {
-        ...buildJobPayload(snapshot),
-        resultSummary: snapshot.resultSummary,
+        ...buildJobPayload(persistedJob),
+        resultSummary: persistedJob.resultSummary,
         tenantId: ctx.tenantId,
-        organizationId: snapshot.organizationId ?? null,
+        organizationId: persistedJob.organizationId ?? null,
       })
 
-      return snapshot
+      return persistedJob
     },
 
     async failJob(jobId, input, ctx) {
@@ -398,14 +413,16 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       snapshot.errorMessage = input.errorMessage
       snapshot.errorStack = input.errorStack
 
+      const persistedJob = (await loadFreshJob(jobId, ctx)) ?? snapshot
+
       await eventBus.emit(PROGRESS_EVENTS.JOB_FAILED, {
-        ...buildJobPayload(snapshot),
-        errorMessage: snapshot.errorMessage,
+        ...buildJobPayload(persistedJob),
+        errorMessage: persistedJob.errorMessage,
         tenantId: ctx.tenantId,
-        organizationId: snapshot.organizationId ?? null,
+        organizationId: persistedJob.organizationId ?? null,
       })
 
-      return snapshot
+      return persistedJob
     },
 
     async cancelJob(jobId, ctx) {
