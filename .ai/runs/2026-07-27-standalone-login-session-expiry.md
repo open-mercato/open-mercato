@@ -39,10 +39,10 @@ Ensure a newly scaffolded standalone app accepts its newly issued staff session 
 
 ### Phase 1: Reproduce and cover the hand-off
 
-- [ ] 1.1 Identify why the login response's new session fails the next authenticated feature-check request in a standalone scaffold.
-- [ ] 1.2 Add focused regression coverage for successful post-login authentication in the generated standalone app path.
+- [x] 1.1 Identify why the login response's new session fails the next authenticated feature-check request in a standalone scaffold. — ed2db898d
+- [x] 1.2 Add focused regression coverage for successful post-login authentication in the generated standalone app path. — ed2db898d
 
 ### Phase 2: Correct and verify
 
-- [ ] 2.1 Implement the minimal fix, synchronize any affected standalone template file, and run targeted checks.
+- [x] 2.1 Implement the minimal fix, synchronize any affected standalone template file, and run targeted checks. — ed2db898d
 - [ ] 2.2 Run the full validation gate, complete the authoritative review pass, and prepare the PR for review.
