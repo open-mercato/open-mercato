@@ -697,11 +697,12 @@ export function reconcileExternalSkillVisibility(rootDir, external) {
       continue
     }
     const previouslyOwned = Object.hasOwn(ledger?.skills ?? {}, skill)
-    const quarantinePath = uniqueQuarantinePath(rootDir, previouslyOwned ? skill : `unowned-${skill}`)
+    if (!previouslyOwned) continue
+    const quarantinePath = uniqueQuarantinePath(rootDir, skill)
     assertRealDirectoryComponents(rootDir, canonicalDir, { requireLeaf: true })
     assertRealDirectoryComponents(rootDir, dirname(quarantinePath), { requireLeaf: true })
     renameSync(skillDir, quarantinePath)
-    quarantined.push({ skill, path: quarantinePath, actual, expected: expected ?? 'removed from manifest', previouslyOwned })
+    quarantined.push({ skill, path: quarantinePath, actual, expected: expected ?? 'removed from manifest' })
   }
   if (ledger || Object.keys(active).length > 0) writeExternalOwnership(rootDir, external, active)
   return quarantined
@@ -952,8 +953,7 @@ export async function runInstaller({
   prepareLinkDirectory(rootDir, join(rootDir, '.agents', 'skills'), join(rootDir, '.ai', 'skills'), join(rootDir, '.agents', 'skills'))
   const quarantined = reconcileExternalSkillVisibility(rootDir, external)
   for (const item of quarantined) {
-    const ownership = item.previouslyOwned ? 'stale or modified managed' : 'unverified pre-ledger'
-    console.warn(`install-skills: quarantined ${ownership} skill '${item.skill}' outside agent discovery: ${item.path}`)
+    console.warn(`install-skills: quarantined stale or modified managed skill '${item.skill}' outside agent discovery: ${item.path}`)
   }
   let externalStatus = 'skipped (--no-external)'
   let refreshDownload

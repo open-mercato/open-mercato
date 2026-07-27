@@ -473,7 +473,11 @@ function preserveIncomingCandidate(
   }
 }
 
-export function applyHarnessUpdate(targetDir: string, stagingDir: string): HarnessUpdateConflict[] {
+export function applyHarnessUpdate(
+  targetDir: string,
+  stagingDir: string,
+  options: { force?: boolean } = {},
+): HarnessUpdateConflict[] {
   const targetRoot = canonicalHarnessRoot(targetDir)
   const stagingRoot = canonicalHarnessRoot(stagingDir)
   const targetManifestPath = join(targetRoot, '.ai', 'harness', 'manifest.json')
@@ -508,6 +512,10 @@ export function applyHarnessUpdate(targetDir: string, stagingDir: string): Harne
 
   const conflicts: HarnessUpdateConflict[] = []
   for (const { entry, sourcePath, destinationPath } of candidates) {
+    if (options.force) {
+      atomicCopyFile(sourcePath, destinationPath, targetRoot)
+      continue
+    }
     if (!existsSync(destinationPath)) {
       atomicCopyFile(sourcePath, destinationPath, targetRoot)
       continue
@@ -772,35 +780,33 @@ export async function runAgenticSetup(
     targetDir,
   }
 
-  if (options?.updateHarness && !options.force) {
-    const stagingDir = mkdtempSync(join(tmpdir(), 'open-mercato-harness-'))
-    try {
-      const modulesSourcePath = join(targetDir, 'src', 'modules.ts')
-      const modulesCandidatePath = join(stagingDir, 'src', 'modules.ts')
-      ensureDir(modulesCandidatePath)
-      copyFileSync(modulesSourcePath, modulesCandidatePath)
+  const stagingDir = mkdtempSync(join(tmpdir(), 'open-mercato-harness-'))
+  try {
+    const modulesSourcePath = join(targetDir, 'src', 'modules.ts')
+    const modulesCandidatePath = join(stagingDir, 'src', 'modules.ts')
+    ensureDir(modulesCandidatePath)
+    copyFileSync(modulesSourcePath, modulesCandidatePath)
 
-      const stagingConfig: AgenticConfig = {
-        projectName: config.projectName,
-        targetDir: stagingDir,
-      }
-      generateHarness(stagingConfig, selectedIds)
-      const conflicts = applyHarnessUpdate(targetDir, stagingDir)
-      if (conflicts.length > 0) {
-        console.warn('')
-        console.warn('   ⚠ Preserved locally modified harness files:')
-        for (const conflict of conflicts) {
-          const detail = conflict.candidate
-            ? `candidate: ${conflict.candidate}`
-            : 'retired asset kept because it has local changes'
-          console.warn(`   • ${conflict.path} (${detail})`)
-        }
-      }
-    } finally {
-      rmSync(stagingDir, { recursive: true, force: true })
+    const stagingConfig: AgenticConfig = {
+      projectName: config.projectName,
+      targetDir: stagingDir,
     }
-  } else {
-    generateHarness(config, selectedIds)
+    generateHarness(stagingConfig, selectedIds)
+    const conflicts = applyHarnessUpdate(targetDir, stagingDir, {
+      force: options?.force,
+    })
+    if (conflicts.length > 0) {
+      console.warn('')
+      console.warn('   ⚠ Preserved locally modified harness files:')
+      for (const conflict of conflicts) {
+        const detail = conflict.candidate
+          ? `candidate: ${conflict.candidate}`
+          : 'retired asset kept because it has local changes'
+        console.warn(`   • ${conflict.path} (${detail})`)
+      }
+    }
+  } finally {
+    rmSync(stagingDir, { recursive: true, force: true })
   }
 
   installSkills(targetDir)

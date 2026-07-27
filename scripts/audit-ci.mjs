@@ -22,12 +22,17 @@
 import fs from 'node:fs'
 import zlib from 'node:zlib'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const SEVERITY_ORDER = ['info', 'low', 'moderate', 'high', 'critical']
-const thresholdArg = (process.argv.find((a) => a.startsWith('--severity=')) || '').split('=')[1]
-  || (process.argv[process.argv.indexOf('--severity') + 1] && !process.argv[process.argv.indexOf('--severity') + 1].startsWith('--')
-    ? process.argv[process.argv.indexOf('--severity') + 1]
-    : 'high')
+const AUDIT_REQUEST_TIMEOUT_MS = 15_000
+const inlineThreshold = (process.argv.find((argument) => argument.startsWith('--severity=')) || '').split('=')[1]
+const thresholdIndexInArgs = process.argv.indexOf('--severity')
+const separateThreshold = thresholdIndexInArgs >= 0
+  ? process.argv[thresholdIndexInArgs + 1]
+  : undefined
+const thresholdArg = inlineThreshold
+  || (separateThreshold && !separateThreshold.startsWith('--') ? separateThreshold : 'high')
 const thresholdIndex = SEVERITY_ORDER.indexOf(thresholdArg)
 if (thresholdIndex < 0) {
   console.error(`audit-ci: unknown --severity "${thresholdArg}" (expected one of ${SEVERITY_ORDER.join(', ')})`)
@@ -58,14 +63,18 @@ function readLockPackages(lockFile) {
   return packages
 }
 
-async function fetchAdvisories(chunk) {
+export async function fetchAdvisories(
+  chunk,
+  { fetchImpl = globalThis.fetch, timeoutMs = AUDIT_REQUEST_TIMEOUT_MS } = {},
+) {
   let lastError
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const res = await fetch(ENDPOINT, {
+      const res = await fetchImpl(ENDPOINT, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(chunk),
+        signal: AbortSignal.timeout(timeoutMs),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const bytes = Buffer.from(await res.arrayBuffer())
@@ -122,7 +131,11 @@ async function main() {
   process.exit(1)
 }
 
-main().catch((error) => {
-  console.error(`audit-ci: unexpected failure: ${error.stack || error.message}`)
-  process.exit(2)
-})
+const isEntryPoint = process.argv[1]
+  && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
+if (isEntryPoint) {
+  main().catch((error) => {
+    console.error(`audit-ci: unexpected failure: ${error.stack || error.message}`)
+    process.exit(2)
+  })
+}
