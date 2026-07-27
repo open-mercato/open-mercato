@@ -92,7 +92,7 @@ export function sanitizeDocumentPreviewHtml(
   })
   try {
     const normalized = yDocToContent(htmlToYDoc(withoutExternalImages))
-    if (!normalized) throw new Error('Unable to normalize document preview')
+    if (!normalized) throw new Error('[internal] Unable to normalize document preview')
     return normalized.html
   } catch {
     throw new CrudHttpError(422, { error: 'documents.versions.previewInvalid' })

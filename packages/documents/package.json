@@ -72,7 +72,7 @@
     "@floating-ui/dom": "^1.7.5",
     "@hocuspocus/extension-redis": "^4.3.0",
     "@hocuspocus/provider": "^4.3.0",
-    "@hocuspocus/server": "^4.3.0",
+    "@hocuspocus/server": "^4.4.0",
     "@hocuspocus/transformer": "^4.3.0",
     "@mikro-orm/core": "^7.1.5",
     "@open-mercato/events": "workspace:*",

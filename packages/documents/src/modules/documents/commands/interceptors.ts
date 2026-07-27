@@ -51,7 +51,7 @@ function resolveDocumentsNotificationService(
 ): DocumentsNotificationService {
   const service = container.resolve('notificationService') as Partial<DocumentsNotificationService> | null
   if (!service || typeof service.create !== 'function' || typeof service.deleteBySource !== 'function') {
-    throw new Error('Notification service is unavailable')
+    throw new Error('[internal] Notification service is unavailable')
   }
   return service as DocumentsNotificationService
 }

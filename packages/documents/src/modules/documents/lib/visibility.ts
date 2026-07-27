@@ -325,7 +325,7 @@ function assertFolderHierarchyContract(
   if (requiredFolderIds) {
     for (const folderId of requiredFolderIds) {
       if (!foldersById.has(folderId)) {
-        throw new Error('[documents] Visible folder hierarchy contains an unresolved folder')
+        throw new Error('[internal] Visible folder hierarchy contains an unresolved folder')
       }
     }
   }
@@ -336,17 +336,17 @@ function assertFolderHierarchyContract(
     let depth = 0
     while (current) {
       if (visited.has(current.id)) {
-        throw new Error('[documents] Folder hierarchy contains a cycle')
+        throw new Error('[internal] Folder hierarchy contains a cycle')
       }
       visited.add(current.id)
       depth += 1
       if (depth > DOCUMENTS_MAX_FOLDER_DEPTH) {
-        throw new Error('[documents] Folder hierarchy exceeds the supported depth')
+        throw new Error('[internal] Folder hierarchy exceeds the supported depth')
       }
       if (!current.parentFolderId) break
       current = foldersById.get(current.parentFolderId)
       if (!current) {
-        throw new Error('[documents] Folder hierarchy contains an unresolved ancestor')
+        throw new Error('[internal] Folder hierarchy contains an unresolved ancestor')
       }
     }
   }
@@ -451,7 +451,7 @@ export async function getVisibleFolders(input: GetVisibleFoldersInput): Promise<
   }
 
   if (pendingIds.size > 0) {
-    throw new Error('[documents] Folder hierarchy exceeds the supported depth')
+    throw new Error('[internal] Folder hierarchy exceeds the supported depth')
   }
   assertFolderHierarchyContract(foldersById, visibilityById.keys())
 

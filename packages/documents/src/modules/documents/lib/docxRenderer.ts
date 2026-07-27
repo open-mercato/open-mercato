@@ -111,7 +111,7 @@ async function normalizeBinary(value) {
   if (typeof Blob !== 'undefined' && value instanceof Blob) {
     return new Uint8Array(await value.arrayBuffer())
   }
-  throw new Error('html-to-docx returned an unsupported binary payload')
+  throw new Error('[internal] html-to-docx returned an unsupported binary payload')
 }
 
 ;(async () => {
@@ -119,7 +119,7 @@ async function normalizeBinary(value) {
     ? require(workerData.modulePath)
     : require('node:module').createRequire(workerData.requireFrom)(workerData.moduleSpecifier)
   const converter = typeof imported === 'function' ? imported : imported && imported.default
-  if (typeof converter !== 'function') throw new Error('html-to-docx export is not callable')
+  if (typeof converter !== 'function') throw new Error('[internal] html-to-docx export is not callable')
   const bytes = await normalizeBinary(await converter(workerData.html))
   if (bytes.byteLength > workerData.maxOutputBytes) {
     parentPort.postMessage({ type: 'overflow' })
@@ -294,7 +294,7 @@ export function createDocxRenderer(
         }
         try {
           output = allocateOutput(totalBytes)
-          if (output.byteLength !== totalBytes) throw new Error('invalid DOCX output allocation')
+          if (output.byteLength !== totalBytes) throw new Error('[internal] invalid DOCX output allocation')
           expectedBytes = totalBytes
         } catch (error) {
           terminateAndReject(new DocxRenderFailedError({ cause: error }))

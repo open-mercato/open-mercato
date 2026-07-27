@@ -325,7 +325,7 @@ export function useDocumentCollaboration(documentId: string): CollabState {
         return next.token.token
       }
       lastTokenFailure = next.kind
-      throw new Error(`Collaboration token refresh ${next.kind}`)
+      throw new Error(`[internal] Collaboration token refresh ${next.kind}`)
     }
     const start = async (): Promise<void> => {
       const initial = await fetchToken()

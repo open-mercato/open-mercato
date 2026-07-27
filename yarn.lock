@@ -5049,7 +5049,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@hocuspocus/server@npm:^4.3.0, @hocuspocus/server@npm:^4.4.0":
+"@hocuspocus/server@npm:^4.4.0":
   version: 4.4.0
   resolution: "@hocuspocus/server@npm:4.4.0"
   dependencies:
@@ -7918,7 +7918,7 @@ __metadata:
     "@floating-ui/dom": "npm:^1.7.5"
     "@hocuspocus/extension-redis": "npm:^4.3.0"
     "@hocuspocus/provider": "npm:^4.3.0"
-    "@hocuspocus/server": "npm:^4.3.0"
+    "@hocuspocus/server": "npm:^4.4.0"
     "@hocuspocus/transformer": "npm:^4.3.0"
     "@mikro-orm/core": "npm:^7.1.5"
     "@open-mercato/core": "workspace:*"
