@@ -264,9 +264,14 @@ test('the published case schema accepts the shipped catalog it pins', () => {
   assert.equal(schema.minItems, cases.length, 'schema minItems must pin the shipped catalog size')
   assert.equal(schema.maxItems, cases.length, 'schema maxItems must pin the shipped catalog size')
 
-  const idPattern = new RegExp(schema.items.properties.id.pattern ?? '')
-  const relatedPattern = new RegExp(schema.items.properties.relatedCases.items?.pattern ?? '')
-  const oraclePattern = new RegExp(schema.items.properties.oracle.properties?.validatorIds.items?.pattern ?? '')
+  function requirePattern(source: string | undefined, label: string): RegExp {
+    assert.ok(source, `schema must declare a ${label} pattern; an absent one would make this guard vacuous`)
+    return new RegExp(source)
+  }
+
+  const idPattern = requirePattern(schema.items.properties.id.pattern, 'case id')
+  const relatedPattern = requirePattern(schema.items.properties.relatedCases.items?.pattern, 'relatedCases')
+  const oraclePattern = requirePattern(schema.items.properties.oracle.properties?.validatorIds.items?.pattern, 'oracle validatorId')
   const declaredProperties = new Set(Object.keys(schema.items.properties))
 
   for (const entry of cases) {

@@ -97,15 +97,18 @@ four commits. They are raised on #4529 instead of being patched from a stacked b
 
 - [x] 4.1 Finding 3 — correct the published schema so it accepts the catalog it pins: `id` and
       `relatedCases` patterns through OMH-189, `oracle.validatorIds` accepts the registered
-      `writable.allowed-paths`
+      `writable.allowed-paths` — 28603a4e4
 - [x] 4.2 Finding 3 — add a drift guard that validates the shipped catalog against the published
-      schema's own pins, verified to fail when the pre-fix pattern is restored
+      schema's own pins, verified to fail when the pre-fix pattern is restored — 28603a4e4
 - [x] 4.3 Finding 6 — OMH-188/189 require `om-help` and observe the architecture guide, matching the
-      OMH-002 precedent for a comparative installed-versus-new choice
+      OMH-002 precedent for a comparative installed-versus-new choice — 28603a4e4
 - [x] 4.4 Finding 6 — encode the prompt-mandated decisions: `acl-features` on OMH-188, `tenant-scope`
-      on OMH-189, `smallest-validation` on both
-- [x] 4.5 Finding 6 — semantic assertions for both cases in `agent-surface-coverage.test.ts`
+      on OMH-189, `smallest-validation` on both — 28603a4e4
+- [x] 4.5 Finding 6 — semantic assertions for both cases in `agent-surface-coverage.test.ts` — 28603a4e4
 - [x] 4.6 Finding 7 — align the remaining stale operational counts: RELEASE.md, the release CLI help,
-      two om-evolve-harness references, and the spec's normative claims plus its case list
-- [ ] 4.7 Re-run the live routing lane for OMH-188/189 against the tightened assertions — requires a
-      scaffolded controller; not run in this environment
+      two om-evolve-harness references, the spec's normative claims and case list, and the spec
+      changelog entry the count alignment owed — 47a120a4b, f2cbf0ed7
+- [x] 4.7 Run the full configured `validation.commands` gate locally instead of relying on GitHub checks —
+      8/8 green on f2cbf0ed7; create-app 333 pass / 0 fail / 5 skipped once dist/agentic is built
+- [ ] 4.8 Re-run the live routing lane for OMH-188/189 against the tightened assertions — requires a
+      scaffolded controller
