@@ -26,7 +26,7 @@
 | 6 | 6.1 | CommandHandler outputSchema seam with customers.deals.update exemplar | done | 3134617c0 |
 | 7 | 7.1 | Template assets and templates list API | done | 021b9b34a |
 | 7 | 7.2 | Template gallery dialog wired into list page, empty state, and editor | done | 932bb235c |
-| 8 | 8.1 | workflow_definition_drafts entity and migration | todo | — |
+| 8 | 8.1 | workflow_definition_drafts entity and migration | done | 25bd0428b |
 | 8 | 8.2 | Draft API routes (GET/PUT/DELETE, user-scoped) | todo | — |
 | 8 | 8.3 | Editor draft wiring: debounced draft save + restore banner | todo | — |
 | 9 | 9.1 | Docs: AGENTS.md activity-type recipe rewrite + user-guide updates | todo | — |

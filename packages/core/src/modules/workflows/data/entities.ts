@@ -214,6 +214,58 @@ export class WorkflowDefinition {
 }
 
 // ============================================================================
+// Entity: WorkflowDefinitionDraft
+// ============================================================================
+
+/**
+ * WorkflowDefinitionDraft entity
+ *
+ * Per-user autosaved editor drafts for workflow definitions. A draft may
+ * reference an existing definition (definitionId set) or a not-yet-saved one
+ * (definitionId null). baseUpdatedAt captures the definition's updatedAt the
+ * draft forked from, enabling conflict-aware restore messaging.
+ */
+@Entity({ tableName: 'workflow_definition_drafts' })
+@Unique({ properties: ['definitionId', 'userId', 'tenantId'] })
+@Index({ name: 'workflow_definition_drafts_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+export class WorkflowDefinitionDraft {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'definition_id', type: 'uuid', nullable: true })
+  definitionId?: string | null
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'definition', type: 'jsonb' })
+  definition!: WorkflowDefinitionData
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: WorkflowMetadata | null
+
+  @Property({ name: 'base_updated_at', type: Date, nullable: true })
+  baseUpdatedAt?: Date | null
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+// ============================================================================
 // Entity: WorkflowInstance
 // ============================================================================
 
@@ -667,6 +719,7 @@ export class WorkflowEventTrigger {
 // Export all entities as default for MikroORM discovery
 export default [
   WorkflowDefinition,
+  WorkflowDefinitionDraft,
   WorkflowInstance,
   WorkflowBranchInstance,
   StepInstance,
