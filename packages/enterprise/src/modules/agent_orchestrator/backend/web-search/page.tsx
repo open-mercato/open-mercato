@@ -455,119 +455,132 @@ export default function WebSearchSettingsPage() {
                   )}
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="space-y-1.5">
-                <Label>{t('agent_orchestrator.settings.webSearch.settleMode', 'Settle mode')}</Label>
-                <Select
-                  value={policy.settleMode}
-                  onValueChange={(next) => update({ settleMode: next as Policy['settleMode'] })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="race">race</SelectItem>
-                    <SelectItem value="quorum">quorum</SelectItem>
-                    <SelectItem value="exhaustive">exhaustive</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+          <CardContent className="space-y-6">
+            <FieldGroup title={t('agent_orchestrator.settings.webSearch.groupResolution', 'Resolution')}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label>{t('agent_orchestrator.settings.webSearch.settleMode', 'Settle mode')}</Label>
+                  <Select
+                    value={policy.settleMode}
+                    onValueChange={(next) => update({ settleMode: next as Policy['settleMode'] })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="race">race</SelectItem>
+                      <SelectItem value="quorum">quorum</SelectItem>
+                      <SelectItem value="exhaustive">exhaustive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              <div className="space-y-1.5">
-                <Label>{t('agent_orchestrator.settings.webSearch.lastResort', 'Last-resort adapter')}</Label>
-                <Select
-                  value={policy.lastResort ?? '__none__'}
-                  onValueChange={(next) => update({ lastResort: next === '__none__' ? null : next })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">—</SelectItem>
-                    {installed.map((adapter) => (
-                      <SelectItem key={adapter.id} value={adapter.id}>
-                        {adapter.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {t(
-                    'agent_orchestrator.settings.webSearch.lastResortHint',
-                    'Runs when every other adapter came up short, even if it is disabled above.',
+                <NumberField
+                  label={t('agent_orchestrator.settings.webSearch.concurrency', 'Concurrent adapters')}
+                  value={policy.concurrency}
+                  onChange={(next) => update({ concurrency: next })}
+                />
+                <NumberField
+                  label={t('agent_orchestrator.settings.webSearch.minResults', 'Minimum results')}
+                  value={policy.minResults}
+                  onChange={(next) => update({ minResults: next })}
+                />
+                <NumberField
+                  label={t('agent_orchestrator.settings.webSearch.minConfidence', 'Confidence threshold')}
+                  value={policy.minConfidence}
+                  max={1}
+                  step={0.05}
+                  onChange={(next) => update({ minConfidence: next })}
+                />
+
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label>{t('agent_orchestrator.settings.webSearch.lastResort', 'Last-resort adapter')}</Label>
+                  <Select
+                    value={policy.lastResort ?? '__none__'}
+                    onValueChange={(next) => update({ lastResort: next === '__none__' ? null : next })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      {installed.map((adapter) => (
+                        <SelectItem key={adapter.id} value={adapter.id}>
+                          {adapter.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      'agent_orchestrator.settings.webSearch.lastResortHint',
+                      'Runs when every other adapter came up short, even if it is disabled above.',
+                    )}
+                  </p>
+                </div>
+              </div>
+            </FieldGroup>
+
+            <FieldGroup title={t('agent_orchestrator.settings.webSearch.groupTiming', 'Timing and caching')}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <NumberField
+                  label={t('agent_orchestrator.settings.webSearch.softDeadlineMs', 'Soft deadline (ms)')}
+                  hint={t(
+                    'agent_orchestrator.settings.webSearch.softDeadlineHint',
+                    'Stop waiting for stragglers once results are in hand.',
                   )}
-                </p>
+                  value={policy.softDeadlineMs}
+                  onChange={(next) => update({ softDeadlineMs: next })}
+                />
+                <NumberField
+                  label={t('agent_orchestrator.settings.webSearch.hardDeadlineMs', 'Hard deadline (ms)')}
+                  hint={t(
+                    'agent_orchestrator.settings.webSearch.hardDeadlineHint',
+                    'Absolute ceiling, even with nothing found yet.',
+                  )}
+                  value={policy.hardDeadlineMs}
+                  onChange={(next) => update({ hardDeadlineMs: next })}
+                />
+                <NumberField
+                  label={t('agent_orchestrator.settings.webSearch.cacheTtlMs', 'Cache TTL (ms)')}
+                  hint={t(
+                    'agent_orchestrator.settings.webSearch.cacheTtlHint',
+                    'How long an identical query reuses its previous answer.',
+                  )}
+                  value={policy.cacheTtlMs}
+                  onChange={(next) => update({ cacheTtlMs: next })}
+                />
               </div>
+            </FieldGroup>
 
-              <NumberField
-                label={t('agent_orchestrator.settings.webSearch.concurrency', 'Concurrent adapters')}
-                value={policy.concurrency}
-                onChange={(next) => update({ concurrency: next })}
-              />
-              <NumberField
-                label={t('agent_orchestrator.settings.webSearch.minResults', 'Minimum results')}
-                value={policy.minResults}
-                onChange={(next) => update({ minResults: next })}
-              />
-              <NumberField
-                label={t('agent_orchestrator.settings.webSearch.minConfidence', 'Confidence threshold')}
-                value={policy.minConfidence}
-                max={1}
-                step={0.05}
-                onChange={(next) => update({ minConfidence: next })}
-              />
-              <NumberField
-                label={t('agent_orchestrator.settings.webSearch.cacheTtlMs', 'Cache TTL (ms)')}
-                value={policy.cacheTtlMs}
-                onChange={(next) => update({ cacheTtlMs: next })}
-              />
-              <NumberField
-                label={t('agent_orchestrator.settings.webSearch.softDeadlineMs', 'Soft deadline (ms)')}
-                hint={t(
-                  'agent_orchestrator.settings.webSearch.softDeadlineHint',
-                  'Stop waiting for stragglers once results are in hand.',
-                )}
-                value={policy.softDeadlineMs}
-                onChange={(next) => update({ softDeadlineMs: next })}
-              />
-              <NumberField
-                label={t('agent_orchestrator.settings.webSearch.hardDeadlineMs', 'Hard deadline (ms)')}
-                hint={t(
-                  'agent_orchestrator.settings.webSearch.hardDeadlineHint',
-                  'Absolute ceiling, even with nothing found yet.',
-                )}
-                value={policy.hardDeadlineMs}
-                onChange={(next) => update({ hardDeadlineMs: next })}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <ToggleRow
-                label={t(
-                  'agent_orchestrator.settings.webSearch.escalateToBrowser',
-                  'Escalate blocked sources to a browser',
-                )}
-                hint={t(
-                  'agent_orchestrator.settings.webSearch.escalateHint',
-                  'Retry in a real browser when a source returns a challenge page.',
-                )}
-                checked={policy.escalateToBrowser}
-                onChange={(checked) => update({ escalateToBrowser: checked })}
-              />
-              <ToggleRow
-                label={t(
-                  'agent_orchestrator.settings.webSearch.includeContentDefault',
-                  'Read page content by default',
-                )}
-                hint={t(
-                  'agent_orchestrator.settings.webSearch.includeContentHint',
-                  'Return page text with results, sparing a fetch per link.',
-                )}
-                checked={policy.content.enabledByDefault}
-                onChange={(checked) => update({ content: { ...policy.content, enabledByDefault: checked } })}
-              />
-            </div>
+            <FieldGroup title={t('agent_orchestrator.settings.webSearch.groupBehaviour', 'Behaviour')}>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <ToggleRow
+                  label={t(
+                    'agent_orchestrator.settings.webSearch.escalateToBrowser',
+                    'Escalate blocked sources to a browser',
+                  )}
+                  hint={t(
+                    'agent_orchestrator.settings.webSearch.escalateHint',
+                    'Retry in a real browser when a source returns a challenge page.',
+                  )}
+                  checked={policy.escalateToBrowser}
+                  onChange={(checked) => update({ escalateToBrowser: checked })}
+                />
+                <ToggleRow
+                  label={t(
+                    'agent_orchestrator.settings.webSearch.includeContentDefault',
+                    'Read page content by default',
+                  )}
+                  hint={t(
+                    'agent_orchestrator.settings.webSearch.includeContentHint',
+                    'Return page text with results, sparing a fetch per link.',
+                  )}
+                  checked={policy.content.enabledByDefault}
+                  onChange={(checked) => update({ content: { ...policy.content, enabledByDefault: checked } })}
+                />
+              </div>
+            </FieldGroup>
           </CardContent>
         </Card>
       </PageBody>

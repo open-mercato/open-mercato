@@ -953,6 +953,7 @@
   "agent_orchestrator.settings.webSearch.adapters": "Adaptery",
   "agent_orchestrator.settings.webSearch.adaptersDragHint": "Przeciągnij, aby ustawić kolejność. Włączone: {count} z {total}.",
   "agent_orchestrator.settings.webSearch.adaptersHint": "Włączone adaptery działają w kolejności, do limitu równoległości. Wyłączone adaptery pozostają zainstalowane i nadal mogą działać jako ostatnia deska ratunku.",
+  "agent_orchestrator.settings.webSearch.cacheTtlHint": "Jak długo identyczne zapytanie korzysta z poprzedniej odpowiedzi.",
   "agent_orchestrator.settings.webSearch.cacheTtlMs": "TTL pamięci podręcznej (ms)",
   "agent_orchestrator.settings.webSearch.concurrency": "Równoległe adaptery",
   "agent_orchestrator.settings.webSearch.description": "Wybierz, z których źródeł wyszukiwania mogą korzystać agenci, w jakiej kolejności i jak długo mogą działać.",

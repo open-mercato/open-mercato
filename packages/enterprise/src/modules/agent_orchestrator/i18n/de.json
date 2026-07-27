@@ -712,6 +712,7 @@
   "agent_orchestrator.settings.webSearch.adapters": "Adapter",
   "agent_orchestrator.settings.webSearch.adaptersDragHint": "Ziehen, um die Reihenfolge festzulegen. {count} von {total} aktiv.",
   "agent_orchestrator.settings.webSearch.adaptersHint": "Aktivierte Adapter laufen der Reihe nach, bis zum Parallelitätslimit. Deaktivierte Adapter bleiben installiert und können weiterhin als letzte Instanz dienen.",
+  "agent_orchestrator.settings.webSearch.cacheTtlHint": "Wie lange eine identische Anfrage ihre vorherige Antwort wiederverwendet.",
   "agent_orchestrator.settings.webSearch.cacheTtlMs": "Cache-TTL (ms)",
   "agent_orchestrator.settings.webSearch.concurrency": "Parallele Adapter",
   "agent_orchestrator.settings.webSearch.description": "Legen Sie fest, welche Suchquellen Agenten nutzen dürfen, in welcher Reihenfolge und wie lange sie dafür brauchen dürfen.",

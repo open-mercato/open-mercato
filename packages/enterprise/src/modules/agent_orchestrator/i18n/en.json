@@ -953,6 +953,7 @@
   "agent_orchestrator.settings.webSearch.adapters": "Adapters",
   "agent_orchestrator.settings.webSearch.adaptersDragHint": "Drag to set the order they are tried in. {count} of {total} enabled.",
   "agent_orchestrator.settings.webSearch.adaptersHint": "Enabled adapters run in order, up to the concurrency limit. Disabled adapters stay installed and can still act as the last resort.",
+  "agent_orchestrator.settings.webSearch.cacheTtlHint": "How long an identical query reuses its previous answer.",
   "agent_orchestrator.settings.webSearch.cacheTtlMs": "Cache TTL (ms)",
   "agent_orchestrator.settings.webSearch.concurrency": "Concurrent adapters",
   "agent_orchestrator.settings.webSearch.description": "Choose which search sources agents may use, in which order, and how long they may take.",

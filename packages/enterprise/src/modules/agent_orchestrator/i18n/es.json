@@ -712,6 +712,7 @@
   "agent_orchestrator.settings.webSearch.adapters": "Adaptadores",
   "agent_orchestrator.settings.webSearch.adaptersDragHint": "Arrastra para fijar el orden. {count} de {total} activos.",
   "agent_orchestrator.settings.webSearch.adaptersHint": "Los adaptadores activados se ejecutan en orden, hasta el límite de concurrencia. Los desactivados siguen instalados y aún pueden actuar como último recurso.",
+  "agent_orchestrator.settings.webSearch.cacheTtlHint": "Cuánto tiempo una consulta idéntica reutiliza su respuesta anterior.",
   "agent_orchestrator.settings.webSearch.cacheTtlMs": "TTL de caché (ms)",
   "agent_orchestrator.settings.webSearch.concurrency": "Adaptadores concurrentes",
   "agent_orchestrator.settings.webSearch.description": "Elige qué fuentes de búsqueda pueden usar los agentes, en qué orden y cuánto pueden tardar.",
