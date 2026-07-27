@@ -1079,8 +1079,10 @@ function recursivelyFindTraceCandidates(value, state, inheritedContentTool = fal
   }
   const ownContentTool = (exactReadTool || /command_execution|\bread\b|\bgrep\b|\bbash\b|\bshell\b|\bterminal\b|\bexecute\b/.test(marker)) && !/\bglob\b|file_search/.test(marker)
   const isContentTool = inheritedContentTool || ownContentTool
-  const callId = (typeof value.id === 'string' && value.id) || (typeof value.call_id === 'string' && value.call_id)
-    || (typeof value.tool_use_id === 'string' && value.tool_use_id) || inheritedCallId
+  const explicitCallId = (typeof value.call_id === 'string' && value.call_id)
+    || (typeof value.tool_use_id === 'string' && value.tool_use_id)
+  const ownCallId = explicitCallId || (ownTool && typeof value.id === 'string' && value.id)
+  const callId = ownTool ? ownCallId : ownCallId || inheritedCallId
   const refusedCall = Boolean(callId) && state.refusedCallIds.has(callId)
   for (const [key, child] of Object.entries(value)) {
     if (isContentTool && /^(?:file_path|filepath|path|paths|filename|file)$/i.test(key)) {

@@ -833,6 +833,39 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
   }
 })
 
+test('an arbitrary parent id cannot be inherited as a refused tool-call id', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'claude', `
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+console.log(JSON.stringify({ type: 'mcp_tool_call', id: 'call-refused', name: 'mcp__harness__read', status: 'failed', input: { path: '.ai/guides/extensions.md' } }))
+console.log(JSON.stringify({ type: 'event', id: 'call-refused', payload: {
+  type: 'mcp_tool_call', name: 'mcp__harness__read', status: 'completed', input: { path: '.ai/guides/contracts.md' }
+} }))
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', id: 'call-ok-1', name: 'mcp__harness__read', input: { path: 'AGENTS.md' } },
+  { type: 'tool_use', id: 'call-ok-2', name: 'mcp__harness__read', input: { path: '.ai/guides/architecture.md' } }
+] } }))
+console.log(JSON.stringify({ type: 'result', structured_output: {
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+} }))
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.deepEqual(stored.refusedContextReads, ['.ai/guides/extensions.md'])
+    assert.ok(stored.violations.includes('unsafe arbitrary app-root read .ai/guides/contracts.md'), JSON.stringify(stored.violations))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('a refused attempt to read a forbidden path still fails closed', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = claudeRefusedReadRunner(root, ['.env'])
