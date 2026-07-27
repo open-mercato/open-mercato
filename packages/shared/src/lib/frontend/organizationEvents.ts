@@ -11,6 +11,7 @@ let currentScope: OrganizationScopeChangedDetail = {
   tenantId: null 
 }
 let currentVersion = 0
+let hasEmitted = false
 
 export function getCurrentOrganizationScope(): OrganizationScopeChangedDetail {
   return { ...currentScope }
@@ -27,17 +28,25 @@ export function emitOrganizationScopeChanged(detail: OrganizationScopeChangedDet
   const hasChanged = 
     currentScope.organizationId !== detail.organizationId ||
     currentScope.tenantId !== detail.tenantId
+  // Guard so the very first emission always syncs subscribers, even when the
+  // initial scope matches the default all-orgs `{ null, null }` state.
+  const isFirstEmit = !hasEmitted
   
   // Update module-level state
   currentScope = { ...detail }
+  hasEmitted = true
   
   // Increment version only if actual change detected
   if (hasChanged) {
     currentVersion++
   }
   
-  // Emit event
-  window.dispatchEvent(new CustomEvent<OrganizationScopeChangedDetail>(ORGANIZATION_SCOPE_CHANGED_EVENT, { detail }))
+  // Only dispatch on real scope changes (or the first emission). Suppressing
+  // no-op re-emits avoids spurious DataTable refreshes, chrome refetches, and
+  // scope-hook churn when navigating between pages with the same scope.
+  if (hasChanged || isFirstEmit) {
+    window.dispatchEvent(new CustomEvent<OrganizationScopeChangedDetail>(ORGANIZATION_SCOPE_CHANGED_EVENT, { detail }))
+  }
 }
 
 export function subscribeOrganizationScopeChanged(
