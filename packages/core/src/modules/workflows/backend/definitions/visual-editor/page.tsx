@@ -7,7 +7,7 @@ import { EdgeEditDialog } from '../../../components/EdgeEditDialog'
 import { NodeEditDialogCrudForm } from '../../../components/NodeEditDialogCrudForm'
 import { EdgeEditDialogCrudForm } from '../../../components/EdgeEditDialogCrudForm'
 import type { Node, Edge, Connection } from '@xyflow/react'
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, appendWorkflowEdge } from '../../../lib/graph-utils'
 import { collectValidationIssues, countIssuesBySeverity, type WorkflowValidationIssue, type ZodIssueLike } from '../../../lib/collect-validation-issues'
@@ -15,6 +15,7 @@ import { formatWorkflowValidationError } from '../../../lib/format-validation-er
 import type { WorkflowGraphFocusTarget } from '../../../components/WorkflowGraph'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-flag'
+import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } from '../../../lib/draft-restore'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
 import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
 import { Page } from '@open-mercato/ui/backend/Page'
@@ -33,9 +34,10 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
-import { Alert, AlertTitle } from '@open-mercato/ui/primitives/alert'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -54,6 +56,18 @@ import * as React from 'react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
+
+type WorkflowDraftMetadata = { category?: string; tags?: string[]; icon?: string }
+
+type WorkflowDefinitionDraftPayload = {
+  definition: Record<string, unknown>
+  metadata?: WorkflowDraftMetadata | null
+  baseUpdatedAt: string | null
+  updatedAt: string | null
+}
+
+const DRAFT_AUTOSAVE_DEBOUNCE_MS = 2000
+const DRAFT_SAVED_LABEL_REFRESH_MS = 30000
 
 /**
  * VisualEditorPage - Visual workflow definition editor
@@ -143,6 +157,20 @@ export default function VisualEditorPage() {
   const isCodeOnly = source === 'code'
   const isCodeOverride = source === 'code_override'
 
+  // Per-user draft layer (spec §4.7): drafts persist server-side only for
+  // SAVED definitions (uuid ids). Unsaved/new definitions and code-defined
+  // workflows keep their state client-side only — no persistence at all.
+  // Draft saves deliberately never participate in the definition's optimistic
+  // lock; only the explicit Save PUT sends the lock header.
+  const draftEligible = isServerDraftEligible(definitionId) && !isCodeOnly
+  const [pendingDraft, setPendingDraft] = useState<{ draft: WorkflowDefinitionDraftPayload; baseMismatch: boolean } | null>(null)
+  const [draftAutosaveReady, setDraftAutosaveReady] = useState(false)
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null)
+  const [draftSaveFailed, setDraftSaveFailed] = useState(false)
+  const [draftClock, setDraftClock] = useState(0)
+  const lastPersistedDraftRef = useRef<string | null>(null)
+  const draftSuspendedRef = useRef(false)
+
   // Load existing definition if ID is provided
   useEffect(() => {
     const loadDefinition = async () => {
@@ -180,13 +208,54 @@ export default function VisualEditorPage() {
         setEdges(graph.edges)
 
         // Load embedded triggers from definition
-        setTriggers(definition.definition?.triggers || [])
+        const loadedTriggers = definition.definition?.triggers || []
+        setTriggers(loadedTriggers)
 
         // Track source so the editor mirrors the non-visual edit page UX:
         // code → read-only with Customize button; code_override → editable
         // with Reset to code; user → editable, no banner.
-        setSource((definition.source as 'code' | 'code_override' | 'user') ?? null)
-        setUpdatedAt(typeof definition.updatedAt === 'string' ? definition.updatedAt : null)
+        const loadedSource = (definition.source as 'code' | 'code_override' | 'user') ?? null
+        setSource(loadedSource)
+        const loadedUpdatedAt = typeof definition.updatedAt === 'string' ? definition.updatedAt : null
+        setUpdatedAt(loadedUpdatedAt)
+
+        // Draft layer: compare against the ROUND-TRIPPED definition (graph →
+        // definition with the same normalization the autosave uses) so a mere
+        // load/serialize drift never looks like an unsaved draft.
+        const comparableDefinition = {
+          ...graphToDefinition(graph.nodes, graph.edges, { includePositions: true }),
+          triggers: loadedTriggers.length > 0 ? loadedTriggers : undefined,
+        }
+        const loadedDraftMetadata: WorkflowDraftMetadata = {}
+        if (definition.metadata?.category) loadedDraftMetadata.category = definition.metadata.category
+        if (Array.isArray(definition.metadata?.tags) && definition.metadata.tags.length > 0) loadedDraftMetadata.tags = definition.metadata.tags
+        if (definition.metadata?.icon) loadedDraftMetadata.icon = definition.metadata.icon
+        lastPersistedDraftRef.current = stableSerializeDefinition({
+          definition: comparableDefinition,
+          metadata: Object.keys(loadedDraftMetadata).length > 0 ? loadedDraftMetadata : null,
+        })
+
+        if (loadedSource !== 'code' && isServerDraftEligible(definitionId)) {
+          const draftResult = await apiCall<{ data?: WorkflowDefinitionDraftPayload; error?: string }>(
+            `/api/workflows/definitions/${definitionId}/draft`,
+          )
+          const draft = draftResult.ok ? draftResult.result?.data : undefined
+          const decision = draft
+            ? decideDraftRestore({
+                draftDefinition: draft.definition,
+                draftBaseUpdatedAt: draft.baseUpdatedAt,
+                loadedDefinition: comparableDefinition,
+                definitionUpdatedAt: loadedUpdatedAt,
+              })
+            : { offerRestore: false as const }
+          if (draft && decision.offerRestore) {
+            // Hold autosave until the user restores or discards, so editing
+            // with the banner open can never silently overwrite the draft.
+            setPendingDraft({ draft, baseMismatch: decision.baseMismatch })
+          } else {
+            setDraftAutosaveReady(true)
+          }
+        }
       } catch (error) {
         logger.error('Error loading workflow definition', { err: error })
         flash('Failed to load workflow definition', 'error')
@@ -196,6 +265,113 @@ export default function VisualEditorPage() {
     }
 
     loadDefinition()
+  }, [definitionId])
+
+  const draftMetadata = useMemo(() => {
+    const metadata: WorkflowDraftMetadata = {}
+    if (category) metadata.category = category
+    if (tags.length > 0) metadata.tags = tags
+    if (icon) metadata.icon = icon
+    return metadata
+  }, [category, tags, icon])
+
+  // Debounced autosave-to-draft (~2s): watches the same editor-state dep set
+  // the save handler uses and PUTs the per-user draft. Never fires for
+  // unsaved/new or code-defined definitions, and failures stay quiet — the
+  // small indicator flips to "draft not saved" and the next change retries.
+  useEffect(() => {
+    if (!draftAutosaveReady || !draftEligible || !definitionId) return
+    if (draftSuspendedRef.current) return
+    let payload: { definition: Record<string, unknown>; metadata: WorkflowDraftMetadata | null; baseUpdatedAt: string | null }
+    try {
+      payload = {
+        definition: {
+          ...graphToDefinition(nodes, edges, { includePositions: true }),
+          triggers: triggers.length > 0 ? triggers : undefined,
+        },
+        metadata: Object.keys(draftMetadata).length > 0 ? draftMetadata : null,
+        baseUpdatedAt: updatedAt,
+      }
+    } catch {
+      return
+    }
+    const serialized = stableSerializeDefinition({ definition: payload.definition, metadata: payload.metadata })
+    if (serialized === lastPersistedDraftRef.current) return
+    const timer = window.setTimeout(async () => {
+      if (draftSuspendedRef.current) return
+      try {
+        const result = await apiCall<{ data?: WorkflowDefinitionDraftPayload; error?: string }>(
+          `/api/workflows/definitions/${definitionId}/draft`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+        )
+        if (result.ok) {
+          lastPersistedDraftRef.current = serialized
+          setDraftSavedAt(new Date().toISOString())
+          setDraftSaveFailed(false)
+        } else {
+          setDraftSaveFailed(true)
+        }
+      } catch {
+        setDraftSaveFailed(true)
+      }
+    }, DRAFT_AUTOSAVE_DEBOUNCE_MS)
+    return () => window.clearTimeout(timer)
+  }, [draftAutosaveReady, draftEligible, definitionId, nodes, edges, triggers, draftMetadata, updatedAt, workflowName, description, version, enabled, effectiveFrom, effectiveTo])
+
+  // Keep the "Draft saved Xs ago" label fresh without re-rendering per second.
+  useEffect(() => {
+    if (!draftSavedAt) return
+    const interval = window.setInterval(() => setDraftClock((tick) => tick + 1), DRAFT_SAVED_LABEL_REFRESH_MS)
+    return () => window.clearInterval(interval)
+  }, [draftSavedAt])
+
+  const draftSavedLabel = useMemo(() => {
+    if (!draftSavedAt) return null
+    return formatRelativeTime(draftSavedAt, { translate: t })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftSavedAt, draftClock, t])
+
+  const handleRestoreDraft = useCallback(() => {
+    if (!pendingDraft) return
+    try {
+      const draftDefinition = pendingDraft.draft.definition as unknown as Parameters<typeof definitionToGraph>[0]
+      const graph = definitionToGraph(draftDefinition)
+      setNodes(graph.nodes)
+      setEdges(graph.edges)
+      const draftTriggers = pendingDraft.draft.definition.triggers
+      setTriggers(Array.isArray(draftTriggers) ? (draftTriggers as WorkflowDefinitionTrigger[]) : [])
+      if (pendingDraft.draft.metadata) {
+        setCategory(pendingDraft.draft.metadata.category || '')
+        setTags(pendingDraft.draft.metadata.tags || [])
+        setIcon(pendingDraft.draft.metadata.icon || '')
+      }
+      lastPersistedDraftRef.current = stableSerializeDefinition({
+        definition: pendingDraft.draft.definition,
+        metadata: pendingDraft.draft.metadata ?? null,
+      })
+      flash(t('workflows.visualEditor.draft.restored', 'Draft restored'), 'success')
+    } catch (error) {
+      logger.error('Error restoring workflow definition draft', { err: error })
+      flash(t('workflows.visualEditor.draft.restoreFailed', 'Failed to restore draft'), 'error')
+    } finally {
+      setPendingDraft(null)
+      setDraftAutosaveReady(true)
+    }
+  }, [pendingDraft, t])
+
+  const handleDiscardDraft = useCallback(async () => {
+    setPendingDraft(null)
+    setDraftAutosaveReady(true)
+    if (!definitionId) return
+    try {
+      await apiCall(`/api/workflows/definitions/${definitionId}/draft`, { method: 'DELETE' })
+    } catch (error) {
+      logger.error('Error discarding workflow definition draft', { err: error })
+    }
   }, [definitionId])
 
   // Handle node changes from ReactFlow. The lazy graph applies React Flow's
@@ -473,6 +649,17 @@ export default function VisualEditorPage() {
 
       const savedDefinition = result.result?.data
 
+      // Explicit Save promoted the working copy: drop the per-user draft
+      // (fire-and-forget) and suspend autosave so a pending debounce can't
+      // recreate it before the redirect.
+      draftSuspendedRef.current = true
+      setPendingDraft(null)
+      setDraftSavedAt(null)
+      setDraftSaveFailed(false)
+      if (isUpdate && isServerDraftEligible(definitionId)) {
+        void apiCall(`/api/workflows/definitions/${definitionId}/draft`, { method: 'DELETE' }).catch(() => undefined)
+      }
+
       flash(
         isUpdate
           ? t('workflows.messages.workflowUpdated', 'Workflow updated successfully')
@@ -708,6 +895,31 @@ export default function VisualEditorPage() {
     </>
   )
 
+  const draftRestoreBanner = pendingDraft ? (
+    <div className="shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3">
+      <Alert variant="info">
+        <AlertTitle>
+          {t('workflows.visualEditor.draft.bannerTitle', 'You have an unsaved draft from {time}', {
+            time: formatRelativeTime(pendingDraft.draft.updatedAt, { translate: t }) ?? '',
+          })}
+        </AlertTitle>
+        {pendingDraft.baseMismatch && (
+          <AlertDescription>
+            {t('workflows.visualEditor.draft.bannerConflict', 'The workflow definition has changed since this draft was made. Restoring will apply your draft over the newer version.')}
+          </AlertDescription>
+        )}
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button size="sm" onClick={handleRestoreDraft} className="h-8 text-xs">
+            {t('workflows.visualEditor.draft.restore', 'Restore draft')}
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleDiscardDraft} className="h-8 text-xs">
+            {t('workflows.visualEditor.draft.discard', 'Discard')}
+          </Button>
+        </div>
+      </Alert>
+    </div>
+  ) : null
+
   const { errors: problemErrorCount, warnings: problemWarningCount } = countIssuesBySeverity(problems)
 
   const problemsPanel = showProblems && problems.length > 0 ? (
@@ -771,6 +983,7 @@ export default function VisualEditorPage() {
   if (isMobile) {
     return (
       <Page className="flex h-[100svh] flex-col space-y-0 overflow-hidden">
+        {draftRestoreBanner}
         <MobileVisualEditor
           definitionId={definitionId}
           isSaving={isSaving}
@@ -811,6 +1024,13 @@ export default function VisualEditorPage() {
           }
           actionsContent={
             <div className="flex flex-wrap items-center justify-end gap-1 md:gap-2">
+              {draftEligible && (draftSaveFailed || draftSavedLabel) && (
+                <span role="status" className="text-xs text-muted-foreground">
+                  {draftSaveFailed
+                    ? t('workflows.visualEditor.draft.saveFailed', 'Draft not saved')
+                    : t('workflows.visualEditor.draft.saved', 'Draft saved {time}', { time: draftSavedLabel ?? '' })}
+                </span>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -921,6 +1141,9 @@ export default function VisualEditorPage() {
           )}
         </div>
       )}
+
+      {/* Per-user draft restore banner (spec §4.7) */}
+      {draftRestoreBanner}
 
       {/* Workflow Metadata Form */}
       {showMetadata && (
