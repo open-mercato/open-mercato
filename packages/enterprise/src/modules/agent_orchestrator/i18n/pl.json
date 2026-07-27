@@ -975,6 +975,7 @@
   "agent_orchestrator.settings.webSearch.sourceInstance": "Używane są domyślne ustawienia wdrożenia. Zapis utworzy nadpisanie dla tego najemcy.",
   "agent_orchestrator.settings.webSearch.sourceTenant": "Używane jest nadpisanie tego najemcy.",
   "agent_orchestrator.settings.webSearch.title": "Wyszukiwanie w sieci",
+  "agent_orchestrator.settings.webSearch.tuning": "Strojenie",
   "agent_orchestrator.tasks.actions.new": "Nowe zadanie",
   "agent_orchestrator.tasks.api.authNote": "Uwierzytelnij się kluczem API (nagłówek x-api-key), którego rola nadaje agent_orchestrator.tasks.run; runy są atrybuowane jako api_key:<id>.",
   "agent_orchestrator.tasks.api.copied": "Skopiowano do schowka.",

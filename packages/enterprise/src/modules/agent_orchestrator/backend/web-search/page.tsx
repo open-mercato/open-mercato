@@ -11,10 +11,16 @@
  */
 
 import * as React from 'react'
+import { ChevronDown, ChevronRight, ArrowDown, ArrowUp } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { Switch } from '@open-mercato/ui/primitives/switch'
+import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -85,7 +91,7 @@ function mergeAdapters(policy: Policy, installed: InstalledAdapter[]): AdapterEn
 }
 
 
-/** Renders one option from an adapter's own schema. */
+/** Renders one option from an adapter's own schema, using the shared primitives. */
 function OptionInput({
   field,
   value,
@@ -96,31 +102,31 @@ function OptionInput({
   onChange: (next: unknown) => void
 }) {
   if (field.kind === 'boolean') {
-    return (
-      <input type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} />
-    )
+    return <Switch checked={value === true} onCheckedChange={onChange} />
   }
   if (field.kind === 'enum') {
     return (
-      <select
-        className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+      <Select
         value={typeof value === 'string' ? value : ''}
-        onChange={(event) => onChange(event.target.value === '' ? undefined : event.target.value)}
+        onValueChange={(next) => onChange(next === '' ? undefined : next)}
       >
-        <option value="">—</option>
-        {(field.choices ?? []).map((choice) => (
-          <option key={choice} value={choice}>
-            {choice}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {(field.choices ?? []).map((choice) => (
+            <SelectItem key={choice} value={choice}>
+              {choice}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     )
   }
   if (field.kind === 'number') {
     return (
       <Input
         type="number"
-        className="mt-1"
         value={typeof value === 'number' ? value : ''}
         onChange={(event) => onChange(event.target.value === '' ? undefined : Number(event.target.value))}
       />
@@ -129,7 +135,6 @@ function OptionInput({
   if (field.kind === 'stringList') {
     return (
       <Input
-        className="mt-1"
         value={Array.isArray(value) ? (value as string[]).join(', ') : ''}
         placeholder="a, b, c"
         onChange={(event) => {
@@ -146,11 +151,21 @@ function OptionInput({
     <Input
       // Secrets arrive masked and are only sent back when actually retyped.
       type={field.secret ? 'password' : 'text'}
-      className="mt-1"
       value={typeof value === 'string' ? value : ''}
-      placeholder={field.format === 'url' ? 'https://…' : undefined}
+      placeholder={field.format === 'url' ? 'https://...' : undefined}
       onChange={(event) => onChange(event.target.value === '' ? undefined : event.target.value)}
     />
+  )
+}
+
+/** One labelled control in the tuning grid. */
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      {children}
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
   )
 }
 
@@ -267,234 +282,270 @@ export default function WebSearchSettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center py-12">
-        <Spinner className="size-5" />
-      </div>
+      <Page>
+        <PageBody>
+          <div className="flex justify-center py-16">
+            <Spinner className="size-5" />
+          </div>
+        </PageBody>
+      </Page>
     )
   }
-  if (loadError) return <ErrorMessage label={loadError} />
+  if (loadError) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={loadError} />
+        </PageBody>
+      </Page>
+    )
+  }
   if (!policy) return null
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold">{t('agent_orchestrator.settings.webSearch.title', 'Web search')}</h1>
-        <p className="text-sm text-muted-foreground">
-          {t(
-            'agent_orchestrator.settings.webSearch.description',
-            'Choose which search sources agents may use, in which order, and how long they may take.',
-          )}
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {source === 'tenant'
-            ? t('agent_orchestrator.settings.webSearch.sourceTenant', "Using this tenant's override.")
-            : t(
-                'agent_orchestrator.settings.webSearch.sourceInstance',
-                'Using the deployment default. Saving creates a tenant override.',
-              )}
-        </p>
-      </div>
-
-      <WebSearchHealthCard />
-
-      <div className="rounded-xl border border-border bg-card p-4">
-        <div className="text-sm font-semibold">{t('agent_orchestrator.settings.webSearch.adapters', 'Adapters')}</div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {t(
-            'agent_orchestrator.settings.webSearch.adaptersHint',
-            'Enabled adapters run in order, up to the concurrency limit. Disabled adapters stay installed and can still act as the last resort.',
-          )}
-        </p>
-
-        {policy.adapters.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">
-            {t(
-              'agent_orchestrator.settings.webSearch.none',
-              'No adapter packages are installed. Add one with yarn add, then run yarn generate.',
-            )}
-          </p>
-        ) : (
-          <ul className="mt-3 space-y-2">
-            {policy.adapters.map((entry, index) => {
-              const meta = installed.find((adapter) => adapter.id === entry.id)
-              const fields = meta?.fields ?? []
-              const isOpen = expanded.has(entry.id)
-              return (
-                <li key={entry.id} className="rounded-lg border border-border p-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={entry.enabled}
-                        onChange={(event) => updateAdapter(entry.id, { enabled: event.target.checked })}
-                      />
-                      <span className="font-mono">{entry.id}</span>
-                    </label>
-                    {meta && !meta.configured ? (
-                      <StatusBadge variant="warning">
-                        {t('agent_orchestrator.settings.webSearch.needsConfig', 'Configuration required')}
-                      </StatusBadge>
-                    ) : null}
-                    {meta ? <span className="text-xs text-muted-foreground">{meta.packageName}</span> : null}
-                    <label className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-                      weight
-                      <Input
-                        type="number"
-                        min={0}
-                        max={10}
-                        step={0.5}
-                        value={entry.weight}
-                        className="w-20"
-                        onChange={(event) => updateAdapter(entry.id, { weight: Number(event.target.value) || 0 })}
-                      />
-                    </label>
-                    {fields.length > 0 ? (
-                      <Button variant="outline" size="sm" onClick={() => toggleExpanded(entry.id)}>
-                        {isOpen
-                          ? t('agent_orchestrator.settings.webSearch.hideConfig', 'Hide config')
-                          : t('agent_orchestrator.settings.webSearch.showConfig', 'Configure')}
-                      </Button>
-                    ) : null}
-                    <div className="flex gap-1">
-                      <Button variant="outline" size="sm" disabled={index === 0} onClick={() => move(entry.id, -1)}>
-                        ↑
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={index === policy.adapters.length - 1}
-                        onClick={() => move(entry.id, 1)}
-                      >
-                        ↓
-                      </Button>
-                    </div>
-                  </div>
-
-                  {meta && !meta.configured && meta.configurationHint ? (
-                    <p className="mt-2 text-xs text-status-warning-text">{meta.configurationHint}</p>
-                  ) : null}
-
-                  {isOpen && fields.length > 0 ? (
-                    <div className="mt-3 grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-2">
-                      {fields.map((field) => (
-                        <label key={field.name} className="text-sm">
-                          <span className="flex items-center gap-1">
-                            {field.name}
-                            {field.required ? <span className="text-status-error-text">*</span> : null}
-                          </span>
-                          <OptionInput
-                            field={field}
-                            value={adapterOptions[entry.id]?.[field.name]}
-                            onChange={(next) => updateOption(entry.id, field.name, next)}
-                          />
-                        </label>
-                      ))}
-                    </div>
-                  ) : null}
-                </li>
-              )
-            })}
-          </ul>
+    <Page>
+      <PageHeader
+        title={t('agent_orchestrator.settings.webSearch.title', 'Web search')}
+        description={t(
+          'agent_orchestrator.settings.webSearch.description',
+          'Choose which search sources agents may use, in which order, and how long they may take.',
         )}
-      </div>
+        actions={
+          <Button onClick={() => void save()} disabled={isSaving}>
+            {isSaving ? <Spinner className="size-4" /> : null}
+            {t('agent_orchestrator.settings.webSearch.save', 'Save')}
+          </Button>
+        }
+      />
 
-      <div className="grid grid-cols-1 gap-3 rounded-xl border border-border bg-card p-4 sm:grid-cols-2">
-        <label className="text-sm">
-          {t('agent_orchestrator.settings.webSearch.settleMode', 'Settle mode')}
-          <select
-            className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-            value={policy.settleMode}
-            onChange={(event) => update({ settleMode: event.target.value as Policy['settleMode'] })}
-          >
-            <option value="race">race</option>
-            <option value="quorum">quorum</option>
-            <option value="exhaustive">exhaustive</option>
-          </select>
-        </label>
+      <PageBody>
+        <WebSearchHealthCard />
 
-        <label className="text-sm">
-          {t('agent_orchestrator.settings.webSearch.lastResort', 'Last-resort adapter')}
-          <select
-            className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-            value={policy.lastResort ?? ''}
-            onChange={(event) => update({ lastResort: event.target.value === '' ? null : event.target.value })}
-          >
-            <option value="">—</option>
-            {installed.map((adapter) => (
-              <option key={adapter.id} value={adapter.id}>
-                {adapter.id}
-              </option>
-            ))}
-          </select>
-          <span className="mt-1 block text-xs text-muted-foreground">
-            {t(
-              'agent_orchestrator.settings.webSearch.lastResortHint',
-              'Runs when every other adapter came up short, even if it is disabled above.',
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('agent_orchestrator.settings.webSearch.adapters', 'Adapters')}</CardTitle>
+            <CardDescription>
+              {t(
+                'agent_orchestrator.settings.webSearch.adaptersHint',
+                'Enabled adapters run in order, up to the concurrency limit. Disabled adapters stay installed and can still act as the last resort.',
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {policy.adapters.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  'agent_orchestrator.settings.webSearch.none',
+                  'No adapter packages are installed. Add one with yarn add, then run yarn generate.',
+                )}
+              </p>
+            ) : (
+              <ul className="divide-y divide-border rounded-lg border border-border">
+                {policy.adapters.map((entry, index) => {
+                  const meta = installed.find((adapter) => adapter.id === entry.id)
+                  const fields = meta?.fields ?? []
+                  const isOpen = expanded.has(entry.id)
+                  return (
+                    <li key={entry.id} className="p-3">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Switch
+                          checked={entry.enabled}
+                          onCheckedChange={(checked) => updateAdapter(entry.id, { enabled: checked })}
+                        />
+                        <span className="font-medium">{entry.id}</span>
+                        {meta && !meta.configured ? (
+                          <StatusBadge variant="warning">
+                            {t('agent_orchestrator.settings.webSearch.needsConfig', 'Configuration required')}
+                          </StatusBadge>
+                        ) : null}
+                        {meta ? (
+                          <span className="text-xs text-muted-foreground">{meta.packageName}</span>
+                        ) : null}
+
+                        <div className="ml-auto flex items-center gap-2">
+                          <Label className="text-xs text-muted-foreground">weight</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={10}
+                            step={0.5}
+                            value={entry.weight}
+                            className="w-20"
+                            onChange={(event) =>
+                              updateAdapter(entry.id, { weight: Number(event.target.value) || 0 })
+                            }
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label="Move up"
+                            disabled={index === 0}
+                            onClick={() => move(entry.id, -1)}
+                          >
+                            <ArrowUp className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label="Move down"
+                            disabled={index === policy.adapters.length - 1}
+                            onClick={() => move(entry.id, 1)}
+                          >
+                            <ArrowDown className="size-4" />
+                          </Button>
+                          {fields.length > 0 ? (
+                            <Button variant="outline" size="sm" onClick={() => toggleExpanded(entry.id)}>
+                              {isOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                              {isOpen
+                                ? t('agent_orchestrator.settings.webSearch.hideConfig', 'Hide config')
+                                : t('agent_orchestrator.settings.webSearch.showConfig', 'Configure')}
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {meta && !meta.configured && meta.configurationHint ? (
+                        <p className="mt-2 text-xs text-status-warning-text">{meta.configurationHint}</p>
+                      ) : null}
+
+                      {isOpen && fields.length > 0 ? (
+                        <div className="mt-3 grid grid-cols-1 gap-4 border-t border-border pt-3 sm:grid-cols-2">
+                          {fields.map((field) => (
+                            <Field
+                              key={field.name}
+                              label={field.required ? `${field.name} *` : field.name}
+                            >
+                              <OptionInput
+                                field={field}
+                                value={adapterOptions[entry.id]?.[field.name]}
+                                onChange={(next) => updateOption(entry.id, field.name, next)}
+                              />
+                            </Field>
+                          ))}
+                        </div>
+                      ) : null}
+                    </li>
+                  )
+                })}
+              </ul>
             )}
-          </span>
-        </label>
+          </CardContent>
+        </Card>
 
-        {(
-          [
-            ['concurrency', 'Concurrent adapters'],
-            ['minResults', 'Minimum results'],
-            ['softDeadlineMs', 'Soft deadline (ms)'],
-            ['hardDeadlineMs', 'Hard deadline (ms)'],
-            ['cacheTtlMs', 'Cache TTL (ms)'],
-          ] as const
-        ).map(([key, fallback]) => (
-          <label key={key} className="text-sm">
-            {t(`agent_orchestrator.settings.webSearch.${key}`, fallback)}
-            <Input
-              type="number"
-              min={0}
-              value={policy[key]}
-              className="mt-1"
-              onChange={(event) => update({ [key]: Number(event.target.value) || 0 } as Partial<Policy>)}
-            />
-          </label>
-        ))}
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('agent_orchestrator.settings.webSearch.tuning', 'Tuning')}</CardTitle>
+            <CardDescription>
+              {source === 'tenant'
+                ? t('agent_orchestrator.settings.webSearch.sourceTenant', "Using this tenant's override.")
+                : t(
+                    'agent_orchestrator.settings.webSearch.sourceInstance',
+                    'Using the deployment default. Saving creates a tenant override.',
+                  )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label={t('agent_orchestrator.settings.webSearch.settleMode', 'Settle mode')}>
+              <Select
+                value={policy.settleMode}
+                onValueChange={(next) => update({ settleMode: next as Policy['settleMode'] })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="race">race</SelectItem>
+                  <SelectItem value="quorum">quorum</SelectItem>
+                  <SelectItem value="exhaustive">exhaustive</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
 
-        <label className="text-sm">
-          {t('agent_orchestrator.settings.webSearch.minConfidence', 'Confidence threshold')}
-          <Input
-            type="number"
-            min={0}
-            max={1}
-            step={0.05}
-            value={policy.minConfidence}
-            className="mt-1"
-            onChange={(event) => update({ minConfidence: Number(event.target.value) || 0 })}
-          />
-        </label>
+            <Field
+              label={t('agent_orchestrator.settings.webSearch.lastResort', 'Last-resort adapter')}
+              hint={t(
+                'agent_orchestrator.settings.webSearch.lastResortHint',
+                'Runs when every other adapter came up short, even if it is disabled above.',
+              )}
+            >
+              <Select
+                value={policy.lastResort ?? '__none__'}
+                onValueChange={(next) => update({ lastResort: next === '__none__' ? null : next })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">—</SelectItem>
+                  {installed.map((adapter) => (
+                    <SelectItem key={adapter.id} value={adapter.id}>
+                      {adapter.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
 
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={policy.escalateToBrowser}
-            onChange={(event) => update({ escalateToBrowser: event.target.checked })}
-          />
-          {t('agent_orchestrator.settings.webSearch.escalateToBrowser', 'Escalate blocked sources to a browser')}
-        </label>
+            {(
+              [
+                ['concurrency', 'Concurrent adapters'],
+                ['minResults', 'Minimum results'],
+                ['softDeadlineMs', 'Soft deadline (ms)'],
+                ['hardDeadlineMs', 'Hard deadline (ms)'],
+                ['cacheTtlMs', 'Cache TTL (ms)'],
+              ] as const
+            ).map(([key, fallback]) => (
+              <Field key={key} label={t(`agent_orchestrator.settings.webSearch.${key}`, fallback)}>
+                <Input
+                  type="number"
+                  min={0}
+                  value={policy[key]}
+                  onChange={(event) => update({ [key]: Number(event.target.value) || 0 } as Partial<Policy>)}
+                />
+              </Field>
+            ))}
 
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={policy.content.enabledByDefault}
-            onChange={(event) =>
-              update({ content: { ...policy.content, enabledByDefault: event.target.checked } })
-            }
-          />
-          {t('agent_orchestrator.settings.webSearch.includeContentDefault', 'Read page content by default')}
-        </label>
-      </div>
+            <Field label={t('agent_orchestrator.settings.webSearch.minConfidence', 'Confidence threshold')}>
+              <Input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={policy.minConfidence}
+                onChange={(event) => update({ minConfidence: Number(event.target.value) || 0 })}
+              />
+            </Field>
 
-      <div className="flex justify-end">
-        <Button onClick={() => void save()} disabled={isSaving}>
-          {isSaving ? <Spinner className="size-4" /> : null}
-          {t('agent_orchestrator.settings.webSearch.save', 'Save')}
-        </Button>
-      </div>
-    </div>
+            <div className="flex items-center gap-3 sm:col-span-2">
+              <Switch
+                checked={policy.escalateToBrowser}
+                onCheckedChange={(checked) => update({ escalateToBrowser: checked })}
+              />
+              <Label>
+                {t(
+                  'agent_orchestrator.settings.webSearch.escalateToBrowser',
+                  'Escalate blocked sources to a browser',
+                )}
+              </Label>
+            </div>
+
+            <div className="flex items-center gap-3 sm:col-span-2">
+              <Switch
+                checked={policy.content.enabledByDefault}
+                onCheckedChange={(checked) =>
+                  update({ content: { ...policy.content, enabledByDefault: checked } })
+                }
+              />
+              <Label>
+                {t(
+                  'agent_orchestrator.settings.webSearch.includeContentDefault',
+                  'Read page content by default',
+                )}
+              </Label>
+            </div>
+          </CardContent>
+        </Card>
+      </PageBody>
+    </Page>
   )
 }

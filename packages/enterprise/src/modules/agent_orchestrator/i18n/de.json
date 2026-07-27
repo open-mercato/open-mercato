@@ -734,6 +734,7 @@
   "agent_orchestrator.settings.webSearch.sourceInstance": "Es gilt die Standardeinstellung des Deployments. Beim Speichern wird eine mandantenspezifische Überschreibung angelegt.",
   "agent_orchestrator.settings.webSearch.sourceTenant": "Es gilt die Überschreibung dieses Mandanten.",
   "agent_orchestrator.settings.webSearch.title": "Websuche",
+  "agent_orchestrator.settings.webSearch.tuning": "Feinabstimmung",
   "agent_orchestrator.tasks.actions.new": "Neue Aufgabe",
   "agent_orchestrator.tasks.api.authNote": "Authentifizierung per API-Schlüssel (x-api-key-Header), dessen Rolle agent_orchestrator.tasks.run gewährt; Läufe werden als api_key:<id> attribuiert.",
   "agent_orchestrator.tasks.api.copied": "In die Zwischenablage kopiert.",

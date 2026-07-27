@@ -36,7 +36,7 @@ function resolveAdapterEntries(container: AwilixContainer): readonly AdapterRegi
  * The model adapter needs a live LLM handle, which is not serializable config.
  * Binding it here is the only place OM concepts meet adapter code.
  */
-function hostCapabilitiesFor(adapterId: string, container: AwilixContainer): Record<string, unknown> {
+export function hostCapabilitiesFor(adapterId: string, container: AwilixContainer): Record<string, unknown> {
   if (adapterId !== MODEL_ADAPTER_ID) return {}
   return {
     resolveModel: () => createModelFactory(container).resolveModel({ moduleId: 'agent_orchestrator' }),

@@ -975,6 +975,7 @@
   "agent_orchestrator.settings.webSearch.sourceInstance": "Using the deployment default. Saving creates a tenant override.",
   "agent_orchestrator.settings.webSearch.sourceTenant": "Using this tenant's override.",
   "agent_orchestrator.settings.webSearch.title": "Web search",
+  "agent_orchestrator.settings.webSearch.tuning": "Tuning",
   "agent_orchestrator.tasks.actions.new": "New task",
   "agent_orchestrator.tasks.api.authNote": "Authenticate with an API key (x-api-key header) whose role grants agent_orchestrator.tasks.run; runs are attributed as api_key:<id>.",
   "agent_orchestrator.tasks.api.copied": "Copied to clipboard.",

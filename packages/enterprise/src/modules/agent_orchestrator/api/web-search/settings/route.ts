@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import type { AwilixContainer } from 'awilix'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -17,6 +18,7 @@ import {
   resolveWebSearchSettings,
   storedSettingsSchema,
 } from '../../../lib/webSearch/policy'
+import { hostCapabilitiesFor } from '../../../lib/webSearch/registry'
 import { agentOrchestratorTag } from '../../openapi'
 
 /**
@@ -46,7 +48,7 @@ type ModuleConfigServiceLike = {
   ): Promise<unknown>
 }
 
-function loadRegistry(container: { resolve(key: string): unknown }) {
+function loadRegistry(container: AwilixContainer) {
   try {
     return resolveAdapterModules((container.resolve('webResearchAdapterEntries') as AdapterRegistryEntry[]) ?? [])
   } catch {
@@ -61,16 +63,19 @@ function loadRegistry(container: { resolve(key: string): unknown }) {
  * operator sees after installing an adapter that still needs a key — the same
  * check the engine uses at request time, so the two can never disagree.
  */
-function catalogue(
-  container: { resolve(key: string): unknown },
-  adapterOptions: Readonly<Record<string, unknown>>,
-) {
+function catalogue(container: AwilixContainer, adapterOptions: Readonly<Record<string, unknown>>) {
   const registry = loadRegistry(container)
   return {
     installed: registry.loaded.map((entry) => {
       const fields = describeOptionsSchema(entry.module)
       const stored = (adapterOptions[entry.module.id] as Record<string, unknown> | undefined) ?? {}
-      const built = instantiateAdapter(entry, stored)
+      // Must mirror what the engine injects, or an adapter whose requirement is a
+      // host capability rather than stored config (model-native needs a model
+      // resolver) reports "not configured" here while working fine at runtime.
+      const built = instantiateAdapter(entry, {
+        ...stored,
+        ...hostCapabilitiesFor(entry.module.id, container),
+      })
       const readiness = built.adapter.readiness()
       return {
         id: entry.module.id,

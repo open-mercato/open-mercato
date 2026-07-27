@@ -734,6 +734,7 @@
   "agent_orchestrator.settings.webSearch.sourceInstance": "Se usa el valor por defecto del despliegue. Al guardar se crea una anulación para este inquilino.",
   "agent_orchestrator.settings.webSearch.sourceTenant": "Se usa la anulación de este inquilino.",
   "agent_orchestrator.settings.webSearch.title": "Búsqueda web",
+  "agent_orchestrator.settings.webSearch.tuning": "Ajustes",
   "agent_orchestrator.tasks.actions.new": "Nueva tarea",
   "agent_orchestrator.tasks.api.authNote": "Autentícate con una clave API (cabecera x-api-key) cuyo rol otorgue agent_orchestrator.tasks.run; las ejecuciones se atribuyen como api_key:<id>.",
   "agent_orchestrator.tasks.api.copied": "Copiado al portapapeles.",
