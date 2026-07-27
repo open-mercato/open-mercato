@@ -6,19 +6,18 @@
  * the existing STABLE executeX handlers in activity-executor.ts — the
  * handlers keep their exported signatures; the registry only adapts them to
  * the uniform (config, ctx, deps) shape.
+ *
+ * The executor is loaded lazily inside each execute closure: this module sits
+ * on the registry bootstrap chain that validators.ts and the visual editor
+ * import, so a static activity-executor import would drag the queue/undici
+ * runtime into the UI bundle. Registration itself needs only the schemas,
+ * form specs, and metadata. WAIT is the exception: its pure delay executes
+ * inline so the timer is scheduled synchronously (matching executeWait's
+ * observable behavior under fake timers).
  */
 
 import { getActivityType, registerActivityType } from './activity-registry'
-import {
-  calculateWaitDelayMs,
-  executeCallApi,
-  executeCallWebhook,
-  executeEmitEvent,
-  executeFunction,
-  executeSendEmail,
-  executeUpdateEntity,
-  executeWait,
-} from './activity-executor'
+import { calculateWaitDelayMs } from './duration'
 import {
   callApiConfigSchema,
   callWebhookConfigSchema,
@@ -28,7 +27,7 @@ import {
   updateEntityConfigSchema,
   waitConfigSchema,
   type WaitConfig,
-} from '../data/validators'
+} from '../data/activity-config-schemas'
 
 const BUILTIN_ACTIVITY_TYPE_IDS = [
   'SEND_EMAIL',
@@ -41,6 +40,8 @@ const BUILTIN_ACTIVITY_TYPE_IDS = [
 ] as const
 
 const i18nKeyFor = (id: string): string => `workflows.activities.types.${id}`
+
+const loadExecutor = () => import('./activity-executor')
 
 export function registerBuiltinActivityTypes(): void {
   if (BUILTIN_ACTIVITY_TYPE_IDS.every((id) => getActivityType(id) != null)) return
@@ -56,7 +57,7 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'template', component: 'text' },
       { id: 'body', component: 'textarea' },
     ],
-    execute: (config, ctx, deps) => executeSendEmail(config, ctx, deps.container),
+    execute: async (config, ctx, deps) => (await loadExecutor()).executeSendEmail(config, ctx, deps.container),
     async: { capable: true },
   })
 
@@ -69,7 +70,7 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'eventName', component: 'eventName', required: true },
       { id: 'payload', component: 'json' },
     ],
-    execute: (config, ctx, deps) => executeEmitEvent(config, ctx, deps.container),
+    execute: async (config, ctx, deps) => (await loadExecutor()).executeEmitEvent(config, ctx, deps.container),
     async: { capable: true },
   })
 
@@ -82,7 +83,7 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'commandId', component: 'commandId', required: true },
       { id: 'input', component: 'json', required: true },
     ],
-    execute: (config, ctx, deps) => executeUpdateEntity(deps.em, config, ctx, deps.container),
+    execute: async (config, ctx, deps) => (await loadExecutor()).executeUpdateEntity(deps.em, config, ctx, deps.container),
     async: { capable: true },
   })
 
@@ -97,7 +98,7 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'headers', component: 'keyValue' },
       { id: 'body', component: 'json' },
     ],
-    execute: (config, ctx, deps) => executeCallWebhook(config, ctx, { signal: deps.signal }),
+    execute: async (config, ctx, deps) => (await loadExecutor()).executeCallWebhook(config, ctx, { signal: deps.signal }),
     async: { capable: true },
   })
 
@@ -110,7 +111,7 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'functionName', component: 'functionName', required: true },
       { id: 'args', component: 'json' },
     ],
-    execute: (config, ctx, deps) => executeFunction(config, ctx, deps.container),
+    execute: async (config, ctx, deps) => (await loadExecutor()).executeFunction(config, ctx, deps.container),
     async: { capable: true },
   })
 
@@ -123,7 +124,12 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'duration', component: 'duration' },
       { id: 'until', component: 'text' },
     ],
-    execute: (config) => executeWait(config),
+    execute: (config) => {
+      const durationMs = calculateWaitDelayMs(config)
+      return new Promise((resolve) => {
+        setTimeout(() => resolve({ waited: true, durationMs }), durationMs)
+      })
+    },
     executeAsync: async () => ({ waited: true, async: true }),
     async: { capable: true },
     enqueueDelayMs: (config) =>
@@ -142,7 +148,7 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'body', component: 'json' },
       { id: 'validateTenantMatch', component: 'checkbox' },
     ],
-    execute: (config, ctx, deps) => executeCallApi(deps.em, config, ctx, deps.container, deps.signal),
+    execute: async (config, ctx, deps) => (await loadExecutor()).executeCallApi(deps.em, config, ctx, deps.container, deps.signal),
     async: { capable: false, reason: 'mintsPerRequestKey' },
   })
 }

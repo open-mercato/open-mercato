@@ -16,6 +16,7 @@ import type { WorkflowGraphFocusTarget } from '../../../components/WorkflowGraph
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-flag'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
+import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
 import { Page } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -319,6 +320,7 @@ export default function VisualEditorPage() {
   const handleValidate = useCallback(() => {
     const graphErrors = validateWorkflowGraph(nodes, edges)
     let zodIssues: ZodIssueLike[] = []
+    let configWarnings: ZodIssueLike[] = []
     let schemaFailureMessage: string | null = null
 
     try {
@@ -327,11 +329,12 @@ export default function VisualEditorPage() {
       if (!result.success) {
         zodIssues = result.error.issues
       }
+      configWarnings = collectActivityConfigWarnings(definitionData)
     } catch (error) {
       schemaFailureMessage = error instanceof Error ? error.message : String(error)
     }
 
-    const issues = collectValidationIssues({ graphErrors, zodIssues, nodes, edges })
+    const issues = collectValidationIssues({ graphErrors, zodIssues, configWarnings, nodes, edges })
     if (schemaFailureMessage) {
       issues.unshift({
         id: 'schema-exception',
@@ -387,6 +390,7 @@ export default function VisualEditorPage() {
     const issues = collectValidationIssues({
       graphErrors,
       zodIssues: schemaResult.success ? [] : schemaResult.error.issues,
+      configWarnings: collectActivityConfigWarnings(definitionData),
       nodes,
       edges,
     })

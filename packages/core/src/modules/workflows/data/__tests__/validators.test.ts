@@ -115,6 +115,18 @@ describe('Workflows Validators', () => {
     test('should reject invalid activity types', () => {
       expect(() => activityTypeSchema.parse('INVALID')).toThrow()
     })
+
+    test('should expose exactly the registry-driven builtin ids', () => {
+      expect([...activityTypeSchema.options].sort()).toEqual([
+        'CALL_API',
+        'CALL_WEBHOOK',
+        'EMIT_EVENT',
+        'EXECUTE_FUNCTION',
+        'SEND_EMAIL',
+        'UPDATE_ENTITY',
+        'WAIT',
+      ])
+    })
   })
 
   describe('workflowStepSchema', () => {

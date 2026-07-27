@@ -23,12 +23,14 @@ import {
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
-import { callWebhookConfigSchema } from '../data/validators'
+import { callWebhookConfigSchema } from '../data/activity-config-schemas'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import './activity-registry-bootstrap'
 import { getActivityType } from './activity-registry'
 import { logWorkflowEvent } from './event-logger'
-import { parseDuration } from './duration'
+import { calculateWaitDelayMs, parseDuration } from './duration'
+
+export { calculateWaitDelayMs } from './duration'
 import { getWorkflowSafeCommand } from './workflow-safe-commands'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
@@ -890,27 +892,6 @@ export async function executeFunction(
     }
     throw error
   }
-}
-
-/**
- * Calculate delay in milliseconds from a WAIT activity config.
- * Supports either `duration` (relative, e.g. "PT5M") or `until` (absolute ISO 8601 datetime).
- */
-export function calculateWaitDelayMs(config: { duration?: string; until?: string }): number {
-  if (config.until) {
-    const targetDate = new Date(config.until)
-    if (isNaN(targetDate.getTime())) {
-      throw new Error(`WAIT activity: invalid "until" datetime: ${config.until}`)
-    }
-    const delayMs = targetDate.getTime() - Date.now()
-    return Math.max(0, delayMs)
-  }
-
-  if (config.duration) {
-    return parseDuration(config.duration)
-  }
-
-  throw new Error('WAIT activity requires "duration" (e.g., "PT5M", "1h") or "until" (ISO 8601 datetime)')
 }
 
 /**
