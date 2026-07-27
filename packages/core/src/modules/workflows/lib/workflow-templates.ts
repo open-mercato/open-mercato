@@ -1,9 +1,10 @@
-import * as fs from 'fs'
-import * as path from 'path'
-import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import { workflowDefinitionDataSchema } from '../data/validators'
 import type { WorkflowDefinitionData } from '../data/entities'
+import orderApprovalTemplate from '../examples/templates/order-approval.json'
+import leadToInstallTemplate from '../examples/templates/lead-to-install.json'
+import taskEscalationTemplate from '../examples/templates/task-escalation.json'
+import webhookIntegrationTemplate from '../examples/templates/webhook-integration.json'
 
 /**
  * Workflow Template Loader (spec 2026-07-26-workflows-ux-redesign.md
@@ -11,13 +12,13 @@ import type { WorkflowDefinitionData } from '../data/entities'
  *
  * Templates are portable workflow-definition JSON files shipped under
  * examples/templates/. Each file carries gallery metadata (id, i18n keys,
- * category, icon) plus a complete WorkflowDefinitionData. Files are
- * validated against workflowDefinitionDataSchema at load time so a broken
- * template fails loudly in tests and surfaces as a 500 from the list API
- * instead of silently seeding an unloadable workflow.
+ * category, icon) plus a complete WorkflowDefinitionData. Files are imported
+ * statically (never resolved via fs at runtime) so Next.js file tracing stays
+ * scoped to the bundle, and each template is validated against
+ * workflowDefinitionDataSchema at load time so a broken template fails loudly
+ * in tests and surfaces as a 500 from the list API instead of silently
+ * seeding an unloadable workflow.
  */
-
-const __esmDirname = path.dirname(fileURLToPath(import.meta.url))
 
 export const workflowTemplateMetadataSchema = z.object({
   id: z.string().min(1).regex(/^[a-z0-9-]+$/, 'Template id must contain only lowercase letters, numbers, and hyphens'),
@@ -44,22 +45,25 @@ export const WORKFLOW_TEMPLATE_FILES = [
   'webhook-integration.json',
 ] as const
 
-export function resolveWorkflowTemplatePath(fileName: string): string {
-  const candidates = [
-    path.join(__esmDirname, '..', 'examples', 'templates', fileName),
-    path.join(process.cwd(), 'packages', 'core', 'src', 'modules', 'workflows', 'examples', 'templates', fileName),
-    path.join(process.cwd(), 'src', 'modules', 'workflows', 'examples', 'templates', fileName),
-  ]
-  const filePath = candidates.find((candidate) => fs.existsSync(candidate))
-  if (!filePath) {
+export type WorkflowTemplateFileName = typeof WORKFLOW_TEMPLATE_FILES[number]
+
+const rawWorkflowTemplatesByFile: Record<WorkflowTemplateFileName, unknown> = {
+  'order-approval.json': orderApprovalTemplate,
+  'lead-to-install.json': leadToInstallTemplate,
+  'task-escalation.json': taskEscalationTemplate,
+  'webhook-integration.json': webhookIntegrationTemplate,
+}
+
+export function getRawWorkflowTemplate(fileName: string): unknown {
+  const raw = (rawWorkflowTemplatesByFile as Record<string, unknown>)[fileName]
+  if (raw === undefined) {
     throw new Error(`[internal] Missing workflow template file: ${fileName}`)
   }
-  return filePath
+  return raw
 }
 
 export function loadWorkflowTemplate(fileName: string): WorkflowTemplate {
-  const raw: unknown = JSON.parse(fs.readFileSync(resolveWorkflowTemplatePath(fileName), 'utf8'))
-  const result = workflowTemplateFileSchema.safeParse(raw)
+  const result = workflowTemplateFileSchema.safeParse(getRawWorkflowTemplate(fileName))
   if (!result.success) {
     throw new Error(`[internal] Invalid workflow template "${fileName}": ${result.error.message}`)
   }

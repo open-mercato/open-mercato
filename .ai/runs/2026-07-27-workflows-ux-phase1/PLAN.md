@@ -26,6 +26,7 @@
 | 6 | 6.1 | CommandHandler outputSchema seam with customers.deals.update exemplar | done | 14cee0c35 |
 | 7 | 7.1 | Template assets and templates list API | done | 62a30be35 |
 | 7 | 7.2 | Template gallery dialog wired into list page, empty state, and editor | done | a3fba3824 |
+| 7 | 7.1-review-fix | Static template imports to fix whole-project NFT tracing in build:app | done | 11b470eb6 |
 | 8 | 8.1 | workflow_definition_drafts entity and migration | done | a830038a2 |
 | 8 | 8.2 | Draft API routes (GET/PUT/DELETE, user-scoped) | done | 8167b6d2a |
 | 8 | 8.3 | Editor draft wiring: debounced draft save + restore banner | done | 7710c7957 |

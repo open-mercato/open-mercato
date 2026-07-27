@@ -7,13 +7,17 @@
  * handlers keep their exported signatures; the registry only adapts them to
  * the uniform (config, ctx, deps) shape.
  *
- * The executor is loaded lazily inside each execute closure: this module sits
- * on the registry bootstrap chain that validators.ts and the visual editor
- * import, so a static activity-executor import would drag the queue/undici
- * runtime into the UI bundle. Registration itself needs only the schemas,
- * form specs, and metadata. WAIT is the exception: its pure delay executes
- * inline so the timer is scheduled synchronously (matching executeWait's
- * observable behavior under fake timers).
+ * The executor is reached through a runtime binding seam instead of any
+ * import: this module sits on the registry bootstrap chain that validators.ts
+ * and the visual editor import, and even a dynamic import('./activity-executor')
+ * gets chunked into the client bundle by Turbopack, dragging queue/bullmq and
+ * node builtins into contexts that forbid them. activity-executor.ts binds its
+ * own handlers via bindActivityExecutor() when it loads on the server, so the
+ * closures below resolve them without the bundler ever seeing an edge.
+ * Registration itself needs only the schemas, form specs, and metadata. WAIT
+ * is the exception: its pure delay executes inline so the timer is scheduled
+ * synchronously (matching executeWait's observable behavior under fake
+ * timers).
  */
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
@@ -45,7 +49,29 @@ const BUILTIN_ACTIVITY_TYPE_IDS = [
 
 const i18nKeyFor = (id: string): string => `workflows.activities.types.${id}`
 
-const loadExecutor = () => import('./activity-executor')
+export type ActivityExecutorBinding = Pick<
+  typeof import('./activity-executor'),
+  | 'executeSendEmail'
+  | 'executeEmitEvent'
+  | 'executeUpdateEntity'
+  | 'executeCallWebhook'
+  | 'executeFunction'
+  | 'executeCallApi'
+  | 'executeSetVariable'
+>
+
+let boundExecutor: ActivityExecutorBinding | null = null
+
+export function bindActivityExecutor(executor: ActivityExecutorBinding): void {
+  boundExecutor = executor
+}
+
+const loadExecutor = async (): Promise<ActivityExecutorBinding> => {
+  if (!boundExecutor) {
+    throw new Error('[internal] Activity executor is not bound in this runtime')
+  }
+  return boundExecutor
+}
 
 /**
  * Resolves UPDATE_ENTITY's output contract from the command registry (import

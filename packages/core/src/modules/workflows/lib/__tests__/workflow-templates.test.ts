@@ -9,16 +9,24 @@
  * (definitionToGraph + validateWorkflowGraph).
  */
 
-import * as fs from 'fs'
 import { workflowDefinitionDataSchema } from '../../data/validators'
 import { definitionToGraph, validateWorkflowGraph } from '../graph-utils'
 import {
   WORKFLOW_TEMPLATE_FILES,
   clearWorkflowTemplateCacheForTests,
+  getRawWorkflowTemplate,
   loadWorkflowTemplate,
   loadWorkflowTemplates,
-  resolveWorkflowTemplatePath,
 } from '../workflow-templates'
+
+type RawTemplateShape = {
+  id: string
+  nameKey: string
+  descriptionKey: string
+  category: string
+  icon: string
+  definition: unknown
+}
 
 describe('workflow template assets', () => {
   afterEach(() => {
@@ -35,7 +43,7 @@ describe('workflow template assets', () => {
   })
 
   describe.each([...WORKFLOW_TEMPLATE_FILES])('%s', (fileName) => {
-    const raw = JSON.parse(fs.readFileSync(resolveWorkflowTemplatePath(fileName), 'utf8'))
+    const raw = getRawWorkflowTemplate(fileName) as RawTemplateShape
 
     it('declares complete gallery metadata with i18n keys derived from its id', () => {
       expect(raw.id).toMatch(/^[a-z0-9-]+$/)

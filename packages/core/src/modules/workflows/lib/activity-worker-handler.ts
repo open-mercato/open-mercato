@@ -13,6 +13,7 @@ import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
 import { logWorkflowEvent } from './event-logger'
 import './activity-registry-bootstrap'
+import './activity-executor'
 import { getActivityType } from './activity-registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 

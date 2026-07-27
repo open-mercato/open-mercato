@@ -31,6 +31,7 @@ import {
 } from './set-variable'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import './activity-registry-bootstrap'
+import { bindActivityExecutor } from './activity-types'
 import { getActivityType } from './activity-registry'
 import { logWorkflowEvent } from './event-logger'
 import { calculateWaitDelayMs, parseDuration } from './duration'
@@ -1462,3 +1463,13 @@ async function executeWithTimeout<T>(
     clearTimeout(timeoutId!)
   }
 }
+
+bindActivityExecutor({
+  executeSendEmail,
+  executeEmitEvent,
+  executeUpdateEntity,
+  executeCallWebhook,
+  executeFunction,
+  executeCallApi,
+  executeSetVariable,
+})

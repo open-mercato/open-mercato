@@ -117,7 +117,7 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 
 Activity types are registry-driven: one `ActivityTypeEntry` carries dispatch, validation, form spec, async capability, and dry-run behavior. The definition-schema enum, editor pickers, and OpenAPI derive from the registry (`activityTypeIds()` / `listActivityTypes()`) — there is no enum or hardcoded UI list to edit.
 
-1. Register one `ActivityTypeEntry` — built-ins live in `lib/activity-types.ts`; extensions call `registerActivityType` from `lib/activity-registry.ts`. Keep the registering module UI-safe: lazy-import the executor inside `execute`.
+1. Register one `ActivityTypeEntry` — built-ins live in `lib/activity-types.ts`; extensions call `registerActivityType` from `lib/activity-registry.ts`. Keep the registering module UI-safe: never import (not even dynamically — Turbopack chunks dynamic imports into the client bundle) a server-only executor from it; reach the executor through a runtime binding seam the server side sets up, as `lib/activity-types.ts` does with `bindActivityExecutor` (bound by `lib/activity-executor.ts` at load).
 2. Add the config zod schema in `data/activity-config-schemas.ts` and pass it as `configSchema` — per-type config validation surfaces as editor/API **warnings** in Phase 1 (non-blocking; strict mode is a later opt-in).
 3. Add the label key `workflows.activities.types.<ID>` to all four locales in `i18n/`.
 4. Declare `form: ActivityFormFieldSpec[]` hints (components resolved from `components/fields/`); the JSON editor stays available as the collapsed "Advanced" escape hatch on every type.
