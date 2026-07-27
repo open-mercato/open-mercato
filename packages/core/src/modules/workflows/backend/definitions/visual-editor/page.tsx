@@ -728,18 +728,19 @@ export default function VisualEditorPage() {
     <div className="shrink-0 border-t border-border bg-background px-3 py-2 md:px-6 md:py-3">
       <div className={`rounded-lg border bg-card ${problemErrorCount > 0 ? 'border-status-error-border' : 'border-status-warning-border'}`}>
         <div className="flex items-center justify-between gap-2 px-3 py-2">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setProblemsCollapsed((collapsed) => !collapsed)}
             aria-expanded={!problemsCollapsed}
-            className="flex items-center gap-2 text-sm font-semibold text-foreground"
+            className="h-auto gap-2 p-0 text-sm font-semibold text-foreground hover:bg-transparent"
           >
             {problemsCollapsed ? <ChevronRight className="h-4 w-4" aria-hidden="true" /> : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
             {t('workflows.visualEditor.problems.title', 'Problems')}
             <span className="text-xs font-normal text-muted-foreground">
               {t('workflows.visualEditor.problems.counts', '{errors} error(s) · {warnings} warning(s)', { errors: problemErrorCount, warnings: problemWarningCount })}
             </span>
-          </button>
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -756,11 +757,11 @@ export default function VisualEditorPage() {
               const isNavigable = Boolean(issue.nodeId || issue.edgeId)
               return (
                 <li key={issue.id}>
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
                     onClick={() => handleProblemClick(issue)}
                     disabled={!isNavigable}
-                    className={`flex w-full items-start gap-2 px-3 py-1.5 text-left text-sm ${isNavigable ? 'hover:bg-muted' : 'cursor-default'}`}
+                    className={`flex h-auto w-full items-start justify-start gap-2 rounded-none px-3 py-1.5 text-left text-sm font-normal ${isNavigable ? 'hover:bg-muted' : 'cursor-default hover:bg-transparent'}`}
                   >
                     {issue.severity === 'error' ? (
                       <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-status-error-text" aria-hidden="true" />
@@ -771,7 +772,7 @@ export default function VisualEditorPage() {
                     {issue.nodeLabel && (
                       <span className="shrink-0 text-xs text-muted-foreground">{issue.nodeLabel}</span>
                     )}
-                  </button>
+                  </Button>
                 </li>
               )
             })}
