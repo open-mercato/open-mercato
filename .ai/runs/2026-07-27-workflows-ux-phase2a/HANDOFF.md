@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-07-28T04:10:00Z
 **Branch:** feat/workflows-ux-phase2a (stacked on feat/workflows-ux-phase1, PR #4551)
-**PR:** not yet opened
+**PR:** https://github.com/open-mercato/open-mercato/pull/4559 (stacked on #4551)
 **Current phase/step:** COMPLETE — 17 Tasks rows done, final gate passed
 **Last commit:** 4578e2606 — fix(workflows): legacy edit page preserves contextSchema and editor metadata
 
@@ -10,7 +10,7 @@
 - Final gate passed: validation 8/8, integration 1700 passed (zero workflows failures), DS CLEAN, code review major (legacy-page stripping) fixed with regression tests.
 
 ## Next concrete action
-- Open the stacked PR (base feat/workflows-ux-phase1), claim, labels, review pass, summary.
+- None for automation. Human: QA per PR instructions; merge order #4532 → #4551 → #4559 with retarget checks.
 
 ## Blockers / open questions
 - none

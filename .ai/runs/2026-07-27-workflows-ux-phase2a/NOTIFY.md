@@ -22,3 +22,6 @@
 
 ## 2026-07-28T15:30:00Z — final gate passed
 - Validation 8/8 (one comparator fix-forward); integration 1700 passed, zero workflows failures (only the known unrelated-env onboarding pair); DS CLEAN + focus-ring advisory applied; code review major fixed (legacy edit page now preserves contextSchema/samples with round-trip tests).
+
+## 2026-07-28T16:20:00Z — run complete
+- PR: https://github.com/open-mercato/open-mercato/pull/4559 (undrafted, APPROVED via comment, merge-queue + needs-qa; stacked on #4551)
