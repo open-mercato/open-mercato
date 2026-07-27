@@ -2,6 +2,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
+import {
+  buildCustomFieldDefinitionIndexFromRows,
+  normalizeDefinitionKey,
+  selectDefinitionForRecord,
+  type CustomFieldDefinitionRow,
+} from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { type Kysely, type Transaction, sql } from 'kysely'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField } from './document'
@@ -95,9 +101,74 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     if (!cfMap[cfKey]) cfMap[cfKey] = []
     cfMap[cfKey].push(val)
   }
+
+  const multiKeys = new Set<string>()
+  const fieldKeys = Object.keys(cfMap).map((key) => key.slice(3))
+  if (fieldKeys.length > 0) {
+    let defQuery = db
+      .selectFrom('custom_field_defs' as any)
+      .select([
+        'key' as any,
+        'kind' as any,
+        'config_json' as any,
+        'organization_id' as any,
+        'tenant_id' as any,
+        'deleted_at' as any,
+        'updated_at' as any,
+      ])
+      .where('entity_id' as any, '=', params.entityType)
+      .where('key' as any, 'in', fieldKeys)
+      .where('is_active' as any, '=', true)
+      .where('deleted_at' as any, 'is', null)
+
+    if (params.organizationId != null) {
+      defQuery = defQuery.where((eb: any) => eb.or([
+        eb('organization_id' as any, '=', params.organizationId),
+        eb('organization_id' as any, 'is', null),
+      ]))
+    } else {
+      defQuery = defQuery.where('organization_id' as any, 'is', null)
+    }
+
+    if (params.tenantId != null) {
+      defQuery = defQuery.where((eb: any) => eb.or([
+        eb('tenant_id' as any, '=', params.tenantId),
+        eb('tenant_id' as any, 'is', null),
+      ]))
+    } else {
+      defQuery = defQuery.where('tenant_id' as any, 'is', null)
+    }
+
+    const defRows = await defQuery.execute() as Array<Record<string, any>>
+    const definitionIndex = buildCustomFieldDefinitionIndexFromRows(
+      defRows.map((row): CustomFieldDefinitionRow => ({
+        key: String(row.key ?? ''),
+        entityId: params.entityType,
+        kind: typeof row.kind === 'string' ? row.kind : null,
+        configJson: row.config_json,
+        organizationId: row.organization_id ?? null,
+        tenantId: row.tenant_id ?? null,
+        deletedAt: row.deleted_at ?? null,
+        updatedAt: row.updated_at ?? null,
+      })),
+      { organizationIds: params.organizationId ? [params.organizationId] : [] },
+    )
+    for (const key of fieldKeys) {
+      const definitions = definitionIndex.get(normalizeDefinitionKey(key)) ?? []
+      const definition = selectDefinitionForRecord(
+        definitions,
+        params.organizationId ?? null,
+        params.tenantId ?? null,
+      )
+      if (definition?.multi) multiKeys.add(key)
+    }
+  }
+
   for (const [key, arr] of Object.entries(cfMap)) {
-    // Store singletons as simple value; multis as array
-    doc[key] = arr.length <= 1 ? arr[0] : arr
+    // Cardinality belongs to the field definition, not the current row count:
+    // a multi field containing one value must still hydrate as an array.
+    const fieldKey = key.slice(3)
+    doc[key] = multiKeys.has(fieldKey) || arr.length > 1 ? arr : arr[0]
   }
 
   // Attach translations under flat keys 'l10n:{locale}:{field}'

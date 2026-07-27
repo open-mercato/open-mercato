@@ -7,6 +7,7 @@ const mockResolveQueryIndexRecordScope = jest.fn((input: any) => ({
   organizationId: input.payloadOrganizationId ?? null,
   tenantId: input.payloadTenantId ?? null,
 }))
+const mockIsReadProjectionAlwaysConsistent = jest.fn(() => false)
 
 jest.mock('../lib/indexer', () => ({
   markDeleted: (...args: unknown[]) => mockMarkDeleted(...(args as [])),
@@ -30,6 +31,10 @@ jest.mock('@open-mercato/shared/lib/query/engine', () => ({
   resolveEntityTableName: () => 'entity_indexes',
 }))
 
+jest.mock('@open-mercato/shared/lib/data/consistency', () => ({
+  isReadProjectionAlwaysConsistent: () => mockIsReadProjectionAlwaysConsistent(),
+}))
+
 import handleDeleteOne from '../subscribers/delete_one'
 
 function createContext() {
@@ -37,6 +42,34 @@ function createContext() {
   const eventBus = { emitEvent }
   // `getKysely` throws so the base-delta probe short-circuits to -1 (baseCheckSucceeded=false).
   const em = { getKysely: () => { throw new Error('no kysely in test') } }
+  const sourceEm = { fork: jest.fn(() => em) }
+  const ctx = {
+    resolve: jest.fn((name: string) => {
+      if (name === 'em') return sourceEm
+      if (name === 'eventBus') return eventBus
+      throw new Error(`Unexpected token: ${name}`)
+    }),
+  }
+  return { ctx, emitEvent }
+}
+
+function createAlwaysConsistentContext() {
+  const emitEvent = jest.fn(async () => undefined)
+  const eventBus = { emitEvent }
+  const rowQuery: Record<string, jest.Mock> = {
+    select: jest.fn(),
+    where: jest.fn(),
+    executeTakeFirst: jest.fn(async () => ({ deleted_at: new Date() })),
+  }
+  rowQuery.select.mockReturnValue(rowQuery)
+  rowQuery.where.mockReturnValue(rowQuery)
+  const trx = { selectFrom: jest.fn(() => rowQuery) }
+  const db = {
+    transaction: jest.fn(() => ({
+      execute: jest.fn(async (run: (executor: typeof trx) => Promise<void>) => run(trx)),
+    })),
+  }
+  const em = { getKysely: () => db }
   const sourceEm = { fork: jest.fn(() => em) }
   const ctx = {
     resolve: jest.fn((name: string) => {
@@ -61,6 +94,7 @@ describe('query_index delete_one coverage refresh throttling', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockIsReadProjectionAlwaysConsistent.mockReturnValue(false)
     jest.spyOn(Date, 'now').mockReturnValue(NOW)
   })
 
@@ -93,6 +127,26 @@ describe('query_index delete_one coverage refresh throttling', () => {
     await flushFireAndForget()
 
     expect(coverageRefreshCalls(emitEvent)).toHaveLength(0)
+  })
+
+  it('never emits coverage.refresh when suppressCoverage is true in always-consistent mode', async () => {
+    mockIsReadProjectionAlwaysConsistent.mockReturnValue(true)
+    const { ctx, emitEvent } = createAlwaysConsistentContext()
+
+    await handleDeleteOne({
+      entityType: 'query_index:suppressed_consistent_entity',
+      recordId: 'r1',
+      tenantId: 't1',
+      organizationId: null,
+      suppressCoverage: true,
+    }, ctx)
+
+    expect(coverageRefreshCalls(emitEvent)).toHaveLength(0)
+    expect(emitEvent).toHaveBeenCalledWith(
+      'search.delete_record',
+      expect.objectContaining({ entityId: 'query_index:suppressed_consistent_entity', recordId: 'r1' }),
+      { rethrowHandlerErrors: true },
+    )
   })
 
   it('always emits coverage.refresh when an explicit coverageDelayMs is provided, regardless of throttle state', async () => {

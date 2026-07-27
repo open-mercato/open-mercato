@@ -6,11 +6,12 @@ import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/h
 import { validateCustomFieldValuesServer } from '@open-mercato/core/modules/entities/lib/validation'
 import { sanitizeCustomFieldHtmlRichTextValuesServer } from '@open-mercato/core/modules/entities/lib/htmlRichTextSanitizer'
 import type { EventBus } from '@open-mercato/events/types'
-import type {
-  CrudEventAction,
-  CrudEventsConfig,
-  CrudIndexerConfig,
-  CrudEntityIdentifiers,
+import {
+  CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY,
+  type CrudEventAction,
+  type CrudEventsConfig,
+  type CrudIndexerConfig,
+  type CrudEntityIdentifiers,
 } from '../crud/types'
 import type { BulkImportSuppression } from '../commands/types'
 import { CrudHttpError } from '../crud/errors'
@@ -586,7 +587,7 @@ export class DefaultDataEngine implements DataEngine {
     if (events && !suppress?.skipEvents) {
       const eventName = `${events.module}.${events.entity}.${action}`
       warnIfUndeclaredEvent(eventName, 'emitOrmEntityEvent')
-      const payload = events.buildPayload
+      const builtPayload = events.buildPayload
         ? events.buildPayload(ctx)
         : {
             id: ctx.identifiers.id,
@@ -594,6 +595,20 @@ export class DefaultDataEngine implements DataEngine {
             tenantId: ctx.identifiers.tenantId,
             ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
           }
+      // A configured indexer means this data-engine call owns the query-index
+      // decision, including an explicit skipReindex suppression. Mark object
+      // payloads so the legacy domain-event bridge does not enqueue the same
+      // record a second time. Keep the marker non-enumerable so client broadcasts
+      // and persisted domain payloads retain their existing public shape.
+      // Primitive custom payloads cannot be bridged in any case because they do
+      // not expose the record id.
+      const payload = indexer && builtPayload && typeof builtPayload === 'object' && !Array.isArray(builtPayload)
+        ? Object.defineProperty(
+            { ...(builtPayload as Record<string, unknown>) },
+            CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY,
+            { value: true, enumerable: false },
+          )
+        : builtPayload
       try {
         await bus.emitEvent(eventName, payload, {
           persistent: !!events.persistent,

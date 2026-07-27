@@ -9,6 +9,7 @@ type TableData = {
   baseTable: string
   baseRows: any[]
   cfValues: any[]
+  cfDefs?: any[]
   indexRows?: any[]
 }
 
@@ -47,6 +48,7 @@ function createFakeKysely(data: TableData) {
       },
       execute: async () => {
         if (table === 'custom_field_values') return data.cfValues
+        if (table === 'custom_field_defs') return data.cfDefs ?? []
         if (table === data.baseTable) return data.baseRows
         return []
       },
@@ -140,6 +142,25 @@ describe('Indexer', () => {
     expect(doc!['cf:tags']).toEqual(['a', 'b'])
     expect(doc!.search_text).toContain('A')
     expect(doc!.search_text).toContain('b')
+  })
+
+  test('buildIndexDoc preserves a singleton value as an array for multi custom fields', async () => {
+    const fake = createFakeKysely({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'A', organization_id: 'org1', tenant_id: 't1' }],
+      cfValues: [{ field_key: 'labels', value_text: 'qa-label' }],
+      cfDefs: [{ key: 'labels', config_json: { multi: true } }],
+    })
+    const em: any = { getKysely: () => fake.db }
+
+    const doc = await buildIndexDoc(em, {
+      entityType: 'example:todo',
+      recordId: '1',
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(doc?.['cf:labels']).toEqual(['qa-label'])
   })
 
   test('buildIndexDoc keeps encrypted payload (no decryption on write)', async () => {

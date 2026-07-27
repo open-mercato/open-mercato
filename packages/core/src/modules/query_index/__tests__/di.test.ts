@@ -4,6 +4,7 @@ jest.mock('@open-mercato/shared/lib/query/engine', () => ({
 }))
 
 import { register } from '../di'
+import { CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY } from '@open-mercato/shared/lib/crud/types'
 
 function makeBuilder(result: unknown, mode: 'many' | 'one') {
   const builder: Record<string, jest.Mock> = {
@@ -23,6 +24,49 @@ async function flushRegistration() {
 }
 
 describe('query_index DI CRUD bridge', () => {
+  it('does not duplicate upsert or delete work owned by the data engine', async () => {
+    const handlers = new Map<string, (payload: unknown, ctx: unknown) => Promise<void>>()
+    const emitEvent = jest.fn(async () => {})
+    const eventBus = {
+      on: jest.fn((event: string, handler: (payload: unknown, ctx: unknown) => Promise<void>) => {
+        handlers.set(event, handler)
+      }),
+      emitEvent,
+    }
+    const db = {
+      selectFrom: jest.fn(() => makeBuilder([{ entity_id: 'customers:person' }], 'many')),
+    }
+    const em = { getKysely: () => db }
+    const container = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'em') return em
+        if (name === 'eventBus') return eventBus
+        return null
+      }),
+      register: jest.fn(),
+    }
+
+    register(container as never)
+    await flushRegistration()
+
+    for (const eventName of ['customers.person.created', 'customers.person.deleted']) {
+      const handler = handlers.get(eventName)
+      expect(handler).toBeDefined()
+      await handler!({
+        id: 'person-1',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        [CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY]: true,
+      }, {
+        resolve: container.resolve,
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+    }
+
+    expect(emitEvent).not.toHaveBeenCalled()
+  })
+
   it('forwards tenant scope on delete events when the payload omits it', async () => {
     const handlers = new Map<string, (payload: unknown, ctx: unknown) => Promise<void>>()
     const emitEvent = jest.fn(async () => {})

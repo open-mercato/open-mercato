@@ -37,6 +37,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   if (!entityType || !recordId) return
   let organizationId: string | null = payload?.organizationId ?? null
   let tenantId: string | null = payload?.tenantId ?? null
+  const suppressCoverage = payload?.suppressCoverage === true
   const coverageDelayMs = typeof payload?.coverageDelayMs === 'number' ? payload.coverageDelayMs : undefined
   const alwaysConsistent = isReadProjectionAlwaysConsistent()
   try {
@@ -103,7 +104,8 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       })
 
       const bus = ctx.resolve<any>('eventBus')
-      const shouldRefreshCoverage = coverageDelayMs === undefined || coverageDelayMs >= 0
+      const shouldRefreshCoverage =
+        !suppressCoverage && (coverageDelayMs === undefined || coverageDelayMs >= 0)
       const coverageRefreshDelay = coverageDelayMs ?? 0
       if (shouldRefreshCoverage) {
         await bus.emitEvent('query_index.coverage.refresh', {
@@ -165,7 +167,6 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     // awaits this subscriber) so list reads are consistent immediately. The coverage
     // recompute (a COUNT, run inline when delayMs is 0) and the fulltext delete are
     // secondary, so defer them fire-and-forget to keep write/bulk-delete latency bounded.
-    const suppressCoverage = payload?.suppressCoverage === true
     const explicitDelayRequested = typeof payload?.coverageDelayMs === 'number'
     const shouldRefreshCoverage =
       !suppressCoverage &&
