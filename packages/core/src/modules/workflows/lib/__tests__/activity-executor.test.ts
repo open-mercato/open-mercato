@@ -94,7 +94,7 @@ describe('Activity Executor (Unit Tests)', () => {
   // ============================================================================
 
   describe('SEND_EMAIL activity', () => {
-    test('should report sent:false with reason when no email service is registered', async () => {
+    test('should report sent:false with simulated:true and reason when no email service is registered', async () => {
       const activity: ActivityDefinition = {
         activityId: 'activity-1',
         activityName: 'Welcome Email',
@@ -123,6 +123,7 @@ describe('Activity Executor (Unit Tests)', () => {
 
       expect(result.success).toBe(true)
       expect(result.output.sent).toBe(false)
+      expect(result.output.simulated).toBe(true)
       expect(result.output.reason).toBe('no-email-service')
       expect(result.output.to).toBe('user@example.com')
       expect(result.output.via).toBe('console')
@@ -164,6 +165,8 @@ describe('Activity Executor (Unit Tests)', () => {
 
       expect(result.success).toBe(true)
       expect(result.output.via).toBe('emailService')
+      expect(result.output.sent).toBe(true)
+      expect(result.output.simulated).toBeUndefined()
       expect(mockEmailService.send).toHaveBeenCalledWith({
         to: 'user@example.com',
         subject: 'Welcome!',

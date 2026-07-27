@@ -34,7 +34,12 @@ interface Activity {
 interface ActivitiesEditorProps {
   value: Activity[]
   onChange: (activities: Activity[]) => void
+  onInvalidActivityConfigsChange?: (activityLabels: string[]) => void
   error?: string
+}
+
+function resolveActivityLabel(activity: { activityName?: string; activityId?: string } | undefined, index: number): string {
+  return activity?.activityName || activity?.activityId || String(index + 1)
 }
 
 const ACTIVITY_TYPES = [
@@ -48,8 +53,40 @@ const ACTIVITY_TYPES = [
   { value: 'INVOKE_AGENT', label: 'Invoke Agent' },
 ]
 
-export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEditorProps) {
+export function ActivitiesEditor({ value = [], onChange, onInvalidActivityConfigsChange, error }: ActivitiesEditorProps) {
   const t = useT()
+  const [invalidConfigIndexes, setInvalidConfigIndexes] = React.useState<ReadonlySet<number>>(() => new Set())
+  const lastReportedLabelsRef = React.useRef<string>('')
+
+  const handleConfigValidityChange = React.useCallback((index: number, valid: boolean) => {
+    setInvalidConfigIndexes((prev) => {
+      if (prev.has(index) === !valid) return prev
+      const next = new Set(prev)
+      if (valid) next.delete(index)
+      else next.add(index)
+      return next
+    })
+  }, [])
+
+  React.useEffect(() => {
+    setInvalidConfigIndexes((prev) => {
+      const next = new Set(
+        [...prev].filter((index) => index < value.length && value[index]?.activityType !== 'WAIT'),
+      )
+      return next.size === prev.size ? prev : next
+    })
+  }, [value])
+
+  React.useEffect(() => {
+    if (!onInvalidActivityConfigsChange) return
+    const labels = [...invalidConfigIndexes]
+      .sort((left, right) => left - right)
+      .map((index) => resolveActivityLabel(value[index], index))
+    const serializedLabels = JSON.stringify(labels)
+    if (serializedLabels === lastReportedLabelsRef.current) return
+    lastReportedLabelsRef.current = serializedLabels
+    onInvalidActivityConfigsChange(labels)
+  }, [invalidConfigIndexes, value, onInvalidActivityConfigsChange])
 
   const addActivity = () => {
     const newActivity: Activity = {
@@ -332,6 +369,12 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                 </div>
               )}
 
+              {activity.activityType === 'SEND_EMAIL' && (
+                <p className="text-xs text-muted-foreground">
+                  {t('workflows.activities.sendEmailSimulatedHint')}
+                </p>
+              )}
+
               {activity.activityType !== 'WAIT' && (
               <div>
                 <Label htmlFor={`activity-${index}-config`} className="text-xs">
@@ -341,6 +384,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                   id={`activity-${index}-config`}
                   value={activity.config}
                   onChange={(config) => updateActivity(index, 'config', config)}
+                  onValidityChange={(valid) => handleConfigValidityChange(index, valid)}
                   rows={3}
                   className="mt-1 font-mono text-xs"
                 />

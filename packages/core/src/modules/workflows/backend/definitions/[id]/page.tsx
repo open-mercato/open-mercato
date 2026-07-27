@@ -26,6 +26,7 @@ import {
   createFieldDefinitions,
   parseWorkflowToFormValues,
   buildWorkflowPayload,
+  assertNoInvalidActivityConfigs,
   type WorkflowDefinitionFormValues,
 } from '../../../components/formConfig'
 import { StepsEditor } from '../../../components/StepsEditor'
@@ -79,6 +80,7 @@ export default function EditWorkflowDefinitionPage() {
   }, [definition])
 
   const [triggers, setTriggers] = React.useState<WorkflowDefinitionTrigger[]>([])
+  const [invalidActivityConfigs, setInvalidActivityConfigs] = React.useState<string[]>([])
 
   React.useEffect(() => {
     setTriggers(initialValues?.triggers ?? [])
@@ -157,6 +159,7 @@ export default function EditWorkflowDefinitionPage() {
   }
 
   const handleSubmit = async (values: WorkflowDefinitionFormValues) => {
+    assertNoInvalidActivityConfigs(invalidActivityConfigs, t)
     const payload = buildWorkflowPayload({ ...values, triggers })
     const optimisticLockHeader = buildOptimisticLockHeader(
       typeof definition?.updatedAt === 'string' ? definition.updatedAt : null,
@@ -275,7 +278,9 @@ export default function EditWorkflowDefinitionPage() {
   const fields = React.useMemo(() => createFieldDefinitions(t), [t])
 
   const formGroups = React.useMemo(
-    () => isMobile ? [] : createFormGroups(t, StepsEditor, TransitionsEditor),
+    () => isMobile
+      ? []
+      : createFormGroups(t, StepsEditor, TransitionsEditor, { onInvalidActivityConfigsChange: setInvalidActivityConfigs }),
     [t, isMobile]
   )
 

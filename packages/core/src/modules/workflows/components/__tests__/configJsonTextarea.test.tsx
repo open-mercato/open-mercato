@@ -8,11 +8,12 @@
  * parsed config once it parses again.
  */
 import * as React from 'react'
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { ActivitiesEditor } from '../ActivitiesEditor'
 import { TransitionsEditor } from '../TransitionsEditor'
 import { ConfigJsonTextarea } from '../ConfigJsonTextarea'
+import { assertNoInvalidActivityConfigs } from '../formConfig'
 
 const HINT_KEY = 'workflows.fieldEditors.activities.invalidJson'
 
@@ -73,6 +74,67 @@ describe('TransitionsEditor activity config JSON textarea', () => {
     expect(textarea.value).toBe('not json')
     expect(screen.getByText(HINT_KEY)).toBeTruthy()
     expect(onChange).not.toHaveBeenCalled()
+  })
+})
+
+describe('invalid config JSON blocks the definition save (PR #4532 review)', () => {
+  const transition = {
+    transitionId: 'transition_1',
+    transitionName: 'Go',
+    fromStepId: 'start',
+    toStepId: 'end',
+    trigger: 'auto',
+    activities: [activity],
+  }
+
+  it('TransitionsEditor reports the invalid activity by name and clears once fixed', async () => {
+    const onInvalid = jest.fn()
+    renderWithProviders(
+      <TransitionsEditor value={[transition]} onChange={jest.fn()} onInvalidActivityConfigsChange={onInvalid} />,
+    )
+
+    const textarea = document.getElementById('activity-0-0-config') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: '{"url": ' } })
+
+    await waitFor(() => {
+      expect(onInvalid).toHaveBeenCalledWith(['Call API'])
+    })
+
+    fireEvent.change(textarea, { target: { value: '{"url": "https://ok.test"}' } })
+
+    await waitFor(() => {
+      expect(onInvalid).toHaveBeenCalledWith([])
+    })
+  })
+
+  it('ActivitiesEditor reports the invalid activity by name and clears once fixed', async () => {
+    const onInvalid = jest.fn()
+    renderWithProviders(
+      <ActivitiesEditor value={[activity]} onChange={jest.fn()} onInvalidActivityConfigsChange={onInvalid} />,
+    )
+
+    const textarea = document.getElementById('activity-0-config') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'not json' } })
+
+    await waitFor(() => {
+      expect(onInvalid).toHaveBeenCalledWith(['Call API'])
+    })
+
+    fireEvent.change(textarea, { target: { value: '{}' } })
+
+    await waitFor(() => {
+      expect(onInvalid).toHaveBeenCalledWith([])
+    })
+  })
+
+  it('assertNoInvalidActivityConfigs throws the naming error while invalid and passes when clear', () => {
+    const translate = (key: string, params?: Record<string, string | number>) =>
+      params ? `${key}:${String(params.activity)}` : key
+
+    expect(() => assertNoInvalidActivityConfigs(['Call API'], translate)).toThrow(
+      'workflows.validation.invalidActivityConfigJson:Call API',
+    )
+    expect(() => assertNoInvalidActivityConfigs([], translate)).not.toThrow()
   })
 })
 

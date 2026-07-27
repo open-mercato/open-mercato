@@ -27,7 +27,10 @@ export function RolesMultiSelect({ id, value, onChange, disabled }: RolesMultiSe
     try {
       const call = await apiCall<RoleListResponse>(
         `/api/auth/roles?${params.toString()}`,
-        undefined,
+        // The roles lookup is optional: editors without auth.roles.list fall back
+        // to free-text entry, so suppress the global forbidden/unauthorized
+        // redirect handling (and its toast) for this call.
+        { headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' } },
         { fallback: { items: [] } },
       )
       if (!call.ok || !Array.isArray(call.result?.items)) {
