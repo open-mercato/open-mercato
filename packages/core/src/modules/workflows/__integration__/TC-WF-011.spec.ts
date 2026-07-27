@@ -380,7 +380,11 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
         saveButton.click(),
       ])
       expect(putResponse.status(), 'PUT on UUID override should succeed').toBe(200)
-      await expect(page.getByText('Workflow updated successfully!').first()).toBeVisible({ timeout: 10_000 })
+      // Substring match: the toast copy comes from the i18n catalog
+      // (workflows.messages.workflowUpdated = "Workflow updated successfully")
+      // since the visual editor's hardcoded "…successfully!" literal was
+      // migrated to the locale files.
+      await expect(page.getByText('Workflow updated successfully').first()).toBeVisible({ timeout: 10_000 })
 
       const detail = await apiRequest(
         request,

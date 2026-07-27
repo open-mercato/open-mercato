@@ -32,6 +32,7 @@
 | 8 | 8.3 | Editor draft wiring: debounced draft save + restore banner | done | 7710c7957 |
 | 9 | 9.1 | Docs: AGENTS.md activity-type recipe rewrite + user-guide updates | done | f4555d693 |
 | 8 | 8.3-review-fix | Explicit comparator in draft-restore stable serializer | done | ac8b97796 |
+| 8 | 8.3-review-fix-2 | Fix visual-editor save regression caught by TC-WF-011 | done | d485d2097 |
 
 ## Goal
 
