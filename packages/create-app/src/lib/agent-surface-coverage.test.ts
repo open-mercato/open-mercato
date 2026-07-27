@@ -143,7 +143,7 @@ test('UMES selector documents additive command interceptors across execute and u
   assert.match(branches, /never bypass the command, locking, audit, or undo/)
 })
 
-test('the 187-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 189-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -151,7 +151,7 @@ test('the 187-case catalog routes audited installed-module, runtime, and AI/prov
     requiredDecisions: string[]
     expectedRouter: { required: string[] }
   }>
-  assert.equal(cases.length, 187)
+  assert.equal(cases.length, 189)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
