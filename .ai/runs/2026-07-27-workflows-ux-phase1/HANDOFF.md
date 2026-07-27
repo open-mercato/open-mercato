@@ -1,16 +1,16 @@
 # Handoff — 2026-07-27-workflows-ux-phase1
 
-**Last updated:** 2026-07-27T15:30:00Z
+**Last updated:** 2026-07-27T18:20:00Z
 **Branch:** feat/workflows-ux-phase1 (stacked on feat/workflows-ux-phase0, PR #4532)
 **PR:** not yet opened
-**Current phase/step:** Phase 5 Step 5.1
-**Last commit:** be5841f08 — feat(workflows): assignments form for SET_VARIABLE
+**Current phase/step:** Phase 8 Step 8.2
+**Last commit:** a830038a2 — feat(workflows): add workflow_definition_drafts entity and migration
 
 ## What just happened
-- Checkpoint 3 passed (810 workflows tests). Phase 4 closed: all 8 activity types form-first with command/function/event pickers and the assignments editor.
+- Checkpoint 4 passed (844 core + 141 shared tests). #4230 closed, outputSchema seam + exemplar, template gallery live on 3 surfaces, drafts entity + clean migration.
 
 ## Next concrete action
-- Step 5.1: #4230 typed OpenAPI responses for workflows definition routes.
+- Step 8.2: draft API routes (GET/PUT/DELETE, user-scoped).
 
 ## Blockers / open questions
 - none

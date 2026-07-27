@@ -18,3 +18,6 @@
 
 ## 2026-07-27T15:30:00Z — checkpoint 3
 - Steps 4.4..4.6 (8ded5a899..be5841f08): Phase 4 closed — every activity type edits through a schema form; JSON demoted to Advanced everywhere. 810 workflows tests green.
+
+## 2026-07-27T18:20:00Z — checkpoint 4
+- Steps 5.1..8.1 (cdbeadb4e..a830038a2) verified: 844 core + 141 shared tests; migration reviewed clean (single table, no unrelated output).

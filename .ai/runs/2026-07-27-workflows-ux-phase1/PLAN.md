@@ -22,11 +22,11 @@
 | 4 | 4.4 | Command picker for UPDATE_ENTITY with safe-command list API | done | 8ded5a899 |
 | 4 | 4.5 | Workflow function registry seam and function picker | done | fd1b2f2cd |
 | 4 | 4.6 | SET_VARIABLE assignments form | done | be5841f08 |
-| 5 | 5.1 | #4230 typed OpenAPI responses for workflows definition routes | done | afec27fb4 |
-| 6 | 6.1 | CommandHandler outputSchema seam with customers.deals.update exemplar | done | 3134617c0 |
-| 7 | 7.1 | Template assets and templates list API | done | 021b9b34a |
-| 7 | 7.2 | Template gallery dialog wired into list page, empty state, and editor | done | 932bb235c |
-| 8 | 8.1 | workflow_definition_drafts entity and migration | done | 25bd0428b |
+| 5 | 5.1 | #4230 typed OpenAPI responses for workflows definition routes | done | cdbeadb4e |
+| 6 | 6.1 | CommandHandler outputSchema seam with customers.deals.update exemplar | done | 14cee0c35 |
+| 7 | 7.1 | Template assets and templates list API | done | 62a30be35 |
+| 7 | 7.2 | Template gallery dialog wired into list page, empty state, and editor | done | a3fba3824 |
+| 8 | 8.1 | workflow_definition_drafts entity and migration | done | a830038a2 |
 | 8 | 8.2 | Draft API routes (GET/PUT/DELETE, user-scoped) | todo | — |
 | 8 | 8.3 | Editor draft wiring: debounced draft save + restore banner | todo | — |
 | 9 | 9.1 | Docs: AGENTS.md activity-type recipe rewrite + user-guide updates | todo | — |
