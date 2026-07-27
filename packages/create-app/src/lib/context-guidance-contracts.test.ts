@@ -50,11 +50,13 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(sensitiveData, /query `where`/)
   assert.match(sensitiveData, /fifth-argument decryption scope/)
   assert.match(sensitiveData, /hash-only/)
-  assert.match(sensitiveData, /make a concrete call in every implemented sensitive-record read path/)
+  assert.match(sensitiveData, /make a concrete call in every implemented direct sensitive-record read path/)
   assert.match(sensitiveData, /@open-mercato\/shared\/modules\/encryption/)
   assert.match(sensitiveData, /ModuleEncryptionMap/)
   assert.match(sensitiveData, /fields: \[\{ field:/)
   assert.match(sensitiveData, /export default defaultEncryptionMaps/)
+  assert.match(sensitiveData, /factory QueryEngine owns list decryption/)
+  assert.match(sensitiveData, /no `findAndCount` override key/)
 
   const integrity = readAgentic(
     'shared/ai/skills/om-data-model-design/references/integrity-and-concurrency.md',
@@ -128,6 +130,7 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(apiAndDomain, /@open-mercato\/shared\/lib\/commands/)
   assert.match(apiAndDomain, /uses `commandId`/)
   assert.match(apiAndDomain, /not `findMany`/)
+  assert.match(apiAndDomain, /no `findAndCount` key/)
   assert.match(apiAndDomain, /the key is not `body`/)
   assert.match(apiAndDomain, /methods: \{ GET:/)
   assert.match(apiAndDomain, /not a top-level `GET` key/)
