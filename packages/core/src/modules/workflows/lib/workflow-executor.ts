@@ -11,7 +11,9 @@
  */
 
 import { EntityManager, LockMode } from '@mikro-orm/core'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   WorkflowDefinition,
   WorkflowInstance,
@@ -1151,7 +1153,12 @@ function checkIfCompensationNeeded(definition: WorkflowDefinition): boolean {
 // ============================================================================
 
 /**
- * Get workflow instance by ID
+ * Get workflow instance by ID.
+ *
+ * SECURITY: this helper is NOT tenant-scoped. It is an internal lookup whose
+ * callers are expected to have resolved and enforced the scope already. Never
+ * reach it directly from an HTTP handler — use a scoped query (see
+ * `updateWorkflowContextScoped`) so a cross-tenant id cannot resolve.
  *
  * @param em - Entity manager
  * @param instanceId - Workflow instance ID
@@ -1180,7 +1187,12 @@ async function getWorkflowInstanceForExecution(
 }
 
 /**
- * Update workflow context with new data
+ * Update workflow context with new data.
+ *
+ * SECURITY: builds on the UNSCOPED {@link getWorkflowInstance} and therefore
+ * performs no tenant/organization filtering of its own. It is preserved as-is
+ * for backward compatibility (it is a DI-exposed surface). HTTP handlers MUST
+ * use {@link updateWorkflowContextScoped} instead.
  *
  * @param em - Entity manager
  * @param instanceId - Workflow instance ID
@@ -1207,6 +1219,94 @@ export async function updateWorkflowContext(
   instance.updatedAt = new Date()
 
   await em.flush()
+}
+
+/**
+ * Context keys the engine owns. A caller-supplied patch may never write them:
+ * `__result` carries the terminal workflow result, `_pendingAsyncActivities`
+ * tracks in-flight async activity jobs, and `__park` marks a parked agent step.
+ * Overwriting any of them would corrupt a running instance, so they are
+ * rejected rather than silently dropped.
+ */
+export const RESERVED_WORKFLOW_CONTEXT_KEYS: readonly string[] = [
+  '__result',
+  '_pendingAsyncActivities',
+  '__park',
+]
+
+export function findReservedContextKeys(updates: Record<string, unknown>): string[] {
+  return Object.keys(updates).filter((key) => RESERVED_WORKFLOW_CONTEXT_KEYS.includes(key))
+}
+
+export interface UpdateWorkflowContextScopedOptions {
+  instanceId: string
+  tenantId: string
+  organizationId: string
+  updates: Record<string, unknown>
+  /**
+   * Optional version check, awaited with the freshly loaded row's `updatedAt`
+   * before the patch is applied. HTTP callers pass
+   * `enforceCommandOptimisticLockWithGuards` here so a stale write 409s instead
+   * of silently clobbering a concurrent context change.
+   */
+  assertVersion?: (current: Date | null | undefined) => void | Promise<void>
+}
+
+/**
+ * Tenant/organization-scoped sibling of {@link updateWorkflowContext}: the
+ * scope is part of the lookup, so a cross-tenant instance id resolves to
+ * nothing and the caller returns a 404 rather than reading or writing another
+ * tenant's run. Shallow merge, consistent with the legacy helper.
+ */
+export async function updateWorkflowContextScoped(
+  em: EntityManager,
+  options: UpdateWorkflowContextScopedOptions
+): Promise<WorkflowInstance> {
+  const { instanceId, tenantId, organizationId, updates, assertVersion } = options
+
+  const reserved = findReservedContextKeys(updates)
+  if (reserved.length > 0) {
+    throw new WorkflowExecutionError(
+      `Reserved workflow context keys cannot be written: ${reserved.join(', ')}`,
+      'RESERVED_CONTEXT_KEY',
+      { instanceId, reserved }
+    )
+  }
+
+  const instance = await findOneWithDecryption(
+    em as PostgreSqlEntityManager,
+    WorkflowInstance,
+    { id: instanceId, tenantId, organizationId },
+    undefined,
+    { tenantId, organizationId }
+  )
+  if (!instance) {
+    throw new WorkflowExecutionError(
+      `Workflow instance not found: ${instanceId}`,
+      'INSTANCE_NOT_FOUND',
+      { instanceId }
+    )
+  }
+
+  if (instance.status !== 'RUNNING' && instance.status !== 'PAUSED' && instance.status !== 'FORKED') {
+    throw new WorkflowExecutionError(
+      `Workflow instance is not accepting context updates: ${instance.status}`,
+      'INSTANCE_NOT_UPDATABLE',
+      { instanceId, status: instance.status }
+    )
+  }
+
+  if (assertVersion) await assertVersion(instance.updatedAt)
+
+  instance.context = {
+    ...instance.context,
+    ...updates,
+  }
+  instance.updatedAt = new Date()
+
+  await em.flush()
+
+  return instance
 }
 
 // findWorkflowDefinition is imported from ./find-definition

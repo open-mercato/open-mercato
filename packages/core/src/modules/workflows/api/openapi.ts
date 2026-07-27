@@ -114,6 +114,18 @@ export const sendSignalResponseSchema = z.object({
   message: z.string(),
 })
 
+export const updateInstanceContextRequestSchema = z.object({
+  context: z
+    .record(z.string(), z.unknown())
+    .describe('Partial context patch, shallow-merged into the running instance context'),
+})
+
+export const updateInstanceContextResponseSchema = z.object({
+  ok: z.literal(true),
+  instanceId: z.string(),
+  woken: z.array(z.string()).describe('Step ids of the WAIT_FOR_CONDITION waiters that resumed'),
+})
+
 export const validateStartRequestSchema = z.object({
   workflowId: z.string().min(1).describe('Workflow definition ID'),
   version: z.number().int().positive().optional().describe('Optional workflow definition version'),
