@@ -79,7 +79,14 @@ relevant subset plus the shared package test suite.
 
 ## Progress
 
-- [ ] 1.1 Await the dynamic import in `compileAndImport`
-- [ ] 2.1 Regression test for the reactive recovery path
-- [ ] 3.1 Validation gate
-- [ ] 4.1 PR opened with labels requested
+- [x] 1.1 Await the dynamic import in `compileAndImport` — `0e6274a99`
+- [x] 2.1 Regression test for the reactive recovery path — `0e6274a99`
+      (all three cases fail without the `await`, pass with it)
+- [x] 3.1 Validation gate (runner: local) — `yarn build:packages` ✅,
+      `yarn generate` ✅, `yarn i18n:check-sync` ✅, `yarn i18n:check-usage` ✅,
+      `yarn typecheck` ✅ (21/21), `yarn test` 22/23 packages green
+      (`@open-mercato/shared` 139 suites / 1501 tests pass; the single
+      `@open-mercato/core` failure is the pre-existing `develop` breakage in
+      `scripts/check-agents-md-budget.mjs:93` fixed by #4527, untouched here),
+      `yarn build:app` ✅
+- [x] 4.1 PR opened with labels requested
