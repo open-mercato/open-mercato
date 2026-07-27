@@ -221,7 +221,7 @@ export function registerBuiltinActivityTypes(): void {
       },
     ],
     execute: async (config, ctx) => (await loadExecutor()).executeSetVariable(config, ctx),
-    async: { capable: true },
+    async: { capable: false, reason: 'asyncResumeMergeDoesNotApplyAssignments' },
     mock: (config) => ({ assignments: config.assignments }),
   })
 }

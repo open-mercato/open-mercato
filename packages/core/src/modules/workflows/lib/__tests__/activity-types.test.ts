@@ -61,14 +61,19 @@ describe('built-in activity types', () => {
     expect(registryModule.activityTypeIds()).toEqual(EXPECTED_IDS)
   })
 
-  test('async capability: all types are capable except CALL_API', () => {
+  test('async capability: all types are capable except CALL_API and SET_VARIABLE', () => {
     const { registryModule } = loadIsolated()
-    for (const id of EXPECTED_IDS.filter((typeId) => typeId !== 'CALL_API')) {
+    const nonCapableIds = ['CALL_API', 'SET_VARIABLE']
+    for (const id of EXPECTED_IDS.filter((typeId) => !nonCapableIds.includes(typeId))) {
       expect(requireEntry(registryModule, id).async).toEqual({ capable: true })
     }
     expect(requireEntry(registryModule, 'CALL_API').async).toEqual({
       capable: false,
       reason: 'mintsPerRequestKey',
+    })
+    expect(requireEntry(registryModule, 'SET_VARIABLE').async).toEqual({
+      capable: false,
+      reason: 'asyncResumeMergeDoesNotApplyAssignments',
     })
   })
 
@@ -76,7 +81,7 @@ describe('built-in activity types', () => {
     const { registryModule } = loadIsolated()
     const entry = requireEntry(registryModule, 'SET_VARIABLE')
     expect(entry.icon).toBe('Variable')
-    expect(entry.async).toEqual({ capable: true })
+    expect(entry.async).toEqual({ capable: false, reason: 'asyncResumeMergeDoesNotApplyAssignments' })
     if (!entry.mock) throw new Error('[internal] SET_VARIABLE entry must declare a mock')
     const assignments = [{ path: 'customer.priority', value: 'high' }]
     expect(entry.mock({ assignments }, {} as never)).toEqual({ assignments })

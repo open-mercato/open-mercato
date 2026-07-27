@@ -109,9 +109,14 @@ export type UserTaskStatus = z.infer<typeof userTaskStatusSchema>
 export const transitionTriggerSchema = z.enum(['auto', 'manual', 'signal', 'timer'])
 export type TransitionTrigger = z.infer<typeof transitionTriggerSchema>
 
-// Registry-driven: the accepted activity types are whatever the Activity
-// Registry has registered by the time this module loads (the bootstrap import
-// above guarantees the built-ins are present).
+/**
+ * Registry-driven: the accepted activity types are whatever the Activity
+ * Registry has registered by the time this module loads (the bootstrap import
+ * above guarantees the built-ins). Registration order matters — the enum is
+ * frozen at this module's first import, so extension modules MUST call
+ * `registerActivityType` before anything imports these validators, or their
+ * types will be rejected by every schema built from this enum.
+ */
 export const activityTypeSchema = z.enum(activityTypeIds())
 export type ActivityType = z.infer<typeof activityTypeSchema>
 

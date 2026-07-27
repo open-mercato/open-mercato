@@ -28,6 +28,7 @@ import {
   buildSetVariableContextPatch,
   isSetVariableOutput,
   splitAssignmentPath,
+  type SetVariableOutput,
 } from './set-variable'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import './activity-registry-bootstrap'
@@ -940,9 +941,9 @@ export async function executeWait(config: any): Promise<any> {
  * namespacing the output under the activity name/type key.
  */
 export async function executeSetVariable(
-  config: any,
+  config: unknown,
   context: ActivityContext
-): Promise<any> {
+): Promise<SetVariableOutput> {
   const parsed = setVariableConfigSchema.safeParse(config)
   if (!parsed.success) {
     const issues = parsed.error.issues
@@ -951,11 +952,16 @@ export async function executeSetVariable(
     throw new Error(`SET_VARIABLE config invalid: ${issues}`)
   }
 
-  const blankPath = parsed.data.assignments.find(
-    (assignment) => splitAssignmentPath(assignment.path).length === 0
-  )
-  if (blankPath) {
-    throw new Error(`SET_VARIABLE assignment path is blank: "${blankPath.path}"`)
+  for (const assignment of parsed.data.assignments) {
+    const segments = splitAssignmentPath(assignment.path)
+    if (segments === null) {
+      throw new Error(
+        `SET_VARIABLE assignment path contains a forbidden segment (__proto__, constructor, prototype): "${assignment.path}"`
+      )
+    }
+    if (segments.length === 0) {
+      throw new Error(`SET_VARIABLE assignment path is blank: "${assignment.path}"`)
+    }
   }
 
   return { assignments: parsed.data.assignments }

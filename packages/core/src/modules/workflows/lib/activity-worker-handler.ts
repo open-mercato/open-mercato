@@ -6,18 +6,44 @@
  */
 
 import { JobHandler } from '@open-mercato/queue'
-import { WorkflowActivityJob } from './activity-queue-types'
+import { WorkflowActivityJob, WorkflowActivityJobActivity } from './activity-queue-types'
 import { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
 import { logWorkflowEvent } from './event-logger'
 import './activity-registry-bootstrap'
+import type { ActivityContext } from './activity-executor'
 import './activity-executor'
-import { getActivityType } from './activity-registry'
+import { getActivityType, type ActivityExecuteDeps } from './activity-registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows').child({ component: 'activity-worker' })
+
+/**
+ * Shared async dispatch through the Activity Registry — the single lookup
+ * path for every queue consumer (this handler and the auto-discovered
+ * workers/workflow-activities.worker.ts). Importing this module also
+ * guarantees the registry bootstrap and the executor handler binding are in
+ * place, so callers never need their own side-effect imports.
+ */
+export async function executeRegistryActivity(
+  payload: Pick<WorkflowActivityJobActivity, 'activityType' | 'activityConfig'>,
+  activityContext: ActivityContext,
+  deps: ActivityExecuteDeps
+): Promise<unknown> {
+  const entry = getActivityType(payload.activityType)
+  if (!entry) {
+    throw new Error(`Unsupported activity type: ${payload.activityType}`)
+  }
+  if (entry.async.capable === false) {
+    throw new Error(
+      `[internal] Activity type ${payload.activityType} cannot run asynchronously (${entry.async.reason})`
+    )
+  }
+  const runActivity = entry.executeAsync ?? entry.execute
+  return await runActivity(payload.activityConfig, activityContext, deps)
+}
 
 /**
  * Create activity worker handler for queue processing
@@ -80,22 +106,11 @@ export function createActivityWorkerHandler(
       // Execute activity by type (with timeout if specified)
       let result: any
 
-      const executeActivityByType = async () => {
-        const entry = getActivityType(payload.activityType)
-        if (!entry) {
-          throw new Error(`Unsupported activity type: ${payload.activityType}`)
-        }
-        if (entry.async.capable === false) {
-          throw new Error(
-            `[internal] Activity type ${payload.activityType} cannot run asynchronously (${entry.async.reason})`
-          )
-        }
-        const runActivity = entry.executeAsync ?? entry.execute
-        return await runActivity(payload.activityConfig, activityContext, {
+      const executeActivityByType = async () =>
+        executeRegistryActivity(payload, activityContext, {
           em: em as PostgreSqlEntityManager,
           container,
         })
-      }
 
       // Apply timeout if specified
       if (payload.timeoutMs) {

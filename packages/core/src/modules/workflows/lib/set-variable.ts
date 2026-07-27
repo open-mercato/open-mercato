@@ -33,20 +33,29 @@ export function isSetVariableOutput(output: unknown): output is SetVariableOutpu
   const assignments = output.assignments
   return (
     Array.isArray(assignments) &&
-    assignments.every(
-      (assignment) =>
-        isPlainObject(assignment) &&
-        typeof assignment.path === 'string' &&
-        splitAssignmentPath(assignment.path).length > 0,
-    )
+    assignments.every((assignment) => {
+      if (!isPlainObject(assignment) || typeof assignment.path !== 'string') return false
+      const segments = splitAssignmentPath(assignment.path)
+      return segments !== null && segments.length > 0
+    })
   )
 }
 
-export function splitAssignmentPath(path: string): string[] {
-  return path
+const FORBIDDEN_ASSIGNMENT_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
+
+/**
+ * Splits a dot path into trimmed, non-empty segments. Returns `null` when any
+ * segment is a prototype-pollution vector (`__proto__`, `constructor`,
+ * `prototype`) — such an assignment is never legitimate, so callers reject the
+ * whole assignment instead of applying it.
+ */
+export function splitAssignmentPath(path: string): string[] | null {
+  const segments = path
     .split('.')
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0)
+  if (segments.some((segment) => FORBIDDEN_ASSIGNMENT_SEGMENTS.has(segment))) return null
+  return segments
 }
 
 /**
@@ -64,7 +73,7 @@ export function buildSetVariableContextPatch(
   const patch: Record<string, unknown> = {}
   for (const assignment of assignments) {
     const segments = splitAssignmentPath(assignment.path)
-    if (segments.length === 0) continue
+    if (segments === null || segments.length === 0) continue
     const [rootKey, ...nestedSegments] = segments
     if (nestedSegments.length === 0) {
       patch[rootKey] = assignment.value

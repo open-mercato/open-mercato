@@ -2405,5 +2405,21 @@ describe('Activity Executor (Unit Tests)', () => {
         'Activity type CALL_API cannot run asynchronously (mintsPerRequestKey)'
       )
     })
+
+    test('refuses to enqueue SET_VARIABLE async with the registry reason', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'set-variable-async-1',
+        activityName: 'Async Set Variable',
+        activityType: 'SET_VARIABLE',
+        config: { assignments: [{ path: 'customer.priority', value: 'high' }] },
+        async: true,
+      }
+
+      await expect(
+        activityExecutor.enqueueActivity(mockEm, activity, mockContext)
+      ).rejects.toThrow(
+        'Activity type SET_VARIABLE cannot run asynchronously (asyncResumeMergeDoesNotApplyAssignments)'
+      )
+    })
   })
 })

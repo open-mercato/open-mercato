@@ -46,6 +46,12 @@ describe('splitAssignmentPath', () => {
     expect(splitAssignmentPath('...')).toEqual([])
     expect(splitAssignmentPath(' ')).toEqual([])
   })
+
+  test('rejects prototype-pollution segments with null', () => {
+    expect(splitAssignmentPath('__proto__.x')).toBeNull()
+    expect(splitAssignmentPath('a.constructor.y')).toBeNull()
+    expect(splitAssignmentPath('a.prototype.b')).toBeNull()
+  })
 })
 
 describe('isSetVariableOutput', () => {
@@ -60,6 +66,12 @@ describe('isSetVariableOutput', () => {
     expect(isSetVariableOutput({ assignments: 'a.b' })).toBe(false)
     expect(isSetVariableOutput({ assignments: [{ value: 1 }] })).toBe(false)
     expect(isSetVariableOutput({ assignments: [{ path: '...' }] })).toBe(false)
+  })
+
+  test('rejects outputs whose paths contain prototype-pollution segments', () => {
+    expect(isSetVariableOutput({ assignments: [{ path: '__proto__.polluted', value: 1 }] })).toBe(false)
+    expect(isSetVariableOutput({ assignments: [{ path: 'a.constructor.y', value: 1 }] })).toBe(false)
+    expect(isSetVariableOutput({ assignments: [{ path: 'a.prototype.b', value: 1 }] })).toBe(false)
   })
 })
 
@@ -110,6 +122,17 @@ describe('buildSetVariableContextPatch', () => {
     ])
     expect(patch).toEqual({ customer: { priority: 'high' } })
   })
+
+  test('skips prototype-pollution paths and leaves Object.prototype unpolluted', () => {
+    const patch = buildSetVariableContextPatch({}, [
+      { path: '__proto__.polluted', value: 'yes' },
+      { path: 'a.constructor.y', value: 'yes' },
+      { path: 'a.prototype.b', value: 'yes' },
+    ])
+    expect(patch).toEqual({})
+    expect(Object.prototype).not.toHaveProperty('polluted')
+    expect({}).not.toHaveProperty('polluted')
+  })
 })
 
 describe('executeSetVariable', () => {
@@ -134,6 +157,15 @@ describe('executeSetVariable', () => {
     await expect(
       executeSetVariable({ assignments: [{ path: ' . ', value: 1 }] }, buildContext({}))
     ).rejects.toThrow('SET_VARIABLE assignment path is blank')
+  })
+
+  test('rejects assignments targeting prototype-pollution segments', async () => {
+    for (const path of ['__proto__.polluted', 'a.constructor.y', 'a.prototype.b']) {
+      await expect(
+        executeSetVariable({ assignments: [{ path, value: 1 }] }, buildContext({}))
+      ).rejects.toThrow('SET_VARIABLE assignment path contains a forbidden segment')
+    }
+    expect(Object.prototype).not.toHaveProperty('polluted')
   })
 })
 
