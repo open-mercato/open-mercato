@@ -403,3 +403,20 @@ export const workflowFunctionSchema = z.object({
 export const workflowFunctionListResponseSchema = z.object({
   items: z.array(workflowFunctionSchema),
 })
+
+// ---------------------------------------------------------------------------
+// Workflow Template Schemas
+// ---------------------------------------------------------------------------
+
+export const workflowTemplateSchema = z.object({
+  id: z.string().min(1).describe('Stable template identifier (kebab-case)'),
+  nameKey: z.string().min(1).describe('i18n key resolving to the template display name'),
+  descriptionKey: z.string().min(1).describe('i18n key resolving to the template description'),
+  category: z.string().min(1).describe('Gallery grouping category'),
+  icon: z.string().min(1).describe('Lucide icon name for the gallery card'),
+  definition: workflowDefinitionDataSchema.describe('Complete workflow definition the template seeds'),
+})
+
+export const workflowTemplateListResponseSchema = z.object({
+  items: z.array(workflowTemplateSchema),
+})

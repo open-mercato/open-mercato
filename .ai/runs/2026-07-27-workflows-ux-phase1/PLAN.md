@@ -24,7 +24,7 @@
 | 4 | 4.6 | SET_VARIABLE assignments form | done | be5841f08 |
 | 5 | 5.1 | #4230 typed OpenAPI responses for workflows definition routes | done | afec27fb4 |
 | 6 | 6.1 | CommandHandler outputSchema seam with customers.deals.update exemplar | done | 3134617c0 |
-| 7 | 7.1 | Template assets and templates list API | todo | — |
+| 7 | 7.1 | Template assets and templates list API | done | 021b9b34a |
 | 7 | 7.2 | Template gallery dialog wired into list page, empty state, and editor | todo | — |
 | 8 | 8.1 | workflow_definition_drafts entity and migration | todo | — |
 | 8 | 8.2 | Draft API routes (GET/PUT/DELETE, user-scoped) | todo | — |
