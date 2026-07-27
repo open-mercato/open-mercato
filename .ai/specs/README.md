@@ -121,6 +121,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Backend Chrome Current Organization](2026-07-30-backend-chrome-current-organization.md) | 2026-07-30 | Backend Chrome Current Organization | Additive resolved `currentOrganization` on `BackendChromePayload` plus a `useCurrentOrganization()` hook, so backend UI can name the organization in scope without a second round trip and without depending on logo-gated `brand` |
 | [Nav Group Order Override Domain](2026-07-30-nav-group-order-override-domain.md) | 2026-07-30 | Nav Group Order Override Domain | Wires sidebar nav group ordering as the `nav` override domain (`overrides.nav.groupOrder`) with prepend semantics beneath role and user preferences, replacing the hard-coded `defaultGroupOrder` as the only ranking source |
 | [Workflow Call API Endpoint Picker](2026-07-29-workflow-call-api-endpoint-picker.md) | 2026-07-29 | Workflow Call API Endpoint Picker | Generated OpenAPI-backed discovery, bounded field hints, versioned picker state, and runtime-safe parameter serialization for `CALL_API` authoring |
+| [Capped List Count](2026-07-27-list-count-strategies.md) | 2026-07-27 | Capped List Count | Bound the CRUD list `COUNT` with `LIMIT cap + 1` so list latency stops scaling with table size; adds one optional `totalIsCapped` response field and converts four full-result-set loops from count-terminated to short-page-terminated |
 
 ### Implemented Specifications
 
