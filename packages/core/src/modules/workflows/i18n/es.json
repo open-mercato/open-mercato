@@ -1147,6 +1147,13 @@
   "workflows.tasks.userTaskConfig.slaDuration": "Duracion del SLA",
   "workflows.tasks.userTaskConfig.title": "Configuracion de tarea de usuario",
   "workflows.tasks.viewTask": "Ver tarea",
+  "workflows.templates.gallery.blank.description": "Empieza desde cero con un lienzo vacío.",
+  "workflows.templates.gallery.blank.name": "Lienzo en blanco",
+  "workflows.templates.gallery.description": "Empieza con un flujo de trabajo listo o un lienzo en blanco.",
+  "workflows.templates.gallery.loadFailed": "No se pudieron cargar las plantillas de flujo de trabajo",
+  "workflows.templates.gallery.loading": "Cargando plantillas...",
+  "workflows.templates.gallery.notFound": "Plantilla no encontrada",
+  "workflows.templates.gallery.title": "Elige una plantilla",
   "workflows.templates.lead-to-install.description": "Lleva una oportunidad nueva desde la primera llamada, pasando por la firma del contrato, hasta una fecha de instalación confirmada.",
   "workflows.templates.lead-to-install.name": "De lead a instalación",
   "workflows.templates.order-approval.description": "Dirige los pedidos de venta nuevos por una decisión de aprobación o rechazo con actualizaciones de estado y eventos.",
@@ -1285,6 +1292,7 @@
   "workflows.visualEditor.stepPalette": "Paleta de pasos",
   "workflows.visualEditor.tapToAdd": "Toca un tipo de paso para añadirlo al lienzo",
   "workflows.visualEditor.tapToAddBelow": "Toca un tipo de paso debajo para añadirlo al lienzo",
+  "workflows.visualEditor.templateLoaded": "Plantilla cargada",
   "workflows.visualEditor.validate": "Validar",
   "workflows.visualEditor.workflowMetadata": "Metadatos del flujo de trabajo"
 }

@@ -1147,6 +1147,13 @@
   "workflows.tasks.userTaskConfig.slaDuration": "SLA Duration",
   "workflows.tasks.userTaskConfig.title": "User Task Configuration",
   "workflows.tasks.viewTask": "View Task",
+  "workflows.templates.gallery.blank.description": "Start from scratch with an empty canvas.",
+  "workflows.templates.gallery.blank.name": "Blank canvas",
+  "workflows.templates.gallery.description": "Start from a ready-made workflow or a blank canvas.",
+  "workflows.templates.gallery.loadFailed": "Failed to load workflow templates",
+  "workflows.templates.gallery.loading": "Loading templates...",
+  "workflows.templates.gallery.notFound": "Template not found",
+  "workflows.templates.gallery.title": "Choose a template",
   "workflows.templates.lead-to-install.description": "Take a new deal from first call through contract signing to a confirmed installation date.",
   "workflows.templates.lead-to-install.name": "Lead to installation",
   "workflows.templates.order-approval.description": "Route new sales orders through an approve/reject decision with status updates and events.",
@@ -1285,6 +1292,7 @@
   "workflows.visualEditor.stepPalette": "Step Palette",
   "workflows.visualEditor.tapToAdd": "Tap a step type to add it to the canvas",
   "workflows.visualEditor.tapToAddBelow": "Tap a step type below to add it to the canvas",
+  "workflows.visualEditor.templateLoaded": "Template loaded",
   "workflows.visualEditor.validate": "Validate",
   "workflows.visualEditor.workflowMetadata": "Workflow Metadata"
 }

@@ -45,6 +45,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, PanelTopClose, PanelTopOpen, Play, Save, Trash2, TriangleAlert, X } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
 import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
+import { TemplateGalleryDialog, type WorkflowTemplateGalleryItem } from '../../../components/TemplateGalleryDialog'
 import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import type { WorkflowDefinitionTrigger } from '../../../data/entities'
@@ -72,6 +73,7 @@ export default function VisualEditorPage() {
   const searchParams = useSearchParams()
   const pathname = usePathname()
   const definitionId = searchParams.get('id')
+  const templateId = searchParams.get('template')
   const isMobile = useIsMobile()
 
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -105,6 +107,7 @@ export default function VisualEditorPage() {
   const [showNodeDialog, setShowNodeDialog] = useState(false)
   const [showEdgeDialog, setShowEdgeDialog] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [showTemplateGallery, setShowTemplateGallery] = useState(false)
   const [problems, setProblems] = useState<WorkflowValidationIssue[]>([])
   const [showProblems, setShowProblems] = useState(false)
   const [problemsCollapsed, setProblemsCollapsed] = useState(false)
@@ -470,7 +473,12 @@ export default function VisualEditorPage() {
 
       const savedDefinition = result.result?.data
 
-      flash(`Workflow ${isUpdate ? 'updated' : 'created'} successfully!`, 'success')
+      flash(
+        isUpdate
+          ? t('workflows.messages.workflowUpdated', 'Workflow updated successfully')
+          : t('workflows.messages.workflowCreated', 'Workflow created successfully'),
+        'success',
+      )
 
       // Redirect to definition detail page after short delay
       setTimeout(() => {
@@ -479,7 +487,7 @@ export default function VisualEditorPage() {
 
     } catch (error) {
       logger.error('Error saving workflow definition', { err: error })
-      flash('Failed to save workflow definition. Please try again.', 'error')
+      flash(t('workflows.messages.saveFailed', 'Failed to save'), 'error')
     } finally {
       setIsSaving(false)
     }
@@ -553,86 +561,55 @@ export default function VisualEditorPage() {
     flash('Test functionality will be implemented next', 'info')
   }, [nodes, edges])
 
-  // Load example workflow
-  const handleLoadExample = useCallback(() => {
-    // Set example metadata
-    setWorkflowId('approval_workflow')
-    setWorkflowName('Simple Approval Workflow')
-    setDescription('A basic approval workflow for reviewing and approving requests')
+  // Apply a gallery template to the canvas: populate metadata from the
+  // template's i18n keys and convert its definition into graph nodes/edges.
+  const applyTemplate = useCallback((template: WorkflowTemplateGalleryItem) => {
+    setWorkflowId(template.id.replace(/-/g, '_'))
+    setWorkflowName(t(template.nameKey))
+    setDescription(t(template.descriptionKey))
     setVersion(1)
     setEnabled(true)
-    setCategory('Approvals')
-    setTags(['approval', 'review'])
+    setCategory(template.category)
+    setTags([])
+    setIcon(template.icon)
 
-    const exampleNodes: Node[] = [
-      {
-        id: 'start',
-        type: 'start',
-        position: { x: 250, y: 50 },
-        data: {
-          label: 'Start',
-          description: 'Workflow begins',
-          status: 'pending',
-          badge: 'Start',
-        },
-      },
-      {
-        id: 'step1',
-        type: 'userTask',
-        position: { x: 250, y: 250 },
-        data: {
-          label: 'Review Request',
-          description: 'User reviews the incoming request',
-          status: 'pending',
-          stepNumber: 1,
-          badge: 'User Task',
-          assignedToRoles: ['Reviewer'],
-        },
-      },
-      {
-        id: 'end',
-        type: 'end',
-        position: { x: 250, y: 450 },
-        data: {
-          label: 'Complete',
-          description: 'Workflow ends',
-          status: 'pending',
-          badge: 'End',
-        },
-      },
-    ]
+    const graph = definitionToGraph(template.definition)
+    setNodes(graph.nodes)
+    setEdges(graph.edges)
+    setTriggers(template.definition.triggers || [])
+    flash(t('workflows.visualEditor.templateLoaded', 'Template loaded'), 'success')
+  }, [t])
 
-    const exampleEdges: Edge[] = [
-      {
-        id: 'e-start-step1',
-        source: 'start',
-        target: 'step1',
-        type: 'smoothstep',
-        data: {
-          trigger: 'auto',
-          preConditions: [],
-          postConditions: [],
-          activities: [],
-        },
-      },
-      {
-        id: 'e-step1-end',
-        source: 'step1',
-        target: 'end',
-        type: 'smoothstep',
-        data: {
-          trigger: 'auto',
-          preConditions: [],
-          postConditions: [],
-          activities: [],
-        },
-      },
-    ]
-
-    setNodes(exampleNodes)
-    setEdges(exampleEdges)
-    flash('Example workflow loaded', 'success')
+  // Open the template gallery (replaces the old hardcoded inline example).
+  const handleOpenTemplateGallery = useCallback(() => {
+    setShowTemplateGallery(true)
   }, [])
+
+  const handleTemplateSelect = useCallback((template: WorkflowTemplateGalleryItem | null) => {
+    if (template) applyTemplate(template)
+  }, [applyTemplate])
+
+  // Populate the canvas from ?template=<id> when creating a new workflow.
+  useEffect(() => {
+    if (definitionId || !templateId) return
+    let cancelled = false
+    const loadTemplate = async () => {
+      const result = await apiCall<{ items?: WorkflowTemplateGalleryItem[]; error?: string }>('/api/workflows/templates')
+      if (cancelled) return
+      const template = result.ok
+        ? (result.result?.items || []).find((item) => item.id === templateId)
+        : undefined
+      if (template) {
+        applyTemplate(template)
+      } else {
+        flash(t('workflows.templates.gallery.notFound', 'Template not found'), 'error')
+      }
+    }
+    void loadTemplate()
+    return () => {
+      cancelled = true
+    }
+  }, [definitionId, templateId, applyTemplate, t])
 
   // Clear canvas
   const handleClear = useCallback(() => {
@@ -711,6 +688,11 @@ export default function VisualEditorPage() {
       ) : (
         <EdgeEditDialog edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
       )}
+      <TemplateGalleryDialog
+        open={showTemplateGallery}
+        onOpenChange={setShowTemplateGallery}
+        onSelect={handleTemplateSelect}
+      />
       <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -803,7 +785,7 @@ export default function VisualEditorPage() {
           onSave={handleSave}
           onValidate={handleValidate}
           onTest={handleTest}
-          onLoadExample={handleLoadExample}
+          onLoadExample={handleOpenTemplateGallery}
           onClear={handleClear}
           metadata={metadata}
           metadataHandlers={metadataHandlers}
@@ -844,7 +826,7 @@ export default function VisualEditorPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleLoadExample}
+                  onClick={handleOpenTemplateGallery}
                   disabled={isSaving}
                   className="h-8 text-xs"
                 >
@@ -1111,7 +1093,7 @@ export default function VisualEditorPage() {
                   <h2 className="mb-2 text-lg font-semibold text-foreground">{t('workflows.visualEditor.startBuilding')}</h2>
                   <p className="mb-4 text-sm text-muted-foreground">{t('workflows.visualEditor.tapToAddBelow')}</p>
                   <button
-                    onClick={handleLoadExample}
+                    onClick={handleOpenTemplateGallery}
                     className="pointer-events-auto text-sm text-primary hover:underline"
                   >
                     {t('workflows.visualEditor.loadExampleWorkflow')}
@@ -1309,7 +1291,7 @@ export default function VisualEditorPage() {
                       {t('workflows.visualEditor.clickToAddFromPalette')}
                     </p>
                     <button
-                      onClick={handleLoadExample}
+                      onClick={handleOpenTemplateGallery}
                       className="pointer-events-auto text-sm text-primary hover:underline"
                     >
                       {t('workflows.visualEditor.loadExampleWorkflow')}

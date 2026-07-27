@@ -1147,6 +1147,13 @@
   "workflows.tasks.userTaskConfig.slaDuration": "Czas SLA",
   "workflows.tasks.userTaskConfig.title": "Konfiguracja Zadania Użytkownika",
   "workflows.tasks.viewTask": "Zobacz Zadanie",
+  "workflows.templates.gallery.blank.description": "Zacznij od zera na pustym obszarze roboczym.",
+  "workflows.templates.gallery.blank.name": "Pusty obszar roboczy",
+  "workflows.templates.gallery.description": "Zacznij od gotowego przepływu pracy lub pustego obszaru roboczego.",
+  "workflows.templates.gallery.loadFailed": "Nie udało się załadować szablonów przepływów pracy",
+  "workflows.templates.gallery.loading": "Ładowanie szablonów...",
+  "workflows.templates.gallery.notFound": "Nie znaleziono szablonu",
+  "workflows.templates.gallery.title": "Wybierz szablon",
   "workflows.templates.lead-to-install.description": "Prowadzi nowy deal od pierwszej rozmowy, przez podpisanie umowy, do potwierdzonego terminu instalacji.",
   "workflows.templates.lead-to-install.name": "Od leada do instalacji",
   "workflows.templates.order-approval.description": "Prowadzi nowe zamówienia sprzedaży przez decyzję zatwierdź/odrzuć z aktualizacją statusów i zdarzeniami.",
@@ -1285,6 +1292,7 @@
   "workflows.visualEditor.stepPalette": "Paleta kroków",
   "workflows.visualEditor.tapToAdd": "Dotknij typu kroku, aby dodać go do obszaru roboczego",
   "workflows.visualEditor.tapToAddBelow": "Dotknij typu kroku poniżej, aby dodać go do obszaru roboczego",
+  "workflows.visualEditor.templateLoaded": "Szablon załadowany",
   "workflows.visualEditor.validate": "Waliduj",
   "workflows.visualEditor.workflowMetadata": "Metadane przepływu pracy"
 }

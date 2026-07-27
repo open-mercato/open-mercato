@@ -27,6 +27,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { Trash2 } from 'lucide-react'
+import { TemplateGalleryDialog, type WorkflowTemplateGalleryItem } from '../../components/TemplateGalleryDialog'
 
 type WorkflowDefinitionSource = 'code' | 'code_override' | 'user'
 
@@ -90,6 +91,13 @@ export default function WorkflowDefinitionsListPage() {
   const queryClient = useQueryClient()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string; updatedAt: string | null } | null>(null)
+  const [showTemplateGallery, setShowTemplateGallery] = React.useState(false)
+
+  const handleTemplateSelect = React.useCallback((template: WorkflowTemplateGalleryItem | null) => {
+    router.push(template
+      ? `/backend/definitions/visual-editor?template=${encodeURIComponent(template.id)}`
+      : '/backend/definitions/visual-editor')
+  }, [router])
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['workflow-definitions', 'list', filterValues, page],
@@ -409,10 +417,8 @@ export default function WorkflowDefinitionsListPage() {
           title={t('workflows.list.title')}
           actions={(
             <div className="flex items-center gap-2">
-              <Button asChild variant="outline">
-                <Link href="/backend/definitions/visual-editor">
-                  {t('workflows.actions.createVisual')}
-                </Link>
+              <Button variant="outline" onClick={() => setShowTemplateGallery(true)}>
+                {t('workflows.actions.createVisual')}
               </Button>
               <Button asChild>
                 <Link href="/backend/definitions/create">
@@ -434,11 +440,16 @@ export default function WorkflowDefinitionsListPage() {
           emptyState={(
             <ListEmptyState
               entityName={t('workflows.list.title')}
-              createHref="/backend/definitions/create"
+              onCreate={() => setShowTemplateGallery(true)}
               createLabel={t('workflows.actions.create')}
             />
           )}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+        />
+        <TemplateGalleryDialog
+          open={showTemplateGallery}
+          onOpenChange={setShowTemplateGallery}
+          onSelect={handleTemplateSelect}
         />
         <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
           <DialogContent className="sm:max-w-md">

@@ -1147,6 +1147,13 @@
   "workflows.tasks.userTaskConfig.slaDuration": "SLA-Dauer",
   "workflows.tasks.userTaskConfig.title": "Benutzeraufgaben-Konfiguration",
   "workflows.tasks.viewTask": "Aufgabe anzeigen",
+  "workflows.templates.gallery.blank.description": "Von Grund auf mit einer leeren Arbeitsfläche beginnen.",
+  "workflows.templates.gallery.blank.name": "Leere Arbeitsfläche",
+  "workflows.templates.gallery.description": "Beginnen Sie mit einem fertigen Workflow oder einer leeren Arbeitsfläche.",
+  "workflows.templates.gallery.loadFailed": "Workflow-Vorlagen konnten nicht geladen werden",
+  "workflows.templates.gallery.loading": "Vorlagen werden geladen...",
+  "workflows.templates.gallery.notFound": "Vorlage nicht gefunden",
+  "workflows.templates.gallery.title": "Vorlage auswählen",
   "workflows.templates.lead-to-install.description": "Führt einen neuen Deal vom Erstgespräch über die Vertragsunterzeichnung bis zu einem bestätigten Installationstermin.",
   "workflows.templates.lead-to-install.name": "Vom Lead zur Installation",
   "workflows.templates.order-approval.description": "Leitet neue Verkaufsaufträge durch eine Freigabe-/Ablehnungsentscheidung mit Statusaktualisierungen und Ereignissen.",
@@ -1285,6 +1292,7 @@
   "workflows.visualEditor.stepPalette": "Schrittpalette",
   "workflows.visualEditor.tapToAdd": "Tippe auf einen Schritttyp, um ihn zur Arbeitsfläche hinzuzufügen",
   "workflows.visualEditor.tapToAddBelow": "Tippe unten auf einen Schritttyp, um ihn zur Arbeitsfläche hinzuzufügen",
+  "workflows.visualEditor.templateLoaded": "Vorlage geladen",
   "workflows.visualEditor.validate": "Validieren",
   "workflows.visualEditor.workflowMetadata": "Workflow-Metadaten"
 }
