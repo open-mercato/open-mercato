@@ -371,12 +371,16 @@ function nulDelimitedPaths(output) {
 function regularFileStrictlyBelow(root, candidate, label) {
   const lexicalRoot = resolve(root)
   const lexical = resolve(candidate)
-  assertStrictlyInside(lexicalRoot, lexical, label)
+  const canonicalRoot = realpathSync(lexicalRoot)
+  try {
+    assertStrictlyInside(lexicalRoot, lexical, label)
+  } catch {
+    assertStrictlyInside(canonicalRoot, lexical, label)
+  }
   const stat = lstatIfPresent(lexical)
   if (!stat || stat.isSymbolicLink() || !stat.isFile()) {
     throw new Error(`${label} must be a regular non-symbolic file below ${lexicalRoot}`)
   }
-  const canonicalRoot = realpathSync(lexicalRoot)
   const canonical = realpathSync(lexical)
   assertStrictlyInside(canonicalRoot, canonical, label)
   return canonical
