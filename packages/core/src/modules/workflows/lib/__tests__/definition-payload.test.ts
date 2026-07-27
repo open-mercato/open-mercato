@@ -1,4 +1,5 @@
 import { buildDefinitionPayload, buildMetadataPayload } from '../definition-payload'
+import { workflowMetadataSchema } from '../../data/validators'
 import type { WorkflowContextSchema, WorkflowDefinitionData, WorkflowDefinitionTrigger } from '../../data/entities'
 
 const graphDefinition: WorkflowDefinitionData = {
@@ -78,6 +79,20 @@ describe('buildMetadataPayload', () => {
   it('starts from a clean slate when no loaded metadata is carried (template or blank canvas)', () => {
     const payload = buildMetadataPayload({ loadedMetadata: null, category: 'E-Commerce', tags: [], icon: 'ShoppingCart' })
     expect(payload).toEqual({ category: 'E-Commerce', icon: 'ShoppingCart' })
+  })
+
+  it('survives the server-side metadata parse with editor.samples intact', () => {
+    const loadedMetadata = {
+      category: 'Sales',
+      editor: {
+        samples: {
+          step_1: { pinnedAt: '2026-07-27T00:00:00.000Z', source: 'manual', data: { orderId: '42' } },
+        },
+      },
+    }
+    const payload = buildMetadataPayload({ loadedMetadata, category: 'Sales', tags: [], icon: '' })
+    const parsed = workflowMetadataSchema.parse(asWirePayload(payload))
+    expect(parsed.editor).toEqual(loadedMetadata.editor)
   })
 
   it('does not mutate the carried loaded-metadata object', () => {

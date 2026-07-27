@@ -142,10 +142,22 @@ export interface WorkflowDefinitionData {
   timers?: any[]
 }
 
+export interface WorkflowSampleEnvelope {
+  pinnedAt: string
+  source: 'manual' | 'test'
+  data: unknown
+}
+
+export interface WorkflowEditorMetadata {
+  samples?: Record<string, WorkflowSampleEnvelope>
+  [key: string]: unknown
+}
+
 export interface WorkflowMetadata {
   tags?: string[]
   category?: string
   icon?: string
+  editor?: WorkflowEditorMetadata
 }
 
 export interface WorkflowInstanceMetadata {

@@ -617,11 +617,37 @@ export const workflowDefinitionDataSchema = z.object({
   }
 })
 
+// Pinned per-step sample envelope (spec §3.6). Samples are stored verbatim
+// with no redaction layer in Phase 2a — the editor surfaces an explicit
+// warning where pinning happens instead.
+export const sampleEnvelopeSchema = z.object({
+  pinnedAt: z.string().datetime({ offset: true }),
+  source: z.enum(['manual', 'test']),
+  data: z.unknown(),
+})
+
+export type WorkflowSampleEnvelopeInput = z.infer<typeof sampleEnvelopeSchema>
+
+export const WORKFLOW_EDITOR_SAMPLES_MAX_CHARS = 65536
+
 // Workflow metadata
 export const workflowMetadataSchema = z.object({
   tags: z.array(z.string().max(50)).optional(),
   category: z.string().max(100).optional(),
   icon: z.string().max(100).optional(),
+  editor: z.object({
+    samples: z.record(z.string(), sampleEnvelopeSchema).optional(),
+  }).passthrough().optional(),
+}).superRefine((metadata, ctx) => {
+  const samples = metadata.editor?.samples
+  if (!samples) return
+  if (JSON.stringify(samples).length > WORKFLOW_EDITOR_SAMPLES_MAX_CHARS) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['editor', 'samples'],
+      message: `Pinned samples exceed the ${WORKFLOW_EDITOR_SAMPLES_MAX_CHARS}-character limit; unpin or shrink samples before saving`,
+    })
+  }
 })
 
 // Date preprocessing helper

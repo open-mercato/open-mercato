@@ -12,6 +12,9 @@ import {
   activityDefinitionSchema,
   contextSchemaFieldSchema,
   contextSchemaSchema,
+  sampleEnvelopeSchema,
+  workflowMetadataSchema,
+  WORKFLOW_EDITOR_SAMPLES_MAX_CHARS,
   workflowDefinitionDataSchema,
   workflowDefinitionDraftDataSchema,
   createWorkflowDefinitionSchema,
@@ -802,6 +805,143 @@ describe('Workflows Validators', () => {
         contextSchema: declaredContextSchema,
       })
       expect(result.contextSchema).toEqual(declaredContextSchema)
+    })
+  })
+
+  describe('editor samples in workflow metadata', () => {
+    const minimalGraph = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' as const },
+        { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+      ],
+      transitions: [
+        {
+          transitionId: 'start-to-end',
+          fromStepId: 'start',
+          toStepId: 'end',
+          trigger: 'auto' as const,
+          priority: 0,
+        },
+      ],
+    }
+
+    const metadataWithSamples = {
+      tags: ['approval'],
+      category: 'workflow',
+      editor: {
+        samples: {
+          step_1: {
+            pinnedAt: '2026-07-27T00:00:00.000Z',
+            source: 'manual' as const,
+            data: { orderId: 'ord_42', total: 99.5 },
+          },
+          step_2: {
+            pinnedAt: '2026-07-27T12:30:00+02:00',
+            source: 'test' as const,
+            data: null,
+          },
+        },
+      },
+    }
+
+    test('metadata schema retains editor.samples', () => {
+      const result = workflowMetadataSchema.parse(metadataWithSamples)
+      expect(result.editor).toEqual(metadataWithSamples.editor)
+    })
+
+    test('metadata schema keeps unknown editor keys via passthrough', () => {
+      const result = workflowMetadataSchema.parse({
+        editor: { samples: {}, layout: { zoom: 1.5 } },
+      })
+      expect(result.editor).toEqual({ samples: {}, layout: { zoom: 1.5 } })
+    })
+
+    test('sample envelope rejects a non-ISO pinnedAt', () => {
+      const invalid = { pinnedAt: 'yesterday', source: 'manual', data: {} }
+      expect(sampleEnvelopeSchema.safeParse(invalid).success).toBe(false)
+    })
+
+    test('sample envelope rejects an unknown source', () => {
+      const invalid = { pinnedAt: '2026-07-27T00:00:00.000Z', source: 'import', data: {} }
+      expect(sampleEnvelopeSchema.safeParse(invalid).success).toBe(false)
+    })
+
+    test('create input schema retains editor.samples end-to-end', () => {
+      const result = createWorkflowDefinitionInputSchema.parse({
+        workflowId: 'samples-flow',
+        workflowName: 'Samples Flow',
+        definition: minimalGraph,
+        metadata: metadataWithSamples,
+      })
+      expect(result.metadata?.editor).toEqual(metadataWithSamples.editor)
+    })
+
+    test('update input schema retains editor.samples end-to-end', () => {
+      const result = updateWorkflowDefinitionInputSchema.parse({
+        definition: minimalGraph,
+        metadata: metadataWithSamples,
+      })
+      expect(result.metadata?.editor).toEqual(metadataWithSamples.editor)
+    })
+
+    test('metadata without editor stays without it', () => {
+      const result = workflowMetadataSchema.parse({ tags: ['plain'] })
+      expect(result.editor).toBeUndefined()
+    })
+
+    test('rejects samples exceeding the total size cap', () => {
+      const oversized = {
+        editor: {
+          samples: {
+            step_1: {
+              pinnedAt: '2026-07-27T00:00:00.000Z',
+              source: 'manual',
+              data: { blob: 'x'.repeat(WORKFLOW_EDITOR_SAMPLES_MAX_CHARS) },
+            },
+          },
+        },
+      }
+      const result = workflowMetadataSchema.safeParse(oversized)
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        const issue = result.error.issues.find((candidate) => candidate.path.join('.') === 'editor.samples')
+        expect(issue?.message).toContain(`${WORKFLOW_EDITOR_SAMPLES_MAX_CHARS}`)
+      }
+    })
+
+    test('rejects oversized samples on the update input schema', () => {
+      const oversized = {
+        metadata: {
+          editor: {
+            samples: {
+              step_1: {
+                pinnedAt: '2026-07-27T00:00:00.000Z',
+                source: 'test',
+                data: 'x'.repeat(WORKFLOW_EDITOR_SAMPLES_MAX_CHARS + 1),
+              },
+            },
+          },
+        },
+      }
+      expect(updateWorkflowDefinitionInputSchema.safeParse(oversized).success).toBe(false)
+    })
+
+    test('accepts samples right at the size boundary', () => {
+      const envelopeOverhead = JSON.stringify({
+        step_1: { pinnedAt: '2026-07-27T00:00:00.000Z', source: 'manual', data: '' },
+      }).length
+      const withinCap = {
+        editor: {
+          samples: {
+            step_1: {
+              pinnedAt: '2026-07-27T00:00:00.000Z',
+              source: 'manual' as const,
+              data: 'x'.repeat(WORKFLOW_EDITOR_SAMPLES_MAX_CHARS - envelopeOverhead),
+            },
+          },
+        },
+      }
+      expect(workflowMetadataSchema.safeParse(withinCap).success).toBe(true)
     })
   })
 
