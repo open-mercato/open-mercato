@@ -14,9 +14,20 @@ import type { AgentInvokeConfigValue } from '../components/fields/AgentInvokeCon
 import type { InvokeAgentConfig } from '../data/validators'
 import { sanitizeId } from './graph-utils'
 import { isFutureIsoDateString, isValidDurationString } from '../data/validators'
-import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isPlainRecord, parseAdvancedConfigValue } from './advanced-config'
 
-const logger = createLogger('workflows')
+// userTaskConfig keys owned by dedicated form fields. At dialog load they are
+// EXCLUDED from the Advanced Configuration blob (only genuinely unhandled keys
+// travel through it), and at save the freshly built structured config is
+// authoritative over anything the advanced blob still carries for these keys.
+const USER_TASK_STRUCTURED_CONFIG_KEYS = [
+  'formSchema',
+  'assignedTo',
+  'assignedToRoles',
+  'assignmentRule',
+  'slaDuration',
+  'escalationRules',
+] as const
 
 // Signal name the INVOKE_AGENT step parks on when a proposal is routed to a
 // human. Mirrors INVOKE_AGENT_SIGNAL_NAME in lib/activity-executor.ts —
@@ -91,8 +102,9 @@ export interface NodeFormValues {
   // InvokeAgent fields
   agentConfig?: AgentInvokeConfigValue
 
-  // Advanced configuration (JSON)
-  advancedConfig?: string
+  // Advanced configuration. JsonBuilder emits the parsed object; legacy
+  // callers may still provide a JSON string.
+  advancedConfig?: Record<string, unknown> | string
 }
 
 function normalizeAssignedToRoles(value: unknown): string[] {
@@ -291,17 +303,24 @@ export function nodeToFormValues(node: Node): NodeFormValues {
     }
   }
 
-  // Advanced config (preserve all fields not explicitly handled)
-  const advancedFields: any = {}
-  if (nodeData?.userTaskConfig) {
-    advancedFields.userTaskConfig = nodeData.userTaskConfig
+  // Advanced config (preserve only fields not explicitly handled by form fields)
+  const advancedFields: Record<string, unknown> = {}
+  if (isPlainRecord(nodeData?.userTaskConfig)) {
+    if (node.type === 'userTask') {
+      const unhandledEntries = Object.entries(nodeData.userTaskConfig).filter(
+        ([key]) => !USER_TASK_STRUCTURED_CONFIG_KEYS.includes(key as (typeof USER_TASK_STRUCTURED_CONFIG_KEYS)[number]),
+      )
+      if (unhandledEntries.length > 0) {
+        advancedFields.userTaskConfig = Object.fromEntries(unhandledEntries)
+      }
+    } else {
+      advancedFields.userTaskConfig = nodeData.userTaskConfig
+    }
   }
   if (nodeData?.retryPolicy) {
     advancedFields.retryPolicy = nodeData.retryPolicy
   }
-  values.advancedConfig = Object.keys(advancedFields).length > 0
-    ? JSON.stringify(advancedFields, null, 2)
-    : ''
+  values.advancedConfig = Object.keys(advancedFields).length > 0 ? advancedFields : undefined
 
   return values
 }
@@ -480,14 +499,20 @@ export function formValuesToNodeUpdates(
     updates.signalConfig = { signalName: INVOKE_AGENT_SIGNAL_NAME }
   }
 
-  // Parse advanced config (JSON) and merge
-  if (values.advancedConfig && values.advancedConfig.trim()) {
-    try {
-      const parsed = JSON.parse(values.advancedConfig)
-      Object.assign(updates, parsed)
-    } catch (error) {
-      logger.error('Invalid JSON in Advanced Configuration', { err: error })
-      throw new Error('workflows.validation.invalidAdvancedConfigJson')
+  // Merge the advanced config (object from JsonBuilder, or legacy JSON string).
+  // For user tasks the structured fields are authoritative: the advanced blob
+  // only contributes keys the dialog does not handle structurally.
+  const advanced = parseAdvancedConfigValue(values.advancedConfig)
+  if (advanced) {
+    const structuredUserTaskConfig =
+      node.type === 'userTask' && isPlainRecord(updates.userTaskConfig) ? updates.userTaskConfig : undefined
+    Object.assign(updates, advanced)
+    if (structuredUserTaskConfig) {
+      const advancedUserTaskConfig = isPlainRecord(advanced.userTaskConfig) ? { ...advanced.userTaskConfig } : {}
+      for (const key of USER_TASK_STRUCTURED_CONFIG_KEYS) {
+        delete advancedUserTaskConfig[key]
+      }
+      updates.userTaskConfig = { ...advancedUserTaskConfig, ...structuredUserTaskConfig }
     }
   }
 

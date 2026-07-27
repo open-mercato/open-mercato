@@ -65,7 +65,7 @@ describe('RolesMultiSelect', () => {
     const managerOption = await screen.findByRole('button', { name: 'Manager' })
     expect(apiCallMock).toHaveBeenCalledWith(
       expect.stringContaining('/api/auth/roles?page=1&pageSize=100'),
-      undefined,
+      { headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' } },
       expect.anything(),
     )
     fireEvent.click(managerOption)
@@ -73,7 +73,7 @@ describe('RolesMultiSelect', () => {
     expect(onChange).toHaveBeenCalledWith(['Manager'])
   })
 
-  it('degrades to free-text entry when the role lookup returns 403', async () => {
+  it('degrades to free-text entry when the role lookup returns 403 and suppresses the global forbidden redirect', async () => {
     mockRolesForbidden()
     const onChange = jest.fn()
     renderWithProviders(<RolesMultiSelect value={[]} onChange={onChange} />)
@@ -84,6 +84,12 @@ describe('RolesMultiSelect', () => {
     await waitFor(() => {
       expect(screen.getByText(LOOKUP_UNAVAILABLE_KEY)).toBeInTheDocument()
     })
+
+    expect(apiCallMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/auth/roles'),
+      { headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' } },
+      expect.anything(),
+    )
 
     fireEvent.change(input, { target: { value: 'legacy_role' } })
     fireEvent.keyDown(input, { key: 'Enter' })

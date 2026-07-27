@@ -256,6 +256,11 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                           ))}
                         </SelectContent>
                       </Select>
+                      {activity.activityType === 'SEND_EMAIL' && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {t('workflows.activities.sendEmailSimulatedHint')}
+                        </p>
+                      )}
                     </div>
 
                     {/* Timeout */}

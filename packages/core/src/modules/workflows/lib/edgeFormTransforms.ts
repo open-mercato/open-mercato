@@ -8,9 +8,7 @@
 import type { Edge } from '@xyflow/react'
 import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { TransitionCondition } from '../components/fields/BusinessRuleConditionsEditor'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-
-const logger = createLogger('workflows')
+import { parseAdvancedConfigValue } from './advanced-config'
 
 /**
  * Normalized condition format (object only, no string)
@@ -31,7 +29,8 @@ export interface EdgeFormValues {
   preConditions: NormalizedCondition[]
   postConditions: NormalizedCondition[]
   activities: Activity[]
-  advancedConfig?: string
+  // JsonBuilder emits the parsed object; legacy callers may still provide a JSON string.
+  advancedConfig?: Record<string, unknown> | string
 }
 
 /**
@@ -92,7 +91,7 @@ export function edgeToFormValues(edge: Edge): EdgeFormValues {
     preConditions: normalizeConditions(edgeData?.preConditions || []),
     postConditions: normalizeConditions(edgeData?.postConditions || []),
     activities: edgeData?.activities || [],
-    advancedConfig: '', // Advanced config is empty initially (can be populated from edgeData if needed)
+    advancedConfig: undefined, // Advanced config is empty initially (can be populated from edgeData if needed)
   }
 }
 
@@ -116,15 +115,10 @@ export function formValuesToEdgeUpdates(
     activities: values.activities.length > 0 ? values.activities : undefined,
   }
 
-  // Parse advanced config (JSON) and merge
-  if (values.advancedConfig && values.advancedConfig.trim()) {
-    try {
-      const parsed = JSON.parse(values.advancedConfig)
-      Object.assign(updates, parsed)
-    } catch (error) {
-      logger.error('Invalid JSON in Advanced Configuration', { err: error })
-      throw new Error('workflows.validation.invalidAdvancedConfigJson')
-    }
+  // Merge the advanced config (object from JsonBuilder, or legacy JSON string)
+  const advanced = parseAdvancedConfigValue(values.advancedConfig)
+  if (advanced) {
+    Object.assign(updates, advanced)
   }
 
   return updates

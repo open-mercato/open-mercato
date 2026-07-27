@@ -601,7 +601,7 @@ async function executeActivityByType(
  * SEND_EMAIL activity handler
  *
  * Sends via the DI-registered emailService when available; without one it
- * reports an honest stub result ({ sent: false, reason: 'no-email-service' }).
+ * reports an honest stub result ({ sent: false, simulated: true, reason: 'no-email-service' }).
  * A real send() failure propagates so the activity retry loop handles it.
  */
 export async function executeSendEmail(
@@ -636,7 +636,7 @@ export async function executeSendEmail(
   }
 
   logger.warn('SEND_EMAIL has no registered email service; email was not sent', { component: 'SEND_EMAIL', subject })
-  return { sent: false, to, subject, via: 'console', reason: 'no-email-service' }
+  return { sent: false, simulated: true, to, subject, via: 'console', reason: 'no-email-service' }
 }
 
 /**
