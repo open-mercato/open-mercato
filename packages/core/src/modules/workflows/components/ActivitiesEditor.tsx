@@ -14,6 +14,7 @@ import {
 import { Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ConfigJsonTextarea } from './ConfigJsonTextarea'
+import { useActivityTypeOptions } from './fields/useActivityTypeOptions'
 
 interface Activity {
   activityId: string
@@ -37,18 +38,9 @@ interface ActivitiesEditorProps {
   error?: string
 }
 
-const ACTIVITY_TYPES = [
-  { value: 'SEND_EMAIL', label: 'Send Email' },
-  { value: 'CALL_API', label: 'Call API' },
-  { value: 'UPDATE_ENTITY', label: 'Update Entity' },
-  { value: 'EMIT_EVENT', label: 'Emit Event' },
-  { value: 'CALL_WEBHOOK', label: 'Call Webhook' },
-  { value: 'EXECUTE_FUNCTION', label: 'Execute Function' },
-  { value: 'WAIT', label: 'Wait' },
-]
-
 export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEditorProps) {
   const t = useT()
+  const activityTypeOptions = useActivityTypeOptions()
 
   const addActivity = () => {
     const newActivity: Activity = {
@@ -198,9 +190,9 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {ACTIVITY_TYPES.map((type) => (
+                      {activityTypeOptions.map((type) => (
                         <SelectItem key={type.value} value={type.value}>
-                          {t(`workflows.activities.types.${type.value}`)}
+                          {type.label}
                         </SelectItem>
                       ))}
                     </SelectContent>

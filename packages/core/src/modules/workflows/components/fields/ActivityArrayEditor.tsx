@@ -18,6 +18,7 @@ import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { DurationInput } from '@open-mercato/ui/backend/inputs/DurationInput'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useActivityTypeOptions } from './useActivityTypeOptions'
 
 /**
  * Activity definition structure
@@ -25,7 +26,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 export interface Activity {
   activityId: string
   activityName: string
-  activityType: 'SEND_EMAIL' | 'CALL_API' | 'UPDATE_ENTITY' | 'EMIT_EVENT' | 'CALL_WEBHOOK' | 'EXECUTE_FUNCTION' | 'WAIT'
+  activityType: string
   config: Record<string, any>
   timeout?: string
   timeoutMs?: number
@@ -57,6 +58,7 @@ interface ActivityArrayEditorProps extends CrudCustomFieldRenderProps {
  */
 export function ActivityArrayEditor({ id, value = [], error, setValue, disabled }: ActivityArrayEditorProps) {
   const t = useT()
+  const activityTypeOptions = useActivityTypeOptions()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [expandedIndices, setExpandedIndices] = useState<Set<number>>(new Set())
 
@@ -233,13 +235,11 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</SelectItem>
-                          <SelectItem value="CALL_API">{t('workflows.activities.types.CALL_API')}</SelectItem>
-                          <SelectItem value="UPDATE_ENTITY">{t('workflows.activities.types.UPDATE_ENTITY')}</SelectItem>
-                          <SelectItem value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</SelectItem>
-                          <SelectItem value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</SelectItem>
-                          <SelectItem value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</SelectItem>
-                          <SelectItem value="WAIT">{t('workflows.activities.types.WAIT')}</SelectItem>
+                          {activityTypeOptions.map((type) => (
+                            <SelectItem key={type.value} value={type.value}>
+                              {type.label}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>

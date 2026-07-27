@@ -16,7 +16,7 @@
 | 1 | 1.4 | Async worker dispatch through the registry + CALL_API enqueue-time refusal | done | a669adaad |
 | 2 | 2.1 | Registry-driven activityTypeSchema and per-type config validation (warning severity) | done | 9ff3e832a |
 | 3 | 3.1 | SET_VARIABLE activity type end-to-end | done | 6e590017b |
-| 4 | 4.1 | Shared activity-type options hook; kill hardcoded label arrays | todo | — |
+| 4 | 4.1 | Shared activity-type options hook; kill hardcoded label arrays | done | 71796cb5a |
 | 4 | 4.2 | Registry-driven config forms in ActivityArrayEditor (WAIT, SEND_EMAIL, CALL_WEBHOOK, CALL_API) | todo | — |
 | 4 | 4.3 | Event picker field for EMIT_EVENT | todo | — |
 | 4 | 4.4 | Command picker for UPDATE_ENTITY with safe-command list API | todo | — |
