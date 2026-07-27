@@ -5,12 +5,15 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getBackendRouteManifests } from '@open-mercato/shared/modules/registry'
+import { getModuleSurfaceFingerprint } from '@open-mercato/shared/lib/modules/surfaceFingerprint'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { groupBackendRoutesByModule, resolveBackendChromePayload } from '../../lib/backendChrome'
 
 export const metadata = {
   GET: { requireAuth: true },
 }
+
+const NAV_CACHE_TTL_MS = 5 * 60 * 1000
 
 const sidebarNavItemSchema: z.ZodType<{
   id?: string
@@ -104,7 +107,7 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   const cache = container.resolve('cache') as {
     get?: (key: string) => Promise<unknown>
-    set?: (key: string, value: unknown, options?: { tags?: string[] }) => Promise<void>
+    set?: (key: string, value: unknown, options?: { tags?: string[]; ttl?: number }) => Promise<void>
   } | null
   let selectedOrganizationId: string | null | undefined
   let selectedTenantId: string | null | undefined
@@ -138,7 +141,11 @@ export async function GET(req: Request) {
     selectedTenantId = auth.tenantId ?? null
   }
 
-  const cacheVersion = 'v4'
+  // The payload embeds the enabled-module set (via `filterGrantsByEnabledModules`)
+  // and the backend route manifest, neither of which any tag invalidation covers.
+  // Without the fingerprint a deploy that changes `modules.ts` stays invisible to
+  // every user holding a warm entry; the TTL bounds anything the fingerprint misses.
+  const cacheVersion = `v4:${getModuleSurfaceFingerprint()}`
   const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}`
   try {
     if (cache?.get) {
@@ -172,7 +179,7 @@ export async function GET(req: Request) {
         `nav:sidebar:scope:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}:${locale}`,
         ...((Array.isArray(auth.roles) ? auth.roles : []).map((role) => `nav:sidebar:role:${role}`)),
       ].filter(Boolean) as string[]
-      await cache.set(cacheKey, payload, { tags })
+      await cache.set(cacheKey, payload, { tags, ttl: NAV_CACHE_TTL_MS })
     }
   } catch {
     // ignore cache write failures
