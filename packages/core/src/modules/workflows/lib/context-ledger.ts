@@ -28,8 +28,10 @@
  *   the same name/type/required vocabulary, so they map 1:1 onto START entries.
  *   Full `@deprecated` dual-emit for `io.inputs` is follow-up work; this is the
  *   read-through half only. Plus, per definition trigger, the
- *   whole-payload flat spread (one `'*'` wildcard entry), `contextMapping`
- *   target keys (named, untyped), and the `__trigger.*` metadata keys
+ *   whole-payload flat spread (one `'*'` wildcard entry, always untyped),
+ *   `contextMapping` target keys (named; typed from the trigger event's
+ *   payload contract when the caller pre-resolves one into
+ *   `options.triggerPayloadContracts`, `unknown` otherwise), and the `__trigger.*` metadata keys
  *   (event-trigger-service builds `initialContext` from
  *   `...payload, ...mappedContext, __trigger: {...}`). All trigger entries are
  *   `maybe` — a definition can always be started manually without the trigger.
@@ -137,6 +139,15 @@ export type ResolveOutputContract = (
 
 export interface ComputeContextLedgerOptions {
   resolveOutputContract?: ResolveOutputContract
+  /**
+   * Pre-resolved payload contracts for the definition's triggers, keyed by
+   * triggerId — plain data, so the lib stays pure (no event-registry access
+   * here). Build them at the call site with `buildTriggerPayloadContracts`
+   * from the declared events. When a trigger has a contract, its
+   * `contextMapping` target entries are typed from the mapping's source path;
+   * otherwise they stay `unknown`.
+   */
+  triggerPayloadContracts?: Record<string, LedgerContract>
 }
 
 export interface LedgerActivityDefinition {
@@ -166,6 +177,7 @@ export interface LedgerTransitionDefinition {
 
 export interface LedgerTriggerDefinition {
   triggerId: string
+  eventPattern?: string
   config?: Record<string, unknown>
 }
 
@@ -244,7 +256,60 @@ function makeEntry(
   return { path, type, presence, source }
 }
 
-function initialContributions(definition: LedgerWorkflowDefinition): LedgerEntry[] {
+const LEDGER_TYPE_VALUES: ReadonlySet<string> = new Set<LedgerType>([
+  'text',
+  'number',
+  'boolean',
+  'select',
+  'date',
+  'object',
+  'unknown',
+])
+
+function toLedgerType(raw: unknown): LedgerType {
+  return typeof raw === 'string' && LEDGER_TYPE_VALUES.has(raw) ? (raw as LedgerType) : 'unknown'
+}
+
+export interface TriggerPayloadEventInput {
+  id: string
+  payloadSchema?: {
+    fields: ReadonlyArray<{ path: string; type: string; optional?: boolean }>
+  }
+}
+
+/**
+ * Pure pre-resolution of trigger payload contracts from declared events, for
+ * `ComputeContextLedgerOptions.triggerPayloadContracts`. Only an EXACT event
+ * pattern (no `*` wildcard) with a non-empty declared payloadSchema resolves;
+ * wildcard patterns and schema-less events yield no contract so their mapping
+ * targets stay `unknown`. Both call sites (the server context-schema route via
+ * `getDeclaredEvents()` and the client editor via its fetched events list)
+ * feed this the same plain-data shape.
+ */
+export function buildTriggerPayloadContracts(
+  triggers: ReadonlyArray<{ triggerId: string; eventPattern?: string | null }>,
+  events: ReadonlyArray<TriggerPayloadEventInput>,
+): Record<string, LedgerContract> {
+  const contracts: Record<string, LedgerContract> = {}
+  if (triggers.length === 0 || events.length === 0) return contracts
+  const eventsById = new Map(events.map(event => [event.id, event]))
+  for (const trigger of triggers) {
+    if (!trigger.triggerId) continue
+    const pattern = typeof trigger.eventPattern === 'string' ? trigger.eventPattern.trim() : ''
+    if (!pattern || pattern.includes('*')) continue
+    const fields = eventsById.get(pattern)?.payloadSchema?.fields
+    if (!fields || fields.length === 0) continue
+    contracts[trigger.triggerId] = {
+      entries: fields.map(field => ({ path: field.path, type: toLedgerType(field.type) })),
+    }
+  }
+  return contracts
+}
+
+function initialContributions(
+  definition: LedgerWorkflowDefinition,
+  options: ComputeContextLedgerOptions,
+): LedgerEntry[] {
   const entries: LedgerEntry[] = []
 
   // contextSchema.input is canonical; definition.io.inputs (the sub-workflow
@@ -272,12 +337,18 @@ function initialContributions(definition: LedgerWorkflowDefinition): LedgerEntry
       }),
     )
 
+    const payloadContract = options.triggerPayloadContracts?.[trigger.triggerId]
     const contextMapping = trigger.config?.contextMapping
     if (Array.isArray(contextMapping)) {
       for (const mapping of contextMapping) {
         if (!isPlainObject(mapping) || typeof mapping.targetKey !== 'string' || !mapping.targetKey) continue
+        const sourcePath = typeof mapping.sourceExpression === 'string' ? mapping.sourceExpression : null
+        const mappedType =
+          payloadContract && sourcePath
+            ? payloadContract.entries.find(entry => entry.path === sourcePath)?.type ?? 'unknown'
+            : 'unknown'
         entries.push(
-          makeEntry(mapping.targetKey, 'unknown', 'maybe', {
+          makeEntry(mapping.targetKey, mappedType, 'maybe', {
             kind: 'trigger',
             label: `trigger:${trigger.triggerId}:contextMapping`,
           }),
@@ -641,7 +712,7 @@ export function computeContextLedger(
     incomingTransitions.set(transition.toStepId, list)
   }
 
-  const initialRoute: LedgerMap = applyContributions(new Map(), initialContributions(definition))
+  const initialRoute: LedgerMap = applyContributions(new Map(), initialContributions(definition, options))
   const incoming = new Map<string, LedgerMap | null>(
     definition.steps.map((step) => [step.stepId, null]),
   )

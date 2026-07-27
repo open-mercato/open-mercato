@@ -22,7 +22,7 @@
 | 1 | 1.6 | CALL_API outputContract → response schema into ledger | done | f94a84ec7 |
 | 1 | 1.7 | Additive EventDefinition payloadSchema + /api/events exposure | done | c38523c64 |
 | 1 | 1.8 | Trigger editor: payload-path filter builder + mapping pickers + safe-default copy | done | 38e3abaa6 |
-| 1 | 1.9 | Ledger: typed trigger contextMapping contributions | todo | — |
+| 1 | 1.9 | Ledger: typed trigger contextMapping contributions | done | 87924472d |
 | 1 | 1.10 | Enterprise: expose agent outcomeSchema on agents API | todo | — |
 | 1 | 1.11 | INVOKE_AGENT outputContract seam + typed ledger mapping targets | todo | — |
 | 1 | 1.12 | AgentInvokeConfigField: schema-key pickers, author-time errors, Insert sample, subject picker | todo | — |

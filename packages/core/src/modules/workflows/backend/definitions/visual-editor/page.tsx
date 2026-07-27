@@ -22,7 +22,13 @@ import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
 import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
-import { computeContextLedger, type LedgerWorkflowDefinition } from '../../../lib/context-ledger'
+import {
+  buildTriggerPayloadContracts,
+  computeContextLedger,
+  type LedgerContract,
+  type LedgerWorkflowDefinition,
+} from '../../../lib/context-ledger'
+import { useAvailableEvents } from '@open-mercato/ui/backend/inputs/EventSelect'
 import { collectUnresolvedContextRefWarnings } from '../../../lib/expression-refs'
 import type { PinnedSampleEnvelope } from '../../../lib/sample-resolver'
 import { Page } from '@open-mercato/ui/backend/Page'
@@ -101,17 +107,22 @@ const DRAFT_SAVED_LABEL_REFRESH_MS = 30000
  * channel as activity-config warnings, so `collectValidationIssues` maps them
  * to nodes/edges and they never block saves.
  */
-function computeClientContextLedger(definitionData: WorkflowDefinitionData) {
+function computeClientContextLedger(
+  definitionData: WorkflowDefinitionData,
+  triggerPayloadContracts?: Record<string, LedgerContract>,
+) {
   return computeContextLedger(definitionData as unknown as LedgerWorkflowDefinition, {
     resolveOutputContract: () => 'unknown',
+    triggerPayloadContracts,
   })
 }
 
 function collectContextRefWarnings(
   definitionData: WorkflowDefinitionData,
   translate: ReturnType<typeof useT>,
+  triggerPayloadContracts?: Record<string, LedgerContract>,
 ): ZodIssueLike[] {
-  const ledger = computeClientContextLedger(definitionData)
+  const ledger = computeClientContextLedger(definitionData, triggerPayloadContracts)
   return collectUnresolvedContextRefWarnings(definitionData, ledger).map((warning) => ({
     path: warning.path,
     message: translate(
@@ -761,6 +772,17 @@ export default function VisualEditorPage() {
     setEdges((eds) => appendWorkflowEdge(eds, newEdge))
   }, [])
 
+  // Typed trigger contextMapping targets (spec section 3.1, step 1.9): the
+  // ledger stays pure, so trigger event payload contracts are pre-resolved
+  // here from the already-fetched declared-events list (which carries
+  // payloadSchema since step 1.7) and passed in as plain data. Schema-less or
+  // wildcard triggers get no contract and their mapping targets stay unknown.
+  const { events: availableEvents } = useAvailableEvents()
+  const triggerPayloadContracts = useMemo(
+    () => buildTriggerPayloadContracts(triggers, availableEvents),
+    [triggers, availableEvents],
+  )
+
   // Ledger entries for the variable picker in the open edit dialog (spec
   // section 3.5, step 3.2). Computed lazily — only while a dialog is open —
   // with the same client-side 'unknown'-contract ledger the Problems warnings
@@ -777,11 +799,11 @@ export default function VisualEditorPage() {
         contextSchema,
         io: definitionIo,
       })
-      return computeClientContextLedger(definitionData)
+      return computeClientContextLedger(definitionData, triggerPayloadContracts)
     } catch {
       return null
     }
-  }, [showNodeDialog, showEdgeDialog, nodes, edges, triggers, contextSchema, definitionIo])
+  }, [showNodeDialog, showEdgeDialog, nodes, edges, triggers, contextSchema, definitionIo, triggerPayloadContracts])
 
   const nodeDialogLedgerEntries = useMemo(
     () => (dialogLedger && selectedNode ? dialogLedger.steps[selectedNode.id]?.entries : undefined),
@@ -862,7 +884,7 @@ export default function VisualEditorPage() {
       const ledgerDefinition = buildDefinitionPayload({ graphDefinition: definitionData, triggers, contextSchema, io: definitionIo, interpolation })
       configWarnings = [
         ...collectActivityConfigWarnings(definitionData),
-        ...collectContextRefWarnings(ledgerDefinition, t),
+        ...collectContextRefWarnings(ledgerDefinition, t, triggerPayloadContracts),
       ]
     } catch (error) {
       schemaFailureMessage = error instanceof Error ? error.message : String(error)
@@ -929,7 +951,7 @@ export default function VisualEditorPage() {
       zodIssues: schemaResult.success ? [] : schemaResult.error.issues,
       configWarnings: [
         ...collectActivityConfigWarnings(definitionData),
-        ...collectContextRefWarnings(definitionData, t),
+        ...collectContextRefWarnings(definitionData, t, triggerPayloadContracts),
       ],
       nodes,
       edges,

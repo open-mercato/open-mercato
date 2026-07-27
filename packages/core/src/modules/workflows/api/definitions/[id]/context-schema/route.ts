@@ -26,8 +26,13 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { getDeclaredEvents } from '@open-mercato/shared/modules/events'
 import { WorkflowDefinition, type WorkflowDefinitionData } from '../../../../data/entities'
-import { computeContextLedger, type LedgerWorkflowDefinition } from '../../../../lib/context-ledger'
+import {
+  buildTriggerPayloadContracts,
+  computeContextLedger,
+  type LedgerWorkflowDefinition,
+} from '../../../../lib/context-ledger'
 import { ensureWorkflowEndpointCatalog } from '../../../../lib/endpoint-catalog'
 import { resolveServerOutputContract } from '../../../../lib/server-output-contract'
 import { getCodeWorkflow, getAllCodeWorkflows } from '../../../../lib/code-registry'
@@ -57,8 +62,13 @@ function toLedgerDefinition(definition: WorkflowDefinitionData): LedgerWorkflowD
 }
 
 function respondWithLedger(definition: WorkflowDefinitionData, stepId: string | null) {
-  const ledger = computeContextLedger(toLedgerDefinition(definition), {
+  const ledgerDefinition = toLedgerDefinition(definition)
+  const ledger = computeContextLedger(ledgerDefinition, {
     resolveOutputContract: resolveServerOutputContract,
+    triggerPayloadContracts: buildTriggerPayloadContracts(
+      ledgerDefinition.triggers ?? [],
+      getDeclaredEvents(),
+    ),
   })
   if (stepId === null) {
     return NextResponse.json({ steps: ledger.steps })
