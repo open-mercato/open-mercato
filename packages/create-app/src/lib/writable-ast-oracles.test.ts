@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { WRITABLE_CASE_IDS } from '../../agentic/shared/ai/harness/writable-ast-oracles.mjs'
+import { hasExactString, WRITABLE_CASE_IDS } from '../../agentic/shared/ai/harness/writable-ast-oracles.mjs'
 
 const require = createRequire(import.meta.url)
 const oracle = fileURLToPath(new URL('../../agentic/shared/ai/harness/writable-ast-oracles.mjs', import.meta.url))
@@ -152,6 +152,14 @@ export const enabledModules = [
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('exact string graders reject literals that only share the expected prefix', () => {
+  const facts = { strings: new Set(['smtpHealthServiceDecoy', 'smtp_email.view.extra']) }
+  assert.equal(hasExactString(facts, 'smtpHealthService'), false)
+  assert.equal(hasExactString(facts, 'smtp_email.view'), false)
+  facts.strings.add('smtpHealthService')
+  assert.equal(hasExactString(facts, 'smtpHealthService'), true)
 })
 
 test('imports and comments cannot satisfy a concrete call/options oracle', () => {
