@@ -76,15 +76,15 @@ does not know `api_keys` exists will invent a bespoke token mechanism.
 
 ### Phase 1: Catalog
 
-- [ ] 1.1 Append OMH-188 and OMH-189 to cases.json
-- [ ] 1.2 Bump validators.json expectedCaseCount to 189
+- [x] 1.1 Append OMH-188 and OMH-189 to cases.json — 955b97945
+- [x] 1.2 Bump validators.json expectedCaseCount to 189 — 955b97945
 
 ### Phase 2: Specification
 
-- [ ] 2.1 Record both cases in the spec's use-case list and coverage totals
+- [x] 2.1 Align every stale catalog count with the 189-case catalog — 64dbdb0ea
 
 ### Phase 3: Validation
 
-- [ ] 3.1 Deterministic catalog gate over the full catalog
-- [ ] 3.2 Live routing runs for both new cases
+- [x] 3.1 Deterministic catalog gate over the full catalog — 189/189 on the committed bytes
+- [x] 3.2 Live routing runs for both new cases — OMH-188 and OMH-189 pass on claude/sonnet
 - [ ] 3.3 Repository validation gate for the touched package
