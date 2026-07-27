@@ -15,6 +15,7 @@ import '../../lib/activity-registry-bootstrap'
 import { getActivityType, type ActivityFormFieldSpec } from '../../lib/activity-registry'
 import type { LedgerEntry } from '../../lib/context-ledger'
 import { CommandPicker } from './CommandPicker'
+import { EndpointPicker } from './EndpointPicker'
 import { FunctionPicker } from './FunctionPicker'
 import { VariablePickerButton } from './VariablePickerButton'
 
@@ -515,6 +516,27 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
           <EventPatternInput
             value={stringValue(rawValue)}
             onChange={(nextValue) => setField(spec, nextValue)}
+            disabled={disabled}
+          />
+        )
+      case 'endpoint':
+        return (
+          <EndpointPicker
+            id={fieldId}
+            endpoint={stringValue(rawValue)}
+            method={stringValue(config.method)}
+            onApply={(patch) => {
+              const next: Record<string, unknown> = { ...config }
+              for (const [patchKey, patchValue] of Object.entries(patch)) {
+                if (patchValue === '' || patchValue === undefined) {
+                  delete next[patchKey]
+                } else {
+                  next[patchKey] = patchValue
+                }
+              }
+              onChange(next)
+            }}
+            ledgerEntries={ledgerEntries}
             disabled={disabled}
           />
         )

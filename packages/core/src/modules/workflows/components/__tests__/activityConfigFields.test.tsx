@@ -65,15 +65,47 @@ function mockWorkflowFunctions(functions: Array<{ name: string; labelKey?: strin
   })
 }
 
+type EndpointCatalogItem = {
+  path: string
+  method: string
+  summary: string
+  tag: string
+  params: Array<{ name: string; in: 'path' | 'query' | 'header'; required: boolean; type: string }>
+  hasRequestSchema: boolean
+  requestSchema?: Record<string, unknown>
+}
+
+function mockEndpointCatalog(items: EndpointCatalogItem[], ok = true) {
+  apiCallMock.mockImplementation(async (url: unknown) => {
+    if (typeof url === 'string' && url.startsWith('/api/workflows/endpoints')) {
+      return { ok, status: ok ? 200 : 500, result: { items }, response: {}, cacheStatus: null }
+    }
+    return { ok: true, status: 200, result: { data: [], total: 0 }, response: {}, cacheStatus: null }
+  })
+}
+
 beforeEach(() => {
   apiCallMock.mockReset()
   mockDeclaredEvents([])
 })
 
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
 if (typeof window !== 'undefined') {
   if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false
   if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => undefined
   if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => undefined
+  if (typeof globalThis.ResizeObserver === 'undefined') {
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      configurable: true,
+      writable: true,
+      value: ResizeObserverMock,
+    })
+  }
 }
 
 describe('hasActivityConfigForm', () => {
@@ -141,7 +173,8 @@ describe('ActivityConfigFields', () => {
     expect(onChange).toHaveBeenCalledWith({ subject: 'Welcome', to: 'ops@example.com' })
   })
 
-  it('renders CALL_API endpoint and method inputs', () => {
+  it('renders CALL_API endpoint and method inputs with the SSRF/tenant helper text', async () => {
+    mockEndpointCatalog([])
     renderWithProviders(
       <ActivityConfigFields
         activityType="CALL_API"
@@ -151,8 +184,59 @@ describe('ActivityConfigFields', () => {
       />,
     )
 
-    expect(screen.getByLabelText(/workflows\.activityConfig\.CALL_API\.endpoint/)).toHaveValue('/api/orders')
+    expect(screen.getByLabelText(/workflows\.activityConfig\.CALL_API\.endpoint \*/)).toHaveValue('/api/orders')
     expect(screen.getByLabelText(/workflows\.activityConfig\.CALL_API\.method/)).toHaveValue('POST')
+    expect(screen.getByText('workflows.activityConfig.CALL_API.endpointHint')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(apiCallMock).toHaveBeenCalledWith(
+        '/api/workflows/endpoints',
+        undefined,
+        expect.anything(),
+      )
+    })
+  })
+
+  it('fills CALL_API endpoint and method together when picking from the endpoint catalog', async () => {
+    mockEndpointCatalog([
+      {
+        path: '/api/sales/orders',
+        method: 'POST',
+        summary: 'Create order',
+        tag: 'Sales',
+        params: [],
+        hasRequestSchema: false,
+      },
+    ])
+    const onChange = jest.fn()
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="CALL_API"
+        idPrefix="api-config"
+        config={{}}
+        onChange={onChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /workflows\.endpointPicker\.browse/ }))
+    await waitFor(() => {
+      expect(screen.getByText('Create order')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Create order'))
+
+    expect(onChange).toHaveBeenCalledWith({ endpoint: '/api/sales/orders', method: 'POST' })
+  })
+
+  it('renders the CALL_WEBHOOK SSRF helper text on the URL field', () => {
+    renderWithProviders(
+      <ActivityConfigFields
+        activityType="CALL_WEBHOOK"
+        idPrefix="webhook-config"
+        config={{}}
+        onChange={jest.fn()}
+      />,
+    )
+
+    expect(screen.getByText('workflows.activityConfig.CALL_WEBHOOK.urlHint')).toBeInTheDocument()
   })
 
   it('renders the EMIT_EVENT event picker fed by declared events plus a payload JSON editor', async () => {

@@ -167,7 +167,12 @@ export function registerBuiltinActivityTypes(): void {
     i18nKey: i18nKeyFor('CALL_WEBHOOK'),
     configSchema: callWebhookConfigSchema,
     form: [
-      { id: 'url', component: 'text', required: true },
+      {
+        id: 'url',
+        component: 'text',
+        required: true,
+        descriptionKey: 'workflows.activityConfig.CALL_WEBHOOK.urlHint',
+      },
       { id: 'method', component: 'select' },
       { id: 'headers', component: 'keyValue' },
       { id: 'body', component: 'json' },
@@ -227,7 +232,12 @@ export function registerBuiltinActivityTypes(): void {
     i18nKey: i18nKeyFor('CALL_API'),
     configSchema: callApiConfigSchema,
     form: [
-      { id: 'endpoint', component: 'text', required: true },
+      {
+        id: 'endpoint',
+        component: 'endpoint',
+        required: true,
+        descriptionKey: 'workflows.activityConfig.CALL_API.endpointHint',
+      },
       { id: 'method', component: 'select' },
       { id: 'headers', component: 'keyValue' },
       { id: 'body', component: 'json' },
