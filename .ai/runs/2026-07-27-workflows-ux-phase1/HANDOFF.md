@@ -1,16 +1,16 @@
 # Handoff — 2026-07-27-workflows-ux-phase1
 
-**Last updated:** 2026-07-27T08:30:00Z
+**Last updated:** 2026-07-27T10:40:00Z
 **Branch:** feat/workflows-ux-phase1 (stacked on feat/workflows-ux-phase0, PR #4532)
 **PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1
-**Last commit:** — (run folder about to land)
+**Current phase/step:** Phase 2 Step 2.1
+**Last commit:** a669adaad — refactor(workflows): registry-driven async dispatch with enqueue-time capability checks
 
 ## What just happened
-- Run initialized: Phase 1 triage complete (10 flagged surprises incl. greenfield draft layer, INVOKE_AGENT absent, WAIT-config regression on default path), PLAN.md drafted (20 Steps across 9 Phases).
+- Checkpoint 1 passed (737 workflows tests; executor suite unedited). Registry core complete: sync+async dispatch registry-driven, CALL_API async refused at enqueue.
 
 ## Next concrete action
-- Step 1.1: Activity Registry module with types, lookups, and import-boundary test.
+- Step 2.1: registry-driven activityTypeSchema + per-type config validation (warning severity).
 
 ## Blockers / open questions
 - none
