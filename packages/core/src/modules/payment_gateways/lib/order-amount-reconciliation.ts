@@ -1,4 +1,6 @@
 import { conflict } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createFallbackTranslator, type TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import type {
   PaymentGatewayScope,
   PaymentOrderTotal,
@@ -12,6 +14,21 @@ function normalizeCurrencyCode(currencyCode: string): string {
   return currencyCode.trim().toUpperCase()
 }
 
+/**
+ * Conflict copy is served from the module catalog on a request path. Contexts
+ * without a registered module dictionary (CLI commands, workers, unit tests)
+ * fall back to the English template shipped with each call, so a missing
+ * dictionary degrades the wording of a rejection but never its outcome.
+ */
+async function resolveConflictTranslator(): Promise<TranslateWithFallbackFn> {
+  try {
+    const { translate } = await resolveTranslations()
+    return translate
+  } catch {
+    return createFallbackTranslator({})
+  }
+}
+
 export function isPaymentOrderTotalResolver(candidate: unknown): candidate is PaymentOrderTotalResolver {
   return !!candidate
     && typeof candidate === 'object'
@@ -21,16 +38,21 @@ export function isPaymentOrderTotalResolver(candidate: unknown): candidate is Pa
 export function assertSessionAmountMatchesOrderTotal(
   requested: { orderId: string; amount: number; currencyCode: string },
   orderTotal: PaymentOrderTotal,
+  translate: TranslateWithFallbackFn,
 ): void {
   if (normalizeCurrencyCode(requested.currencyCode) !== normalizeCurrencyCode(orderTotal.currencyCode)) {
-    throw conflict(
-      `Payment session currency ${normalizeCurrencyCode(requested.currencyCode)} does not match the currency of order ${requested.orderId}`,
-    )
+    throw conflict(translate(
+      'payment_gateways.errors.sessionCurrencyMismatch',
+      'Payment session currency {currencyCode} does not match the currency of order {orderId}',
+      { currencyCode: normalizeCurrencyCode(requested.currencyCode), orderId: requested.orderId },
+    ))
   }
   if (Math.abs(requested.amount - orderTotal.amountDue) > AMOUNT_TOLERANCE) {
-    throw conflict(
-      `Payment session amount ${requested.amount} does not match the amount due for order ${requested.orderId}`,
-    )
+    throw conflict(translate(
+      'payment_gateways.errors.sessionAmountMismatch',
+      'Payment session amount {amount} does not match the amount due for order {orderId}',
+      { amount: requested.amount, orderId: requested.orderId },
+    ))
   }
 }
 
@@ -54,12 +76,18 @@ export async function reconcileSessionAmountWithOrder(input: {
   if (!orderId || !resolver) return
 
   const orderTotal = await resolver.resolveOrderTotal(orderId, input.scope)
+  const translate = await resolveConflictTranslator()
   if (!orderTotal) {
-    throw conflict(`Order ${orderId} was not found in the current scope`)
+    throw conflict(translate(
+      'payment_gateways.errors.sessionOrderNotFound',
+      'Order {orderId} was not found in the current scope',
+      { orderId },
+    ))
   }
 
   assertSessionAmountMatchesOrderTotal(
     { orderId, amount: input.amount, currencyCode: input.currencyCode },
     orderTotal,
+    translate,
   )
 }

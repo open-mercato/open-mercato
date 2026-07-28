@@ -1791,6 +1791,13 @@ that order **before** the adapter is invoked (#4488). The rules:
 The unknown-order and out-of-scope cases deliberately return the same response so a
 caller cannot probe for orders belonging to another tenant or organization.
 
+The three conflict messages are served from the module translation catalog
+(`payment_gateways.errors.sessionAmountMismatch`, `.sessionCurrencyMismatch`,
+`.sessionOrderNotFound`) rather than hardcoded, so a rejection is localized like the rest
+of the module. A context without a registered module dictionary (CLI, worker, unit test)
+degrades to the English template shipped with each call — the wording changes, the
+rejection never does.
+
 `payment_gateways` stays decoupled from the module that owns orders: it consumes the
 optional `PaymentOrderTotalResolver` contract
 (`@open-mercato/shared/modules/payment_gateways/types`) resolved from the DI name
