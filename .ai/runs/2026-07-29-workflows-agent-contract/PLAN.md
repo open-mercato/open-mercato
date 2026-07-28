@@ -28,7 +28,7 @@
 | Step | Title | Status | Commit |
 |------|-------|--------|--------|
 | A.1 | Fix: `graphToDefinition` drops every transition `kind` except `error` (silently downgrades `slaBreach` on save) | done | `cdf66124c` |
-| A.2 | Fix: instance pages guard on `workflows.view_instances`, which does not exist in `acl.ts` | todo | — |
+| A.2 | Fix: instance pages guard on `workflows.view_instances`, which does not exist in `acl.ts` | done | `73fb4f9a4` |
 | A.3 | Outcome routes — `kind: 'outcome'` + the five §7.2 disposition kinds as named source handles | todo | — |
 | A.4 | Guardrail route + the rejection/error split | todo | — |
 | A.5 | Node outcome-row footer (agent + user task) — fidelity gap #4 | todo | — |
