@@ -155,6 +155,25 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - Design rationale and the ordering/durability/recursion/branch decisions:
   `.ai/runs/2026-07-27-workflows-ux-phase2b-3/DESIGN-error-handler.md`.
 
+## Route Kinds (the handle ↔ `kind` round trip)
+
+- **`lib/route-kinds.ts` (PURE) is the ONE place a non-normal route kind is registered.** It answers
+  both halves of the round trip — which `kind` a connection drawn from a canvas handle compiles to,
+  and which source handle a stored transition of that kind re-attaches to — and `graph-utils`
+  (`graphToDefinition` + `definitionToGraph`), `lib/edge-reattachment.ts` and the Studio's
+  `handleConnect` all read it. MUST NOT add a fourth inline `kind === '…'` special case.
+- Registering a kind here is what makes it SURVIVE a Studio save. Before it existed only `'error'`
+  was special-cased, so opening a definition carrying a `kind: 'slaBreach'` route and saving it
+  silently downgraded the route to a normal transition and the breach stopped routing.
+- **`kind: 'normal'` and an absent `kind` are the same thing** and both serialize as absent, which is
+  what keeps a definition declaring no kinds byte-identical through a save (guarded by
+  `lib/__tests__/route-kinds.test.ts`).
+- A kinded route NEVER inherits its source AUTOMATED step's activity — it is not the happy path out
+  of that step.
+- `ROUTE_KIND_SOURCE_NODE_TYPES` (`lib/edge-reattachment.ts`) refuses moving a kinded route onto a
+  node type that can never reach it (an error route off a step that cannot fail, a breach route off a
+  step that carries no deadline) rather than leaving a dead route behind.
+
 ## Route Identity & Edit Safety
 
 - **Transition ids are opaque and durable.** `generateTransitionId()` mints `t_<unique>`; it no longer

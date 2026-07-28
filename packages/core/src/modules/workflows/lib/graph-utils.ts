@@ -5,7 +5,7 @@ import type { WorkflowIoContract } from '../data/validators'
 import { isCompensationGhostEdge } from './compensation-ghosts'
 import { isDataMappingEdge } from './data-edge-mapping'
 import { isAnnotationNode } from './editor-annotations'
-import { ERROR_SOURCE_HANDLE_ID } from './error-routing'
+import { findRouteKindDescriptor, resolveEdgeRouteKind } from './route-kinds'
 import {
   NODE_DESCRIPTION_HEIGHT,
   NODE_HEIGHT,
@@ -229,10 +229,12 @@ export function graphToDefinition(
       transition.priority = edgeData.priority
     }
 
-    // Error route marker (spec 5.9). Only the explicit 'error' kind is persisted;
+    // Route kind marker (spec 5.9 error routes, and every kind registered
+    // beside them in lib/route-kinds.ts). Only non-normal kinds are persisted;
     // normal routes stay exactly as they were serialized before.
-    if (edgeData?.kind === 'error' || edge.sourceHandle === ERROR_SOURCE_HANDLE_ID) {
-      transition.kind = 'error'
+    const routeKind = resolveEdgeRouteKind(edgeData?.kind, edge.sourceHandle)
+    if (routeKind) {
+      transition.kind = routeKind.kind
     }
 
     // Add continueOnActivityFailure if present (default false)
@@ -272,11 +274,12 @@ export function graphToDefinition(
       // executes on failure — it MUST survive the editor round trip.
       ...(activity.compensation && { compensation: activity.compensation }),
       }))
-    } else if (transition.kind !== 'error') {
+    } else if (!transition.kind) {
       // Check if source node is automated and has activity data
-      // If so, place the activity in this transition. An error route never
+      // If so, place the activity in this transition. A non-normal route never
       // inherits the source step's activity — it is the recovery path, and
-      // re-running the activity that just failed is exactly wrong.
+      // re-running the activity that just failed (or that the run never got
+      // past) is exactly wrong.
       const sourceNode = nodes.find(n => n.id === edge.source)
       if (sourceNode && sourceNode.type === 'automated' && sourceNode.data) {
         if (sourceNode.data.activityType || sourceNode.data.activityId) {
@@ -503,18 +506,18 @@ export function definitionToGraph(
 
   // Convert transitions to edges
   const edges: Edge[] = definition.transitions.map((transition) => {
-    const isErrorRoute = (transition as any).kind === 'error'
+    const routeKind = findRouteKindDescriptor((transition as any).kind)
     return {
       id: transition.transitionId,
       source: transition.fromStepId,
       target: transition.toStepId,
       type: 'workflowTransition',
-      // Error routes re-attach to the node's error output handle so the canvas
-      // renders them leaving the same port the author drew them from.
-      ...(isErrorRoute ? { sourceHandle: ERROR_SOURCE_HANDLE_ID } : {}),
+      // A kinded route re-attaches to its own output handle so the canvas
+      // renders it leaving the same port the author drew it from.
+      ...(routeKind ? { sourceHandle: routeKind.resolveSourceHandle(transition as any) } : {}),
       data: {
         trigger: transition.trigger,
-        ...(isErrorRoute ? { kind: 'error' } : {}),
+        ...(routeKind ? { kind: routeKind.kind } : {}),
         transitionName: (transition as any).transitionName,
         priority: (transition as any).priority !== undefined ? (transition as any).priority : 0,
         continueOnActivityFailure: (transition as any).continueOnActivityFailure !== undefined

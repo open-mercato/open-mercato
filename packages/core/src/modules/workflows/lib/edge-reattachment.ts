@@ -16,7 +16,9 @@
 import type { Node, Edge } from '@xyflow/react'
 import { graphToDefinition, validateWorkflowGraph } from './graph-utils'
 import { isDataMappingEdge } from './data-edge-mapping'
-import { ERROR_SOURCE_HANDLE_ID, ERROR_TRANSITION_KIND } from './error-routing'
+import { ERROR_TRANSITION_KIND } from './error-routing'
+import { SLA_BREACH_TRANSITION_KIND } from './breach-routing'
+import { resolveEdgeRouteKind, type RouteKindDescriptor } from './route-kinds'
 import { validateParallelForkJoin } from '../data/validators'
 
 /**
@@ -26,6 +28,22 @@ import { validateParallelForkJoin } from '../data/validators'
  * silently downgraded to a normal route.
  */
 const ERROR_ROUTE_SOURCE_NODE_TYPES = new Set(['automated', 'userTask', 'subWorkflow', 'invokeAgent'])
+
+/**
+ * Node types that can raise an SLA breach — only a USER_TASK carries a deadline,
+ * so a breach route moved anywhere else would never be reachable.
+ */
+const SLA_BREACH_ROUTE_SOURCE_NODE_TYPES = new Set(['userTask'])
+
+/**
+ * Which node types may source each kinded route. A kind absent from this table
+ * is unrestricted; a kind present in it refuses a reattachment onto a node type
+ * that cannot reach the route, rather than leaving a dead route behind.
+ */
+const ROUTE_KIND_SOURCE_NODE_TYPES: Record<string, Set<string>> = {
+  [ERROR_TRANSITION_KIND]: ERROR_ROUTE_SOURCE_NODE_TYPES,
+  [SLA_BREACH_TRANSITION_KIND]: SLA_BREACH_ROUTE_SOURCE_NODE_TYPES,
+}
 
 export type EdgeReattachRejectionCode =
   | 'unknownRoute'
@@ -55,9 +73,9 @@ export interface EdgeReattachConnection {
   targetHandle?: string | null
 }
 
-function isErrorRouteEdge(edge: Edge): boolean {
+function routeKindOfEdge(edge: Edge): RouteKindDescriptor | null {
   const data = edge.data as { kind?: unknown } | undefined
-  return data?.kind === ERROR_TRANSITION_KIND || edge.sourceHandle === ERROR_SOURCE_HANDLE_ID
+  return resolveEdgeRouteKind(data?.kind, edge.sourceHandle)
 }
 
 function sameHandle(left: string | null | undefined, right: string | null | undefined): boolean {
@@ -111,12 +129,17 @@ export function reattachWorkflowEdge(
   if (!sourceNode || !targetNode) return { ok: false, code: 'unknownStep' }
   if (source === target) return { ok: false, code: 'selfLoop' }
 
-  const isErrorRoute = isErrorRouteEdge(existing)
-  if (isErrorRoute && !ERROR_ROUTE_SOURCE_NODE_TYPES.has(sourceNode.type ?? '')) {
+  const routeKind = routeKindOfEdge(existing)
+  const allowedSourceTypes = routeKind ? ROUTE_KIND_SOURCE_NODE_TYPES[routeKind.kind] : undefined
+  if (allowedSourceTypes && !allowedSourceTypes.has(sourceNode.type ?? '')) {
     return { ok: false, code: 'errorHandleUnsupported' }
   }
 
-  const sourceHandle = isErrorRoute ? ERROR_SOURCE_HANDLE_ID : connection.sourceHandle ?? null
+  // A kinded route keeps its own handle: dropping the endpoint on a node's
+  // default port must not downgrade it to a normal route.
+  const sourceHandle = routeKind
+    ? routeKind.resolveSourceHandle((existing.data ?? {}) as Record<string, unknown>)
+    : connection.sourceHandle ?? null
   const targetHandle = connection.targetHandle ?? null
 
   const duplicate = edges.some(

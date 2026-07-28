@@ -60,7 +60,7 @@ import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-fl
 import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } from '../../../lib/draft-restore'
 import { buildDefinitionPayload, buildMetadataPayload } from '../../../lib/definition-payload'
 import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from '../../../lib/interpolation-pipeline'
-import { ERROR_SOURCE_HANDLE_ID } from '../../../lib/error-routing'
+import { findRouteKindDescriptorForHandle } from '../../../lib/route-kinds'
 import { STRUCTURAL_EDIT_CONFLICT_CODE } from '../../../lib/definition-edit-safety'
 import { DefinitionErrorHandlerField } from '../../../components/DefinitionErrorHandlerField'
 import type { WorkflowErrorHandlerConfig } from '../../../data/validators'
@@ -1345,26 +1345,26 @@ export default function VisualEditorPage() {
       return
     }
 
-    // A connection drawn from a node's error output handle authors an error
-    // route (spec 5.9): normal routing never selects it, the engine follows it
-    // only when that step fails.
-    const isErrorRoute = connection.sourceHandle === ERROR_SOURCE_HANDLE_ID
+    // A connection drawn from one of a node's kinded output handles authors that
+    // kind of route (spec 5.9 error routes, SLA-breach routes, …): normal
+    // routing never selects one, the engine follows it only down its own path.
+    const routeKind = findRouteKindDescriptorForHandle(connection.sourceHandle)
 
     const newEdge: Edge = {
       id: generateTransitionId(),
       source: connection.source!,
       target: connection.target!,
-      // An error route must read as one the moment it is drawn, so it takes the
+      // A kinded route must read as one the moment it is drawn, so it takes the
       // workflow edge renderer immediately instead of on the next reload.
-      type: isErrorRoute ? 'workflowTransition' : 'smoothstep',
-      ...(isErrorRoute ? { sourceHandle: ERROR_SOURCE_HANDLE_ID } : {}),
+      type: routeKind ? 'workflowTransition' : 'smoothstep',
+      ...(routeKind ? { sourceHandle: connection.sourceHandle } : {}),
       data: {
         trigger: 'auto',
         preConditions: [],
         postConditions: [],
         activities: [],
         label: '',
-        ...(isErrorRoute ? { kind: 'error' } : {}),
+        ...(routeKind ? { kind: routeKind.kind } : {}),
       },
     }
 
