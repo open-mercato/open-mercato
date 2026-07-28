@@ -43,7 +43,10 @@ export async function listWorkInbox(
   query: WorkInboxQuery,
   context: WorkInboxSourceContext,
 ): Promise<WorkInboxListResult> {
-  const entries = selectWorkInboxSources(query)
+  // Administrative-queue sources are dropped before they are asked for rows: a
+  // caller without the declared feature must not pay for a query whose every row
+  // the rule would then refuse.
+  const entries = selectWorkInboxSources(query, context.scope.visibility.principal)
 
   const collected: WorkInboxRow[] = []
   const kinds: string[] = []
@@ -52,7 +55,13 @@ export async function listWorkInbox(
 
   for (const entry of entries) {
     try {
-      const result = await entry.provider.list(query, context)
+      // Each source is handed its OWN declaration, so a provider serving
+      // `UserTask` rows applies its queue feature as the unassigned-queue arm
+      // without importing the registry it is registered in.
+      const result = await entry.provider.list(query, {
+        ...context,
+        administrativeQueueFeature: entry.provider.administrativeQueueFeature ?? null,
+      })
       collected.push(...result.rows)
       total += result.total
       kinds.push(entry.provider.kind)

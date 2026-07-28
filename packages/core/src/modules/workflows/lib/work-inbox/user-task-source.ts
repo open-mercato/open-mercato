@@ -57,6 +57,21 @@ export const USER_TASK_WORK_INBOX_ACTIONS: WorkInboxAction[] = [
 
 type WorkInboxWhere = FilterQuery<UserTask>
 
+/**
+ * Per-source options a `UserTask`-serving provider passes through to the §6.4
+ * rule.
+ *
+ * `administrativeQueueFeature` is the source's own declaration, handed back by
+ * `listWorkInbox`. Core's `user_task` source declares none, so an unassigned row
+ * keeps falling back to `workflows.tasks.view_all` exactly as before; a
+ * specialized source (an administrative queue raised by another module) supplies
+ * its own, and the SQL filter and the predicate must be given the SAME value or
+ * a row is counted in `pagination.total` and then dropped from the page.
+ */
+export type UserTaskWorkInboxOptions = {
+  administrativeQueueFeature?: string | null
+}
+
 function asBindings(value: unknown): WorkInboxEntityBinding[] {
   if (!Array.isArray(value)) return []
   const bindings: WorkInboxEntityBinding[] = []
@@ -84,6 +99,7 @@ function asBindings(value: unknown): WorkInboxEntityBinding[] {
 export function buildUserTaskWorkInboxWhere(
   query: WorkInboxQuery,
   scope: WorkInboxScope,
+  options: UserTaskWorkInboxOptions = {},
 ): WorkInboxWhere {
   const conditions: Record<string, unknown>[] = []
 
@@ -135,7 +151,11 @@ export function buildUserTaskWorkInboxWhere(
   // rather than overwrite each other. Empty for an administrator, a superadmin,
   // or a tenant that has flipped the opt-out — the rule then adds nothing and
   // tenant/organization scoping below is still the floor.
-  conditions.push(...buildTaskVisibilityRequestConditions(scope.visibility))
+  conditions.push(
+    ...buildTaskVisibilityRequestConditions(scope.visibility, {
+      administrativeQueueFeature: options.administrativeQueueFeature ?? null,
+    }),
+  )
 
   const where: Record<string, unknown> = { tenantId: scope.tenantId }
   if (scope.organizationIds) {
@@ -187,7 +207,10 @@ async function listUserTaskWorkItems(
   context: WorkInboxSourceContext,
 ): Promise<WorkInboxSourceResult> {
   const em = context.resolve<EntityManager>('em')
-  const where = buildUserTaskWorkInboxWhere(query, context.scope)
+  const options: UserTaskWorkInboxOptions = {
+    administrativeQueueFeature: context.administrativeQueueFeature ?? null,
+  }
+  const where = buildUserTaskWorkInboxWhere(query, context.scope, options)
 
   const [tasks, total] = await em.findAndCount(UserTask, where, {
     orderBy: [{ dueDate: 'ASC' }, { createdAt: 'DESC' }],
@@ -197,8 +220,9 @@ async function listUserTaskWorkItems(
 
   // The `WHERE` already IS the rule; running the predicate over the page keeps
   // this source routed through the single decision point and makes a
-  // SQL/predicate divergence lose a row instead of leaking one.
-  const visible = filterVisibleTasks(context.scope.visibility, tasks)
+  // SQL/predicate divergence lose a row instead of leaking one. It is handed the
+  // SAME queue feature the filter was built with, for exactly that reason.
+  const visible = filterVisibleTasks(context.scope.visibility, tasks, options)
 
   return {
     rows: visible.map((task) => toUserTaskWorkInboxRow(task, query.now)),
