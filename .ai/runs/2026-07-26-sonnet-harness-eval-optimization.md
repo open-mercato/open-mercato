@@ -332,6 +332,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.16 Reject module facts absent from the emitted controller and keep the standalone routing contract within its byte budget — `632bfe8d3`
 - [x] 3.17 Retry one trace-free read-only routing startup without retrying safety violations — `829babd95`
 - [x] 3.18 Diagnose one semantic routing correction without leaking oracle answers, then allow one independent trace-start recovery — `574924d33`
+- [x] 3.19 Abort a matrix when Claude reports an expired OAuth session inside its terminal result event — `63f62ae62`
 
 ### Phase 4: Compatibility baseline
 
