@@ -36,6 +36,8 @@ type ActivityHistorySectionProps = {
   /** Optional guarded-mutation runner so per-row mutations route through the parent's
    * `useGuardedMutation` and emit retry-last-mutation context. */
   runMutation?: GuardedMutationRunner
+  /** Interaction type hidden from the history by default ('task' unless overridden); pass null to show every type. */
+  excludeInteractionType?: string | null
 }
 
 type InteractionListResponse = {
@@ -176,6 +178,7 @@ export function ActivityHistorySection({
   refreshKey = 0,
   onEditActivity,
   runMutation,
+  excludeInteractionType = 'task',
 }: ActivityHistorySectionProps) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -238,14 +241,14 @@ export function ActivityHistorySection({
       let firstPageHasMore = false
       let pagesLoaded = 0
 
-      const taskFilterActive = activeTypes.includes('task')
+      const excludedFilterActive = excludeInteractionType ? activeTypes.includes(excludeInteractionType) : true
       do {
         const params = new URLSearchParams({
           entityId,
           limit: String(pageSize),
           from: rangeStart,
         })
-        if (!taskFilterActive) params.set('excludeInteractionType', 'task')
+        if (excludeInteractionType && !excludedFilterActive) params.set('excludeInteractionType', excludeInteractionType)
         if (activeTypes.length > 0) params.set('type', activeTypes.join(','))
         if (search) params.set('search', search)
         if (sortMode === 'recent') {
@@ -317,7 +320,7 @@ export function ActivityHistorySection({
     } finally {
       if (!isStale()) setLoading(false)
     }
-  }, [activeTypes, dateRange, entityId, loadedPages, search, sortMode, t, useCanonicalInteractions])
+  }, [activeTypes, dateRange, entityId, excludeInteractionType, loadedPages, search, sortMode, t, useCanonicalInteractions])
 
   React.useEffect(() => {
     const controller = new AbortController()

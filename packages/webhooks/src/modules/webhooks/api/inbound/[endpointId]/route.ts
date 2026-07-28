@@ -8,7 +8,7 @@ import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERRO
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { emitWebhooksEvent } from '../../../events'
 import { getWebhookEndpointAdapter } from '../../../lib/adapter-registry'
-import { isWebhookIntegrationEnabled } from '../../../lib/integration-state'
+import { isWebhookIntegrationEnabled, WEBHOOK_INTEGRATION_DISABLED_MESSAGE } from '../../../lib/integration-state'
 import { json } from '../../helpers'
 import { WebhookInboundReceiptEntity } from '../../../data/entities'
 
@@ -64,15 +64,23 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     return json({ error: 'Verification failed' }, { status: 400 })
   }
 
-  if (verified.tenantId && verified.organizationId) {
-    const integrationEnabled = await isWebhookIntegrationEnabled(em, {
-      tenantId: verified.tenantId,
-      organizationId: verified.organizationId,
-    })
+  const hasTenantId = Boolean(verified.tenantId)
+  const hasOrganizationId = Boolean(verified.organizationId)
+  if (hasTenantId !== hasOrganizationId) {
+    return json({ error: WEBHOOK_INTEGRATION_DISABLED_MESSAGE }, { status: 503 })
+  }
 
+  const integrationScope = hasTenantId && hasOrganizationId
+    ? { tenantId: verified.tenantId as string, organizationId: verified.organizationId as string }
+    : null
+
+  if (integrationScope) {
+    const integrationEnabled = await isWebhookIntegrationEnabled(em, integrationScope)
     if (!integrationEnabled) {
-      return json({ error: 'Custom Webhooks integration is disabled' }, { status: 503 })
+      return json({ error: WEBHOOK_INTEGRATION_DISABLED_MESSAGE }, { status: 503 })
     }
+  } else if (!adapter.allowUnscopedInbound) {
+    return json({ error: WEBHOOK_INTEGRATION_DISABLED_MESSAGE }, { status: 503 })
   }
 
   const messageId = resolveInboundReceiptMessageId({

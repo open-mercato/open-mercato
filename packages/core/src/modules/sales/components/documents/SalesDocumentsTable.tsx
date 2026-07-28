@@ -673,6 +673,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     <Page>
       <PageBody>
         <DataTable<SalesDocumentRow>
+          stickyFirstColumn
           stickyActionsColumn
           title={(
             <div className="flex flex-col">

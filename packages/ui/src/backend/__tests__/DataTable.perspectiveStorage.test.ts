@@ -17,6 +17,16 @@ describe('DataTable perspective snapshot storage (versioned envelope)', () => {
     expect(readPerspectiveSnapshot('tbl')).toEqual(snapshot)
   })
 
+  it('round-trips user column widths (columnSizing) through the snapshot (#1835)', () => {
+    const snapshot = {
+      perspectiveId: 'p1',
+      settings: { columnOrder: ['a', 'b'], columnSizing: { a: 240, b: 120 } },
+      updatedAt: 456,
+    }
+    writePerspectiveSnapshot('tbl-sizing', snapshot)
+    expect(readPerspectiveSnapshot('tbl-sizing')).toEqual(snapshot)
+  })
+
   it('migrates a legacy bare (pre-envelope) snapshot on read', () => {
     const legacy = { perspectiveId: 'p2', settings: { columnOrder: ['x'] }, updatedAt: 7 }
     localStorage.setItem(`${PREFIX}:tbl2`, JSON.stringify(legacy))

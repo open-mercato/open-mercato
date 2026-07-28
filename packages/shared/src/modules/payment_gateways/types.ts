@@ -155,6 +155,7 @@ export interface CaptureInput {
   amount?: number
   credentials: Record<string, unknown>
   metadata?: Record<string, unknown>
+  idempotencyKey?: string
 }
 
 export interface CaptureResult {
@@ -169,6 +170,7 @@ export interface RefundInput {
   reason?: string
   credentials: Record<string, unknown>
   metadata?: Record<string, unknown>
+  idempotencyKey?: string
 }
 
 export interface RefundResult {
@@ -182,6 +184,7 @@ export interface CancelInput {
   sessionId: string
   reason?: string
   credentials: Record<string, unknown>
+  idempotencyKey?: string
 }
 
 export interface CancelResult {

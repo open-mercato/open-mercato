@@ -153,6 +153,7 @@ function TimelineEntry({
                   size="sm"
                   disabled={markingDone}
                   onClick={handleMarkDone}
+                  className="h-7 text-xs"
                 >
                   <Check className="size-3.5" />
                   {t('customers.activities.actions.markDone', 'Mark done')}
@@ -166,7 +167,7 @@ function TimelineEntry({
                   disabled={deleting}
                   onClick={handleDelete}
                   aria-label={t('customers.activities.actions.delete', 'Delete activity')}
-                  className="text-muted-foreground hover:text-status-error-foreground"
+                  className="size-7 text-muted-foreground hover:text-status-error-foreground"
                 >
                   <Trash2 className="size-3.5" />
                 </IconButton>

@@ -9,7 +9,7 @@
     ".": "./index.js"
   },
   "scripts": {
-    "test": "node --test ./tests/rules.test.js"
+    "test": "node --require ../../scripts/typescript-js-require-hook.cjs --test ./tests/rules.test.js"
   },
   "devDependencies": {
     "@typescript-eslint/parser": "^8.59.3",

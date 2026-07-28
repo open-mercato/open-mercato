@@ -22,6 +22,8 @@ import {
   buildStripeMetadata,
   normalizeStripePaymentElementSettings,
   resolveStripeRendererKey,
+  resolveStripeRefundStatus,
+  stripeIdempotencyOptions,
 } from '../shared'
 import { verifyStripeWebhook } from '../webhook-handler'
 
@@ -79,11 +81,15 @@ export const stripeAdapterV20241218: GatewayAdapter = {
       ? await stripe.paymentIntents.retrieve(input.sessionId)
       : null
 
-    const captured = await stripe.paymentIntents.capture(input.sessionId, {
-      amount_to_capture: input.amount && paymentIntent
-        ? toCents(input.amount, paymentIntent.currency)
-        : undefined,
-    })
+    const captured = await stripe.paymentIntents.capture(
+      input.sessionId,
+      {
+        amount_to_capture: input.amount && paymentIntent
+          ? toCents(input.amount, paymentIntent.currency)
+          : undefined,
+      },
+      stripeIdempotencyOptions(input.idempotencyKey),
+    )
 
     const capturedCurrencyCode = captured.currency.toUpperCase()
 
@@ -100,20 +106,23 @@ export const stripeAdapterV20241218: GatewayAdapter = {
       ? await stripe.paymentIntents.retrieve(input.sessionId)
       : null
 
-    const refund = await stripe.refunds.create({
-      payment_intent: input.sessionId,
-      amount: input.amount && paymentIntent
-        ? toCents(input.amount, paymentIntent.currency)
-        : undefined,
-      reason: mapRefundReason(input.reason),
-      metadata: input.metadata as Record<string, string> | undefined,
-    })
+    const refund = await stripe.refunds.create(
+      {
+        payment_intent: input.sessionId,
+        amount: input.amount && paymentIntent
+          ? toCents(input.amount, paymentIntent.currency)
+          : undefined,
+        reason: mapRefundReason(input.reason),
+        metadata: input.metadata as Record<string, string> | undefined,
+      },
+      stripeIdempotencyOptions(input.idempotencyKey),
+    )
 
     const refundCurrencyCode = refund.currency.toUpperCase()
 
     return {
       refundId: refund.id,
-      status: refund.status === 'succeeded' ? 'refunded' : 'pending',
+      status: await resolveStripeRefundStatus(stripe, refund, paymentIntent?.amount_received),
       refundedAmount: fromCents(refund.amount, refundCurrencyCode),
     }
   },
@@ -121,9 +130,11 @@ export const stripeAdapterV20241218: GatewayAdapter = {
   async cancel(input: CancelInput): Promise<CancelResult> {
     const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
 
-    const cancelled = await stripe.paymentIntents.cancel(input.sessionId, {
-      cancellation_reason: 'requested_by_customer',
-    })
+    const cancelled = await stripe.paymentIntents.cancel(
+      input.sessionId,
+      { cancellation_reason: 'requested_by_customer' },
+      stripeIdempotencyOptions(input.idempotencyKey),
+    )
 
     return {
       status: mapStripeStatus(cancelled.status),
