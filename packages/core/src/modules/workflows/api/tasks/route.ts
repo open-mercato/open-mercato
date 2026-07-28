@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import type { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -19,8 +20,15 @@ import {
   workflowErrorSchema,
 } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
+import { serializeUserTask } from './serialize'
 
 const logger = createLogger('workflows')
+
+const DEFAULT_TASK_LIST_LIMIT = 50
+// The OpenAPI query schema documents `max(100)` and the project rule caps page
+// sizes at 100, but the handler used to `parseInt` whatever arrived.
+const MAX_TASK_LIST_LIMIT = 100
 
 export const metadata = {
   requireAuth: true,
@@ -68,8 +76,11 @@ export async function GET(request: NextRequest) {
     const workflowInstanceId = searchParams.get('workflowInstanceId')
     const overdue = searchParams.get('overdue') === 'true'
     const myTasks = searchParams.get('myTasks') === 'true'
-    const limit = parseInt(searchParams.get('limit') || '50')
-    const offset = parseInt(searchParams.get('offset') || '0')
+    const limit = Math.min(
+      parseNumberWithDefault(searchParams.get('limit'), DEFAULT_TASK_LIST_LIMIT, { min: 1, integer: true }),
+      MAX_TASK_LIST_LIMIT,
+    )
+    const offset = parseNumberWithDefault(searchParams.get('offset'), 0, { min: 0, integer: true })
 
     // Build where clause with tenant scoping
     const where: any = {
@@ -118,15 +129,17 @@ export async function GET(request: NextRequest) {
       }
     )
 
-    return NextResponse.json({
-      data: tasks,
+    const body: z.infer<typeof userTaskListResponseSchema> = {
+      data: tasks.map(serializeUserTask),
       pagination: {
         total,
         limit,
         offset,
         hasMore: offset + tasks.length < total,
       },
-    })
+    }
+
+    return NextResponse.json(body)
   } catch (error) {
     logger.error('Error listing user tasks', { err: error })
     return NextResponse.json(

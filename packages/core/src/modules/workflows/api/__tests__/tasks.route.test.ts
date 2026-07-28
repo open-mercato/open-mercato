@@ -7,8 +7,12 @@
  * hold, and nothing else.
  */
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { NextRequest } from 'next/server'
 import { GET as listTasks } from '../tasks/route'
+import { serializeUserTask } from '../tasks/serialize'
+import { userTaskRowSchema } from '../openapi'
 import { UserTask } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -25,8 +29,8 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
 
 type WhereClause = Record<string, unknown>
 
-const TENANT_ID = 'tenant-1'
-const ORG_ID = 'org-1'
+const TENANT_ID = '11111111-2222-4333-8444-aaaaaaaaaaaa'
+const ORG_ID = '11111111-2222-4333-8444-bbbbbbbbbbbb'
 const USER_ID = 'user-1'
 
 describe('GET /api/workflows/tasks', () => {
@@ -94,5 +98,124 @@ describe('GET /api/workflows/tasks', () => {
 
     expect(where.$or).toBeUndefined()
     expect(where.status).toBe('PENDING')
+  })
+
+  test('clamps an oversized limit to the documented maximum', async () => {
+    await listTasks(new NextRequest('http://localhost/api/workflows/tasks?limit=5000'))
+
+    expect(mockEm.findAndCount.mock.calls[0][2]).toMatchObject({ limit: 100, offset: 0 })
+  })
+
+  test('falls back to the default page size for unusable limits and offsets', async () => {
+    await listTasks(new NextRequest('http://localhost/api/workflows/tasks?limit=abc&offset=-5'))
+
+    expect(mockEm.findAndCount.mock.calls[0][2]).toMatchObject({ limit: 50, offset: 0 })
+  })
+
+  test('reports the clamped limit back in the pagination envelope', async () => {
+    const response = await listTasks(new NextRequest('http://localhost/api/workflows/tasks?limit=5000'))
+    const body = await response.json()
+
+    expect(body.pagination).toEqual({ total: 0, limit: 100, offset: 0, hasMore: false })
+  })
+
+  test('serializes rows so the proposal link reaches the client', async () => {
+    mockEm.findAndCount.mockResolvedValue([[makeTask({ formSchema: { proposalId: 'proposal-9' } })], 1])
+
+    const response = await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+    const body = await response.json()
+
+    expect(body.data[0].proposalId).toBe('proposal-9')
+    expect(body.data[0].kind).toBe('user_task')
+  })
+})
+
+function makeTask(overrides: Partial<UserTask> = {}): UserTask {
+  const task = new UserTask()
+  task.id = '11111111-2222-4333-8444-555555555555'
+  task.workflowInstanceId = '11111111-2222-4333-8444-666666666666'
+  task.stepInstanceId = '11111111-2222-4333-8444-777777777777'
+  task.branchInstanceId = null
+  task.taskName = 'Approve order'
+  task.description = 'Approve the pending sales order'
+  task.status = 'PENDING'
+  task.formSchema = null
+  task.formData = null
+  task.assignedTo = null
+  task.assignedToRoles = ['warehouse']
+  task.claimedBy = null
+  task.claimedAt = null
+  task.dueDate = new Date('2026-08-01T10:00:00.000Z')
+  task.escalatedAt = null
+  task.escalatedTo = null
+  task.completedBy = null
+  task.completedAt = null
+  task.comments = null
+  task.tenantId = TENANT_ID
+  task.organizationId = ORG_ID
+  task.createdAt = new Date('2026-07-28T09:00:00.000Z')
+  task.updatedAt = new Date('2026-07-28T09:30:00.000Z')
+  Object.assign(task, overrides)
+  return task
+}
+
+/**
+ * Field names the raw-entity dump used to put on the wire. Every one of them
+ * MUST survive the serializer — BACKWARD_COMPATIBILITY.md §7 allows adding
+ * response fields, never removing one.
+ */
+function declaredUserTaskColumns(): string[] {
+  const source = readFileSync(join(__dirname, '..', '..', 'data', 'entities.ts'), 'utf8')
+  const classBody = source.split('export class UserTask {')[1]?.split('\n}')[0] ?? ''
+  const names = classBody.match(/^\s{2}(\w+)[!?]?:/gm) ?? []
+  return names.map((line) => line.trim().replace(/[!?]?:$/, ''))
+}
+
+describe('serializeUserTask', () => {
+  test('keeps every field the raw entity dump already returned', () => {
+    const serialized = serializeUserTask(makeTask())
+    const columns = declaredUserTaskColumns()
+
+    expect(columns).toContain('comments')
+    expect(columns.length).toBeGreaterThan(20)
+    for (const column of columns) {
+      expect(Object.keys(serialized)).toContain(column)
+    }
+  })
+
+  test('emits dates in the same ISO form the entity dump produced', () => {
+    const serialized = serializeUserTask(makeTask())
+
+    expect(serialized.dueDate).toBe('2026-08-01T10:00:00.000Z')
+    expect(serialized.createdAt).toBe('2026-07-28T09:00:00.000Z')
+    expect(serialized.claimedAt).toBeNull()
+  })
+
+  test('lifts the work-item fields out of the authored form schema', () => {
+    const serialized = serializeUserTask(
+      makeTask({
+        formSchema: {
+          proposalId: 'proposal-1',
+          priority: 'high',
+          entityBindings: [{ entityType: 'sales:order', entityId: 'order-1' }],
+        },
+      }),
+    )
+
+    expect(serialized.proposalId).toBe('proposal-1')
+    expect(serialized.priority).toBe('high')
+    expect(serialized.entityBindings).toEqual([{ entityType: 'sales:order', entityId: 'order-1' }])
+  })
+
+  test('reports absent work-item fields as null rather than guessing', () => {
+    const serialized = serializeUserTask(makeTask({ formSchema: { fields: [] } }))
+
+    expect(serialized.proposalId).toBeNull()
+    expect(serialized.priority).toBeNull()
+    expect(serialized.entityBindings).toBeNull()
+  })
+
+  test('conforms to the published list-row schema', () => {
+    expect(userTaskRowSchema.safeParse(serializeUserTask(makeTask())).success).toBe(true)
   })
 })

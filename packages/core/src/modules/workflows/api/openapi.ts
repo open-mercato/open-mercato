@@ -22,6 +22,7 @@ export const userTaskSchema = z.object({
   id: z.string().uuid(),
   workflowInstanceId: z.string().uuid(),
   stepInstanceId: z.string().uuid(),
+  branchInstanceId: z.string().uuid().nullable().optional(),
   taskName: z.string(),
   description: z.string().nullable().optional(),
   status: userTaskStatusSchema,
@@ -36,10 +37,25 @@ export const userTaskSchema = z.object({
   escalatedTo: z.string().nullable().optional(),
   completedBy: z.string().nullable().optional(),
   completedAt: z.string().nullable().optional(),
+  comments: z.string().nullable().optional(),
   tenantId: z.string().uuid(),
   organizationId: z.string().uuid(),
   createdAt: z.string(),
   updatedAt: z.string(),
+})
+
+/**
+ * List projection: every field the raw-entity dump already returned, plus the
+ * work-item fields consumers had to dig out of `formSchema` themselves (the
+ * enterprise "Review proposal" row action read `row.proposalId`, which was
+ * never there). Strictly a superset — BACKWARD_COMPATIBILITY.md §7 forbids
+ * dropping a response field.
+ */
+export const userTaskRowSchema = userTaskSchema.extend({
+  kind: z.literal('user_task').describe('Work-inbox source discriminator'),
+  proposalId: z.string().nullable().describe('Agent proposal this task disposes, when any'),
+  priority: z.union([z.string(), z.number()]).nullable(),
+  entityBindings: z.array(z.unknown()).nullable().describe('Records this task is about, when authored'),
 })
 
 export const userTaskListQuerySchema = z.object({
@@ -60,7 +76,7 @@ export const paginationSchema = z.object({
 })
 
 export const userTaskListResponseSchema = z.object({
-  data: z.array(userTaskSchema),
+  data: z.array(userTaskRowSchema),
   pagination: paginationSchema,
 })
 
