@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
 import { PORTAL_EVENT_DOM_NAME } from './usePortalAppEvent'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { publishPortalBridgeHealth } from './portalBridgeStatus'
 
 const logger = createLogger('ui').child({ component: 'PortalEventBridge' })
 
@@ -62,12 +63,7 @@ export function usePortalEventBridge(): void {
       if (heartbeatTimer.current) clearTimeout(heartbeatTimer.current)
       heartbeatTimer.current = setTimeout(() => {
         logger.warn('Heartbeat timeout — reconnecting')
-        if (typeof window !== 'undefined') {
-          ;(window as any).__portalBridgeHealthy = false
-          window.dispatchEvent(
-            new CustomEvent('om:portal-bridge:status', { detail: { healthy: false } })
-          )
-        }
+        publishPortalBridgeHealth(false)
         disconnect()
         scheduleReconnect()
       }, HEARTBEAT_TIMEOUT)
@@ -86,12 +82,7 @@ export function usePortalEventBridge(): void {
           hasEverConnected.current = true
           reconnectPending.current = false
           reconnectAttempts.current = 0
-          if (typeof window !== 'undefined') {
-            ;(window as any).__portalBridgeHealthy = true
-            window.dispatchEvent(
-              new CustomEvent('om:portal-bridge:status', { detail: { healthy: true } })
-            )
-          }
+          publishPortalBridgeHealth(true)
           resetHeartbeatTimer()
           if (shouldEmitReconnect) {
             window.dispatchEvent(
@@ -128,12 +119,7 @@ export function usePortalEventBridge(): void {
           if (hasEverConnected.current) {
             reconnectPending.current = true
           }
-          if (typeof window !== 'undefined') {
-            ;(window as any).__portalBridgeHealthy = false
-            window.dispatchEvent(
-              new CustomEvent('om:portal-bridge:status', { detail: { healthy: false } })
-            )
-          }
+          publishPortalBridgeHealth(false)
           disconnect()
           if (mounted) scheduleReconnect()
         }
@@ -141,12 +127,7 @@ export function usePortalEventBridge(): void {
         if (hasEverConnected.current) {
           reconnectPending.current = true
         }
-        if (typeof window !== 'undefined') {
-          ;(window as any).__portalBridgeHealthy = false
-          window.dispatchEvent(
-            new CustomEvent('om:portal-bridge:status', { detail: { healthy: false } })
-          )
-        }
+        publishPortalBridgeHealth(false)
         if (mounted) scheduleReconnect()
       }
     }

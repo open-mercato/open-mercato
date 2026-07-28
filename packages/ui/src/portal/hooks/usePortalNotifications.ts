@@ -2,6 +2,11 @@
 import * as React from 'react'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
 import { apiCall } from '../../backend/utils/apiCall'
+import {
+  PORTAL_BRIDGE_STATUS_DOM_NAME,
+  readPortalBridgeHealth,
+  type PortalBridgeStatusDetail,
+} from './portalBridgeStatus'
 
 export type UsePortalNotificationsResult = {
   notifications: NotificationDto[]
@@ -70,37 +75,41 @@ export function usePortalNotifications(): UsePortalNotificationsResult {
     if (typeof window === 'undefined' || !('EventSource' in window)) {
       return true
     }
-    return (window as any).__portalBridgeHealthy === false
+    return readPortalBridgeHealth() === false
   })
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || !('EventSource' in window)) {
       return
     }
-    const handleStatusChange = (e: Event) => {
-      const detail = (e as CustomEvent).detail
+    const handleStatusChange = (event: Event) => {
+      const detail = (event as CustomEvent<PortalBridgeStatusDetail>).detail
       if (detail && typeof detail.healthy === 'boolean') {
         setUsePolling(!detail.healthy)
+        if (!detail.healthy) {
+          fetchAll()
+        }
       }
     }
-    window.addEventListener('om:portal-bridge:status', handleStatusChange)
+    window.addEventListener(PORTAL_BRIDGE_STATUS_DOM_NAME, handleStatusChange)
     return () => {
-      window.removeEventListener('om:portal-bridge:status', handleStatusChange)
+      window.removeEventListener(PORTAL_BRIDGE_STATUS_DOM_NAME, handleStatusChange)
     }
-  }, [])
+  }, [fetchAll])
 
-  // Poll when fallback is active
   React.useEffect(() => {
     fetchAll()
+  }, [fetchAll])
+
+  React.useEffect(() => {
     if (!usePolling) return
     const interval = setInterval(fetchAll, POLL_INTERVAL)
     return () => clearInterval(interval)
   }, [fetchAll, usePolling])
 
-  // Listen for portal SSE notification and bridge events
   React.useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string }>).detail
       if (
         detail?.id === 'notifications.notification.created' ||
         detail?.id === 'notifications.notification.batch_created' ||
@@ -113,7 +122,6 @@ export function usePortalNotifications(): UsePortalNotificationsResult {
     return () => window.removeEventListener('om:portal-event', handler)
   }, [fetchAll])
 
-  // Focus refetch
   React.useEffect(() => {
     const onFocus = () => {
       fetchAll()
