@@ -54,7 +54,10 @@ const logger = createLogger('workflows')
 function buildFailureRouting(
   handling: StepFailureHandling,
   failedStepId: string
-): Pick<TransitionExecutionResult, 'failedStepId' | 'errorRoute' | 'parkForAttention'> {
+): Pick<
+  TransitionExecutionResult,
+  'failedStepId' | 'errorRoute' | 'parkForAttention' | 'errorHandlerStepId'
+> {
   if (handling.kind === 'route' && typeof handling.transition.toStepId === 'string') {
     return {
       failedStepId,
@@ -66,6 +69,9 @@ function buildFailureRouting(
   }
   if (handling.kind === 'park') {
     return { failedStepId, parkForAttention: true }
+  }
+  if (handling.kind === 'handlerStep') {
+    return { failedStepId, errorHandlerStepId: handling.stepId }
   }
   return {}
 }
@@ -116,6 +122,8 @@ export interface TransitionExecutionResult {
   failedStepId?: string
   errorRoute?: { transitionId?: string; toStepId: string }
   parkForAttention?: boolean
+  // Definition-level handler step to jump to before failing (spec 5.9).
+  errorHandlerStepId?: string
 }
 
 export class TransitionError extends Error {

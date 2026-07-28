@@ -54,15 +54,23 @@ export interface ErrorRoutingStepLike {
   } | null
 }
 
+export interface ErrorRoutingErrorHandlerLike {
+  workflowId?: string
+  version?: number
+  stepId?: string
+}
+
 export interface ErrorRoutingDefinitionLike {
   steps?: ErrorRoutingStepLike[]
   transitions?: ErrorRoutingTransitionLike[]
+  errorHandler?: ErrorRoutingErrorHandlerLike | null
 }
 
 export type StepFailureHandling =
   | { kind: 'route'; transition: ErrorRoutingTransitionLike }
   | { kind: 'continue'; fallbackValue?: unknown }
   | { kind: 'park' }
+  | { kind: 'handlerStep'; stepId: string }
   | { kind: 'fail' }
 
 export interface ErrorRouteIssue {
@@ -119,8 +127,31 @@ export function readStepErrorDirective(
 }
 
 /**
- * The single decision point for a failed step. `fail` is both the explicit
- * directive and the absent-config default, so legacy definitions never diverge.
+ * Definition-level catch-all handler (spec 5.9). Returns null unless exactly one
+ * form is declared, so a malformed handler degrades to today's behavior instead
+ * of guessing.
+ */
+export function readWorkflowErrorHandler(
+  definition: ErrorRoutingDefinitionLike | null | undefined
+): { workflowId: string; version?: number } | { stepId: string } | null {
+  const handler = definition?.errorHandler
+  if (!handler) return null
+  const hasWorkflow = typeof handler.workflowId === 'string' && handler.workflowId.length > 0
+  const hasStep = typeof handler.stepId === 'string' && handler.stepId.length > 0
+  if (hasWorkflow === hasStep) return null
+  if (hasWorkflow) {
+    return { workflowId: handler.workflowId as string, version: handler.version }
+  }
+  return { stepId: handler.stepId as string }
+}
+
+/**
+ * The single decision point for a failed step, in precedence order:
+ * wired error route → step directive → definition-level handler step → fail.
+ * The handler step comes last because it is a catch-all, and a step never jumps
+ * to itself, which is the recursion guard for the in-instance handler form.
+ * `fail` is both the explicit directive and the absent-config default, so legacy
+ * definitions never diverge.
  */
 export function resolveStepFailureHandling(
   definition: ErrorRoutingDefinitionLike | null | undefined,
@@ -130,12 +161,16 @@ export function resolveStepFailureHandling(
   if (errorTransition) return { kind: 'route', transition: errorTransition }
 
   const directive = readStepErrorDirective(definition, stepId)
-  if (!directive) return { kind: 'fail' }
-
-  if (directive.mode === 'continueWithFallback') {
+  if (directive?.mode === 'continueWithFallback') {
     return { kind: 'continue', fallbackValue: directive.fallbackValue }
   }
-  if (directive.mode === 'failureQueue') return { kind: 'park' }
+  if (directive?.mode === 'failureQueue') return { kind: 'park' }
+
+  const handler = readWorkflowErrorHandler(definition)
+  if (handler && 'stepId' in handler && handler.stepId !== stepId) {
+    return { kind: 'handlerStep', stepId: handler.stepId }
+  }
+
   return { kind: 'fail' }
 }
 

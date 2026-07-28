@@ -9,6 +9,8 @@
  *     durability backstop behind the event-driven context-write wake
  *   - `'invoke_agent'`: run an INVOKE_AGENT step's agent OUTSIDE the workflow
  *     transaction, then resume the parked step via the proposal-ready signal
+ *   - `'workflow_error_handler'`: start the definition's catch-all handler
+ *     sub-workflow for a failed instance, outside the failing transaction
  */
 
 export interface WorkflowActivityJobBase {
@@ -99,12 +101,31 @@ export interface WorkflowActivityJobResumeSubWorkflowParent extends WorkflowActi
   childStatus: 'COMPLETED' | 'FAILED'
 }
 
+/**
+ * Workflow-level error handler job (spec 5.9), enqueued by `completeWorkflow`
+ * before compensation runs. The failure triple travels on the payload so the
+ * handler observes the PRE-compensation state, and the worker starts it on its
+ * own connection — never inside the failing instance's transaction.
+ */
+export interface WorkflowActivityJobErrorHandler extends WorkflowActivityJobBase {
+  kind: 'workflow_error_handler'
+  handlerWorkflowId: string
+  handlerVersion?: number
+  failedStepId: string | null
+  error: string | null
+  contextSnapshot: Record<string, unknown>
+  // 1-based nesting level of the handler being started; capped by
+  // WORKFLOW_MAX_ERROR_HANDLER_DEPTH so a failing handler never recurses.
+  depth: number
+}
+
 export type WorkflowActivityJob =
   | WorkflowActivityJobActivity
   | WorkflowActivityJobTimer
   | WorkflowActivityJobCondition
   | WorkflowActivityJobInvokeAgent
   | WorkflowActivityJobResumeSubWorkflowParent
+  | WorkflowActivityJobErrorHandler
 
 export const WORKFLOW_ACTIVITIES_QUEUE_NAME = 'workflow-activities'
 

@@ -130,6 +130,15 @@ export default async function handle(
     return
   }
 
+  // Workflow-level error handler jobs (kind: 'workflow_error_handler') start the
+  // definition's catch-all handler workflow for a failed instance, on this
+  // worker's own connection — never inside the transaction that failed.
+  if (payload.kind === 'workflow_error_handler') {
+    const { runWorkflowErrorHandler } = await import('../lib/error-handler')
+    await runWorkflowErrorHandler(em, container, payload)
+    return
+  }
+
   logger.debug('Processing activity', {
     activityId: payload.activityId,
     activityType: payload.activityType,

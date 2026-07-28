@@ -133,6 +133,19 @@ export function createActivityWorkerHandler(
       return
     }
 
+    // Workflow-level error handler jobs start the designated handler workflow
+    // for a failed instance, outside the transaction that recorded the failure.
+    if (payload.kind === 'workflow_error_handler') {
+      logger.debug('Starting workflow error handler', {
+        instanceId: payload.workflowInstanceId,
+        handlerWorkflowId: payload.handlerWorkflowId,
+        jobId: ctx.jobId,
+      })
+      const { runWorkflowErrorHandler } = await import('./error-handler')
+      await runWorkflowErrorHandler(em, container, payload)
+      return
+    }
+
     logger.debug('Processing activity', { activityId: payload.activityId, jobId: ctx.jobId })
 
     try {

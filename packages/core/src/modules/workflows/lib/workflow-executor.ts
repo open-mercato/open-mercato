@@ -19,6 +19,7 @@ import {
   WorkflowInstance,
   WorkflowEvent,
   type WorkflowInstanceStatus,
+  type WorkflowInstanceErrorHandlerMetadata,
 } from '../data/entities'
 import { compensateWorkflow } from './compensation-handler'
 import { WORKFLOW_ENGINE_VERSION, isEngineVersionSupported } from './engine-version'
@@ -27,6 +28,7 @@ import {
   buildErrorContextEntry,
   excludeErrorTransitions,
 } from './error-routing'
+import { scheduleWorkflowErrorHandler } from './error-handler'
 import { findWorkflowDefinition, findDefinitionForInstance } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitWorkflowsEvent } from '../events'
@@ -51,6 +53,9 @@ export interface StartWorkflowOptions {
     entityId?: string
     initiatedBy?: string
     labels?: Record<string, string>
+    // Set by the workflow-level error handler when it starts a handler run, so
+    // the depth guard travels with the child instance (spec 5.9).
+    errorHandler?: WorkflowInstanceErrorHandlerMetadata | null
   }
   tenantId: string
   organizationId: string
@@ -524,6 +529,32 @@ export async function executeWorkflow(
               errors.push(`Error route from ${transitionResult.failedStepId} could not be followed`)
             }
 
+            if (transitionResult.errorHandlerStepId && transitionResult.failedStepId) {
+              const entered = await enterErrorHandlerStep(
+                trx,
+                container,
+                currentInstance,
+                transitionResult.failedStepId,
+                transitionResult.errorHandlerStepId,
+                rejectionMessage,
+                executionUserId
+              )
+              if (entered) {
+                events.push({
+                  eventType: 'ERROR_HANDLER_STARTED',
+                  occurredAt: new Date(),
+                  data: {
+                    failedStepId: transitionResult.failedStepId,
+                    handlerStepId: transitionResult.errorHandlerStepId,
+                  },
+                })
+                continue
+              }
+              errors.push(
+                `Error handler step ${transitionResult.errorHandlerStepId} could not be entered`
+              )
+            }
+
             if (transitionResult.parkForAttention && transitionResult.failedStepId) {
               await parkInstanceForAttention(
                 trx,
@@ -796,6 +827,59 @@ async function followErrorRoute(
 }
 
 /**
+ * Enter the definition-level handler STEP (spec 5.9, `errorHandler.stepId`) for
+ * a failure no route and no directive handled. The token jumps to the handler
+ * step and executes it — the same cursor-move-plus-`executeStep` shape the
+ * branch/timer/signal resumes already use, so no transition record is invented.
+ * A failure of the handler step itself resolves to `fail` (the resolver never
+ * jumps a step to itself), which is this form's recursion guard.
+ */
+async function enterErrorHandlerStep(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  failedStepId: string,
+  handlerStepId: string,
+  error: string,
+  userId?: string
+): Promise<boolean> {
+  const errorEntry = buildErrorContextEntry(failedStepId, error)
+
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instance.id,
+    eventType: 'ERROR_HANDLER_STARTED',
+    eventData: { failedStepId, handlerStepId, error },
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
+
+  instance.context = {
+    ...(instance.context || {}),
+    [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry,
+  }
+  instance.currentStepId = handlerStepId
+  instance.updatedAt = new Date()
+  await em.flush()
+
+  const { executeStep } = await import('./step-handler')
+  const result = await executeStep(
+    em,
+    instance,
+    handlerStepId,
+    {
+      workflowContext: {
+        ...(instance.context || {}),
+        [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry,
+      },
+      userId,
+    },
+    container
+  )
+
+  return result.status !== 'FAILED'
+}
+
+/**
  * Park an instance for triage instead of failing it — the `failureQueue` error
  * directive (spec 5.9 "Send to failure queue"). Uses the existing PAUSED state
  * plus an engine-owned `metadata.attention` marker; no new instance status and
@@ -909,6 +993,19 @@ export async function completeWorkflow(
       'INSTANCE_NOT_FOUND',
       { instanceId }
     )
+  }
+
+  // Workflow-level error handler (spec 5.9) — scheduled BEFORE compensation so
+  // the handler observes the state that failed rather than the rolled-back one,
+  // and so it still runs when compensation throws (that block swallows errors
+  // and returns early). Executed out of band by the worker; the
+  // ERROR_HANDLER_SCHEDULED event is written here, inside this transaction.
+  if (status === 'FAILED') {
+    await scheduleWorkflowErrorHandler(em, instance, {
+      failedStepId: result?.failedStepId ?? instance.currentStepId,
+      error: result?.error,
+      details: result?.details,
+    })
   }
 
   // Trigger compensation if workflow failed and has compensatable activities (Phase 8.2)

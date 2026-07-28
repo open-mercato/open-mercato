@@ -110,6 +110,45 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 - **Samples** — `metadata.editor.samples` (`record(stepId, { pinnedAt, source: manual|test, data })`, total ≤64KB via `WORKFLOW_EDITOR_SAMPLES_MAX_CHARS`). Samples are NOT redacted or encrypted — pinned data is stored verbatim in definition metadata; keep the warning copy wherever pinning is offered. Precedence: pin > last test output > ledger placeholder (`lib/sample-resolver.ts`, pure).
 - **Test step** — `POST api/definitions/[id]/test-step` (feature `workflows.definitions.test_run`, dependsOn `definitions.edit`) is MOCK-FIRST: it never calls `entry.execute`. Registry `mock` is `((config, ctx) => unknown) | 'refuse'`; `'refuse'` or a missing mock returns 200 `{ refused: true, reason }`. Config is interpolated via the exported `interpolateVariables` against the caller-supplied sample context.
 
+## Error Routing (routes · directives · workflow-level handler)
+
+Spec §5.9. Everything here is additive and optional: a definition declaring none of it fails exactly
+as it always did (guarded by a regression test in `lib/__tests__/error-routing.test.ts`).
+
+- **`lib/error-routing.ts` is PURE and is the single decision point.** `resolveStepFailureHandling`
+  answers, in precedence order: wired **error route** → step **`errorDirective`** → definition-level
+  **`errorHandler.stepId`** → `fail`.
+- **Error route** = a transition with `kind: 'error'`. It is reachable ONLY from a failure: every
+  normal-routing lookup (`findValidTransitions`, the executor's auto pre-check, `evaluateTransition`'s
+  auto-select, the fork/join graph walk) filters through `excludeErrorTransitions`. Following one
+  publishes the failure into `context.__error` (a RESERVED context key) and logs `ERROR_ROUTED`. In a
+  parallel branch the route is followed with the branch token, so a handled branch failure never
+  reaches the instance.
+- **`errorDirective`** on a step: `fail` (default) · `continueWithFallback` · `failureQueue`.
+  `continueWithFallback` is the directive form of the transition's legacy `continueOnActivityFailure`
+  flag — that flag is untouched and byte-compatible; the directive additionally writes
+  `fallbackValue` into context under the failing step's id. A failed step instance is NEVER flipped
+  back to COMPLETED; the instance advances while the step stays FAILED.
+- **`failureQueue`** parks the instance: existing `PAUSED` status + engine-owned
+  `metadata.attention` marker + `ERROR_PARKED`. No new instance status, and compensation does not run
+  because the run is suspended, not terminated. `GET /api/workflows/instances?attention=true` lists
+  them; the triage UI is Phase 5.
+- **Workflow-level handler** (`definition.errorHandler`, exactly one form) is an ENGINE CONSTRUCT —
+  never an event trigger (the trigger subscriber excludes `workflows.*` by design).
+  - `{ stepId }`: last-resort in-instance jump — the executor writes `__error`, moves the cursor and
+    executes the handler step (`ERROR_HANDLER_STARTED`). A step never jumps to itself, which is that
+    form's recursion guard.
+  - `{ workflowId, version? }`: catch-all. `completeWorkflow`'s FAILED branch schedules it **before**
+    compensation (so the snapshot is pre-compensation and it still runs when compensation throws),
+    logging `ERROR_HANDLER_SCHEDULED` inside the failing transaction and enqueueing a
+    `workflow_error_handler` job. The worker starts it as a sub-workflow with initial context
+    `{ failedStepId, error, contextSnapshot }` on its own connection. Recursion guard:
+    `metadata.errorHandler.depth` (engine-owned — never `context`, which the context PATCH API
+    exposes), capped by `WORKFLOW_MAX_ERROR_HANDLER_DEPTH = 1`; over the cap logs
+    `ERROR_HANDLER_SKIPPED`.
+- Design rationale and the ordering/durability/recursion/branch decisions:
+  `.ai/runs/2026-07-27-workflows-ux-phase2b-3/DESIGN-error-handler.md`.
+
 ## Environment
 
 | Variable | Effect | Default |

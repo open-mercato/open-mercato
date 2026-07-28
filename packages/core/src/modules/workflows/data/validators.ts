@@ -407,6 +407,35 @@ export const transitionKindSchema = z.enum(['normal', 'error'])
 
 export type WorkflowTransitionKind = z.infer<typeof transitionKindSchema>
 
+/**
+ * Definition-level catch-all error handler (spec 5.9). Exactly one form:
+ * `workflowId` designates a handler sub-workflow started with
+ * `{ failedStepId, error, contextSnapshot }`; `stepId` designates a handler step
+ * the run jumps to before failing. Engine construct — never an event trigger.
+ */
+export const workflowErrorHandlerSchema = z.object({
+  workflowId: z.string().min(1).max(100).optional(),
+  version: z.number().int().positive().optional(),
+  stepId: z.string().min(1).max(100).optional(),
+}).superRefine((handler, ctx) => {
+  const forms = [handler.workflowId, handler.stepId].filter((value) => value != null && value !== '')
+  if (forms.length !== 1) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'errorHandler must declare exactly one of "workflowId" or "stepId"',
+    })
+  }
+  if (handler.version != null && !handler.workflowId) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['version'],
+      message: 'errorHandler.version only applies to the workflowId form',
+    })
+  }
+})
+
+export type WorkflowErrorHandlerConfig = z.infer<typeof workflowErrorHandlerSchema>
+
 // Step definition
 export const workflowStepSchema = z.object({
   stepId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Step ID must contain only lowercase letters, numbers, hyphens, and underscores'),
@@ -776,6 +805,7 @@ export const workflowDefinitionDataSchema = z.object({
   contextSchema: contextSchemaSchema.optional(), // Declared typed-input contract (spec §3.1) — canonical input contract
   io: workflowIoContractSchema.optional(), // Sub-workflow input/output port contract; io.input is a read-through alias of contextSchema.input for the ledger
   interpolation: z.enum(['strict', 'lenient']).optional(), // Interpolation mode (spec §3.6): absent = lenient; the POST create route defaults NEW definitions to 'strict' — never default here, it would flip existing lenient definitions on their next full-body update
+  errorHandler: workflowErrorHandlerSchema.optional(), // Catch-all error handler (spec §5.9)
   queries: z.array(z.any()).optional(), // For Phase 7
   signals: z.array(z.any()).optional(), // For Phase 9
   timers: z.array(z.any()).optional(), // For Phase 9

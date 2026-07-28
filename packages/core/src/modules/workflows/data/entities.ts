@@ -195,12 +195,24 @@ export interface WorkflowInstanceAttention {
   at: string
 }
 
+/**
+ * Recursion marker for the workflow-level error handler (spec 5.9). Engine-owned
+ * and durable — deliberately NOT in `context`, which the context PATCH API lets
+ * callers write, so the guard cannot be spoofed away.
+ */
+export interface WorkflowInstanceErrorHandlerMetadata {
+  depth: number
+  forInstanceId?: string
+  forStepId?: string
+}
+
 export interface WorkflowInstanceMetadata {
   entityType?: string
   entityId?: string
   initiatedBy?: string
   labels?: Record<string, string>
   attention?: WorkflowInstanceAttention | null
+  errorHandler?: WorkflowInstanceErrorHandlerMetadata | null
 }
 
 // ============================================================================
