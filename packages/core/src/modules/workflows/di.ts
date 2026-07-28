@@ -17,6 +17,7 @@ import * as eventLogger from './lib/event-logger'
 import * as signalHandler from './lib/signal-handler'
 import * as timerHandler from './lib/timer-handler'
 import * as conditionHandler from './lib/condition-handler'
+import * as taskHandler from './lib/task-handler'
 
 // Register the `workflows.definition` optimistic-lock reader at module-DI load
 // time (top-level, like sales/customers) so it is present in the global reader
@@ -45,5 +46,6 @@ export function register(container: AwilixContainer): void {
     signalHandler: asFunction(() => signalHandler).scoped(),
     timerHandler: asFunction(() => timerHandler).scoped(),
     conditionHandler: asFunction(() => conditionHandler).scoped(),
+    taskHandler: asFunction(() => taskHandler).scoped(),
   })
 }

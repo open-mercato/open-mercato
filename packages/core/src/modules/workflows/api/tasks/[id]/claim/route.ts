@@ -10,7 +10,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { claimUserTask } from '../../../../lib/task-handler'
+import type { TaskHandlerService } from '../../../../lib/task-handler'
 import {
   workflowsTag,
   userTaskClaimResponseSchema,
@@ -58,7 +58,8 @@ export async function POST(
     }
 
     // Call task handler to claim task
-    await claimUserTask(em, params.id, auth.sub, { tenantId, organizationId })
+    const taskHandler = container.resolve<TaskHandlerService>('taskHandler')
+    await taskHandler.claimUserTask(em, params.id, auth.sub, { tenantId, organizationId })
 
     // Fetch updated task
     const { UserTask } = await import('../../../../data/entities')

@@ -40,6 +40,18 @@ export interface UserTaskScope {
   organizationId: string
 }
 
+/**
+ * Shape of the `taskHandler` DI registration (`di.ts`).
+ *
+ * The functions below stay exported — third-party modules may import them and
+ * `BACKWARD_COMPATIBILITY.md` §3 freezes import paths — but callers inside the
+ * platform MUST resolve this service instead, per the module's first rule.
+ */
+export interface TaskHandlerService {
+  completeUserTask: typeof completeUserTask
+  claimUserTask: typeof claimUserTask
+}
+
 export interface CompleteUserTaskOptions {
   taskId: string
   formData: Record<string, any>
