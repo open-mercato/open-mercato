@@ -40,6 +40,79 @@ The page is **decision on the left, context on the right**:
 
 After completing a task you are offered **the next task** in one click, so a run of similar work does not mean going back to the list each time.
 
+## Who can see a task
+
+**A task is yours if it was assigned to you, you claimed it, or it is queued to a role you hold.** Those are the people who see it in the inbox and the people who can finish it. Holding the "view user tasks" permission gets you into the task list; it no longer shows you everyone else's work.
+
+On top of that, you must be able to view the **kinds of records the task is about**. A task bound to a deal is only visible to people who may view deals. This is checked for **every** record the task is bound to, not just one of them — so a task bound to both a deal and a customer needs both.
+
+:::note
+This checks the **type** of record, together with your tenant and organization. It does not check individual records: "may view deals" is not "may view *this* deal". Open Mercato has no record-level permission layer, and this feature does not add one.
+:::
+
+A task that is about **no** records at all — which is every task created before record bindings existed — is visible to whoever it is assigned to, exactly as before.
+
+### Seeing other people's work
+
+Three permissions cover supervision:
+
+| Permission | What it lets you do |
+|---|---|
+| **View all workflow tasks** (`workflows.tasks.view_all`) | See tasks that are not yours. It does **not** let you finish them. |
+| **Reassign workflow tasks** (`workflows.tasks.reassign`) | Move a task to someone else, or back to a role queue. |
+| **Administer workflow tasks** (`workflows.tasks.manage`) | Force-release a claim, cancel, bulk operations, and change the tenant setting below. |
+
+The seeing/doing split is deliberate. A supervisor who completes a colleague's task leaves no trace of how it got to them — so instead they **reassign it to themselves first**, with a reason. That is recorded on the task (who moved it, when, and why) and in the workflow's own event log, so "who approved this?" stays answerable.
+
+Administrators see a Complete button on a task that is not theirs, but pressing it is refused with *"Task is assigned to another user"*. Reassign it first. Reassignment is currently done through the API (`POST /api/workflows/tasks/<id>/reassign`); a button on the task page is coming.
+
+### A task nobody owns
+
+If a task was authored with no assignee and no role queue, nobody can complete it — the Complete action reports *"Task is not assigned to anyone; reassign it before acting on it"*. Reassign it to a person or a queue and it works normally. The Studio warns about this shape while you are authoring, so you usually catch it first.
+
+### Restoring the old behaviour temporarily
+
+If your roles are set up in a way that this change disrupts, an administrator can turn the model off for the whole tenant:
+
+```
+PUT /api/workflows/task-settings   { "taskPermissionsBusinessContext": false }
+```
+
+That restores the **reading** you had before — anyone with "view user tasks" sees every task in the organization again. It restores nothing else: completing someone else's task, claiming a queue you are not in, and anything outside your tenant stay refused, and portal tasks ignore the setting completely.
+
+It is a migration aid and will be removed one release from now. Use the time to grant "view all workflow tasks" to the roles that genuinely need it.
+
+## Portal tasks
+
+A task can be assigned to a **customer** — someone signed in to the customer portal rather than the backoffice.
+
+**For the customer**, tasks appear under **Tasks** in the portal, and open to the same instructions / form / decision buttons a backoffice assignee sees. They need the `portal.tasks.view` permission to see them and `portal.tasks.complete` to finish them. A new task shows up without a page refresh.
+
+**Two rules make portal tasks safe**, and they are stricter than the backoffice ones:
+
+- **A portal task must be bound to a record the customer owns.** Their own customer record, their own person record, or — for a company administrator — a record belonging to someone in their company. A portal task bound to nothing is visible to nobody at all.
+- **A company administrator can read their colleagues' tasks but never complete them.** Only the person a task is assigned to can finish it.
+
+Customers never reach the backoffice task pages, and backoffice users never reach the portal ones.
+
+**Authoring one** currently means editing the definition JSON in the Studio's **Code view** — there is no picker in the task inspector yet:
+
+```json
+"userTaskConfig": {
+  "assigneeKind": "customer",
+  "assignedTo": "{{context.portalUserId}}",
+  "entityBindings": [
+    { "entityType": "customers:company", "idPath": "context.companyId" }
+  ]
+}
+```
+
+`assignedTo` must resolve to a portal user's id, and at least one binding must name a record that user owns — without it, the task is created but nobody can see it.
+
+:::note
+Existing installations must grant `portal.tasks.view` / `portal.tasks.complete` to their customer roles by hand from the customer-role editor; only newly created tenants get them automatically. Portal permissions are cached for five minutes, so a fresh grant takes a few minutes to take effect for someone already signed in.
+:::
+
 ## Authoring a task
 
 Select a USER_TASK step in the Studio and open its inspector. It is organized as five questions:
@@ -177,5 +250,6 @@ What the assignee sees: a task titled with the request's own title, the requeste
 
 - [**Step Types**](./step-types) — USER_TASK steps in detail
 - [**Transitions**](./transitions) — the routes decision buttons bind to
+- [**Task visibility**](/framework/workflows/task-visibility) — the permission model in full, including what it deliberately does not guarantee
 - [**Extending workflows**](/framework/workflows/extending) — contribute your own work-inbox source or task form renderer
 - [**Framework Documentation**](/framework/workflows/services) — complete tasks programmatically

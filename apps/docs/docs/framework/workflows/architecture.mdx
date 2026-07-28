@@ -265,15 +265,18 @@ Every workflow state change emits an immutable event stored in `workflow_events`
 
 ### Domain events for tasks
 
-`workflow_events` rows are the module's internal audit log. Separately, three **domain events** are published on the platform event bus so other modules can react without importing workflow internals:
+`workflow_events` rows are the module's internal audit log. Separately, four **domain events** are published on the platform event bus so other modules can react without importing workflow internals:
 
 | Event id | Emitted when |
 |---|---|
 | `workflows.task.assigned` | A user task is created, with its assignee, its role queue and its entity bindings |
 | `workflows.task.reminder_due` | A configured reminder offset before the task's deadline |
 | `workflows.task.deadline_breached` | The deadline passed with the task still open |
+| `workflows.task.portal_assigned` | A task addressed to a **portal** principal is created — `portalBroadcast: true` |
 
-All three are emitted `persistent: true` and delivery is at-least-once, so subscribers must be idempotent. Emission is strictly best-effort: a bus failure is logged and never breaks workflow execution.
+The first three are emitted `persistent: true` and delivery is at-least-once, so subscribers must be idempotent.
+
+`workflows.task.portal_assigned` is deliberately a **separate, minimal** event rather than `portalBroadcast: true` on `workflows.task.assigned`. The portal SSE bridge narrows to a single recipient only when the payload carries `recipientUserId`; `workflows.task.assigned` carries none, and it carries task names and entity bindings — broadcasting it would have leaked both across customers. The portal event carries `{ taskId, recipientUserId, tenantId, organizationId }` and nothing else; the receiver asks the authorized portal API what the task is. Emission is strictly best-effort: a bus failure is logged and never breaks workflow execution.
 
 `workflows.task.assigned` carries `entityBindings` precisely so a module that owns those records can surface the task on its own turf — the customers module subscribes and writes its own `CustomerTodoLink` with `todoSource: 'workflows'`. **Direction matters:** workflows only announces that a task exists and which records it is about; the module that owns the table is the module that writes to it, so workflows never touches another module's entities and a deployment without that module simply has no subscriber.
 
@@ -387,14 +390,18 @@ Activities can execute asynchronously via a queue to avoid blocking workflow exe
 - `step_instance_id` (FK)
 - `task_name`, `description`
 - `status` (enum: PENDING, IN_PROGRESS, COMPLETED, CANCELLED, ESCALATED)
-- `assigned_to` (user ID or null)
+- `assigned_to` (user ID or portal principal ID, or null)
+- `assignee_kind` (varchar(20), NOT NULL, default `'user'`) — which id space `assigned_to` names: `'user'` = a backoffice user, `'customer'` = a portal principal
 - `assigned_to_roles` (array of role names)
+- `entity_types` (text[], nullable, GIN-indexed) — the distinct authored binding types, denormalized from `entity_bindings` at creation so the visibility gate is a `WHERE` instead of a lying post-filter
 - `form_data` (JSON) — also carries the pressed decision under the reserved `__decision` key
 - `entity_bindings` (JSONB, nullable) — records the task is about, resolved at creation
 - `priority` (varchar, nullable) — authored `low|medium|high|extreme`
 - `reassigned_by`, `reassigned_at`, `reassign_reason` — reassignment audit
 - `due_at`, `escalated_at`, `completed_at`, `created_at`, `updated_at`
 - `tenant_id`, `organization_id`
+
+`assignee_kind` and `entity_types` are what make [task visibility](./task-visibility) expressible in SQL: the discriminator keeps a portal-assigned row from ever matching a backoffice caller whose user id happens to collide, and the denormalized type array lets the entity gate run in the `WHERE` clause so `pagination.total` stays honest. Rows written before the migration keep `entity_types = NULL`, which the rule reads as "about nothing" — visible to its own assignee, invisible on the portal.
 
 `entity_bindings` is a real column rather than a read of the authored `form_schema` blob: the Work Inbox, the record-page widget and task visibility all filter on it, and the authored form schema is the wrong shape *and* the wrong lifetime for that — it describes the FORM, and re-editing a definition must not retro-change what a running task is about. Reassignment is modelled as audit columns plus a workflow event rather than a new `UserTaskStatus`.
 
