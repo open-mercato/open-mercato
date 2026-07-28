@@ -515,10 +515,11 @@ export type StepErrorDirective = z.infer<typeof stepErrorDirectiveSchema>
 
 /**
  * Transition discriminator. `error` routes are reachable ONLY from a step
- * failure — normal routing filters them out — so adding one never changes the
- * happy path. Absent means `normal`.
+ * failure and `slaBreach` routes ONLY from a user task's deadline passing —
+ * normal routing filters both out — so adding one never changes the happy path.
+ * Absent means `normal`.
  */
-export const transitionKindSchema = z.enum(['normal', 'error'])
+export const transitionKindSchema = z.enum(['normal', 'error', 'slaBreach'])
 
 export type WorkflowTransitionKind = z.infer<typeof transitionKindSchema>
 

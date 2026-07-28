@@ -20,10 +20,15 @@
 
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
-import { UserTask, WorkflowInstance } from '../data/entities'
-import type { TaskReminder } from '../data/validators'
+import { StepInstance, UserTask, WorkflowInstance } from '../data/entities'
+import type { TaskOnBreach, TaskReminder } from '../data/validators'
 import { parseDuration } from './duration'
+import { resolveTaskBreachHandling, type TaskBreachHandling } from './breach-routing'
+import { findDefinitionForInstance } from './find-definition'
 import { emitWorkflowsEvent } from '../events'
+import type * as stepHandlerModule from './step-handler'
+import type * as transitionHandlerModule from './transition-handler'
+import type * as workflowExecutorModule from './workflow-executor'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -252,16 +257,211 @@ export async function runTaskSlaJob(
   task.escalatedAt = now
   task.updatedAt = now
 
+  // WHICH path the breach took is part of the audit trail, not an implementation
+  // detail: "the deadline passed" and "the deadline passed and the run was
+  // routed away from this task" are different facts about the same instant.
+  const handling = await applyBreachHandling(em, container, task, options, now)
+
   await logTaskSlaEvent(em, container, options, 'USER_TASK_DEADLINE_BREACHED', {
     taskId: task.id,
     taskName: task.taskName,
     dueDate: options.deadlineAt,
     breachedAt: now.toISOString(),
+    onBreach: handling.outcome,
+    ...(handling.detail ?? {}),
   })
 
   await emitTaskSlaEvent(em, 'workflows.task.deadline_breached', task, options)
 
+  // A reassignment only means anything once the new owner is told about it, and
+  // the assignment event is the one path that already reaches both an individual
+  // and a role queue.
+  if (handling.outcome === 'reassigned') {
+    await emitTaskSlaEvent(em, 'workflows.task.assigned', task, options)
+  }
+
+  if (handling.resumeInstance) {
+    await resumeAfterBreachRoute(em, container, task, options, handling.resumeInstance)
+  }
+
   return 'breached'
+}
+
+type BreachOutcome = 'none' | 'notified' | 'reassigned' | 'routed' | 'route_skipped_branch'
+
+interface AppliedBreachHandling {
+  outcome: BreachOutcome
+  detail?: Record<string, unknown>
+  resumeInstance?: { stepId: string; toStepId: string }
+}
+
+/**
+ * Apply the resolver's answer to the task row. Routing itself is deferred to
+ * `resumeAfterBreachRoute` so the workflow only advances after the breach has
+ * been recorded and announced.
+ */
+async function applyBreachHandling(
+  em: EntityManager,
+  container: AwilixContainer,
+  task: UserTask,
+  options: RunTaskSlaJobOptions,
+  now: Date
+): Promise<AppliedBreachHandling> {
+  let resolution: TaskBreachHandling = { kind: 'none' }
+  let stepId: string | null = null
+
+  try {
+    const stepInstance = await em.findOne(StepInstance, {
+      id: options.stepInstanceId,
+      tenantId: options.tenantId,
+      organizationId: options.organizationId,
+    })
+    stepId = stepInstance?.stepId ?? null
+
+    const instance = await em.findOne(WorkflowInstance, {
+      id: options.workflowInstanceId,
+      tenantId: options.tenantId,
+      organizationId: options.organizationId,
+    })
+
+    if (stepId && instance) {
+      const definition = await findDefinitionForInstance(em, instance)
+      const stepDef = (definition?.definition?.steps ?? []).find(
+        (step: { stepId?: string }) => step.stepId === stepId
+      ) as { userTaskConfig?: { onBreach?: TaskOnBreach | null } } | undefined
+
+      resolution = resolveTaskBreachHandling(
+        definition?.definition ?? null,
+        stepId,
+        stepDef?.userTaskConfig?.onBreach ?? null
+      )
+    }
+  } catch (error) {
+    // A definition the engine can no longer read must not strand the breach:
+    // the task is already marked escalated and the event still fires.
+    logger.error('Failed to resolve breach handling; falling back to notify-only', {
+      component: 'task-sla',
+      taskId: task.id,
+      err: error,
+    })
+    return { outcome: 'none' }
+  }
+
+  if (resolution.kind === 'notify') return { outcome: 'notified' }
+
+  if (resolution.kind === 'reassign') {
+    task.assignedTo = resolution.assignedTo
+    task.assignedToRoles = resolution.assignedToRoles
+    task.claimedBy = null
+    task.claimedAt = null
+    task.status = 'PENDING'
+    task.escalatedTo = resolution.assignedTo ?? resolution.assignedToRoles?.[0] ?? null
+    task.reassignedAt = now
+    task.reassignReason = 'sla_breach'
+    task.updatedAt = now
+    await em.flush()
+    return {
+      outcome: 'reassigned',
+      detail: {
+        reassignedTo: resolution.assignedTo,
+        reassignedToRoles: resolution.assignedToRoles,
+      },
+    }
+  }
+
+  if (resolution.kind === 'route') {
+    const toStepId = resolution.transition.toStepId
+    if (!stepId || !toStepId) return { outcome: 'none' }
+
+    // A branch-scoped task does NOT follow its breach route, for the same
+    // reason a decision button does not select a route inside a branch
+    // (`completeUserTask`): a branch advances through `resumeBranch` with its
+    // own token, and overriding that is a parallel-execution change rather than
+    // a task-surface one.
+    if (options.branchInstanceId) {
+      return { outcome: 'route_skipped_branch', detail: { transitionId: resolution.transition.transitionId } }
+    }
+
+    // The task is superseded by the route, not abandoned: `ESCALATED` is an
+    // existing `UserTaskStatus`, so no state machine changes.
+    task.status = 'ESCALATED'
+    task.updatedAt = now
+    await em.flush()
+
+    return {
+      outcome: 'routed',
+      detail: { transitionId: resolution.transition.transitionId, toStepId },
+      resumeInstance: { stepId, toStepId },
+    }
+  }
+
+  return { outcome: 'none' }
+}
+
+/**
+ * Follow the breach route: exit the task's step and drive the run onward,
+ * mirroring how `fireTimer` resumes a run parked on a WAIT_FOR_TIMER step.
+ *
+ * Best-effort: a routing failure leaves the run exactly where it was, with the
+ * breach already recorded, rather than throwing the queue job into a retry loop
+ * that would re-announce a breach that has already fired.
+ */
+async function resumeAfterBreachRoute(
+  em: EntityManager,
+  container: AwilixContainer,
+  task: UserTask,
+  options: RunTaskSlaJobOptions,
+  route: { stepId: string; toStepId: string }
+): Promise<void> {
+  try {
+    const instance = await em.findOne(WorkflowInstance, {
+      id: options.workflowInstanceId,
+      tenantId: options.tenantId,
+      organizationId: options.organizationId,
+    })
+    if (!instance) return
+
+    const stepHandler = container.resolve<typeof stepHandlerModule>('stepHandler')
+    const transitionHandler = container.resolve<typeof transitionHandlerModule>('transitionHandler')
+    const workflowExecutor = container.resolve<typeof workflowExecutorModule>('workflowExecutor')
+
+    const stepInstance = await em.findOne(StepInstance, {
+      id: options.stepInstanceId,
+      status: 'ACTIVE',
+    })
+    if (stepInstance) {
+      await stepHandler.exitStep(em, stepInstance, {
+        userTaskId: task.id,
+        slaBreached: true,
+      })
+    }
+
+    const transitionResult = await transitionHandler.executeTransition(
+      em,
+      container,
+      instance,
+      route.stepId,
+      route.toStepId,
+      { workflowContext: instance.context, userId: options.userId }
+    )
+
+    if (!transitionResult.success) {
+      logger.error('SLA-breach transition failed', {
+        component: 'task-sla',
+        taskId: task.id,
+        err: transitionResult.error,
+      })
+      return
+    }
+
+    await workflowExecutor.executeWorkflow(em, container, instance.id, { userId: options.userId })
+  } catch (error) {
+    logger.error('Failed to follow the SLA-breach route', {
+      component: 'task-sla',
+      taskId: task.id,
+      err: error,
+    })
+  }
 }
 
 async function logTaskSlaEvent(
@@ -301,7 +501,7 @@ async function logTaskSlaEvent(
 
 async function emitTaskSlaEvent(
   em: EntityManager,
-  eventId: 'workflows.task.reminder_due' | 'workflows.task.deadline_breached',
+  eventId: 'workflows.task.reminder_due' | 'workflows.task.deadline_breached' | 'workflows.task.assigned',
   task: UserTask,
   options: RunTaskSlaJobOptions
 ): Promise<void> {

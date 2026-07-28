@@ -28,6 +28,7 @@ import {
   buildErrorContextEntry,
   excludeErrorTransitions,
 } from './error-routing'
+import { excludeSlaBreachTransitions } from './breach-routing'
 import { scheduleWorkflowErrorHandler } from './error-handler'
 import { findWorkflowDefinition, findDefinitionForInstance } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -442,7 +443,9 @@ export async function executeWorkflow(
           }
         }
 
-        const transitions = excludeErrorTransitions(definition.definition.transitions).filter(
+        const transitions = excludeSlaBreachTransitions(
+          excludeErrorTransitions(definition.definition.transitions)
+        ).filter(
           (t: any) =>
             t.fromStepId === currentInstance.currentStepId &&
             t.trigger === 'auto'

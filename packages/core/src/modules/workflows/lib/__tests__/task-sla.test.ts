@@ -18,6 +18,9 @@ import {
 } from '../task-sla'
 import { enqueueTaskSlaJob } from '../activity-executor'
 import { emitWorkflowsEvent } from '../../events'
+import { findDefinitionForInstance } from '../find-definition'
+import { StepInstance, UserTask, WorkflowInstance } from '../../data/entities'
+import { SLA_BREACH_TRANSITION_KIND } from '../breach-routing'
 
 jest.mock('../activity-executor', () => {
   const actual = jest.requireActual('../activity-executor') as Record<string, unknown>
@@ -28,6 +31,10 @@ jest.mock('../../events', () => {
   const actual = jest.requireActual('../../events') as Record<string, unknown>
   return { ...actual, emitWorkflowsEvent: jest.fn() }
 })
+
+jest.mock('../find-definition', () => ({
+  findDefinitionForInstance: jest.fn(),
+}))
 
 const mockEnqueue = enqueueTaskSlaJob as jest.MockedFunction<typeof enqueueTaskSlaJob>
 const mockEmit = emitWorkflowsEvent as jest.MockedFunction<typeof emitWorkflowsEvent>
@@ -327,5 +334,237 @@ describe('runTaskSlaJob', () => {
 
     expect(outcome).toBe('noop')
     expect(mockEmit).not.toHaveBeenCalled()
+  })
+})
+
+describe('breach routing (spec §6.1 §4)', () => {
+  const stepId = 'review'
+  const mockFindDefinition = findDefinitionForInstance as jest.MockedFunction<
+    typeof findDefinitionForInstance
+  >
+
+  const normalRoute = {
+    transitionId: 't_approved',
+    fromStepId: stepId,
+    toStepId: 'fulfil',
+    trigger: 'auto',
+  }
+  const breachRoute = {
+    transitionId: 't_breach',
+    fromStepId: stepId,
+    toStepId: 'escalation',
+    trigger: 'auto',
+    kind: SLA_BREACH_TRANSITION_KIND,
+  }
+
+  let task: Record<string, unknown>
+  let mockEm: jest.Mocked<EntityManager>
+  let mockLogWorkflowEvent: jest.Mock
+  let mockExitStep: jest.Mock
+  let mockExecuteTransition: jest.Mock
+  let mockExecuteWorkflow: jest.Mock
+  let mockContainer: { resolve: (token: string) => unknown }
+
+  const jobOptions = {
+    userTaskId: taskId,
+    stepInstanceId,
+    workflowInstanceId: instanceId,
+    phase: 'breach' as const,
+    deadlineAt: '2026-07-28T14:00:00.000Z',
+    tenantId,
+    organizationId,
+  }
+
+  const setDefinition = (onBreach: unknown, transitions: unknown[]) => {
+    mockFindDefinition.mockResolvedValue({
+      definition: {
+        steps: [{ stepId, stepType: 'USER_TASK', userTaskConfig: { onBreach } }],
+        transitions,
+      },
+    } as never)
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    task = {
+      id: taskId,
+      taskName: 'Approve the order',
+      status: 'PENDING',
+      assignedTo: 'user-1',
+      assignedToRoles: null,
+      claimedBy: null,
+      claimedAt: null,
+      escalatedAt: null,
+      escalatedTo: null,
+      reassignedAt: null,
+      reassignReason: null,
+      entityBindings: null,
+      updatedAt: new Date(),
+    }
+
+    mockLogWorkflowEvent = jest.fn<() => Promise<unknown>>().mockResolvedValue({})
+    mockExitStep = jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined)
+    mockExecuteTransition = jest
+      .fn<() => Promise<unknown>>()
+      .mockResolvedValue({ success: true })
+    mockExecuteWorkflow = jest.fn<() => Promise<unknown>>().mockResolvedValue({})
+
+    mockContainer = {
+      resolve: (token: string) => {
+        switch (token) {
+          case 'eventLogger':
+            return { logWorkflowEvent: mockLogWorkflowEvent }
+          case 'stepHandler':
+            return { exitStep: mockExitStep }
+          case 'transitionHandler':
+            return { executeTransition: mockExecuteTransition }
+          case 'workflowExecutor':
+            return { executeWorkflow: mockExecuteWorkflow }
+          default:
+            throw new Error(`Unexpected DI token in test: ${token}`)
+        }
+      },
+    }
+
+    mockEm = {
+      findOne: jest.fn((entity: unknown) => {
+        if (entity === UserTask) return Promise.resolve(task)
+        if (entity === StepInstance) {
+          return Promise.resolve({ id: stepInstanceId, stepId, status: 'ACTIVE' })
+        }
+        if (entity === WorkflowInstance) {
+          return Promise.resolve({ id: instanceId, workflowId: 'order-approval', context: {} })
+        }
+        return Promise.resolve(null)
+      }),
+      nativeUpdate: jest.fn<() => Promise<number>>().mockResolvedValue(1),
+      flush: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<EntityManager>
+
+    mockEmit.mockResolvedValue(undefined as never)
+  })
+
+  test('a wired SLA-breach route is followed and the task is escalated', async () => {
+    setDefinition(null, [normalRoute, breachRoute])
+
+    const outcome = await runTaskSlaJob(mockEm, mockContainer as never, jobOptions)
+
+    expect(outcome).toBe('breached')
+    expect(task.status).toBe('ESCALATED')
+    expect(mockExitStep).toHaveBeenCalled()
+    expect(mockExecuteTransition).toHaveBeenCalledWith(
+      mockEm,
+      mockContainer,
+      expect.objectContaining({ id: instanceId }),
+      stepId,
+      'escalation',
+      expect.anything()
+    )
+    expect(mockExecuteWorkflow).toHaveBeenCalled()
+    expect(mockLogWorkflowEvent).toHaveBeenCalledWith(
+      mockEm,
+      expect.objectContaining({
+        eventType: 'USER_TASK_DEADLINE_BREACHED',
+        eventData: expect.objectContaining({ onBreach: 'routed', toStepId: 'escalation' }),
+      })
+    )
+  })
+
+  test('an unwired breach follows the onBreach route binding', async () => {
+    setDefinition({ action: 'route', transitionId: 't_approved' }, [normalRoute])
+
+    await runTaskSlaJob(mockEm, mockContainer as never, jobOptions)
+
+    expect(mockExecuteTransition).toHaveBeenCalledWith(
+      mockEm,
+      mockContainer,
+      expect.anything(),
+      stepId,
+      'fulfil',
+      expect.anything()
+    )
+  })
+
+  test('an unwired breach falls back to reassign', async () => {
+    setDefinition({ action: 'reassign', reassignTo: 'supervisors' }, [normalRoute])
+
+    await runTaskSlaJob(mockEm, mockContainer as never, jobOptions)
+
+    expect(task.assignedTo).toBeNull()
+    expect(task.assignedToRoles).toEqual(['supervisors'])
+    expect(task.reassignReason).toBe('sla_breach')
+    expect(mockExecuteTransition).not.toHaveBeenCalled()
+    // The new owner has to hear about it, and the assignment event is the one
+    // path that reaches both an individual and a role queue.
+    expect(mockEmit).toHaveBeenCalledWith(
+      'workflows.task.assigned',
+      expect.objectContaining({ taskId }),
+      { persistent: true }
+    )
+  })
+
+  test('an unwired breach falls back to notify', async () => {
+    setDefinition({ action: 'notify' }, [normalRoute])
+
+    await runTaskSlaJob(mockEm, mockContainer as never, jobOptions)
+
+    expect(mockExecuteTransition).not.toHaveBeenCalled()
+    expect(task.status).toBe('PENDING')
+    expect(mockLogWorkflowEvent).toHaveBeenCalledWith(
+      mockEm,
+      expect.objectContaining({
+        eventData: expect.objectContaining({ onBreach: 'notified' }),
+      })
+    )
+  })
+
+  test('regression: a task with no onBreach only announces the breach', async () => {
+    setDefinition(undefined, [normalRoute])
+
+    const outcome = await runTaskSlaJob(mockEm, mockContainer as never, jobOptions)
+
+    expect(outcome).toBe('breached')
+    expect(mockExitStep).not.toHaveBeenCalled()
+    expect(mockExecuteTransition).not.toHaveBeenCalled()
+    expect(mockExecuteWorkflow).not.toHaveBeenCalled()
+    expect(task.status).toBe('PENDING')
+    expect(task.assignedTo).toBe('user-1')
+    expect(mockLogWorkflowEvent).toHaveBeenCalledWith(
+      mockEm,
+      expect.objectContaining({
+        eventData: expect.objectContaining({ onBreach: 'none' }),
+      })
+    )
+  })
+
+  test('a branch-scoped task never follows its breach route', async () => {
+    setDefinition(null, [normalRoute, breachRoute])
+
+    await runTaskSlaJob(mockEm, mockContainer as never, {
+      ...jobOptions,
+      branchInstanceId: 'branch-1',
+    })
+
+    expect(mockExecuteTransition).not.toHaveBeenCalled()
+    expect(task.status).toBe('PENDING')
+    expect(mockLogWorkflowEvent).toHaveBeenCalledWith(
+      mockEm,
+      expect.objectContaining({
+        eventData: expect.objectContaining({ onBreach: 'route_skipped_branch' }),
+      })
+    )
+  })
+
+  test('a definition the engine can no longer read still records the breach', async () => {
+    mockFindDefinition.mockRejectedValue(new Error('definition gone') as never)
+
+    const outcome = await runTaskSlaJob(mockEm, mockContainer as never, jobOptions)
+
+    expect(outcome).toBe('breached')
+    expect(mockEmit).toHaveBeenCalledWith(
+      'workflows.task.deadline_breached',
+      expect.objectContaining({ taskId }),
+      { persistent: true }
+    )
   })
 })
