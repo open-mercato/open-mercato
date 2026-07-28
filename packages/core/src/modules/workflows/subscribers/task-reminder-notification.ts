@@ -5,10 +5,15 @@ import {
   type TaskNotificationResolverContext,
 } from '../lib/task-notifications'
 
+/**
+ * A reminder reaches exactly the audience the assignment reached — the named
+ * assignee, or every member of the authored role queue — because both route
+ * through the same recipient resolution.
+ */
 export const metadata = {
-  event: 'workflows.task.assigned',
+  event: 'workflows.task.reminder_due',
   persistent: true,
-  id: 'workflows:task-assigned-notification',
+  id: 'workflows:task-reminder-notification',
 }
 
 export default async function handle(
@@ -18,8 +23,9 @@ export default async function handle(
   await notifyTaskLifecycleEvent({
     ctx,
     notificationTypes,
-    notificationType: 'workflows.task.assigned',
+    notificationType: 'workflows.task.reminder_due',
     payload,
-    component: 'task-assigned-notification',
+    groupByType: true,
+    component: 'task-reminder-notification',
   })
 }

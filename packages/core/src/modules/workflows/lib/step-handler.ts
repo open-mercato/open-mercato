@@ -40,6 +40,7 @@ import {
   resolveTaskText,
   type TaskInterpolate,
 } from './task-resolution'
+import { scheduleUserTaskSla } from './task-sla'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from './find-definition'
 import { validateAgainstPorts } from './port-contract'
@@ -823,6 +824,22 @@ async function handleUserTaskStep(
   })
 
   await emitTaskAssignedEvent(userTask, instance, context)
+
+  // Reminders and the deadline breach are scheduled HERE, once, with the
+  // deadline already absolute on each job payload — see `lib/task-sla.ts`. A
+  // task with no deadline schedules nothing at all.
+  await scheduleUserTaskSla({
+    workflowInstanceId: instance.id,
+    stepInstanceId: stepInstance.id,
+    branchInstanceId: branch ? branch.id : null,
+    userTaskId: userTask.id,
+    dueDate: userTask.dueDate ?? null,
+    reminders: userTaskConfig.reminders ?? null,
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+    userId: context.userId,
+    now,
+  })
 
   // Pause execution - waits for user task completion. For a branch, only the
   // branch pauses; sibling branches keep running.

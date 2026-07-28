@@ -29,7 +29,7 @@
 | 2 | 2.3 | Work Inbox page + backend/tasks bridge redirect (tableId preserved) + DS badge cleanup | done | 5b424f1d2 |
 | 2 | 2.4 | Task detail: decision + context side-by-side, claim button, next-task loop | done | c71ea2f82 |
 | 2 | 2.5 | EntityContextPanel + pending-work record-page widget + CustomerTodoLink phase-in | done | ec788a14d |
-| 3 | 3.1 | Task SLA scheduler on the Phase-3a absolute-deadline queue backstop (reminders + breach) | todo | — |
+| 3 | 3.1 | Task SLA scheduler on the Phase-3a absolute-deadline queue backstop (reminders + breach) | done | 879981f0f |
 | 3 | 3.2 | SLA-breach route resolver (pure, shaped like lib/error-routing.ts) | todo | — |
 | 3 | 3.3 | Notification quick-action one-click predicate + workflows.tasks.complete command | todo | — |
 | 3 | 3.4 | External-form renderer registry (#4243) + validateFormData covers the fields shape | todo | — |

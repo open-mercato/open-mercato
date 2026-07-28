@@ -29,6 +29,8 @@ const events = [
 
   // User Task Events
   { id: 'workflows.task.assigned', label: 'Task Assigned', entity: 'task', category: 'lifecycle' },
+  { id: 'workflows.task.reminder_due', label: 'Task Reminder Due', entity: 'task', category: 'lifecycle' },
+  { id: 'workflows.task.deadline_breached', label: 'Task Deadline Breached', entity: 'task', category: 'lifecycle' },
 
   // Activity Events
   { id: 'workflows.activity.started', label: 'Activity Started', category: 'lifecycle' },

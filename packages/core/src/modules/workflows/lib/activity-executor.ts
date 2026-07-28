@@ -419,6 +419,62 @@ export async function enqueueTimerJob(params: {
 }
 
 /**
+ * Enqueue a delayed SLA job for a USER_TASK (one reminder offset, or the
+ * deadline itself).
+ *
+ * The activity worker handles `kind: 'task_sla'` jobs by calling
+ * `taskSla.runTaskSlaJob`. `deadlineAt` is absolute and carried on the payload
+ * rather than recomputed at run time, so a queue running behind can never
+ * extend the configured deadline — the same guarantee the WAIT_FOR_CONDITION
+ * backstop gives.
+ */
+export async function enqueueTaskSlaJob(params: {
+  workflowInstanceId: string
+  stepInstanceId: string
+  branchInstanceId?: string | null
+  userTaskId: string
+  phase: 'reminder' | 'breach'
+  deadlineAt: string
+  fireAt: string
+  delayMs: number
+  tenantId: string
+  organizationId: string
+  userId?: string
+}): Promise<string> {
+  const {
+    workflowInstanceId,
+    stepInstanceId,
+    branchInstanceId,
+    userTaskId,
+    phase,
+    deadlineAt,
+    fireAt,
+    delayMs,
+    tenantId,
+    organizationId,
+    userId,
+  } = params
+
+  const queue = getActivityQueue()
+  return await queue.enqueue(
+    {
+      kind: 'task_sla',
+      workflowInstanceId,
+      stepInstanceId,
+      branchInstanceId: branchInstanceId ?? undefined,
+      userTaskId,
+      phase,
+      deadlineAt,
+      fireAt,
+      tenantId,
+      organizationId,
+      userId,
+    },
+    { delayMs: delayMs > 0 ? delayMs : undefined }
+  )
+}
+
+/**
  * Enqueue a delayed poll job for a WAIT_FOR_CONDITION step.
  *
  * The activity worker handles `kind: 'condition'` jobs by calling
