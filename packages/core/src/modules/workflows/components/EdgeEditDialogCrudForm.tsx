@@ -1,7 +1,7 @@
 'use client'
 
 import type { Edge } from '@xyflow/react'
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -9,6 +9,7 @@ import { Trash2 } from 'lucide-react'
 import { CrudForm, type CrudFormGroup, type CrudField, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import { InputDataPanel } from './InputDataPanel'
 import { BusinessRuleConditionsEditor } from './fields/BusinessRuleConditionsEditor'
 import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
@@ -35,6 +36,12 @@ export interface EdgeEditDialogCrudFormProps {
   onSave: (edgeId: string, updates: Partial<Edge['data']>) => void
   onDelete: (edgeId: string) => void
   ledgerEntries?: LedgerEntry[]
+  /**
+   * Field the dialog scrolls to and focuses on open. Route chips (#4244) pass
+   * the field behind the chip that was clicked, so the author lands on the
+   * condition or the activity list instead of the top of the form.
+   */
+  focusFieldId?: string | null
 }
 
 /**
@@ -54,9 +61,10 @@ export interface EdgeEditDialogCrudFormProps {
  * - Delete functionality with confirmation
  * - Keyboard shortcuts (Cmd/Ctrl+Enter save, Escape cancel)
  */
-export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete, ledgerEntries }: EdgeEditDialogCrudFormProps) {
+export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete, ledgerEntries, focusFieldId }: EdgeEditDialogCrudFormProps) {
   const t = useT()
   const [initialValues, setInitialValues] = useState<Partial<EdgeFormValues>>({})
+  const bodyRef = useRef<HTMLDivElement | null>(null)
 
   // Load edge data when dialog opens
   useEffect(() => {
@@ -79,6 +87,20 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
     }
   }, [edge, onSave, onClose, t])
 
+  // Chip-driven deep link: CrudForm marks each field container with
+  // `data-crud-field-id`, so scrolling to it is enough to land the author on the
+  // right section without reordering or collapsing anything.
+  useEffect(() => {
+    if (!isOpen || !focusFieldId) return
+    const frame = requestAnimationFrame(() => {
+      const container = bodyRef.current?.querySelector<HTMLElement>(`[data-crud-field-id="${focusFieldId}"]`)
+      if (!container) return
+      container.scrollIntoView({ block: 'center' })
+      container.querySelector<HTMLElement>('input, textarea, select, button')?.focus()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [focusFieldId, isOpen, initialValues])
+
   const handleDelete = useCallback(() => {
     if (!edge) return
     onDelete(edge.id)
@@ -97,6 +119,13 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
       title: t('workflows.edgeEditor.groups.basic'),
       column: 1,
       fields: ['transitionName', 'trigger', 'priority', 'continueOnActivityFailure'],
+    },
+    {
+      id: 'routing',
+      title: t('workflows.edgeEditor.groups.routing'),
+      column: 1,
+      description: t('workflows.edgeEditor.groups.routingDescription'),
+      fields: ['condition'],
     },
     {
       id: 'businessRules',
@@ -156,6 +185,20 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
       label: t('workflows.edgeEditor.continueOnActivityFailure'),
       type: 'checkbox',
       description: t('workflows.edgeEditor.continueOnActivityFailureHint'),
+    },
+    {
+      id: 'condition',
+      label: t('workflows.edgeEditor.condition'),
+      type: 'custom',
+      description: t('workflows.edgeEditor.conditionHint'),
+      component: (props) => (
+        <ConditionBuilder
+          value={props.value ?? null}
+          onChangeAction={props.setValue}
+          error={props.error}
+          showJsonPreview
+        />
+      ),
     },
     {
       id: 'preConditions',
@@ -234,7 +277,7 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
         </DialogHeader>
 
         <div className="flex flex-1 min-h-0 gap-4 overflow-hidden px-6">
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto" ref={bodyRef}>
             <CrudForm
               fields={fields}
               groups={groups}

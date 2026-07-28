@@ -22,6 +22,7 @@ import { ERROR_SOURCE_HANDLE_ID } from '../../../lib/error-routing'
 import { DefinitionErrorHandlerField } from '../../../components/DefinitionErrorHandlerField'
 import type { WorkflowErrorHandlerConfig } from '../../../data/validators'
 import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard'
+import { WORKFLOW_ROUTE_CHIP_EVENT, type RouteChipEventDetail } from '../../../lib/route-chip-events'
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
 import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
@@ -243,6 +244,11 @@ export default function VisualEditorPage() {
   const [edges, setEdges] = useState<Edge[]>([])
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
+  const [edgeDialogFocusFieldId, setEdgeDialogFocusFieldId] = useState<string | null>(null)
+  // Latest edges, readable from window-event handlers without re-subscribing on
+  // every graph change (route chips resolve their edge through this).
+  const edgesRef = React.useRef<Edge[]>([])
+  edgesRef.current = edges
   const [showMetadata, setShowMetadata] = useState(true)
   const [isCompactViewport, setIsCompactViewport] = useState(false)
   const [autosaveState, setAutosaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
@@ -726,6 +732,20 @@ export default function VisualEditorPage() {
     if (isCodeOnly) return
     setSelectedEdge(edge)
     setSelectedNode(null)
+    setEdgeDialogFocusFieldId(null)
+    setShowEdgeDialog(true)
+  }, [isCodeOnly])
+
+  // Route chips (#4244) open the edge dialog on the section behind the chip.
+  // Chips render inside React Flow's label portal, so they announce on `window`
+  // instead of bubbling to `onEdgeClick` — same bridge as the node delete button.
+  const handleRouteChipOpen = useCallback((edgeId: string, section: RouteChipEventDetail['section']) => {
+    if (isCodeOnly) return
+    const edge = edgesRef.current.find((candidate) => candidate.id === edgeId)
+    if (!edge) return
+    setSelectedEdge(edge)
+    setSelectedNode(null)
+    setEdgeDialogFocusFieldId(section === 'condition' ? 'condition' : 'activities')
     setShowEdgeDialog(true)
   }, [isCodeOnly])
 
@@ -807,6 +827,15 @@ export default function VisualEditorPage() {
     window.addEventListener(WORKFLOW_NODE_DELETE_EVENT, onNodeDelete)
     return () => window.removeEventListener(WORKFLOW_NODE_DELETE_EVENT, onNodeDelete)
   }, [isCodeOnly, handleDeleteNode])
+
+  useEffect(() => {
+    const onChipOpen = (event: Event) => {
+      const detail = (event as CustomEvent<RouteChipEventDetail>).detail
+      if (detail?.edgeId) handleRouteChipOpen(detail.edgeId, detail.section)
+    }
+    window.addEventListener(WORKFLOW_ROUTE_CHIP_EVENT, onChipOpen)
+    return () => window.removeEventListener(WORKFLOW_ROUTE_CHIP_EVENT, onChipOpen)
+  }, [handleRouteChipOpen])
 
   // Handle new connections. A drop onto a sub-workflow IN port authors a field
   // mapping (written to the target step's config.inputMapping + a distinct data
@@ -1483,7 +1512,7 @@ export default function VisualEditorPage() {
         <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       )}
       {crudFormDialogsEnabled ? (
-        <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} ledgerEntries={edgeDialogLedgerEntries} />
+        <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} ledgerEntries={edgeDialogLedgerEntries} focusFieldId={edgeDialogFocusFieldId} />
       ) : (
         <EdgeEditDialog edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
       )}
