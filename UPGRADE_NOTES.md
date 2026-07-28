@@ -34,6 +34,8 @@ Three behavior changes follow:
 - A reindex that loses records now **throws** `QueryIndexBatchWriteError` after finishing its batches and refreshing the coverage snapshot. The queue job fails, `indexer_error_logs` gets a row per failed record (capped at 50 per batch), and the CLI exits non-zero.
 - A failed document encryption is treated as a failed row rather than being indexed in plaintext, and the orphan purge excludes records the run failed to write so their existing index rows survive.
 
+`isUniqueViolation` now lives at `@open-mercato/shared/lib/db/pg-errors`. The previous `@open-mercato/core/modules/communication_channels/lib/pg-errors` import remains available as a deprecated re-export for this release; downstream modules should move to the shared path.
+
 **Action for downstream:** none required for callers that ignore the return value — `Promise<void>` → `Promise<UpsertIndexBatchResult>` is assignment-compatible. Expect previously-green reindex jobs to start failing where they were silently dropping records; the failures are pre-existing data loss becoming visible, not new breakage. Custom `encryptDoc`/`decryptDoc` callbacks passed to `upsertIndexBatch` should no longer swallow their own errors, or the new accounting cannot see them.
 
 ### Scheduler queue targets now deliver one flat payload contract in both execution modes (#4221)

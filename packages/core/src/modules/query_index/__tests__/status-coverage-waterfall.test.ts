@@ -33,6 +33,7 @@ jest.mock('../lib/coverage', () => ({
 }))
 
 import { GET } from '../api/status'
+import { queryIndexStatusResponseSchema } from '../api/openapi'
 
 const ENTITY_A = 'catalog:catalog_product'
 const ENTITY_B = 'customers:person'
@@ -398,6 +399,7 @@ describe('query_index status route — coverage waterfall (#3285)', () => {
     const res = await GET(makeRequest())
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(queryIndexStatusResponseSchema.safeParse(body).success).toBe(true)
     const entity = body.items.find((item: { entityId: string }) => item.entityId === ENTITY_A)
     expect(entity.job.status).toBe(expected)
   })

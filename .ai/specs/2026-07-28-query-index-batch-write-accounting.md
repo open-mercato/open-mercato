@@ -82,6 +82,14 @@ Coverage deltas, `processed`, `updateJobProgress` and the `query_index.vectorize
 - `recordIndexerError` now also emits `logger.error`, so failures survive the process instead of living only in a table nobody watches. `input.payload` is deliberately not logged — it can carry record documents.
 - The query-index CLI's `encryptDoc`/`decryptDoc` wrappers no longer swallow their own errors, which would have made the batch-level handling dead code on that path.
 
+## Migration & Backward Compatibility
+
+- `upsertIndexBatch` keeps its parameters and partial-write behavior. Its return changes from `Promise<void>` to `Promise<UpsertIndexBatchResult>`, which remains assignment-compatible for callers that ignore the resolved value; callers that need failure accounting can adopt `assertIndexBatchWritesLanded` additively.
+- `finalizeJob` adds an optional third parameter, so existing callers keep compiling and retain their current behavior.
+- The status API adds the `failed` value to its existing status enums without removing or retyping response fields.
+- `isUniqueViolation` moves to the cross-module path `@open-mercato/shared/lib/db/pg-errors`. The previous `@open-mercato/core/modules/communication_channels/lib/pg-errors` path remains functional through a deprecated re-export for at least one minor release, and `UPGRADE_NOTES.md` names the replacement import.
+- No database migration is required because `entity_index_jobs.status` is already an unconstrained text column.
+
 ## Out of scope
 
 OpenTelemetry spans and metrics on the async indexing path. `@open-mercato/telemetry` ships with PR #4475, which is unmerged. Once it lands, `recordIndexerError` should also emit a span/metric, and the events worker and reindexer should be wrapped in `withSpan` with `event`, `entityType`, `partitionIndex`, `rowsFetched` and `rowsWritten` attributes.
@@ -105,6 +113,12 @@ OpenTelemetry spans and metrics on the async indexing path. `@open-mercato/telem
 - the happy path is unchanged
 
 `packages/core/src/modules/query_index/__tests__/status-coverage-waterfall.test.ts` — a finished job with `status='failed'` derives `failed` rather than `completed`.
+
+`packages/core/src/modules/query_index/components/__tests__/QueryIndexesTable.test.tsx` — the failed job status renders with the error badge variant.
+
+## Integration coverage
+
+`packages/core/src/modules/query_index/__integration__/TC-QIDX-4593-failed-status.spec.ts` loads `/backend/query-indexes` in a real browser with a scoped failed-status API response and verifies the failed entity and semantic error badge are visible. The write-failure mechanics remain covered at unit level because reproducing an intentionally rejected database write through the public API would require corrupting a shared integration schema.
 
 ## Manual verification
 

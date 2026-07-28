@@ -41,6 +41,7 @@ jest.mock('next/navigation', () => ({
 
 const dict = {
   'query_index.nav.queryIndexes': 'Query Indexes',
+  'query_index.table.status.failed': 'FailedStatus',
   'query_index.table.status.stalled': 'StalledStatus',
   'query_index.table.status.reindexing': 'ReindexingStatus',
   'query_index.table.status.purging': 'PurgingStatus',
@@ -70,6 +71,18 @@ const mockItems = [
     fulltextEnabled: true,
     ok: true,
     job: { status: 'idle' },
+  },
+  {
+    entityId: 'failed_err',
+    label: 'Failed',
+    baseCount: 10,
+    indexCount: 9,
+    vectorCount: 9,
+    vectorEnabled: false,
+    fulltextCount: 9,
+    fulltextEnabled: false,
+    ok: false,
+    job: { status: 'failed' },
   },
   {
     entityId: 'stalled_err',
@@ -143,7 +156,9 @@ describe('QueryIndexesTable', () => {
     expect(successBadges[0]).toHaveTextContent('InSyncStatus')
 
     const errorBadges = screen.getAllByTestId('status-badge-error')
-    expect(errorBadges[0]).toHaveTextContent('StalledStatus')
+    const errorText = errorBadges.map((badge) => badge.textContent).join(' ')
+    expect(errorText).toContain('FailedStatus')
+    expect(errorText).toContain('StalledStatus')
 
     const warningBadges = screen.getAllByTestId('status-badge-warning')
     // We expect both reindexing and purging to map to warning

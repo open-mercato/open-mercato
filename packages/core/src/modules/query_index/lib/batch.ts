@@ -364,10 +364,10 @@ export async function upsertIndexBatch(
     doc: payload.tokenDoc,
   }))
 
-  const writeSearchTokens = async (): Promise<void> => {
-    if (!tokenPayloads.length) return
+  const writeSearchTokens = async (payloads = tokenPayloads): Promise<void> => {
+    if (!payloads.length) return
     try {
-      await replaceSearchTokensForBatch(db, tokenPayloads)
+      await replaceSearchTokensForBatch(db, payloads)
     } catch (searchTokenError) {
       // Record instead of swallowing: a failed token write leaves fulltext search stale.
       // Not counted as a write failure — replaceSearchTokensForBatch is transactional, so
@@ -489,6 +489,7 @@ export async function upsertIndexBatch(
     }
   }
 
-  await writeSearchTokens()
+  const failedRecordIdSet = new Set(failedRecordIds)
+  await writeSearchTokens(tokenPayloads.filter((payload) => !failedRecordIdSet.has(payload.recordId)))
   return buildResult(written)
 }

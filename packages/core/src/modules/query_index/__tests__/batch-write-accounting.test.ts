@@ -190,6 +190,10 @@ describe('upsertIndexBatch write accounting (GSM-266)', () => {
       expect.anything(),
       expect.objectContaining({ handler: 'query_index:reindex-batch:row', recordId: '2' }),
     )
+    expect(mockReplaceSearchTokens).toHaveBeenCalledWith(
+      expect.anything(),
+      [expect.objectContaining({ recordId: '1' }), expect.objectContaining({ recordId: '3' })],
+    )
   })
 
   it('counts a row as written when a concurrent insert race resolves via the update retry', async () => {
