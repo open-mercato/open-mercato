@@ -177,6 +177,26 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   id — keeping the id is what makes the canvas edit safe, and the edit-safety guard still refuses
   the SAVE while instances are active, so mid-flight runs never see the new wiring.
 
+## Step Type Conversion
+
+- `lib/step-type-conversion.ts` (PURE) owns "Change type…" (spec §4.5). It speaks the EDITOR's node
+  types, not the `stepType` enum, because `invokeAgent` compiles to an AUTOMATED step and converting
+  between the two is a real conversion the enum cannot express.
+- **Always preserved:** the step id, its position and all of its wiring (the conversion never touches
+  nodes or edges other than the one being converted), plus `label`/`stepName`, `description`,
+  `timeout`, `retryPolicy` and `errorDirective`.
+- **Mapped where the types genuinely share semantics:** the activity list between `automated` and
+  `invokeAgent`; `signalConfig` between `invokeAgent` and `waitForSignal`; and the "give up after"
+  deadline between `waitForSignal` (`signalConfig.timeout`) and `waitForCondition` (`config.timeout`).
+  WAIT_FOR_TIMER's `duration` is deliberately NOT a deadline — it is how long to wait on purpose.
+- **Everything else is quarantined, never dropped:** it lands in `node.data.unmappedConfig`, is
+  persisted as `step.metadata.unmappedConfig` (an editor-owned bag the engine never reads), renders as
+  a collapsed read-only drawer in `NodeEditDialogCrudForm`, and raises the `unmappedStepConfig`
+  Problems WARNING. Converting back recovers it, which is precisely why nothing may be discarded.
+- **START and END are not convertible** (in either direction): `validateWorkflowGraph` requires
+  exactly one START and at least one END, so converting either breaks an invariant that is invisible
+  from the inspector.
+
 ## Canvas Arrangement
 
 - **Manual placement always wins until explicit Tidy.** `graphToDefinition(..., { includePositions: true })`

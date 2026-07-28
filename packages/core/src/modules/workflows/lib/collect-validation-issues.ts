@@ -49,6 +49,10 @@ export const FLOW_LOGIC_MESSAGE_KEYS: Record<FlowLogicWarningCode, { key: string
     key: 'workflows.visualEditor.problems.conditionUnknownPath',
     fallback: 'Condition path "{path}" is not provided by any earlier step, trigger, or input',
   },
+  unmappedStepConfig: {
+    key: 'workflows.visualEditor.problems.unmappedStepConfig',
+    fallback: 'Step "{stepId}" keeps unmapped configuration from an earlier type change ({keys}); it is stored but no longer executed',
+  },
 }
 
 export type WorkflowIssueTranslator = (

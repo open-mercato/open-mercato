@@ -31,6 +31,7 @@ export type FlowLogicWarningCode =
   | 'branchingWithoutOtherwise'
   | 'duplicateBranchingCase'
   | 'conditionUnknownPath'
+  | 'unmappedStepConfig'
 
 export interface FlowLogicWarning {
   code: FlowLogicWarningCode
@@ -150,6 +151,31 @@ export function collectConditionPathWarnings(
   return warnings
 }
 
+/**
+ * Config a step-type conversion could not map onto the new type (spec 4.5).
+ * It is quarantined under `metadata.unmappedConfig` rather than dropped, so the
+ * author is told it is parked and no longer executed.
+ */
+export function collectUnmappedStepConfigWarnings(definition: FlowLogicDefinition): FlowLogicWarning[] {
+  const warnings: FlowLogicWarning[] = []
+  asArray(definition.steps).forEach((step, stepIndex) => {
+    const stepId = readString(step, 'stepId')
+    if (!stepId) return
+    const metadata = (step as { metadata?: unknown }).metadata
+    if (!metadata || typeof metadata !== 'object') return
+    const unmapped = (metadata as Record<string, unknown>).unmappedConfig
+    if (!unmapped || typeof unmapped !== 'object') return
+    const keys = Object.keys(unmapped as Record<string, unknown>)
+    if (keys.length === 0) return
+    warnings.push({
+      code: 'unmappedStepConfig',
+      path: ['steps', stepIndex],
+      params: { stepId, keys: keys.join(', ') },
+    })
+  })
+  return warnings
+}
+
 /** Error-route problems (spec 5.9), mapped onto the transition that carries them. */
 export function collectErrorRouteWarnings(definition: FlowLogicDefinition): FlowLogicWarning[] {
   const transitions = asArray(definition.transitions)
@@ -185,6 +211,7 @@ export function collectFlowLogicWarnings(
 
   const warnings: FlowLogicWarning[] = [
     ...collectErrorRouteWarnings(definition),
+    ...collectUnmappedStepConfigWarnings(definition),
     ...collectBranchingRouteWarnings(definition).map<FlowLogicWarning>((warning) => ({
       code: 'branchingWithoutOtherwise',
       path: warning.path,

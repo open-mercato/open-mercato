@@ -26,7 +26,19 @@ import type { RouteOrderEntry } from '../lib/route-priority'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/components/utils/conditionValidation'
 import { InputDataPanel } from './InputDataPanel'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { nodeToFormValues, formValuesToNodeUpdates, isJsonSchemaFormat, type NodeFormValues } from '../lib/nodeFormTransforms'
+import {
+  listStepTypeConversionTargets,
+  readUnmappedStepConfig,
+  type ConvertibleStepType,
+} from '../lib/step-type-conversion'
 import { sanitizeId } from '../lib/graph-utils'
 import { isBranchingNodeType } from '../lib/branching-routes'
 import type { BranchingRouteDraft, SwitchRoutesValue } from '../lib/branching-routes'
@@ -78,6 +90,87 @@ export function RolesCrudField({ id, value, setValue, disabled }: CrudCustomFiel
   )
 }
 
+/**
+ * StepTypeConversionControl — "Change type…" (spec 4.5, #4237).
+ *
+ * Conversion is an action on the step, not a form value: it rewrites the node
+ * type and its data wholesale, so it runs through its own callback (with a
+ * confirmation on the page) instead of the CrudForm submit.
+ */
+function StepTypeConversionControl({
+  nodeType,
+  onConvert,
+}: {
+  nodeType: string | undefined
+  onConvert: (targetType: ConvertibleStepType) => void
+}) {
+  const t = useT()
+  const [targetType, setTargetType] = useState<string>('')
+  const targets = useMemo(() => listStepTypeConversionTargets(nodeType), [nodeType])
+
+  if (targets.length === 0) return null
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">
+        {t(
+          'workflows.stepConversion.description',
+          'Keeps this step’s id, name, position and wiring. Configuration the new type cannot execute is parked under Unmapped configuration instead of being deleted.',
+        )}
+      </p>
+      <div className="flex items-center gap-2">
+        <Select value={targetType} onValueChange={setTargetType}>
+          <SelectTrigger className="w-64" aria-label={t('workflows.stepConversion.targetLabel', 'New step type')}>
+            <SelectValue placeholder={t('workflows.stepConversion.targetPlaceholder', 'Select a step type')} />
+          </SelectTrigger>
+          <SelectContent>
+            {targets.map((candidate) => (
+              <SelectItem key={candidate} value={candidate}>
+                {t(`workflows.nodeTypes.${candidate}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={!targetType}
+          onClick={() => {
+            if (targetType) onConvert(targetType as ConvertibleStepType)
+          }}
+        >
+          {t('workflows.stepConversion.action', 'Change type…')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * UnmappedConfigDrawer — the quarantine made visible (spec 4.5). Read-only: the
+ * values are stored verbatim in the step metadata and are recovered by
+ * converting back, never edited in place.
+ */
+function UnmappedConfigDrawer({ value }: { value: Record<string, unknown> }) {
+  const t = useT()
+  return (
+    <details className="rounded-md border border-border bg-muted/30 p-3">
+      <summary className="cursor-pointer text-sm font-medium">
+        {t('workflows.stepConversion.unmapped.title', 'Unmapped configuration')}
+      </summary>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {t(
+          'workflows.stepConversion.unmapped.description',
+          'Kept from an earlier type change. It is stored with the step but is not executed; change the step back to recover it.',
+        )}
+      </p>
+      <pre className="mt-2 max-h-64 overflow-auto rounded bg-background p-2 font-mono text-xs">
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    </details>
+  )
+}
+
 export interface NodeEditDialogCrudFormProps {
   node: Node | null
   isOpen: boolean
@@ -103,6 +196,12 @@ export interface NodeEditDialogCrudFormProps {
    */
   routeOrder?: RouteOrderEntry[]
   onSaveRouteOrder?: (nodeId: string, entries: RouteOrderEntry[]) => void
+  /**
+   * In-place step type conversion (spec 4.5). The page confirms the change and
+   * rewrites the node, because conversion replaces the node type and its data
+   * rather than producing a form value.
+   */
+  onConvertType?: (nodeId: string, targetType: ConvertibleStepType) => void
 }
 
 /**
@@ -125,7 +224,7 @@ export interface NodeEditDialogCrudFormProps {
  * - waitForCondition: ConditionBuilder predicate + mandatory timeout policy
  * - decision: Basic fields only
  */
-export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries, definitionId, samples, onPinSample, onUnpinSample, branchingRoutes, onSaveBranchingRoutes, routeOrder, onSaveRouteOrder }: NodeEditDialogCrudFormProps) {
+export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries, definitionId, samples, onPinSample, onUnpinSample, branchingRoutes, onSaveBranchingRoutes, routeOrder, onSaveRouteOrder, onConvertType }: NodeEditDialogCrudFormProps) {
   const t = useT()
   const activityTypeOptions = useActivityTypeOptions()
   const [initialValues, setInitialValues] = useState<Partial<NodeFormValues>>({})
@@ -194,7 +293,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
   }, [onClose])
 
   // Dynamic groups based on node type
-  const groups: CrudFormGroup[] = useMemo(() => {
+  const typeGroups: CrudFormGroup[] = useMemo(() => {
     if (!node) return []
 
     // End nodes are non-editable
@@ -461,6 +560,39 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       advancedGroup,
     ]
   }, [node, t])
+
+  // Quarantined config from an earlier type change, and the conversion control
+  // itself (spec 4.5). Both hang off every editable step type, after whatever
+  // that type's own inspector renders.
+  const unmappedConfig = useMemo(() => readUnmappedStepConfig(node?.data), [node])
+
+  const groups: CrudFormGroup[] = useMemo(() => {
+    if (!node) return []
+    const extras: CrudFormGroup[] = []
+    if (unmappedConfig) {
+      extras.push({
+        id: 'unmappedConfig',
+        column: 1,
+        bare: true,
+        component: () => <UnmappedConfigDrawer value={unmappedConfig} />,
+      })
+    }
+    if (onConvertType && listStepTypeConversionTargets(node.type).length > 0) {
+      extras.push({
+        id: 'changeType',
+        title: t('workflows.stepConversion.groupTitle', 'Change step type'),
+        column: 1,
+        bare: false,
+        component: () => (
+          <StepTypeConversionControl
+            nodeType={node.type}
+            onConvert={(targetType) => onConvertType(node.id, targetType)}
+          />
+        ),
+      })
+    }
+    return [...typeGroups, ...extras]
+  }, [node, typeGroups, unmappedConfig, onConvertType, t])
 
   // Define all possible form fields (only relevant ones are used based on groups)
   const fields: CrudField[] = useMemo(() => [

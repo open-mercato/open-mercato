@@ -168,6 +168,28 @@ describe('collectFlowLogicWarnings', () => {
     expect(collectFlowLogicWarnings(definition)).toEqual([])
   })
 
+  it('warns about config quarantined by a step-type conversion (#4237)', () => {
+    const definition = {
+      steps: [
+        {
+          stepId: 'notify',
+          stepType: 'AUTOMATED',
+          metadata: { unmappedConfig: { assignedTo: 'user_1', config: { duration: 'PT15M' } } },
+        },
+        { stepId: 'clean', stepType: 'AUTOMATED', metadata: { unmappedConfig: {} } },
+      ],
+      transitions: [],
+    }
+
+    const warnings = collectFlowLogicWarnings(definition)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toEqual({
+      code: 'unmappedStepConfig',
+      path: ['steps', 0],
+      params: { stepId: 'notify', keys: 'assignedTo, config' },
+    })
+  })
+
   it('returns nothing for an absent definition', () => {
     expect(collectFlowLogicWarnings(null)).toEqual([])
     expect(collectFlowLogicWarnings(undefined)).toEqual([])

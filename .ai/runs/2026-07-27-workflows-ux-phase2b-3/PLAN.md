@@ -43,7 +43,7 @@
 | 3 | 3.2 | Edit-safety rule: structural-edit guard + "Create version" flow | done | 4b7baf664 |
 | 3 | 3.3 | Edge reattachment (onReconnect, validation snap-back) | done | 68ba2b190 |
 | 3 | 3.4 | Persisted-arrangement completion (drag-end autosave, drop placement) | done | ed51e7b98 |
-| 3 | 3.5 | Step-type conversion (pure lib + quarantine drawer UI) | todo | — |
+| 3 | 3.5 | Step-type conversion (pure lib + quarantine drawer UI) | done | ba5220883 |
 | 3 | 3.6 | Undo/redo command stack + keyboard wiring | todo | — |
 | 3 | 3.7 | Copy/paste/duplicate portable-JSON subgraphs + multi-select | todo | — |
 | 3 | 3.8 | Drag-from-palette + insert-on-edge + drag-onto-route append | todo | — |

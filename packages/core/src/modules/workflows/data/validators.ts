@@ -460,6 +460,11 @@ export const workflowStepSchema = z.object({
   // graph re-opens exactly as the author arranged it. Additive/optional — legacy
   // and code-authored definitions omit it and auto-arrange on load.
   _editorPosition: z.object({ x: z.number(), y: z.number() }).optional(),
+  // Editor-owned, never executed. Holds `unmappedConfig`: config a step-type
+  // conversion could not map onto the new type (spec 4.5). The engine ignores
+  // this object entirely; it exists so a conversion never destroys authored
+  // configuration and a conversion back can recover it.
+  metadata: z.record(z.string(), z.any()).optional(),
 }).superRefine((step, ctx) => {
   if (step.stepType === 'WAIT_FOR_CONDITION') {
     refineWaitForConditionStep(step.config || {}, ctx)

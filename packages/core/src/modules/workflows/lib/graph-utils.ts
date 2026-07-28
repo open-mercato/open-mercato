@@ -140,6 +140,24 @@ export function graphToDefinition(
       step.errorDirective = (node.data as any).errorDirective
     }
 
+    // Editor-owned step metadata. `unmappedConfig` is config a step-type
+    // conversion could not map onto the new type (spec 4.5) — it is carried
+    // through save/load verbatim so nothing an author configured is ever lost.
+    const stepMetadata: Record<string, unknown> = {
+      ...((node.data as any).stepMetadata && typeof (node.data as any).stepMetadata === 'object'
+        ? (node.data as any).stepMetadata as Record<string, unknown>
+        : {}),
+    }
+    const unmappedConfig = (node.data as any).unmappedConfig
+    if (unmappedConfig && typeof unmappedConfig === 'object' && Object.keys(unmappedConfig).length > 0) {
+      stepMetadata.unmappedConfig = unmappedConfig
+    } else {
+      delete stepMetadata.unmappedConfig
+    }
+    if (Object.keys(stepMetadata).length > 0) {
+      step.metadata = stepMetadata
+    }
+
     // Store position for visual editor
     if (options.includePositions && node.position) {
       step._editorPosition = {
@@ -333,6 +351,17 @@ export function definitionToGraph(
     // Add generic config if present
     if ((step as any).config) {
       nodeData.config = (step as any).config
+    }
+
+    // Editor-owned step metadata round-trips as-is; the quarantined config a
+    // step-type conversion produced is lifted out so the inspector can show it.
+    const stepMetadata = (step as any).metadata
+    if (stepMetadata && typeof stepMetadata === 'object') {
+      nodeData.stepMetadata = stepMetadata
+      const unmappedConfig = (stepMetadata as Record<string, unknown>).unmappedConfig
+      if (unmappedConfig && typeof unmappedConfig === 'object') {
+        nodeData.unmappedConfig = unmappedConfig
+      }
     }
 
     // Add user task data
@@ -640,7 +669,7 @@ function mapStepTypeToNodeType(stepType: string): string {
 /**
  * Get badge text for node type
  */
-function getBadgeForNodeType(nodeType: string): string {
+export function getBadgeForNodeType(nodeType: string): string {
   const badges: Record<string, string> = {
     start: 'Start',
     end: 'End',

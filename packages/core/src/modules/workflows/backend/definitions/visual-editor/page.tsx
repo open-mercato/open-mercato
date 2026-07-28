@@ -9,7 +9,8 @@ import { EdgeEditDialogCrudForm } from '../../../components/EdgeEditDialogCrudFo
 import type { Node, Edge, Connection } from '@xyflow/react'
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { graphToDefinition, definitionToGraph, applyAutoLayout, validateWorkflowGraph, generateStepId, generateTransitionId, appendWorkflowEdge, ValidationError } from '../../../lib/graph-utils'
+import { graphToDefinition, definitionToGraph, applyAutoLayout, validateWorkflowGraph, generateStepId, generateTransitionId, appendWorkflowEdge, getBadgeForNodeType, ValidationError } from '../../../lib/graph-utils'
+import { convertStepType, type ConvertibleStepType } from '../../../lib/step-type-conversion'
 import { collectValidationIssues, countIssuesBySeverity, type WorkflowIssueTranslator, type WorkflowValidationIssue, type ZodIssueLike } from '../../../lib/collect-validation-issues'
 import { formatWorkflowValidationError } from '../../../lib/format-validation-error'
 import type { WorkflowGraphFocusTarget, WorkflowGraphNodesChangeMeta } from '../../../components/WorkflowGraph'
@@ -855,6 +856,52 @@ export default function VisualEditorPage() {
     })
   }, [confirm, nodes, t])
 
+  // In-place step type conversion (spec 4.5, #4237). The step keeps its id,
+  // name, position and every incoming/outgoing route; config the new type
+  // cannot execute is quarantined by `convertStepType` and stays visible in the
+  // inspector. The dialog closes before the confirm so only one modal is on
+  // screen (same reason as the delete flow).
+  const handleConvertNodeType = useCallback(async (nodeId: string, targetType: ConvertibleStepType) => {
+    if (isCodeOnly) return
+    const node = nodesRef.current.find((candidate) => candidate.id === nodeId)
+    if (!node) return
+
+    const result = convertStepType({ type: node.type, data: node.data as Record<string, unknown> }, targetType)
+    if (!result.ok) {
+      flash(t('workflows.stepConversion.unavailable', 'This step type cannot be changed.'), 'error')
+      return
+    }
+
+    setShowNodeDialog(false)
+    setSelectedNode(null)
+    const confirmed = await confirm({
+      title: t('workflows.stepConversion.confirmTitle', 'Change step type?'),
+      text: result.quarantined.length > 0
+        ? t(
+            'workflows.stepConversion.confirmWithQuarantine',
+            'The step keeps its name, position and routes. {count} setting(s) the new type cannot execute move to Unmapped configuration: {keys}',
+            { count: String(result.quarantined.length), keys: result.quarantined.join(', ') },
+          )
+        : t('workflows.stepConversion.confirm', 'The step keeps its name, position and routes.'),
+    })
+    if (!confirmed) return
+
+    setNodes((nds) =>
+      nds.map((candidate) =>
+        candidate.id === nodeId
+          ? { ...candidate, type: result.type, data: { ...result.data, badge: getBadgeForNodeType(result.type) } }
+          : candidate,
+      ),
+    )
+    scheduleAutosave()
+    flash(
+      result.quarantined.length > 0
+        ? t('workflows.stepConversion.convertedWithQuarantine', 'Step type changed; {count} setting(s) parked as unmapped configuration', { count: String(result.quarantined.length) })
+        : t('workflows.stepConversion.converted', 'Step type changed'),
+      result.quarantined.length > 0 ? 'warning' : 'success',
+    )
+  }, [isCodeOnly, confirm, scheduleAutosave, t])
+
   // Inline node delete: a node's trash button dispatches WORKFLOW_NODE_DELETE_EVENT
   // (decoupled from the node component); route it through the same confirm +
   // edge-cleanup flow as the edit dialog's delete. No-op in read-only mode.
@@ -1694,7 +1741,7 @@ export default function VisualEditorPage() {
   const sharedDialogs = (
     <>
       {crudFormDialogsEnabled ? (
-        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} definitionId={definitionId} samples={editorSamples} onPinSample={handlePinSample} onUnpinSample={handleUnpinSample} branchingRoutes={branchingRoutesValue} onSaveBranchingRoutes={handleSaveBranchingRoutes} routeOrder={routeOrderValue} onSaveRouteOrder={handleSaveRouteOrder} />
+        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} definitionId={definitionId} samples={editorSamples} onPinSample={handlePinSample} onUnpinSample={handleUnpinSample} branchingRoutes={branchingRoutesValue} onSaveBranchingRoutes={handleSaveBranchingRoutes} routeOrder={routeOrderValue} onSaveRouteOrder={handleSaveRouteOrder} onConvertType={handleConvertNodeType} />
       ) : (
         <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       )}
