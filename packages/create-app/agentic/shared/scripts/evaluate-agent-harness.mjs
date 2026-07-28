@@ -1635,7 +1635,7 @@ function isCorrectableTraceStartupFailure(violation) {
 }
 
 function isCorrectableTraceStartupResponseViolation(violation) {
-  return /^harness\.read (?:is|was) unavailable\b/i.test(violation)
+  return /^(?:harness\.read|harness read tool) (?:is|was) unavailable\b/i.test(violation)
 }
 
 function isCorrectableTraceStartupResponseFailure(violation) {
