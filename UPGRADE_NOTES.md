@@ -212,17 +212,19 @@ The heal is delivered as a version-gated **Upgrade Action** (`attachments.reconc
 
 `RbacService` changed how a role's organization grant is interpreted. Both changes widen access, so review your `role_acls` data before deploying.
 
-**1. An empty `organizations_json` array now means "every organization in the tenant".**
+**1. An empty `organizations_json` array widens access for API-key principals only — human principals are unchanged.**
 
-Previously an empty array contributed nothing to a user's accessible-organization projection, so `resolveOrganizationScope` fell back to the user's **account organization and its descendants**. It now resolves to `null` (unrestricted), which grants visibility and write access across **all organizations in the tenant**. This aligns the projection with feature evaluation, which already treated an empty array as "applies in every organization" — but the projection is what bounds data access, so the effective grant is genuinely larger.
+For a **human user**, an empty array remains a deny-all organization scope: it projects to an empty accessible set, so `resolveOrganizationScope` still falls back to the user's **account organization and its descendants** and scoped reads and deletes fail closed. This is deliberate — collapsing it to `null` (unrestricted) would reopen the scoped-deletion hole closed by #4033, where a deny-all actor could delete an organization-bound API key. The role's *features* still apply; only its organization reach stays empty.
 
-Find affected rows before upgrading:
+For an **API-key principal**, an empty role allowlist now means "inherit the key's own organization binding" rather than contributing nothing. A key with a concrete `organization_id` therefore stays bound to that organization; only a key without one widens to the tenant.
+
+Find rows whose meaning depends on this distinction:
 
 ```sql
 SELECT role_id, tenant_id FROM role_acls WHERE organizations_json = '[]'::jsonb AND deleted_at IS NULL;
 ```
 
-For each row, either set an explicit allowlist (`'["<org-uuid>", …]'::jsonb`) to keep the previous narrower access, or leave it empty to accept tenant-wide access. Use the explicit `["__all__"]` sentinel when tenant-wide access is what you actually want — it has always meant that and is unambiguous.
+No action is required for human-facing roles. Review these rows only where the role is assigned to API keys, and set an explicit allowlist (`'["<org-uuid>", …]'::jsonb`) if a key should stay narrower than its own binding. Use the explicit `["__all__"]` sentinel when tenant-wide access is what you actually want — it has always meant that and is unambiguous.
 
 **2. A role's organization grants now match the selected organization's ancestor chain.**
 

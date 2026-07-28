@@ -9,6 +9,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import {
@@ -64,10 +65,9 @@ export function DocumentsTable(props: DocumentsTableProps) {
     {
       id: 'favorite', header: '', meta: { alwaysVisible: true, maxWidth: '48px' },
       cell: ({ row }) => (
-        <Button
+        <IconButton
           type="button"
           variant="ghost"
-          size="icon"
           aria-pressed={row.original.isFavorite}
           aria-label={t(row.original.isFavorite ? 'documents.actions.unfavorite' : 'documents.actions.favorite')}
           onClick={(event) => {
@@ -76,7 +76,7 @@ export function DocumentsTable(props: DocumentsTableProps) {
           }}
         >
           <Star className={row.original.isFavorite ? 'fill-current text-status-warning-icon' : 'text-muted-foreground'} />
-        </Button>
+        </IconButton>
       ),
     },
     {

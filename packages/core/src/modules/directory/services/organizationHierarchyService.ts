@@ -1,6 +1,7 @@
 import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Organization } from '../data/entities'
 
 function normalizeIds(values: unknown): string[] {
@@ -17,7 +18,8 @@ export class DefaultOrganizationHierarchyService implements OrganizationHierarch
     tenantId: string
     organizationId: string
   }): Promise<string[] | null> {
-    const organization = await this.em.findOne(
+    const organization = await findOneWithDecryption(
+      this.em,
       Organization,
       {
         id: input.organizationId,
@@ -25,6 +27,7 @@ export class DefaultOrganizationHierarchyService implements OrganizationHierarch
         deletedAt: null,
       } as FilterQuery<Organization>,
       { fields: ['id', 'ancestorIds'] },
+      { tenantId: input.tenantId, organizationId: input.organizationId },
     )
     return organization ? normalizeIds(organization.ancestorIds) : null
   }

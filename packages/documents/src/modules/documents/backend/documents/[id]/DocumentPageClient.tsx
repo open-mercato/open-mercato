@@ -15,6 +15,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ShareDialog } from '../components/ShareDialog'
@@ -292,24 +293,24 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
       <PageHeader title={t('documents.nav.document')} actions={(
         <>
           <LinkButton asChild variant="gray"><Link href="/backend/documents">{t('documents.actions.backToList')}</Link></LinkButton>
-          <Button
+          <IconButton
             type="button"
-            variant={document.isFavorite ? 'secondary' : 'outline'}
+            variant="outline"
             onClick={() => void runPersonalToggle('favorite', !document.isFavorite)}
             aria-pressed={document.isFavorite}
             aria-label={t(document.isFavorite ? 'documents.actions.unfavorite' : 'documents.actions.favorite')}
           >
             <Star />
-          </Button>
-          <Button
+          </IconButton>
+          <IconButton
             type="button"
-            variant={document.isWatching ? 'secondary' : 'outline'}
+            variant="outline"
             onClick={() => void runPersonalToggle('watch', !document.isWatching)}
             aria-pressed={document.isWatching}
             aria-label={t(document.isWatching ? 'documents.actions.unwatch' : 'documents.actions.watch')}
           >
             <Bell />
-          </Button>
+          </IconButton>
           <Button type="button" variant={showVersions ? 'secondary' : 'outline'} onClick={() => setShowVersions((value) => !value)} aria-pressed={showVersions}>
             <History />{t('documents.actions.versions')}
           </Button>
