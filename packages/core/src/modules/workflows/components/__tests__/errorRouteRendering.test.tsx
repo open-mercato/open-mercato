@@ -26,7 +26,7 @@ jest.mock('@xyflow/react', () => ({
     />
   ),
   EdgeLabelRenderer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  getSmoothStepPath: () => ['M0,0', 10, 10],
+  getBezierPath: () => ['M0,0 C0,0 0,0 0,0', 10, 10],
   // Route chips (#4244) read the canvas zoom and the sibling routes from the
   // React Flow store; a default-zoom, single-edge store keeps this suite focused
   // on the error-route rendering it was written for.

@@ -51,8 +51,8 @@ jest.mock('@xyflow/react', () => {
     Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
     BaseEdge: () => null,
     EdgeLabelRenderer: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-    getSmoothStepPath: () => ['M0,0', 0, 0],
-    getBezierPath: () => ['M0,0', 0, 0],
+    getBezierPath: () => ['M0,0 C0,0 0,0 0,0', 0, 0],
+    ConnectionLineType: { Bezier: 'bezier' },
     useStore: (selector: (store: { transform: [number, number, number]; edges: unknown[] }) => unknown) =>
       selector({ transform: [0, 0, 1], edges: [] }),
     NodeResizer: () => null,

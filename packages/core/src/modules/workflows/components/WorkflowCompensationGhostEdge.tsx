@@ -1,6 +1,6 @@
 'use client'
 
-import { BaseEdge, EdgeLabelRenderer, EdgeProps, getSmoothStepPath } from '@xyflow/react'
+import { BaseEdge, EdgeLabelRenderer, EdgeProps, getBezierPath } from '@xyflow/react'
 import { ShieldMinus } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { CompensationGhostEdgeData } from '../lib/compensation-ghosts'
@@ -34,7 +34,7 @@ export function WorkflowCompensationGhostEdge({
       })
     : title
 
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,

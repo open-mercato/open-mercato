@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BaseEdge, EdgeProps, EdgeLabelRenderer, getSmoothStepPath, useStore } from '@xyflow/react'
+import { BaseEdge, EdgeProps, EdgeLabelRenderer, getBezierPath, useStore } from '@xyflow/react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { WorkflowTransitionLabel } from './WorkflowTransitionLabel'
 import { WorkflowRouteChips } from './WorkflowRouteChips'
@@ -55,7 +55,7 @@ export function WorkflowTransitionEdge({
   })
   const showChips = !isErrorRoute && !chipModel.isEmpty
 
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,

@@ -19,7 +19,7 @@ jest.mock('@xyflow/react', () => ({
     />
   ),
   EdgeLabelRenderer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  getSmoothStepPath: () => ['M0,0', 10, 10],
+  getBezierPath: () => ['M0,0 C0,0 0,0 0,0', 10, 10],
 }))
 
 import * as React from 'react'
