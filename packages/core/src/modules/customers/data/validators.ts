@@ -12,7 +12,7 @@ export const ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.
 export const ACTIVITY_PHONE_INVALID_MESSAGE_KEY = 'customers.activities.errors.phoneInvalid'
 
 // customer_deals.description is an unbounded `text` column; this cap only exists to keep
-// request bodies, query-index documents and search embeddings from growing without limit.
+// request bodies, fulltext search documents and query-index documents from growing without limit.
 export const DEAL_DESCRIPTION_MAX_LENGTH = 50_000
 
 const emptyStringToNull = (value: unknown): unknown => {
