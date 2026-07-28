@@ -36,7 +36,8 @@ Follow-up: #4603
 - [x] 1.3 Measure every case's declared-context footprint against its own budgets — three
       contradictions found (OMH-111, OMH-146, OMH-169)
 - [x] 2.1 Add OMH-190…OMH-195 for the six uncovered capabilities, following the OMH-188/189 shape
-      (facts owner, `om-help`, observed architecture guide, observed fact-sheet)
+      (facts owner, observed architecture guide, observed fact-sheet, and the governing skill —
+      `om-help` on the discovery-framed three, `om-integration-builder` on the provider-framed three)
 - [x] 2.2 Align the catalog size everywhere: `validators.json`, `cases.schema.json` (`minItems`,
       `maxItems`, `id`/`relatedCases` patterns), harness README/RELEASE, package README, spec
 - [x] 3.1 Widen the three contradictory budgets from measured footprints; global caps untouched
