@@ -353,3 +353,14 @@ test('debugging stays additive to cross-module domain and extension work', () =>
   assert.match(root, /links an installed module's record by scalar ID\/snapshot/)
   assert.match(root, /loads `om-data-model-design` \+ `om-system-extension`/)
 })
+
+test('API and command fixes load trusted-scope domain contracts', () => {
+  const moduleSkill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
+  const apiDomain = readAgentic('shared/ai/skills/om-module-scaffold/references/api-and-domain.md')
+  const root = readAgentic('shared/AGENTS.md.template')
+  assert.match(root, /including a fix spanning multiple domain\/API\/command seams/)
+  assert.match(moduleSkill, /A fix spanning multiple domain, API, or command seams is a business slice/)
+  assert.match(moduleSkill, /Every API\/schema\/command implementation or fix MUST read/)
+  assert.match(apiDomain, /Public request schemas never accept `tenantId` or `organizationId`/)
+  assert.match(apiDomain, /runtime scope comes only from the trusted request\/command context/)
+})

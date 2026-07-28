@@ -13412,7 +13412,7 @@
       "trusted-scope-only",
       "payload-scope",
       "public-schema-no-runtime-scope",
-      "public-schema-requires-runtime-scope",
+      "caller-supplied-public-scope",
       "scalar-crm-customer-snapshot",
       "duplicate-member-shadow-record",
       "atomic-one-winner-checkout",
