@@ -44,7 +44,9 @@ PR: #4602
 - [x] 3.3 Regression test proving the new rule fails on the pre-fix state and passes after
 - [x] 4.1 Build guard: every module fact-sheet a scaffold ships must be routed by at least one case
 - [x] 4.2 Semantic assertions for OMH-190…195 in `agent-surface-coverage.test.ts`
-- [ ] 4.3 Live before/after evidence for the budget fixes and live runs for the six new cases
+- [x] 4.3 Live before/after evidence for the budget fixes and live runs for the six new cases —
+      OMH-169's `initial context byte budget exceeded: 57372/57344` reproduced before and gone after;
+      OMH-190/191/192 pass first try; OMH-193/194/195 retargeted to the skill live routing selects — f8af90d77
 - [ ] 5.1 Full configured validation gate
 - [ ] 5.2 Audit report committed under `.ai/analysis/`
 - [ ] 5.3 Follow-up issue for the `allowedExtra`-only coverage tier
