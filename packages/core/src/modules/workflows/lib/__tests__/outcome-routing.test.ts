@@ -425,4 +425,57 @@ describe('agent outcome routing — executor', () => {
       expect.anything(),
     )
   })
+  // Regression: `sendSignal` advances a resumed instance ITSELF — it picks the
+  // next transition and executes it before handing back to the executor — so a
+  // dispatcher that only ran in the executor loop would send every
+  // human-dispositioned proposal down the happy path while passing every
+  // inline-resolution test.
+  test('the resume path dispatches the outcome without going through the executor loop', async () => {
+    const definition = makeDefinition([
+      ...normalRoutes,
+      outcomeRoute('t_out_rejected', 'review', 'rejected'),
+    ])
+    const instance = makeInstance({
+      [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry('agent', 'rejected'),
+    })
+    primeEm(definition, instance)
+
+    const executeTransition = jest
+      .spyOn(transitionHandler, 'executeTransition')
+      .mockResolvedValue({ success: true, nextStepId: 'review' } as never)
+
+    const dispatched = await workflowExecutor.dispatchAgentOutcomeForCurrentStep(
+      mockEm,
+      mockContainer,
+      instance,
+      definition.definition as never,
+      { workflowContext: instance.context },
+    )
+
+    expect(dispatched).toMatchObject({ kind: 'routed', toStepId: 'review' })
+    expect(executeTransition).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      'agent',
+      'review',
+      expect.anything(),
+    )
+  })
+
+  test('the resume path reports no dispatch when there is no marker', async () => {
+    const definition = makeDefinition(normalRoutes)
+    const instance = makeInstance({})
+    primeEm(definition, instance)
+
+    await expect(
+      workflowExecutor.dispatchAgentOutcomeForCurrentStep(
+        mockEm,
+        mockContainer,
+        instance,
+        definition.definition as never,
+        { workflowContext: instance.context },
+      ),
+    ).resolves.toBeNull()
+  })
 })

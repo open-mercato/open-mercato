@@ -24,6 +24,7 @@ import {
 } from './task-entity-aliases'
 import { resolvesAgainstEntries } from './expression-refs'
 import { validateErrorRoutes, type ErrorRoutingDefinitionLike } from './error-routing'
+import { validateOutcomeRoutes } from './outcome-routing'
 import {
   collectBranchingRouteWarnings,
   collectDuplicateBranchingCaseWarnings,
@@ -42,6 +43,8 @@ export type FlowLogicWarningCode =
   | 'taskWithoutOwner'
   | 'taskBindingUnknownEntityType'
   | 'taskBindingAssigneeCannotView'
+  | 'outcomeRouteUnknownKind'
+  | 'outcomeRouteDuplicateKind'
 
 export interface FlowLogicWarning {
   code: FlowLogicWarningCode
@@ -82,6 +85,11 @@ const ERROR_ROUTE_CODES: Record<string, FlowLogicWarningCode> = {
   ERROR_ROUTE_UNKNOWN_SOURCE: 'errorRouteUnknownSource',
   ERROR_ROUTE_UNKNOWN_TARGET: 'errorRouteUnknownTarget',
   ERROR_ROUTE_DUPLICATE_TARGET: 'errorRouteDuplicateTarget',
+}
+
+const OUTCOME_ROUTE_CODES: Record<string, FlowLogicWarningCode> = {
+  OUTCOME_ROUTE_UNKNOWN_KIND: 'outcomeRouteUnknownKind',
+  OUTCOME_ROUTE_DUPLICATE_KIND: 'outcomeRouteDuplicateKind',
 }
 
 function asArray(value: unknown): unknown[] {
@@ -476,6 +484,34 @@ export function collectErrorRouteWarnings(definition: FlowLogicDefinition): Flow
 }
 
 /**
+ * Outcome-route checks (spec 7.2). An outcome route claiming a kind the platform
+ * does not define can never be selected, and two routes claiming the same kind
+ * make the destination depend on a priority tie rather than on wiring — neither
+ * is visible on the canvas, which is exactly what the Problems panel is for.
+ */
+export function collectOutcomeRouteWarnings(definition: FlowLogicDefinition): FlowLogicWarning[] {
+  const transitions = asArray(definition.transitions)
+  const indexByTransitionId = new Map<string, number>()
+  transitions.forEach((transition, index) => {
+    const transitionId = readString(transition, 'transitionId')
+    if (transitionId) indexByTransitionId.set(transitionId, index)
+  })
+
+  return validateOutcomeRoutes(definition).map((issue) => {
+    const index = issue.transitionId ? indexByTransitionId.get(issue.transitionId) : undefined
+    return {
+      code: OUTCOME_ROUTE_CODES[issue.code] ?? 'outcomeRouteUnknownKind',
+      path: index === undefined ? [] : ['transitions', index],
+      params: {
+        transitionId: issue.transitionId ?? '',
+        stepId: issue.stepId ?? '',
+        outcomeKind: readString(index === undefined ? null : transitions[index], 'outcomeKind') ?? '',
+      },
+    }
+  })
+}
+
+/**
  * The whole Phase 3a author-time warning set for a definition. `ledger` is
  * optional: without it the flow-logic checks still run and only the
  * ledger-dependent condition-path check is skipped.
@@ -488,6 +524,7 @@ export function collectFlowLogicWarnings(
 
   const warnings: FlowLogicWarning[] = [
     ...collectErrorRouteWarnings(definition),
+    ...collectOutcomeRouteWarnings(definition),
     ...collectUnmappedStepConfigWarnings(definition),
     ...collectTaskDecisionWarnings(definition),
     ...collectTaskOwnerWarnings(definition),

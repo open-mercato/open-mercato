@@ -1859,6 +1859,8 @@
   "workflows.visualEditor.problems.errorRouteUnknownSource": "Die Fehlerroute \"{transitionId}\" beginnt bei dem unbekannten Schritt \"{stepId}\"",
   "workflows.visualEditor.problems.errorRouteUnknownTarget": "Die Fehlerroute \"{transitionId}\" zeigt auf den unbekannten Schritt \"{stepId}\"",
   "workflows.visualEditor.problems.nodeErrorBadge": "{count} Validierungsfehler",
+  "workflows.visualEditor.problems.outcomeRouteDuplicateKind": "Der Agentenschritt \"{stepId}\" hat mehr als eine Route für das Ergebnis \"{outcomeKind}\"; nur die mit der höchsten Priorität wird genommen",
+  "workflows.visualEditor.problems.outcomeRouteUnknownKind": "Die Ergebnisroute \"{transitionId}\" nennt das Ergebnis \"{outcomeKind}\", das die Plattform nicht kennt; sie kann nie gewählt werden",
   "workflows.visualEditor.problems.saveBlocked": "Speichern nicht möglich: {count} Validierungsfehler gefunden. Bitte zuerst beheben.",
   "workflows.visualEditor.problems.schemaValidationFailed": "Schemavalidierung fehlgeschlagen: {message}",
   "workflows.visualEditor.problems.severityError": "Fehler",

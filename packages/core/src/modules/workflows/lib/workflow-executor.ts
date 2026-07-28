@@ -827,10 +827,32 @@ export async function executeWorkflow(
   }
 }
 
-type AgentOutcomeDispatch =
+export type AgentOutcomeDispatch =
   | { kind: 'routed'; toStepId: string; transitionId?: string }
   | { kind: 'failed'; error: string }
   | { kind: 'default' }
+
+/**
+ * Dispatch a resolved agent disposition for whatever step the instance is
+ * currently on, or return null when there is no marker to act on.
+ *
+ * Exported because `sendSignal` advances a resumed instance ITSELF — it picks
+ * the next transition and executes it before handing back to the executor — so
+ * an outcome route wired on a parked agent step has to be honoured there too.
+ * Routing it in only one of the two places is how a disposition silently takes
+ * the happy path on the human-dispose path while working on the inline one.
+ */
+export async function dispatchAgentOutcomeForCurrentStep(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  definition: OutcomeRoutingDefinitionLike,
+  evalContext: { workflowContext: Record<string, any>; userId?: string }
+): Promise<AgentOutcomeDispatch | null> {
+  const marker = readAgentOutcomeMarker(instance.context, instance.currentStepId ?? '')
+  if (!marker) return null
+  return await dispatchAgentOutcome(em, container, instance, definition, marker, evalContext)
+}
 
 /**
  * Act on a resolved agent disposition (spec 7.2).

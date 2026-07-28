@@ -1859,6 +1859,8 @@
   "workflows.visualEditor.problems.errorRouteUnknownSource": "Error route \"{transitionId}\" starts at unknown step \"{stepId}\"",
   "workflows.visualEditor.problems.errorRouteUnknownTarget": "Error route \"{transitionId}\" targets unknown step \"{stepId}\"",
   "workflows.visualEditor.problems.nodeErrorBadge": "{count} validation error(s)",
+  "workflows.visualEditor.problems.outcomeRouteDuplicateKind": "Agent step \"{stepId}\" has more than one route for the \"{outcomeKind}\" outcome; only the highest-priority one can ever be taken",
+  "workflows.visualEditor.problems.outcomeRouteUnknownKind": "Outcome route \"{transitionId}\" claims outcome \"{outcomeKind}\", which the platform does not define; it can never be selected",
   "workflows.visualEditor.problems.saveBlocked": "Cannot save: {count} validation error(s) found. Please fix them first.",
   "workflows.visualEditor.problems.schemaValidationFailed": "Schema validation failed: {message}",
   "workflows.visualEditor.problems.severityError": "Error",

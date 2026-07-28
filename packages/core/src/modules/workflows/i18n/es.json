@@ -1859,6 +1859,8 @@
   "workflows.visualEditor.problems.errorRouteUnknownSource": "La ruta de error \"{transitionId}\" parte de un paso desconocido \"{stepId}\"",
   "workflows.visualEditor.problems.errorRouteUnknownTarget": "La ruta de error \"{transitionId}\" apunta a un paso desconocido \"{stepId}\"",
   "workflows.visualEditor.problems.nodeErrorBadge": "{count} error(es) de validación",
+  "workflows.visualEditor.problems.outcomeRouteDuplicateKind": "El paso de agente \"{stepId}\" tiene más de una ruta para el resultado \"{outcomeKind}\"; solo se tomará la de mayor prioridad",
+  "workflows.visualEditor.problems.outcomeRouteUnknownKind": "La ruta de resultado \"{transitionId}\" declara el resultado \"{outcomeKind}\", que la plataforma no define; nunca podrá seleccionarse",
   "workflows.visualEditor.problems.saveBlocked": "No se puede guardar: se encontraron {count} error(es) de validación. Corrígelos primero.",
   "workflows.visualEditor.problems.schemaValidationFailed": "La validación del esquema falló: {message}",
   "workflows.visualEditor.problems.severityError": "Error",

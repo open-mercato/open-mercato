@@ -33,7 +33,7 @@
 | A.4 | Guardrail route + the rejection/error split | done | `bf7c5e4d3` |
 | A.5 | Node outcome-row footer (agent + user task) — fidelity gap #4 | done | `cf8bbd121` |
 | A.6 | Node information density — one-line config summaries replacing truncated prose (gap #6) | done | `d9e4eff01` |
-| A.7 | Problems checks + integration coverage for outcome routing | todo | — |
+| A.7 | Problems checks + integration coverage for outcome routing | done | `e0c847b2a` |
 
 ## Binding constraints
 

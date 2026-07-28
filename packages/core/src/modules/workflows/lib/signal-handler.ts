@@ -327,6 +327,33 @@ export async function sendSignal(
     })
   }
 
+  // Outcome routing (spec 7.2). A resumed agent step is advanced HERE, not by
+  // the executor loop, so the wired outcome route has to be honoured here too —
+  // routing it in only one of the two places would silently send every
+  // human-dispositioned proposal down the happy path.
+  // Imported lazily rather than read off the DI-resolved executor: the resolved
+  // service is the module, and reaching for a named export on it couples this
+  // path to every test double that stubs only the two methods it needed.
+  const { dispatchAgentOutcomeForCurrentStep } = await import('./workflow-executor')
+  const outcomeDispatch = await dispatchAgentOutcomeForCurrentStep(
+    em,
+    container,
+    instance,
+    definition.definition,
+    { workflowContext: instance.context, userId },
+  )
+  if (outcomeDispatch && outcomeDispatch.kind !== 'default') {
+    if (outcomeDispatch.kind === 'failed') {
+      throw new SignalError('Agent outcome could not be routed', 'OUTCOME_ROUTE_FAILED', {
+        error: outcomeDispatch.error,
+      })
+    }
+    instance.status = 'RUNNING'
+    await em.flush()
+    await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })
+    return
+  }
+
   // Find automatic transitions from current step
   const autoTransitions = (definition.definition.transitions || []).filter(
     (t: any) => t.fromStepId === instance.currentStepId && t.trigger === 'auto'
