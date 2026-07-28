@@ -30,6 +30,8 @@ type HarnessCase = {
   oracle?: { expectedArtifacts?: string[] }
   fixture?: unknown
   timeoutMs?: number
+  maxContextFiles: number
+  maxInitialContextBytes: number
 }
 
 type StoredResult = {
@@ -294,6 +296,17 @@ test('the catalog count and release coverage are derived from the validator regi
   ])
   const compatibilityPath = '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
+  const auditedInitialContextFloors = [
+    ['OMH-080', 12, 69_892],
+    ['OMH-111', 10, 58_162],
+    ['OMH-169', 10, 57_825],
+  ] as const
+  for (const [id, files, bytes] of auditedInitialContextFloors) {
+    const caseRecord = byId.get(id)
+    assert.ok(caseRecord, `${id} must exist`)
+    assert.ok(caseRecord.maxContextFiles >= files, `${id} initial context file budget must fit its audited route set`)
+    assert.ok(caseRecord.maxInitialContextBytes >= bytes, `${id} initial context byte budget must fit its audited route set`)
+  }
   assert.deepEqual(
     cases.filter((entry) => entry.context.required.includes(compatibilityPath)).map((entry) => entry.id),
     validators.catalog.compatibilityRequiredCaseIds,

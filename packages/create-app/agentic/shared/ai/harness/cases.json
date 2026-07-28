@@ -5981,7 +5981,7 @@
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "provider credentials.{0,30}(?:log|plain)", "direct ORM relationship"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 13,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 73728,
     "maxTotalContextBytes": 262144,
     "relatedCases": ["OMH-040", "OMH-043", "OMH-055"]
   },
@@ -8271,7 +8271,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 61440,
     "maxTotalContextBytes": 229376,
     "relatedCases": [
       "OMH-060",
@@ -12171,7 +12171,7 @@
     "requiredDecisions":["public-scope-derived-server-side","idempotent-submission","deterministic-deduplication","optional-crm","delivery-route-preserves-task-routes","smallest-validation"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","git (?:add|commit).{0,20}(?:--all|-a)","(?:skip|omit).{0,30}(?:validation|test)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":11,"maxInitialContextBytes":57344,"maxTotalContextBytes":196608,"relatedCases":["OMH-005","OMH-073"]
+    "maxContextFiles":11,"maxInitialContextBytes":61440,"maxTotalContextBytes":196608,"relatedCases":["OMH-005","OMH-073"]
   },
   {
     "id":"OMH-170","title":"Review a stock-reservation pull request for actionable problems only","family":"architecture","mode":"review","evaluationKind":"routing","risk":"medium",
