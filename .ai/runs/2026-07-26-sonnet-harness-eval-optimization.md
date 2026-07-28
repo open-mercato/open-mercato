@@ -334,6 +334,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.18 Diagnose one semantic routing correction without leaking oracle answers, then allow one independent trace-start recovery — `574924d33`
 - [x] 3.19 Abort a matrix when Claude reports an expired OAuth session inside its terminal result event — `63f62ae62`
 - [x] 3.20 Prioritize scalar-ID/snapshot fix routing to UMES plus the data-model and system-extension skills — `7314d448d`
+- [x] 3.21 Recover once from the exact model-reported `harness.read`-unavailable startup without retrying arbitrary model or safety violations — `72a7cf0ce`
 
 ### Phase 4: Compatibility baseline
 
