@@ -35,6 +35,17 @@
 | 3 | 3.4 | External-form renderer registry (#4243) + validateFormData covers the fields shape | todo | — |
 | 4 | 4.1 | Integration tests (work inbox, claim/next, entity widget, decision routing, A1 regression) | todo | — |
 | 4 | 4.2 | Docs + UPGRADE_NOTES + spec changelog | todo | — |
+| 5 | 5.1 | Pure `lib/task-visibility.ts` predicate (visible/actable/claimable, fail-closed) | todo | — |
+| 5 | 5.2 | Entity-access resolver + denormalized `entity_types` column (SQL gate, not a post-filter) | todo | — |
+| 5 | 5.3 | Administration ACL features + `setup.ts` grants; existing ids stay load-bearing | todo | — |
+| 5 | 5.4 | Tenant opt-out setting (read filter only, never claim/complete) | todo | — |
+| 5 | 5.5 | Apply the predicate to task + work-inbox reads and the act paths; role-membership check on claim | todo | — |
+| 5 | 5.6 | Disposition tasks: `administrativeQueueFeature` on the provider contract (enterprise declares its own) | todo | — |
+| 5 | 5.7 | Security-review checklist evidence + UPGRADE_NOTES entry | todo | — |
+| 6 | 6.1 | `assignee_kind` column + portal principal modelling | todo | — |
+| 6 | 6.2 | Portal ACL features via `defaultCustomerRoleFeatures` | todo | — |
+| 6 | 6.3 | Portal task routes (list/get/complete) — new surface, backoffice routes untouched | todo | — |
+| 6 | 6.4 | Portal task pages + nav + Portal Event Bridge live updates | todo | — |
 
 ## Goal
 
@@ -44,12 +55,17 @@ Deliver Phase 4a — human tasks that frontline staff can actually work: a real 
 
 Phase 0 (debt) + Phase 1 (inspector) + Phase 2 (Work Inbox) + Phase 3 (deadlines/notifications/forms) + Phase 4 (tests/docs) as numbered above.
 
-## Non-goals — REQUIRE AN EXPLICIT DECISION BEFORE THEY START
+## Maintainer decisions taken 2026-07-28 — now IN scope (phases 5 and 6)
 
-These are deliberately **out of this run**. Each needs a maintainer call, not an implementer's judgment:
+1. **The §6.4 permission flip ships in full, in one move.** Maintainer rationale: agent_orchestrator is not production code yet, so the risk of disposition tasks becoming invisible is acceptable as a blocker. It is NOT acceptable as an outcome — phase 5.6 gives them an administrative-queue visibility class that needs no change to the auto-approve boundary. Design: `.ai/analysis/2026-07-28-task-visibility-design.md`.
+2. **Portal principals get an `assignee_kind` discriminator column**, not a `customer:<id>` string prefix — a value you can index and filter beats string parsing every future query must remember.
 
-1. **The §6.4 permission flip** (task visibility → assignment + entity-access, default-ON). The spec makes "a dedicated security review a release precondition", `BACKWARD_COMPATIBILITY.md` has **no rule** for changing an already-shipped route's auth semantics, and "entity access" is not a platform primitive — no record-level ACL exists anywhere. This run makes the flip *possible* (bindings, serializer, enforcement points) without performing it.
-2. **Portal task API + pages (#4247).** Gated by `customer_accounts/AGENTS.md`: *"Ask before changing … portal RBAC semantics."* Also needs an explicit decision on modeling a portal principal in `assignedTo` (bare varchar, no FK, no kind discriminator).
+**Two design deviations carried, both documented in the design doc and to be called out in the PR:**
+- **D-1** — keep `workflows.tasks.claim`/`.complete` as route `requireFeatures`, contrary to the spec's "one's own assigned work requires no workflows feature". Dropping them would leave two FROZEN ACL ids that no route consults (the exact dead-grant problem this change exists to avoid), and the sentence's real purpose — portal parity — is served by the new `portal.tasks.*` routes instead. The narrowing §6.4 demands still lands: holding `.complete` no longer completes anyone else's task.
+- **D-2** — add a denormalized `user_tasks.entity_types` column so the entity gate is a SQL `WHERE`. A JS post-filter would make pagination counts lie (ask for 50, get 12, total says 50).
+
+**Still requiring a decision before they start:**
+
 3. **Any new `UserTaskStatus` value** (e.g. `REASSIGNED`) — workflows AGENTS.md Ask-First on state machines. Reassignment will use existing statuses + audit columns + a workflow event, mirroring Phase 3a's `failureQueue` (which reused `PAUSED` + `metadata.attention` rather than adding a status).
 4. **Changing the auto-approve vs `USER_TASK` boundary** in agent_orchestrator (its AGENTS.md Ask-First). A7 (disposition tasks unassigned and never closed) is *reported*, not silently redesigned.
 5. **A shared `LocalizedString` type.** §6.5 assumes one; none exists. This run keeps a local `{ [locale]: string } | string` shape inside workflows; promoting it to `packages/shared` would create a new STABLE type surface.
