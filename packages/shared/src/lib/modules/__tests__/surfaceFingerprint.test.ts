@@ -24,8 +24,10 @@ function route(pattern: string, overrides: Partial<BackendRouteManifestEntry> = 
   } as BackendRouteManifestEntry
 }
 
-function setSurface(moduleIds: string[], routes: BackendRouteManifestEntry[]): void {
-  mockGetModules.mockReturnValue(moduleIds.map((id) => ({ id }) as Module))
+type ModuleSurface = string | { id: string; features: Array<{ id: string; module?: string }> }
+
+function setSurface(modules: ModuleSurface[], routes: BackendRouteManifestEntry[]): void {
+  mockGetModules.mockReturnValue(modules.map((mod) => (typeof mod === 'string' ? { id: mod } : mod) as Module))
   mockGetBackendRouteManifests.mockReturnValue(routes)
 }
 
@@ -66,6 +68,33 @@ describe('getModuleSurfaceFingerprint', () => {
     expect(getModuleSurfaceFingerprint()).not.toBe(before)
   })
 
+  it('changes when a module declares a new feature and no route moves', () => {
+    const routes = [route('/backend/dashboard')]
+    setSurface([{ id: 'auth', features: [{ id: 'auth.view' }] }], routes)
+    const before = getModuleSurfaceFingerprint()
+
+    setSurface([{ id: 'auth', features: [{ id: 'auth.view' }, { id: 'auth.manage' }] }], routes)
+    expect(getModuleSurfaceFingerprint()).not.toBe(before)
+  })
+
+  it('changes when a feature declares a different owning module', () => {
+    const routes = [route('/backend/dashboard')]
+    setSurface([{ id: 'auth', features: [{ id: 'analytics.view' }] }], routes)
+    const before = getModuleSurfaceFingerprint()
+
+    setSurface([{ id: 'auth', features: [{ id: 'analytics.view', module: 'reporting' }] }], routes)
+    expect(getModuleSurfaceFingerprint()).not.toBe(before)
+  })
+
+  it('ignores feature ordering within a module', () => {
+    const routes = [route('/backend/dashboard')]
+    setSurface([{ id: 'auth', features: [{ id: 'auth.view' }, { id: 'auth.manage' }] }], routes)
+    const forward = getModuleSurfaceFingerprint()
+
+    setSurface([{ id: 'auth', features: [{ id: 'auth.manage' }, { id: 'auth.view' }] }], routes)
+    expect(getModuleSurfaceFingerprint()).toBe(forward)
+  })
+
   it('ignores route manifest ordering', () => {
     setSurface(['auth'], [route('/backend/a'), route('/backend/b')])
     const forward = getModuleSurfaceFingerprint()
@@ -81,5 +110,13 @@ describe('getModuleSurfaceFingerprint', () => {
     mockGetBackendRouteManifests.mockReturnValue([route('/backend/dashboard')])
 
     expect(getModuleSurfaceFingerprint()).toMatch(/^[0-9a-f]{12}$/)
+  })
+
+  it('degrades to a constant rather than throwing when route metadata cannot be serialized', () => {
+    const circular = route('/backend/dashboard') as BackendRouteManifestEntry & { self?: unknown }
+    circular.self = circular
+    setSurface(['auth'], [circular])
+
+    expect(getModuleSurfaceFingerprint()).toBe('unknown')
   })
 })

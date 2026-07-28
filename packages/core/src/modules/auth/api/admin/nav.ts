@@ -13,7 +13,12 @@ export const metadata = {
   GET: { requireAuth: true },
 }
 
-const NAV_CACHE_TTL_MS = 5 * 60 * 1000
+// The fingerprint covers the module set, each module's declared features and
+// the serializable route manifest, so the TTL only has to bound what it cannot
+// see — chiefly a route `icon` swap, which serializes identically. Rebuilding
+// this payload is expensive (a `renderToStaticMarkup` per nav icon plus several
+// scoped queries), so the bound is generous rather than aggressive.
+const NAV_CACHE_TTL_MS = 30 * 60 * 1000
 
 const sidebarNavItemSchema: z.ZodType<{
   id?: string
@@ -141,8 +146,9 @@ export async function GET(req: Request) {
     selectedTenantId = auth.tenantId ?? null
   }
 
-  // The payload embeds the enabled-module set (via `filterGrantsByEnabledModules`)
-  // and the backend route manifest, neither of which any tag invalidation covers.
+  // The payload embeds the enabled-module set and its declared features (via
+  // `filterGrantsByEnabledModules`) plus the backend route manifest, none of
+  // which any tag invalidation covers — there is no database write to hang one off.
   // Without the fingerprint a deploy that changes `modules.ts` stays invisible to
   // every user holding a warm entry; the TTL bounds anything the fingerprint misses.
   const cacheVersion = `v4:${getModuleSurfaceFingerprint()}`

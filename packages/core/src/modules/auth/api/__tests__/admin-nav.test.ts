@@ -450,7 +450,7 @@ describe('GET /api/auth/admin/nav', () => {
       await cacheKeyForRoutes([dashboardRoute])
 
       const [, , options] = mockCacheSet.mock.calls[mockCacheSet.mock.calls.length - 1]
-      expect(options.ttl).toBe(5 * 60 * 1000)
+      expect(options.ttl).toBe(30 * 60 * 1000)
     })
   })
 

@@ -87,7 +87,9 @@ yarn mercato configs cache structural --all-tenants
 
 ### The admin sidebar no longer needs a purge to survive a deploy
 
-`nav:sidebar:*` keys carry a fingerprint of the enabled module set plus the backend route manifest, and a 5-minute TTL. A deployed change to `src/modules.ts` or to a page's nav metadata therefore writes to a **new** key: old and new processes coexist during a rolling deploy, and no purge — or purge/rollout ordering — is required for the sidebar to reflect the new build.
+`nav:sidebar:*` keys carry a fingerprint of the enabled module set, each module's declared ACL features, and the backend route manifest — plus a 30-minute TTL. A deployed change to `src/modules.ts`, to a module's `acl.ts`, or to a page's nav metadata therefore writes to a **new** key: old and new processes coexist during a rolling deploy, and no purge — or purge/rollout ordering — is required for the sidebar to reflect the new build.
+
+One input is deliberately outside the fingerprint: a nav **icon** swap. Icons are React elements whose component identity does not survive serialization, so a deploy that only changes an icon heals on the TTL rather than immediately. Run the structural purge if you need such a change visible at once.
 
 Keep running the structural purge for the rest of the chrome (generated fingerprints, AI agent registries, tenant-scoped nav derivatives), and in development where you want the change visible instantly rather than on the next request.
 
