@@ -23,8 +23,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
+import { AlertTriangle } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { JsonSchema, JsonSchemaField } from '../../data/types'
+import { resolveTaskForm } from '../../lib/task-form-registry'
+import { normalizeTaskFormSchema } from '../../lib/task-form-schema'
 
 export type TaskFormValues = Record<string, string | number | boolean>
 
@@ -34,6 +37,13 @@ export type TaskFormFieldsProps = {
   invalidField: string | null
   disabled?: boolean
   onFieldChange: (fieldName: string, value: string | number | boolean) => void
+  /** Authored external-form renderer key; see `lib/task-form-registry.ts`. */
+  formKey?: string | null
+  taskId?: string
+  taskName?: string
+  entityBindings?: unknown[] | null
+  decisions?: { id: string }[]
+  onValuesChange?: (values: TaskFormValues) => void
 }
 
 const INPUT_CLASSES =
@@ -63,9 +73,43 @@ export function TaskFormFields({
   invalidField,
   disabled,
   onFieldChange,
+  formKey,
+  taskId,
+  taskName,
+  entityBindings,
+  decisions,
+  onValuesChange,
 }: TaskFormFieldsProps) {
   const t = useT()
-  const properties = formSchema?.properties
+  // BOTH authored shapes render here: the JSON-Schema form and the
+  // `{ fields: [...] }` form the Studio writes, which used to render nothing.
+  const normalizedSchema = normalizeTaskFormSchema(formSchema)
+  const properties = normalizedSchema?.properties
+  const resolution = resolveTaskForm(formKey)
+
+  if (resolution.kind === 'registered') {
+    const { Renderer, titleKey } = resolution.entry
+    return (
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">
+          {titleKey ? t(titleKey) : t('workflows.tasks.detail.sections.form')}
+        </h2>
+        <Renderer
+          context={{
+            taskId: taskId ?? '',
+            taskName: taskName ?? '',
+            formKey: resolution.entry.formKey,
+            formSchema: formSchema ?? null,
+            entityBindings: entityBindings ?? null,
+            decisions: decisions ?? [],
+            values,
+            disabled: Boolean(disabled),
+          }}
+          onChange={(next) => onValuesChange?.(next as TaskFormValues)}
+        />
+      </div>
+    )
+  }
 
   const fieldValue = (fieldName: string): string | number => {
     const value = values[fieldName]
@@ -78,7 +122,7 @@ export function TaskFormFields({
     const fieldType = fieldSchema.type || 'string'
     const fieldTitle = fieldSchema.title || fieldName
     const fieldDescription = fieldSchema.description
-    const required = formSchema?.required?.includes(fieldName) || false
+    const required = normalizedSchema?.required?.includes(fieldName) || false
     const enumValues = fieldSchema.enum
 
     if (enumValues && Array.isArray(enumValues)) {
@@ -238,16 +282,37 @@ export function TaskFormFields({
     }
   }
 
+  // An authored renderer that is not loaded degrades to the built-in form and
+  // SAYS SO. Silently rendering something else would leave the assignee unable
+  // to tell a plain task from one whose custom form failed to arrive.
+  const missingRendererNotice =
+    resolution.kind === 'missing' ? (
+      <div
+        role="status"
+        className="flex items-start gap-2 rounded-lg border border-status-warning-border bg-status-warning-bg p-3"
+        data-testid="task-form-renderer-missing"
+      >
+        <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-warning-text" />
+        <p className="text-sm text-status-warning-text">
+          {t('workflows.tasks.detail.form.rendererMissing', { formKey: resolution.formKey })}
+        </p>
+      </div>
+    ) : null
+
   if (!properties) {
     return (
-      <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
-        <p className="text-sm text-status-info-text">{t('workflows.tasks.detail.noFormSchema')}</p>
+      <div className="space-y-4">
+        {missingRendererNotice}
+        <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
+          <p className="text-sm text-status-info-text">{t('workflows.tasks.detail.noFormSchema')}</p>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
+      {missingRendererNotice}
       <h2 className="text-lg font-semibold">{t('workflows.tasks.detail.sections.form')}</h2>
       {Object.keys(properties).map((fieldName) => renderField(fieldName, properties[fieldName]))}
     </div>

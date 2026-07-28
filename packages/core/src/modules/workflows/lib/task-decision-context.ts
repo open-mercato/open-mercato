@@ -17,9 +17,20 @@ import type { ResolvedTaskDecision, TaskInterpolate } from './task-resolution'
 export type TaskDecisionContext = {
   stepId: string | null
   decisions: ResolvedTaskDecision[]
+  /**
+   * Authored `userTaskConfig.formKey`, resolved the same way the decisions are:
+   * from the instance's PINNED definition, never from a column. A task form is
+   * a rendering choice, so re-reading it per request is what lets a definition
+   * that gains a renderer key start using it — and it needs no migration.
+   */
+  formKey: string | null
 }
 
-export const EMPTY_TASK_DECISION_CONTEXT: TaskDecisionContext = { stepId: null, decisions: [] }
+export const EMPTY_TASK_DECISION_CONTEXT: TaskDecisionContext = {
+  stepId: null,
+  decisions: [],
+  formKey: null,
+}
 
 /**
  * Re-resolve a task's decision buttons from its instance's pinned definition.
@@ -39,10 +50,11 @@ export async function loadTaskDecisionContext(
   if (!stepInstance) return EMPTY_TASK_DECISION_CONTEXT
 
   const definition = await findDefinitionForInstance(em, instance)
-  if (!definition) return { stepId: stepInstance.stepId, decisions: [] }
+  if (!definition) return { stepId: stepInstance.stepId, decisions: [], formKey: null }
 
+  const formKey = readAuthoredTaskFormKey(definition.definition, stepInstance.stepId)
   const authored = readAuthoredTaskDecisions(definition.definition, stepInstance.stepId)
-  if (!authored.length) return { stepId: stepInstance.stepId, decisions: [] }
+  if (!authored.length) return { stepId: stepInstance.stepId, decisions: [], formKey }
 
   const { interpolateVariables } = await import('./activity-executor')
   const interpolate: TaskInterpolate = (value) =>
@@ -51,5 +63,14 @@ export async function loadTaskDecisionContext(
   return {
     stepId: stepInstance.stepId,
     decisions: resolveTaskDecisions(authored, interpolate),
+    formKey,
   }
+}
+
+function readAuthoredTaskFormKey(definition: unknown, stepId: string): string | null {
+  const steps = (definition as { steps?: { stepId?: string; userTaskConfig?: { formKey?: unknown } }[] })
+    ?.steps
+  const step = (steps ?? []).find((candidate) => candidate.stepId === stepId)
+  const formKey = step?.userTaskConfig?.formKey
+  return typeof formKey === 'string' && formKey.length > 0 ? formKey : null
 }

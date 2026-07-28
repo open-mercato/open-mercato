@@ -1404,6 +1404,7 @@
   "workflows.tasks.detail.commentsPlaceholder": "Dodaj komentarze lub notatki dotyczące tego zadania...",
   "workflows.tasks.detail.completeTask": "Zakończ Zadanie",
   "workflows.tasks.detail.decisionTaken": "Podjęta decyzja",
+  "workflows.tasks.detail.form.rendererMissing": "Formularz niestandardowy \"{formKey}\" nie jest tu dostępny, więc pokazano formularz standardowy.",
   "workflows.tasks.detail.form.selectOption": "-- Wybierz opcję --",
   "workflows.tasks.detail.loadFailed": "Nie udało się załadować zadania",
   "workflows.tasks.detail.loading": "Ładowanie zadania...",

@@ -57,6 +57,13 @@ export type UserTaskResponse = {
    * definition. Never stored on the task row — see `lib/task-decisions.ts`.
    */
   decisions?: UserTaskDecision[]
+  /**
+   * Authored external-form renderer key, re-resolved per request from the
+   * instance's pinned definition alongside `decisions`. Null means the built-in
+   * form; an unknown key degrades to the built-in form WITH a notice, never a
+   * blank screen (`lib/task-form-registry.ts`).
+   */
+  formKey?: string | null
 }
 
 export type UserTaskEntityBinding = {

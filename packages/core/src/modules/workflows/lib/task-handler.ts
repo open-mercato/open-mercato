@@ -26,6 +26,7 @@ import {
   withRecordedDecision,
 } from './task-decisions'
 import { loadTaskDecisionContext } from './task-decision-context'
+import { readRequiredFormFields } from './task-form-schema'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -608,32 +609,29 @@ async function logWorkflowEvent(
 }
 
 /**
- * Validate form data against JSON schema (basic validation for MVP)
+ * Validate form data against the task's authored schema.
  *
- * In Phase 7, we'll implement comprehensive JSON Schema validation.
- * For MVP, we do basic type checking.
+ * Required-field presence in BOTH accepted `formSchema` shapes: the JSON-Schema
+ * form and the `{ fields: [...] }` form the Studio writes, whose per-field
+ * `required: true` flag this used to ignore entirely — so a task authored in
+ * the visual editor validated nothing however many fields its author marked
+ * mandatory. Both shapes now resolve through `lib/task-form-schema.ts`, the
+ * same module the renderer walks, so they cannot drift apart again.
+ *
+ * Presence-only, deliberately: type checking would need the full JSON-Schema
+ * vocabulary, and what matters is that a required field cannot be skipped.
  *
  * @param formData - User-provided form data
- * @param formSchema - JSON schema defining expected structure
+ * @param formSchema - Authored schema, in either accepted shape
  * @throws Error if validation fails
  */
-function validateFormData(
+export function validateFormData(
   formData: Record<string, any>,
-  formSchema: any
+  formSchema: unknown
 ): void {
-  // For MVP: Basic validation - just check required fields exist
-  if (!formSchema || !formSchema.properties) {
-    return // No schema to validate against
-  }
-
-  const requiredFields = formSchema.required || []
-
-  for (const field of requiredFields) {
+  for (const field of readRequiredFormFields(formSchema)) {
     if (!(field in formData) || formData[field] === null || formData[field] === undefined) {
       throw new Error(`Required field missing: ${field}`)
     }
   }
-
-  // Additional type validation can be added in Phase 7
-  // For now, this basic validation is sufficient
 }

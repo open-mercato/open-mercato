@@ -32,7 +32,7 @@
 | 3 | 3.1 | Task SLA scheduler on the Phase-3a absolute-deadline queue backstop (reminders + breach) | done | 879981f0f |
 | 3 | 3.2 | SLA-breach route resolver (pure, shaped like lib/error-routing.ts) | done | e097b5e0d |
 | 3 | 3.3 | Notification quick-action one-click predicate + workflows.tasks.complete command | done | 6366beaeb |
-| 3 | 3.4 | External-form renderer registry (#4243) + validateFormData covers the fields shape | todo | — |
+| 3 | 3.4 | External-form renderer registry (#4243) + validateFormData covers the fields shape | done | bb9ee88df |
 | 4 | 4.1 | Integration tests (work inbox, claim/next, entity widget, decision routing, A1 regression) | todo | — |
 | 4 | 4.2 | Docs + UPGRADE_NOTES + spec changelog | todo | — |
 | 5 | 5.1 | Pure `lib/task-visibility.ts` predicate (visible/actable/claimable, fail-closed) | todo | — |

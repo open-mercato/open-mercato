@@ -1404,6 +1404,7 @@
   "workflows.tasks.detail.commentsPlaceholder": "Add any comments or notes about this task...",
   "workflows.tasks.detail.completeTask": "Complete Task",
   "workflows.tasks.detail.decisionTaken": "Decision taken",
+  "workflows.tasks.detail.form.rendererMissing": "The custom form \"{formKey}\" is not available here, so the standard form is shown instead.",
   "workflows.tasks.detail.form.selectOption": "-- Select an option --",
   "workflows.tasks.detail.loadFailed": "Failed to load task",
   "workflows.tasks.detail.loading": "Loading task...",

@@ -75,13 +75,14 @@ export async function GET(
     // definition version, so re-resolving here always yields the buttons the
     // author wrote for this step. A task on a step that authored none gets an
     // empty list and completes through the plain form exactly as before.
-    const { decisions, stepId } = await loadTaskDecisionContext(em, task)
+    const { decisions, stepId, formKey } = await loadTaskDecisionContext(em, task)
 
     return NextResponse.json({
       data: {
         ...serializeUserTask(task),
         stepId,
         decisions,
+        formKey,
       },
     })
   } catch (error) {

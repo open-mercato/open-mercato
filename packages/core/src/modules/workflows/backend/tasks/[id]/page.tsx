@@ -58,6 +58,7 @@ import {
 import { normalizeWorkInboxPriority } from '../../../lib/work-inbox/provider'
 import { flattenTaskText } from '../../../lib/task-resolution'
 import { readRecordedDecision } from '../../../lib/task-decisions'
+import { normalizeTaskFormSchema } from '../../../lib/task-form-schema'
 
 const logger = createLogger('workflows')
 
@@ -137,10 +138,13 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
   }
 
   const validateRequiredFields = React.useCallback((): boolean => {
-    if (!task?.formSchema?.required) return true
-    for (const requiredField of task.formSchema.required) {
+    // Normalized, so a Studio-authored `{ fields: [...] }` schema is validated
+    // by the same rule the server enforces (`lib/task-form-schema.ts`).
+    const normalizedSchema = normalizeTaskFormSchema(task?.formSchema)
+    if (!normalizedSchema?.required) return true
+    for (const requiredField of normalizedSchema.required) {
       if (!formData[requiredField] || formData[requiredField] === '') {
-        const fieldSchema = task.formSchema.properties?.[requiredField]
+        const fieldSchema = normalizedSchema.properties?.[requiredField]
         const fieldLabel = fieldSchema?.title ?? requiredField
         flash(t('workflows.tasks.detail.validation.requiredField', { field: fieldLabel }), 'error')
         setInvalidField(requiredField)
@@ -444,6 +448,12 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                     invalidField={invalidField}
                     disabled={submitting}
                     onFieldChange={handleFieldChange}
+                    formKey={task.formKey}
+                    taskId={task.id}
+                    taskName={task.taskName}
+                    entityBindings={task.entityBindings}
+                    decisions={decisions}
+                    onValuesChange={setFormData}
                   />
 
                   <Separator />

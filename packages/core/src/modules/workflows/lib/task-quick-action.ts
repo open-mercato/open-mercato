@@ -31,6 +31,7 @@
  */
 
 import type { NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
+import { countTaskFormFields } from './task-form-schema'
 
 export const TASK_COMPLETE_COMMAND_ID = 'workflows.tasks.complete'
 
@@ -53,17 +54,6 @@ export interface TaskQuickActionInput {
   requiresComment?: boolean
 }
 
-function countFormFields(formSchema: unknown): number {
-  if (!formSchema || typeof formSchema !== 'object') return 0
-  const schema = formSchema as { fields?: unknown; properties?: unknown }
-
-  if (Array.isArray(schema.fields)) return schema.fields.length
-  if (schema.properties && typeof schema.properties === 'object') {
-    return Object.keys(schema.properties as Record<string, unknown>).length
-  }
-  return 0
-}
-
 /**
  * Whether this task can be finished from a notification with one click.
  *
@@ -75,7 +65,7 @@ function countFormFields(formSchema: unknown): number {
 export function isOneClickTask(input: TaskQuickActionInput): boolean {
   if (input.requiresComment) return false
   if (input.editablePrefilled?.length) return false
-  if (countFormFields(input.formSchema) > 0) return false
+  if (countTaskFormFields(input.formSchema) > 0) return false
 
   const decisions = input.decisions ?? []
   return decisions.length <= 1
