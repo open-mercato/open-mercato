@@ -254,6 +254,55 @@ export const userTaskCompleteResponseSchema = z.object({
   message: z.string(),
 })
 
+/**
+ * Portal task surface (design §7.4).
+ *
+ * A separate response envelope from the backoffice one on purpose: the portal
+ * routes speak the portal convention (`{ ok, … }`, page/pageSize paging) that
+ * every other `customer_accounts` portal route already speaks, and keeping the
+ * two shapes apart means a future change to one cannot silently reshape the
+ * other. The ROW projection is deliberately shared — a task is the same record
+ * whoever reads it, and a divergent portal projection is how a field ends up
+ * exposed on one surface and not the other.
+ */
+export const portalTaskErrorSchema = z
+  .object({ ok: z.literal(false), error: z.string() })
+  .describe('Portal error response')
+
+export const portalTaskListQuerySchema = z.object({
+  status: z.string().optional().describe('Filter by status (comma-separated for multiple)'),
+  page: z.coerce.number().min(1).optional().default(1).describe('Page number'),
+  pageSize: z.coerce.number().min(1).max(100).optional().default(25).describe('Rows per page (max 100)'),
+})
+
+export const portalPaginationSchema = z.object({
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().positive(),
+})
+
+export const portalTaskListResponseSchema = z.object({
+  ok: z.literal(true),
+  tasks: z.array(userTaskRowSchema),
+  pagination: portalPaginationSchema,
+})
+
+export const portalTaskDetailResponseSchema = z.object({
+  ok: z.literal(true),
+  task: userTaskRowSchema,
+  canComplete: z
+    .boolean()
+    .describe('True only for the assignee; a portal admin reading a company member\'s task gets false'),
+})
+
+export const portalTaskCompleteRequestSchema = completeTaskRequestSchema
+
+export const portalTaskCompleteResponseSchema = z.object({
+  ok: z.literal(true),
+  task: userTaskRowSchema.nullable(),
+})
+
 export const advanceWorkflowRequestSchema = z.object({
   toStepId: z.string().optional().describe('Optional target step ID; first valid transition is used when omitted'),
   triggerData: z.record(z.string(), z.unknown()).optional().describe('Optional trigger data used during transition evaluation'),

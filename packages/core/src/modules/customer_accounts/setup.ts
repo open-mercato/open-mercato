@@ -85,6 +85,15 @@ async function registerDomainSchedules(
   })
 }
 
+/**
+ * The customer roles this module seeds, and therefore the ONLY slugs another
+ * module's `defaultCustomerRoleFeatures` can target: the merge below skips a
+ * slug with no matching role (`if (!role) continue`), so a typo is a silent
+ * no-op rather than an error. Exported so a contributing module can assert its
+ * keys against the real list instead of hoping.
+ */
+export const DEFAULT_CUSTOMER_ROLE_SLUGS = ['portal_admin', 'buyer', 'viewer'] as const
+
 const DEFAULT_ROLES = [
   {
     name: 'Portal Admin',

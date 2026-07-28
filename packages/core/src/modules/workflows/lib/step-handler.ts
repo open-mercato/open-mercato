@@ -768,6 +768,16 @@ async function handleUserTaskStep(
       assignedToRoles: assignment.assignedToRoles,
     })
   }
+  if (assignment.fellBackFromCustomer) {
+    // The author addressed this to a portal principal and no id resolved, so it
+    // landed in the backoffice namespace instead. The work is still reachable,
+    // but by a different audience than intended — that is worth saying out loud.
+    logger.warn('Portal task assignee resolved to nothing; task created for the backoffice instead', {
+      component: 'step-handler',
+      stepId: stepDef.stepId,
+      workflowInstanceId: instance.id,
+    })
+  }
 
   const { bindings, unresolved } = resolveTaskEntityBindings(userTaskConfig.entityBindings, interpolate)
   if (unresolved.length) {
@@ -796,12 +806,11 @@ async function handleUserTaskStep(
     formSchema: userTaskConfig.formSchema || null,
     formData: null,
     assignedTo: assignment.assignedTo,
-    // A workflow-authored assignee is always a backoffice user id: the Studio's
-    // assignee picker and `{{context.*}}` interpolation both resolve one, and a
-    // portal principal only ever becomes an assignee through the Phase 4b portal
-    // surface. Written explicitly rather than left to the column default so the
-    // discriminator is a decision at every creation site, not an accident.
-    assigneeKind: 'user',
+    // Decided by `resolveTaskAssignment` from the authored `assigneeKind`, and
+    // `'customer'` only when an individual assignee actually resolved. Written
+    // explicitly rather than left to the column default so the discriminator is
+    // a decision at every creation site, not an accident.
+    assigneeKind: assignment.assigneeKind,
     assignedToRoles: assignment.assignedToRoles,
     entityBindings: bindings.length ? bindings : null,
     // Denormalized from the SAME resolved bindings, so the two can never drift.

@@ -96,13 +96,81 @@ describe('resolveTaskAssignment', () => {
       assignedTo: 'manager@example.com',
       assignedToRoles: null,
       fellBackToRoles: false,
+      assigneeKind: 'user',
+      fellBackFromCustomer: false,
     })
 
     expect(resolveTaskAssignment({ assignedTo: ['approver', 'controller'] }, interpolate)).toEqual({
       assignedTo: null,
       assignedToRoles: ['approver', 'controller'],
       fellBackToRoles: false,
+      assigneeKind: 'user',
+      fellBackFromCustomer: false,
     })
+  })
+})
+
+/**
+ * `assigneeKind: 'customer'` is the ONLY way a task becomes portal work. Nothing
+ * else in the engine writes `user_tasks.assignee_kind = 'customer'`, so without
+ * this the entire portal surface would be authorization over an empty set.
+ */
+describe('resolveTaskAssignment — the portal discriminator', () => {
+  test('an authored customer assignee produces a portal task', () => {
+    const resolved = resolveTaskAssignment(
+      { assignedTo: '{{context.deal.ownerId}}', assigneeKind: 'customer' },
+      interpolate
+    )
+
+    expect(resolved.assignedTo).toBe('user-42')
+    expect(resolved.assigneeKind).toBe('customer')
+  })
+
+  test('a role queue is REFUSED alongside a customer assignee', () => {
+    // Portal roles are a different namespace and a portal principal cannot claim
+    // from a backoffice queue, so offering the row to one would advertise work to
+    // an audience that can never reach it (design §7.1).
+    const resolved = resolveTaskAssignment(
+      { assignedTo: 'portal-user-1', assignedToRoles: ['approver'], assigneeKind: 'customer' },
+      interpolate
+    )
+
+    expect(resolved.assigneeKind).toBe('customer')
+    expect(resolved.assignedToRoles).toBeNull()
+  })
+
+  test('an unresolvable customer id falls back to the backoffice, loudly', () => {
+    const resolved = resolveTaskAssignment(
+      {
+        assignedTo: '{{context.deal.missingOwner}}',
+        assignedToRoles: ['approver'],
+        assigneeKind: 'customer',
+      },
+      interpolate
+    )
+
+    // A customer-addressed task with no assignee is unaddressable: the portal
+    // branch has no arm that admits it and portal principals cannot claim.
+    expect(resolved.assigneeKind).toBe('user')
+    expect(resolved.assignedToRoles).toEqual(['approver'])
+    expect(resolved.fellBackFromCustomer).toBe(true)
+  })
+
+  test('the legacy array form never becomes a portal task', () => {
+    const resolved = resolveTaskAssignment(
+      { assignedTo: ['approver'], assigneeKind: 'customer' },
+      interpolate
+    )
+
+    expect(resolved.assigneeKind).toBe('user')
+    expect(resolved.fellBackFromCustomer).toBe(true)
+  })
+
+  test('every definition authored before this key existed still means `user`', () => {
+    expect(resolveTaskAssignment({ assignedTo: 'user-1' }, interpolate).assigneeKind).toBe('user')
+    expect(resolveTaskAssignment({ assignedToRoles: ['approver'] }, interpolate).assigneeKind).toBe(
+      'user'
+    )
   })
 })
 
