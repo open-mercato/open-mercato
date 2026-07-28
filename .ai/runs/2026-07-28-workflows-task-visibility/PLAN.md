@@ -13,7 +13,7 @@
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
 | 5 | 5.1 | Prerequisite: `claimUserTask` verifies the caller holds one of `assignedToRoles` | done | `c2023ff42` |
-| 5 | 5.2 | Extract `classifyRecordsEntity` to `entities/lib/entityClassification.ts` | todo | — |
+| 5 | 5.2 | Extract `classifyRecordsEntity` to `entities/lib/entityClassification.ts` | done | `33033ed2a` |
 | 5 | 5.3 | `lib/task-entity-types.ts` — entity-type normalization sharing one alias dictionary | todo | — |
 | 5 | 5.4 | `lib/task-visibility.ts` — the pure predicate + filter builder, no call sites | todo | — |
 | 5 | 5.5 | `lib/task-entity-access.ts` — per-request access map resolver | todo | — |
