@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+import { selectModuleFactSheets } from '../setup/tools/shared.js'
 
 const D5_MODULES = [
   'auth',
@@ -52,4 +53,26 @@ test('build no longer emits legacy core.<module>.md redirect stubs (#3754)', () 
       `core.${moduleId}.md redirect stub should not be emitted`,
     )
   }
+})
+
+// A fact-sheet no case ever routes to is a capability the catalog cannot notice being
+// rebuilt from scratch. Selection uses the same production intersection the scaffold
+// applies, so enabling a module in the template without a case fails here (#4565).
+test('every module fact-sheet a scaffold ships is routed by at least one catalog case', () => {
+  ensureBuilt()
+  const shipped = selectModuleFactSheets(join(pkgRoot, 'template'), join(guidesDir, 'modules'))
+  assert.ok(shipped.length > 0, 'the scaffold must ship at least one module fact-sheet')
+
+  const cases = JSON.parse(
+    fs.readFileSync(join(pkgRoot, 'agentic', 'shared', 'ai', 'harness', 'cases.json'), 'utf8'),
+  ) as Array<{ context: { required: string[]; allowedExtra?: string[] } }>
+  const routed = new Set(cases.flatMap((entry) => [...entry.context.required, ...(entry.context.allowedExtra ?? [])]))
+
+  const uncovered = shipped.filter((moduleId) => !routed.has(`.ai/guides/modules/${moduleId}.md`))
+  assert.deepEqual(
+    uncovered,
+    [],
+    `these shipped module fact-sheets are absent from every case context: ${uncovered.join(', ')}. `
+    + 'Add a case that requires .ai/guides/modules/<id>.md, or stop enabling the module in the template.',
+  )
 })

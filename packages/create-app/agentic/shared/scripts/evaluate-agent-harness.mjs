@@ -422,6 +422,19 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     if (!Number.isInteger(item.maxContextFiles) || item.maxContextFiles < requiredInitialContextFiles || item.maxContextFiles > registry.catalog.maxContextFiles) add(id, 'maxContextFiles is impossible or excessive')
     if (!Number.isInteger(item.maxInitialContextBytes) || item.maxInitialContextBytes < 4096 || item.maxInitialContextBytes > registry.catalog.maxInitialContextBytes) add(id, 'maxInitialContextBytes is invalid')
     if (!Number.isInteger(item.maxTotalContextBytes) || item.maxTotalContextBytes < item.maxInitialContextBytes || item.maxTotalContextBytes > registry.catalog.maxTotalContextBytes) add(id, 'maxTotalContextBytes is invalid')
+    // A case must be satisfiable against the assets this app actually ships: an agent that
+    // reads exactly what the case requires, or exactly what it declares, can never be failed
+    // by that case's own budget. Measured from disk, so a grown guide or fact-sheet surfaces
+    // here instead of as a live routing failure that looks like a model mistake.
+    if (Number.isInteger(item.maxContextFiles) && Number.isInteger(item.maxInitialContextBytes) && Number.isInteger(item.maxTotalContextBytes)) {
+      const requiredFootprint = contextStats(root, item.context?.required ?? [])
+      const declaredFootprint = contextStats(root, [...(item.context?.required ?? []), ...(item.context?.allowedExtra ?? [])])
+      if (requiredFootprint.initialBytes > item.maxInitialContextBytes) add(id, `required context exceeds maxInitialContextBytes: ${requiredFootprint.initialBytes}/${item.maxInitialContextBytes}`)
+      if (requiredFootprint.bytes > item.maxTotalContextBytes) add(id, `required context exceeds maxTotalContextBytes: ${requiredFootprint.bytes}/${item.maxTotalContextBytes}`)
+      if (declaredFootprint.initialFiles > item.maxContextFiles) add(id, `declared context exceeds maxContextFiles: ${declaredFootprint.initialFiles}/${item.maxContextFiles}`)
+      if (declaredFootprint.initialBytes > item.maxInitialContextBytes) add(id, `declared context exceeds maxInitialContextBytes: ${declaredFootprint.initialBytes}/${item.maxInitialContextBytes}`)
+      if (declaredFootprint.bytes > item.maxTotalContextBytes) add(id, `declared context exceeds maxTotalContextBytes: ${declaredFootprint.bytes}/${item.maxTotalContextBytes}`)
+    }
     if (!isUniqueStringArray(item.relatedCases, { min: 1 })) add(id, 'relatedCases must not be empty')
     for (const related of item.relatedCases ?? []) if (!idSet.has(related)) add(id, `dangling related case ${related}`)
     const writable = WRITABLE_KINDS.has(item.evaluationKind)

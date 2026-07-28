@@ -143,7 +143,7 @@ test('UMES selector documents additive command interceptors across execute and u
   assert.match(branches, /never bypass the command, locking, audit, or undo/)
 })
 
-test('the 189-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 195-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -152,7 +152,7 @@ test('the 189-case catalog routes audited installed-module, runtime, and AI/prov
     requiredSkills: string[]
     expectedRouter: { required: string[] }
   }>
-  assert.equal(cases.length, 189)
+  assert.equal(cases.length, 195)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
@@ -200,6 +200,30 @@ test('the 189-case catalog routes audited installed-module, runtime, and AI/prov
       contexts: ['.ai/guides/modules/api_keys.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
       decisions: ['facts-first', 'acl-features', 'tenant-scope', 'smallest-validation'],
     },
+    'OMH-190': {
+      contexts: ['.ai/guides/modules/configs.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
+    },
+    'OMH-191': {
+      contexts: ['.ai/guides/modules/perspectives.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
+    },
+    'OMH-192': {
+      contexts: ['.ai/guides/modules/resources.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
+    },
+    'OMH-193': {
+      contexts: ['.ai/guides/modules/sync_excel.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
+    },
+    'OMH-194': {
+      contexts: ['.ai/guides/modules/gateway_stripe.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'app-module-activation', 'acl-features', 'smallest-validation'],
+    },
+    'OMH-195': {
+      contexts: ['.ai/guides/modules/sync_akeneo.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'app-module-activation', 'tenant-scope', 'smallest-validation'],
+    },
   }
   for (const [caseId, expected] of Object.entries(expectations)) {
     const record = byId.get(caseId)
@@ -220,15 +244,25 @@ test('the 189-case catalog routes audited installed-module, runtime, and AI/prov
   assert.deepEqual(byId.get('OMH-186')?.expectedRouter.required, ['module-data'])
   assert.deepEqual(byId.get('OMH-187')?.expectedRouter.required, ['module-data'])
 
-  for (const caseId of ['OMH-188', 'OMH-189']) {
+  const reuseInstalledFacts: Record<string, string> = {
+    'OMH-188': '.ai/guides/modules/dictionaries.md',
+    'OMH-189': '.ai/guides/modules/api_keys.md',
+    'OMH-190': '.ai/guides/modules/configs.md',
+    'OMH-191': '.ai/guides/modules/perspectives.md',
+    'OMH-192': '.ai/guides/modules/resources.md',
+    'OMH-193': '.ai/guides/modules/sync_excel.md',
+    'OMH-194': '.ai/guides/modules/gateway_stripe.md',
+    'OMH-195': '.ai/guides/modules/sync_akeneo.md',
+  }
+  for (const [caseId, factSheet] of Object.entries(reuseInstalledFacts)) {
     const record = byId.get(caseId)
     assert.deepEqual(record?.expectedRouter.required, ['architecture'], `${caseId}: reuse-installed routing is an architecture decision`)
     assert.ok(record?.requiredSkills.includes('om-help'), `${caseId}: a comparative installed-versus-new choice must open om-help`)
     assert.ok(record?.context.required.includes('.ai/guides/architecture.md'), `${caseId}: the architecture guide must be observed, not merely allowed`)
     assert.ok(record?.context.required.includes('.ai/skills/om-help/SKILL.md'), `${caseId}: the om-help skill must be observed, not merely allowed`)
+    assert.ok(record?.context.required.includes(factSheet), `${caseId}: the installed module fact-sheet must be observed, not merely allowed`)
+    assert.ok(record?.requiredDecisions.includes('facts-first'), `${caseId}: reuse-installed routing must decide facts-first`)
   }
-  assert.ok(byId.get('OMH-188')?.context.required.includes('.ai/guides/modules/dictionaries.md'))
-  assert.ok(byId.get('OMH-189')?.context.required.includes('.ai/guides/modules/api_keys.md'))
 })
 
 test('the second-round cohort is exactly 92 business-language prompts without leaked framework contracts', () => {

@@ -354,6 +354,34 @@ test('deterministic evaluation passes every concrete catalog case in an emitted-
   }
 })
 
+test('deterministic evaluation rejects a case its own budgets cannot satisfy (#4565)', () => {
+  const root = stageApp()
+  try {
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{
+      id: string
+      context: { required: string[]; allowedExtra?: string[] }
+      maxContextFiles: number
+      maxInitialContextBytes: number
+    }>
+    const measured = cases[0].context.required
+      .map((relative) => fs.statSync(path.join(root, relative)).size)
+      .reduce((total, size) => total + size, 0)
+    assert.ok(measured > 4096, 'the first case must require more than the smallest legal byte budget')
+    cases[0].maxInitialContextBytes = 4096
+    cases[1].context.allowedExtra = [...(cases[1].context.allowedExtra ?? []), '.ai/guides/testing-debugging.md']
+    cases[1].maxContextFiles = cases[1].context.required.length
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, new RegExp(`FAIL ${cases[0].id}:.*required context exceeds maxInitialContextBytes: ${measured}/4096`))
+    assert.match(result.stderr, new RegExp(`FAIL ${cases[1].id}:.*declared context exceeds maxContextFiles`))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('deterministic evaluation rejects dangling relations, excessive budgets, and unsafe fixture setup', () => {
   const root = stageApp()
   try {
