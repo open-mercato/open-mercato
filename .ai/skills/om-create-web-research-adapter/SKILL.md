@@ -9,14 +9,16 @@ Every search source in Open Mercato is a **separate npm workspace package** disc
 `package.json` manifest key. Adding one never requires touching the engine, `agent_orchestrator`,
 or any registry by hand.
 
-Read `packages/web-research/AGENTS.md` before starting. The three shipped adapters are your
-references, one per shape:
+Read `packages/web-research/AGENTS.md` before starting. Pick the shipped adapter closest to your
+shape and work from it:
 
 | Shape | Reference | Use when |
 |---|---|---|
 | SERP scraping | `packages/web-research-serp` | The source returns HTML you must parse |
-| Keyed JSON API | `packages/web-research-firecrawl` | The source has a REST API and a key |
+| Keyed JSON API | `packages/web-research-tavily`, `packages/web-research-firecrawl` | The source has a REST API and a key |
+| Operator-hosted endpoint | `packages/web-research-searxng` | The operator runs the service themselves — **read the egress trap in step 3 first** |
 | Host capability | `packages/web-research-model` | The source needs something only the app can supply (an LLM, a DB handle) |
+| Owns a process | `packages/web-research-browser` | The adapter holds an OS resource — read step 4 on lifecycle |
 
 ## Steps
 
@@ -69,7 +71,29 @@ export const <vendor>AdapterModule = defineAdapterModule({
 
 Export the descriptor as **both** a named export and the default from `src/index.ts`.
 
-### 3. Obey the four rules that actually matter
+**Your `optionsSchema` is the admin form.** `describeOptionsSchema` reflects over it to render
+**Agents → Web search**, and it only understands `string`, `number`, `boolean`, `enum` and
+`string[]` (plus those wrapped in `.optional()` / `.nullable()` / `.default()`). Anything else —
+a nested `z.object`, a union, a tuple, a record — is **silently dropped from the form**, so the
+operator gets no field and no error. Keep options flat; flatten `retry.attempts` to `retryAttempts`
+rather than nesting it.
+
+**Credential fields are masked by name, not by type.** `apiKey`, `api_key`, `accessToken`,
+`secret`, `password`, `credential` and their plurals are recognised and replaced with a placeholder
+before the settings API answers the browser. A key named `bearer`, `pat`, `licence` or `authCode`
+matches nothing and is **echoed back to every user who can view the settings page**. Name the field
+so it matches, and assert it in a test:
+
+```ts
+expect(describeOptionsSchema(<vendor>AdapterModule).find((f) => f.name === 'apiKey')?.secret).toBe(true)
+```
+
+Be aware of where the value lands: adapter options are persisted through `moduleConfigService`,
+which does **not** encrypt them at rest today. Treat a stored key as readable by anyone with
+database access, and prefer an option that reads from env over one that stores a long-lived
+credential when the vendor supports it.
+
+### 3. Obey the rules that actually matter
 
 These are not style preferences — the scheduler's behaviour depends on each one.
 
@@ -98,10 +122,48 @@ networking bypasses every one of them — prefer calling the vendor's REST endpo
 
 **Keep `readiness()` synchronous and I/O-free.** The scheduler calls it while planning a wave.
 
-Also: honour `context.signal`, respect `request.limit`, and call `context.report(...)` at the
-interesting moments — those lines are what the operator watches live.
+Also: respect `request.limit` and call `context.report(...)` at the interesting moments — those
+lines are what the operator watches live.
 
-### 4. Host capabilities the config cannot express
+**Honour `context.deadlineAt`, not just `context.signal`.** The signal tells you when the engine
+has given up; `deadlineAt` tells you how much budget you had, so you can size your own timeouts
+under it. An adapter with a hardcoded 30s timeout inside an 8s budget does not fail faster — it
+keeps working, and keeps whatever it holds open, long after nobody is listening. Derive every
+internal timeout from `Math.max(0, context.deadlineAt - Date.now())`.
+
+**The SSRF guard blocks private, loopback and link-local targets — with no allowlist.** This is
+the one that surprises people: an adapter for a service the operator runs themselves at
+`http://searxng:8080` or `http://localhost:8080` cannot reach it. `context.http` fails closed on
+every private address, on every redirect hop, and on a hostname that resolves to one. If your
+adapter's `baseUrl` will normally point inside the deployment's own network, say so in the field
+description and in your package README, because today the only working configuration is a
+publicly resolvable host.
+
+### 4. Lifecycle and the cost of a health check
+
+**The engine is built per request and disposed after it.** `agent_orchestrator` constructs a fresh
+engine for every `web_search`, every `web_fetch` and every load of the settings page, then calls
+`engine.dispose()`, which calls yours. Two consequences:
+
+- **Anything you allocate outside a single call must be released in `dispose()`** — a child
+  process, a socket, a browser, an interval. Nothing else will ever release it, and a leak here is
+  one leaked resource *per agent tool call*, not one per boot. `dispose()` must be safe to call
+  when the adapter was never used, and safe to call twice.
+- **Construction must stay cheap and lazy.** `createAdapter(options)` runs on every request, and on
+  a settings page render for every installed adapter, whether or not it is enabled. Do the
+  expensive part on first use, the way `web-research-browser` defers spawning its sidecar.
+
+**`healthCheck()` must be cheap, and it must not be billable.** It runs whenever an operator opens
+or refreshes **Agents → Web search**, once per installed adapter. Prefer a dedicated status or
+quota endpoint. If the vendor has none, prefer reporting `ok` from configuration alone over
+spending a metered search on a probe nobody asked for — a health check that quietly bills the
+tenant for every page view is worse than no health check. Say which one you chose in the package
+README.
+
+Note that `healthCheck` runs for every installed adapter, not just enabled ones, so "the operator
+turned this off" does not protect them from its cost.
+
+### 5. Host capabilities the config cannot express
 
 If the adapter needs something only the app can provide (an LLM, a tenant DB handle), declare it in
 the same schema as a structural check and let the registry merge it in at instantiation:
@@ -128,7 +190,7 @@ detect the specific "asset missing" failure, fetch it once with a bounded timeou
 once, and surface an actionable error if the fetch fails. Keep the fetcher injectable so tests never
 shell out. Until a second adapter needs this, keep it inside the adapter rather than generalizing it.
 
-### 5. Test it
+### 6. Test it
 
 Run the shared conformance suite plus your own behaviour tests:
 
@@ -152,7 +214,12 @@ a malformed payload is `error` not a crash; the vendor's "no hits" is `empty`; `
 `freshness` reach the request. For a SERP adapter add a golden HTML fixture and a nested-inline-
 markup case — that is where parsers break.
 
-### 6. Wire and verify
+If your adapter holds anything, also cover: `dispose()` on an adapter that was never used is a
+no-op rather than a throw, `dispose()` twice is safe, and every field the settings page must render
+survives `describeOptionsSchema` (see step 2 — a nested object disappears silently, and a test is
+the only thing that catches it).
+
+### 7. Wire and verify
 
 ```bash
 yarn install                                        # register the workspace
@@ -171,8 +238,11 @@ from your `optionsSchema`. It ships **disabled** — enabling it is the operator
 ## Never
 
 - Never call `fetch`, `node:https`, or a vendor SDK's own transport.
-- Never throw from `search`, `fetch`, or `readiness`.
+- Never throw from `search`, `fetch`, `readiness`, or `dispose`.
 - Never return `empty` for a failure, or `error` for a missing key.
 - Never import an SDK at module scope, even one you depend on - the generated registry imports this package statically.
 - Never reuse an existing adapter id — the loader rejects the duplicate and the operator sees an adapter silently missing.
 - Never bundle a copy of `@open-mercato/web-research`.
+- Never allocate a process, socket or browser in `createAdapter` — it runs per request, and per installed adapter on every settings page load.
+- Never spend a metered call in `healthCheck()`; it runs on every settings page load, for every installed adapter, enabled or not.
+- Never let an internal timeout outlive `context.deadlineAt`.
