@@ -16,7 +16,7 @@
 | 0 | 0.1 | A1: userTaskConfigSchema accepts assignedToRoles/formKey/allowedActions (roles stop being stripped on save) | done | 6d5f1ef7a |
 | 0 | 0.2 | A9: replace the naive duration parser with the shared duration util | done | addd6fb4b |
 | 0 | 0.3 | A4+A5: declare and emit task events; fix notification recipients for role-assigned tasks; fix deep links | done | a35eb5416 |
-| 0 | 0.4 | A6: inbox actually sends the myTasks filter it defaults to | todo | — |
+| 0 | 0.4 | A6: inbox actually sends the myTasks filter it defaults to | done | 74c515f22 |
 | 0 | 0.5 | A8: task list serializer (proposalId/kind/priority to top level, response superset) | todo | — |
 | 0 | 0.6 | taskHandler DI registration + route migration off direct lib imports (module MUST #1) | todo | — |
 | 1 | 1.1 | Additive userTaskConfig fields: instructions, entityBindings, priority, deadline, reminders, onBreach, decisions, editablePrefilled | todo | — |
@@ -60,6 +60,7 @@ These are deliberately **out of this run**. Each needs a maintainer call, not an
 - **A1 is a hard prerequisite** and lands first: role assignment authored in the Studio is silently discarded on save today (zod strips the undeclared key), so every claim/role-queue/Work-Inbox story is built on sand until 0.1. Same class of silent object-stripping bug Phase 3b found three times.
 - **Notifications are greenfield, not "surfacing"** — the event is undeclared and unemitted, deep links point at a route that does not exist, and role-assigned tasks notify nobody. Size Phase 3 accordingly.
 - **`tableId: 'workflows.tasks.list'` is FROZEN** (BC §6). The Work Inbox must re-emit it or the enterprise Caseload row action silently disappears — and that action is *already* broken (A8), so a naive rewrite would hide the breakage instead of fixing it.
+- **`assignedToRoles` holds role NAMES, not ids** (deferred in 0.4, deliberately). The Studio's `RolesMultiSelect` emits `{ value: name }`, `step-handler` copies those names onto the task, `claimUserTask` and the `myTasks` predicate compare them against `auth.roles` (also names), the shipped `examples/*.json` carry names, and existing `user_tasks` rows store names. Moving to immutable ids is a coordinated data + authored-definition migration, not a query-side edit — a rename silently orphans an assignment until then. Not exploitable by a caller: `auth.roles` is derived server-side from the user's role records.
 - `UserTask` is not in the optimistic-lock curated list, and the UI-coverage guard only matches `PUT|PATCH|DELETE` while every task mutation today is a `POST`. A reassign UI will trip it — wire `buildOptimisticLockHeader`/`surfaceRecordConflict`.
 - Zero unit tests exist today for `lib/task-handler.ts`, all four `api/tasks/**` routes, `notifications.ts`, and the task subscriber. Every step adds them for what it touches.
 - `.ai/tmp/**` is excluded from Playwright discovery — integration specs written in this worktree are not picked up by the repo-root runner.

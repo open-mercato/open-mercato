@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { buildTaskListQueryParams } from '../../lib/task-list-query'
 
 type UserTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
 
@@ -68,14 +69,8 @@ export default function UserTasksListPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['workflow-tasks', 'list', filterValues, page],
     queryFn: async () => {
-      const params = new URLSearchParams()
       const offset = (page - 1) * pageSize
-      params.set('limit', pageSize.toString())
-      params.set('offset', offset.toString())
-
-      if (filterValues.status) params.set('status', filterValues.status as string)
-      if (filterValues.overdue === 'true') params.set('overdue', 'true')
-      if (filterValues.workflowInstanceId) params.set('workflowInstanceId', filterValues.workflowInstanceId as string)
+      const params = buildTaskListQueryParams(filterValues, { limit: pageSize, offset })
 
       const result = await apiCall<TasksResponse>(
         `/api/workflows/tasks?${params.toString()}`
