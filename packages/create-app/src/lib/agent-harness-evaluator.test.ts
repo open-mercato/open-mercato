@@ -703,7 +703,7 @@ if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
 if (!prompt.includes('Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories') || !prompt.includes('an all-guides/all-skills/all-facts read is an automatic failure') || !prompt.includes('selectedSkills names only skills you actually invoked during this evaluation after opening their SKILL.md')) process.exit(10)
 const disabled = args.flatMap((arg, index) => arg === '--disable' ? [args[index + 1]] : [])
-if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || !['skill_search','shell_tool','unified_exec','apps','multi_agent','browser_use','computer_use','image_generation','standalone_web_search'].every((feature) => disabled.includes(feature)) || args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('sandbox_workspace_write.network_access=false') || !args.includes('shell_environment_policy.inherit=none') || !args.includes('mcp_servers.harness.required=true') || !args.includes('mcp_servers.harness.default_tools_approval_mode="approve"') || args[args.indexOf('--model') + 1] !== 'gpt-5.4-mini' || !args.includes('model_reasoning_effort="high"') || !args.some((arg) => arg.startsWith('mcp_servers.harness.command=')) || !args.some((arg) => arg.startsWith('mcp_servers.harness.args=')) || !process.env.CODEX_HOME?.includes('om-harness-result-') || !process.env.HOME?.includes('om-harness-result-')) process.exit(9)
+if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || !['shell_tool','unified_exec','apps','multi_agent','browser_use','computer_use','image_generation','standalone_web_search'].every((feature) => disabled.includes(feature)) || disabled.includes('skill_search') || args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('sandbox_workspace_write.network_access=false') || !args.includes('shell_environment_policy.inherit=none') || !args.includes('mcp_servers.harness.required=true') || !args.includes('mcp_servers.harness.default_tools_approval_mode="approve"') || args[args.indexOf('--model') + 1] !== 'gpt-5.4-mini' || !args.includes('model_reasoning_effort="high"') || !args.some((arg) => arg.startsWith('mcp_servers.harness.command=')) || !args.some((arg) => arg.startsWith('mcp_servers.harness.args=')) || !process.env.CODEX_HOME?.includes('om-harness-result-') || !process.env.HOME?.includes('om-harness-result-')) process.exit(9)
 const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
 const allowedReads = JSON.parse(mcpArgs.at(-2))
 for (const required of ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/testing-debugging.md', '.ai/skills/om-help/SKILL.md', '.ai/skills/om-troubleshooter/SKILL.md', '.ai/skills/om-troubleshooter/references/**']) if (!allowedReads.includes(required)) process.exit(9)
@@ -974,17 +974,16 @@ test('refused instruction-tree enumeration still fails closed above the bounded 
   }
 })
 
-// `--disable` errors on a feature name the installed Codex does not recognize, so a name
-// that has been retired aborts every case — `skill_search` no longer exists in codex-cli
-// 0.144.6 and made the whole Codex lane unusable there. The harness must deny every
-// capability this CLI knows, and must not pass a name it does not.
+// `--disable` errors on a feature name the installed Codex does not recognize. The harness
+// must deny every unsafe capability this CLI knows, while keeping skill_search available
+// because current mini models use it to expose configured MCP tools.
 test('live Codex adapter denies only the feature flags the installed CLI knows', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
-const known = ['shell_tool', 'unified_exec', 'apps', 'multi_agent', 'browser_use', 'computer_use',
+const known = ['skill_search', 'shell_tool', 'unified_exec', 'apps', 'multi_agent', 'browser_use', 'computer_use',
   'image_generation', 'standalone_web_search', 'goals', 'hooks', 'plugins', 'remote_plugin',
   'tool_suggest', 'auth_elicitation', 'unrelated_feature']
 if (args[0] === 'features' && args[1] === 'list') {
@@ -995,10 +994,10 @@ const disabled = args.reduce((names, value, index) => (
   args[index - 1] === '--disable' ? [...names, value] : names
 ), [])
 // Every capability this CLI knows about must be denied...
-for (const name of known.filter((entry) => entry !== 'unrelated_feature')) {
+for (const name of known.filter((entry) => !['unrelated_feature', 'skill_search'].includes(entry))) {
   if (!disabled.includes(name)) process.exit(9)
 }
-// ...and a retired name this CLI would reject must not be passed at all.
+// The discovery gate and an unrelated feature must not be denied.
 if (disabled.includes('skill_search')) process.exit(9)
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['architecture'], selectedSkills: [],

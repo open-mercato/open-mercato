@@ -1662,10 +1662,11 @@ ${caseRecord.prompt}
 // them. `--disable` is deliberate: it errors on a name this CLI does not recognize, so a
 // silent typo can never leave a capability enabled. Feature names come and go across
 // versions, so a name absent from `codex features list` names nothing to disable — passing
-// it anyway aborts every case, which is how `skill_search` broke this lane on codex-cli
-// 0.144.6, where the feature no longer exists.
+// it anyway aborts every case. `skill_search` is intentionally not denied: current mini
+// models require that discovery gate to expose configured MCP tools. Plugins, remote skills,
+// process, apps, browser, and network tools remain denied, while MCP calls stay trace-verified.
 const CODEX_DENIED_FEATURES = Object.freeze([
-  'skill_search', 'shell_tool', 'unified_exec', 'apps', 'multi_agent', 'browser_use',
+  'shell_tool', 'unified_exec', 'apps', 'multi_agent', 'browser_use',
   'computer_use', 'image_generation', 'standalone_web_search', 'goals', 'hooks', 'plugins',
   'remote_plugin', 'tool_suggest', 'auth_elicitation',
 ])
