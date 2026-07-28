@@ -13,7 +13,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
-import { WorkflowDefinition } from '../../../data/entities'
+import { WorkflowDefinition, WorkflowInstance } from '../../../data/entities'
 import {
   updateWorkflowDefinitionInputSchema,
   updateWorkflowDefinitionInputCheckedSchema,
@@ -30,6 +30,11 @@ import { invalidateTriggerCache } from '../../../lib/event-trigger-service'
 import { normalizeDefinitionValidationIssues } from '../../../lib/definition-error-body'
 import { getCodeWorkflow, getAllCodeWorkflows } from '../../../lib/code-registry'
 import { codeWorkflowUuid } from '../../../lib/find-definition'
+import {
+  ACTIVE_WORKFLOW_INSTANCE_STATUSES,
+  buildStructuralEditConflictBody,
+  diffDefinitionStructure,
+} from '../../../lib/definition-edit-safety'
 import { createGenericOptimisticLockReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
@@ -344,6 +349,35 @@ export async function PUT(
         return NextResponse.json(lockError.body, { status: lockError.status })
       }
       throw lockError
+    }
+
+    // Edit-safety rule (spec 4.1). Instances pin this row and the engine
+    // re-reads it on every advance, so a topology rewrite would re-point routes
+    // under a running instance. Structural changes are refused while instances
+    // are still executing; the structured body offers the new-version remedy.
+    // Cosmetic, config and metadata edits stay in-place, and the per-user draft
+    // layer (a separate route) is untouched so work-in-progress stays saveable.
+    if (input.definition !== undefined) {
+      const structuralChanges = diffDefinitionStructure(definition.definition, input.definition)
+      if (structuralChanges.length > 0) {
+        const activeInstanceCount = await em.count(WorkflowInstance, {
+          definitionId: definition.id,
+          status: { $in: [...ACTIVE_WORKFLOW_INSTANCE_STATUSES] },
+          tenantId,
+          organizationId,
+          deletedAt: null,
+        })
+        if (activeInstanceCount > 0) {
+          return NextResponse.json(
+            buildStructuralEditConflictBody({
+              definitionId: definition.id,
+              activeInstanceCount,
+              changes: structuralChanges,
+            }),
+            { status: 409 },
+          )
+        }
+      }
     }
 
     // Update fields. workflowId is intentionally ignored — it identifies the
@@ -788,6 +822,25 @@ export const openApi = {
           schema: workflowErrorSchema,
           example: {
             error: 'Workflow definition not found',
+          },
+        },
+        {
+          status: 409,
+          description:
+            'Structural change refused while instances are still running (or optimistic-lock conflict). Publish a new version and apply the change there.',
+          schema: workflowErrorSchema,
+          example: {
+            error: 'Structural changes require a new version while instances are still running',
+            code: 'WORKFLOW_STRUCTURAL_EDIT_REQUIRES_NEW_VERSION',
+            definitionId: '123e4567-e89b-12d3-a456-426614174000',
+            activeInstanceCount: 3,
+            activeStatuses: ['RUNNING', 'PAUSED', 'WAITING_FOR_ACTIVITIES', 'FORKED', 'COMPENSATING'],
+            changes: [{ kind: 'transitionRetargeted', id: 't_lz3k9_ab12cd34e' }],
+            remedy: {
+              action: 'createVersion',
+              method: 'POST',
+              endpoint: '/api/workflows/definitions/123e4567-e89b-12d3-a456-426614174000/publish',
+            },
           },
         },
       ],

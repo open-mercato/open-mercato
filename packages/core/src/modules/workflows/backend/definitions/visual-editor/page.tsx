@@ -19,6 +19,7 @@ import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } 
 import { buildDefinitionPayload, buildMetadataPayload } from '../../../lib/definition-payload'
 import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from '../../../lib/interpolation-pipeline'
 import { ERROR_SOURCE_HANDLE_ID } from '../../../lib/error-routing'
+import { STRUCTURAL_EDIT_CONFLICT_CODE } from '../../../lib/definition-edit-safety'
 import { DefinitionErrorHandlerField } from '../../../components/DefinitionErrorHandlerField'
 import type { WorkflowErrorHandlerConfig } from '../../../data/validators'
 import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard'
@@ -193,6 +194,36 @@ async function loadSubWorkflowContracts(
 
 const PALETTE_NODE_TYPES = ['start', 'userTask', 'automated', 'invokeAgent', 'ifElse', 'switch', 'waitForSignal', 'waitForTimer', 'waitForCondition', 'subWorkflow', 'end'] as const
 
+/** Body of a definition update — shared by explicit Save and the quiet autosave. */
+type DefinitionUpdateBody = {
+  workflowName: string
+  description: string | null
+  version: number
+  definition: ReturnType<typeof buildDefinitionPayload>
+  metadata: ReturnType<typeof buildMetadataPayload>
+  enabled: boolean
+  effectiveFrom: string | null
+  effectiveTo: string | null
+}
+
+/**
+ * Edit-safety rule (spec 4.1): the definition PUT refuses a topology change
+ * while instances are still executing this version. The refusal is a dead end
+ * without its remedy, so the rejected payload rides along and is re-applied to
+ * the freshly minted version.
+ */
+type StructuralEditConflict = {
+  activeInstanceCount: number
+  payload: DefinitionUpdateBody
+}
+
+function readStructuralEditConflictCount(status: number, body: unknown): number | null {
+  if (status !== 409) return null
+  const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : null
+  if (!record || record.code !== STRUCTURAL_EDIT_CONFLICT_CODE) return null
+  return typeof record.activeInstanceCount === 'number' ? record.activeInstanceCount : 0
+}
+
 export default function VisualEditorPage() {
   const t = useT()
   const router = useRouter()
@@ -218,6 +249,8 @@ export default function VisualEditorPage() {
   const [showMetadata, setShowMetadata] = useState(true)
   const [isCompactViewport, setIsCompactViewport] = useState(false)
   const [autosaveState, setAutosaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [structuralConflict, setStructuralConflict] = useState<StructuralEditConflict | null>(null)
+  const [isCreatingVersion, setIsCreatingVersion] = useState(false)
   // Debounced autosave-on-drag plumbing. `performAutosaveRef` is reassigned each
   // render so the debounced timer always runs the latest closure (no stale nodes).
   const autosaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1118,26 +1151,28 @@ export default function VisualEditorPage() {
       const isUpdate = !!definitionId
 
       let result
+      let updateBody: DefinitionUpdateBody | null = null
       if (isUpdate) {
         // Update existing definition — send the full editable payload so metadata
         // edits (name, description, version, category, tags, icon, effective
         // dates) actually persist. Previously only `definition` + `enabled`
         // were sent, silently dropping every other field.
+        updateBody = {
+          workflowName,
+          description: description || null,
+          version,
+          definition: definitionData,
+          metadata: metadataPayload,
+          enabled,
+          effectiveFrom: effectiveFrom || null,
+          effectiveTo: effectiveTo || null,
+        }
         result = await withScopedApiRequestHeaders(
           buildOptimisticLockHeader(updatedAt),
           () => apiCall<{ data: any; error?: string }>(`/api/workflows/definitions/${definitionId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              workflowName,
-              description: description || null,
-              version,
-              definition: definitionData,
-              metadata: metadataPayload,
-              enabled,
-              effectiveFrom: effectiveFrom || null,
-              effectiveTo: effectiveTo || null,
-            }),
+            body: JSON.stringify(updateBody),
           }),
         )
       } else {
@@ -1160,6 +1195,11 @@ export default function VisualEditorPage() {
       }
 
       if (!result.ok) {
+        const activeInstanceCount = readStructuralEditConflictCount(result.status, result.result)
+        if (activeInstanceCount !== null && updateBody) {
+          setStructuralConflict({ activeInstanceCount, payload: updateBody })
+          return
+        }
         const conflictError = Object.assign(new Error(t('workflows.messages.saveFailed', 'Failed to save')), {
           status: result.status,
           ...(result.result && typeof result.result === 'object' ? result.result : {}),
@@ -1169,6 +1209,8 @@ export default function VisualEditorPage() {
         }
         return
       }
+
+      setStructuralConflict(null)
 
       const savedDefinition = result.result?.data
 
@@ -1238,6 +1280,17 @@ export default function VisualEditorPage() {
 
     const metadataPayload = buildMetadataPayload({ loadedMetadata, tags, category, icon, definition: definitionData })
 
+    const updateBody: DefinitionUpdateBody = {
+      workflowName,
+      description: description || null,
+      version,
+      definition: definitionData,
+      metadata: metadataPayload,
+      enabled,
+      effectiveFrom: effectiveFrom || null,
+      effectiveTo: effectiveTo || null,
+    }
+
     setAutosaveState('saving')
     try {
       const result = await withScopedApiRequestHeaders(
@@ -1245,21 +1298,20 @@ export default function VisualEditorPage() {
         () => apiCall<{ data: any; error?: string }>(`/api/workflows/definitions/${definitionId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            workflowName,
-            description: description || null,
-            version,
-            definition: definitionData,
-            metadata: metadataPayload,
-            enabled,
-            effectiveFrom: effectiveFrom || null,
-            effectiveTo: effectiveTo || null,
-          }),
+          body: JSON.stringify(updateBody),
         }),
       )
 
       if (!result.ok) {
         setAutosaveState('idle')
+        // A quiet autosave carrying a structural change hits the same edit-safety
+        // rule as Save. Surfacing the banner here keeps the author from watching
+        // "Saved" never appear with no explanation.
+        const activeInstanceCount = readStructuralEditConflictCount(result.status, result.result)
+        if (activeInstanceCount !== null) {
+          setStructuralConflict({ activeInstanceCount, payload: updateBody })
+          return
+        }
         const conflictError = Object.assign(new Error('[internal] workflow autosave failed'), {
           status: result.status,
           ...(result.result && typeof result.result === 'object' ? result.result : {}),
@@ -1267,6 +1319,8 @@ export default function VisualEditorPage() {
         surfaceRecordConflict(conflictError, t)
         return
       }
+
+      setStructuralConflict(null)
 
       const savedDefinition = result.result?.data
       if (typeof savedDefinition?.updatedAt === 'string') {
@@ -1285,6 +1339,66 @@ export default function VisualEditorPage() {
     const timer = setTimeout(() => setAutosaveState('idle'), 2000)
     return () => clearTimeout(timer)
   }, [autosaveState])
+
+  // Remedy for the edit-safety rule: mint the next version from the stored
+  // definition (the same machinery Publish uses), apply the rejected edit to
+  // that fresh row, and continue editing it. Instances that pinned the previous
+  // row keep executing the definition they started on.
+  const handleCreateVersion = useCallback(async () => {
+    if (!definitionId || !structuralConflict) return
+    setIsCreatingVersion(true)
+    try {
+      const publishResult = await apiCall<{ data?: { id?: string; version?: number; updatedAt?: string }; error?: string }>(
+        `/api/workflows/definitions/${definitionId}/publish`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+      )
+      const mintedVersion = publishResult.result?.data
+      if (!publishResult.ok || !mintedVersion?.id) {
+        flash(
+          publishResult.result?.error
+            || t('workflows.visualEditor.editSafety.createVersionFailed', 'Could not create a new version.'),
+          'error',
+        )
+        return
+      }
+
+      const nextVersion = mintedVersion.version ?? version
+      const saveResult = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(mintedVersion.updatedAt ?? null),
+        () => apiCall<{ data?: { updatedAt?: string }; error?: string }>(
+          `/api/workflows/definitions/${mintedVersion.id}`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...structuralConflict.payload, version: nextVersion }),
+          },
+        ),
+      )
+      if (!saveResult.ok) {
+        flash(
+          formatWorkflowValidationError(
+            saveResult.result,
+            t('workflows.visualEditor.editSafety.createVersionFailed', 'Could not create a new version.'),
+          ),
+          'error',
+        )
+        return
+      }
+
+      setStructuralConflict(null)
+      setVersion(nextVersion)
+      setUpdatedAt(saveResult.result?.data?.updatedAt ?? null)
+      flash(
+        t('workflows.visualEditor.editSafety.createVersionSucceeded', 'Version {version} created. Your changes were saved there.', {
+          version: String(nextVersion),
+        }),
+        'success',
+      )
+      router.replace(`/backend/definitions/visual-editor?id=${encodeURIComponent(mintedVersion.id)}`)
+    } finally {
+      setIsCreatingVersion(false)
+    }
+  }, [definitionId, structuralConflict, version, router, t])
 
   // Customize a code-defined workflow → creates an override and reloads the
   // editor pointed at the new UUID. Mirrors the non-visual edit page button.
@@ -1584,6 +1698,37 @@ export default function VisualEditorPage() {
     </>
   )
 
+  const structuralConflictBanner = structuralConflict ? (
+    <div className="shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3">
+      <Alert variant="warning">
+        <AlertTitle>
+          {t('workflows.visualEditor.editSafety.bannerTitle', 'This change needs a new version')}
+        </AlertTitle>
+        <AlertDescription>
+          {t(
+            'workflows.visualEditor.editSafety.bannerDescription',
+            '{count} instance(s) are still running on this version. Changing the steps or routes would re-point them mid-flight, so the change is saved to a new version instead.',
+            { count: String(structuralConflict.activeInstanceCount) },
+          )}
+        </AlertDescription>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button size="sm" onClick={handleCreateVersion} disabled={isCreatingVersion} className="h-8 text-xs">
+            {t('workflows.visualEditor.editSafety.createVersion', 'Create version')}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setStructuralConflict(null)}
+            disabled={isCreatingVersion}
+            className="h-8 text-xs"
+          >
+            {t('workflows.visualEditor.editSafety.keepEditing', 'Keep editing')}
+          </Button>
+        </div>
+      </Alert>
+    </div>
+  ) : null
+
   const draftRestoreBanner = pendingDraft ? (
     <div className="shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3">
       <Alert variant="info">
@@ -1672,6 +1817,7 @@ export default function VisualEditorPage() {
   if (isMobile) {
     return (
       <Page className="flex h-[100svh] flex-col space-y-0 overflow-hidden">
+        {structuralConflictBanner}
         {draftRestoreBanner}
         <MobileVisualEditor
           definitionId={definitionId}
@@ -1884,6 +2030,9 @@ export default function VisualEditorPage() {
           )}
         </div>
       )}
+
+      {/* Edit-safety rule: structural change refused while instances run (spec §4.1) */}
+      {structuralConflictBanner}
 
       {/* Per-user draft restore banner (spec §4.7) */}
       {draftRestoreBanner}

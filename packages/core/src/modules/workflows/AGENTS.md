@@ -149,6 +149,25 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - Design rationale and the ordering/durability/recursion/branch decisions:
   `.ai/runs/2026-07-27-workflows-ux-phase2b-3/DESIGN-error-handler.md`.
 
+## Route Identity & Edit Safety
+
+- **Transition ids are opaque and durable.** `generateTransitionId()` mints `t_<unique>`; it no longer
+  derives ids from endpoints. Legacy `e_<from>_<to>` ids stay valid forever — stored definitions,
+  `examples/`, and templates keep their ids through load/save, and the engine treats every transition
+  id as an opaque string (`pendingTransition`, `WorkflowBranchInstance.branchKey`). MUST NOT rewrite
+  stored ids outside Customize.
+- **Structural edits need a new version.** A `WorkflowInstance` pins `definitionId` and the engine
+  re-reads that row on every advance, so `PUT /api/definitions/[id]` refuses a topology change while
+  instances are executing. `lib/definition-edit-safety.ts` (PURE) owns the decision: topology =
+  step ids + step types + fork/join wiring + transition ids/endpoints/`kind`. Labels, positions,
+  activity config, conditions, priorities, triggers and metadata are NOT structural and always save
+  in place. Active statuses: `RUNNING`, `PAUSED`, `WAITING_FOR_ACTIVITIES`, `FORKED`, `COMPENSATING`.
+  The refusal is a structured 409 (`code: WORKFLOW_STRUCTURAL_EDIT_REQUIRES_NEW_VERSION`) naming the
+  publish endpoint as the remedy; the Studio surfaces it as a banner whose "Create version" mints the
+  next version and re-applies the rejected edit there.
+- The guard fires on the definition PUT only. The per-user draft route
+  (`api/definitions/[id]/draft`) is never blocked — work-in-progress must stay saveable.
+
 ## Environment
 
 | Variable | Effect | Default |
