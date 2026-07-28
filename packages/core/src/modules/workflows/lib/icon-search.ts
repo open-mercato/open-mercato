@@ -46,7 +46,7 @@ export function normalizeIconName(value: string | null | undefined): string {
 /**
  * Filter icon names by query, ranking a prefix match above a substring match so
  * typing "cart" surfaces `cart` before `shopping-cart`. Names are compared
- * pairwise for ordering — never `.sort()` on a shared array (#3620).
+ * pairwise for ordering — never an uncompared sort on a shared array (#3620).
  */
 export function filterIconNames(
   names: readonly string[],
