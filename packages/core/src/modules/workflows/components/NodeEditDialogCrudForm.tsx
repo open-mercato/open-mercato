@@ -26,6 +26,7 @@ import { TemplateTextControl } from './fields/TemplateTextControl'
 import { TaskEntityBindingsField } from './fields/TaskEntityBindingsField'
 import { TaskAssignmentField } from './fields/TaskAssignmentField'
 import { TaskOnBreachField, TaskRemindersField } from './fields/TaskDeadlineFields'
+import { TaskDecisionsField, TaskEditablePrefilledField } from './fields/TaskDecisionsField'
 import { TASK_PRIORITY_VALUES } from '../lib/task-inspector-config'
 import type { RouteOrderEntry } from '../lib/route-priority'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
@@ -422,7 +423,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           title: t('workflows.tasks.inspector.decisions.title'),
           column: 1,
           description: t('workflows.form.descriptions.formFields'),
-          fields: ['formFields', 'formKey'],
+          fields: ['taskDecisions', 'formFields', 'taskEditablePrefilled', 'formKey'],
         },
         {
           id: 'basic',
@@ -753,6 +754,18 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       label: t('workflows.tasks.inspector.when.onBreach'),
       type: 'custom',
       component: (props) => <TaskOnBreachField {...props} routeOrder={routeOrder} />,
+    },
+    {
+      id: 'taskDecisions',
+      label: t('workflows.tasks.inspector.decisions.label'),
+      type: 'custom',
+      component: (props) => <TaskDecisionsField {...props} routeOrder={routeOrder} />,
+    },
+    {
+      id: 'taskEditablePrefilled',
+      label: t('workflows.tasks.inspector.decisions.editablePrefilled'),
+      type: 'custom',
+      component: (props) => <TaskEditablePrefilledField {...props} />,
     },
     {
       id: 'formFields',

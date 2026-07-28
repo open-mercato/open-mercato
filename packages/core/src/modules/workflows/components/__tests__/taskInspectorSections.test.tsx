@@ -40,7 +40,16 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
 
-function renderInspector(data: Record<string, unknown>, onSave = jest.fn()) {
+const outgoingRoutes = [
+  { transitionId: 't_approve', toStepId: 'paid', label: 'Approved', priority: 0, hasCondition: false, isOtherwise: false },
+  { transitionId: 't_reject', toStepId: 'closed', label: 'Rejected', priority: 1, hasCondition: true, isOtherwise: false },
+]
+
+function renderInspector(
+  data: Record<string, unknown>,
+  onSave = jest.fn(),
+  routeOrder?: typeof outgoingRoutes,
+) {
   renderWithProviders(
     <NodeEditDialogCrudForm
       node={{ id: 'approve-refund', type: 'userTask', position: { x: 0, y: 0 }, data } as any}
@@ -48,6 +57,7 @@ function renderInspector(data: Record<string, unknown>, onSave = jest.fn()) {
       onClose={jest.fn()}
       onSave={onSave}
       onDelete={jest.fn()}
+      routeOrder={routeOrder}
     />,
   )
   return onSave
@@ -180,6 +190,75 @@ describe('task inspector — the five §6.1 sections', () => {
     const [, updates] = onSave.mock.calls[0] as [string, Record<string, any>]
     expect(updates.userTaskConfig.deadline).toEqual({ duration: 'PT4H' })
     expect(updates.userTaskConfig.slaDuration).toBeUndefined()
+  })
+
+  it('Decisions: an authored button keeps its durable id and route through a save', async () => {
+    const stored = [{ id: 'd_approve', label: 'Approve', transitionId: 't_approve', style: 'primary' }]
+    const onSave = renderInspector(
+      { stepName: 'Approve refund', decisions: stored, userTaskConfig: { decisions: stored } },
+      jest.fn(),
+      outgoingRoutes,
+    )
+
+    expect(screen.getByText('d_approve')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('workflows.tasks.inspector.decisions.buttonLabel'), {
+      target: { value: 'Approve the refund' },
+    })
+    save()
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    const [, updates] = onSave.mock.calls[0] as [string, Record<string, any>]
+    expect(updates.userTaskConfig.decisions).toEqual([
+      { id: 'd_approve', label: 'Approve the refund', transitionId: 't_approve', style: 'primary' },
+    ])
+  })
+
+  it('Decisions: a button whose route was deleted says so instead of losing the binding', async () => {
+    const stored = [{ id: 'd_approve', label: 'Approve', transitionId: 't_gone' }]
+    const onSave = renderInspector(
+      { stepName: 'Approve refund', decisions: stored, userTaskConfig: { decisions: stored } },
+      jest.fn(),
+      outgoingRoutes,
+    )
+
+    expect(screen.getByText('workflows.tasks.inspector.decisions.routeMissing')).toBeInTheDocument()
+
+    save()
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    const [, updates] = onSave.mock.calls[0] as [string, Record<string, any>]
+    expect(updates.userTaskConfig.decisions).toEqual([
+      { id: 'd_approve', label: 'Approve', transitionId: 't_gone' },
+    ])
+  })
+
+  it('Decisions: the approval preset fills in Approve/Reject, a comment field and a binding prompt', async () => {
+    const onSave = renderInspector({ stepName: 'Approve refund' }, jest.fn(), outgoingRoutes)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'workflows.tasks.inspector.decisions.applyApprovalPreset' }),
+    )
+    save()
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    const [, updates] = onSave.mock.calls[0] as [string, Record<string, any>]
+    const decisions = updates.userTaskConfig.decisions as Array<Record<string, unknown>>
+
+    expect(decisions.map((decision) => [decision.label, decision.transitionId, decision.style])).toEqual([
+      ['workflows.tasks.inspector.decisions.presetApprove', 't_approve', 'primary'],
+      ['workflows.tasks.inspector.decisions.presetReject', 't_reject', 'destructive'],
+    ])
+    expect(updates.userTaskConfig.formSchema.fields).toEqual([
+      {
+        name: 'comment',
+        type: 'textarea',
+        label: 'workflows.tasks.inspector.decisions.presetComment',
+        required: false,
+      },
+    ])
+    // The binding row it seeds is empty on purpose — the preset prompts for the
+    // record, it does not guess one — so nothing is persisted for it.
+    expect(updates.userTaskConfig.entityBindings).toBeUndefined()
+    expect(screen.getByLabelText('workflows.tasks.inspector.bindings.entityType')).toBeInTheDocument()
   })
 
   it('a step with none of the new fields saves the config it always saved', async () => {

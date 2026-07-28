@@ -32,6 +32,8 @@ export type FlowLogicWarningCode =
   | 'duplicateBranchingCase'
   | 'conditionUnknownPath'
   | 'unmappedStepConfig'
+  | 'taskDecisionUnknownRoute'
+  | 'taskDecisionDuplicateId'
 
 export interface FlowLogicWarning {
   code: FlowLogicWarningCode
@@ -176,6 +178,71 @@ export function collectUnmappedStepConfigWarnings(definition: FlowLogicDefinitio
   return warnings
 }
 
+/**
+ * Decision buttons that no longer describe a choice the engine can make
+ * (spec §6.1, section 5).
+ *
+ * A decision is bound to a transition's DURABLE id, so route reordering,
+ * relabelling and endpoint reattachment all leave it intact by construction.
+ * What CAN break it is deleting the route, or rewiring it to leave a different
+ * step — and both are ordinary editing gestures, so this is a WARNING like
+ * every other flow-logic check: the definition stays saveable and the author
+ * decides whether to re-point the button or drop it.
+ *
+ * The check is against the step's OUTGOING routes rather than every transition
+ * in the definition, because completing a task advances from that step: a
+ * decision pointing anywhere else could never be followed.
+ */
+export function collectTaskDecisionWarnings(definition: FlowLogicDefinition): FlowLogicWarning[] {
+  const warnings: FlowLogicWarning[] = []
+  const outgoingByStepId = new Map<string, Set<string>>()
+
+  for (const transition of asArray(definition.transitions)) {
+    const fromStepId = readString(transition, 'fromStepId')
+    const transitionId = readString(transition, 'transitionId')
+    if (!fromStepId || !transitionId) continue
+    const existing = outgoingByStepId.get(fromStepId)
+    if (existing) existing.add(transitionId)
+    else outgoingByStepId.set(fromStepId, new Set([transitionId]))
+  }
+
+  asArray(definition.steps).forEach((step, stepIndex) => {
+    const stepId = readString(step, 'stepId')
+    if (!stepId) return
+    const config = (step as { userTaskConfig?: unknown }).userTaskConfig
+    if (!config || typeof config !== 'object') return
+    const decisions = asArray((config as Record<string, unknown>).decisions)
+    if (decisions.length === 0) return
+
+    const outgoing = outgoingByStepId.get(stepId) ?? new Set<string>()
+    const seenIds = new Set<string>()
+
+    for (const decision of decisions) {
+      const decisionId = readString(decision, 'id')
+      const transitionId = readString(decision, 'transitionId')
+      if (decisionId) {
+        if (seenIds.has(decisionId)) {
+          warnings.push({
+            code: 'taskDecisionDuplicateId',
+            path: ['steps', stepIndex],
+            params: { stepId, decisionId },
+          })
+        }
+        seenIds.add(decisionId)
+      }
+      if (transitionId && !outgoing.has(transitionId)) {
+        warnings.push({
+          code: 'taskDecisionUnknownRoute',
+          path: ['steps', stepIndex],
+          params: { stepId, decisionId: decisionId ?? '', transitionId },
+        })
+      }
+    }
+  })
+
+  return warnings
+}
+
 /** Error-route problems (spec 5.9), mapped onto the transition that carries them. */
 export function collectErrorRouteWarnings(definition: FlowLogicDefinition): FlowLogicWarning[] {
   const transitions = asArray(definition.transitions)
@@ -212,6 +279,7 @@ export function collectFlowLogicWarnings(
   const warnings: FlowLogicWarning[] = [
     ...collectErrorRouteWarnings(definition),
     ...collectUnmappedStepConfigWarnings(definition),
+    ...collectTaskDecisionWarnings(definition),
     ...collectBranchingRouteWarnings(definition).map<FlowLogicWarning>((warning) => ({
       code: 'branchingWithoutOtherwise',
       path: warning.path,
