@@ -26,6 +26,7 @@
 | 5 | 5.12 | `administrativeQueueFeature` on the provider + enterprise registers its own source | done | `cfb89fe8e` |
 | 5 | 5.13 | Author-time Problems checks on USER_TASK bindings | done | `babbb5b40` |
 | 5 | 5.14 | Inbox diagnostics: "hidden — entity access" marker (workload aggregate n/a — no such surface exists) | done | `57cbca082` |
+| 5 | 5.15 | Correction: owner-less USER_TASK is a warning, not a save-blocking error | done | `39215ed21` |
 | 6 | 6.1 | Portal ACL features + portal task routes (list/get/complete) | todo | — |
 | 6 | 6.2 | Portal task pages + nav + `portalBroadcast` live updates | todo | — |
 | 7 | 7.1 | Integration + Playwright suites (design §10.3/§10.4) | todo | — |

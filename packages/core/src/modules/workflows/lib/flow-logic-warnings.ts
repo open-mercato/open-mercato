@@ -49,16 +49,22 @@ export interface FlowLogicWarning {
   path: Array<string | number>
   params: Record<string, string>
   /**
-   * `'error'` for the two §6.4 checks that describe a definition the ENGINE
-   * cannot run to completion, `undefined` (⇒ warning) for everything else.
+   * `'error'` for the ONE §6.4 check that describes an authoring mistake with no
+   * runtime remedy, `undefined` (⇒ warning) for everything else.
    *
    * The standing module rule is that flow-logic findings never block a save,
    * because flow logic is transition sugar and a path a later edit will provide
-   * must not trap work in an unsaveable state. The task-ownership and
-   * unknown-entity-type checks are a different kind of finding: they do not say
-   * "this may not be what you meant", they say "no principal can ever complete
-   * this task", and the run stalls at that step forever. That is the same class
-   * as a missing START, which `validateWorkflowGraph` has always made an error.
+   * must not trap work in an unsaveable state. The unknown-entity-type check is
+   * the one finding that earns an exception: a type the gate cannot normalize
+   * hides the task from its own assignee silently, and nothing at runtime can
+   * repair it — only re-authoring the binding can.
+   *
+   * An owner-less task is deliberately NOT an error, even though the run parks
+   * at it. Reassignment (`POST /api/workflows/tasks/[id]/reassign`) is the
+   * runtime remedy, the act routes already refuse clearly with a 403 that names
+   * it rather than failing silently, and definitions authored before this check
+   * existed must not become unsaveable to an author who opened one to fix
+   * something unrelated.
    */
   severity?: 'error' | 'warning'
 }
@@ -322,14 +328,22 @@ function assignedRoleNames(config: Record<string, unknown>): string[] {
 }
 
 /**
- * A USER_TASK naming neither an assignee nor a role queue — an ERROR.
+ * A USER_TASK naming neither an assignee nor a role queue — a WARNING.
  *
  * Under §6.4 a task is actionable by the principal it belongs to, and this one
  * belongs to nobody: not an assignee, not a claimant, not a queue member. The
  * act routes refuse it with `TASK_NOT_ACTIONABLE` and administration widens
  * seeing without ever widening acting, so the workflow parks at that step until
- * somebody reassigns the row by hand. Catching it in the editor is the whole
- * point — the alternative is discovering it on a live instance.
+ * somebody takes the row. Catching it in the editor is the whole point — the
+ * alternative is discovering it on a live instance.
+ *
+ * It stays a WARNING rather than blocking the save, for three reasons:
+ * reassignment is a shipped runtime remedy, so a parked task is recoverable
+ * without re-authoring; the act routes refuse it loudly and name that remedy
+ * instead of failing silently; and a definition authored before this check
+ * existed would otherwise become unsaveable to an author who opened it to fix
+ * something entirely unrelated. Unresolvable binding types keep their error
+ * severity — those have no runtime remedy at all.
  *
  * `assignmentRule` counts as an owner: it defers assignment to a business rule
  * the engine resolves at task creation, so the definition does name a source of
@@ -355,7 +369,7 @@ export function collectTaskOwnerWarnings(definition: FlowLogicDefinition): FlowL
       code: 'taskWithoutOwner',
       path: ['steps', stepIndex],
       params: { stepId },
-      severity: 'error',
+      severity: 'warning',
     })
   })
 

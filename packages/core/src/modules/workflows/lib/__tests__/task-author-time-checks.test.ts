@@ -5,16 +5,18 @@
  * definition itself, which means two authoring mistakes that used to be
  * harmless now stall a run:
  *
+ * - **A binding whose type resolves to nothing.** The gate refuses what it
+ *   cannot normalize, so a typo hides the task from its own assignee, silently,
+ *   and no runtime action can repair it — only re-authoring the binding can.
+ *   The one ERROR here, and the one finding that blocks a save.
  * - **A task naming nobody.** No assignee and no role queue: the act routes
  *   refuse it with `TASK_NOT_ACTIONABLE`, administration widens seeing without
- *   ever widening acting, and the instance parks there until somebody reassigns
- *   the row by hand. An ERROR, because it is the same class of finding as a
- *   missing START — the engine can never advance past it.
- * - **A binding whose type resolves to nothing.** The gate refuses what it
- *   cannot normalize, so a typo hides the task from its own assignee, silently.
- *   Also an ERROR.
+ *   ever widening acting, and the instance parks there until somebody takes the
+ *   row. A WARNING: reassignment is a shipped runtime remedy, the refusal names
+ *   it rather than failing silently, and definitions authored before this check
+ *   existed must not become unsaveable to an author fixing something unrelated.
  *
- * The third check — a binding the assignee's roles cannot view — stays a
+ * The third check — a binding the assignee's roles cannot view — is likewise a
  * WARNING: role feature sets are tenant data that change after authoring, and
  * the author is usually not the person who grants features.
  *
@@ -50,12 +52,13 @@ function codesOf(warnings: ReturnType<typeof collectTaskOwnerWarnings>) {
 }
 
 describe('a task nobody owns', () => {
-  test('fires as an ERROR when neither an assignee nor a queue is named', () => {
+  test('fires as a WARNING when neither an assignee nor a queue is named', () => {
     const warnings = collectTaskOwnerWarnings(makeDefinition([makeTaskStep({ formKey: 'approval' })]))
 
     expect(warnings).toHaveLength(1)
     expect(warnings[0].code).toBe('taskWithoutOwner')
-    expect(warnings[0].severity).toBe('error')
+    // Reassignment is the runtime remedy, so this reports rather than blocks.
+    expect(warnings[0].severity).toBe('warning')
     expect(warnings[0].params.stepId).toBe('approve')
     // Mapped onto the step so the Problems panel can select the node.
     expect(warnings[0].path).toEqual(['steps', 0])
@@ -260,14 +263,22 @@ describe('the combined set', () => {
     expect(collectFlowLogicWarnings(definition)).toEqual([])
   })
 
-  test('both errors surface together through the shared collector', () => {
+  test('both checks surface together through the shared collector, at their own severities', () => {
     const definition = makeDefinition([
       makeTaskStep({ entityBindings: [{ entityType: 'not an entity' }] }),
     ])
 
-    expect(codesOf(collectFlowLogicWarnings(definition)).sort()).toEqual([
+    const warnings = collectFlowLogicWarnings(definition)
+
+    expect(codesOf(warnings).sort()).toEqual([
       'taskBindingUnknownEntityType',
       'taskWithoutOwner',
     ])
+    expect(
+      Object.fromEntries(warnings.map((warning) => [warning.code, warning.severity])),
+    ).toEqual({
+      taskBindingUnknownEntityType: 'error',
+      taskWithoutOwner: 'warning',
+    })
   })
 })
