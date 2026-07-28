@@ -18,6 +18,13 @@ export type TaskListPagination = {
 const TEXT_FILTERS = ['status', 'workflowInstanceId'] as const
 const FLAG_FILTERS = ['myTasks', 'overdue'] as const
 
+/**
+ * @deprecated The inbox moved to `/backend/work-inbox`; use
+ * `buildWorkInboxListQueryParams` from `lib/work-inbox/query.ts`, which forwards
+ * the kind/module/entity-type/role filters the Work Inbox adds. Kept exported
+ * because import paths are a frozen contract surface
+ * (BACKWARD_COMPATIBILITY.md §3) and `GET /api/workflows/tasks` still exists.
+ */
 export function buildTaskListQueryParams(
   filters: TaskListFilterValues,
   pagination: TaskListPagination,

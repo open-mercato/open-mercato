@@ -33,6 +33,45 @@ function prioritiesOrNull(raw: string | null): WorkInboxPriority[] | null {
  * `myWork` also answers to `myTasks`, the name the shipped task inbox has always
  * sent, so a bookmarked filter keeps meaning what it meant.
  */
+/** Filter ids the inbox page offers, in the order they appear in the filter bar. */
+export const WORK_INBOX_TEXT_FILTERS = [
+  'kind',
+  'module',
+  'entityType',
+  'role',
+  'priority',
+  'status',
+] as const
+
+export const WORK_INBOX_FLAG_FILTERS = ['overdue', 'myWork'] as const
+
+export type WorkInboxFilterValues = Record<string, unknown>
+
+/**
+ * Client → server filter forwarding, kept outside the page for the same reason
+ * `lib/task-list-query.ts` is: forwarding only a subset is silent, and the view
+ * then claims a narrowing it never asked the server for.
+ */
+export function buildWorkInboxListQueryParams(
+  filters: WorkInboxFilterValues,
+  pagination: { limit: number; offset: number },
+): URLSearchParams {
+  const params = new URLSearchParams()
+  params.set('limit', String(Math.min(pagination.limit, WORK_INBOX_MAX_LIMIT)))
+  params.set('offset', String(pagination.offset))
+
+  for (const key of WORK_INBOX_TEXT_FILTERS) {
+    const value = filters[key]
+    if (typeof value === 'string' && value.length > 0) params.set(key, value)
+  }
+
+  for (const key of WORK_INBOX_FLAG_FILTERS) {
+    if (filters[key] === 'true') params.set(key, 'true')
+  }
+
+  return params
+}
+
 export function parseWorkInboxQuery(searchParams: URLSearchParams, now: Date): WorkInboxQuery {
   const limit = Math.min(
     parseNumberWithDefault(searchParams.get('limit'), WORK_INBOX_DEFAULT_LIMIT, {

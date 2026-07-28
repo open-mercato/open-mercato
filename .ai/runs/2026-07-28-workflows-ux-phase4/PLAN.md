@@ -26,7 +26,7 @@
 | 1 | 1.5 | Decision buttons bound to durable transition ids + approval preset | done | 78d8853e6 |
 | 2 | 2.1 | WorkInboxSourceProvider contract + registry + user_task source + workInboxService DI | done | 55e300ad8 |
 | 2 | 2.2 | GET /api/workflows/work-inbox (provider merge, filters, sort, limit clamp) | done | 96b993533 |
-| 2 | 2.3 | Work Inbox page + backend/tasks bridge redirect (tableId preserved) + DS badge cleanup | todo | — |
+| 2 | 2.3 | Work Inbox page + backend/tasks bridge redirect (tableId preserved) + DS badge cleanup | done | 5b424f1d2 |
 | 2 | 2.4 | Task detail: decision + context side-by-side, claim button, next-task loop | todo | — |
 | 2 | 2.5 | EntityContextPanel + pending-work record-page widget + CustomerTodoLink phase-in | todo | — |
 | 3 | 3.1 | Task SLA scheduler on the Phase-3a absolute-deadline queue backstop (reminders + breach) | todo | — |

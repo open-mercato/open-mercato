@@ -54,11 +54,20 @@ describe('buildTaskListQueryParams', () => {
   })
 })
 
-describe('tasks inbox page', () => {
-  const pageSource = readFileSync(join(__dirname, '..', '..', 'backend', 'tasks', 'page.tsx'), 'utf8')
+/**
+ * The inbox surface moved to `backend/work-inbox` (the task list is now a bridge
+ * redirect), but the rule it was guarding did not: the page must forward every
+ * filter it offers through the shared builder, never an inline subset — a page
+ * that forwards a subset silently claims a narrowing it never asked for.
+ */
+describe('work inbox page', () => {
+  const pageSource = readFileSync(
+    join(__dirname, '..', '..', 'backend', 'work-inbox', 'page.tsx'),
+    'utf8',
+  )
 
   test('builds its request through the shared builder instead of an inline subset', () => {
-    expect(pageSource).toContain('buildTaskListQueryParams(filterValues')
+    expect(pageSource).toContain('buildWorkInboxListQueryParams(filterValues')
     expect(pageSource).not.toContain("params.set('status'")
   })
 })

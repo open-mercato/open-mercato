@@ -24,6 +24,20 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.6 → 0.6.7 (unreleased)
 
+### Workflows UX Phase 4: the User Tasks list becomes the Work Inbox
+
+The workflows task inbox is replaced by a **Work Inbox** at `/backend/work-inbox` — one queue assembled from registered sources rather than a single-table list (`.ai/specs/2026-07-26-workflows-ux-redesign.md` §6.2/§6.3, §2.3). Phase 1 is a projection over the existing `user_tasks` rows; there is no new table and no data migration.
+
+What changed, and what you need to do:
+
+- **`/backend/tasks` is now a bridge route, not a deletion.** It forwards to `/backend/work-inbox`, keeps its `page.meta.ts` RBAC guard (`workflows.view_tasks`), and only gains `navHidden` so the sidebar lists the inbox once. It stays in place for **at least one minor release**. **Task detail urls are untouched** — `/backend/tasks/<id>` still resolves and is still where a task is completed.
+- **The DataTable id is unchanged: `workflows.tasks.list`.** Every `data-table:workflows.tasks.list:*` widget you inject — columns, row actions, bulk actions, filters — keeps firing on the new page, and a work-inbox row is a strict superset of the row the task list emitted, so a row action reading `proposalId`, `taskName`, `dueDate` or any other task field keeps working with no change.
+- **New API routes, none removed.** `GET /api/workflows/work-inbox` (merged, filtered by kind/module/entityType/role/priority/status/overdue/myWork, ordered by priority → due date → age, `limit` capped at 100), `POST /api/workflows/work-inbox/next` (claim-next) and `POST /api/workflows/tasks/[id]/unclaim` (release a claim). **`GET /api/workflows/tasks` is unchanged** and keeps its full response shape.
+- **New extension point: `WorkInboxSourceProvider`.** A module contributes work items to the inbox by calling `registerWorkInboxSources([{ moduleId, sources }])` from its own `di.ts` (`@open-mercato/core/modules/workflows/lib/work-inbox/provider`). Registration merges by module id, so order between modules does not matter, and a module that registers nothing simply contributes nothing — the inbox degrades to workflow tasks with no error. A provider whose `list()` throws is reported in the response's `meta.degradedKinds` instead of failing the whole page.
+- **New DI key `workInboxService`** (`listWorkInbox`, `listClaimableWorkInbox`). Additive; nothing resolves it implicitly.
+- **`claimUserTask` is now a compare-and-set.** It previously read the row with `status: 'PENDING'` and then flushed the entity, so two concurrent callers could both read `PENDING` and both write. It now takes the row with a conditional `UPDATE … WHERE status = 'PENDING' AND claimed_by IS NULL` and raises the same `TASK_NOT_FOUND` (`'Task not found or already claimed'`) when it affects zero rows. Every error code, message and scoping guarantee is unchanged; the only behavior difference is that a losing racer now reliably loses instead of overwriting the winner.
+- **No schema, event-id or ACL change.** The new routes reuse `workflows.tasks.view` and `workflows.tasks.claim`.
+
 ### Workflows UX Phase 3b: the form editor is retired behind redirects to the Studio
 
 The workflow definition **form editor is retired** (`.ai/specs/2026-07-26-workflows-ux-redesign.md` §10). The visual editor ("Studio") at `/backend/definitions/visual-editor` is now the only workflow authoring surface — it reached the retirement precondition when the Code view (read-only definition JSON + subgraph copy/paste + schema-validation display) shipped in the same release.

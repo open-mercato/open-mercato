@@ -50,6 +50,7 @@ export interface UserTaskScope {
 export interface TaskHandlerService {
   completeUserTask: typeof completeUserTask
   claimUserTask: typeof claimUserTask
+  releaseUserTask: typeof releaseUserTask
 }
 
 export interface CompleteUserTaskOptions {
@@ -398,6 +399,99 @@ export async function claimUserTask(
         taskId: task.id,
         taskName: task.taskName,
         claimedBy: userId,
+      },
+      userId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+  }
+}
+
+/**
+ * Release a claimed task back to its role queue.
+ *
+ * The counterpart of `claimUserTask`, and deliberately its mirror image: the
+ * write is the same compare-and-set, guarded on the caller still being the
+ * claimant, so a task reassigned or completed in the meantime is refused rather
+ * than silently reopened. It uses the EXISTING statuses — the row goes back to
+ * `PENDING` — because adding a `UserTaskStatus` value is an Ask-First
+ * state-machine change and a released task is exactly as pending as it was
+ * before anyone claimed it.
+ *
+ * @throws UserTaskError if the task is not the caller's to release
+ */
+export async function releaseUserTask(
+  em: EntityManager,
+  taskId: string,
+  userId: string,
+  scope: UserTaskScope
+): Promise<void> {
+  const task = await em.findOne(UserTask, {
+    id: taskId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    status: 'IN_PROGRESS',
+  })
+
+  if (!task) {
+    throw new UserTaskError(
+      'Task not found or not claimed',
+      'TASK_NOT_FOUND',
+      { taskId }
+    )
+  }
+
+  if (task.claimedBy !== userId) {
+    throw new UserTaskError(
+      'Task is claimed by another user',
+      'TASK_ASSIGNED_TO_ANOTHER_USER',
+      { taskId, claimedBy: task.claimedBy }
+    )
+  }
+
+  const now = new Date()
+  const released = await em.nativeUpdate(
+    UserTask,
+    {
+      id: taskId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      status: 'IN_PROGRESS',
+      claimedBy: userId,
+    },
+    {
+      claimedBy: null,
+      claimedAt: null,
+      status: 'PENDING',
+      updatedAt: now,
+    },
+  )
+
+  if (released === 0) {
+    throw new UserTaskError(
+      'Task not found or not claimed',
+      'TASK_NOT_FOUND',
+      { taskId }
+    )
+  }
+
+  task.claimedBy = null
+  task.claimedAt = null
+  task.status = 'PENDING'
+  task.updatedAt = now
+
+  await em.flush()
+
+  const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
+  if (instance) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      stepInstanceId: task.stepInstanceId,
+      eventType: 'USER_TASK_RELEASED',
+      eventData: {
+        taskId: task.id,
+        taskName: task.taskName,
+        releasedBy: userId,
       },
       userId,
       tenantId: instance.tenantId,
