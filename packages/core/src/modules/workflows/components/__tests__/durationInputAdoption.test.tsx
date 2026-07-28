@@ -187,7 +187,11 @@ describe('CrudForm workflow dialogs — DurationInput adoption (#4229)', () => {
     )
   })
 
-  it('renders the SLA duration field in the user task configuration group (6.2)', () => {
+  // The control is the same one; only the WORD changed. Spec §6.1 makes the
+  // task inspector speak the business vocabulary — a person is given a
+  // deadline, never an "SLA duration" and never a "timeout" — while the stored
+  // key and its legacy `slaDuration` value stay exactly as they were.
+  it('renders the legacy SLA value under the deadline label in the user task inspector (6.2)', () => {
     renderWithProviders(
       <NodeEditDialogCrudForm
         node={{
@@ -200,7 +204,8 @@ describe('CrudForm workflow dialogs — DurationInput adoption (#4229)', () => {
       />,
     )
 
-    expect(screen.getByText('workflows.tasks.userTaskConfig.slaDuration')).toBeInTheDocument()
+    expect(screen.getByText('workflows.tasks.inspector.when.deadline')).toBeInTheDocument()
+    expect(screen.queryByText('workflows.tasks.userTaskConfig.slaDuration')).not.toBeInTheDocument()
     const amountInputs = screen.getAllByRole('spinbutton', { name: 'Duration amount' })
     expect(amountInputs.map((input) => (input as HTMLInputElement).value)).toEqual(
       expect.arrayContaining(['1']),

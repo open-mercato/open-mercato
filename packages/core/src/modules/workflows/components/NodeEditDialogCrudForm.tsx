@@ -22,6 +22,11 @@ import { StartPreConditionsEditor } from './fields/StartPreConditionsEditor'
 import { AgentInvokeConfigField } from './fields/AgentInvokeConfigField'
 import { IfElseRoutesField, SwitchRoutesField } from './fields/BranchingRoutesEditor'
 import { RouteOrderEditor } from './fields/RouteOrderEditor'
+import { TemplateTextControl } from './fields/TemplateTextControl'
+import { TaskEntityBindingsField } from './fields/TaskEntityBindingsField'
+import { TaskAssignmentField } from './fields/TaskAssignmentField'
+import { TaskOnBreachField, TaskRemindersField } from './fields/TaskDeadlineFields'
+import { TASK_PRIORITY_VALUES } from '../lib/task-inspector-config'
 import type { RouteOrderEntry } from '../lib/route-priority'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/components/utils/conditionValidation'
@@ -381,23 +386,51 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       fields: ['errorDirectiveMode', 'errorDirectiveFallbackValue'],
     }
 
-    // UserTask specific groups
+    // UserTask: the five task-inspector sections of spec §6.1, in order —
+    // What / About what / Who / When / Decisions — followed by the step
+    // mechanics every node type shares. Each section is container-agnostic: it
+    // declares no width and assumes no modal chrome, so re-hosting the
+    // inspector in a docked rail is a re-parent rather than a rewrite.
     if (node.type === 'userTask') {
       return [
-        ...baseGroups,
         {
-          id: 'userTask',
-          title: t('workflows.nodeEditor.userTaskConfig'),
+          id: 'taskWhat',
+          title: t('workflows.tasks.inspector.what.title'),
           column: 1,
-          fields: ['assignedTo', 'assignedToRoles', 'formKey', 'slaDuration'],
+          fields: ['stepName', 'taskInstructions'],
         },
         {
-          id: 'formFields',
-          title: t('workflows.nodeEditor.groups.formFields'),
+          id: 'taskAbout',
+          title: t('workflows.tasks.inspector.bindings.title'),
+          column: 1,
+          fields: ['taskEntityBindings'],
+        },
+        {
+          id: 'taskWho',
+          title: t('workflows.tasks.inspector.who.title'),
+          column: 1,
+          fields: ['assignmentMode'],
+        },
+        {
+          id: 'taskWhen',
+          title: t('workflows.tasks.inspector.when.title'),
+          column: 1,
+          fields: ['taskPriority', 'slaDuration', 'taskReminders', 'taskOnBreach'],
+        },
+        {
+          id: 'taskDecisions',
+          title: t('workflows.tasks.inspector.decisions.title'),
           column: 1,
           description: t('workflows.form.descriptions.formFields'),
-          fields: ['formFields'],
+          fields: ['formFields', 'formKey'],
         },
+        {
+          id: 'basic',
+          title: t('workflows.form.groups.basic'),
+          column: 1,
+          fields: ['description', 'timeout'],
+        },
+        ...baseGroups.slice(1),
         errorHandlingGroup,
         advancedGroup,
       ]
@@ -596,15 +629,35 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
 
   // Define all possible form fields (only relevant ones are used based on groups)
   const fields: CrudField[] = useMemo(() => [
-    // Basic fields
-    {
-      id: 'stepName',
-      label: t('workflows.form.stepName'),
-      type: 'text',
-      placeholder: t('workflows.form.placeholders.stepName'),
-      required: true,
-      description: t('workflows.form.descriptions.stepName'),
-    },
+    // Basic fields. A user task's title is the sentence the assignee reads, so
+    // it is pill-capable there (spec §6.1 "What") and a plain text input
+    // everywhere else.
+    node?.type === 'userTask'
+      ? {
+          id: 'stepName',
+          label: t('workflows.tasks.inspector.what.taskTitle'),
+          type: 'custom',
+          required: true,
+          component: (props) => (
+            <TemplateTextControl
+              id={props.id}
+              value={typeof props.value === 'string' ? props.value : ''}
+              onValueChange={props.setValue}
+              ledgerEntries={ledgerEntries}
+              placeholder={t('workflows.form.placeholders.stepName')}
+              disabled={props.disabled}
+              aria-label={t('workflows.tasks.inspector.what.taskTitle')}
+            />
+          ),
+        }
+      : {
+          id: 'stepName',
+          label: t('workflows.form.stepName'),
+          type: 'text',
+          placeholder: t('workflows.form.placeholders.stepName'),
+          required: true,
+          description: t('workflows.form.descriptions.stepName'),
+        },
     {
       id: 'description',
       label: t('workflows.form.description'),
@@ -644,10 +697,62 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     },
     {
       id: 'slaDuration',
-      label: t('workflows.tasks.userTaskConfig.slaDuration'),
+      label: t('workflows.tasks.inspector.when.deadline'),
       type: 'custom',
       description: t('workflows.nodeEditor.slaDurationDescription'),
       component: (props) => <DurationCrudField {...props} />,
+    },
+
+    // Task inspector sections (spec §6.1)
+    {
+      id: 'taskInstructions',
+      label: t('workflows.tasks.inspector.what.instructions'),
+      type: 'custom',
+      component: (props) => (
+        <TemplateTextControl
+          id={props.id}
+          value={typeof props.value === 'string' ? props.value : ''}
+          onValueChange={props.setValue}
+          ledgerEntries={ledgerEntries}
+          placeholder={t('workflows.tasks.inspector.what.instructionsPlaceholder')}
+          disabled={props.disabled}
+          multiline
+          aria-label={t('workflows.tasks.inspector.what.instructions')}
+        />
+      ),
+    },
+    {
+      id: 'taskEntityBindings',
+      label: t('workflows.tasks.inspector.bindings.label'),
+      type: 'custom',
+      component: (props) => <TaskEntityBindingsField {...props} ledgerEntries={ledgerEntries} />,
+    },
+    {
+      id: 'assignmentMode',
+      label: t('workflows.tasks.inspector.who.label'),
+      type: 'custom',
+      component: (props) => <TaskAssignmentField {...props} ledgerEntries={ledgerEntries} />,
+    },
+    {
+      id: 'taskPriority',
+      label: t('workflows.tasks.inspector.when.priority'),
+      type: 'select',
+      options: TASK_PRIORITY_VALUES.map((priority) => ({
+        value: priority,
+        label: t(`workflows.tasks.inspector.when.priorities.${priority}`),
+      })),
+    },
+    {
+      id: 'taskReminders',
+      label: t('workflows.tasks.inspector.when.reminders'),
+      type: 'custom',
+      component: (props) => <TaskRemindersField {...props} />,
+    },
+    {
+      id: 'taskOnBreach',
+      label: t('workflows.tasks.inspector.when.onBreach'),
+      type: 'custom',
+      component: (props) => <TaskOnBreachField {...props} routeOrder={routeOrder} />,
     },
     {
       id: 'formFields',
@@ -902,7 +1007,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       description: t('workflows.fieldEditors.preConditions.description'),
       component: (props) => <StartPreConditionsEditor {...props} value={props.value as any} />,
     },
-  ], [activityTypeOptions, showJsonSchemaWarning, ledgerEntries, activityTestContext, node?.type, t])
+  ], [activityTypeOptions, showJsonSchemaWarning, ledgerEntries, activityTestContext, node?.type, routeOrder, t])
 
   if (!isOpen || !node) return null
 
