@@ -263,6 +263,20 @@ Every workflow state change emits an immutable event stored in `workflow_events`
 - **Compliance**: Regulatory requirements for change tracking
 - **Replayability**: Reconstruct workflow state from events (future feature)
 
+### Domain events for tasks
+
+`workflow_events` rows are the module's internal audit log. Separately, three **domain events** are published on the platform event bus so other modules can react without importing workflow internals:
+
+| Event id | Emitted when |
+|---|---|
+| `workflows.task.assigned` | A user task is created, with its assignee, its role queue and its entity bindings |
+| `workflows.task.reminder_due` | A configured reminder offset before the task's deadline |
+| `workflows.task.deadline_breached` | The deadline passed with the task still open |
+
+All three are emitted `persistent: true` and delivery is at-least-once, so subscribers must be idempotent. Emission is strictly best-effort: a bus failure is logged and never breaks workflow execution.
+
+`workflows.task.assigned` carries `entityBindings` precisely so a module that owns those records can surface the task on its own turf — the customers module subscribes and writes its own `CustomerTodoLink` with `todoSource: 'workflows'`. **Direction matters:** workflows only announces that a task exists and which records it is about; the module that owns the table is the module that writes to it, so workflows never touches another module's entities and a deployment without that module simply has no subscriber.
+
 ## Error Routing
 
 Everything in this section is additive and optional: a definition that declares none of it fails exactly as it always did.
@@ -372,12 +386,17 @@ Activities can execute asynchronously via a queue to avoid blocking workflow exe
 - `workflow_instance_id` (FK)
 - `step_instance_id` (FK)
 - `task_name`, `description`
-- `status` (enum: PENDING, IN_PROGRESS, COMPLETED, CANCELLED)
+- `status` (enum: PENDING, IN_PROGRESS, COMPLETED, CANCELLED, ESCALATED)
 - `assigned_to` (user ID or null)
 - `assigned_to_roles` (array of role names)
-- `form_data` (JSON)
-- `due_at`, `completed_at`, `created_at`, `updated_at`
+- `form_data` (JSON) — also carries the pressed decision under the reserved `__decision` key
+- `entity_bindings` (JSONB, nullable) — records the task is about, resolved at creation
+- `priority` (varchar, nullable) — authored `low|medium|high|extreme`
+- `reassigned_by`, `reassigned_at`, `reassign_reason` — reassignment audit
+- `due_at`, `escalated_at`, `completed_at`, `created_at`, `updated_at`
 - `tenant_id`, `organization_id`
+
+`entity_bindings` is a real column rather than a read of the authored `form_schema` blob: the Work Inbox, the record-page widget and task visibility all filter on it, and the authored form schema is the wrong shape *and* the wrong lifetime for that — it describes the FORM, and re-editing a definition must not retro-change what a running task is about. Reassignment is modelled as audit columns plus a workflow event rather than a new `UserTaskStatus`.
 
 ### Indexes
 

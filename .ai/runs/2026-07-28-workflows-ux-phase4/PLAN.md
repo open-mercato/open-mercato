@@ -34,7 +34,7 @@
 | 3 | 3.3 | Notification quick-action one-click predicate + workflows.tasks.complete command | done | 6366beaeb |
 | 3 | 3.4 | External-form renderer registry (#4243) + validateFormData covers the fields shape | done | bb9ee88df |
 | 4 | 4.1 | Integration tests (work inbox, claim/next, entity widget, decision routing, A1 regression) | done | 743be068e |
-| 4 | 4.2 | Docs + UPGRADE_NOTES + spec changelog | todo | — |
+| 4 | 4.2 | Docs + UPGRADE_NOTES + spec changelog | done | 7049621bc |
 | 5 | 5.1 | Pure `lib/task-visibility.ts` predicate (visible/actable/claimable, fail-closed) | todo | — |
 | 5 | 5.2 | Entity-access resolver + denormalized `entity_types` column (SQL gate, not a post-filter) | todo | — |
 | 5 | 5.3 | Administration ACL features + `setup.ts` grants; existing ids stay load-bearing | todo | — |
