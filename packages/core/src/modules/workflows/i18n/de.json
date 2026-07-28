@@ -1219,6 +1219,7 @@
   "workflows.nodeTypes.waitForSignal": "AUF SIGNAL WARTEN",
   "workflows.nodeTypes.waitForTimer": "AUF TIMER WARTEN",
   "workflows.nodes.errorHandle": "Bei Fehler",
+  "workflows.notifications.task.actions.complete": "Abschließen",
   "workflows.notifications.task.assigned.body": "Ihnen wurde die Aufgabe \"{taskName}\" im Workflow \"{workflowName}\" zugewiesen{dueDate, select, other { (fällig: {dueDate})}}",
   "workflows.notifications.task.assigned.title": "Aufgabe zugewiesen",
   "workflows.notifications.task.deadlineBreached.body": "Aufgabe \"{taskName}\" im Workflow \"{workflowName}\" hat ihre Frist überschritten{dueDate, select, other { (fällig: {dueDate})}}",

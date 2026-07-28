@@ -41,6 +41,7 @@ import {
   type TaskInterpolate,
 } from './task-resolution'
 import { scheduleUserTaskSla } from './task-sla'
+import type { TaskQuickActionInput } from './task-quick-action'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from './find-definition'
 import { validateAgainstPorts } from './port-contract'
@@ -690,12 +691,17 @@ function resolveUserTaskDeadline(stepId: string, slaDuration: string): Date {
 async function emitTaskAssignedEvent(
   userTask: UserTask,
   instance: WorkflowInstance,
-  context: StepExecutionContext
+  context: StepExecutionContext,
+  quickAction?: TaskQuickActionInput
 ): Promise<void> {
   try {
     await emitWorkflowsEvent(
       'workflows.task.assigned',
       {
+        // Everything the notification quick-action rule needs, and nothing more.
+        // ABSENT means "unknown", and the subscriber falls back to the deep
+        // link — a quick action must never be offered on a guess.
+        ...(quickAction ? { quickAction } : {}),
         taskId: userTask.id,
         taskName: userTask.taskName,
         workflowInstanceId: instance.id,
@@ -823,7 +829,11 @@ async function handleUserTaskStep(
     organizationId: instance.organizationId,
   })
 
-  await emitTaskAssignedEvent(userTask, instance, context)
+  await emitTaskAssignedEvent(userTask, instance, context, {
+    decisions: decisions.map((decision) => ({ id: decision.id })),
+    formSchema: userTask.formSchema ?? null,
+    editablePrefilled: userTaskConfig.editablePrefilled ?? null,
+  })
 
   // Reminders and the deadline breach are scheduled HERE, once, with the
   // deadline already absolute on each job payload — see `lib/task-sla.ts`. A

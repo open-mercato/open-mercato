@@ -173,3 +173,51 @@ describe('workflows notification types', () => {
     }
   })
 })
+
+describe('task-assigned-notification quick actions', () => {
+  it('offers a command-backed completion action for a one-click task', async () => {
+    await handler(
+      {
+        ...basePayload,
+        assignedUserId: 'user-1',
+        quickAction: { decisions: [{ id: 'approve' }], formSchema: null },
+      },
+      makeCtx()
+    )
+
+    const [input] = mockCreate.mock.calls[0] as [any, any]
+    expect(input.actions).toEqual([
+      expect.objectContaining({ id: 'view', href: '/backend/tasks/{sourceEntityId}' }),
+      expect.objectContaining({ id: 'complete', commandId: 'workflows.tasks.complete' }),
+    ])
+    expect(input.primaryActionId).toBe('complete')
+  })
+
+  it('offers only the deep link for a task that needs input', async () => {
+    await handler(
+      {
+        ...basePayload,
+        assignedUserId: 'user-1',
+        quickAction: {
+          decisions: [{ id: 'approve' }],
+          formSchema: { properties: { reason: { type: 'string' } } },
+        },
+      },
+      makeCtx()
+    )
+
+    const [input] = mockCreate.mock.calls[0] as [any, any]
+    expect(input.actions).toHaveLength(1)
+    expect(input.actions[0].id).toBe('view')
+    expect(input.primaryActionId).toBe('view')
+  })
+
+  it('falls back to the declared type actions when the emitter said nothing about the shape', async () => {
+    await handler({ ...basePayload, assignedUserId: 'user-1' }, makeCtx())
+
+    const [input] = mockCreate.mock.calls[0] as [any, any]
+    expect(input.actions).toEqual([
+      expect.objectContaining({ id: 'view', href: '/backend/tasks/{sourceEntityId}' }),
+    ])
+  })
+})

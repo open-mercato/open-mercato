@@ -1219,6 +1219,7 @@
   "workflows.nodeTypes.waitForSignal": "CZEKAJ NA SYGNAŁ",
   "workflows.nodeTypes.waitForTimer": "CZEKAJ NA TIMER",
   "workflows.nodes.errorHandle": "Przy błędzie",
+  "workflows.notifications.task.actions.complete": "Zakończ",
   "workflows.notifications.task.assigned.body": "Przypisano Ci zadanie \"{taskName}\" w przepływie \"{workflowName}\"{dueDate, select, other { (termin: {dueDate})}}",
   "workflows.notifications.task.assigned.title": "Przypisano Zadanie",
   "workflows.notifications.task.deadlineBreached.body": "Zadanie \"{taskName}\" w procesie \"{workflowName}\" przekroczyło swój termin{dueDate, select, other { (termin: {dueDate})}}",

@@ -1219,6 +1219,7 @@
   "workflows.nodeTypes.waitForSignal": "WAIT FOR SIGNAL",
   "workflows.nodeTypes.waitForTimer": "WAIT FOR TIMER",
   "workflows.nodes.errorHandle": "On error",
+  "workflows.notifications.task.actions.complete": "Complete",
   "workflows.notifications.task.assigned.body": "You have been assigned to task \"{taskName}\" in workflow \"{workflowName}\"{dueDate, select, other { (due: {dueDate})}}",
   "workflows.notifications.task.assigned.title": "Task Assigned",
   "workflows.notifications.task.deadlineBreached.body": "Task \"{taskName}\" in workflow \"{workflowName}\" has passed its deadline{dueDate, select, other { (due: {dueDate})}}",
