@@ -1,6 +1,9 @@
 import type { AwilixContainer } from 'awilix'
+import type { ZodTypeAny } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentProposal } from '../../data/entities'
+import { ensureAgentsLoaded, listAgentEntries } from '../sdk/defineAgent'
+import { resolveAgentOutcomeZod } from '../sdk/agentOutcomeContract'
 import { agentProcessSubjectSchema, type AgentProcessSubject } from '../../data/validators'
 import type { AgentRuntimeService } from './agentRuntime'
 import type { AgentRunAs } from './persistence'
@@ -42,10 +45,28 @@ export type InvokeAgentForWorkflowOutcome =
   | { kind: 'auto_approved'; proposalId: string; payload: unknown }
   | { kind: 'user_task'; proposalId: string }
 
+/**
+ * One agent's declared OUTCOME contract, as the workflows context ledger needs
+ * it: the result kind decides whether the OUTCOME lands under the envelope's
+ * `data` or `proposalPayload` key, and the schema types everything below it.
+ */
+export type AgentOutcomeContractSnapshot = {
+  agentId: string
+  resultKind: 'informative' | 'actionable'
+  schema: ZodTypeAny
+}
+
 export interface AgentWorkflowBridge {
   invokeAgentForWorkflow(
     args: InvokeAgentForWorkflowArgs,
   ): Promise<InvokeAgentForWorkflowOutcome>
+  /**
+   * OUTCOME contracts of every registered agent, for the workflows INVOKE_AGENT
+   * output contract. OPTIONAL on the interface so an older bridge implementation
+   * stays valid — core treats its absence as "agents cannot be typed here" and
+   * falls back to `unknown` ledger entries.
+   */
+  listAgentOutcomeContracts?(): Promise<AgentOutcomeContractSnapshot[]>
 }
 
 export type AgentWorkflowBridgeDeps = {
@@ -124,6 +145,22 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     return outcome.kind === 'auto_approved'
       ? { kind: 'auto_approved', proposalId: outcome.proposalId, payload: proposal.payload }
       : { kind: 'user_task', proposalId: outcome.proposalId }
+  }
+
+  /**
+   * Projects the agent registry into OUTCOME contracts for the workflows module.
+   * Agents load lazily, so this awaits the registry first; an agent whose result
+   * schema is not the declared envelope contributes nothing rather than a guess.
+   */
+  async listAgentOutcomeContracts(): Promise<AgentOutcomeContractSnapshot[]> {
+    await ensureAgentsLoaded()
+    const contracts: AgentOutcomeContractSnapshot[] = []
+    for (const entry of listAgentEntries()) {
+      const schema = resolveAgentOutcomeZod(entry)
+      if (!schema) continue
+      contracts.push({ agentId: entry.id, resultKind: entry.resultKind, schema })
+    }
+    return contracts
   }
 
   private parseSubject(raw: unknown): AgentProcessSubject | null {

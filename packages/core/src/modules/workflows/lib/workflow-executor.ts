@@ -11,14 +11,24 @@
  */
 
 import { EntityManager, LockMode } from '@mikro-orm/core'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   WorkflowDefinition,
   WorkflowInstance,
   WorkflowEvent,
   type WorkflowInstanceStatus,
+  type WorkflowInstanceErrorHandlerMetadata,
 } from '../data/entities'
 import { compensateWorkflow } from './compensation-handler'
+import { WORKFLOW_ENGINE_VERSION, isEngineVersionSupported } from './engine-version'
+import {
+  WORKFLOW_ERROR_CONTEXT_KEY,
+  buildErrorContextEntry,
+  excludeErrorTransitions,
+} from './error-routing'
+import { scheduleWorkflowErrorHandler } from './error-handler'
 import { findWorkflowDefinition, findDefinitionForInstance } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitWorkflowsEvent } from '../events'
@@ -43,6 +53,9 @@ export interface StartWorkflowOptions {
     entityId?: string
     initiatedBy?: string
     labels?: Record<string, string>
+    // Set by the workflow-level error handler when it starts a handler run, so
+    // the depth guard travels with the child instance (spec 5.9).
+    errorHandler?: WorkflowInstanceErrorHandlerMetadata | null
   }
   tenantId: string
   organizationId: string
@@ -145,6 +158,18 @@ export async function startWorkflow(
       `Workflow definition is disabled: ${workflowId}`,
       'DEFINITION_DISABLED',
       { workflowId, version: definition.version }
+    )
+  }
+
+  // Forward-compatibility guard: a definition authored against a newer engine
+  // is refused outright rather than executed with unknown step types treated
+  // as no-ops (spec section 5.8).
+  const minEngineVersion = definition.metadata?.minEngineVersion
+  if (!isEngineVersionSupported(minEngineVersion)) {
+    throw new WorkflowExecutionError(
+      `Workflow definition requires engine version ${minEngineVersion}, this engine is version ${WORKFLOW_ENGINE_VERSION}`,
+      'ENGINE_VERSION_TOO_OLD',
+      { workflowId, version: definition.version, minEngineVersion, engineVersion: WORKFLOW_ENGINE_VERSION }
     )
   }
 
@@ -417,7 +442,7 @@ export async function executeWorkflow(
           }
         }
 
-        const transitions = definition.definition.transitions.filter(
+        const transitions = excludeErrorTransitions(definition.definition.transitions).filter(
           (t: any) =>
             t.fromStepId === currentInstance.currentStepId &&
             t.trigger === 'auto'
@@ -474,6 +499,83 @@ export async function executeWorkflow(
 
           if (!transitionResult.success) {
             const rejectionMessage = transitionResult.error || 'Transition failed'
+
+            // Error routing (spec 5.9): a wired error route is followed instead
+            // of failing the instance; a failure-queue directive parks it. Both
+            // are absent unless the definition opts in, so the legacy failure
+            // path below is byte-identical for every existing definition.
+            if (transitionResult.errorRoute && transitionResult.failedStepId) {
+              const routed = await followErrorRoute(
+                trx,
+                container,
+                currentInstance,
+                transitionResult.failedStepId,
+                transitionResult.errorRoute,
+                rejectionMessage,
+                evalContext
+              )
+              if (routed) {
+                events.push({
+                  eventType: 'ERROR_ROUTED',
+                  occurredAt: new Date(),
+                  data: {
+                    failedStepId: transitionResult.failedStepId,
+                    toStepId: transitionResult.errorRoute.toStepId,
+                    transitionId: transitionResult.errorRoute.transitionId,
+                  },
+                })
+                continue
+              }
+              errors.push(`Error route from ${transitionResult.failedStepId} could not be followed`)
+            }
+
+            if (transitionResult.errorHandlerStepId && transitionResult.failedStepId) {
+              const entered = await enterErrorHandlerStep(
+                trx,
+                container,
+                currentInstance,
+                transitionResult.failedStepId,
+                transitionResult.errorHandlerStepId,
+                rejectionMessage,
+                executionUserId
+              )
+              if (entered) {
+                events.push({
+                  eventType: 'ERROR_HANDLER_STARTED',
+                  occurredAt: new Date(),
+                  data: {
+                    failedStepId: transitionResult.failedStepId,
+                    handlerStepId: transitionResult.errorHandlerStepId,
+                  },
+                })
+                continue
+              }
+              errors.push(
+                `Error handler step ${transitionResult.errorHandlerStepId} could not be entered`
+              )
+            }
+
+            if (transitionResult.parkForAttention && transitionResult.failedStepId) {
+              await parkInstanceForAttention(
+                trx,
+                currentInstance,
+                transitionResult.failedStepId,
+                rejectionMessage
+              )
+              events.push({
+                eventType: 'ERROR_PARKED',
+                occurredAt: new Date(),
+                data: { failedStepId: transitionResult.failedStepId },
+              })
+              return {
+                status: 'RUNNING',
+                currentStep: currentInstance.currentStepId,
+                context: currentInstance.context,
+                events,
+                executionTime: Date.now() - startTime,
+              }
+            }
+
             logger.error('Transition rejected', {
               instanceId: currentInstance.id,
               workflowId: currentInstance.workflowId,
@@ -668,6 +770,153 @@ export async function executeWorkflow(
 }
 
 /**
+ * Follow a wired error route out of a failed step (spec 5.9). The failure is
+ * published into the run context under `__error` so the handling branch can act
+ * on it, then the error transition executes through the normal machinery — it
+ * creates its step instance, runs its activities and logs its events like any
+ * other route. Returns false when the route could not be taken, so the caller
+ * falls back to the untouched failure path.
+ */
+async function followErrorRoute(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  failedStepId: string,
+  errorRoute: { transitionId?: string; toStepId: string },
+  error: string,
+  evalContext: { workflowContext: Record<string, any>; userId?: string }
+): Promise<boolean> {
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instance.id,
+    eventType: 'ERROR_ROUTED',
+    eventData: {
+      failedStepId,
+      toStepId: errorRoute.toStepId,
+      transitionId: errorRoute.transitionId,
+      error,
+    },
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
+
+  const errorEntry = buildErrorContextEntry(failedStepId, error)
+  instance.context = {
+    ...(instance.context || {}),
+    [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry,
+  }
+  instance.updatedAt = new Date()
+  await em.flush()
+
+  const transitionHandler = await import('./transition-handler')
+  const routedResult = await transitionHandler.executeTransition(
+    em,
+    container,
+    instance,
+    failedStepId,
+    errorRoute.toStepId,
+    {
+      ...evalContext,
+      workflowContext: {
+        ...evalContext.workflowContext,
+        [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry,
+      },
+    }
+  )
+
+  return routedResult.success === true
+}
+
+/**
+ * Enter the definition-level handler STEP (spec 5.9, `errorHandler.stepId`) for
+ * a failure no route and no directive handled. The token jumps to the handler
+ * step and executes it — the same cursor-move-plus-`executeStep` shape the
+ * branch/timer/signal resumes already use, so no transition record is invented.
+ * A failure of the handler step itself resolves to `fail` (the resolver never
+ * jumps a step to itself), which is this form's recursion guard.
+ */
+async function enterErrorHandlerStep(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  failedStepId: string,
+  handlerStepId: string,
+  error: string,
+  userId?: string
+): Promise<boolean> {
+  const errorEntry = buildErrorContextEntry(failedStepId, error)
+
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instance.id,
+    eventType: 'ERROR_HANDLER_STARTED',
+    eventData: { failedStepId, handlerStepId, error },
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
+
+  instance.context = {
+    ...(instance.context || {}),
+    [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry,
+  }
+  instance.currentStepId = handlerStepId
+  instance.updatedAt = new Date()
+  await em.flush()
+
+  const { executeStep } = await import('./step-handler')
+  const result = await executeStep(
+    em,
+    instance,
+    handlerStepId,
+    {
+      workflowContext: {
+        ...(instance.context || {}),
+        [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry,
+      },
+      userId,
+    },
+    container
+  )
+
+  return result.status !== 'FAILED'
+}
+
+/**
+ * Park an instance for triage instead of failing it — the `failureQueue` error
+ * directive (spec 5.9 "Send to failure queue"). Uses the existing PAUSED state
+ * plus an engine-owned `metadata.attention` marker; no new instance status and
+ * no compensation, because the run is suspended rather than terminated.
+ */
+async function parkInstanceForAttention(
+  em: EntityManager,
+  instance: WorkflowInstance,
+  failedStepId: string,
+  error: string
+): Promise<void> {
+  const now = new Date()
+  instance.status = 'PAUSED'
+  instance.pausedAt = now
+  instance.errorMessage = error
+  instance.metadata = {
+    ...(instance.metadata || {}),
+    attention: {
+      reason: 'ERROR_DIRECTIVE',
+      stepId: failedStepId,
+      error,
+      at: now.toISOString(),
+    },
+  }
+  instance.updatedAt = now
+  await em.flush()
+
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instance.id,
+    eventType: 'ERROR_PARKED',
+    eventData: { failedStepId, error, directive: 'failureQueue' },
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
+}
+
+/**
  * Durably mark a workflow instance FAILED after its execution transaction has
  * rolled back. MUST run on a fresh fork (a clean connection): the rolled-back
  * transaction may be aborted/poisoned, and its PESSIMISTIC_WRITE lock on the
@@ -744,6 +993,19 @@ export async function completeWorkflow(
       'INSTANCE_NOT_FOUND',
       { instanceId }
     )
+  }
+
+  // Workflow-level error handler (spec 5.9) — scheduled BEFORE compensation so
+  // the handler observes the state that failed rather than the rolled-back one,
+  // and so it still runs when compensation throws (that block swallows errors
+  // and returns early). Executed out of band by the worker; the
+  // ERROR_HANDLER_SCHEDULED event is written here, inside this transaction.
+  if (status === 'FAILED') {
+    await scheduleWorkflowErrorHandler(em, instance, {
+      failedStepId: result?.failedStepId ?? instance.currentStepId,
+      error: result?.error,
+      details: result?.details,
+    })
   }
 
   // Trigger compensation if workflow failed and has compensatable activities (Phase 8.2)
@@ -1138,7 +1400,12 @@ function checkIfCompensationNeeded(definition: WorkflowDefinition): boolean {
 // ============================================================================
 
 /**
- * Get workflow instance by ID
+ * Get workflow instance by ID.
+ *
+ * SECURITY: this helper is NOT tenant-scoped. It is an internal lookup whose
+ * callers are expected to have resolved and enforced the scope already. Never
+ * reach it directly from an HTTP handler — use a scoped query (see
+ * `updateWorkflowContextScoped`) so a cross-tenant id cannot resolve.
  *
  * @param em - Entity manager
  * @param instanceId - Workflow instance ID
@@ -1167,7 +1434,12 @@ async function getWorkflowInstanceForExecution(
 }
 
 /**
- * Update workflow context with new data
+ * Update workflow context with new data.
+ *
+ * SECURITY: builds on the UNSCOPED {@link getWorkflowInstance} and therefore
+ * performs no tenant/organization filtering of its own. It is preserved as-is
+ * for backward compatibility (it is a DI-exposed surface). HTTP handlers MUST
+ * use {@link updateWorkflowContextScoped} instead.
  *
  * @param em - Entity manager
  * @param instanceId - Workflow instance ID
@@ -1194,6 +1466,95 @@ export async function updateWorkflowContext(
   instance.updatedAt = new Date()
 
   await em.flush()
+}
+
+/**
+ * Context keys the engine owns. A caller-supplied patch may never write them:
+ * `__result` carries the terminal workflow result, `_pendingAsyncActivities`
+ * tracks in-flight async activity jobs, and `__park` marks a parked agent step.
+ * Overwriting any of them would corrupt a running instance, so they are
+ * rejected rather than silently dropped.
+ */
+export const RESERVED_WORKFLOW_CONTEXT_KEYS: readonly string[] = [
+  '__result',
+  '_pendingAsyncActivities',
+  '__park',
+  WORKFLOW_ERROR_CONTEXT_KEY,
+]
+
+export function findReservedContextKeys(updates: Record<string, unknown>): string[] {
+  return Object.keys(updates).filter((key) => RESERVED_WORKFLOW_CONTEXT_KEYS.includes(key))
+}
+
+export interface UpdateWorkflowContextScopedOptions {
+  instanceId: string
+  tenantId: string
+  organizationId: string
+  updates: Record<string, unknown>
+  /**
+   * Optional version check, awaited with the freshly loaded row's `updatedAt`
+   * before the patch is applied. HTTP callers pass
+   * `enforceCommandOptimisticLockWithGuards` here so a stale write 409s instead
+   * of silently clobbering a concurrent context change.
+   */
+  assertVersion?: (current: Date | null | undefined) => void | Promise<void>
+}
+
+/**
+ * Tenant/organization-scoped sibling of {@link updateWorkflowContext}: the
+ * scope is part of the lookup, so a cross-tenant instance id resolves to
+ * nothing and the caller returns a 404 rather than reading or writing another
+ * tenant's run. Shallow merge, consistent with the legacy helper.
+ */
+export async function updateWorkflowContextScoped(
+  em: EntityManager,
+  options: UpdateWorkflowContextScopedOptions
+): Promise<WorkflowInstance> {
+  const { instanceId, tenantId, organizationId, updates, assertVersion } = options
+
+  const reserved = findReservedContextKeys(updates)
+  if (reserved.length > 0) {
+    throw new WorkflowExecutionError(
+      `Reserved workflow context keys cannot be written: ${reserved.join(', ')}`,
+      'RESERVED_CONTEXT_KEY',
+      { instanceId, reserved }
+    )
+  }
+
+  const instance = await findOneWithDecryption(
+    em as PostgreSqlEntityManager,
+    WorkflowInstance,
+    { id: instanceId, tenantId, organizationId },
+    undefined,
+    { tenantId, organizationId }
+  )
+  if (!instance) {
+    throw new WorkflowExecutionError(
+      `Workflow instance not found: ${instanceId}`,
+      'INSTANCE_NOT_FOUND',
+      { instanceId }
+    )
+  }
+
+  if (instance.status !== 'RUNNING' && instance.status !== 'PAUSED' && instance.status !== 'FORKED') {
+    throw new WorkflowExecutionError(
+      `Workflow instance is not accepting context updates: ${instance.status}`,
+      'INSTANCE_NOT_UPDATABLE',
+      { instanceId, status: instance.status }
+    )
+  }
+
+  if (assertVersion) await assertVersion(instance.updatedAt)
+
+  instance.context = {
+    ...instance.context,
+    ...updates,
+  }
+  instance.updatedAt = new Date()
+
+  await em.flush()
+
+  return instance
 }
 
 // findWorkflowDefinition is imported from ./find-definition

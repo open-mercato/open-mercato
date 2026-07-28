@@ -24,9 +24,16 @@ import {
   MarkerType,
   type ReactFlowInstance,
 } from '@xyflow/react'
-import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode} from './nodes'
+import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, WaitForConditionNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode, IfElseNode, SwitchNode, StickyNoteNode, AnnotationGroupNode} from './nodes'
+import { ANNOTATION_GROUP_NODE_TYPE, ANNOTATION_NOTE_NODE_TYPE } from '../lib/editor-annotations'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
 import { WorkflowDataMappingEdge } from './WorkflowDataMappingEdge'
+import { WorkflowCompensationGhostEdge } from './WorkflowCompensationGhostEdge'
+import {
+  buildCompensationGhostEdges,
+  compensatingStepIds,
+  WORKFLOW_COMPENSATION_GHOST_EDGE_TYPE,
+} from '../lib/compensation-ghosts'
 import { STATUS_COLORS, toWorkflowStatus } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
@@ -38,19 +45,94 @@ export interface WorkflowGraphFocusTarget {
   requestId: number
 }
 
+/**
+ * What a node-change batch means for persistence (#4248). React Flow reports a
+ * position change on every drag frame plus one final frame with `dragging:
+ * false`; selection and measurement changes carry no arrangement at all. The
+ * parent only commits an arrangement when `persistable` is true, so a drag
+ * persists once — on drag end — and clicking a node never writes anything.
+ */
+export interface WorkflowGraphNodesChangeMeta {
+  dragging: boolean
+  /**
+   * An annotation resize is in flight. Resizing behaves exactly like dragging:
+   * many frames, one persisted arrangement at the end.
+   */
+  resizing: boolean
+  persistable: boolean
+}
+
+function describeNodeChanges(changes: NodeChange[]): WorkflowGraphNodesChangeMeta {
+  const dragging = changes.some((change) => change.type === 'position' && change.dragging === true)
+  const resizing = changes.some((change) => change.type === 'dimensions' && change.resizing === true)
+  if (dragging || resizing) return { dragging, resizing, persistable: false }
+  const persistable = changes.some((change) => {
+    if (change.type === 'select') return false
+    // React Flow's own measurement carries no `resizing` flag; only the resizer's
+    // final frame reports `false`, and that is the arrangement worth saving.
+    if (change.type === 'dimensions') return change.resizing === false
+    if (change.type === 'position') return change.dragging !== true
+    return true
+  })
+  return { dragging, resizing, persistable }
+}
+
+/**
+ * A drop onto the canvas (spec section 4.2). The graph resolves the two things
+ * only it can know — the flow-space position under the cursor
+ * (`screenToFlowPosition`) and which route, if any, the cursor was over — and
+ * hands the parent plain data, so the drop EFFECT stays out of the React Flow
+ * boundary (#3169).
+ */
+export interface WorkflowGraphDropEvent {
+  dataTransfer: DataTransfer
+  position: { x: number; y: number }
+  edgeId: string | null
+}
+
+/**
+ * Resolve which route the cursor is over. React Flow renders each edge as a
+ * `<g class="react-flow__edge" data-id="…">` carrying a wide invisible
+ * interaction path, so hit-testing the DOM is exact where geometry over a
+ * smooth-step curve would only be an approximation.
+ */
+function edgeIdAtPoint(clientX: number, clientY: number): string | null {
+  if (typeof document === 'undefined' || typeof document.elementsFromPoint !== 'function') return null
+  for (const element of document.elementsFromPoint(clientX, clientY)) {
+    const edgeElement = (element as Element).closest?.('.react-flow__edge')
+    const edgeId = edgeElement?.getAttribute('data-id')
+    if (edgeId) return edgeId
+  }
+  return null
+}
+
 export interface WorkflowGraphImplProps {
   initialNodes?: Node[]
   initialEdges?: Edge[]
-  onNodesChange?: (nodes: Node[]) => void
+  onNodesChange?: (nodes: Node[], meta: WorkflowGraphNodesChangeMeta) => void
   onEdgesChange?: (edges: Edge[]) => void
   onNodeClick?: (event: React.MouseEvent, node: Node) => void
   onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void
   onConnect?: (connection: Connection) => void
+  /**
+   * Route reattachment (#4233). React Flow calls this when an existing edge
+   * endpoint is dropped on another node; the parent decides whether to accept
+   * the new endpoints. Leaving the committed edges untouched snaps back.
+   */
+  onReconnect?: (oldEdge: Edge, connection: Connection) => void
+  /** Drag-from-palette (spec section 4.2). Absent → the canvas accepts no drops. */
+  onCanvasDrop?: (event: WorkflowGraphDropEvent) => void
   editable?: boolean
   className?: string
   height?: string
   focusTarget?: WorkflowGraphFocusTarget | null
   nodeErrorCounts?: Record<string, number>
+  /**
+   * Compensation ghosts (spec section 4.4). Display-only: the dashed reverse
+   * edges are minted at render time and never enter the editor's edge state, so
+   * they can never reach `graphToDefinition`.
+   */
+  showCompensation?: boolean
 }
 
 export default function WorkflowGraphImpl({
@@ -61,11 +143,14 @@ export default function WorkflowGraphImpl({
   onNodeClick: onNodeClickProp,
   onEdgeClick: onEdgeClickProp,
   onConnect: onConnectProp,
+  onReconnect: onReconnectProp,
+  onCanvasDrop: onCanvasDropProp,
   editable = false,
   className = '',
   height = '600px',
   focusTarget = null,
   nodeErrorCounts,
+  showCompensation = false,
 }: WorkflowGraphImplProps) {
   const t = useT()
   const [nodes, setNodes] = useNodesState(initialNodes)
@@ -191,10 +276,36 @@ export default function WorkflowGraphImpl({
       const nextNodes = applyNodeChanges(changes, latestNodesRef.current)
       setNodes(nextNodes)
       if (onNodesChangeProp) {
-        onNodesChangeProp(nextNodes)
+        onNodesChangeProp(nextNodes, describeNodeChanges(changes))
       }
     },
     [setNodes, onNodesChangeProp]
+  )
+
+  const acceptsDrop = editable && !!onCanvasDropProp
+
+  const handleDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!acceptsDrop) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+    },
+    [acceptsDrop],
+  )
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!acceptsDrop) return
+      const instance = reactFlowInstanceRef.current
+      if (!instance) return
+      event.preventDefault()
+      onCanvasDropProp?.({
+        dataTransfer: event.dataTransfer,
+        position: instance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+        edgeId: edgeIdAtPoint(event.clientX, event.clientY),
+      })
+    },
+    [acceptsDrop, onCanvasDropProp],
   )
 
   const handleEdgesChange = useCallback(
@@ -219,6 +330,28 @@ export default function WorkflowGraphImpl({
     })
   }, [nodes, nodeErrorCounts])
 
+  // Compensation ghosts + their node badges, both derived from the committed
+  // edges at render time only (spec section 4.4). Read-only visualization: no
+  // engine change, and nothing here is part of the document.
+  const compensationBadgeIds = useMemo(
+    () => (showCompensation ? new Set(compensatingStepIds(edges)) : null),
+    [showCompensation, edges],
+  )
+
+  const decoratedNodes = useMemo(() => {
+    if (!compensationBadgeIds || compensationBadgeIds.size === 0) return displayNodes
+    return displayNodes.map((node) => (
+      compensationBadgeIds.has(node.id)
+        ? { ...node, data: { ...node.data, hasCompensation: true } }
+        : node
+    ))
+  }, [displayNodes, compensationBadgeIds])
+
+  const displayEdges = useMemo(
+    () => (showCompensation ? [...edges, ...buildCompensationGhostEdges(edges)] : edges),
+    [showCompensation, edges],
+  )
+
   const nodeTypes = useMemo(
     () => ({
       start: StartNode,
@@ -228,9 +361,14 @@ export default function WorkflowGraphImpl({
       subWorkflow: SubWorkflowNode,
       waitForSignal: WaitForSignalNode,
       waitForTimer: WaitForTimerNode,
+      waitForCondition: WaitForConditionNode,
       parallelFork: ParallelForkNode,
       parallelJoin: ParallelJoinNode,
       invokeAgent: InvokeAgentNode,
+      ifElse: IfElseNode,
+      switch: SwitchNode,
+      [ANNOTATION_NOTE_NODE_TYPE]: StickyNoteNode,
+      [ANNOTATION_GROUP_NODE_TYPE]: AnnotationGroupNode,
     }),
     []
   )
@@ -239,6 +377,7 @@ export default function WorkflowGraphImpl({
     () => ({
       workflowTransition: WorkflowTransitionEdge,
       workflowDataMapping: WorkflowDataMappingEdge,
+      [WORKFLOW_COMPENSATION_GHOST_EDGE_TYPE]: WorkflowCompensationGhostEdge,
     }),
     []
   )
@@ -247,6 +386,8 @@ export default function WorkflowGraphImpl({
     <div
       ref={containerRef}
       className={`workflow-graph-container ${className}`}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
       style={{
         height,
         // Edge colour tokens mapped to DS palette roles: control transitions vs
@@ -256,13 +397,15 @@ export default function WorkflowGraphImpl({
       } as React.CSSProperties}
     >
       <ReactFlow
-        nodes={displayNodes}
-        edges={edges}
+        nodes={decoratedNodes}
+        edges={displayEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={editable ? onConnect : undefined}
+        onReconnect={editable ? onReconnectProp : undefined}
+        edgesReconnectable={editable && !!onReconnectProp}
         onNodeClick={onNodeClickProp}
         onEdgeClick={onEdgeClickProp}
         onInit={(instance) => {

@@ -35,6 +35,13 @@ import {
   type SetVariableOutput,
 } from './set-variable'
 import {
+  applyTransforms,
+  parseInterpolationToken,
+  type WorkflowInterpolationMode,
+} from './interpolation-pipeline'
+
+export { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from './interpolation-pipeline'
+import {
   WorkflowActivityJob,
   WorkflowActivityJobInvokeAgent,
   WORKFLOW_ACTIVITIES_QUEUE_NAME,
@@ -96,14 +103,6 @@ function getWorkflowEnvInterpolationAllowlist(): Set<string> {
   }
 
   return allowlist
-}
-
-function resolveWorkflowEnvInterpolation(envKey: string): string {
-  if (!getWorkflowEnvInterpolationAllowlist().has(envKey)) {
-    return ''
-  }
-
-  return process.env[envKey] ?? ''
 }
 
 // ============================================================================
@@ -191,6 +190,10 @@ export interface ActivityContext {
   branchInstanceId?: string | null
   transitionId?: string
   userId?: string
+  // The owning definition's `interpolation` mode; absent means lenient.
+  // Async activities enforce strict mode at enqueue-time, so the worker-side
+  // context deliberately leaves this unset.
+  interpolationMode?: WorkflowInterpolationMode
 }
 
 type RbacFeatureResolver = {
@@ -239,6 +242,23 @@ export class ActivityExecutionError extends Error {
   ) {
     super(message)
     this.name = 'ActivityExecutionError'
+  }
+}
+
+/**
+ * Thrown by `interpolateVariables` in strict mode when a token cannot be
+ * resolved (unresolved context path, env-allowlist miss, unknown workflow.*
+ * key, failed or unparseable transform pipeline). Activity call sites rethrow
+ * it as `ActivityExecutionError` so it flows through the normal retry/failure
+ * machinery.
+ */
+export class WorkflowInterpolationError extends Error {
+  constructor(
+    message: string,
+    public token: string
+  ) {
+    super(message)
+    this.name = 'WorkflowInterpolationError'
   }
 }
 
@@ -306,8 +326,14 @@ export async function enqueueActivity(
     )
   }
 
-  // Interpolate config variables NOW (before queuing)
-  const interpolatedConfig = interpolateVariables(activity.config, workflowContext, workflowInstance)
+  // Interpolate config variables NOW (before queuing) — strict mode is
+  // enforced here, at enqueue-time, before the job serializes frozen config.
+  const interpolatedConfig = interpolateActivityConfig(
+    activity.config,
+    context,
+    activity.activityType,
+    activity.activityName
+  )
 
   // Create job payload
   const job: WorkflowActivityJob = {
@@ -385,6 +411,56 @@ export async function enqueueTimerJob(params: {
       organizationId,
       userId,
       fireAt,
+    },
+    { delayMs: delayMs > 0 ? delayMs : undefined }
+  )
+
+  return jobId
+}
+
+/**
+ * Enqueue a delayed poll job for a WAIT_FOR_CONDITION step.
+ *
+ * The activity worker handles `kind: 'condition'` jobs by calling
+ * `conditionHandler.evaluateWaitCondition`. This job is the durability
+ * backstop behind the event-driven wake: `deadlineAt` travels unchanged across
+ * every re-enqueue so the timeout stays anchored to the original step entry.
+ */
+export async function enqueueConditionCheckJob(params: {
+  workflowInstanceId: string
+  stepInstanceId: string
+  branchInstanceId?: string | null
+  tenantId: string
+  organizationId: string
+  userId?: string
+  deadlineAt: string
+  attempt: number
+  delayMs: number
+}): Promise<string> {
+  const {
+    workflowInstanceId,
+    stepInstanceId,
+    branchInstanceId,
+    tenantId,
+    organizationId,
+    userId,
+    deadlineAt,
+    attempt,
+    delayMs,
+  } = params
+
+  const queue = getActivityQueue()
+  const jobId = await queue.enqueue(
+    {
+      kind: 'condition',
+      workflowInstanceId,
+      stepInstanceId,
+      branchInstanceId: branchInstanceId ?? undefined,
+      tenantId,
+      organizationId,
+      userId,
+      deadlineAt,
+      attempt,
     },
     { delayMs: delayMs > 0 ? delayMs : undefined }
   )
@@ -580,7 +656,12 @@ async function executeActivityByType(
   context: ActivityContext
 ): Promise<any> {
   // Interpolate config variables from context (including workflow metadata)
-  const interpolatedConfig = interpolateVariables(activity.config, context.workflowContext, context.workflowInstance)
+  const interpolatedConfig = interpolateActivityConfig(
+    activity.config,
+    context,
+    activity.activityType,
+    activity.activityName
+  )
 
   const entry = getActivityType(activity.activityType)
   if (!entry) {
@@ -1218,7 +1299,7 @@ export async function executeCallApi(
   signal?: AbortSignal
 ): Promise<any> {
   // 1. Interpolate variables in config (including {{workflow.*}}, {{context.*}}, allowlisted {{env.*}}, {{now}})
-  const interpolatedConfig = interpolateVariables(config, context.workflowContext, context.workflowInstance)
+  const interpolatedConfig = interpolateActivityConfig(config, context, 'CALL_API')
 
   const {
     endpoint,
@@ -1551,6 +1632,106 @@ function classifyAndThrowError(status: number, body: any, url: string): never {
 // Helper Functions
 // ============================================================================
 
+type InterpolationBaseResolution =
+  | { status: 'resolved'; value: unknown }
+  | { status: 'unresolved-context'; contextPath: string }
+  | { status: 'unknown-workflow-key'; workflowKey: string }
+  | { status: 'env-not-allowlisted'; envKey: string }
+
+function resolveInterpolationBaseValue(
+  path: string,
+  context: Record<string, any>,
+  workflowInstance?: WorkflowInstance
+): InterpolationBaseResolution {
+  if (path.startsWith('workflow.') && workflowInstance) {
+    const workflowKey = path.substring('workflow.'.length)
+    switch (workflowKey) {
+      case 'instanceId':
+        return { status: 'resolved', value: workflowInstance.id }
+      case 'tenantId':
+        return { status: 'resolved', value: workflowInstance.tenantId }
+      case 'organizationId':
+        return { status: 'resolved', value: workflowInstance.organizationId }
+      case 'currentStepId':
+        return { status: 'resolved', value: workflowInstance.currentStepId }
+      case 'workflowId':
+        return { status: 'resolved', value: workflowInstance.workflowId }
+      case 'version':
+        return { status: 'resolved', value: workflowInstance.version }
+      default:
+        return { status: 'unknown-workflow-key', workflowKey }
+    }
+  }
+
+  if (path.startsWith('env.')) {
+    const envKey = path.substring('env.'.length)
+    if (!getWorkflowEnvInterpolationAllowlist().has(envKey)) {
+      return { status: 'env-not-allowlisted', envKey }
+    }
+    return { status: 'resolved', value: process.env[envKey] ?? '' }
+  }
+
+  if (path === 'now') {
+    return { status: 'resolved', value: new Date().toISOString() }
+  }
+
+  const contextPath = path.startsWith('context.') ? path.substring('context.'.length) : path
+  const value = getNestedValue(context, contextPath)
+  if (value !== undefined) return { status: 'resolved', value }
+  return { status: 'unresolved-context', contextPath }
+}
+
+function strictInterpolationError(rawToken: string, reason: string): WorkflowInterpolationError {
+  return new WorkflowInterpolationError(
+    `Cannot interpolate {{${rawToken}}}: ${reason}`,
+    rawToken
+  )
+}
+
+function interpolateToken(
+  rawToken: string,
+  context: Record<string, any>,
+  workflowInstance: WorkflowInstance | undefined,
+  strict: boolean
+): { resolved: boolean; value?: unknown } {
+  const parsedToken = parseInterpolationToken(rawToken)
+  if (!parsedToken.ok) {
+    if (strict) throw strictInterpolationError(rawToken, parsedToken.error)
+    return { resolved: false }
+  }
+  const resolution = resolveInterpolationBaseValue(parsedToken.path, context, workflowInstance)
+  if (resolution.status === 'unknown-workflow-key') {
+    if (strict) throw strictInterpolationError(rawToken, `unknown workflow key "${resolution.workflowKey}"`)
+    return { resolved: false }
+  }
+  if (resolution.status === 'env-not-allowlisted') {
+    if (strict) throw strictInterpolationError(rawToken, `env variable "${resolution.envKey}" is not allowlisted`)
+  }
+  const baseValue =
+    resolution.status === 'resolved'
+      ? resolution.value
+      : resolution.status === 'env-not-allowlisted'
+        ? ''
+        : undefined
+  if (parsedToken.transforms.length === 0) {
+    if (resolution.status === 'unresolved-context') {
+      if (strict) throw strictInterpolationError(rawToken, `context path "${resolution.contextPath}" is not defined`)
+      return { resolved: false }
+    }
+    return { resolved: true, value: baseValue }
+  }
+  const transformed = applyTransforms(baseValue, parsedToken.transforms)
+  if (!transformed.ok) {
+    if (strict) throw strictInterpolationError(rawToken, transformed.error.message)
+    return { resolved: false }
+  }
+  if (transformed.value === undefined) {
+    if (strict) throw strictInterpolationError(rawToken, 'the transform pipeline produced no value')
+    return { resolved: false }
+  }
+  return { resolved: true, value: transformed.value }
+}
+
 /**
  * Interpolate variables in config from workflow context
  *
@@ -1562,120 +1743,70 @@ function classifyAndThrowError(status: number, body: any, url: string): never {
  * - {{workflow.currentStepId}} - current step ID
  * - {{env.VAR_NAME}} - server-allowlisted environment variables
  * - {{now}} - current ISO timestamp
+ * - {{ path | transform(args) | ... }} - pill transform pipeline
+ *   (`lib/interpolation-pipeline.ts`): a fixed table of pure transforms folded
+ *   over the resolved base value. Lenient behavior (the default): an
+ *   unparseable token, an unresolved path without a rescuing `default`, or a
+ *   failed transform passes the original token/config through unchanged. In
+ *   strict mode (`options.mode: 'strict'`, opted in per definition) the same
+ *   situations throw `WorkflowInterpolationError` naming the offending token;
+ *   only a `default(...)` transform can rescue an unresolved context path.
  */
 export function interpolateVariables(
   config: any,
   context: Record<string, any>,
-  workflowInstance?: WorkflowInstance
+  workflowInstance?: WorkflowInstance,
+  options?: { mode?: WorkflowInterpolationMode }
 ): any {
+  const strict = options?.mode === 'strict'
   if (typeof config === 'string') {
     // Check if this is a single variable reference (e.g., "{{context.cart.items}}")
     // This preserves the original type (array, object, number, boolean)
     const singleVarMatch = config.match(/^\{\{([^}]+)\}\}$/)
 
     if (singleVarMatch) {
-      const trimmedPath = singleVarMatch[1].trim()
-
-      // Handle {{workflow.*}} variables
-      if (trimmedPath.startsWith('workflow.') && workflowInstance) {
-        const workflowKey = trimmedPath.substring('workflow.'.length)
-        switch (workflowKey) {
-          case 'instanceId':
-            return workflowInstance.id
-          case 'tenantId':
-            return workflowInstance.tenantId
-          case 'organizationId':
-            return workflowInstance.organizationId
-          case 'currentStepId':
-            return workflowInstance.currentStepId
-          case 'workflowId':
-            return workflowInstance.workflowId
-          case 'version':
-            return workflowInstance.version // Return as number
-          default:
-            return config // Return original if unknown
-        }
-      }
-
-      // Handle {{env.*}} variables
-      if (trimmedPath.startsWith('env.')) {
-        const envKey = trimmedPath.substring('env.'.length)
-        return resolveWorkflowEnvInterpolation(envKey)
-      }
-
-      // Handle {{now}} - current timestamp
-      if (trimmedPath === 'now') {
-        return new Date().toISOString()
-      }
-
-      // Handle {{context.*}} variables (default behavior)
-      const contextPath = trimmedPath.startsWith('context.')
-        ? trimmedPath.substring('context.'.length)
-        : trimmedPath
-
-      const value = getNestedValue(context, contextPath)
-      return value !== undefined ? value : config // Return raw value to preserve type
+      const outcome = interpolateToken(singleVarMatch[1], context, workflowInstance, strict)
+      return outcome.resolved ? outcome.value : config
     }
 
     // Multiple interpolations or mixed text - return string
-    return config.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
-      const trimmedPath = path.trim()
-
-      // Handle {{workflow.*}} variables
-      if (trimmedPath.startsWith('workflow.') && workflowInstance) {
-        const workflowKey = trimmedPath.substring('workflow.'.length)
-        switch (workflowKey) {
-          case 'instanceId':
-            return workflowInstance.id
-          case 'tenantId':
-            return workflowInstance.tenantId
-          case 'organizationId':
-            return workflowInstance.organizationId
-          case 'currentStepId':
-            return workflowInstance.currentStepId
-          case 'workflowId':
-            return workflowInstance.workflowId
-          case 'version':
-            return String(workflowInstance.version)
-          default:
-            return match // Unknown workflow key
-        }
-      }
-
-      // Handle {{env.*}} variables
-      if (trimmedPath.startsWith('env.')) {
-        const envKey = trimmedPath.substring('env.'.length)
-        return resolveWorkflowEnvInterpolation(envKey)
-      }
-
-      // Handle {{now}} - current timestamp
-      if (trimmedPath === 'now') {
-        return new Date().toISOString()
-      }
-
-      // Handle {{context.*}} variables (default behavior)
-      const contextPath = trimmedPath.startsWith('context.')
-        ? trimmedPath.substring('context.'.length)
-        : trimmedPath
-
-      const value = getNestedValue(context, contextPath)
-      return value !== undefined ? String(value) : match
+    return config.replace(/\{\{([^}]+)\}\}/g, (match, token) => {
+      const outcome = interpolateToken(token, context, workflowInstance, strict)
+      return outcome.resolved ? String(outcome.value) : match
     })
   }
 
   if (Array.isArray(config)) {
-    return config.map((item) => interpolateVariables(item, context, workflowInstance))
+    return config.map((item) => interpolateVariables(item, context, workflowInstance, options))
   }
 
   if (config && typeof config === 'object') {
     const result: Record<string, any> = {}
     for (const [key, value] of Object.entries(config)) {
-      result[key] = interpolateVariables(value, context, workflowInstance)
+      result[key] = interpolateVariables(value, context, workflowInstance, options)
     }
     return result
   }
 
   return config
+}
+
+function interpolateActivityConfig(
+  config: any,
+  context: ActivityContext,
+  activityType: ActivityType,
+  activityName?: string
+): any {
+  try {
+    return interpolateVariables(config, context.workflowContext, context.workflowInstance, {
+      mode: context.interpolationMode,
+    })
+  } catch (error) {
+    if (error instanceof WorkflowInterpolationError) {
+      throw new ActivityExecutionError(error.message, activityType, activityName, { token: error.token })
+    }
+    throw error
+  }
 }
 
 /**

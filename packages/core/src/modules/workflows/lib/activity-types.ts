@@ -20,7 +20,7 @@
  * timers).
  */
 
-import type { ZodTypeAny } from 'zod'
+import { z, type ZodTypeAny } from 'zod'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { getActivityType, registerActivityType } from './activity-registry'
 import { calculateWaitDelayMs } from './duration'
@@ -88,6 +88,77 @@ const resolveCommandOutputContract = (config: unknown): ZodTypeAny | 'unknown' =
   const commandId = (config as Record<string, unknown>).commandId
   if (typeof commandId !== 'string' || commandId.length === 0) return 'unknown'
   return commandRegistry.outputSchemaOf(commandId) ?? 'unknown'
+}
+
+/**
+ * CALL_API's output contract resolves the picked endpoint's declared response
+ * schema from the in-process endpoint catalog (lib/endpoint-catalog.ts).
+ * That helper is server-only, so — like the executor — it is reached through
+ * a runtime binding seam: server-output-contract.ts binds the resolver when
+ * it loads. Unbound runtimes (the browser), unmatched or free-text endpoints,
+ * and templated methods all degrade honestly to 'unknown'.
+ */
+export type CallApiResponseSchemaResolver = (endpoint: string, method: string) => ZodTypeAny | 'unknown'
+
+let boundCallApiResponseSchemaResolver: CallApiResponseSchemaResolver | null = null
+
+export function bindCallApiResponseSchemaResolver(resolver: CallApiResponseSchemaResolver): void {
+  boundCallApiResponseSchemaResolver = resolver
+}
+
+const resolveCallApiOutputContract = (config: unknown): ZodTypeAny | 'unknown' => {
+  if (!boundCallApiResponseSchemaResolver) return 'unknown'
+  if (typeof config !== 'object' || config === null) return 'unknown'
+  const record = config as Record<string, unknown>
+  const endpoint = record.endpoint
+  if (typeof endpoint !== 'string' || endpoint.length === 0) return 'unknown'
+  const rawMethod = record.method
+  if (rawMethod !== undefined && typeof rawMethod !== 'string') return 'unknown'
+  const method = typeof rawMethod === 'string' && rawMethod.length > 0 ? rawMethod : 'GET'
+  if (method.includes('{{')) return 'unknown'
+  return boundCallApiResponseSchemaResolver(endpoint, method)
+}
+
+/**
+ * INVOKE_AGENT's output contract describes the normalized agent-result envelope
+ * that `mapAgentResultToContext` reads its `outputMapping` source paths from.
+ * The envelope keys are the platform's own contract; the OUTCOME shape under
+ * `data` (informative agents) or `proposalPayload` (actionable agents) belongs
+ * to the selected agent and lives in the OPTIONAL agent_orchestrator peer, so it
+ * arrives through a runtime binding seam — core never imports enterprise.
+ * server-output-contract.ts binds a resolver backed by the peer's DI bridge;
+ * unbound runtimes (the browser), a missing peer, a templated or unknown agent
+ * id, and agents without a declared OUTCOME all degrade honestly to 'unknown'.
+ */
+export type AgentOutcomeContract = {
+  resultKind: 'informative' | 'actionable'
+  schema: ZodTypeAny
+}
+
+export type AgentOutcomeSchemaResolver = (agentId: string) => AgentOutcomeContract | 'unknown'
+
+let boundAgentOutcomeSchemaResolver: AgentOutcomeSchemaResolver | null = null
+
+export function bindAgentOutcomeSchemaResolver(resolver: AgentOutcomeSchemaResolver): void {
+  boundAgentOutcomeSchemaResolver = resolver
+}
+
+const agentEnvelopeShape = {
+  kind: z.string(),
+  disposition: z.string(),
+  agentId: z.string(),
+  proposalId: z.string(),
+}
+
+const resolveInvokeAgentOutputContract = (config: unknown): ZodTypeAny | 'unknown' => {
+  if (!boundAgentOutcomeSchemaResolver) return 'unknown'
+  if (typeof config !== 'object' || config === null) return 'unknown'
+  const agentId = (config as Record<string, unknown>).agentId
+  if (typeof agentId !== 'string' || agentId.length === 0 || agentId.includes('{{')) return 'unknown'
+  const outcome = boundAgentOutcomeSchemaResolver(agentId)
+  if (outcome === 'unknown') return 'unknown'
+  const outcomeKey = outcome.resultKind === 'informative' ? 'data' : 'proposalPayload'
+  return z.object({ ...agentEnvelopeShape, [outcomeKey]: outcome.schema })
 }
 
 /**
@@ -167,7 +238,12 @@ export function registerBuiltinActivityTypes(): void {
     i18nKey: i18nKeyFor('CALL_WEBHOOK'),
     configSchema: callWebhookConfigSchema,
     form: [
-      { id: 'url', component: 'text', required: true },
+      {
+        id: 'url',
+        component: 'text',
+        required: true,
+        descriptionKey: 'workflows.activityConfig.CALL_WEBHOOK.urlHint',
+      },
       { id: 'method', component: 'select' },
       { id: 'headers', component: 'keyValue' },
       { id: 'body', component: 'json' },
@@ -227,7 +303,12 @@ export function registerBuiltinActivityTypes(): void {
     i18nKey: i18nKeyFor('CALL_API'),
     configSchema: callApiConfigSchema,
     form: [
-      { id: 'endpoint', component: 'text', required: true },
+      {
+        id: 'endpoint',
+        component: 'endpoint',
+        required: true,
+        descriptionKey: 'workflows.activityConfig.CALL_API.endpointHint',
+      },
       { id: 'method', component: 'select' },
       { id: 'headers', component: 'keyValue' },
       { id: 'body', component: 'json' },
@@ -235,6 +316,7 @@ export function registerBuiltinActivityTypes(): void {
     ],
     execute: async (config, ctx, deps) => (await loadExecutor()).executeCallApi(deps.em, config, ctx, deps.container, deps.signal),
     async: { capable: false, reason: 'mintsPerRequestKey' },
+    outputContract: resolveCallApiOutputContract,
     mock: 'refuse',
   })
 
@@ -275,6 +357,7 @@ export function registerBuiltinActivityTypes(): void {
     // in the registry's sense. No mock: agent runs are not simulatable here.
     execute: async (config, ctx, deps) => (await loadExecutor()).executeInvokeAgent(config, ctx, deps.container),
     async: { capable: false, reason: 'parksOnDedicatedQueue' },
+    outputContract: resolveInvokeAgentOutputContract,
   })
 }
 

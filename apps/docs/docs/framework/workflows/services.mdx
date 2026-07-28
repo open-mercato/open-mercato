@@ -421,14 +421,35 @@ Context is updated automatically through:
 - Signal payloads (merged at root level)
 - User task form data (merged at root level)
 
-For custom updates, use the service layer:
+For custom updates from outside the engine, patch the instance context over HTTP:
 
-```typescript
-await workflowService.updateContext(instanceId, {
-  customField: 'value',
-  updatedAt: new Date().toISOString()
-})
+```http
+PATCH /api/workflows/instances/{instanceId}/context
+Content-Type: application/json
+
+{
+  "context": {
+    "gridApproval": { "status": "APPROVED", "reference": "GA-4471" }
+  }
+}
 ```
+
+```json
+{
+  "ok": true,
+  "instanceId": "instance-uuid",
+  "woken": ["await_grid_approval"]
+}
+```
+
+The patch is **merged** into the run context, and any `WAIT_FOR_CONDITION` step whose predicate now holds is woken in the same call — `woken` names the step ids that resumed. The per-waiter poll job remains the durability backstop, so a missed call here costs latency, never correctness.
+
+Rules worth knowing before you call it:
+
+- It requires the **`workflows.instances.update_context`** ACL feature. This is deliberately *not* folded into `workflows.instances.signal`: writing arbitrary run context is a strictly broader capability than sending a named signal.
+- The read is tenant- and organization-scoped, so a cross-tenant instance id answers `404`, not `403`.
+- Engine-owned keys are **rejected**, not silently dropped: `__result`, `_pendingAsyncActivities`, `__park` and `__error`. Overwriting any of them would corrupt a running instance.
+- The write goes through the command optimistic-lock guard, so a stale write is refused rather than clobbering a concurrent update.
 
 ## Error Handling
 

@@ -87,6 +87,38 @@ export function createActivityWorkerHandler(
       return
     }
 
+    // Condition jobs are the durability backstop for WAIT_FOR_CONDITION steps:
+    // they re-evaluate the predicate and enforce the absolute deadline. A job
+    // whose waiter was already resumed by the event-driven path is a no-op.
+    if (payload.kind === 'condition') {
+      logger.debug('Evaluating wait condition', {
+        instanceId: payload.workflowInstanceId,
+        stepInstanceId: payload.stepInstanceId,
+        attempt: payload.attempt,
+        jobId: ctx.jobId,
+      })
+      try {
+        const { evaluateWaitCondition } = await import('./condition-handler')
+        await evaluateWaitCondition(em, container, {
+          instanceId: payload.workflowInstanceId,
+          stepInstanceId: payload.stepInstanceId,
+          branchInstanceId: payload.branchInstanceId,
+          deadlineAt: payload.deadlineAt,
+          attempt: payload.attempt,
+          tenantId: payload.tenantId,
+          organizationId: payload.organizationId,
+          userId: payload.userId,
+        })
+      } catch (error: unknown) {
+        logger.error('Failed to evaluate wait condition', {
+          instanceId: payload.workflowInstanceId,
+          err: error,
+        })
+        throw error
+      }
+      return
+    }
+
     // Invoke-agent jobs run an INVOKE_AGENT step's agent OUTSIDE the workflow
     // transaction, then resume the parked step (see handleInvokeAgentJob).
     if (payload.kind === 'invoke_agent') {
@@ -98,6 +130,19 @@ export function createActivityWorkerHandler(
     // after its child reached a terminal state (see resumeParentAfterSubWorkflow).
     if (payload.kind === 'resume_subworkflow_parent') {
       await resumeParentAfterSubWorkflow(em, container, payload)
+      return
+    }
+
+    // Workflow-level error handler jobs start the designated handler workflow
+    // for a failed instance, outside the transaction that recorded the failure.
+    if (payload.kind === 'workflow_error_handler') {
+      logger.debug('Starting workflow error handler', {
+        instanceId: payload.workflowInstanceId,
+        handlerWorkflowId: payload.handlerWorkflowId,
+        jobId: ctx.jobId,
+      })
+      const { runWorkflowErrorHandler } = await import('./error-handler')
+      await runWorkflowErrorHandler(em, container, payload)
       return
     }
 

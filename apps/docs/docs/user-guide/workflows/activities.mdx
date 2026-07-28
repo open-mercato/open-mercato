@@ -66,31 +66,28 @@ Send email notifications with dynamic content from workflow context.
 
 ### CALL_API
 
-Make HTTP requests to external APIs for integration with third-party systems.
+Call one of the application's own API endpoints. (For third-party HTTP calls, use [CALL_WEBHOOK](#call_webhook) — it is the one that goes off-instance and is SSRF-guarded.)
 
 **Configuration:**
 
 ```json
 {
-  "activityId": "charge-payment",
-  "activityName": "Charge Payment via Stripe",
+  "activityId": "create-order",
+  "activityName": "Create Sales Order",
   "activityType": "CALL_API",
   "config": {
-    "url": "https://api.stripe.com/v1/charges",
+    "endpoint": "/api/sales/orders",
     "method": "POST",
     "headers": {
-      "Authorization": "Bearer {{env.STRIPE_SECRET_KEY}}",
       "Content-Type": "application/json"
     },
     "body": {
-      "amount": "{{context.amountCents}}",
-      "currency": "usd",
-      "source": "{{context.paymentToken}}",
-      "description": "Order {{context.orderId}}"
+      "customerEntityId": "{{context.customer.id}}",
+      "currencyCode": "{{context.cart.currency}}",
+      "placedAt": "{{now}}"
     }
   },
   "async": true,
-  "timeout": "30s",
   "retryPolicy": {
     "maxAttempts": 3,
     "backoff": "exponential"
@@ -99,10 +96,19 @@ Make HTTP requests to external APIs for integration with third-party systems.
 ```
 
 **Parameters:**
-- `url`: API endpoint (supports variable interpolation)
-- `method`: HTTP method (GET, POST, PUT, DELETE, PATCH)
-- `headers`: Request headers (authentication, content type, etc.)
+- `endpoint`: the API path to call, e.g. `/api/sales/orders` (supports variable interpolation)
+- `method`: HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS) — defaults to `GET`
+- `headers`: Request headers
 - `body`: Request body (object or string)
+- `timeout`: per-call timeout in milliseconds
+
+#### Picking the Endpoint
+
+You do not have to know the path by heart. The **endpoint field opens a picker** listing the application's documented API surface: browse or search by path, method, tag and summary, then pick one. The picker fills in the method, shows the endpoint's declared parameters as typed rows instead of a raw query string, and free text remains available for anything the catalogue does not cover.
+
+When the chosen endpoint declares a **response schema**, that schema becomes the activity's output contract: the variable picker at every later step then offers the response's fields with real types instead of `unknown`. Endpoints without a declared response schema stay honestly untyped rather than guessing.
+
+The picker is specific to `CALL_API`, because it browses *this* application's endpoints. `CALL_WEBHOOK`'s URL is a free-text field — it points at somebody else's service.
 
 **Response Handling:**
 
@@ -111,18 +117,17 @@ API responses are saved to workflow context under `activities.<activityId>.outpu
 ```json
 {
   "activities": {
-    "charge-payment": {
+    "create-order": {
       "output": {
-        "id": "ch_123",
-        "status": "succeeded",
-        "amount": 5000
+        "id": "ord_123",
+        "status": "draft"
       }
     }
   }
 }
 ```
 
-Access response data in subsequent steps: `{{activities.charge-payment.output.id}}`
+Access response data in subsequent steps: `{{activities.create-order.output.id}}`
 
 ### EMIT_EVENT
 
@@ -337,6 +342,46 @@ Use `{{variable}}` syntax to inject workflow data into activity configurations.
 ```
 
 You do not have to type these paths by hand: template-capable fields carry a **variable picker** that lists exactly what is available at that step, with type badges and *maybe* markers for values that only exist on some paths. References to context nothing produces surface as warnings in the editor's Problems panel. To verify an activity's config against sample data without running the workflow, use the [Test step panel](./creating-workflows#testing-a-step) — side-effecting activities are simulated, never executed.
+
+### Transform Pipelines
+
+A token can pipe its value through one or more **transforms** before it is inserted, so you rarely need an extra step just to format something:
+
+```
+{{ context.order.total | number(2) }}
+{{ context.customer.name | title }}
+{{ context.order.placedAt | date('yyyy-MM-dd') }}
+{{ context.customer.nickname | default('there') }}
+{{ context.order.lines | pick(0) | pick('sku') }}
+{{ context.order.reference | upper | prepend('#') }}
+```
+
+The grammar is deliberately small — a lookup path, then `|`-separated transform calls whose arguments are plain literals (quoted strings, numbers, `true`, `false`, `null`). There are no expressions and nothing is evaluated as code.
+
+| Transform | Arguments | Result |
+|-----------|-----------|--------|
+| `date` | optional format string (`yyyy`, `MM`, `dd`, `HH`, `mm`, `ss`, `SSS`, in UTC) | Formats a date value; with no argument, ISO-8601 |
+| `number` | optional decimals, optional locale | Fixed decimals, or a locale-formatted number when a locale is given |
+| `upper` / `lower` / `title` | none | Upper-cases, lower-cases, or title-cases text |
+| `concat` | one string | Appends it |
+| `prepend` | one string | Prepends it |
+| `default` | one value | Substitutes it when the value is missing, `null` or empty |
+| `pick` | field name or array index | Reads one field out of an object, or one element out of an array |
+
+A token with no `|` behaves exactly as it always has.
+
+:::note A pipe inside `{{ }}` is now a transform
+Before transforms existed, a `|` inside `{{ }}` was part of the lookup path. If you have a definition whose context genuinely contains a key with a `|` in it, that token now parses as a transform pipeline instead.
+:::
+
+### Strict Interpolation
+
+A definition can declare how it treats a token it cannot resolve, through `definition.interpolation`:
+
+- **`lenient`** — an unresolved token or a failed transform is left alone and execution carries on. This is how workflows have always behaved, and it stays the behaviour for every definition that does not say otherwise.
+- **`strict`** — an unresolved token or a failed transform fails the step instead of quietly producing a literal `{{context.missing}}` in an email or an API body.
+
+**New workflows are created in strict mode**; the toggle sits in the workflow's details panel. Existing definitions are never switched for you — updating an old definition keeps whatever mode it had.
 
 ## Common Patterns
 

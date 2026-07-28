@@ -2,6 +2,7 @@ import { describe, test, expect, jest, beforeEach } from '@jest/globals'
 import { LockMode, type EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import * as workflowExecutor from '../workflow-executor'
+import { WORKFLOW_ENGINE_VERSION } from '../engine-version'
 import type {
   WorkflowDefinition,
   WorkflowInstance,
@@ -153,6 +154,56 @@ describe('Workflow Executor (Unit Tests)', () => {
           organizationId: testOrgId,
         })
       ).rejects.toThrow('Workflow definition is disabled')
+    })
+
+    test('should refuse a definition that requires a newer engine version', async () => {
+      const futureDefinition = {
+        ...mockDefinition,
+        metadata: { minEngineVersion: WORKFLOW_ENGINE_VERSION + 1 },
+      }
+      mockEm.findOne.mockResolvedValue(futureDefinition as WorkflowDefinition)
+
+      await expect(
+        workflowExecutor.startWorkflow(mockEm, {
+          workflowId: 'simple-workflow',
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        })
+      ).rejects.toThrow(`requires engine version ${WORKFLOW_ENGINE_VERSION + 1}`)
+      expect(mockEm.create).not.toHaveBeenCalled()
+    })
+
+    test('should start a definition pinned to the current engine version', async () => {
+      const pinnedDefinition = {
+        ...mockDefinition,
+        metadata: { minEngineVersion: WORKFLOW_ENGINE_VERSION },
+      }
+      mockEm.findOne.mockResolvedValue(pinnedDefinition as WorkflowDefinition)
+
+      const mockInstance = {
+        id: testInstanceId,
+        definitionId: testDefinitionId,
+        workflowId: 'simple-workflow',
+        version: 1,
+        status: 'RUNNING',
+        currentStepId: 'start',
+        context: {},
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as WorkflowInstance
+      mockEm.create.mockReturnValue(mockInstance)
+
+      const instance = await workflowExecutor.startWorkflow(mockEm, {
+        workflowId: 'simple-workflow',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
+
+      expect(instance.status).toBe('RUNNING')
     })
 
     test('should throw error if definition has no steps', async () => {

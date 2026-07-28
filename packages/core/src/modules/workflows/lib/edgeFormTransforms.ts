@@ -6,6 +6,7 @@
  */
 
 import type { Edge } from '@xyflow/react'
+import type { GroupCondition } from '@open-mercato/core/modules/business_rules/components/utils/conditionValidation'
 import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { TransitionCondition } from '../components/fields/BusinessRuleConditionsEditor'
 import { parseAdvancedConfigValue } from './advanced-config'
@@ -28,6 +29,10 @@ export interface EdgeFormValues {
   continueOnActivityFailure: boolean
   preConditions: NormalizedCondition[]
   postConditions: NormalizedCondition[]
+  // Inline routing condition in the business_rules expression language. Edited
+  // through the same ConditionBuilder the branching inspectors use, so the
+  // condition chip on the canvas has an editor to open.
+  condition?: GroupCondition | null
   activities: Activity[]
   // JsonBuilder emits the parsed object; legacy callers may still provide a JSON string.
   advancedConfig?: Record<string, unknown> | string
@@ -90,6 +95,7 @@ export function edgeToFormValues(edge: Edge): EdgeFormValues {
       : false,
     preConditions: normalizeConditions(edgeData?.preConditions || []),
     postConditions: normalizeConditions(edgeData?.postConditions || []),
+    condition: (edgeData?.condition as GroupCondition | undefined) ?? null,
     activities: edgeData?.activities || [],
     advancedConfig: undefined, // Advanced config is empty initially (can be populated from edgeData if needed)
   }
@@ -112,6 +118,7 @@ export function formValuesToEdgeUpdates(
     continueOnActivityFailure: values.continueOnActivityFailure,
     preConditions: values.preConditions.length > 0 ? values.preConditions : undefined,
     postConditions: values.postConditions.length > 0 ? values.postConditions : undefined,
+    condition: values.condition ?? undefined,
     activities: values.activities.length > 0 ? values.activities : undefined,
   }
 

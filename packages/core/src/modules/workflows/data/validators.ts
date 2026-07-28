@@ -1,4 +1,8 @@
 import { z } from 'zod'
+import { conditionExpressionSchema } from '@open-mercato/core/modules/business_rules/data/validators'
+import { validateConditionExpressionForApi } from '@open-mercato/core/modules/business_rules/lib/payload-validation'
+import { parseDuration } from '../lib/duration'
+import { excludeErrorTransitions } from '../lib/error-routing'
 import '../lib/activity-registry-bootstrap'
 import { activityTypeIds } from '../lib/activity-registry'
 import {
@@ -64,6 +68,9 @@ export const workflowStepTypeSchema = z.enum([
   'SUB_WORKFLOW',
   'WAIT_FOR_SIGNAL',
   'WAIT_FOR_TIMER',
+  'WAIT_FOR_CONDITION',
+  'IF_ELSE',
+  'SWITCH',
 ])
 export type WorkflowStepType = z.infer<typeof workflowStepTypeSchema>
 
@@ -303,6 +310,132 @@ export const startPreConditionSchema = z.object({
 
 export type StartPreCondition = z.infer<typeof startPreConditionSchema>
 
+// WAIT_FOR_CONDITION save-time bounds. Mirrors lib/condition-handler.ts, which
+// clamps at runtime; the validator fails closed instead so a definition that
+// would degenerate into a plain timer never saves.
+export const CONDITION_POLL_INTERVAL_MIN_MS = 5000
+export const CONDITION_POLL_INTERVAL_MAX_MS = 3600000
+
+const CONDITION_REQUIRED_ERROR = 'WAIT_FOR_CONDITION step requires a "condition" expression'
+const CONDITION_TIMEOUT_REQUIRED_ERROR = 'WAIT_FOR_CONDITION step requires a "timeout" duration'
+const CONDITION_ON_TIMEOUT_ERROR = 'WAIT_FOR_CONDITION "onTimeout" must be "FAIL" or "CONTINUE"'
+const CONDITION_POLL_INTERVAL_RANGE_ERROR = `WAIT_FOR_CONDITION "pollIntervalMs" must be an integer between ${CONDITION_POLL_INTERVAL_MIN_MS} and ${CONDITION_POLL_INTERVAL_MAX_MS}`
+const CONDITION_POLL_INTERVAL_EXCEEDS_TIMEOUT_ERROR =
+  'WAIT_FOR_CONDITION "pollIntervalMs" must not exceed "timeout" — the first poll would land after the deadline'
+
+/**
+ * Fail-closed save-time validation for a WAIT_FOR_CONDITION step's config.
+ * The predicate is checked with the business_rules API validator rather than a
+ * hand-rolled shape check, so it inherits that module's safety bounds
+ * (nesting depth, rules per group, field-path length, regex linearity).
+ */
+function refineWaitForConditionStep(config: Record<string, unknown>, ctx: z.RefinementCtx): void {
+  const condition = config.condition
+  if (condition == null) {
+    ctx.addIssue({ code: 'custom', path: ['config', 'condition'], message: CONDITION_REQUIRED_ERROR })
+  } else {
+    const conditionResult = validateConditionExpressionForApi(condition)
+    if (!conditionResult.valid) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'condition'],
+        message: conditionResult.error ?? CONDITION_REQUIRED_ERROR,
+      })
+    }
+  }
+
+  const timeout = config.timeout
+  const hasTimeout = typeof timeout === 'string' && timeout.length > 0
+  if (!hasTimeout) {
+    ctx.addIssue({ code: 'custom', path: ['config', 'timeout'], message: CONDITION_TIMEOUT_REQUIRED_ERROR })
+  } else if (!isValidDurationString(timeout)) {
+    ctx.addIssue({ code: 'custom', path: ['config', 'timeout'], message: DURATION_ERROR })
+  }
+
+  if (config.onTimeout != null && config.onTimeout !== 'FAIL' && config.onTimeout !== 'CONTINUE') {
+    ctx.addIssue({ code: 'custom', path: ['config', 'onTimeout'], message: CONDITION_ON_TIMEOUT_ERROR })
+  }
+
+  if (config.pollIntervalMs == null) return
+
+  const pollIntervalMs = config.pollIntervalMs
+  if (
+    typeof pollIntervalMs !== 'number'
+    || !Number.isInteger(pollIntervalMs)
+    || pollIntervalMs < CONDITION_POLL_INTERVAL_MIN_MS
+    || pollIntervalMs > CONDITION_POLL_INTERVAL_MAX_MS
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config', 'pollIntervalMs'],
+      message: CONDITION_POLL_INTERVAL_RANGE_ERROR,
+    })
+    return
+  }
+
+  if (hasTimeout && isValidDurationString(timeout)) {
+    const timeoutMs = parseDuration(timeout)
+    if (pollIntervalMs > timeoutMs) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'pollIntervalMs'],
+        message: CONDITION_POLL_INTERVAL_EXCEEDS_TIMEOUT_ERROR,
+      })
+    }
+  }
+}
+
+/**
+ * Named error directive applied when a failing step has no wired error route
+ * (spec 5.9). Absent means `fail`, which is the pre-existing behavior, so no
+ * stored definition changes meaning. `fallbackValue` is authored against the
+ * step's output contract and lands in the run context under the step id.
+ */
+export const stepErrorDirectiveSchema = z.object({
+  mode: z.enum(['fail', 'continueWithFallback', 'failureQueue']),
+  fallbackValue: z.unknown().optional(),
+})
+
+export type StepErrorDirective = z.infer<typeof stepErrorDirectiveSchema>
+
+/**
+ * Transition discriminator. `error` routes are reachable ONLY from a step
+ * failure — normal routing filters them out — so adding one never changes the
+ * happy path. Absent means `normal`.
+ */
+export const transitionKindSchema = z.enum(['normal', 'error'])
+
+export type WorkflowTransitionKind = z.infer<typeof transitionKindSchema>
+
+/**
+ * Definition-level catch-all error handler (spec 5.9). Exactly one form:
+ * `workflowId` designates a handler sub-workflow started with
+ * `{ failedStepId, error, contextSnapshot }`; `stepId` designates a handler step
+ * the run jumps to before failing. Engine construct — never an event trigger.
+ */
+export const workflowErrorHandlerSchema = z.object({
+  workflowId: z.string().min(1).max(100).optional(),
+  version: z.number().int().positive().optional(),
+  stepId: z.string().min(1).max(100).optional(),
+}).superRefine((handler, ctx) => {
+  const forms = [handler.workflowId, handler.stepId].filter((value) => value != null && value !== '')
+  if (forms.length !== 1) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'errorHandler must declare exactly one of "workflowId" or "stepId"',
+    })
+  }
+  if (handler.version != null && !handler.workflowId) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['version'],
+      message: 'errorHandler.version only applies to the workflowId form',
+    })
+  }
+})
+
+export type WorkflowErrorHandlerConfig = z.infer<typeof workflowErrorHandlerSchema>
+
 // Step definition
 export const workflowStepSchema = z.object({
   stepId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Step ID must contain only lowercase letters, numbers, hyphens, and underscores'),
@@ -321,11 +454,22 @@ export const workflowStepSchema = z.object({
   retryPolicy: retryPolicySchema.optional(),
   // Pre-conditions for START step (business rules to validate before workflow can be started)
   preConditions: z.array(startPreConditionSchema).optional(),
+  // What happens when this step fails and no error route is wired (spec 5.9).
+  errorDirective: stepErrorDirectiveSchema.optional(),
   // Visual-editor node coordinate persisted in the jsonb definition so a saved
   // graph re-opens exactly as the author arranged it. Additive/optional — legacy
   // and code-authored definitions omit it and auto-arrange on load.
   _editorPosition: z.object({ x: z.number(), y: z.number() }).optional(),
+  // Editor-owned, never executed. Holds `unmappedConfig`: config a step-type
+  // conversion could not map onto the new type (spec 4.5). The engine ignores
+  // this object entirely; it exists so a conversion never destroys authored
+  // configuration and a conversion back can recover it.
+  metadata: z.record(z.string(), z.any()).optional(),
 }).superRefine((step, ctx) => {
+  if (step.stepType === 'WAIT_FOR_CONDITION') {
+    refineWaitForConditionStep(step.config || {}, ctx)
+    return
+  }
   if (step.stepType !== 'WAIT_FOR_TIMER') return
   const config = step.config || {}
   const hasDuration = config.duration != null && config.duration !== ''
@@ -385,8 +529,16 @@ export const workflowTransitionSchema = z.object({
   trigger: transitionTriggerSchema,
   preConditions: z.array(transitionConditionSchema).optional(),
   postConditions: z.array(transitionConditionSchema).optional(),
+  // Inline condition in the business_rules ConditionExpression language — the
+  // one condition language platform-wide. `findValidTransitions` has always
+  // evaluated `transition.condition`; declaring it here makes author-time
+  // routing (IF_ELSE / SWITCH cases) survive a save round-trip.
+  condition: conditionExpressionSchema,
   activities: z.array(activityDefinitionSchema).optional(), // Activities to execute during transition
   continueOnActivityFailure: z.boolean().default(false).optional(), // If true, transition continues even when activities fail
+  // Error route marker (spec 5.9). Normal routing never selects an `error`
+  // route; the engine follows it only when the source step fails.
+  kind: transitionKindSchema.optional(),
   priority: z.number().int().min(0).max(9999).default(0),
 })
 
@@ -459,6 +611,7 @@ interface ForkJoinTransitionLike {
   fromStepId: string
   toStepId: string
   trigger: string
+  kind?: string
 }
 
 interface ForkJoinDefinitionLike {
@@ -483,7 +636,9 @@ interface ForkJoinDefinitionLike {
 export function validateParallelForkJoin(definition: ForkJoinDefinitionLike): ForkJoinValidationIssue[] {
   const issues: ForkJoinValidationIssue[] = []
   const steps = definition.steps ?? []
-  const transitions = definition.transitions ?? []
+  // Error routes leave the happy-path graph on purpose (spec 5.9): a branch step
+  // may route its failure outside the fork region without breaking convergence.
+  const transitions = excludeErrorTransitions(definition.transitions ?? [])
 
   const stepById = new Map<string, ForkJoinStepLike>()
   for (const step of steps) stepById.set(step.stepId, step)
@@ -654,6 +809,8 @@ export const workflowDefinitionDataSchema = z.object({
   triggers: z.array(workflowDefinitionTriggerSchema).optional(), // Event triggers for automatic workflow start
   contextSchema: contextSchemaSchema.optional(), // Declared typed-input contract (spec §3.1) — canonical input contract
   io: workflowIoContractSchema.optional(), // Sub-workflow input/output port contract; io.input is a read-through alias of contextSchema.input for the ledger
+  interpolation: z.enum(['strict', 'lenient']).optional(), // Interpolation mode (spec §3.6): absent = lenient; the POST create route defaults NEW definitions to 'strict' — never default here, it would flip existing lenient definitions on their next full-body update
+  errorHandler: workflowErrorHandlerSchema.optional(), // Catch-all error handler (spec §5.9)
   queries: z.array(z.any()).optional(), // For Phase 7
   signals: z.array(z.any()).optional(), // For Phase 9
   timers: z.array(z.any()).optional(), // For Phase 9
@@ -665,6 +822,21 @@ export const workflowDefinitionDataSchema = z.object({
       message: `[${issue.code}] ${issue.message}`,
     })
   }
+
+  // A waiting step with no way out strands the run once its predicate holds,
+  // so the graph-level rule the other waiting step types carry applies here too.
+  definition.steps.forEach((step, index) => {
+    if (step.stepType !== 'WAIT_FOR_CONDITION') return
+    const hasOutgoing = definition.transitions.some(
+      (transition) => transition.fromStepId === step.stepId,
+    )
+    if (hasOutgoing) return
+    ctx.addIssue({
+      code: 'custom',
+      path: ['steps', index],
+      message: `WAIT_FOR_CONDITION step "${step.stepId}" requires at least one outgoing transition`,
+    })
+  })
 })
 
 // Pinned per-step sample envelope (spec §3.6). Samples are stored verbatim
@@ -680,22 +852,63 @@ export type WorkflowSampleEnvelopeInput = z.infer<typeof sampleEnvelopeSchema>
 
 export const WORKFLOW_EDITOR_SAMPLES_MAX_CHARS = 65536
 
+export const WORKFLOW_EDITOR_ANNOTATIONS_MAX_CHARS = 65536
+
+// Editor annotations (spec §4.5): markdown sticky notes and named groups. They
+// are documentation only — never execution semantics — which is why they live
+// here in metadata and never in `definition.steps`.
+const annotationPointSchema = z.object({ x: z.number(), y: z.number() })
+const annotationSizeSchema = z.object({ width: z.number().positive(), height: z.number().positive() })
+
+export const editorNoteSchema = z.object({
+  id: z.string().min(1).max(100),
+  markdown: z.string().max(10000),
+  position: annotationPointSchema,
+  size: annotationSizeSchema,
+})
+
+export const editorGroupSchema = z.object({
+  id: z.string().min(1).max(100),
+  name: z.string().max(200),
+  rect: z.object({ x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive() }),
+  collapsed: z.boolean().optional(),
+})
+
+export const editorAnnotationsSchema = z.object({
+  notes: z.array(editorNoteSchema).optional(),
+  groups: z.array(editorGroupSchema).optional(),
+})
+
+export type WorkflowEditorNoteInput = z.infer<typeof editorNoteSchema>
+export type WorkflowEditorGroupInput = z.infer<typeof editorGroupSchema>
+
 // Workflow metadata
 export const workflowMetadataSchema = z.object({
   tags: z.array(z.string().max(50)).optional(),
   category: z.string().max(100).optional(),
   icon: z.string().max(100).optional(),
+  // Forward-compatibility guard (spec section 5.8): engines below this version
+  // refuse to instantiate the definition instead of misexecuting it.
+  minEngineVersion: z.number().int().min(1).optional(),
   editor: z.object({
     samples: z.record(z.string(), sampleEnvelopeSchema).optional(),
+    annotations: editorAnnotationsSchema.optional(),
   }).passthrough().optional(),
 }).superRefine((metadata, ctx) => {
   const samples = metadata.editor?.samples
-  if (!samples) return
-  if (JSON.stringify(samples).length > WORKFLOW_EDITOR_SAMPLES_MAX_CHARS) {
+  if (samples && JSON.stringify(samples).length > WORKFLOW_EDITOR_SAMPLES_MAX_CHARS) {
     ctx.addIssue({
       code: 'custom',
       path: ['editor', 'samples'],
       message: `Pinned samples exceed the ${WORKFLOW_EDITOR_SAMPLES_MAX_CHARS}-character limit; unpin or shrink samples before saving`,
+    })
+  }
+  const annotations = metadata.editor?.annotations
+  if (annotations && JSON.stringify(annotations).length > WORKFLOW_EDITOR_ANNOTATIONS_MAX_CHARS) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['editor', 'annotations'],
+      message: `Notes and groups exceed the ${WORKFLOW_EDITOR_ANNOTATIONS_MAX_CHARS}-character limit; shorten or remove some before saving`,
     })
   }
 })

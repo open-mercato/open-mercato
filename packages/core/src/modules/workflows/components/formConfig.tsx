@@ -1,5 +1,18 @@
 "use client"
 
+/**
+ * Form-editor configuration — DEPRECATED (spec section 10).
+ *
+ * The form editor is retired: `/backend/definitions/create` and
+ * `/backend/definitions/[id]` now forward to the Studio, and nothing in this
+ * module builds a workflow `CrudForm` any more. Every export below stays for at
+ * least one minor release so third-party pages that embed the definition form
+ * keep compiling (BACKWARD_COMPATIBILITY.md deprecation protocol); they are
+ * scheduled for removal one minor after the UPGRADE_NOTES entry.
+ *
+ * @deprecated Author workflows in `/backend/definitions/visual-editor`.
+ */
+
 import * as React from 'react'
 import { z } from 'zod'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
@@ -9,6 +22,8 @@ import type { WorkflowDefinitionTrigger } from '../data/entities'
 /**
  * Form Values Type
  * Represents the structure of form data for creating/editing workflow definitions
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export type WorkflowDefinitionFormValues = {
   workflowId: string
@@ -38,6 +53,8 @@ export type WorkflowDefinitionFormValues = {
 /**
  * Form Validation Schema
  * Extends the API schema with additional client-side validation
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export const workflowDefinitionFormSchema = z.object({
   workflowId: z.string()
@@ -67,6 +84,8 @@ export const workflowDefinitionFormSchema = z.object({
 
 /**
  * Default Form Values
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export const defaultFormValues: WorkflowDefinitionFormValues = {
   workflowId: '',
@@ -87,6 +106,8 @@ export const defaultFormValues: WorkflowDefinitionFormValues = {
 /**
  * Create Field Definitions
  * Returns field configurations for the CrudForm
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export function createFieldDefinitions(t: (key: string) => string): CrudField[] {
   return [
@@ -162,6 +183,8 @@ export function createFieldDefinitions(t: (key: string) => string): CrudField[] 
 /**
  * Create Form Groups
  * Returns grouped layout configuration for the CrudForm
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export function createFormGroups(
   t: (key: string) => string,
@@ -253,6 +276,8 @@ export function createFormGroups(
  * this gate, saving while a textarea holds invalid JSON silently persists the
  * stale config. Pages wire `createFormGroups`'s `onInvalidActivityConfigsChange`
  * into state and call this at the top of their submit handler.
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export function assertNoInvalidActivityConfigs(
   invalidActivityLabels: string[],
@@ -268,6 +293,8 @@ import { toDateInputValue } from '@open-mercato/shared/lib/date/format'
 
 /**
  * Parse workflow definition to form values
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionFormValues {
   const updatedAt = workflow.updatedAt ?? workflow.updated_at ?? null
@@ -296,6 +323,8 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
 
 /**
  * Build API payload from form values
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export function buildWorkflowPayload(values: WorkflowDefinitionFormValues) {
   const triggers = values.triggers ?? []

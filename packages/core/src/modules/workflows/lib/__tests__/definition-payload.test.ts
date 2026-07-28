@@ -1,5 +1,6 @@
 import { buildDefinitionPayload, buildMetadataPayload } from '../definition-payload'
 import { workflowMetadataSchema } from '../../data/validators'
+import { STEP_TYPE_MIN_ENGINE_VERSIONS } from '../engine-version'
 import type { WorkflowContextSchema, WorkflowDefinitionData, WorkflowDefinitionTrigger } from '../../data/entities'
 
 const graphDefinition: WorkflowDefinitionData = {
@@ -52,6 +53,20 @@ describe('buildDefinitionPayload', () => {
     expect(absent).not.toHaveProperty('io')
     const nulled = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [], contextSchema: undefined, io: null }))
     expect(nulled).not.toHaveProperty('io')
+  })
+
+  it('carries the interpolation mode through a wire round trip', () => {
+    const strict = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [], interpolation: 'strict' }))
+    expect(strict.interpolation).toBe('strict')
+    const lenient = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [], interpolation: 'lenient' }))
+    expect(lenient.interpolation).toBe('lenient')
+  })
+
+  it('omits interpolation from the wire payload when absent or null', () => {
+    const absent = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [] }))
+    expect(absent).not.toHaveProperty('interpolation')
+    const nulled = asWirePayload(buildDefinitionPayload({ graphDefinition, triggers: [], interpolation: null }))
+    expect(nulled).not.toHaveProperty('interpolation')
   })
 })
 
@@ -106,6 +121,94 @@ describe('buildMetadataPayload', () => {
     const payload = buildMetadataPayload({ loadedMetadata, category: 'Sales', tags: [], icon: '' })
     const parsed = workflowMetadataSchema.parse(asWirePayload(payload))
     expect(parsed.editor).toEqual(loadedMetadata.editor)
+  })
+
+  it('stamps minEngineVersion when the definition uses a branching step type', () => {
+    const branchingDefinition: WorkflowDefinitionData = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'branch', stepName: 'Branch', stepType: 'IF_ELSE' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: graphDefinition.transitions,
+    }
+    const payload = buildMetadataPayload({
+      loadedMetadata: null,
+      category: '',
+      tags: [],
+      icon: '',
+      definition: branchingDefinition,
+    })
+    expect(payload).toEqual({ minEngineVersion: STEP_TYPE_MIN_ENGINE_VERSIONS.IF_ELSE })
+  })
+
+  it('stamps the WAIT_FOR_CONDITION engine version when the definition uses that step type', () => {
+    const conditionDefinition: WorkflowDefinitionData = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'wait', stepName: 'Wait', stepType: 'WAIT_FOR_CONDITION' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: graphDefinition.transitions,
+    }
+    const payload = buildMetadataPayload({
+      loadedMetadata: null,
+      category: '',
+      tags: [],
+      icon: '',
+      definition: conditionDefinition,
+    })
+    expect(payload).toEqual({ minEngineVersion: STEP_TYPE_MIN_ENGINE_VERSIONS.WAIT_FOR_CONDITION })
+  })
+
+  it('leaves baseline definitions without a minEngineVersion key', () => {
+    const payload = buildMetadataPayload({
+      loadedMetadata: { category: 'Sales', minEngineVersion: 2 },
+      category: 'Sales',
+      tags: [],
+      icon: '',
+      definition: graphDefinition,
+    })
+    expect(payload).toEqual({ category: 'Sales' })
+  })
+
+  it('writes editor annotations through every persistence path', () => {
+    const annotations = {
+      notes: [{ id: 'note_1', markdown: '## Why', position: { x: 1, y: 2 }, size: { width: 220, height: 140 } }],
+      groups: [{ id: 'group_1', name: 'Ops', rect: { x: 0, y: 0, width: 360, height: 260 }, collapsed: true }],
+    }
+    const payload = buildMetadataPayload({ loadedMetadata: null, category: '', tags: [], icon: '', annotations })
+    const parsed = workflowMetadataSchema.parse(asWirePayload(payload))
+    expect(parsed.editor?.annotations).toEqual(annotations)
+  })
+
+  it('keeps pinned samples when annotations are written alongside them', () => {
+    const samples = { step_1: { pinnedAt: '2026-07-27T00:00:00.000Z', source: 'manual' as const, data: { orderId: '42' } } }
+    const payload = buildMetadataPayload({
+      loadedMetadata: { editor: { samples } },
+      category: '',
+      tags: [],
+      icon: '',
+      annotations: { notes: [{ id: 'n', markdown: 'x', position: { x: 0, y: 0 }, size: { width: 220, height: 140 } }], groups: [] },
+    })
+    expect((payload?.editor as Record<string, unknown>).samples).toEqual(samples)
+  })
+
+  it('drops the annotations key when the canvas carries none', () => {
+    const payload = buildMetadataPayload({
+      loadedMetadata: { editor: { annotations: { notes: [{ id: 'n', markdown: 'x', position: { x: 0, y: 0 }, size: { width: 1, height: 1 } }] } } },
+      category: '',
+      tags: [],
+      icon: '',
+      annotations: { notes: [], groups: [] },
+    })
+    expect(payload).toBeNull()
+  })
+
+  it('leaves loaded annotations untouched when no annotations argument is supplied', () => {
+    const loadedMetadata = { editor: { annotations: { notes: [{ id: 'n', markdown: 'x', position: { x: 0, y: 0 }, size: { width: 1, height: 1 } }] } } }
+    const payload = buildMetadataPayload({ loadedMetadata, category: '', tags: [], icon: '' })
+    expect(payload).toEqual(loadedMetadata)
   })
 
   it('does not mutate the carried loaded-metadata object', () => {

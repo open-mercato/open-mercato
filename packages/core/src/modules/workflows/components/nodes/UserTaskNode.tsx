@@ -3,6 +3,7 @@
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
+import { ErrorOutputHandle } from './ErrorOutputHandle'
 
 export interface UserTaskNodeData {
   label: string
@@ -16,6 +17,7 @@ export interface UserTaskNodeData {
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
   hasError?: boolean
+  hasCompensation?: boolean
   errorCount?: number
 }
 
@@ -46,6 +48,7 @@ export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
         nodeType="userTask"
         selected={selected}
         hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
         errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
@@ -59,6 +62,8 @@ export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"
       />
+
+      <ErrorOutputHandle isConnectable={isConnectable} />
     </div>
   )
 }

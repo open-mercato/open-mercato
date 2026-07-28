@@ -9,8 +9,13 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { LedgerEntry, LedgerSourceKind } from '../../lib/context-ledger'
+import type { LedgerEntry } from '../../lib/context-ledger'
 import { insertAtElementCursor } from '../../lib/insert-at-cursor'
+import {
+  formatLedgerSample,
+  groupLedgerEntries,
+  insertableLedgerEntries,
+} from '../../lib/ledger-entry-display'
 
 /**
  * Ledger-fed variable picker (spec 2026-07-26-workflows-ux-redesign.md
@@ -29,62 +34,11 @@ import { insertAtElementCursor } from '../../lib/insert-at-cursor'
  * by `mapInputData` via `getNestedValue`, no `{{}}` interpolation).
  *
  * The button renders even when no ledger entries are available so the
- * feature stays discoverable; the popover then shows an empty state. The
- * trigger/signal `'*'` wildcard entries are unnamed payload spreads and are
- * not insertable, so they are filtered out of the listing.
+ * feature stays discoverable; the popover then shows an empty state. Grouping,
+ * sample formatting, and the `'*'` wildcard filter are shared with the docked
+ * Input data panel (lib/ledger-entry-display.ts), so both listings always show
+ * the same ledger the same way.
  */
-
-const GROUP_ORDER: LedgerSourceKind[] = [
-  'contextSchema',
-  'trigger',
-  'userTask',
-  'activity',
-  'setVariable',
-  'asyncResult',
-  'invokeAgent',
-  'signal',
-  'join',
-  'subWorkflow',
-]
-
-const SAMPLE_MAX_LENGTH = 40
-
-interface FormattedSample {
-  text: string
-  numeric: boolean
-}
-
-function formatSample(sample: unknown): FormattedSample | null {
-  if (sample === undefined) return null
-  const numeric = typeof sample === 'number'
-  let text: string
-  if (typeof sample === 'string') {
-    text = sample
-  } else {
-    try {
-      text = JSON.stringify(sample) ?? String(sample)
-    } catch {
-      text = String(sample)
-    }
-  }
-  if (text.length > SAMPLE_MAX_LENGTH) text = `${text.slice(0, SAMPLE_MAX_LENGTH - 1)}…`
-  return { text, numeric }
-}
-
-function groupEntries(entries: LedgerEntry[]): Array<{ kind: LedgerSourceKind; entries: LedgerEntry[] }> {
-  const byKind = new Map<LedgerSourceKind, LedgerEntry[]>()
-  for (const entry of entries) {
-    const list = byKind.get(entry.source.kind) ?? []
-    list.push(entry)
-    byKind.set(entry.source.kind, list)
-  }
-  const groups: Array<{ kind: LedgerSourceKind; entries: LedgerEntry[] }> = []
-  for (const kind of GROUP_ORDER) {
-    const list = byKind.get(kind)
-    if (list && list.length > 0) groups.push({ kind, entries: list })
-  }
-  return groups
-}
 
 export type VariablePickerInsertMode = 'template' | 'bare'
 
@@ -109,15 +63,12 @@ export function VariablePickerButton({
   const [open, setOpen] = React.useState(false)
   const [search, setSearch] = React.useState('')
 
-  const entries = React.useMemo(
-    () => (ledgerEntries ?? []).filter((entry) => entry.path !== '*'),
-    [ledgerEntries],
-  )
+  const entries = React.useMemo(() => insertableLedgerEntries(ledgerEntries), [ledgerEntries])
   const query = search.trim().toLowerCase()
   const visibleEntries = query
     ? entries.filter((entry) => entry.path.toLowerCase().includes(query))
     : entries
-  const groups = groupEntries(visibleEntries)
+  const groups = groupLedgerEntries(visibleEntries)
 
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen)
@@ -181,7 +132,7 @@ export function VariablePickerButton({
                   {t(`workflows.variablePicker.groups.${group.kind}`)}
                 </p>
                 {group.entries.map((entry) => {
-                  const sample = formatSample(entry.sample)
+                  const sample = formatLedgerSample(entry.sample)
                   return (
                     <Button
                       key={entry.path}

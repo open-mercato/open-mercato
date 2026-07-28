@@ -81,6 +81,7 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 | `SUB_WORKFLOW` | When invoking a nested workflow definition |
 | `WAIT_FOR_SIGNAL` | When the workflow must pause for an external signal (e.g., payment confirmed) |
 | `WAIT_FOR_TIMER` | When the workflow must pause for a duration |
+| `WAIT_FOR_CONDITION` | When the workflow must pause until a predicate over the run context holds — mandatory `timeout` with `onTimeout: 'FAIL'\|'CONTINUE'`, event-driven wake plus a polled backstop |
 | `PARALLEL_FORK` / `PARALLEL_JOIN` | When splitting/merging parallel execution paths |
 
 ## Activity Types
@@ -102,17 +103,333 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 - **`contextSchema` is CANONICAL; `definition.io.inputs` is a read-through alias** — the sub-workflow port contract (`definition.io`, `workflowIoContractSchema`) shares the same field vocabulary. When a definition declares no `contextSchema.input`, the ledger reads `io.inputs` through as its START entries (source label `io.inputs (read-through)`); when both exist, `contextSchema.input` wins. Full `@deprecated` dual-emit for `io.inputs` is deliberate follow-up work — only the ledger read-through ships today. The visual editor carries BOTH `contextSchema` and `io` as pass-through state so neither is stripped by save, drag-autosave, or draft round-trips (`lib/definition-payload.ts`).
 - **Context ledger** — `lib/context-ledger.ts` is PURE (no React/ORM/DI/registry imports): `computeContextLedger` derives per-step incoming entries `{path, type, presence: always|maybe, source, sample?}` as a topological fixpoint over the graph (joins degrade presence to `maybe`; cycles tolerated). Output-contract resolution is an injected seam: the server injects `resolveServerOutputContract` (`lib/server-output-contract.ts` — activity registry + `commandRegistry.outputSchemaOf` + `flattenSchemaToContract` from `lib/ledger-schema-flatten.ts`); the browser never resolves contracts locally, it consumes the API response.
 - **Engine facts (verified — never model these as available):** AUTOMATED steps' sync activity outputs land only in `stepInstance.outputData`, never `instance.context`; SUB_WORKFLOW `outputMapping` results likewise stay in `stepInstance.outputData` and are never merged into `instance.context`. The ledger deliberately advertises neither. Transition-activity sync outputs DO persist (namespaced under `activityName || activityType`), async outputs land under `${activityId}_result` at resume, SET_VARIABLE writes land at its dot paths.
-- **INVOKE_AGENT is the verified exception** to the AUTOMATED rule: its result IS merged top-level into `instance.context` on every resolution path (step-handler inline branch, `activity-worker-handler` parked resume, agent_orchestrator human dispose → `sendSignal`). The ledger models it as a producer (source kind `invokeAgent`, all entries `maybe` because which keys land is path-dependent): `outputMapping` target keys when declared (machine paths only, `mapAgentResultToContext`); otherwise the legacy fixed keys `agentId`/`agentProposalId`/`<stepId>_agent`; plus, regardless of mapping, the human-dispose keys `disposition`/`proposalId`/`stepId`/`proposalPayload` and the `sendSignal` envelope keys `signal_<signalName>_payload`/`_receivedAt` (`signalConfig.signalName`, default `agent_orchestrator.proposal.ready`).
+- **INVOKE_AGENT is the verified exception** to the AUTOMATED rule: its result IS merged top-level into `instance.context` on every resolution path (step-handler inline branch, `activity-worker-handler` parked resume, agent_orchestrator human dispose → `sendSignal`). The ledger models it as a producer (source kind `invokeAgent`, all entries `maybe` because which keys land is path-dependent): `outputMapping` target keys when declared (machine paths only, `mapAgentResultToContext`), typed from each mapping's source path against the INVOKE_AGENT envelope (`kind`/`disposition`/`agentId`/`proposalId` plus the selected agent's OUTCOME under `data.*` for informative agents or `proposalPayload.*` for actionable ones) — resolved server-side through the OPTIONAL peer's `agentWorkflowBridge.listAgentOutcomeContracts()` warmed by `ensureWorkflowAgentOutcomeContracts`, `unknown` when the peer is absent; otherwise the legacy fixed keys `agentId`/`agentProposalId`/`<stepId>_agent`; plus, regardless of mapping, the human-dispose keys `disposition`/`proposalId`/`stepId`/`proposalPayload` and the `sendSignal` envelope keys `signal_<signalName>_payload`/`_receivedAt` (`signalConfig.signalName`, default `agent_orchestrator.proposal.ready`).
 - **Context-schema API** — `GET api/definitions/[id]/context-schema` (`?stepId=` narrows; feature `workflows.definitions.view`) serves the server-computed ledger; same id forms as the definition GET (UUID, `code:<workflowId>`, synthetic uuid).
 - **Variable picker + ref warnings** — `lib/expression-refs.ts` (pure) extracts `{{context.*}}` refs and checks them against the ledger; misses surface as Problems-panel WARNINGS, never blocking. `VariablePickerButton` (fed by the API ledger) inserts `{{path}}` at the cursor in activity config fields, mapping value cells, and trigger expressions.
+- **Input data panel + drag-to-insert** — `components/InputDataPanel.tsx` docks the SAME grouped listing (shared helpers in `lib/ledger-entry-display.ts`) beside the node/edge edit dialogs, with samples from `lib/sample-resolver.ts`. Rows are draggable buttons: the drag carries `text/plain` = `{{path}}` (native drop into any input) plus the private `application/x-om-ledger-path` MIME (`lib/ledger-drag.ts`) that template-capable fields intercept via `ledgerDropTargetProps` to insert at the caret in their own mode (`'bare'` for mapping cells). Click and drag are both first-class; drag is an enhancement over the button/keyboard path, never the only way in.
 - **Samples** — `metadata.editor.samples` (`record(stepId, { pinnedAt, source: manual|test, data })`, total ≤64KB via `WORKFLOW_EDITOR_SAMPLES_MAX_CHARS`). Samples are NOT redacted or encrypted — pinned data is stored verbatim in definition metadata; keep the warning copy wherever pinning is offered. Precedence: pin > last test output > ledger placeholder (`lib/sample-resolver.ts`, pure).
 - **Test step** — `POST api/definitions/[id]/test-step` (feature `workflows.definitions.test_run`, dependsOn `definitions.edit`) is MOCK-FIRST: it never calls `entry.execute`. Registry `mock` is `((config, ctx) => unknown) | 'refuse'`; `'refuse'` or a missing mock returns 200 `{ refused: true, reason }`. Config is interpolated via the exported `interpolateVariables` against the caller-supplied sample context.
+
+## Error Routing (routes · directives · workflow-level handler)
+
+Spec §5.9. Everything here is additive and optional: a definition declaring none of it fails exactly
+as it always did (guarded by a regression test in `lib/__tests__/error-routing.test.ts`).
+
+- **`lib/error-routing.ts` is PURE and is the single decision point.** `resolveStepFailureHandling`
+  answers, in precedence order: wired **error route** → step **`errorDirective`** → definition-level
+  **`errorHandler.stepId`** → `fail`.
+- **Error route** = a transition with `kind: 'error'`. It is reachable ONLY from a failure: every
+  normal-routing lookup (`findValidTransitions`, the executor's auto pre-check, `evaluateTransition`'s
+  auto-select, the fork/join graph walk) filters through `excludeErrorTransitions`. Following one
+  publishes the failure into `context.__error` (a RESERVED context key) and logs `ERROR_ROUTED`. In a
+  parallel branch the route is followed with the branch token, so a handled branch failure never
+  reaches the instance.
+- **`errorDirective`** on a step: `fail` (default) · `continueWithFallback` · `failureQueue`.
+  `continueWithFallback` is the directive form of the transition's legacy `continueOnActivityFailure`
+  flag — that flag is untouched and byte-compatible; the directive additionally writes
+  `fallbackValue` into context under the failing step's id. A failed step instance is NEVER flipped
+  back to COMPLETED; the instance advances while the step stays FAILED.
+- **`failureQueue`** parks the instance: existing `PAUSED` status + engine-owned
+  `metadata.attention` marker + `ERROR_PARKED`. No new instance status, and compensation does not run
+  because the run is suspended, not terminated. `GET /api/workflows/instances?attention=true` lists
+  them; the triage UI is Phase 5.
+- **Workflow-level handler** (`definition.errorHandler`, exactly one form) is an ENGINE CONSTRUCT —
+  never an event trigger (the trigger subscriber excludes `workflows.*` by design).
+  - `{ stepId }`: last-resort in-instance jump — the executor writes `__error`, moves the cursor and
+    executes the handler step (`ERROR_HANDLER_STARTED`). A step never jumps to itself, which is that
+    form's recursion guard.
+  - `{ workflowId, version? }`: catch-all. `completeWorkflow`'s FAILED branch schedules it **before**
+    compensation (so the snapshot is pre-compensation and it still runs when compensation throws),
+    logging `ERROR_HANDLER_SCHEDULED` inside the failing transaction and enqueueing a
+    `workflow_error_handler` job. The worker starts it as a sub-workflow with initial context
+    `{ failedStepId, error, contextSnapshot }` on its own connection. Recursion guard:
+    `metadata.errorHandler.depth` (engine-owned — never `context`, which the context PATCH API
+    exposes), capped by `WORKFLOW_MAX_ERROR_HANDLER_DEPTH = 1`; over the cap logs
+    `ERROR_HANDLER_SKIPPED`.
+- Design rationale and the ordering/durability/recursion/branch decisions:
+  `.ai/runs/2026-07-27-workflows-ux-phase2b-3/DESIGN-error-handler.md`.
+
+## Route Identity & Edit Safety
+
+- **Transition ids are opaque and durable.** `generateTransitionId()` mints `t_<unique>`; it no longer
+  derives ids from endpoints. Legacy `e_<from>_<to>` ids stay valid forever — stored definitions,
+  `examples/`, and templates keep their ids through load/save, and the engine treats every transition
+  id as an opaque string (`pendingTransition`, `WorkflowBranchInstance.branchKey`). MUST NOT rewrite
+  stored ids outside Customize.
+- **Structural edits need a new version.** A `WorkflowInstance` pins `definitionId` and the engine
+  re-reads that row on every advance, so `PUT /api/definitions/[id]` refuses a topology change while
+  instances are executing. `lib/definition-edit-safety.ts` (PURE) owns the decision: topology =
+  step ids + step types + fork/join wiring + transition ids/endpoints/`kind`. Labels, positions,
+  activity config, conditions, priorities, triggers and metadata are NOT structural and always save
+  in place. Active statuses: `RUNNING`, `PAUSED`, `WAITING_FOR_ACTIVITIES`, `FORKED`, `COMPENSATING`.
+  The refusal is a structured 409 (`code: WORKFLOW_STRUCTURAL_EDIT_REQUIRES_NEW_VERSION`) naming the
+  publish endpoint as the remedy; the Studio surfaces it as a banner whose "Create version" mints the
+  next version and re-applies the rejected edit there.
+- The guard fires on the definition PUT only. The per-user draft route
+  (`api/definitions/[id]/draft`) is never blocked — work-in-progress must stay saveable.
+- **Reattachment rides on those durable ids.** Dragging a route endpoint onto another node
+  (`onReconnect` → `lib/edge-reattachment.ts`, PURE) re-targets the transition and keeps its
+  `transitionId`, label, condition, activities, priority and `kind`. Refusals return a code the
+  Studio translates and the edge list is left untouched, which is what snaps the endpoint back:
+  self-loop, duplicate route, data-mapping link, an error route moved off a step that can raise one,
+  or any graph / fork-join violation the graph does not already have. Reattaching a fork branch
+  changes which steps that branch visits, and `WorkflowBranchInstance.branchKey` is the transition
+  id — keeping the id is what makes the canvas edit safe, and the edit-safety guard still refuses
+  the SAVE while instances are active, so mid-flight runs never see the new wiring.
+
+## Step Type Conversion
+
+- `lib/step-type-conversion.ts` (PURE) owns "Change type…" (spec §4.5). It speaks the EDITOR's node
+  types, not the `stepType` enum, because `invokeAgent` compiles to an AUTOMATED step and converting
+  between the two is a real conversion the enum cannot express.
+- **Always preserved:** the step id, its position and all of its wiring (the conversion never touches
+  nodes or edges other than the one being converted), plus `label`/`stepName`, `description`,
+  `timeout`, `retryPolicy` and `errorDirective`.
+- **Mapped where the types genuinely share semantics:** the activity list between `automated` and
+  `invokeAgent`; `signalConfig` between `invokeAgent` and `waitForSignal`; and the "give up after"
+  deadline between `waitForSignal` (`signalConfig.timeout`) and `waitForCondition` (`config.timeout`).
+  WAIT_FOR_TIMER's `duration` is deliberately NOT a deadline — it is how long to wait on purpose.
+- **Everything else is quarantined, never dropped:** it lands in `node.data.unmappedConfig`, is
+  persisted as `step.metadata.unmappedConfig` (an editor-owned bag the engine never reads), renders as
+  a collapsed read-only drawer in `NodeEditDialogCrudForm`, and raises the `unmappedStepConfig`
+  Problems WARNING. Converting back recovers it, which is precisely why nothing may be discarded.
+- **START and END are not convertible** (in either direction): `validateWorkflowGraph` requires
+  exactly one START and at least one END, so converting either breaks an invariant that is invisible
+  from the inspector.
+
+## Canvas Arrangement
+
+- **Manual placement always wins until explicit Tidy.** `graphToDefinition(..., { includePositions: true })`
+  writes each node's `_editorPosition`; `definitionToGraph` prefers a stored position and dagre-places
+  (LR) only the steps that lack one. `applyAutoLayout` (the Tidy button) is the ONE place that
+  overwrites an author's arrangement. Every persistence path — explicit Save, the quiet definition
+  autosave, and the per-user draft — uses the same `includePositions` payload builders, so a drag
+  survives a save, a draft restore, and a reload identically.
+- **A drag persists once, on drag end.** `WorkflowGraphImpl` classifies each React Flow change batch
+  (`WorkflowGraphNodesChangeMeta`) and hands the page `persistable: false` for in-flight drag frames,
+  selections and measurements. The quiet autosave additionally skips a PUT whose body is byte-equal to
+  the last one it wrote, so no interaction bumps the optimistic-lock token for nothing.
+- **New nodes land deliberately.** `lib/node-placement.ts` (PURE) resolves the position: the cursor
+  when a drop position is supplied (drag-from-palette), otherwise after the right-most card, nudged
+  down until it clears every existing card.
+- **Scoped re-tidy is deliberately NOT implemented.** Spec §4.1 allows "re-tidy only the affected
+  region" on a structural mutation; re-running dagre over an inserted node's neighbourhood cannot be
+  bounded without moving nodes outside the region (dagre re-ranks the whole component it is given).
+  Until insert-on-edge exists there is no call site either. Placement + collision avoidance covers the
+  real need; full Tidy stays explicit.
+
+## Undo / Redo
+
+- **One stack over the whole editor document.** `lib/editor-history.ts` (PURE) versions
+  `{ nodes, edges, metadata }` as SNAPSHOTS — at this scale a snapshot cannot drift out of sync the
+  way an inverse-command log can, and the node/edge arrays are already replaced rather than mutated,
+  so an entry costs a few references. Cmd/Ctrl+Z undoes, Cmd/Ctrl+Shift+Z redoes, the stack caps at
+  `EDITOR_HISTORY_LIMIT = 100`, and a new edit after an undo invalidates the redo branch.
+- **Entries store the document as it was BEFORE the edit, plus a translated label** ("Delete step",
+  "Paste"). The label is what the shortcut announces, and a later phase names AI checkpoints in the
+  same stack. Because the snapshot is captured up front and committed separately, an asynchronous
+  handler (anything behind a confirm dialog) commits only once the edit actually lands — a cancelled
+  confirmation leaves no entry.
+- **Every mutating page path commits**: inspector saves, deletes, connects, reattachment, conversion,
+  drag end (one entry per drag, from the arrangement the drag started at — not per frame), sample
+  pin/unpin, Tidy, paste, duplicate and palette drops. The stack lives in the page, so it survives
+  dialog open/close and panel switches.
+- **The definition-panel text fields are deliberately NOT versioned.** They have native input undo,
+  and committing per keystroke would evict real structural edits from a 100-entry stack. The
+  consequence is that a whole-document replacement — draft restore, template load, Clear canvas —
+  RESETS the stack rather than pushing an entry, because undoing into it would restore the graph
+  without the panel fields it was saved with.
+- The shortcut is suppressed while a field has focus (the page's existing `isEditing` guard) and
+  while a dialog is open, so it never hijacks form input.
+
+## Subgraph Clipboard (copy · paste · duplicate)
+
+- `lib/subgraph-clipboard.ts` (PURE) owns the portable format. The payload speaks the DEFINITION
+  vocabulary, not React Flow's:
+
+  ```json
+  {
+    "kind": "open-mercato.workflow-subgraph",
+    "version": 1,
+    "steps": [ /* definition steps, positions as _editorPosition */ ],
+    "transitions": [ /* definition transitions, internal to the selection only */ ]
+  }
+  ```
+
+  The Code view renders the definition JSON, so a fragment copied from the canvas MUST be the shape a
+  fragment copied out of the Code view is — that is the whole reason the format is not nodes/edges.
+  Readers refuse an unknown `kind` or `version` rather than guessing.
+- **Only transitions internal to the selection travel.** A route with one endpoint outside the
+  selection describes a step the payload does not carry, so pasting it could only invent a dangling
+  id. Data-mapping links never travel either — their binding lives in the target step's config.
+- **Paste always re-IDs** (`generateStepId` / `generateTransitionId()`) and rewires the internal
+  routes onto the new ids, so pasting into the workflow a fragment came from can never collide with
+  or silently merge into the original. The new step id reuses the old id's meaningful prefix with the
+  generated `_<ms>_<rand>` suffix stripped, so ids stay recognisable without growing on every paste.
+  Copies land offset by `SUBGRAPH_PASTE_OFFSET` and arrive selected; the paste is ONE undo entry.
+- **Clipboard access can be denied** (insecure context, no permission). Copy then falls back to an
+  in-page buffer and says so; paste reads that buffer. It is never a silent no-op — the reason is
+  always surfaced.
+
+## Compensation Ghosts (read-only overlay)
+
+- **Visualization only — never an engine change.** `lib/compensation-ghosts.ts` (PURE) derives the
+  spec §4.4 "dashed reverse, behind a toggle" overlay from the model the engine already executes
+  (`activity.compensation.activityId`, LIFO in `lib/compensation-handler.ts`). Nothing here changes
+  what runs; MUST NOT grow into editing compensation (that is an Ask-First state-machine change).
+- **A route's activities run LEAVING its source step**, so the compensable step is the route's
+  SOURCE (it carries the §4.3 ⛨ badge) and the undo walks back along the route, which is exactly the
+  ghost edge that is minted (`target → source`). One ghost per route, however many of its activities
+  compensate.
+- **Ghosts never enter the document.** `WorkflowGraphImpl` mints them at RENDER time from the
+  committed edges (like the validation-error node decoration), so they are absent from the edge
+  state, from undo, from autosave and from `graphToDefinition` — which filters them anyway, so the
+  guarantee is testable rather than merely true. They are non-interactive (not selectable,
+  reattachable or deletable) so no editing gesture can reach one.
+- **The overlay is off by default** and persisted per author (`om:wf-editor-compensation`), reachable
+  from the toolbar and the Cmd+K palette. Its stroke uses the warning token with its OWN dash-dot
+  pattern (`10,4,2,4` — distinct from pending `5,5`, error `8,4` and data-mapping `2,3`) and always
+  carries an icon + label, per the never-colour-only rule.
+- `graphToDefinition` now preserves `activity.compensation` through the editor round trip. It used to
+  drop the field, which meant opening a compensating workflow and saving it silently deleted the
+  compensation the engine relies on.
+
+## The Form Editor Is Retired (bridge routes)
+
+- **The Studio is the only workflow editor** (spec §10). `backend/definitions/create/page.tsx` and
+  `backend/definitions/[id]/page.tsx` are BRIDGE ROUTES: their bodies are an immediate
+  `router.replace` onto `/backend/definitions/visual-editor[?id=…]`, and their `page.meta.ts` guards
+  are untouched so RBAC still applies exactly as before. MUST NOT delete either file — the
+  deprecation protocol keeps them for ≥1 minor so bookmarks and third-party links keep working.
+- **Retirement was gated on the Code view.** The spec allows retirement only once the Phase 3 Code
+  view exists, because until then there was no non-canvas way to read a definition. Do not reverse
+  that order if either surface is ever reworked.
+- `components/formConfig.tsx` (every export), `components/StepsEditor.tsx`,
+  `components/TransitionsEditor.tsx` and `components/mobile/MobileDefinitionDetail.tsx` are
+  `@deprecated` and have NO call site left in this module. They stay exported for third-party forms
+  and are removed one minor after the UPGRADE_NOTES entry — keep `components/__tests__/formConfig.test.ts`
+  alive while they are exported.
+- **The list page has one create entry and one edit row action.** "Create Workflow" opens the
+  template gallery (its *Blank* card is the empty canvas) and the `edit` row action points at the
+  Studio; the old `edit-visual` duplicate is gone. Build every editor href with
+  `buildVisualEditorHref` / `WORKFLOW_STUDIO_CREATE_HREF` (`lib/visual-editor-navigation.ts`) rather
+  than a literal path, so the next move is a one-line change.
+
+## Code View (stage 1 — read-only)
+
+- `components/WorkflowCodeView.tsx` is the Phase 3 stage of spec §2.2: **read-only view + copy/paste
+  of subgraphs + JSON-schema validation display**. Two-way live sync is Phase 5 — nothing in this
+  panel edits, and the canvas stays the source of truth.
+- **The JSON is the save payload, not a re-serialization.** It is assembled through the same
+  `graphToDefinition` + `buildDefinitionPayload` pair `handleSave` uses, so what an author reads is
+  byte-for-byte what a Save would persist. It is only computed while the drawer is open.
+- **Paste reuses the canvas clipboard format** (`lib/subgraph-clipboard.ts`) through the page's own
+  `handlePaste`, so a fragment copied from the canvas and a fragment copied out of the Code view are
+  the same payload, an unknown payload is refused with the same message, and the paste is ONE undo
+  entry. The Copy button copies the WHOLE definition JSON — the document, not a fragment.
+- **The issue list is the Problems panel's list.** Both call the page's `evaluateWorkflowIssues`
+  (graph errors + `workflowDefinitionDataSchema` + activity-config and context-ref warnings through
+  `collectValidationIssues`), so the two surfaces can never disagree about what is wrong. Severity
+  pairs its DS token with an icon AND an `sr-only` name, per the §4.6 colour-only rule.
+- The view is reachable from the toolbar and from the Cmd+K palette (`view.toggleCodeView`); while it
+  is open the canvas keyboard bindings are suppressed exactly as they are for a dialog.
+
+## Editor Annotations (sticky notes · groups)
+
+- **Annotations are documentation and NEVER execution semantics.** `lib/editor-annotations.ts`
+  (PURE) owns them; they live in `metadata.editor.annotations`
+  (`{ notes: [{id, markdown, position, size}], groups: [{id, name, rect, collapsed?}] }`) and nowhere
+  else. `graphToDefinition` filters their nodes out of `steps` AND drops any edge that touches one,
+  so a definition carrying a hundred notes serializes byte-identically to one carrying none — a test
+  asserts exactly that. `validateWorkflowGraph`, `applyAutoLayout` and the subgraph clipboard skip
+  them for the same reason: a note has no routes, no rank and no definition form.
+- **They are still React Flow NODES while the editor is open.** That is what makes a note drag, undo,
+  select and autosave exactly like a step without a second code path. The node array is the single
+  source of truth; `annotationsFromNodes` derives the persisted shape on every save, draft and quiet
+  autosave, and `buildMetadataPayload` writes it back. Omitting its `annotations` argument leaves
+  whatever the loaded metadata carried untouched, which keeps non-canvas callers byte-compatible.
+- **A group stores a RECT, not a member-id list.** A region needs no maintenance when a step it
+  overlaps is deleted, pasted or converted, and an id list would be a second source of truth the
+  engine must never read anyway.
+- **Collapse is visual only** — the body fades and the region shrinks to its header; no step moves and
+  no route changes, because a graph-mutating collapse would be execution semantics.
+- Notes and groups are resizable (`NodeResizer`), and a resize persists like a drag: `WorkflowGraphImpl`
+  reports `resizing: true` frames as `persistable: false` and only the resizer's final frame
+  (`resizing === false`) commits, so one gesture is one autosave and one undo entry. React Flow's own
+  measurement changes carry no `resizing` flag and stay non-persistable as before.
+
+## Keyboard Path & Accessibility (acceptance criterion)
+
+Spec §4.6 makes this an EXPLICIT acceptance criterion, not a polish item: *"Every canvas operation is
+reachable without a pointer… ARIA labeling on nodes/routes/badges… Status is never color-only."*
+Treat a regression here as a broken feature, not a nit.
+
+- **The Cmd/Ctrl+K command palette is the complete non-pointer path.** `lib/editor-commands.ts`
+  (PURE) builds the descriptors — undo/redo, delete, copy/paste/duplicate, add any step type, add a
+  note or group, go to any step, Tidy, every panel toggle, Validate, Start instance, Save — and
+  `components/WorkflowCommandPalette.tsx` renders them through the platform's `CommandMenu`
+  primitive (`@open-mercato/ui/primitives/command-menu`, `cmdk` + Radix dialog) rather than a second
+  palette implementation. A command that cannot run right now is DISABLED with its shortcut shown,
+  never hidden: a missing entry reads as "unsupported", a disabled one as "not now". Because the
+  descriptors are pure data, dispatch is unit-tested without a dialog or a canvas.
+- **Direct bindings** cover what an author does constantly: `Enter` opens the inspector for the
+  selection (step or route), `Del`/`Backspace` deletes it through the same confirm + cleanup flow the
+  trash button uses, the arrows nudge it (`Shift` for a coarse step). Nudging follows the drag rule
+  (#4248) — a BURST of keystrokes is one arrangement, so `lib/node-nudge.ts` (PURE) moves the nodes
+  and the page commits one undo entry plus one autosave once the burst settles.
+- **Guards.** Every binding except Cmd+K is suppressed while a field has focus or a dialog is open, so
+  it never hijacks form input, native copy/paste, the caret keys or a dialog's Escape. Cmd+K is
+  deliberately EXEMPT from the typing guard — it is the way out of any focus, which is the point of a
+  palette. Every dialog keeps `Cmd/Ctrl+Enter` to submit and `Escape` to cancel.
+- **Status is never colour-only.** Each node status pairs its DS token colour with its own icon shape
+  AND an `sr-only` name; the card carries `role="group"` with a `{type}: {title} — {status}` label and
+  a `data-node-status` hook. Error routes pair red + dashes + a warning icon, completed route labels
+  pair green + a check, route chips are labelled buttons and the collapsed semantic-zoom dot row is a
+  labelled `role="img"`. `components/__tests__/canvasAccessibility.test.tsx` is the guard.
+
+## Definition Icon Picker
+
+- `components/WorkflowIconPicker.tsx` replaces the free-text `metadata.icon` input with a searchable
+  grid over the platform's SHARED registry (`LUCIDE_ICON_REGISTRY` from
+  `@open-mercato/ui/backend/icons/lucideRegistry`). That registry is generated from the icon names
+  actually used across the repo and `AppShell` already loads it on every backend page, so the grid
+  adds NOTHING to the editor chunk — importing `lucide-react` wholesale for a field that stores one
+  string is the bundle regression this deliberately avoids (#3169).
+- **Free text stays the fallback.** `metadata.icon` has always been an open string, so the picker
+  keeps an input: a name the registry does not know is stored verbatim with a warning, never dropped.
+  `normalizeIconName` (`lib/icon-search.ts`, PURE) maps every historic spelling — `ShoppingCart`,
+  `shopping_cart`, `lucide:shopping-cart` — onto the registry key, which is what makes an existing
+  definition open with its icon already selected. Selecting from the grid writes the kebab-case key.
+
+## Palette Drops (drag-from-palette · insert-on-route)
+
+- **Click stays the keyboard path.** Every palette entry is a `<button>` that appends on click; drag
+  is an ENHANCEMENT layered on top (`draggable` + `lib/palette-drag.ts`, which writes a readable
+  `text/plain` label plus the private `application/x-om-workflow-palette` payload, mirroring
+  `lib/ledger-drag.ts`). Never make an entry drag-only.
+- **The graph resolves the target, the page performs the effect.** `WorkflowGraphImpl` owns the two
+  things only React Flow and the DOM can answer — the flow-space cursor position
+  (`screenToFlowPosition`) and which route the cursor is over (`document.elementsFromPoint` →
+  `.react-flow__edge[data-id]`, exact where geometry over a smooth-step curve would only approximate)
+  — and hands the page a plain `WorkflowGraphDropEvent`. The effects live in the PURE
+  `lib/palette-drop.ts`, so the xyflow boundary (#3169) is unaffected.
+- **Three drop outcomes**: a step on empty canvas is placed at the cursor via `lib/node-placement.ts`;
+  a step on a route is spliced between that route's endpoints; an action on a route is appended to
+  that route's activities (the #4244 chips then render it). An action needs a route — dropping one on
+  empty canvas says so instead of doing nothing. Each drop is ONE undo entry.
+- **Insert-on-route keeps the original route's data on the FIRST segment** (`from → new step`): a
+  condition guards LEAVING its source step and the activities run on the way out, so both belong to
+  the segment that still starts where the author put them, an error route stays the error path out of
+  that step, and the durable `transitionId` — which `instance.pendingTransition` and
+  `WorkflowBranchInstance.branchKey` resolve against — stays attached to it. The second segment
+  (`new step → to`) is a fresh unconditional auto route.
 
 ## Environment
 
 | Variable | Effect | Default |
 |----------|--------|---------|
 | `OM_WORKFLOWS_ALLOW_PRIVATE_URLS` | When `1`/`true`/`yes`, bypasses the SSRF guard in `CALL_WEBHOOK` so workflow authors can hit `localhost`, RFC1918, and `.internal` targets. For dev only — MUST remain unset in production. | unset (guard enforced) |
+| `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` | Hard cap on WAIT_FOR_CONDITION poll re-enqueues; reaching it forces `CONDITION_TIMED_OUT` so a never-satisfiable predicate cannot saturate the queue. | `1000` |
 | `OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST` | Comma-separated non-secret process env keys allowed for `{{env.*}}` interpolation in workflow activity config. `APP_URL` is always allowed. Never include secrets. | unset (`APP_URL` only) |
 
 ## DI Services
@@ -123,6 +440,7 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 | `stepHandler` | Enter/exit/execute individual steps (called by executor) |
 | `transitionHandler` | Find valid transitions and execute them (called by executor) |
 | `activityExecutor` | Execute or enqueue activities (called by transition handler) |
+| `conditionHandler` | Evaluate and wake WAIT_FOR_CONDITION waiters (`evaluateWaitCondition` from the queue backstop, `wakeConditionWaiters` from a context write) |
 | `eventLogger` | Log workflow events for audit trail |
 
 ## Adding a New Activity Type

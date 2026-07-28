@@ -2,6 +2,7 @@
 
 import { describe, test, expect } from '@jest/globals'
 import {
+  buildTriggerPayloadContracts,
   computeContextLedger,
   type LedgerEntry,
   type LedgerStepDefinition,
@@ -107,6 +108,118 @@ describe('computeContextLedger', () => {
       expect(entryAt(ledger, 'start', '__trigger.eventName')).toMatchObject({ type: 'text', presence: 'maybe' })
       expect(entryAt(ledger, 'start', '__trigger.eventPayload')).toMatchObject({ type: 'object', presence: 'maybe' })
       expect(entryAt(ledger, 'start', '__trigger.triggeredAt')).toMatchObject({ type: 'date', presence: 'maybe' })
+    })
+  })
+
+  describe('typed trigger contextMapping targets', () => {
+    const events = [
+      {
+        id: 'sales.order.created',
+        payloadSchema: {
+          fields: [
+            { path: 'id', type: 'text' },
+            { path: 'total', type: 'number' },
+            { path: 'placedAt', type: 'date' },
+          ],
+        },
+      },
+    ]
+
+    const definitionWith = (eventPattern: string): LedgerWorkflowDefinition => ({
+      steps: [step('start', 'START'), step('end', 'END')],
+      transitions: [transition('start', 'end')],
+      triggers: [
+        {
+          triggerId: 'on-order-created',
+          eventPattern,
+          config: {
+            contextMapping: [
+              { targetKey: 'orderId', sourceExpression: 'id' },
+              { targetKey: 'orderTotal', sourceExpression: 'total' },
+              { targetKey: 'unmapped', sourceExpression: 'missing.path' },
+            ],
+          },
+        },
+      ],
+    })
+
+    const ledgerFor = (eventPattern: string) => {
+      const definition = definitionWith(eventPattern)
+      return computeContextLedger(definition, {
+        triggerPayloadContracts: buildTriggerPayloadContracts(definition.triggers ?? [], events),
+      })
+    }
+
+    test('types mapping targets from the declared event payload schema', () => {
+      const ledger = ledgerFor('sales.order.created')
+      expect(entryAt(ledger, 'start', 'orderId')).toMatchObject({ type: 'text', presence: 'maybe' })
+      expect(entryAt(ledger, 'start', 'orderTotal')).toMatchObject({ type: 'number', presence: 'maybe' })
+    })
+
+    test('leaves mapping targets whose source path is absent from the schema unknown', () => {
+      expect(entryAt(ledgerFor('sales.order.created'), 'start', 'unmapped')).toMatchObject({ type: 'unknown' })
+    })
+
+    test('keeps the whole-payload wildcard entry untyped even for schema-backed events', () => {
+      expect(entryAt(ledgerFor('sales.order.created'), 'start', '*')).toMatchObject({ type: 'unknown' })
+    })
+
+    test('leaves mapping targets unknown for wildcard event patterns', () => {
+      const ledger = ledgerFor('sales.order.*')
+      expect(entryAt(ledger, 'start', 'orderId')).toMatchObject({ type: 'unknown' })
+    })
+
+    test('leaves mapping targets unknown for events without a declared payload schema', () => {
+      const ledger = ledgerFor('customers.person.created')
+      expect(entryAt(ledger, 'start', 'orderId')).toMatchObject({ type: 'unknown' })
+    })
+
+    test('falls back to unknown when no contracts are supplied at all', () => {
+      const definition = definitionWith('sales.order.created')
+      expect(entryAt(computeContextLedger(definition), 'start', 'orderId')).toMatchObject({ type: 'unknown' })
+    })
+  })
+
+  describe('buildTriggerPayloadContracts', () => {
+    const events = [
+      { id: 'sales.order.created', payloadSchema: { fields: [{ path: 'id', type: 'text' }] } },
+      { id: 'sales.order.updated', payloadSchema: { fields: [] } },
+      { id: 'sales.order.deleted' },
+    ]
+
+    test('resolves a contract for an exact event pattern with declared fields', () => {
+      const contracts = buildTriggerPayloadContracts(
+        [{ triggerId: 'trigger-1', eventPattern: 'sales.order.created' }],
+        events,
+      )
+      expect(contracts['trigger-1']).toEqual({ entries: [{ path: 'id', type: 'text' }] })
+    })
+
+    test('skips wildcard patterns, empty schemas, schema-less events, and blank patterns', () => {
+      const contracts = buildTriggerPayloadContracts(
+        [
+          { triggerId: 'wildcard', eventPattern: 'sales.order.*' },
+          { triggerId: 'empty-fields', eventPattern: 'sales.order.updated' },
+          { triggerId: 'no-schema', eventPattern: 'sales.order.deleted' },
+          { triggerId: 'blank', eventPattern: '  ' },
+          { triggerId: 'missing', eventPattern: null },
+        ],
+        events,
+      )
+      expect(contracts).toEqual({})
+    })
+
+    test('maps unrecognized field types to unknown', () => {
+      const contracts = buildTriggerPayloadContracts(
+        [{ triggerId: 'trigger-1', eventPattern: 'evt' }],
+        [{ id: 'evt', payloadSchema: { fields: [{ path: 'weird', type: 'timestamptz' }] } }],
+      )
+      expect(contracts['trigger-1']).toEqual({ entries: [{ path: 'weird', type: 'unknown' }] })
+    })
+
+    test('returns an empty map when there are no triggers or no events', () => {
+      expect(buildTriggerPayloadContracts([], events)).toEqual({})
+      expect(buildTriggerPayloadContracts([{ triggerId: 't', eventPattern: 'evt' }], [])).toEqual({})
     })
   })
 
@@ -671,6 +784,54 @@ describe('computeContextLedger', () => {
         presence: 'maybe',
         type: 'date',
       })
+    })
+
+    test('types mapping targets from the resolved agent envelope contract', () => {
+      const definition: LedgerWorkflowDefinition = {
+        steps: [
+          step('start', 'START'),
+          invokeAgentStep({
+            outputMapping: {
+              riskScore: 'proposalPayload.score',
+              rationale: 'proposalPayload.rationale',
+              dispositionKind: 'kind',
+              unmapped: 'proposalPayload.absent',
+            },
+          }),
+          step('end', 'END'),
+        ],
+        transitions: [transition('start', 'agent'), transition('agent', 'end')],
+      }
+      const ledger = computeContextLedger(definition, {
+        resolveOutputContract: (activityType, config) => {
+          if (activityType !== 'INVOKE_AGENT') return 'unknown'
+          if ((config as { agentId?: string })?.agentId !== 'risk-scorer') return 'unknown'
+          return {
+            entries: [
+              { path: 'kind', type: 'text' },
+              { path: 'proposalPayload.score', type: 'number' },
+              { path: 'proposalPayload.rationale', type: 'text' },
+            ],
+          }
+        },
+      })
+      expect(entryAt(ledger, 'end', 'riskScore')).toMatchObject({ type: 'number', presence: 'maybe' })
+      expect(entryAt(ledger, 'end', 'rationale')).toMatchObject({ type: 'text', presence: 'maybe' })
+      expect(entryAt(ledger, 'end', 'dispositionKind')).toMatchObject({ type: 'text' })
+      expect(entryAt(ledger, 'end', 'unmapped')).toMatchObject({ type: 'unknown' })
+    })
+
+    test('keeps mapping targets unknown when no agent contract resolves', () => {
+      const definition: LedgerWorkflowDefinition = {
+        steps: [
+          step('start', 'START'),
+          invokeAgentStep({ outputMapping: { riskScore: 'proposalPayload.score' } }),
+          step('end', 'END'),
+        ],
+        transitions: [transition('start', 'agent'), transition('agent', 'end')],
+      }
+      const ledger = computeContextLedger(definition, { resolveOutputContract: () => 'unknown' })
+      expect(entryAt(ledger, 'end', 'riskScore')).toMatchObject({ type: 'unknown', presence: 'maybe' })
     })
 
     test('contributes only to steps AFTER the invoke-agent step, not its own incoming view', () => {

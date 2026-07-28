@@ -21,6 +21,9 @@ export type WorkflowStepType =
   | 'SUB_WORKFLOW'
   | 'WAIT_FOR_SIGNAL'
   | 'WAIT_FOR_TIMER'
+  | 'WAIT_FOR_CONDITION'
+  | 'IF_ELSE'
+  | 'SWITCH'
 
 export type WorkflowInstanceStatus =
   | 'RUNNING'
@@ -144,12 +147,20 @@ export interface WorkflowIoContract {
   outputs?: WorkflowIoPortField[]
 }
 
+export interface WorkflowErrorHandlerData {
+  workflowId?: string
+  version?: number
+  stepId?: string
+}
+
 export interface WorkflowDefinitionData {
   steps: any[] // WorkflowStep[] - will define schema in validators.ts
   transitions: any[] // WorkflowTransition[] - will define schema in validators.ts
   triggers?: WorkflowDefinitionTrigger[] // Event triggers for automatic workflow start
   contextSchema?: WorkflowContextSchema // Declared typed-input contract (spec §3.1) — canonical input contract
   io?: WorkflowIoContract // Sub-workflow port contract; io.inputs is a read-through alias of contextSchema.input
+  interpolation?: 'strict' | 'lenient' // Interpolation mode (spec §3.6): absent = lenient; create path defaults new definitions to 'strict'
+  errorHandler?: WorkflowErrorHandlerData // Catch-all error handler (spec §5.9): a handler workflow OR a handler step, never both
   activities?: any[] // ActivityDefinition[] - will define schema in validators.ts
   queries?: any[]
   signals?: any[]
@@ -171,7 +182,35 @@ export interface WorkflowMetadata {
   tags?: string[]
   category?: string
   icon?: string
+  // Forward-compatibility guard (spec section 5.8): the lowest engine version
+  // able to execute this definition. Engines older than the declared version
+  // refuse to instantiate it instead of misexecuting unknown step types.
+  minEngineVersion?: number
   editor?: WorkflowEditorMetadata
+}
+
+/**
+ * Failure-queue park marker (spec 5.9 "Send to failure queue"). Written when a
+ * step's `failureQueue` error directive parks the instance instead of failing
+ * it; the instances list filters on it (`?attention=true`) and the Phase 5
+ * triage UI consumes it. Additive and engine-owned — never user-writable.
+ */
+export interface WorkflowInstanceAttention {
+  reason: string
+  stepId?: string
+  error?: string
+  at: string
+}
+
+/**
+ * Recursion marker for the workflow-level error handler (spec 5.9). Engine-owned
+ * and durable — deliberately NOT in `context`, which the context PATCH API lets
+ * callers write, so the guard cannot be spoofed away.
+ */
+export interface WorkflowInstanceErrorHandlerMetadata {
+  depth: number
+  forInstanceId?: string
+  forStepId?: string
 }
 
 export interface WorkflowInstanceMetadata {
@@ -179,6 +218,8 @@ export interface WorkflowInstanceMetadata {
   entityId?: string
   initiatedBy?: string
   labels?: Record<string, string>
+  attention?: WorkflowInstanceAttention | null
+  errorHandler?: WorkflowInstanceErrorHandlerMetadata | null
 }
 
 // ============================================================================

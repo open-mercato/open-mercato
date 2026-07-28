@@ -116,9 +116,13 @@ For non-technical users and business users, see the [**User Guide**](/user-guide
 
 - `POST /api/workflows/instances` - Start workflow
 - `POST /api/workflows/instances/{id}/signal` - Send signal
+- `PATCH /api/workflows/instances/{id}/context` - Merge a context patch and wake `WAIT_FOR_CONDITION` waiters (`workflows.instances.update_context`)
 - `GET /api/workflows/instances/{id}` - Get instance details
-- `GET /api/workflows/instances` - List instances
+- `GET /api/workflows/instances` - List instances (`?attention=true` lists parked runs)
 - `POST /api/workflows/tasks/{id}/complete` - Complete task
+- `GET /api/workflows/definitions/{id}/context-schema` - Per-step context ledger
+- `POST /api/workflows/definitions/{id}/test-step` - Mock-first single-activity test run
+- `GET /api/workflows/endpoints` - Endpoint catalogue for the `CALL_API` picker
 
 ### Service Interfaces
 

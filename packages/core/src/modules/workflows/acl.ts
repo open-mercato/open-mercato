@@ -87,6 +87,14 @@ export const features = [
     dependsOn: ['workflows.instances.view'],
   },
   {
+    // Writing arbitrary run context is strictly broader than sending a named
+    // signal, so it is deliberately NOT folded into workflows.instances.signal.
+    id: 'workflows.instances.update_context',
+    title: 'Update workflow instance context',
+    module: moduleId,
+    dependsOn: ['workflows.instances.view'],
+  },
+  {
     id: 'workflows.tasks.view',
     title: 'View user tasks',
     module: moduleId,

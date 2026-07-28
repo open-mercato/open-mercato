@@ -81,6 +81,31 @@ export default async function handle(
     return
   }
 
+  // Condition jobs (kind: 'condition') are the durability backstop for
+  // WAIT_FOR_CONDITION steps: they re-evaluate the predicate and enforce the
+  // absolute deadline carried on the payload. A waiter already resumed by the
+  // event-driven context-write path makes this a no-op.
+  if (payload.kind === 'condition') {
+    logger.debug('Evaluating wait condition', {
+      instanceId: payload.workflowInstanceId,
+      stepInstanceId: payload.stepInstanceId,
+      attempt: payload.attempt,
+      jobId: ctx.jobId,
+    })
+    const { evaluateWaitCondition } = await import('../lib/condition-handler')
+    await evaluateWaitCondition(em, container, {
+      instanceId: payload.workflowInstanceId,
+      stepInstanceId: payload.stepInstanceId,
+      branchInstanceId: payload.branchInstanceId,
+      deadlineAt: payload.deadlineAt,
+      attempt: payload.attempt,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+      userId: payload.userId,
+    })
+    return
+  }
+
   // Invoke-agent jobs (kind: 'invoke_agent') run an INVOKE_AGENT step's agent
   // OUTSIDE the workflow transaction (this worker has its own connection), then
   // resume the parked step via the proposal-ready signal. This is what keeps a
@@ -102,6 +127,15 @@ export default async function handle(
   // resume runs on this worker's own connection, after the child txn committed.
   if (payload.kind === 'resume_subworkflow_parent') {
     await resumeParentAfterSubWorkflow(em, container, payload)
+    return
+  }
+
+  // Workflow-level error handler jobs (kind: 'workflow_error_handler') start the
+  // definition's catch-all handler workflow for a failed instance, on this
+  // worker's own connection — never inside the transaction that failed.
+  if (payload.kind === 'workflow_error_handler') {
+    const { runWorkflowErrorHandler } = await import('../lib/error-handler')
+    await runWorkflowErrorHandler(em, container, payload)
     return
   }
 

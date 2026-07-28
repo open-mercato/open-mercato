@@ -1,6 +1,6 @@
 'use client'
 
-import { Check, Play, Pause, Circle, CircleAlert, XCircle, Trash2 } from 'lucide-react'
+import { Check, Play, Pause, Circle, CircleAlert, ShieldMinus, XCircle, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../lib/node-type-icons'
@@ -20,6 +20,20 @@ export const NODE_WIDTH = NODE_MIN_WIDTH
  */
 export const WORKFLOW_NODE_DELETE_EVENT = 'workflow-node:delete'
 
+/**
+ * English fallbacks for the per-status label (spec section 4.6: status is never
+ * colour-only, so every state has to have a NAME the card can announce).
+ */
+const STATUS_LABEL_FALLBACKS: Record<WorkflowStatus, string> = {
+  completed: 'Completed',
+  in_progress: 'In progress',
+  pending: 'Pending',
+  failed: 'Failed',
+  paused: 'Paused',
+  not_started: 'Not started',
+  error: 'Has errors',
+}
+
 export function requestWorkflowNodeDeletion(nodeId: string): void {
   if (typeof window === 'undefined') return
   window.dispatchEvent(new CustomEvent(WORKFLOW_NODE_DELETE_EVENT, { detail: { nodeId } }))
@@ -33,6 +47,12 @@ interface WorkflowNodeCardProps {
   selected?: boolean
   hasError?: boolean
   errorCount?: number
+  /**
+   * Spec section 4.3: the badge cluster's compensation marker. Set by the canvas
+   * while the compensation toggle is on, for a step whose outgoing routes carry
+   * activities that declare compensation.
+   */
+  hasCompensation?: boolean
   /** Node id — required to render the inline delete affordance. */
   nodeId?: string
   /** When true (and `nodeId` is set), show the hover/selected trash button. */
@@ -47,6 +67,7 @@ export function WorkflowNodeCard({
   selected = false,
   hasError = false,
   errorCount,
+  hasCompensation = false,
   nodeId,
   editable = false,
 }: WorkflowNodeCardProps) {
@@ -78,14 +99,32 @@ export function WorkflowNodeCard({
       : isEditMode
         ? 'border-border'
         : colors.border
+  const compensationBadgeLabel = t(
+    'workflows.compensation.nodeBadge',
+    'Leaving this step schedules compensation',
+  )
   const errorBadgeLabel = t(
     'workflows.visualEditor.problems.nodeErrorBadge',
     '{count} validation error(s)',
     { count: typeof errorCount === 'number' && errorCount > 0 ? errorCount : 1 },
   )
 
+  // Spec section 4.6: status is never colour-only and every card announces what
+  // it is. The status icon shape already differs per state; this names it, so a
+  // screen reader hears "User task · Approve order · Failed" rather than a
+  // shapeless card whose only other cue is a red border.
+  const statusLabel = t(`workflows.nodeStatus.${status}`, STATUS_LABEL_FALLBACKS[status])
+  const cardLabel = t(
+    'workflows.visualEditor.nodeCardLabel',
+    '{type}: {title} — {status}',
+    { type: nodeTypeLabel, title, status: statusLabel },
+  )
+
   return (
     <div
+      role="group"
+      aria-label={cardLabel}
+      data-node-status={status}
       style={{ minWidth: NODE_MIN_WIDTH, maxWidth: NODE_MAX_WIDTH }}
       className={`
         group w-fit rounded-lg border
@@ -110,6 +149,20 @@ export function WorkflowNodeCard({
           ) : (
             <CircleAlert className="h-3 w-3" aria-hidden="true" />
           )}
+        </span>
+      )}
+
+      {/* Compensation marker (spec section 4.3). Paired with its own icon shape
+          and an announced name, never colour alone (spec section 4.6). */}
+      {hasCompensation && (
+        <span
+          role="img"
+          data-testid="workflow-node-compensation-badge"
+          aria-label={compensationBadgeLabel}
+          title={compensationBadgeLabel}
+          className="absolute -bottom-2 -right-2 z-10 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-background bg-status-warning-bg px-1 text-status-warning-text"
+        >
+          <ShieldMinus className="h-3 w-3" aria-hidden="true" />
         </span>
       )}
 
@@ -139,7 +192,8 @@ export function WorkflowNodeCard({
 
       <div className="flex items-start gap-2 px-2.5 pb-2.5 pt-1">
         <div className={`mt-0.5 flex-shrink-0 ${colors.icon}`}>
-          <StatusIcon className="h-4 w-4" />
+          <StatusIcon className="h-4 w-4" aria-hidden="true" />
+          <span className="sr-only">{statusLabel}</span>
         </div>
         <div className="min-w-0 flex-1">
           <h3 className={`break-words text-sm font-semibold leading-snug ${colors.text}`}>

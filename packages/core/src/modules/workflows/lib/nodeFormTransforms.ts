@@ -6,11 +6,13 @@
  */
 
 import type { Node } from '@xyflow/react'
+import type { SwitchRoutesValue } from './branching-routes'
+import type { RouteOrderEntry } from './route-priority'
 import type { FormField } from '../components/fields/FormFieldArrayEditor'
 import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { Mapping } from '../components/fields/MappingArrayEditor'
 import type { StartPreCondition } from '../components/fields/StartPreConditionsEditor'
-import type { AgentInvokeConfigValue } from '../components/fields/AgentInvokeConfigField'
+import type { AgentInvokeConfigValue, AgentSubjectValue } from '../components/fields/AgentInvokeConfigField'
 import type { InvokeAgentConfig } from '../data/validators'
 import { sanitizeId } from './graph-utils'
 import { isFutureIsoDateString, isValidDurationString } from '../data/validators'
@@ -49,6 +51,36 @@ function findInvokeAgentActivity(node: Node): InvokeAgentActivity | undefined {
 
 function findInvokeAgentConfig(node: Node): Partial<InvokeAgentConfig> {
   return findInvokeAgentActivity(node)?.config || {}
+}
+
+const SUBJECT_FORM_KEYS = ['subjectType', 'subjectId', 'subjectLabel'] as const
+
+function subjectToFormValue(subject: unknown): AgentSubjectValue {
+  const record = isPlainRecord(subject) ? subject : {}
+  return {
+    subjectType: typeof record.subjectType === 'string' ? record.subjectType : '',
+    subjectId: typeof record.subjectId === 'string' ? record.subjectId : '',
+    subjectLabel: typeof record.subjectLabel === 'string' ? record.subjectLabel : '',
+  }
+}
+
+/**
+ * Writes the three edited subject keys back onto the stored descriptor while
+ * preserving every other key the editor does not expose (the enterprise
+ * projection accepts a passthrough shape). A subject left entirely blank is
+ * removed rather than persisted as empty strings.
+ */
+function formValueToSubject(
+  existing: unknown,
+  edited: AgentSubjectValue | undefined,
+): Record<string, unknown> | undefined {
+  const next: Record<string, unknown> = isPlainRecord(existing) ? { ...existing } : {}
+  for (const key of SUBJECT_FORM_KEYS) {
+    const value = edited?.[key]?.trim() ?? ''
+    if (value) next[key] = value
+    else delete next[key]
+  }
+  return Object.keys(next).length > 0 ? next : undefined
 }
 
 function mappingsToRecord(rows: Mapping[] | undefined): Record<string, string> {
@@ -96,8 +128,28 @@ export interface NodeFormValues {
   timerDuration?: string
   timerUntil?: string
 
+  // WaitForCondition fields. The predicate is a business_rules
+  // ConditionExpression, edited with the shared ConditionBuilder.
+  waitCondition?: unknown
+  waitConditionTimeout?: string
+  waitConditionOnTimeout?: string
+  waitConditionPollIntervalMs?: string | number
+
+  // Error directive (spec section 5.9): what happens when this step fails and
+  // no error route is wired. 'fail' (or unset) keeps today's behavior.
+  errorDirectiveMode?: string
+  errorDirectiveFallbackValue?: string
+
   // Start node pre-conditions
   preConditions?: StartPreCondition[]
+
+  // Branching (IF_ELSE / SWITCH) outgoing routes — edited in the node dialog,
+  // applied to edges by the editor page, never written into step data.
+  branchingRoutes?: SwitchRoutesValue
+
+  // Outgoing route order of a non-branching step (spec 4.4). Same contract as
+  // branchingRoutes: transition state, applied to edges, never step data.
+  routeOrder?: RouteOrderEntry[]
 
   // InvokeAgent fields
   agentConfig?: AgentInvokeConfigValue
@@ -194,6 +246,16 @@ export function nodeToFormValues(node: Node): NodeFormValues {
     timeout: nodeData?.timeout || '',
   }
 
+  const errorDirective = nodeData?.errorDirective
+  if (isPlainRecord(errorDirective)) {
+    values.errorDirectiveMode = typeof errorDirective.mode === 'string' ? errorDirective.mode : 'fail'
+    values.errorDirectiveFallbackValue =
+      errorDirective.fallbackValue === undefined ? '' : JSON.stringify(errorDirective.fallbackValue, null, 2)
+  } else {
+    values.errorDirectiveMode = 'fail'
+    values.errorDirectiveFallbackValue = ''
+  }
+
   // UserTask fields
   if (node.type === 'userTask') {
     values.assignedTo = nodeData?.assignedTo || ''
@@ -271,6 +333,16 @@ export function nodeToFormValues(node: Node): NodeFormValues {
     values.timerUntil = nodeData?.config?.until || ''
   }
 
+  // WaitForCondition fields
+  if (node.type === 'waitForCondition') {
+    const config = nodeData?.config || {}
+    values.waitCondition = config.condition ?? null
+    values.waitConditionTimeout = config.timeout || ''
+    values.waitConditionOnTimeout = config.onTimeout === 'CONTINUE' ? 'CONTINUE' : 'FAIL'
+    values.waitConditionPollIntervalMs =
+      typeof config.pollIntervalMs === 'number' ? String(config.pollIntervalMs) : ''
+  }
+
   // Start node pre-conditions
   if (node.type === 'start' && nodeData?.preConditions) {
     values.preConditions = nodeData.preConditions
@@ -300,6 +372,7 @@ export function nodeToFormValues(node: Node): NodeFormValues {
         key,
         value: String(value),
       })),
+      subject: subjectToFormValue(config.subject),
     }
   }
 
@@ -450,6 +523,42 @@ export function formValuesToNodeUpdates(
     updates.config = duration ? { duration } : { until }
   }
 
+  // WaitForCondition specific fields. Fail closed at author time on the two
+  // mandatory pieces; the full rule set (expression safety, poll bounds,
+  // outgoing transition) is enforced by the definition schema on save.
+  if (node.type === 'waitForCondition') {
+    const condition = values.waitCondition
+    if (!isPlainRecord(condition)) {
+      throw new Error('workflows.validation.conditionRequired')
+    }
+
+    const timeout = typeof values.waitConditionTimeout === 'string' ? values.waitConditionTimeout.trim() : ''
+    if (!timeout) {
+      throw new Error('workflows.validation.conditionTimeoutRequired')
+    }
+    if (!isValidDurationString(timeout)) {
+      throw new Error('workflows.validation.invalidDuration')
+    }
+
+    const config: Record<string, unknown> = {
+      condition,
+      timeout,
+      onTimeout: values.waitConditionOnTimeout === 'CONTINUE' ? 'CONTINUE' : 'FAIL',
+    }
+
+    const rawPollInterval = values.waitConditionPollIntervalMs
+    const pollIntervalText = typeof rawPollInterval === 'number' ? String(rawPollInterval) : (rawPollInterval ?? '').trim()
+    if (pollIntervalText) {
+      const pollIntervalMs = Number(pollIntervalText)
+      if (!Number.isInteger(pollIntervalMs)) {
+        throw new Error('workflows.validation.conditionPollIntervalInvalid')
+      }
+      config.pollIntervalMs = pollIntervalMs
+    }
+
+    updates.config = config
+  }
+
   // Start node pre-conditions
   if (node.type === 'start') {
     if (values.preConditions && values.preConditions.length > 0) {
@@ -474,13 +583,16 @@ export function formValuesToNodeUpdates(
         ? { alwaysAsk: true }
         : { autoApproveThreshold: Number.parseFloat(agent?.autoApproveThreshold ?? '') || 0 }
 
+    const subject = formValueToSubject(existingConfig.subject, agent?.subject)
     const config: InvokeAgentConfig = {
-      // Preserve config the visual editor does not expose (e.g. `subject`).
+      // Preserve config the visual editor does not expose.
       ...existingConfig,
       agentId: agent?.agentId || '',
       input: mappingsToRecord(agent?.inputs),
       onResult,
     }
+    if (subject) config.subject = subject
+    else delete config.subject
     if (Object.keys(outputMapping).length > 0) {
       config.outputMapping = outputMapping
     } else {
@@ -500,6 +612,24 @@ export function formValuesToNodeUpdates(
   }
 
   // Merge the advanced config (object from JsonBuilder, or legacy JSON string).
+  // Error directive (spec section 5.9). Only a non-default directive is written,
+  // so a step whose picker was never touched saves byte-identically.
+  const errorDirectiveMode = values.errorDirectiveMode
+  if (errorDirectiveMode === 'continueWithFallback' || errorDirectiveMode === 'failureQueue') {
+    const directive: Record<string, unknown> = { mode: errorDirectiveMode }
+    const rawFallback = (values.errorDirectiveFallbackValue ?? '').trim()
+    if (errorDirectiveMode === 'continueWithFallback' && rawFallback) {
+      try {
+        directive.fallbackValue = JSON.parse(rawFallback)
+      } catch {
+        throw new Error('workflows.validation.errorDirectiveFallbackInvalid')
+      }
+    }
+    updates.errorDirective = directive
+  } else {
+    updates.errorDirective = undefined
+  }
+
   // For user tasks the structured fields are authoritative: the advanced blob
   // only contributes keys the dialog does not handle structurally.
   const advanced = parseAdvancedConfigValue(values.advancedConfig)

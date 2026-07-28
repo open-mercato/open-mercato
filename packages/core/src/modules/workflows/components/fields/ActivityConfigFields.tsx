@@ -15,8 +15,10 @@ import '../../lib/activity-registry-bootstrap'
 import { getActivityType, type ActivityFormFieldSpec } from '../../lib/activity-registry'
 import type { LedgerEntry } from '../../lib/context-ledger'
 import { CommandPicker } from './CommandPicker'
+import { EndpointPicker } from './EndpointPicker'
 import { FunctionPicker } from './FunctionPicker'
 import { VariablePickerButton } from './VariablePickerButton'
+import { ledgerDropTargetProps } from './ledgerDropTarget'
 
 /**
  * Registry-driven config form for workflow activities (spec
@@ -468,6 +470,11 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
                 onChange={(event) => setField(spec, event.target.value)}
                 className="flex-1 text-xs"
                 disabled={disabled}
+                {...ledgerDropTargetProps({
+                  value: current,
+                  onValueChange: (nextValue) => setField(spec, nextValue),
+                  disabled,
+                })}
               />
               <VariablePickerButton
                 targetId={fieldId}
@@ -500,6 +507,11 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
               rows={4}
               className="flex-1 text-xs"
               disabled={disabled}
+              {...ledgerDropTargetProps({
+                value: stringValue(rawValue),
+                onValueChange: (nextValue) => setField(spec, nextValue),
+                disabled,
+              })}
             />
             <VariablePickerButton
               targetId={fieldId}
@@ -515,6 +527,27 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
           <EventPatternInput
             value={stringValue(rawValue)}
             onChange={(nextValue) => setField(spec, nextValue)}
+            disabled={disabled}
+          />
+        )
+      case 'endpoint':
+        return (
+          <EndpointPicker
+            id={fieldId}
+            endpoint={stringValue(rawValue)}
+            method={stringValue(config.method)}
+            onApply={(patch) => {
+              const next: Record<string, unknown> = { ...config }
+              for (const [patchKey, patchValue] of Object.entries(patch)) {
+                if (patchValue === '' || patchValue === undefined) {
+                  delete next[patchKey]
+                } else {
+                  next[patchKey] = patchValue
+                }
+              }
+              onChange(next)
+            }}
+            ledgerEntries={ledgerEntries}
             disabled={disabled}
           />
         )
@@ -587,6 +620,11 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
               onChange={(event) => setField(spec, event.target.value)}
               className="flex-1 text-xs"
               disabled={disabled}
+              {...ledgerDropTargetProps({
+                value: stringValue(rawValue),
+                onValueChange: (nextValue) => setField(spec, nextValue),
+                disabled,
+              })}
             />
             <VariablePickerButton
               targetId={fieldId}

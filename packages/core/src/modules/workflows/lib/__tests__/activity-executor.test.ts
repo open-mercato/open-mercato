@@ -2030,6 +2030,262 @@ describe('Activity Executor (Unit Tests)', () => {
     })
   })
 
+  describe('interpolateVariables transform pipeline', () => {
+    const pipelineContext = {
+      orderId: 'order-123',
+      orderTotal: 120.5,
+      customer: { name: 'ada lovelace', email: 'ada@example.com' },
+      items: [{ name: 'first' }, { name: 'second' }],
+      closeDate: '2026-07-27T13:05:09.000Z',
+    }
+
+    test('pipe-free tokens behave exactly as before', () => {
+      expect(activityExecutor.interpolateVariables('{{orderId}}', pipelineContext, mockInstance)).toBe('order-123')
+      expect(activityExecutor.interpolateVariables('{{customer}}', pipelineContext, mockInstance)).toEqual(
+        pipelineContext.customer
+      )
+      expect(activityExecutor.interpolateVariables('{{missing.path}}', pipelineContext, mockInstance)).toBe(
+        '{{missing.path}}'
+      )
+    })
+
+    test('single-token transforms preserve the transformed value type', () => {
+      expect(activityExecutor.interpolateVariables('{{items | pick(0)}}', pipelineContext, mockInstance)).toEqual({
+        name: 'first',
+      })
+      expect(
+        activityExecutor.interpolateVariables('{{orderTotal | number(2)}}', pipelineContext, mockInstance)
+      ).toBe('120.50')
+      expect(
+        activityExecutor.interpolateVariables(
+          "{{items | pick(1) | pick('name') | upper}}",
+          pipelineContext,
+          mockInstance
+        )
+      ).toBe('SECOND')
+    })
+
+    test('mixed text folds transforms and stringifies', () => {
+      expect(
+        activityExecutor.interpolateVariables(
+          "Deal closes {{closeDate | date('yyyy-MM-dd')}} for {{customer.name | title}}",
+          pipelineContext,
+          mockInstance
+        )
+      ).toBe('Deal closes 2026-07-27 for Ada Lovelace')
+    })
+
+    test('unknown transform passes the original token through unchanged', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{orderId | nonsense}}', pipelineContext, mockInstance)
+      ).toBe('{{orderId | nonsense}}')
+      expect(
+        activityExecutor.interpolateVariables('Ref {{orderId | nonsense}}!', pipelineContext, mockInstance)
+      ).toBe('Ref {{orderId | nonsense}}!')
+    })
+
+    test('failed transform passes the original token through unchanged', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{customer | upper}}', pipelineContext, mockInstance)
+      ).toBe('{{customer | upper}}')
+    })
+
+    test('unparseable pipeline passes the original token through unchanged', () => {
+      expect(
+        activityExecutor.interpolateVariables("{{orderId | concat('open}}", pipelineContext, mockInstance)
+      ).toBe("{{orderId | concat('open}}")
+    })
+
+    test('default rescues an unresolved context path', () => {
+      expect(
+        activityExecutor.interpolateVariables("{{missing.path | default('n/a')}}", pipelineContext, mockInstance)
+      ).toBe('n/a')
+      expect(
+        activityExecutor.interpolateVariables(
+          "Value: {{missing.path | default('n/a')}}",
+          pipelineContext,
+          mockInstance
+        )
+      ).toBe('Value: n/a')
+    })
+
+    test('unresolved path without a rescuing default passes through', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{missing.path | upper}}', pipelineContext, mockInstance)
+      ).toBe('{{missing.path | upper}}')
+    })
+
+    test('transforms apply to workflow.* and now base values', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{workflow.instanceId | upper}}', pipelineContext, mockInstance)
+      ).toBe('TEST-INSTANCE-ID')
+      expect(
+        activityExecutor.interpolateVariables("{{now | date('yyyy')}}", pipelineContext, mockInstance)
+      ).toBe(String(new Date().getUTCFullYear()))
+    })
+
+    test('unknown workflow key stays a pass-through even with transforms', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{workflow.bogus | upper}}', pipelineContext, mockInstance)
+      ).toBe('{{workflow.bogus | upper}}')
+    })
+
+    test('non-allowlisted env resolves empty so default applies', () => {
+      expect(
+        activityExecutor.interpolateVariables(
+          "{{env.OM_WORKFLOWS_TEST_TYPE_SECRET | default('hidden')}}",
+          pipelineContext,
+          mockInstance
+        )
+      ).toBe('hidden')
+    })
+  })
+
+  describe('strict interpolation mode', () => {
+    const strictContext = {
+      orderId: 'order-123',
+      customer: { name: 'ada lovelace' },
+    }
+    const strictOptions = { mode: 'strict' as const }
+
+    test('resolvable tokens behave exactly like lenient mode', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{orderId}}', strictContext, mockInstance, strictOptions)
+      ).toBe('order-123')
+      expect(
+        activityExecutor.interpolateVariables(
+          'Order {{orderId}} for {{customer.name | title}}',
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toBe('Order order-123 for Ada Lovelace')
+    })
+
+    test('unresolved context path throws naming the token', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables('{{missing.path}}', strictContext, mockInstance, strictOptions)
+      ).toThrow(activityExecutor.WorkflowInterpolationError)
+      expect(() =>
+        activityExecutor.interpolateVariables('Ref {{missing.path}}!', strictContext, mockInstance, strictOptions)
+      ).toThrow('Cannot interpolate {{missing.path}}')
+    })
+
+    test('unknown workflow key throws', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables('{{workflow.bogus}}', strictContext, mockInstance, strictOptions)
+      ).toThrow('unknown workflow key "bogus"')
+    })
+
+    test('non-allowlisted env key throws even with a default', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables(
+          '{{env.OM_WORKFLOWS_TEST_TYPE_SECRET}}',
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toThrow('is not allowlisted')
+      expect(() =>
+        activityExecutor.interpolateVariables(
+          "{{env.OM_WORKFLOWS_TEST_TYPE_SECRET | default('hidden')}}",
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toThrow('is not allowlisted')
+    })
+
+    test('unknown transform and failed transform throw', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables('{{orderId | nonsense}}', strictContext, mockInstance, strictOptions)
+      ).toThrow('unknown transform "nonsense"')
+      expect(() =>
+        activityExecutor.interpolateVariables('{{customer | upper}}', strictContext, mockInstance, strictOptions)
+      ).toThrow('Cannot interpolate {{customer | upper}}')
+    })
+
+    test('unparseable pipeline throws', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables("{{orderId | concat('open}}", strictContext, mockInstance, strictOptions)
+      ).toThrow(activityExecutor.WorkflowInterpolationError)
+    })
+
+    test('default rescues an unresolved context path in strict mode', () => {
+      expect(
+        activityExecutor.interpolateVariables(
+          "{{missing.path | default('n/a')}}",
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toBe('n/a')
+    })
+
+    test('nested config objects surface strict failures', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables(
+          { args: { to: '{{missing.path}}' } },
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toThrow(activityExecutor.WorkflowInterpolationError)
+    })
+
+    test('absent mode stays lenient', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{missing.path}}', strictContext, mockInstance, {})
+      ).toBe('{{missing.path}}')
+    })
+
+    test('sync execution under strict mode fails the activity with the offending token', async () => {
+      const mockFunction = jest.fn()
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-strict-sync',
+        activityName: 'Strict Sync',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'testFunction',
+          args: { value: '{{missing.path}}' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(mockEm, mockContainer, activity, {
+        ...mockContext,
+        interpolationMode: 'strict',
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Cannot interpolate {{missing.path}}')
+      expect(mockFunction).not.toHaveBeenCalled()
+    })
+
+    test('async enqueue under strict mode refuses at enqueue-time', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'activity-strict-async',
+        activityName: 'Strict Async',
+        activityType: 'SEND_EMAIL',
+        config: { to: '{{missing.path}}', subject: 'Hi' },
+      }
+
+      await expect(
+        activityExecutor.enqueueActivity(mockEm, activity, {
+          ...mockContext,
+          interpolationMode: 'strict',
+        })
+      ).rejects.toThrow(activityExecutor.ActivityExecutionError)
+      await expect(
+        activityExecutor.enqueueActivity(mockEm, activity, {
+          ...mockContext,
+          interpolationMode: 'strict',
+        })
+      ).rejects.toThrow('Cannot interpolate {{missing.path}}')
+    })
+  })
+
   // ============================================================================
   // Multiple Activities Tests
   // ============================================================================

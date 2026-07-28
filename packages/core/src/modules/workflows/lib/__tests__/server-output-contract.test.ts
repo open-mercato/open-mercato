@@ -2,14 +2,18 @@
 
 import { describe, test, expect, jest } from '@jest/globals'
 import { z } from 'zod'
+import type { Module } from '@open-mercato/shared/modules/registry'
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { computeContextLedger, type LedgerWorkflowDefinition } from '../context-ledger'
 
 type ServerContractModule = typeof import('../server-output-contract')
 type CommandRegistryModule = typeof import('@open-mercato/shared/lib/commands/registry')
+type EndpointCatalogModule = typeof import('../endpoint-catalog')
 
 type LoadedModules = {
   serverContractModule: ServerContractModule
   commandRegistryModule: CommandRegistryModule
+  endpointCatalogModule: EndpointCatalogModule
 }
 
 const loadIsolated = (): LoadedModules => {
@@ -17,7 +21,8 @@ const loadIsolated = (): LoadedModules => {
   jest.isolateModules(() => {
     const serverContractModule = require('../server-output-contract') as ServerContractModule
     const commandRegistryModule = require('@open-mercato/shared/lib/commands/registry') as CommandRegistryModule
-    loaded = { serverContractModule, commandRegistryModule }
+    const endpointCatalogModule = require('../endpoint-catalog') as EndpointCatalogModule
+    loaded = { serverContractModule, commandRegistryModule, endpointCatalogModule }
   })
   if (!loaded) throw new Error('[internal] failed to load server-output-contract in isolation')
   return loaded
@@ -124,6 +129,326 @@ describe('resolveServerOutputContract', () => {
       expect(ledger.steps.auto.entries).toEqual([])
     } finally {
       commandRegistryModule.commandRegistry.clear()
+    }
+  })
+})
+
+describe('resolveServerOutputContract for CALL_API', () => {
+  const noopHandler = async () => new Response(null)
+
+  const registerEndpointModules = () => {
+    registerModules([
+      {
+        id: 'things',
+        apis: [
+          {
+            path: '/things/[id]',
+            handlers: { GET: noopHandler },
+            docs: {
+              methods: {
+                GET: {
+                  summary: 'Get thing',
+                  responses: [
+                    {
+                      status: 200,
+                      description: 'Success',
+                      schema: z.object({ id: z.string(), amount: z.number() }),
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          {
+            path: '/things/undocumented',
+            handlers: { GET: noopHandler },
+            docs: {
+              methods: {
+                GET: {
+                  summary: 'Undeclared response',
+                  responses: [{ status: 200, description: 'Success' }],
+                },
+              },
+            },
+          },
+        ],
+      } as unknown as Module,
+    ])
+  }
+
+  test('flattens the picked endpoint declared response schema once the catalog is warmed', async () => {
+    const { serverContractModule, endpointCatalogModule } = loadIsolated()
+    registerEndpointModules()
+    try {
+      await endpointCatalogModule.getWorkflowEndpointCatalog()
+      const contract = serverContractModule.resolveServerOutputContract('CALL_API', {
+        endpoint: '/api/things/t-1',
+        method: 'GET',
+      })
+      expect(contract).toEqual({
+        entries: [
+          { path: 'id', type: 'text' },
+          { path: 'amount', type: 'number' },
+        ],
+      })
+    } finally {
+      endpointCatalogModule.clearWorkflowEndpointCatalogForTests()
+    }
+  })
+
+  test('resolves endpoints whose path parameters are interpolation pills', async () => {
+    const { serverContractModule, endpointCatalogModule } = loadIsolated()
+    registerEndpointModules()
+    try {
+      await endpointCatalogModule.getWorkflowEndpointCatalog()
+      const contract = serverContractModule.resolveServerOutputContract('CALL_API', {
+        endpoint: '/api/things/{{context.thingId}}',
+      })
+      expect(contract).toEqual({
+        entries: [
+          { path: 'id', type: 'text' },
+          { path: 'amount', type: 'number' },
+        ],
+      })
+    } finally {
+      endpointCatalogModule.clearWorkflowEndpointCatalogForTests()
+    }
+  })
+
+  test("degrades to 'unknown' before the catalog is warmed", () => {
+    const { serverContractModule } = loadIsolated()
+    registerEndpointModules()
+    expect(
+      serverContractModule.resolveServerOutputContract('CALL_API', {
+        endpoint: '/api/things/t-1',
+        method: 'GET',
+      }),
+    ).toBe('unknown')
+  })
+
+  test("degrades to 'unknown' for unmatched endpoints, undeclared responses, and templated methods", async () => {
+    const { serverContractModule, endpointCatalogModule } = loadIsolated()
+    registerEndpointModules()
+    try {
+      await endpointCatalogModule.getWorkflowEndpointCatalog()
+      expect(
+        serverContractModule.resolveServerOutputContract('CALL_API', {
+          endpoint: '/api/not/in/catalog',
+          method: 'GET',
+        }),
+      ).toBe('unknown')
+      expect(
+        serverContractModule.resolveServerOutputContract('CALL_API', {
+          endpoint: '/api/things/undocumented',
+          method: 'GET',
+        }),
+      ).toBe('unknown')
+      expect(
+        serverContractModule.resolveServerOutputContract('CALL_API', {
+          endpoint: '/api/things/t-1',
+          method: '{{context.method}}',
+        }),
+      ).toBe('unknown')
+      expect(serverContractModule.resolveServerOutputContract('CALL_API', { method: 'GET' })).toBe('unknown')
+    } finally {
+      endpointCatalogModule.clearWorkflowEndpointCatalogForTests()
+    }
+  })
+
+  test('types a CALL_API activity result in the ledger through the seam', async () => {
+    const { serverContractModule, endpointCatalogModule } = loadIsolated()
+    registerEndpointModules()
+    try {
+      await endpointCatalogModule.getWorkflowEndpointCatalog()
+      const definition: LedgerWorkflowDefinition = {
+        steps: [
+          { stepId: 'start', stepType: 'START' },
+          { stepId: 'fetch', stepType: 'AUTOMATED' },
+          { stepId: 'end', stepType: 'END' },
+        ],
+        transitions: [
+          { fromStepId: 'start', toStepId: 'fetch' },
+          {
+            fromStepId: 'fetch',
+            toStepId: 'end',
+            activities: [
+              {
+                activityId: 'load_thing',
+                activityType: 'CALL_API',
+                activityName: 'load_thing',
+                config: { endpoint: '/api/things/t-1', method: 'GET' },
+              },
+            ],
+          },
+        ],
+      }
+      const ledger = computeContextLedger(definition, {
+        resolveOutputContract: serverContractModule.resolveServerOutputContract,
+      })
+      const endEntries = ledger.steps.end.entries
+      expect(endEntries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: 'load_thing.id', type: 'text' }),
+          expect.objectContaining({ path: 'load_thing.amount', type: 'number' }),
+        ]),
+      )
+    } finally {
+      endpointCatalogModule.clearWorkflowEndpointCatalogForTests()
+    }
+  })
+})
+
+describe('resolveServerOutputContract for INVOKE_AGENT', () => {
+  const riskOutcome = z.object({ score: z.number(), rationale: z.string() })
+
+  const bridgeContainer = (bridge: unknown) => ({
+    resolve: <T,>(name: string): T => {
+      if (name !== 'agentWorkflowBridge' || bridge === undefined) {
+        throw new Error(`[internal] ${name} is not registered`)
+      }
+      return bridge as T
+    },
+  })
+
+  test('types the agent envelope from the optional peer OUTCOME contracts', async () => {
+    const { serverContractModule } = loadIsolated()
+    await serverContractModule.ensureWorkflowAgentOutcomeContracts(
+      bridgeContainer({
+        listAgentOutcomeContracts: async () => [
+          { agentId: 'risk.scorer', resultKind: 'actionable', schema: riskOutcome },
+        ],
+      }),
+    )
+    try {
+      expect(
+        serverContractModule.resolveServerOutputContract('INVOKE_AGENT', { agentId: 'risk.scorer' }),
+      ).toEqual({
+        entries: [
+          { path: 'kind', type: 'text' },
+          { path: 'disposition', type: 'text' },
+          { path: 'agentId', type: 'text' },
+          { path: 'proposalId', type: 'text' },
+          { path: 'proposalPayload.score', type: 'number' },
+          { path: 'proposalPayload.rationale', type: 'text' },
+        ],
+      })
+    } finally {
+      serverContractModule.clearWorkflowAgentOutcomeContractsForTests()
+    }
+  })
+
+  test('puts an informative agent OUTCOME under the envelope data key', async () => {
+    const { serverContractModule } = loadIsolated()
+    await serverContractModule.ensureWorkflowAgentOutcomeContracts(
+      bridgeContainer({
+        listAgentOutcomeContracts: async () => [
+          { agentId: 'deals.summary', resultKind: 'informative', schema: z.object({ summary: z.string() }) },
+        ],
+      }),
+    )
+    try {
+      const contract = serverContractModule.resolveServerOutputContract('INVOKE_AGENT', {
+        agentId: 'deals.summary',
+      })
+      expect(contract).not.toBe('unknown')
+      expect(contract).toMatchObject({
+        entries: expect.arrayContaining([{ path: 'data.summary', type: 'text' }]),
+      })
+    } finally {
+      serverContractModule.clearWorkflowAgentOutcomeContractsForTests()
+    }
+  })
+
+  test("degrades to 'unknown' without the peer, before warm-up, and for unknown or templated agent ids", async () => {
+    const { serverContractModule } = loadIsolated()
+    expect(serverContractModule.resolveServerOutputContract('INVOKE_AGENT', { agentId: 'risk.scorer' })).toBe(
+      'unknown',
+    )
+    await serverContractModule.ensureWorkflowAgentOutcomeContracts(bridgeContainer(undefined))
+    try {
+      expect(serverContractModule.resolveServerOutputContract('INVOKE_AGENT', { agentId: 'risk.scorer' })).toBe(
+        'unknown',
+      )
+    } finally {
+      serverContractModule.clearWorkflowAgentOutcomeContractsForTests()
+    }
+
+    const second = loadIsolated().serverContractModule
+    await second.ensureWorkflowAgentOutcomeContracts(
+      bridgeContainer({
+        listAgentOutcomeContracts: async () => [
+          { agentId: 'risk.scorer', resultKind: 'actionable', schema: riskOutcome },
+        ],
+      }),
+    )
+    try {
+      expect(second.resolveServerOutputContract('INVOKE_AGENT', { agentId: 'other.agent' })).toBe('unknown')
+      expect(second.resolveServerOutputContract('INVOKE_AGENT', { agentId: '{{context.agentId}}' })).toBe('unknown')
+      expect(second.resolveServerOutputContract('INVOKE_AGENT', {})).toBe('unknown')
+    } finally {
+      second.clearWorkflowAgentOutcomeContractsForTests()
+    }
+  })
+
+  test('survives a peer whose contract listing throws', async () => {
+    const { serverContractModule } = loadIsolated()
+    await serverContractModule.ensureWorkflowAgentOutcomeContracts(
+      bridgeContainer({
+        listAgentOutcomeContracts: async () => {
+          throw new Error('[internal] registry unavailable')
+        },
+      }),
+    )
+    try {
+      expect(serverContractModule.resolveServerOutputContract('INVOKE_AGENT', { agentId: 'risk.scorer' })).toBe(
+        'unknown',
+      )
+    } finally {
+      serverContractModule.clearWorkflowAgentOutcomeContractsForTests()
+    }
+  })
+
+  test('types INVOKE_AGENT mapping targets in the ledger through the seam', async () => {
+    const { serverContractModule } = loadIsolated()
+    await serverContractModule.ensureWorkflowAgentOutcomeContracts(
+      bridgeContainer({
+        listAgentOutcomeContracts: async () => [
+          { agentId: 'risk.scorer', resultKind: 'actionable', schema: riskOutcome },
+        ],
+      }),
+    )
+    try {
+      const definition: LedgerWorkflowDefinition = {
+        steps: [
+          { stepId: 'start', stepType: 'START' },
+          {
+            stepId: 'agent',
+            stepType: 'AUTOMATED',
+            activities: [
+              {
+                activityId: 'invoke-risk',
+                activityType: 'INVOKE_AGENT',
+                config: { agentId: 'risk.scorer', outputMapping: { riskScore: 'proposalPayload.score' } },
+              },
+            ],
+          },
+          { stepId: 'end', stepType: 'END' },
+        ],
+        transitions: [
+          { fromStepId: 'start', toStepId: 'agent' },
+          { fromStepId: 'agent', toStepId: 'end' },
+        ],
+      }
+      const ledger = computeContextLedger(definition, {
+        resolveOutputContract: serverContractModule.resolveServerOutputContract,
+      })
+      expect(ledger.steps.end.entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: 'riskScore', type: 'number', presence: 'maybe' }),
+        ]),
+      )
+    } finally {
+      serverContractModule.clearWorkflowAgentOutcomeContractsForTests()
     }
   })
 })

@@ -32,6 +32,10 @@ import {
   type CreateStepInstanceInput,
   type CreateUserTaskInput,
 } from '../validators'
+import {
+  collectBranchingRouteWarnings,
+  collectDuplicateBranchingCaseWarnings,
+} from '../branching-route-warnings'
 
 describe('Workflows Validators', () => {
   describe('workflowStepTypeSchema', () => {
@@ -47,8 +51,208 @@ describe('Workflows Validators', () => {
       expect(workflowStepTypeSchema.parse('WAIT_FOR_TIMER')).toBe('WAIT_FOR_TIMER')
     })
 
+    test('should accept the additive branching step types', () => {
+      expect(workflowStepTypeSchema.parse('IF_ELSE')).toBe('IF_ELSE')
+      expect(workflowStepTypeSchema.parse('SWITCH')).toBe('SWITCH')
+    })
+
     test('should reject invalid step types', () => {
       expect(() => workflowStepTypeSchema.parse('INVALID')).toThrow()
+    })
+  })
+
+  describe('branching steps as transition sugar', () => {
+    const branchingDefinition = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' as const },
+        { stepId: 'branch', stepName: 'Branch', stepType: 'IF_ELSE' as const },
+        { stepId: 'approve', stepName: 'Approve', stepType: 'AUTOMATED' as const },
+        { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+      ],
+      transitions: [
+        {
+          transitionId: 'e_start_branch',
+          fromStepId: 'start',
+          toStepId: 'branch',
+          trigger: 'auto' as const,
+          priority: 0,
+        },
+        {
+          transitionId: 'e_branch_approve',
+          fromStepId: 'branch',
+          toStepId: 'approve',
+          trigger: 'auto' as const,
+          priority: 10,
+          condition: { field: 'total', operator: '>', value: 100 },
+        },
+        {
+          transitionId: 'e_approve_end',
+          fromStepId: 'approve',
+          toStepId: 'end',
+          trigger: 'auto' as const,
+          priority: 0,
+        },
+      ],
+    }
+
+    test('should accept a definition using IF_ELSE and SWITCH steps', () => {
+      const result = workflowDefinitionDataSchema.safeParse(branchingDefinition)
+      expect(result.success).toBe(true)
+
+      const switchDefinition = {
+        ...branchingDefinition,
+        steps: branchingDefinition.steps.map((step) =>
+          step.stepId === 'branch' ? { ...step, stepType: 'SWITCH' as const } : step,
+        ),
+      }
+      expect(workflowDefinitionDataSchema.safeParse(switchDefinition).success).toBe(true)
+    })
+
+    test('should warn when a branching step has no unconditioned otherwise route', () => {
+      const warnings = collectBranchingRouteWarnings(branchingDefinition)
+      expect(warnings).toEqual([{ path: ['steps', 1], stepId: 'branch', stepType: 'IF_ELSE' }])
+    })
+
+    test('should not warn once an otherwise route exists', () => {
+      const withOtherwise = {
+        ...branchingDefinition,
+        transitions: [
+          ...branchingDefinition.transitions,
+          {
+            transitionId: 'e_branch_end',
+            fromStepId: 'branch',
+            toStepId: 'end',
+            trigger: 'auto' as const,
+            priority: 0,
+          },
+        ],
+      }
+      expect(collectBranchingRouteWarnings(withOtherwise)).toEqual([])
+    })
+
+    test('should not count an error route as the otherwise route (step 2.12)', () => {
+      const withErrorRoute = {
+        ...branchingDefinition,
+        transitions: [
+          ...branchingDefinition.transitions,
+          {
+            transitionId: 'e_branch_handler',
+            fromStepId: 'branch',
+            toStepId: 'end',
+            trigger: 'auto' as const,
+            priority: 0,
+            kind: 'error' as const,
+          },
+        ],
+      }
+      expect(collectBranchingRouteWarnings(withErrorRoute)).toEqual([
+        { path: ['steps', 1], stepId: 'branch', stepType: 'IF_ELSE' },
+      ])
+    })
+
+    test('should treat business-rule pre/post conditions as conditioned routes', () => {
+      const ruleRouted = {
+        ...branchingDefinition,
+        transitions: branchingDefinition.transitions.map((transition) =>
+          transition.transitionId === 'e_branch_approve'
+            ? {
+                transitionId: transition.transitionId,
+                fromStepId: transition.fromStepId,
+                toStepId: transition.toStepId,
+                trigger: transition.trigger,
+                priority: transition.priority,
+                preConditions: ['11111111-1111-4111-8111-111111111111'],
+              }
+            : transition,
+        ),
+      }
+      expect(collectBranchingRouteWarnings(ruleRouted)).toHaveLength(1)
+    })
+
+    test('should not warn for branching steps without outgoing routes', () => {
+      expect(
+        collectBranchingRouteWarnings({
+          steps: [{ stepId: 'branch', stepName: 'Branch', stepType: 'SWITCH' }],
+          transitions: [],
+        }),
+      ).toEqual([])
+    })
+
+    test('should warn when two Switch routes test the same value', () => {
+      const duplicated = {
+        steps: [
+          { stepId: 'switch', stepName: 'Switch', stepType: 'SWITCH' as const },
+          { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+        ],
+        transitions: [
+          {
+            transitionId: 'e_switch_a',
+            fromStepId: 'switch',
+            toStepId: 'end',
+            condition: { operator: 'AND', rules: [{ field: 'channel', operator: '==', value: 'web' }] },
+          },
+          {
+            transitionId: 'e_switch_b',
+            fromStepId: 'switch',
+            toStepId: 'end',
+            condition: { operator: 'AND', rules: [{ field: 'channel', operator: '==', value: 'web' }] },
+          },
+          { transitionId: 'e_switch_other', fromStepId: 'switch', toStepId: 'end' },
+        ],
+      }
+
+      expect(collectDuplicateBranchingCaseWarnings(duplicated)).toEqual([
+        { path: ['steps', 0], stepId: 'switch', stepType: 'SWITCH', caseValue: 'channel=web' },
+      ])
+    })
+
+    test('should not warn when Switch routes test distinct values', () => {
+      const distinct = {
+        steps: [{ stepId: 'switch', stepName: 'Switch', stepType: 'SWITCH' as const }],
+        transitions: [
+          {
+            transitionId: 'e_switch_a',
+            fromStepId: 'switch',
+            toStepId: 'end',
+            condition: { operator: 'AND', rules: [{ field: 'channel', operator: '==', value: 'web' }] },
+          },
+          {
+            transitionId: 'e_switch_b',
+            fromStepId: 'switch',
+            toStepId: 'end',
+            condition: { operator: 'AND', rules: [{ field: 'channel', operator: '==', value: 'pos' }] },
+          },
+        ],
+      }
+      expect(collectDuplicateBranchingCaseWarnings(distinct)).toEqual([])
+    })
+
+    test('should not warn for non-branching steps', () => {
+      expect(
+        collectBranchingRouteWarnings({
+          steps: [{ stepId: 'auto', stepName: 'Auto', stepType: 'AUTOMATED' }],
+          transitions: [
+            {
+              transitionId: 'e_auto_end',
+              fromStepId: 'auto',
+              toStepId: 'end',
+              condition: { field: 'x', operator: '==', value: 1 },
+            },
+          ],
+        }),
+      ).toEqual([])
+    })
+  })
+
+  describe('minEngineVersion metadata guard', () => {
+    test('should accept an optional positive integer', () => {
+      expect(workflowMetadataSchema.parse({ minEngineVersion: 2 }).minEngineVersion).toBe(2)
+      expect(workflowMetadataSchema.parse({}).minEngineVersion).toBeUndefined()
+    })
+
+    test('should reject non-integer or non-positive versions', () => {
+      expect(workflowMetadataSchema.safeParse({ minEngineVersion: 0 }).success).toBe(false)
+      expect(workflowMetadataSchema.safeParse({ minEngineVersion: 1.5 }).success).toBe(false)
     })
   })
 
@@ -285,6 +489,160 @@ describe('Workflows Validators', () => {
           })
         ).not.toThrow()
       })
+    })
+
+    describe('WAIT_FOR_CONDITION step config', () => {
+      const baseConditionStep = {
+        stepId: 'wait-for-payment',
+        stepName: 'Wait for payment',
+        stepType: 'WAIT_FOR_CONDITION' as const,
+      }
+      const validCondition = {
+        operator: 'AND',
+        rules: [{ field: 'payment.status', operator: '==', value: 'captured' }],
+      }
+
+      function parseConfig(config: Record<string, unknown>) {
+        return workflowStepSchema.safeParse({ ...baseConditionStep, config })
+      }
+
+      test('accepts a valid condition with a timeout', () => {
+        expect(parseConfig({ condition: validCondition, timeout: 'PT30M' }).success).toBe(true)
+      })
+
+      test('accepts the IS_NOT_EMPTY "wait for variable" shorthand', () => {
+        const result = parseConfig({
+          condition: { field: 'invoiceId', operator: 'IS_NOT_EMPTY', value: null },
+          timeout: 'PT30M',
+        })
+        expect(result.success).toBe(true)
+      })
+
+      test('rejects a missing condition', () => {
+        const result = parseConfig({ timeout: 'PT30M' })
+        expect(result.success).toBe(false)
+        expect(JSON.stringify(result)).toContain('condition')
+      })
+
+      test('rejects a malformed condition expression through the business-rules validator', () => {
+        const result = parseConfig({
+          condition: { operator: 'AND', rules: [{ operator: 'NOPE' }] },
+          timeout: 'PT30M',
+        })
+        expect(result.success).toBe(false)
+      })
+
+      test('rejects a missing timeout', () => {
+        const result = parseConfig({ condition: validCondition })
+        expect(result.success).toBe(false)
+        expect(JSON.stringify(result)).toContain('timeout')
+      })
+
+      test('rejects an invalid timeout duration', () => {
+        expect(parseConfig({ condition: validCondition, timeout: '30 minutes' }).success).toBe(false)
+      })
+
+      test('rejects an invalid onTimeout value', () => {
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT30M', onTimeout: 'RETRY' }).success
+        ).toBe(false)
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT30M', onTimeout: 'CONTINUE' }).success
+        ).toBe(true)
+      })
+
+      test('rejects a poll interval below the floor or above the ceiling', () => {
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT30M', pollIntervalMs: 4999 }).success
+        ).toBe(false)
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT2H', pollIntervalMs: 3600001 }).success
+        ).toBe(false)
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT30M', pollIntervalMs: 60000 }).success
+        ).toBe(true)
+      })
+
+      test('rejects a poll interval longer than the timeout', () => {
+        const result = parseConfig({
+          condition: validCondition,
+          timeout: 'PT10S',
+          pollIntervalMs: 60000,
+        })
+        expect(result.success).toBe(false)
+      })
+
+      test('does not affect non-WAIT_FOR_CONDITION steps', () => {
+        expect(
+          workflowStepSchema.safeParse({
+            stepId: 'do-something',
+            stepName: 'Automated',
+            stepType: 'AUTOMATED' as const,
+            config: { condition: 'nonsense' },
+          }).success
+        ).toBe(true)
+      })
+    })
+  })
+
+  describe('WAIT_FOR_CONDITION outgoing-transition rule', () => {
+    const conditionStep = {
+      stepId: 'wait_for_payment',
+      stepName: 'Wait for payment',
+      stepType: 'WAIT_FOR_CONDITION' as const,
+      config: {
+        condition: { field: 'invoiceId', operator: 'IS_NOT_EMPTY', value: null },
+        timeout: 'PT30M',
+      },
+    }
+
+    function buildDefinition(transitions: Array<Record<string, unknown>>) {
+      return {
+        steps: [
+          { stepId: 'start', stepName: 'Start', stepType: 'START' as const },
+          conditionStep,
+          { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+        ],
+        transitions,
+      }
+    }
+
+    test('rejects a waiting step with no way out', () => {
+      const result = workflowDefinitionDataSchema.safeParse(
+        buildDefinition([
+          {
+            transitionId: 'e_start_wait',
+            fromStepId: 'start',
+            toStepId: 'wait_for_payment',
+            trigger: 'auto' as const,
+            priority: 0,
+          },
+        ])
+      )
+      expect(result.success).toBe(false)
+      expect(JSON.stringify(result)).toContain('outgoing transition')
+    })
+
+    test('accepts a waiting step with an outgoing transition', () => {
+      const result = workflowDefinitionDataSchema.safeParse(
+        buildDefinition([
+          {
+            transitionId: 'e_start_wait',
+            fromStepId: 'start',
+            toStepId: 'wait_for_payment',
+            trigger: 'auto' as const,
+            priority: 0,
+          },
+          {
+            transitionId: 'e_wait_end',
+            fromStepId: 'wait_for_payment',
+            toStepId: 'end',
+            trigger: 'auto' as const,
+            priority: 0,
+          },
+        ])
+      )
+      expect(result.success).toBe(true)
     })
   })
 

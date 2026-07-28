@@ -76,18 +76,31 @@ export function toWorkflowStatus(status?: string): WorkflowStatus {
   return 'not_started'
 }
 
-export type EdgeState = 'completed' | 'pending'
+export type EdgeState = 'completed' | 'pending' | 'error'
 
+/**
+ * `dashArray` is part of the state, not a hard-coded stroke option: the error
+ * route's longer dash pattern is a second, non-color signal, and the edge pairs
+ * it with an always-visible icon+label chip so status is never color-only.
+ */
 export const EDGE_COLORS = {
   completed: {
     stroke: 'var(--status-success-icon)',
     strokeClass: 'stroke-status-success-icon',
     dashed: false,
+    dashArray: undefined,
   },
   pending: {
     stroke: 'var(--muted-foreground)',
     strokeClass: 'stroke-muted-foreground',
     dashed: true,
+    dashArray: '5,5',
+  },
+  error: {
+    stroke: 'var(--status-error-icon)',
+    strokeClass: 'stroke-status-error-icon',
+    dashed: true,
+    dashArray: '8,4',
   },
 } as const
 

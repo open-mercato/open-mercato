@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -28,6 +27,7 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { Trash2 } from 'lucide-react'
 import { TemplateGalleryDialog, type WorkflowTemplateGalleryItem } from '../../components/TemplateGalleryDialog'
+import { buildVisualEditorHref, WORKFLOW_STUDIO_CREATE_HREF } from '../../lib/visual-editor-navigation'
 
 type WorkflowDefinitionSource = 'code' | 'code_override' | 'user'
 
@@ -95,8 +95,8 @@ export default function WorkflowDefinitionsListPage() {
 
   const handleTemplateSelect = React.useCallback((template: WorkflowTemplateGalleryItem | null) => {
     router.push(template
-      ? `/backend/definitions/visual-editor?template=${encodeURIComponent(template.id)}`
-      : '/backend/definitions/visual-editor')
+      ? `${WORKFLOW_STUDIO_CREATE_HREF}?template=${encodeURIComponent(template.id)}`
+      : WORKFLOW_STUDIO_CREATE_HREF)
   }, [router])
 
   const { data, isLoading, error } = useQuery({
@@ -360,16 +360,13 @@ export default function WorkflowDefinitionsListPage() {
       cell: ({ row }) => {
         const isCodeOnly = row.original.source === 'code'
         const items = [
+          // The form editor is retired (spec §10), so Edit and "Edit visually"
+          // are the same destination now — one entry, pointing at the Studio.
           {
             id: 'edit',
             label: isCodeOnly ? t('common.view') : t('common.edit'),
-            href: `/backend/definitions/${row.original.id}`,
+            href: buildVisualEditorHref(row.original.id),
           },
-          ...(!isCodeOnly ? [{
-            id: 'edit-visual',
-            label: t('workflows.actions.editVisually'),
-            href: `/backend/definitions/visual-editor?id=${row.original.id}`,
-          }] : []),
           ...(!isCodeOnly ? [{
             id: row.original.enabled ? 'disable' : 'enable',
             label: row.original.enabled ? t('common.disable') : t('common.enable'),
@@ -417,13 +414,11 @@ export default function WorkflowDefinitionsListPage() {
           title={t('workflows.list.title')}
           actions={(
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => setShowTemplateGallery(true)}>
-                {t('workflows.actions.createVisual')}
-              </Button>
-              <Button asChild>
-                <Link href="/backend/definitions/create">
-                  {t('workflows.actions.create')}
-                </Link>
+              {/* One create entry since the form editor retired (spec §10): the
+                  gallery offers a blank canvas alongside the templates, and both
+                  land in the Studio. */}
+              <Button onClick={() => setShowTemplateGallery(true)}>
+                {t('workflows.actions.create')}
               </Button>
             </div>
           )}
@@ -433,7 +428,7 @@ export default function WorkflowDefinitionsListPage() {
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
-          onRowClick={(row) => router.push(`/backend/definitions/visual-editor?id=${row.id}`)}
+          onRowClick={(row) => router.push(buildVisualEditorHref(row.id))}
           perspective={{
             tableId: 'workflows.definitions.list',
           }}

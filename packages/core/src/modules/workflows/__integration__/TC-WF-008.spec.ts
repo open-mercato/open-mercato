@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
+  createWorkflowDefinitionFixture,
   deleteWorkflowDefinitionIfExists,
   cancelWorkflowInstanceIfExists,
 } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
@@ -43,47 +44,15 @@ async function findInstanceIdByWorkflowId(
   return body?.data?.[0]?.id ?? null
 }
 
-async function createMinimalDefinitionViaUi(
-  page: Page,
-  workflowId: string,
-  workflowName: string,
-): Promise<void> {
-  await page.goto('/backend/definitions/create')
-  await expect(page).toHaveURL(/\/backend\/definitions\/create/)
-
-  await fillText(page, page.getByPlaceholder('checkout_workflow'), workflowId)
-  await fillText(page, page.getByPlaceholder('Enter a descriptive workflow name'), workflowName)
-
-  const addStepBtn = page.getByRole('button', { name: /^add step$/i })
-  await addStepBtn.click()
-  await fillText(page, page.locator('#step-0-id'), 'start')
-  await fillText(page, page.locator('#step-0-name'), 'Start')
-  // Radix Select helpers
-  const pickRadix = async (triggerId: string, optionLabel: string | RegExp) => {
-    await page.locator(`#${triggerId}`).click()
-    const opt = typeof optionLabel === 'string'
-      ? page.getByRole('option', { name: optionLabel, exact: true })
-      : page.getByRole('option', { name: optionLabel })
-    await opt.first().click()
-  }
-  await pickRadix('step-0-type', 'Start')
-
-  await addStepBtn.click()
-  await fillText(page, page.locator('#step-1-id'), 'end')
-  await fillText(page, page.locator('#step-1-name'), 'End')
-  await pickRadix('step-1-type', 'End')
-
-  await page.getByRole('button', { name: /^add transition$/i }).click()
-  await fillText(page, page.locator('#transition-0-id'), 'start-to-end')
-  await fillText(page, page.locator('#transition-0-name'), 'Auto advance')
-  await pickRadix('transition-0-from', /^start$/i)
-  await pickRadix('transition-0-to', /^end$/i)
-
-  await page.getByRole('button', { name: /^create workflow$/i }).first().click()
-  await expect(page).toHaveURL(/\/backend\/definitions(\?|$|\/)/, { timeout: 15_000 })
-}
-
-async function openDefinitionDetailViaRowAction(page: Page, workflowId: string): Promise<void> {
+/**
+ * Open the definition in the Studio through the list's row action.
+ *
+ * The form editor is retired (spec section 10), so `Edit` is the single editor
+ * entry and it lands on `/backend/definitions/visual-editor?id=<uuid>`, where
+ * the triggers editor lives in the workflow-details panel.
+ */
+async function openDefinitionInStudioViaRowAction(page: Page, workflowId: string): Promise<void> {
+  await page.goto('/backend/definitions')
   const searchBox = page.getByPlaceholder(/search/i).first()
   if (await searchBox.isVisible().catch(() => false)) {
     await fillText(page, searchBox, workflowId)
@@ -94,7 +63,8 @@ async function openDefinitionDetailViaRowAction(page: Page, workflowId: string):
   await expect(row).toBeVisible({ timeout: 10_000 })
   await row.getByRole('button', { name: /open actions/i }).hover()
   await page.getByRole('menuitem', { name: /^edit$/i }).first().click()
-  await expect(page).toHaveURL(/\/backend\/definitions\/[0-9a-f-]{36}/i, { timeout: 15_000 })
+  await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 15_000 })
+  await expect(page.locator('.react-flow__node').first()).toBeVisible({ timeout: 15_000 })
 }
 
 async function addEventTriggerViaUi(page: Page, triggerName: string, eventPattern: string): Promise<void> {
@@ -138,10 +108,12 @@ async function addEventTriggerViaUi(page: Page, triggerName: string, eventPatter
  * The admin UI does not expose a direct "Start Instance" button, so we route the
  * execution path through an event trigger (`customers.person.created`) — which is
  * still the most UI-real way to exercise a workflow end-to-end:
- *   1. Create a START → END definition via the Create form
- *   2. Open it via the list row action
+ *   1. Seed a START → END definition through the definitions API (fixture setup —
+ *      the form editor that used to author it is retired, and the Studio's own
+ *      authoring path is covered by TC-WF-007)
+ *   2. Open it in the Studio via the list row action
  *   3. Add a `customers.person.created` trigger through the triggers dialog
- *   4. Submit the edit form to persist the trigger
+ *   4. Save the definition to persist the trigger
  *   5. Create a Person via the CRM UI — this fires `customers.person.created`
  *   6. Navigate to `/backend/instances`, filter by our workflowId, and assert that
  *      the auto-started instance appears and reaches a terminal state.
@@ -165,20 +137,35 @@ test.describe('TC-WF-008: Event-triggered workflow runs end-to-end via UI', () =
     try {
       token = await getAuthToken(request, 'admin')
 
+      await createWorkflowDefinitionFixture(request, token, {
+        workflowId,
+        workflowName,
+        description: 'Integration test: event-triggered workflow runs end-to-end',
+        version: 1,
+        enabled: true,
+        definition: {
+          steps: [
+            { stepId: 'start', stepName: 'Start', stepType: 'START' },
+            { stepId: 'end', stepName: 'End', stepType: 'END' },
+          ],
+          transitions: [
+            { transitionId: 'start_to_end', fromStepId: 'start', toStepId: 'end', trigger: 'auto', priority: 100 },
+          ],
+        },
+      })
+
       await login(page, 'admin')
-      await createMinimalDefinitionViaUi(page, workflowId, workflowName)
-      await openDefinitionDetailViaRowAction(page, workflowId)
+      await openDefinitionInStudioViaRowAction(page, workflowId)
 
       await addEventTriggerViaUi(page, triggerName, 'customers.person.created')
 
-      // Persist the trigger by submitting the definition edit form.
-      // Asserting both the redirect AND the workflow row appearing in the list
-      // confirms the PUT finished and the page navigated successfully — without
-      // this we could proceed to person creation against a stale UI state.
-      await page.getByRole('button', { name: /^update workflow$/i }).first().click()
-      await expect(page).toHaveURL(/\/backend\/definitions(\?|$|\/)/, { timeout: 15_000 })
-      await expect(page.getByRole('row').filter({ hasText: workflowId }).first())
-        .toBeVisible({ timeout: 10_000 })
+      // Persist the trigger with the Studio's Save. The editor stays on the
+      // canvas after saving, so the confirmation is the success flash rather
+      // than a redirect; the server-side assertion below is what actually
+      // proves the PUT landed before we fire the event.
+      await page.getByRole('button', { name: /^update$/i }).first().click()
+      await expect(page.getByText(/workflow updated successfully/i).first())
+        .toBeVisible({ timeout: 15_000 })
 
       // Verify the trigger actually persisted server-side before continuing.
       // Without this assertion the test races event-bus pickup vs. the slow

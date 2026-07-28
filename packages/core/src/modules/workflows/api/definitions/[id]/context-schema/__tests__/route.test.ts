@@ -18,6 +18,20 @@ const mockResolveScope = jest.fn()
 
 let definitionRecords: Array<Record<string, unknown>> = []
 
+const mockDeclaredEvents = [
+  {
+    id: 'sales.order.created',
+    label: 'Order created',
+    payloadSchema: {
+      fields: [
+        { path: 'id', type: 'text' },
+        { path: 'total', type: 'number' },
+      ],
+    },
+  },
+  { id: 'sales.order.archived', label: 'Order archived' },
+]
+
 function matches(record: Record<string, unknown>, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([key, value]) => {
     if (value !== null && typeof value === 'object' && '$in' in (value as Record<string, unknown>)) {
@@ -58,6 +72,11 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
   resolveOrganizationScopeForRequest: jest.fn(async () => mockResolveScope()),
+}))
+
+jest.mock('@open-mercato/shared/modules/events', () => ({
+  ...jest.requireActual('@open-mercato/shared/modules/events'),
+  getDeclaredEvents: jest.fn(() => mockDeclaredEvents),
 }))
 
 const diamondDefinition = {
@@ -208,6 +227,36 @@ describe('GET /api/workflows/definitions/[id]/context-schema', () => {
     const payload = await response.json() as { steps: Record<string, { entries: LedgerEntryPayload[] }> }
     expect(Object.keys(payload.steps)).toEqual(['join'])
     expect(payload.steps.join.entries.some((entry) => entry.path === 'leftOnly')).toBe(true)
+  })
+
+  it('types trigger contextMapping targets from the declared event payload schema', async () => {
+    definitionRecords[0].definition = {
+      ...diamondDefinition,
+      triggers: [
+        {
+          triggerId: 'on-order-created',
+          eventPattern: 'sales.order.created',
+          config: {
+            contextMapping: [
+              { targetKey: 'orderId', sourceExpression: 'id' },
+              { targetKey: 'orderTotal', sourceExpression: 'total' },
+            ],
+          },
+        },
+        {
+          triggerId: 'on-order-archived',
+          eventPattern: 'sales.order.archived',
+          config: { contextMapping: [{ targetKey: 'archivedId', sourceExpression: 'id' }] },
+        },
+      ],
+    }
+    const response = await GET(makeRequest('?stepId=start') as never, makeContext())
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { steps: Record<string, { entries: LedgerEntryPayload[] }> }
+    const entries = payload.steps.start.entries
+    expect(entries.find((entry) => entry.path === 'orderId')).toMatchObject({ type: 'text', presence: 'maybe' })
+    expect(entries.find((entry) => entry.path === 'orderTotal')).toMatchObject({ type: 'number', presence: 'maybe' })
+    expect(entries.find((entry) => entry.path === 'archivedId')).toMatchObject({ type: 'unknown' })
   })
 
   it('returns 404 for a stepId that does not exist in the definition', async () => {

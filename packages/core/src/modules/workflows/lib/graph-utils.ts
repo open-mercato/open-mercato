@@ -2,7 +2,10 @@ import type { Node, Edge } from '@xyflow/react'
 import dagre from '@dagrejs/dagre'
 import type { WorkflowDefinition } from '../data/entities'
 import type { WorkflowIoContract } from '../data/validators'
+import { isCompensationGhostEdge } from './compensation-ghosts'
 import { isDataMappingEdge } from './data-edge-mapping'
+import { isAnnotationNode } from './editor-annotations'
+import { ERROR_SOURCE_HANDLE_ID } from './error-routing'
 
 /**
  * Graph Utilities for Visual Workflow Editor
@@ -46,10 +49,17 @@ export interface LayoutWithDagreOptions {
  * Convert ReactFlow graph (nodes + edges) to workflow definition JSON
  */
 export function graphToDefinition(
-  nodes: Node[],
+  allNodes: Node[],
   edges: Edge[],
   options: GraphToDefinitionOptions = {}
 ): WorkflowDefinition['definition'] {
+  // Sticky notes and groups are editor annotations (spec 4.5): they live only in
+  // `metadata.editor.annotations` and MUST NOT reach `steps` or `transitions`,
+  // so a definition carrying them serializes byte-identically to one that does
+  // not and the engine can never see them.
+  const nodes = allNodes.filter((node) => !isAnnotationNode(node))
+  const annotationIds = new Set(allNodes.filter(isAnnotationNode).map((node) => node.id))
+
   // Extract steps from nodes
   const steps = nodes.map((node) => {
     const step: any = {
@@ -133,6 +143,30 @@ export function graphToDefinition(
       step.preConditions = (node.data as any).preConditions
     }
 
+    // Error directive (spec 5.9). Absent stays absent so definitions that never
+    // opened the picker save byte-identically.
+    if ((node.data as any).errorDirective) {
+      step.errorDirective = (node.data as any).errorDirective
+    }
+
+    // Editor-owned step metadata. `unmappedConfig` is config a step-type
+    // conversion could not map onto the new type (spec 4.5) — it is carried
+    // through save/load verbatim so nothing an author configured is ever lost.
+    const stepMetadata: Record<string, unknown> = {
+      ...((node.data as any).stepMetadata && typeof (node.data as any).stepMetadata === 'object'
+        ? (node.data as any).stepMetadata as Record<string, unknown>
+        : {}),
+    }
+    const unmappedConfig = (node.data as any).unmappedConfig
+    if (unmappedConfig && typeof unmappedConfig === 'object' && Object.keys(unmappedConfig).length > 0) {
+      stepMetadata.unmappedConfig = unmappedConfig
+    } else {
+      delete stepMetadata.unmappedConfig
+    }
+    if (Object.keys(stepMetadata).length > 0) {
+      step.metadata = stepMetadata
+    }
+
     // Store position for visual editor
     if (options.includePositions && node.position) {
       step._editorPosition = {
@@ -146,8 +180,14 @@ export function graphToDefinition(
 
   // Extract transitions from edges. Drag-authored data-mapping edges are NOT
   // transitions — their binding lives in the target step's config.inputMapping —
-  // so they are excluded here.
-  const transitions = edges.filter((edge) => !isDataMappingEdge(edge)).map((edge) => {
+  // and compensation ghosts (spec 4.4) are a rendering of existing routes, not
+  // routes of their own, so both are excluded here.
+  const transitions = edges
+    .filter((edge) => !isDataMappingEdge(edge)
+      && !isCompensationGhostEdge(edge)
+      && !annotationIds.has(edge.source)
+      && !annotationIds.has(edge.target))
+    .map((edge) => {
     const edgeData = edge.data as any
     const transition: any = {
       transitionId: edge.id,
@@ -166,6 +206,12 @@ export function graphToDefinition(
       transition.priority = edgeData.priority
     }
 
+    // Error route marker (spec 5.9). Only the explicit 'error' kind is persisted;
+    // normal routes stay exactly as they were serialized before.
+    if (edgeData?.kind === 'error' || edge.sourceHandle === ERROR_SOURCE_HANDLE_ID) {
+      transition.kind = 'error'
+    }
+
     // Add continueOnActivityFailure if present (default false)
     if (edgeData?.continueOnActivityFailure !== undefined) {
       transition.continueOnActivityFailure = edgeData.continueOnActivityFailure
@@ -180,6 +226,12 @@ export function graphToDefinition(
       transition.postConditions = edgeData.postConditions
     }
 
+    // Inline condition expression (business_rules language). Branching routes
+    // authored on IF_ELSE / SWITCH nodes are plain conditioned transitions.
+    if (edgeData?.condition !== undefined && edgeData.condition !== null) {
+      transition.condition = edgeData.condition
+    }
+
     // Add activities if present in edge data
     if (edgeData?.activities && edgeData.activities.length > 0) {
       transition.activities = edgeData.activities.map((activity: any) => ({
@@ -192,10 +244,16 @@ export function graphToDefinition(
         ...(activity.timeout && { timeout: activity.timeout }),
         ...(activity.retryPolicy && { retryPolicy: activity.retryPolicy }),
         ...(activity.compensate !== undefined && { compensate: activity.compensate }),
+      // Saga compensation (`compensation.activityId`) is what the canvas'
+      // compensation ghosts render and what `lib/compensation-handler.ts`
+      // executes on failure — it MUST survive the editor round trip.
+      ...(activity.compensation && { compensation: activity.compensation }),
       }))
-    } else {
+    } else if (transition.kind !== 'error') {
       // Check if source node is automated and has activity data
-      // If so, place the activity in this transition
+      // If so, place the activity in this transition. An error route never
+      // inherits the source step's activity — it is the recovery path, and
+      // re-running the activity that just failed is exactly wrong.
       const sourceNode = nodes.find(n => n.id === edge.source)
       if (sourceNode && sourceNode.type === 'automated' && sourceNode.data) {
         if (sourceNode.data.activityType || sourceNode.data.activityId) {
@@ -314,6 +372,17 @@ export function definitionToGraph(
       nodeData.config = (step as any).config
     }
 
+    // Editor-owned step metadata round-trips as-is; the quarantined config a
+    // step-type conversion produced is lifted out so the inspector can show it.
+    const stepMetadata = (step as any).metadata
+    if (stepMetadata && typeof stepMetadata === 'object') {
+      nodeData.stepMetadata = stepMetadata
+      const unmappedConfig = (stepMetadata as Record<string, unknown>).unmappedConfig
+      if (unmappedConfig && typeof unmappedConfig === 'object') {
+        nodeData.unmappedConfig = unmappedConfig
+      }
+    }
+
     // Add user task data
     if (step.stepType === 'USER_TASK' && step.userTaskConfig) {
       nodeData.assignedTo = step.userTaskConfig.assignedTo
@@ -385,6 +454,11 @@ export function definitionToGraph(
       nodeData.preConditions = (step as any).preConditions
     }
 
+    // Error directive (spec 5.9)
+    if ((step as any).errorDirective) {
+      nodeData.errorDirective = (step as any).errorDirective
+    }
+
     // Set badge based on type
     nodeData.badge = getBadgeForNodeType(nodeType)
 
@@ -401,13 +475,18 @@ export function definitionToGraph(
 
   // Convert transitions to edges
   const edges: Edge[] = definition.transitions.map((transition) => {
+    const isErrorRoute = (transition as any).kind === 'error'
     return {
       id: transition.transitionId,
       source: transition.fromStepId,
       target: transition.toStepId,
       type: 'workflowTransition',
+      // Error routes re-attach to the node's error output handle so the canvas
+      // renders them leaving the same port the author drew them from.
+      ...(isErrorRoute ? { sourceHandle: ERROR_SOURCE_HANDLE_ID } : {}),
       data: {
         trigger: transition.trigger,
+        ...(isErrorRoute ? { kind: 'error' } : {}),
         transitionName: (transition as any).transitionName,
         priority: (transition as any).priority !== undefined ? (transition as any).priority : 0,
         continueOnActivityFailure: (transition as any).continueOnActivityFailure !== undefined
@@ -415,6 +494,7 @@ export function definitionToGraph(
           : false,
         preConditions: transition.preConditions || [],
         postConditions: transition.postConditions || [],
+        condition: (transition as any).condition,
         activities: transition.activities || [],
         label: (transition as any).transitionName || (transition as any).label, // Backward compat
         state: (transition as any).state || 'pending', // Default edge state
@@ -533,13 +613,18 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
   // Use each node's exact measured footprint so dagre reserves the real on-screen
   // size; React Flow has already measured the cards by the time the user clicks
   // Auto-arrange. Fall back to the estimate only for any not-yet-measured node.
-  const steps = nodes.map((node) => ({
-    stepId: node.id,
-    stepName: (node.data as any)?.label,
-    description: (node.data as any)?.description,
-    width: node.measured?.width,
-    height: node.measured?.height,
-  }))
+  // Annotations are not ranked: dagre only knows about the control-flow graph,
+  // so a note or group placed deliberately beside a step keeps the position its
+  // author gave it while Tidy re-lays the steps around it.
+  const steps = nodes
+    .filter((node) => !isAnnotationNode(node))
+    .map((node) => ({
+      stepId: node.id,
+      stepName: (node.data as any)?.label,
+      description: (node.data as any)?.description,
+      width: node.measured?.width,
+      height: node.measured?.height,
+    }))
   const transitions = edges
     .filter((edge) => !isDataMappingEdge(edge))
     .map((edge) => ({
@@ -572,10 +657,13 @@ function mapNodeTypeToStepType(nodeType: string): string {
     decision: 'DECISION',
     waitForSignal: 'WAIT_FOR_SIGNAL',
     waitForTimer: 'WAIT_FOR_TIMER',
+    waitForCondition: 'WAIT_FOR_CONDITION',
     parallelFork: 'PARALLEL_FORK',
     parallelJoin: 'PARALLEL_JOIN',
     // The invoke-agent node is a specialization of an AUTOMATED step.
     invokeAgent: 'AUTOMATED',
+    ifElse: 'IF_ELSE',
+    switch: 'SWITCH',
   }
   return mapping[nodeType] || 'AUTOMATED'
 }
@@ -593,8 +681,11 @@ function mapStepTypeToNodeType(stepType: string): string {
     DECISION: 'decision',
     WAIT_FOR_SIGNAL: 'waitForSignal',
     WAIT_FOR_TIMER: 'waitForTimer',
+    WAIT_FOR_CONDITION: 'waitForCondition',
     PARALLEL_FORK: 'parallelFork',
     PARALLEL_JOIN: 'parallelJoin',
+    IF_ELSE: 'ifElse',
+    SWITCH: 'switch',
   }
   return mapping[stepType] || 'automated'
 }
@@ -602,7 +693,7 @@ function mapStepTypeToNodeType(stepType: string): string {
 /**
  * Get badge text for node type
  */
-function getBadgeForNodeType(nodeType: string): string {
+export function getBadgeForNodeType(nodeType: string): string {
   const badges: Record<string, string> = {
     start: 'Start',
     end: 'End',
@@ -612,9 +703,12 @@ function getBadgeForNodeType(nodeType: string): string {
     subWorkflow: 'Sub-Workflow',
     waitForSignal: 'Wait for Signal',
     waitForTimer: 'Wait for Timer',
+    waitForCondition: 'Wait for Condition',
     parallelFork: 'Parallel Fork',
     parallelJoin: 'Parallel Join',
     invokeAgent: 'Invoke Agent',
+    ifElse: 'If / Else',
+    switch: 'Switch',
   }
   return badges[nodeType] || 'Task'
 }
@@ -629,8 +723,12 @@ export interface ValidationError {
   edgeId?: string
 }
 
-export function validateWorkflowGraph(nodes: Node[], edges: Edge[]): ValidationError[] {
+export function validateWorkflowGraph(allNodes: Node[], edges: Edge[]): ValidationError[] {
   const errors: ValidationError[] = []
+
+  // Annotations are documentation, not steps: a sticky note has no routes by
+  // design and must never be reported as a disconnected node.
+  const nodes = allNodes.filter((node) => !isAnnotationNode(node))
 
   // Check for at least one start node
   const startNodes = nodes.filter((n) => n.type === 'start')
@@ -782,12 +880,36 @@ export function generateStepId(prefix: string = 'step'): string {
   return sanitizeId(id)
 }
 
+/** Prefix marking a durable, opaque transition id. */
+export const DURABLE_TRANSITION_ID_PREFIX = 't_'
+
+const LEGACY_TRANSITION_ID_PATTERN = /^e_/
+
 /**
- * Generate unique transition ID
+ * Generate a durable, opaque transition ID.
+ *
+ * Endpoint-derived ids (`e_<from>_<to>`) tie a route's identity to the pair of
+ * steps it happens to connect today, so re-pointing an edge would silently
+ * change the id that mid-flight state resolves against
+ * (`instance.pendingTransition`, `WorkflowBranchInstance.branchKey`). Opaque ids
+ * keep route identity stable across reattachment and let two routes share the
+ * same endpoints (a normal route and an error route, for example).
+ *
+ * Legacy endpoint-derived ids stay fully valid: stored definitions, seeded
+ * examples and gallery templates keep their ids on load and save, and the
+ * engine treats every transition id as an opaque string.
+ *
+ * The endpoint parameters are accepted for signature compatibility with callers
+ * written against the endpoint-derived form; they no longer affect the result.
  */
-export function generateTransitionId(fromStepId: string, toStepId: string): string {
-  const id = `e_${fromStepId}_${toStepId}`
+export function generateTransitionId(_fromStepId?: string, _toStepId?: string): string {
+  const id = `${DURABLE_TRANSITION_ID_PREFIX}${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`
   return sanitizeId(id)
+}
+
+/** True when the id uses the legacy endpoint-derived (`e_<from>_<to>`) shape. */
+export function isLegacyTransitionId(transitionId: string): boolean {
+  return LEGACY_TRANSITION_ID_PATTERN.test(transitionId)
 }
 
 /**

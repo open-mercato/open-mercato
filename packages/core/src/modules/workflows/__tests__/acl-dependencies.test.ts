@@ -51,6 +51,7 @@ describe('workflows ACL dependency declarations', () => {
     expect(dependsOnById.get('workflows.instances.cancel')).toEqual(['workflows.instances.view'])
     expect(dependsOnById.get('workflows.instances.retry')).toEqual(['workflows.instances.view'])
     expect(dependsOnById.get('workflows.instances.signal')).toEqual(['workflows.instances.view'])
+    expect(dependsOnById.get('workflows.instances.update_context')).toEqual(['workflows.instances.view'])
     expect(dependsOnById.get('workflows.tasks.view')).toEqual(['workflows.view'])
     expect(dependsOnById.get('workflows.tasks.claim')).toEqual(['workflows.tasks.view'])
     expect(dependsOnById.get('workflows.tasks.complete')).toEqual(['workflows.tasks.view'])
@@ -94,6 +95,18 @@ describe('workflows ACL dependency declarations', () => {
         'workflows.instances.view',
       ]),
     )
+  })
+
+  test('admin defaults cover the context-write feature through the module wildcard', () => {
+    const adminGrants = workflowsSetup.defaultRoleFeatures?.admin ?? []
+    expect(adminGrants).toContain('workflows.*')
+    expect(workflowsFeatureIds).toContain('workflows.instances.update_context')
+  })
+
+  test('employee defaults withhold the context-write feature', () => {
+    const employeeGrants = workflowsSetup.defaultRoleFeatures?.employee ?? []
+    expect(employeeGrants).not.toContain('workflows.instances.update_context')
+    expect(employeeGrants).not.toContain('workflows.*')
   })
 
   test('keeps every dependency target within the workflows feature set', () => {

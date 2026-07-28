@@ -1,6 +1,7 @@
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/core'
 import * as stepHandler from '../step-handler'
+import { WorkflowEvent } from '../../data/entities'
 import type {
   WorkflowDefinition,
   WorkflowInstance,
@@ -361,6 +362,155 @@ describe('Step Handler (Unit Tests)', () => {
       expect(result.status).toBe('COMPLETED')
       expect(result.outputData).toBeDefined()
       expect(result.outputData.stepType).toBe('AUTOMATED')
+    })
+  })
+
+  // ============================================================================
+  // executeStep() Tests - IF_ELSE / SWITCH branching steps (transition sugar)
+  // ============================================================================
+
+  describe('executeStep - branching steps', () => {
+    const branchingDefinition: Partial<WorkflowDefinition> = {
+      ...mockDefinition,
+      definition: {
+        steps: [
+          { stepId: 'start', stepName: 'Start', stepType: 'START' },
+          { stepId: 'if-else-step', stepName: 'Amount Check', stepType: 'IF_ELSE' },
+          { stepId: 'switch-step', stepName: 'Channel Switch', stepType: 'SWITCH' },
+          { stepId: 'end', stepName: 'End', stepType: 'END' },
+        ],
+        transitions: [
+          {
+            transitionId: 'e_if-else-step_end',
+            fromStepId: 'if-else-step',
+            toStepId: 'end',
+            trigger: 'auto',
+            priority: 10,
+            condition: { field: 'total', operator: '>', value: 100 },
+          },
+        ],
+      },
+    }
+
+    function stepInstanceFor(stepId: string, stepType: string): StepInstance {
+      return {
+        id: `step-instance-${stepId}`,
+        workflowInstanceId: testInstanceId,
+        stepId,
+        stepName: stepId,
+        stepType,
+        status: 'ACTIVE',
+        enteredAt: new Date(),
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as unknown as StepInstance
+    }
+
+    test('should complete an IF_ELSE step immediately without executing anything', async () => {
+      mockEm.findOne.mockResolvedValue(branchingDefinition as WorkflowDefinition)
+      mockEm.create.mockReturnValue(stepInstanceFor('if-else-step', 'IF_ELSE'))
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        mockInstance as WorkflowInstance,
+        'if-else-step',
+        { workflowContext: { total: 250 } }
+      )
+
+      expect(result.status).toBe('COMPLETED')
+      expect(result.outputData.stepType).toBe('IF_ELSE')
+      expect(result.nextSteps).toBeUndefined()
+      expect(result.waitReason).toBeUndefined()
+    })
+
+    test('should complete a SWITCH step immediately without executing anything', async () => {
+      mockEm.findOne.mockResolvedValue(branchingDefinition as WorkflowDefinition)
+      mockEm.create.mockReturnValue(stepInstanceFor('switch-step', 'SWITCH'))
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        mockInstance as WorkflowInstance,
+        'switch-step',
+        { workflowContext: { channel: 'web' } }
+      )
+
+      expect(result.status).toBe('COMPLETED')
+      expect(result.outputData.stepType).toBe('SWITCH')
+      expect(result.nextSteps).toBeUndefined()
+      expect(result.waitReason).toBeUndefined()
+    })
+
+    test('should leave routing to the transition evaluator, not the step handler', async () => {
+      mockEm.findOne.mockResolvedValue(branchingDefinition as WorkflowDefinition)
+      mockEm.create.mockReturnValue(stepInstanceFor('if-else-step', 'IF_ELSE'))
+
+      const matched = await stepHandler.executeStep(
+        mockEm,
+        mockInstance as WorkflowInstance,
+        'if-else-step',
+        { workflowContext: { total: 250 } }
+      )
+
+      jest.clearAllMocks()
+      mockEm.findOne.mockResolvedValue(branchingDefinition as WorkflowDefinition)
+      mockEm.create.mockReturnValue(stepInstanceFor('if-else-step', 'IF_ELSE'))
+
+      const unmatched = await stepHandler.executeStep(
+        mockEm,
+        mockInstance as WorkflowInstance,
+        'if-else-step',
+        { workflowContext: { total: 1 } }
+      )
+
+      expect(unmatched.status).toBe(matched.status)
+      expect(unmatched.outputData.stepType).toBe(matched.outputData.stepType)
+    })
+
+    test('should keep the executed trace of a legacy definition unchanged', async () => {
+      const trace: Array<Record<string, unknown>> = []
+      mockEm.create.mockImplementation(((entity: unknown, payload: Record<string, unknown>) => {
+        if (entity === WorkflowEvent) {
+          trace.push({
+            eventType: payload.eventType,
+            stepInstanceId: payload.stepInstanceId,
+            eventData: payload.eventData,
+          })
+          return payload as unknown as WorkflowEvent
+        }
+        return payload as unknown as StepInstance
+      }) as never)
+      mockEm.findOne.mockResolvedValue(mockDefinition as WorkflowDefinition)
+
+      for (const stepId of ['start', 'automated-step', 'end']) {
+        await stepHandler.executeStep(
+          mockEm,
+          mockInstance as WorkflowInstance,
+          stepId,
+          { workflowContext: { orderId: '12345' } }
+        )
+      }
+
+      expect(
+        trace.map((entry) => {
+          const eventData = entry.eventData as {
+            stepId?: string
+            stepType?: string
+            status?: string
+            hasOutput?: boolean
+          }
+          return [entry.eventType, eventData.stepId, eventData.stepType ?? eventData.status, eventData.hasOutput]
+        }),
+      ).toEqual([
+        ['STEP_ENTERED', 'start', 'START', undefined],
+        ['STEP_EXITED', 'start', 'COMPLETED', true],
+        ['STEP_ENTERED', 'automated-step', 'AUTOMATED', undefined],
+        ['STEP_EXITED', 'automated-step', 'COMPLETED', true],
+        ['STEP_ENTERED', 'end', 'END', undefined],
+        ['STEP_EXITED', 'end', 'COMPLETED', true],
+      ])
     })
   })
 

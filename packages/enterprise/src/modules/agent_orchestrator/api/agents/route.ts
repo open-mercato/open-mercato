@@ -5,6 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { listAgentEntries, ensureAgentsLoaded } from '../../lib/sdk/defineAgent'
+import { resolveAgentOutcomeJsonSchema } from '../../lib/sdk/agentOutcomeContract'
 import { getAgentIconMap } from '../../lib/settings/agentSettings'
 import { AGENT_ICON_NAMES } from '../../data/agentIcons'
 
@@ -25,6 +26,12 @@ const agentItemSchema = z.object({
   icon: z.enum(AGENT_ICON_NAMES).nullable(),
   // Optional per-agent example input for the Playground "Insert sample" button.
   sampleInput: z.unknown().optional(),
+  // Optional OUTCOME JSON-Schema (the inner `data`/`proposal` shape, not the
+  // envelope) so consumers can type what an agent returns without a second
+  // fetch — the workflows INVOKE_AGENT editor builds its output-mapping source
+  // picker from it. Absent for agents whose result schema is not the declared
+  // envelope; consumers degrade to free text.
+  outcomeSchema: z.record(z.string(), z.unknown()).optional(),
   // Optional declared Caseload facts (label + dot-path into run input/proposal payload/run output).
   facts: z
     .array(
@@ -73,6 +80,7 @@ export async function GET(req: Request) {
     description: entry.description,
     icon: iconByAgent.get(entry.id) ?? null,
     sampleInput: entry.sampleInput,
+    outcomeSchema: resolveAgentOutcomeJsonSchema(entry),
     facts: entry.facts,
   }))
   return NextResponse.json({ items })
@@ -85,7 +93,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List registered agents',
       description:
-        'Returns the in-module agent registry (id, result kind, tools, skills, label, description) for agents declared via defineAgent.',
+        'Returns the in-module agent registry (id, result kind, tools, skills, label, description, OUTCOME JSON-Schema) for agents declared via defineAgent or the file-agent conventions.',
       responses: [
         { status: 200, description: 'Registered agents', schema: agentListResponseSchema },
       ],

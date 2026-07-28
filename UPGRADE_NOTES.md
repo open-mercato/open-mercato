@@ -24,6 +24,17 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.6 → 0.6.7 (unreleased)
 
+### Workflows UX Phase 3b: the form editor is retired behind redirects to the Studio
+
+The workflow definition **form editor is retired** (`.ai/specs/2026-07-26-workflows-ux-redesign.md` §10). The visual editor ("Studio") at `/backend/definitions/visual-editor` is now the only workflow authoring surface — it reached the retirement precondition when the Code view (read-only definition JSON + subgraph copy/paste + schema-validation display) shipped in the same release.
+
+What changed, and what you need to do:
+
+- **The two form routes are now bridge routes, not deletions.** `/backend/definitions/create` forwards to `/backend/definitions/visual-editor`, and `/backend/definitions/<id>` forwards to `/backend/definitions/visual-editor?id=<id>`. Both route files and both `page.meta.ts` guards stay in place for **at least one minor release**, so bookmarks, deep links and any third-party navigation keep working with the same RBAC as before. Update your links at your convenience; nothing breaks today.
+- **The definitions list has one create entry and one edit row action.** "Create Workflow" opens the template gallery (whose *Blank* card lands on the empty Studio) and the row action `edit` now points at the Studio. The separate `edit-visual` row action was removed because it became a duplicate destination — if you keyed automation or tests off that row-action id, switch to `edit`.
+- **The form components are `@deprecated`, not removed.** `components/formConfig.tsx` (every export), `components/StepsEditor.tsx`, `components/TransitionsEditor.tsx` and `components/mobile/MobileDefinitionDetail.tsx` still compile and still behave identically, so a downstream page that embeds the definition form keeps working. They are scheduled for removal **one minor release after this note**; migrate such pages to the Studio (or to the definitions API directly) before then.
+- **No API, schema, event or ACL change.** The definitions REST contract, the definition JSONB shape and `workflows.*` features are untouched — this is a UI-surface retirement only.
+
 ### Workflows UX Phase 2a: context schema, ledger, pinned samples, mock-first test step
 
 Phase 2a of the workflows UX redesign (`.ai/specs/2026-07-26-workflows-ux-redesign.md`) is additive, but four items deserve downstream attention:

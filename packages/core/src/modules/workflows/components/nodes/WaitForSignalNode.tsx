@@ -15,6 +15,7 @@ export interface WaitForSignalNodeData {
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
   hasError?: boolean
+  hasCompensation?: boolean
   errorCount?: number
 }
 
@@ -48,6 +49,7 @@ export function WaitForSignalNode({ id, data, isConnectable, selected }: NodePro
         nodeType="waitForSignal"
         selected={selected}
         hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
         errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}

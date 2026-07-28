@@ -68,6 +68,12 @@ const TRIGGER_TYPES = [
   { value: 'timer', label: 'Timer' },
 ]
 
+/**
+ * @deprecated The form editor is retired (spec section 10) — routes are authored
+ * on the canvas in `/backend/definitions/visual-editor`. This component stays
+ * exported for at least one minor release for third-party forms that embed it;
+ * it has no call site in this module any more.
+ */
 export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfigsChange, steps = [], error }: TransitionsEditorProps) {
   const t = useT()
   const activityTypeOptions = useActivityTypeOptions()

@@ -131,6 +131,48 @@ describe('flattenSchemaToContract', () => {
     })
   })
 
+  test('flattens a typical CRUD API response schema (paged list) into honest entries', () => {
+    const contract = flattenSchemaToContract(
+      z.object({
+        items: z.array(z.object({ id: z.string(), name: z.string() })),
+        total: z.number(),
+        page: z.number().optional(),
+        pageSize: z.number().optional(),
+        totalPages: z.number(),
+      }),
+    )
+    expect(contract).toEqual({
+      entries: [
+        { path: 'items', type: 'object' },
+        { path: 'total', type: 'number' },
+        { path: 'page', type: 'number' },
+        { path: 'pageSize', type: 'number' },
+        { path: 'totalPages', type: 'number' },
+      ],
+    })
+  })
+
+  test('flattens a detail-style API response with a nested data envelope', () => {
+    const contract = flattenSchemaToContract(
+      z.object({
+        data: z.object({
+          id: z.string().uuid(),
+          status: z.enum(['RUNNING', 'COMPLETED']),
+          context: z.unknown(),
+        }),
+        message: z.string(),
+      }),
+    )
+    expect(contract).toEqual({
+      entries: [
+        { path: 'data.id', type: 'text' },
+        { path: 'data.status', type: 'select' },
+        { path: 'data.context', type: 'unknown' },
+        { path: 'message', type: 'text' },
+      ],
+    })
+  })
+
   test('resolves the deals exemplar to a single text entry', () => {
     expect(flattenSchemaToContract(z.object({ dealId: z.string().uuid() }))).toEqual({
       entries: [{ path: 'dealId', type: 'text' }],

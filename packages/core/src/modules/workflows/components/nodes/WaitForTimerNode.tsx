@@ -17,6 +17,7 @@ export interface WaitForTimerNodeData {
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
   hasError?: boolean
+  hasCompensation?: boolean
   errorCount?: number
 }
 
@@ -51,6 +52,7 @@ export function WaitForTimerNode({ id, data, isConnectable, selected }: NodeProp
         nodeType="waitForTimer"
         selected={selected}
         hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
         errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
