@@ -703,6 +703,11 @@ async function emitTaskAssignedEvent(
         assignedUserId: userTask.assignedTo ?? null,
         assignedToRoles: userTask.assignedToRoles ?? null,
         dueDate: userTask.dueDate ? userTask.dueDate.toISOString() : null,
+        // Additive: the records the task is about. Modules that own those
+        // records subscribe and surface the task on their own turf — the
+        // customers module writes a `CustomerTodoLink` from this. Workflows
+        // never reaches into another module's tables to do it itself.
+        entityBindings: userTask.entityBindings ?? null,
         tenantId: instance.tenantId,
         organizationId: instance.organizationId ?? null,
       },

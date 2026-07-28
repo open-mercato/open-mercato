@@ -46,7 +46,10 @@ import type { UserTaskDecision, UserTaskResponse, UserTaskStatus } from '../../.
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { WORK_INBOX_HREF, buildWorkInboxItemHref } from '../../../lib/work-inbox/navigation'
-import { buildEntityRecordHref } from '../../../lib/work-inbox/entity-links'
+import {
+  EntityContextPanel,
+  bindingsToEntityContextItems,
+} from '../../../components/work-inbox/EntityContextPanel'
 import {
   WORK_INBOX_OVERDUE_TONE,
   describeWorkInboxPriority,
@@ -310,7 +313,9 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
   const priority = normalizeWorkInboxPriority(task.priority)
   const priorityDescriptor = describeWorkInboxPriority(priority)
   const decisions = task.decisions ?? []
-  const bindings = task.entityBindings ?? []
+  const contextItems = bindingsToEntityContextItems(task.entityBindings, {
+    noLink: t('workflows.tasks.detail.records.noLink'),
+  })
   const recordedDecisionId = readRecordedDecision(task.formData)
   const recordedDecision = recordedDecisionId
     ? decisions.find((decision) => decision.id === recordedDecisionId) ?? null
@@ -556,44 +561,13 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
 
             {/* Right — the records this task is about, plus how it got here */}
             <div className="space-y-4">
-              <div className="rounded-lg border border-border p-4 space-y-3">
-                <h2 className="text-sm font-semibold">
-                  {t('workflows.tasks.detail.sections.records')}
-                </h2>
-                {bindings.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    {t('workflows.tasks.detail.records.empty')}
-                  </p>
-                ) : (
-                  <ul className="space-y-2">
-                    {bindings.map((binding, index) => {
-                      const href = buildEntityRecordHref(binding.entityType, binding.entityId)
-                      const label =
-                        flattenTaskText(binding.label ?? null) ?? binding.entityType
-                      return (
-                        <li
-                          key={`${binding.entityType}:${binding.entityId}:${index}`}
-                          className="rounded-md border border-border p-2"
-                        >
-                          <div className="text-sm font-medium text-foreground">{label}</div>
-                          <div className="text-xs text-muted-foreground font-mono">
-                            {binding.entityType}
-                          </div>
-                          {href ? (
-                            <Link href={href} className="text-xs text-primary hover:underline">
-                              {t('workflows.tasks.detail.records.open')}
-                            </Link>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">
-                              {t('workflows.tasks.detail.records.noLink')}
-                            </span>
-                          )}
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </div>
+              <EntityContextPanel
+                testId="task-context-records"
+                title={t('workflows.tasks.detail.sections.records')}
+                items={contextItems}
+                emptyLabel={t('workflows.tasks.detail.records.empty')}
+                linkLabel={t('workflows.tasks.detail.records.open')}
+              />
 
               <div className="rounded-lg border border-border p-4 space-y-2">
                 <h2 className="text-sm font-semibold">
