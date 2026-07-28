@@ -1,7 +1,7 @@
 # `mercato upgrade` — a single, lock-guarded reconcile phase for existing deployments
 
 **Date:** 2026-07-27
-**Status:** draft, revised after maintainer review (PR #4547) — awaiting decision on Open Questions 1–2
+**Status:** draft, revised after maintainer review (PR #4547) — proposed answers to all open questions recorded, awaiting maintainer ack (only Q1 decides new contract surface, and it gates Phase 6 alone)
 **Owner:** unassigned (proposed by Full Stack House, surfaced from a production incident)
 **Scope:** OSS. Touches `packages/cli`, `packages/core/src/modules/{entities,auth,feature_toggles}`, `docker/scripts/`, `packages/create-app/template/`, `apps/docs/docs/cli/`.
 
@@ -250,9 +250,9 @@ mercato upgrade [--tenant <id>] [--lock-timeout=<s>] [--no-lock]
 
 **Scope flags must be passed explicitly.** Per-command defaults are inconsistent: `entities install` defaults to all tenants, `configs cache structural` defaults to global-only. `upgrade` should never rely on them.
 
-### Pre-existing defects worth fixing in the same change
+### Pre-existing defects `upgrade` would amplify
 
-Cheap, in-scope, and each is a latent bug that `upgrade` would amplify:
+Five latent bugs. Per review finding #2 and the resolution of Open Question 3, items 1–4 — independent of `upgrade` — ship as their **own PR**, ahead of or alongside this spec's implementation. Item 5 stays in scope here (Phase 3): `upgrade`'s correctness argument depends on it (Risk 8, § Why there is no post-deploy step).
 
 1. `auth sync-role-acls` selects tenants with `em.find(Tenant, {})` (`auth/cli.ts:830`) — **no `deletedAt` filter**, unlike `entities install` (`install-from-ce.ts:196`). Soft-deleted tenants get ACL writes.
 2. Its flag parser (`auth/cli.ts:790-803`) only supports `--tenant <id>`, not `--tenant=<id>`; the latter is read as a flag literally named `tenant=<id>` and silently ignored — a scoped run would become an all-tenant run.
@@ -299,7 +299,7 @@ Each phase is independently mergeable and independently useful.
 
 **Phase 2 — `mercato upgrade`.** The command composing steps 1-4, the empty-database guard, per-step timings. Docs page `apps/docs/docs/cli/upgrade.mdx` + CLI overview entry.
 
-**Phase 3 — pre-existing defect fixes.** The five items above. Independently reviewable; each gets a test.
+**Phase 3 — RBAC cache invalidation (defect 5 only).** `sync-role-acls` calls `RbacService.invalidateTenantCache` once per synced tenant. Ships in the same release as Phase 2 (Risk 8). Defects 1–4 are out of this spec's scope — separate PR, per Open Question 3's resolution.
 
 **Phase 4 — deploy rewire + operational docs.** `init-or-migrate.sh` default `MIGRATE_COMMAND`, mirrored into `packages/create-app/template/` per the root AGENTS.md template-sync rule. `UPGRADE_NOTES.md`. Owns the operational deliverables from § Rollback & Recovery: the stuck-lock runbook and the direct-DB-URL (no transaction-mode pooler) requirement, in both `UPGRADE_NOTES.md` and `apps/docs/docs/cli/upgrade.mdx`.
 
@@ -325,7 +325,7 @@ Per root `AGENTS.md` a spec must list integration coverage for affected API and 
 | `feature_toggles` disabled | Unit: step 4 tolerates absence via `{ optional: true }`; and a runtime throw from step 4 still fails the command. |
 | Empty-DB guard | Unit: exits non-zero pointing at `mercato init`. |
 | Idempotency | Integration: run `upgrade` twice against a seeded ephemeral DB (`yarn test:integration:ephemeral`); assert the second run adds no rows to `custom_field_defs`, `custom_entities`, `role_acls`, `feature_toggles`. **This is the test that would have caught the original incident.** |
-| Defect fixes (Phase 3) | Unit: soft-deleted tenants excluded from `sync-role-acls`; `--tenant=<id>` parsed; custom roles merged once per tenant; container disposed; **`invalidateTenantCache` called once per synced tenant** (the post-deploy-step replacement — assert it is tag-based, not a keyspace scan). |
+| RBAC invalidation (Phase 3) | Unit: **`invalidateTenantCache` called once per synced tenant** (the post-deploy-step replacement — assert it is tag-based, not a keyspace scan). Tests for defects 1–4 (soft-deleted tenant filter, `--tenant=<id>` parsing, single merge per tenant, container disposal) travel with their separate PR. |
 | Deploy script | Shell-level: `init-or-migrate.sh` invokes `upgrade` on **both** the existing-users fallback path (`:48`) and the steady-state path (`:70`), and honours a `MIGRATE_COMMAND` override on each. |
 
 Integration tests must be self-contained per `.ai/qa/AGENTS.md`: fixtures created in setup, cleaned up in teardown, no reliance on seeded demo data.
@@ -360,9 +360,14 @@ Ships with Phase 4 in `UPGRADE_NOTES.md` and the docs page.
 
 ## Open Questions for Maintainers
 
-1. **Does the `seedDefaults` audit justify a separate `setup.reconcile?()` hook (Phase 6), or should the drift-correction class stay a manual `seed:defaults` invocation indefinitely?** This spec ships `upgrade` without either, so Phases 1-5 are unblocked regardless — but the answer determines whether `seed:defaults`' hazards get fixed or merely documented. `BACKWARD_COMPATIBILITY.md:25` already permits adding optional hooks to `ModuleSetupConfig`.
-2. **Should Phase 4 (default-on in `init-or-migrate.sh`) ship in the same release as Phase 2, or one release later?** Default-on fixes the fleet silently; a release of opt-in soak time is safer given Risk 4.
-3. **Are the Phase 3 defect fixes wanted here, or should they be a separate PR?** Four of the five are independent of `upgrade` and bundling is convenience. **Defect 5 (RBAC cache invalidation) is not** — it is what makes a post-deploy step unnecessary, so it should land no later than Phase 2 (see Risk 8).
+Proposed answers recorded 2026-07-28 (author). Q2 and Q3 need only an ack; Q1 is the one genuine maintainer call, and it gates Phase 6 alone.
+
+1. **Does the `seedDefaults` audit justify a separate `setup.reconcile?()` hook (Phase 6), or should the drift-correction class stay a manual `seed:defaults` invocation indefinitely?**
+   **Proposed answer: yes, directionally — and more than a side hook.** The author's position is that *seeding itself should converge on reconcile semantics*: `seedDefaults` implementations migrate toward safe, upsert-style logic under an explicit `reconcile()` contract, leaving destructive one-shot seeding behind rather than adding a parallel hook forever. That is its own spec, work and PR — Phase 6 stays gated, and nothing in Phases 1–5 depends on the answer. The question still stands for maintainers because it decides contract surface (`ModuleSetupConfig.reconcile?` — additive and already permitted by `BACKWARD_COMPATIBILITY.md:25`) and the long-term fate of `seedDefaults`.
+2. **Should Phase 4 (default-on in `init-or-migrate.sh`) ship in the same release as Phase 2, or one release later?**
+   **Proposed answer: same release.** An opt-in soak defeats itself here — the entire problem this spec fixes is that no deployment runs the reconcile unless it happens by default, so an opt-in release would go largely unexercised and merely delay the fix. The opt-out (`MIGRATE_COMMAND='yarn db:migrate'`) ships in the same release, `UPGRADE_NOTES.md` carries the Risk 4 call-out, and Full Stack House commits to running the default-on path in production from the first release.
+3. **Are the Phase 3 defect fixes wanted here, or should they be a separate PR?**
+   **Resolved: split, per review finding #2.** Defects 1–4 move to their own PR. Defect 5 (RBAC cache invalidation) remains this spec's Phase 3 and ships with Phase 2 — it is what makes a post-deploy step unnecessary (Risk 8). Spec text updated accordingly.
 
 ## Final Compliance Report
 
@@ -380,6 +385,7 @@ Ships with Phase 4 in `UPGRADE_NOTES.md` and the docs page.
 
 ## Changelog
 
+- **2026-07-28** (second revision) — Recorded proposed answers to all three open questions. Q1: yes directionally, and stronger than the question asks — seeding itself should converge on upsert/reconcile semantics under a `reconcile()` contract; separate spec/PR, Phase 6 stays gated. Q2: **same release** — an opt-in soak defeats itself when the bug being fixed is "nobody opts in"; `MIGRATE_COMMAND` is the opt-out and Full Stack House runs default-on in production from release one. Q3: **split** — defects 1–4 move to their own PR; Phase 3 narrows to defect 5 (RBAC cache invalidation), which ships with Phase 2. Restructured the defects section, Phase 3, and the test table to match.
 - **2026-07-28** — Revision after maintainer review on PR #4547. Adopted the review's strongest finding: the advisory lock is now a **contract over every migration entrypoint**, not a property of one command — public `dbMigrate` acquires the lock, `upgrade` calls a new internal `dbMigrateUnlocked` while already holding it, and `MIGRATE_COMMAND='yarn db:migrate'` stops being an unlocked bypass. Documented why naive nested locking self-deadlocks across sessions (undetectably, from Postgres's point of view). Grounded Problem §3 in prior art: MikroORM v7 takes no lock (and this repo's per-module/per-migration loop voids `allOrNothing` as an umbrella), while Rails/Prisma/Knex/Flyway/Liquibase/EF Core/Atlas/Ecto and Magento/Frappe/Keycloak all lock — one global lock per run, never per-migration. Added two operational constraints: direct DB URL for the lock connection (transaction-mode PgBouncer silently drops session advisory locks) and keeping the lock connection separate from the DDL connection. Dropped `--dry-run`/`--skip` from v1 (no defined safe semantics). Test plan now proves the concurrency guarantee with two real processes, asserts lock span through the final invalidation step and release-on-failure, and covers both deploy-script paths. Added § Rollback & Recovery (rollback semantics, grant/definition reversal, stuck-lock runbook) with Phase 4 owning the deliverable — the runbook doubles as the justification for advisory locks over a lock table, since the lock dies with its connection. Fixed the Phase 3 four/five count.
 - **2026-07-27** — Initial draft. Verified against `develop` at `e5ad6e8cdc`: `init` abort (`mercato.ts:1030-1041`), `init-or-migrate.sh:7,43-48,67`, `dbMigrate` lock absence (`lib/db/commands.ts:391-406`), `configs restore-defaults` `force: true` (`configs/cli.ts:316-330`), Redis `KEYS` (`cache/src/strategies/redis.ts:354-359`), `seed:defaults` semantics (`mercato.ts:1425-1485`), `ModuleSetupConfig` JSDoc gap (`shared/src/modules/setup.ts:32-46`), and a full idempotency audit of all 21 `setup.seedDefaults` implementations.
   Scope reduced twice from the originating proposal: no cache-purge step, no reindex, no performance budget — and, after the audit, **no `seedDefaults` step**, which was the proposal's largest component. The audit reversed this spec's own first draft, which had argued `seed:defaults` made re-running `seedDefaults` safe.
