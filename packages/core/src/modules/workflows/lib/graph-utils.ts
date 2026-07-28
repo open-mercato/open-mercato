@@ -562,9 +562,10 @@ function isTerminalStep(step: any): boolean {
 /**
  * Footprint dagre reserves for a node: its exact measured size when React Flow
  * has already laid it out (the Auto-arrange path passes `node.measured`),
- * otherwise the description-aware estimate above.
+ * otherwise the description-aware estimate above. Exported so a layout test can
+ * assert that the boxes dagre reserved actually do not overlap.
  */
-function nodeFootprint(step: any): { width: number; height: number } {
+export function nodeFootprint(step: any): { width: number; height: number } {
   if (typeof step.width === 'number' && typeof step.height === 'number') {
     return { width: step.width, height: step.height }
   }

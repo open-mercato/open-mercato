@@ -14,7 +14,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { workflowDefinitionDataSchema } from '../../data/validators'
-import { definitionToGraph, validateWorkflowGraph } from '../graph-utils'
+import { definitionToGraph, nodeFootprint, validateWorkflowGraph } from '../graph-utils'
 import { collectValidationIssues, countIssuesBySeverity } from '../collect-validation-issues'
 import { buildRouteChipModel, routeCarriesCondition, ROUTE_CHIP_LIMIT } from '../route-chips'
 
@@ -102,6 +102,46 @@ describe('60-node density fixture', () => {
     expect(models.some((entry) => entry.model.overflowCount > 0)).toBe(true)
     expect(models.every((entry) => entry.model.activities.length <= ROUTE_CHIP_LIMIT)).toBe(true)
     expect(edges.filter((edge) => edge.data?.kind === 'error')).toHaveLength(3)
+  })
+
+  it('auto-arranges sixty nodes without a single overlapping card', () => {
+    // The spec's Phase 3 QA scenario: "a 60-node OZE-scale flow with 5 agent
+    // nodes remains navigable". Node geometry changes (the accent cap, the
+    // terminal pills) feed `nodeFootprint`, and an under-reserved footprint
+    // shows up here as ranks packed tight enough to overlap.
+    const { nodes } = definitionToGraph(definition as never, { autoLayout: true })
+    expect(nodes).toHaveLength(60)
+
+    const boxes = nodes.map((node) => {
+      const step = (definition.steps as Array<{ stepId: string }>).find((candidate) => candidate.stepId === node.id)
+      const { width, height } = nodeFootprint({ ...step, nodeType: node.type })
+      return {
+        id: node.id,
+        left: node.position.x,
+        top: node.position.y,
+        right: node.position.x + width,
+        bottom: node.position.y + height,
+      }
+    })
+
+    const collisions: string[] = []
+    for (let outer = 0; outer < boxes.length; outer += 1) {
+      for (let inner = outer + 1; inner < boxes.length; inner += 1) {
+        const a = boxes[outer]
+        const b = boxes[inner]
+        if (a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top) {
+          collisions.push(`${a.id} ∩ ${b.id}`)
+        }
+      }
+    }
+    expect(collisions).toEqual([])
+  })
+
+  it('reserves a smaller footprint for its terminals than for its steps', () => {
+    const start = (definition.steps as Array<{ stepId: string; stepType: string }>).find((step) => step.stepType === 'START')!
+    const automated = (definition.steps as Array<{ stepId: string; stepType: string }>).find((step) => step.stepType === 'AUTOMATED')!
+
+    expect(nodeFootprint(start).height).toBeLessThan(nodeFootprint(automated).height)
   })
 
   it('surfaces no flow-logic warnings of its own', () => {
