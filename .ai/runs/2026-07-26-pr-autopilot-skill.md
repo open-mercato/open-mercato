@@ -144,7 +144,7 @@ PR: #4525
       2026-07-28 and the branch is `MERGEABLE` again at `d08952c`; the PR still
       shows `CHANGES_REQUESTED` and its `lint` run is `action_required`, both of
       which only a maintainer can clear. Stays open until #65 merges.
-- [ ] 6.2 Major — make the no-triage fallback conditional on the active caller
-      instead of an unconditional repository fact (SKILL.md + frontmatter)
-- [ ] 6.3 Minor — refresh the plan's top-level Scope to describe the upstream
-      skill + thin override + external registration + cross-repo merge order
+- [x] 6.2 Major — make the no-triage fallback conditional on the active caller
+      instead of an unconditional repository fact (SKILL.md + frontmatter) — 6f98dd400
+- [x] 6.3 Minor — refresh the plan's top-level Scope to describe the upstream
+      skill + thin override + external registration + cross-repo merge order — 6f98dd400
