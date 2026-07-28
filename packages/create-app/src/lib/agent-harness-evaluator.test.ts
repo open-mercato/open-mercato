@@ -272,8 +272,15 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } })
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
   assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
-  assert.equal(validators.catalog.writableCaseIds.length, 40)
-  assert.deepEqual(cases.filter((entry) => entry.timeoutMs !== undefined).map((entry) => [entry.id, entry.timeoutMs]), [['OMH-185', 600_000]])
+  assert.equal(validators.catalog.writableCaseIds.length, 45)
+  assert.deepEqual(cases.filter((entry) => entry.timeoutMs !== undefined).map((entry) => [entry.id, entry.timeoutMs]), [
+    ['OMH-185', 600_000],
+    ['OMH-188', 600_000],
+    ['OMH-189', 600_000],
+    ['OMH-190', 420_000],
+    ['OMH-191', 420_000],
+    ['OMH-192', 600_000],
+  ])
   assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
   assert.deepEqual(matrix.generatedCodeReview.caseIds, validators.catalog.writableCaseIds)
@@ -282,6 +289,7 @@ test('the catalog count and release coverage are derived from the validator regi
     { caseId: 'OMH-163', runner: 'jest', artifact: 'src/modules/quote_approval/commands/__tests__/approve-quote.test.ts', network: 'none' },
     { caseId: 'OMH-164', runner: 'playwright-api', artifact: 'src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts', network: 'loopback' },
     { caseId: 'OMH-165', runner: 'playwright-browser', artifact: 'src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts', network: 'loopback' },
+    { caseId: 'OMH-192', runner: 'jest', artifact: 'src/modules/library/commands/__tests__/crm-loans.test.ts', network: 'none' },
   ])
   assert.deepEqual(matrix.releaseSuite.supportedRunners, ['codex', 'claude'])
   assert.equal(matrix.releaseSuite.requireGeneratedCodeReview, true)
@@ -378,12 +386,12 @@ test('deterministic evaluation passes every concrete catalog case in an emitted-
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-187', () => {
+test('deterministic evaluation enforces the case schema through OMH-192', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-187')
+    assert.equal(cases.at(-1)?.id, 'OMH-192')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 

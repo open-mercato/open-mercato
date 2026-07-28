@@ -143,7 +143,7 @@ test('UMES selector documents additive command interceptors across execute and u
   assert.match(branches, /never bypass the command, locking, audit, or undo/)
 })
 
-test('the 187-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 192-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -151,7 +151,7 @@ test('the 187-case catalog routes audited installed-module, runtime, and AI/prov
     requiredDecisions: string[]
     expectedRouter: { required: string[] }
   }>
-  assert.equal(cases.length, 187)
+  assert.equal(cases.length, 192)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
@@ -191,6 +191,26 @@ test('the 187-case catalog routes audited installed-module, runtime, and AI/prov
       contexts: ['.ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md'],
       decisions: ['module-queue-factory', 'discovered-worker-metadata', 'scoped-serializable-job', 'queue-retry-idempotency'],
     },
+    'OMH-188': {
+      contexts: ['.ai/skills/om-data-model-design/references/integrity-and-concurrency.md'],
+      decisions: ['exclusion-constraint-overlap', 'conflict-not-500', 'generated-entity-ids'],
+    },
+    'OMH-189': {
+      contexts: ['.ai/skills/om-integration-builder/references/security-and-reliability.md'],
+      decisions: ['paired-integration-exports', 'ssrf-endpoint-guard', 'stable-idempotency-key'],
+    },
+    'OMH-190': {
+      contexts: ['.ai/skills/om-system-extension/references/extension-branches.md'],
+      decisions: ['dot-form-target-entity', 'batched-enrichment', 'namespaced-additive-result'],
+    },
+    'OMH-191': {
+      contexts: ['.ai/skills/om-build-workflow/references/workflow-design.md'],
+      decisions: ['timer-duration-config', 'workflow-safe-commands', 'signal-over-timer'],
+    },
+    'OMH-192': {
+      contexts: ['.ai/guides/modules/customers.md', '.ai/skills/om-module-scaffold/references/verification.md'],
+      decisions: ['trusted-scope-only', 'scalar-crm-customer-snapshot', 'atomic-one-winner-checkout', 'executable-jest-regression'],
+    },
   }
   for (const [caseId, expected] of Object.entries(expectations)) {
     const record = byId.get(caseId)
@@ -210,6 +230,7 @@ test('the 187-case catalog routes audited installed-module, runtime, and AI/prov
   assert.ok(byId.get('OMH-185')?.context.allowedExtra?.includes('.ai/skills/om-system-extension/references/read-write-roundtrip.md'))
   assert.deepEqual(byId.get('OMH-186')?.expectedRouter.required, ['module-data'])
   assert.deepEqual(byId.get('OMH-187')?.expectedRouter.required, ['module-data'])
+  assert.deepEqual(byId.get('OMH-192')?.expectedRouter.required, ['module-data', 'umes', 'testing'])
 })
 
 test('the second-round cohort is exactly 92 business-language prompts without leaked framework contracts', () => {

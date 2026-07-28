@@ -13356,5 +13356,113 @@
     "relatedCases": [
       "OMH-185"
     ]
+  },
+  {
+    "id": "OMH-192",
+    "title": "Repair CRM-backed library loans with trusted scope and atomic checkout",
+    "family": "module",
+    "mode": "bugfix",
+    "evaluationKind": "regression",
+    "risk": "high",
+    "prompt": "Fix the seeded CRM-backed library loan slice and its focused test at the root cause. Preserve the exported createBook, undoCreateBook, deleteBook, undoDeleteBook, checkoutBook, returnLoan, renewLoan, and markLoanLost seams plus the injected LibraryEffects contract. Every seam must fail before effects when trusted tenant or organization scope is missing; body tenantId/organizationId are untrusted and public request schemas must not accept them. Create undo must leave the book absent or soft-deleted, while delete undo restores it. Checkout must resolve an existing customers-module CRM person in trusted scope, store only the scalar customerEntityId plus a display-name snapshot, require no duplicate local member, and reach the injected atomic claimCheckout seam so two concurrent requests yield exactly one created loan and one conflict; retrying the winning idempotency key must return the same loan. Return, renew, and mark-lost must each find and mutate the loan with trusted tenant and organization scope. Replace the weak test with executable Jest coverage in src/modules/library/commands/__tests__/crm-loans.test.ts, import globals explicitly from @jest/globals, exercise all of those invariants including Promise.all concurrency, and run the focused test. Do not edit installed or generated framework files.",
+    "tags": ["module", "crm", "library-loans", "concurrency", "trusted-scope", "unit-tests", "writable"],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "ruleIds": ["BC-02", "BC-03", "BC-04", "BC-09"]
+    },
+    "expectedRouter": {
+      "required": ["module-data", "umes", "testing"],
+      "allowedExtra": ["debugging", "framework-context"]
+    },
+    "requiredSkills": ["om-module-scaffold", "om-data-model-design", "om-system-extension"],
+    "optionalSkills": [{"id": "om-framework-context", "route": "framework-context"}],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/contracts.md",
+        ".ai/guides/extensions.md",
+        ".ai/guides/testing-debugging.md",
+        ".ai/guides/modules/customers.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+        ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+        ".ai/skills/om-module-scaffold/references/verification.md",
+        ".ai/skills/om-data-model-design/SKILL.md",
+        ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+        ".ai/skills/om-system-extension/SKILL.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/skills/om-framework-context/SKILL.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**", ".mercato/generated/**"]
+    },
+    "requiredDecisions": [
+      "trusted-scope-only",
+      "public-schema-no-runtime-scope",
+      "scalar-crm-customer-snapshot",
+      "atomic-one-winner-checkout",
+      "deterministic-idempotent-retry",
+      "correct-lifecycle-undo",
+      "scoped-loan-actions",
+      "executable-jest-regression"
+    ],
+    "decisionVocabulary": [
+      "trusted-scope-only",
+      "payload-scope",
+      "public-schema-no-runtime-scope",
+      "public-schema-requires-runtime-scope",
+      "scalar-crm-customer-snapshot",
+      "duplicate-local-member",
+      "atomic-one-winner-checkout",
+      "read-then-create-checkout",
+      "deterministic-idempotent-retry",
+      "correct-lifecycle-undo",
+      "scoped-loan-actions",
+      "id-only-loan-actions",
+      "executable-jest-regression"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "(?:body|payload).{0,40}(?:tenantId|organizationId).{0,30}(?:trusted|scope source)",
+      "memberId",
+      "(?:find|check).{0,50}(?:available|active loan).{0,80}(?:create|persist).{0,30}loan"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.regression.crm-library"
+    ],
+    "fixture": {
+      "scaffold": "fresh-standalone",
+      "setup": ["fixture:omh-192"],
+      "expectedFailure": "The seed must fail trusted scope, lifecycle undo, CRM linkage, concurrency, public-schema, and executable-test checks."
+    },
+    "oracle": {
+      "validatorIds": ["writable.allowed-paths", "oracle.artifacts", "oracle.regression.crm-library"],
+      "expectedArtifacts": [
+        "src/modules/library/commands/crm-loans.ts",
+        "src/modules/library/api/schemas.ts",
+        "src/modules/library/commands/__tests__/crm-loans.test.ts"
+      ]
+    },
+    "allowedWrites": [
+      "src/modules/library/**",
+      "src/modules/library/commands/__tests__/crm-loans.test.ts"
+    ],
+    "timeoutMs": 600000,
+    "maxContextFiles": 14,
+    "maxInitialContextBytes": 81920,
+    "maxTotalContextBytes": 229376,
+    "relatedCases": ["OMH-083", "OMH-093", "OMH-122", "OMH-163", "OMH-185"]
   }
 ]

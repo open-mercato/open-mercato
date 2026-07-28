@@ -1,22 +1,22 @@
 # Agent harness evaluations
 
-`cases.json` is the 187-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
+`cases.json` is the 192-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
 
 ```text
 yarn harness:validate --runner codex --all
 yarn harness:validate --runner claude --case OMH-009
 ```
 
-A blocking release selects one primary runner for every live lane. The optional portability runner must be different and receives only the exact 40-case representative read-only set:
+A blocking release selects one primary runner for every live lane. The optional portability runner must be different and receives only the exact 45-case representative read-only set:
 
 ```text
 yarn harness:release --runner codex --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 yarn harness:release --runner codex --portability-runner claude --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-The primary runner owns all 187 routing cases, all 40 writable cases, and all generated-code reviews. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
+The primary runner owns all 192 routing cases, all 45 writable cases, and all generated-code reviews. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
 
-Writable evaluation is intentionally opt-in. The expanded catalog has a 40-case writable release target, but only cases registered in `release-matrix.json` and backed by controller-owned fixtures and oracles are executable. Copy or create a fresh standalone app for one registered case, then seed only that case and mark the target disposable:
+Writable evaluation is intentionally opt-in. The expanded catalog has a 45-case writable release target, but only cases registered in `release-matrix.json` and backed by controller-owned fixtures and oracles are executable. Copy or create a fresh standalone app for one registered case, then seed only that case and mark the target disposable:
 
 ```text
 yarn harness:fixture --case OMH-009 --target /absolute/disposable/app --acknowledge-writes
@@ -27,7 +27,7 @@ For a manually prepared writable target, run `yarn generate` in the target first
 
 The preparer refuses the controller app, non-standalone targets, reused targets, and existing fixture files. The evaluator rejects writes outside each case's `allowedWrites`. Every writable case is checked by the fixed controller-owned TypeScript AST oracle, so imports, comments, and token stuffing cannot satisfy an implementation contract. Integration/workflow and seeded regression cases also run isolated mocked behavior probes; the after phase runs the target's fixed `yarn typecheck` gate. A case-local `timeoutMs` may only raise the operator timeout floor for an unusually broad writable one-shot; it never lowers an explicit operator timeout and is capped at 10 minutes. The target can never supply or replace executable oracle code. Regression oracles must fail before the change and pass afterward. Fixture preparation is not run evidence. Generated results live under ignored `.ai/harness/results/`; they contain hashes and sanitized summaries, never raw transcripts or environment values.
 
-The three generated-test cases use direct controller-resolved Jest/Playwright CLIs, never target package scripts. The target and dependencies stay read-only; Jest has no network, Playwright has loopback only, and the browser lane exposes only the exact installed headless-shell runtime. JSON reporters must attest at least one passed test and zero skipped, todo, focused, flaky, or expected-failure tests before review evidence can be created.
+The four generated-test cases use direct controller-resolved Jest/Playwright CLIs, never target package scripts. The target and dependencies stay read-only; Jest has no network, Playwright has loopback only, and the browser lane exposes only the exact installed headless-shell runtime. JSON reporters must attest at least one passed test and zero skipped, todo, focused, flaky, or expected-failure tests before review evidence can be created.
 
 Generated-code review is a separate post-oracle lane, never a nested second-model call. The individual command is opt-in while developing one case; the once-per-release suite requires it for every writable case:
 

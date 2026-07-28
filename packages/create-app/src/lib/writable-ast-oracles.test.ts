@@ -22,6 +22,7 @@ const EXPECTED_WRITABLE_CASE_IDS = [
   'OMH-093', 'OMH-105', 'OMH-107', 'OMH-115', 'OMH-122', 'OMH-128', 'OMH-130', 'OMH-133',
   'OMH-137', 'OMH-140', 'OMH-144', 'OMH-146', 'OMH-149', 'OMH-150', 'OMH-151', 'OMH-153',
   'OMH-156', 'OMH-163', 'OMH-164', 'OMH-165', 'OMH-171', 'OMH-172', 'OMH-181', 'OMH-185',
+  'OMH-188', 'OMH-189', 'OMH-190', 'OMH-191', 'OMH-192',
 ]
 
 type OracleResult = {
@@ -98,6 +99,69 @@ test('the complete module oracle enforces connected customers-level CRUD', () =>
   assert.match(source, /value\.endsWith\('\.delete'\)/)
 })
 
+test('the complete module oracle requires atomic and undo seams on each declared command', () => {
+  const root = stageTarget('src/modules/library/commands/books.ts', `
+function withAtomicFlush() {}
+function enforceCommandOptimisticLock() {}
+function extractUndoPayload() {}
+function buildCustomFieldResetMap() {}
+function emitCrudSideEffects() {}
+function emitCrudUndoSideEffects() {}
+
+withAtomicFlush({}, [], { transaction: true })
+enforceCommandOptimisticLock()
+extractUndoPayload()
+buildCustomFieldResetMap()
+emitCrudSideEffects()
+emitCrudUndoSideEffects()
+
+export const createBook = { execute() {}, buildLog() {}, undo() {} }
+export const updateBook = { execute() {}, buildLog() {}, undo() {} }
+export const deleteBook = { execute() {}, buildLog() {}, undo() {} }
+`)
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.command-atomic')?.passed, false)
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.command-undo')?.passed, false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle accepts command-local atomic and undo behavior', () => {
+  const root = stageTarget('src/modules/library/commands/books.ts', `
+function withAtomicFlush() {}
+function enforceCommandOptimisticLock() {}
+function extractUndoPayload() {}
+function buildCustomFieldResetMap() {}
+function emitCrudSideEffects() {}
+function emitCrudUndoSideEffects() {}
+
+export const createBook = {
+  execute() { withAtomicFlush({}, [], { transaction: true }); emitCrudSideEffects() },
+  buildLog() {},
+  undo() { extractUndoPayload(); emitCrudUndoSideEffects() },
+}
+export const updateBook = {
+  execute() { withAtomicFlush({}, [], { transaction: true }); enforceCommandOptimisticLock(); emitCrudSideEffects() },
+  buildLog() { buildCustomFieldResetMap() },
+  undo() { extractUndoPayload(); buildCustomFieldResetMap(); emitCrudUndoSideEffects() },
+}
+export const deleteBook = {
+  execute() { withAtomicFlush({}, [], { transaction: true }); enforceCommandOptimisticLock(); emitCrudSideEffects() },
+  buildLog() { buildCustomFieldResetMap() },
+  undo() { extractUndoPayload(); buildCustomFieldResetMap(); emitCrudUndoSideEffects() },
+}
+`)
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.command-atomic')?.passed, true)
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.command-undo')?.passed, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the complete module oracle accepts canonical enabledModules.push activation', () => {
   const root = stageTarget('src/modules.ts', `
 export const enabledModules = [
@@ -133,6 +197,62 @@ export class LibraryBook {
   try {
     const result = runOracle(root, 'before', process.env, 'OMH-009')
     assert.equal(result.parsed.checks.find((entry) => entry.id === 'entity.declaration')?.passed, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the CRM library regression oracle requires scoped behavior, public schemas, and executable Jest structure', () => {
+  const root = stageTarget('src/modules/library/commands/crm-loans.ts', `
+export function requireTrustedScope(scope: { tenantId?: string; organizationId?: string }) {
+  if (!scope.tenantId || !scope.organizationId) throw new Error('scope required')
+  return scope
+}
+export async function createBook(input: any, scope: any, effects: any) { return effects.createBook(input, requireTrustedScope(scope)) }
+export async function undoCreateBook(id: string, scope: any, effects: any) { return effects.softDeleteBook(id, requireTrustedScope(scope)) }
+export async function deleteBook(id: string, scope: any, effects: any) { return effects.softDeleteBook(id, requireTrustedScope(scope)) }
+export async function undoDeleteBook(id: string, scope: any, effects: any) { return effects.restoreBook(id, requireTrustedScope(scope)) }
+export async function checkoutBook(input: any, scope: any, effects: any) {
+  const trusted = requireTrustedScope(scope)
+  const customer = await effects.resolveCustomer(input.customerEntityId, trusted)
+  return effects.claimCheckout({ bookId: input.bookId, customerEntityId: customer.id, customerNameSnapshot: customer.displayName, idempotencyKey: input.idempotencyKey }, trusted)
+}
+export async function returnLoan(input: any, scope: any, effects: any) { const trusted = requireTrustedScope(scope); await effects.findLoan(input.id, trusted); return effects.updateLoan(input.id, trusted, { status: 'returned' }) }
+export async function renewLoan(input: any, scope: any, effects: any) { const trusted = requireTrustedScope(scope); await effects.findLoan(input.id, trusted); return effects.updateLoan(input.id, trusted, { status: 'renewed' }) }
+export async function markLoanLost(input: any, scope: any, effects: any) { const trusted = requireTrustedScope(scope); await effects.findLoan(input.id, trusted); return effects.updateLoan(input.id, trusted, { status: 'lost' }) }
+`)
+  const schema = path.join(root, 'src/modules/library/api/schemas.ts')
+  const generatedTest = path.join(root, 'src/modules/library/commands/__tests__/crm-loans.test.ts')
+  fs.mkdirSync(path.dirname(schema), { recursive: true })
+  fs.mkdirSync(path.dirname(generatedTest), { recursive: true })
+  fs.writeFileSync(schema, `
+import { z } from 'zod'
+export const createBookRequestSchema = z.object({ title: z.string() })
+export const checkoutBookRequestSchema = z.object({ bookId: z.string(), customerEntityId: z.string(), idempotencyKey: z.string() })
+`)
+  fs.writeFileSync(generatedTest, `
+import { describe, expect, it } from '@jest/globals'
+import { checkoutBook, createBook, deleteBook, markLoanLost, renewLoan, returnLoan, undoCreateBook, undoDeleteBook } from '../crm-loans'
+describe('CRM loans', () => {
+  it('covers lifecycle and scoped actions', async () => {
+    await createBook({}, {}, {})
+    await undoCreateBook('', {}, {})
+    await deleteBook('', {}, {})
+    await undoDeleteBook('', {}, {})
+    await returnLoan({}, {}, {})
+    await renewLoan({}, {}, {})
+    await markLoanLost({}, {}, {})
+    await Promise.all([checkoutBook({}, {}, {}), checkoutBook({}, {}, {})])
+    await checkoutBook({}, {}, {})
+    expect(true).toBe(true)
+  })
+})
+`)
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-192')
+    const crmChecks = result.parsed.checks.filter((entry) => entry.id.startsWith('crm-library.'))
+    assert.ok(crmChecks.length >= 8)
+    assert.ok(crmChecks.every((entry) => entry.passed), result.parsed.failures.join('\n'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

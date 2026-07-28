@@ -346,6 +346,13 @@ const WRITABLE_CASES = Object.freeze({
     sources: ['src/modules/room_bookings/workflows.ts'],
     artifacts: ['src/modules/room_bookings/workflows.ts'],
   },
+  'OMH-192': {
+    family: 'crm-library-regression',
+    sources: ['src/modules/library/commands/crm-loans.ts', 'src/modules/library/api/schemas.ts', 'src/modules/library/commands/__tests__/crm-loans.test.ts'],
+    schemaSource: 'src/modules/library/api/schemas.ts',
+    testSource: 'src/modules/library/commands/__tests__/crm-loans.test.ts',
+    artifacts: ['src/modules/library/commands/crm-loans.ts', 'src/modules/library/api/schemas.ts', 'src/modules/library/commands/__tests__/crm-loans.test.ts'],
+  },
   'OMH-185': {
     family: 'complete-module',
     sources: ['src/modules/library', 'src/modules.ts'],
@@ -368,7 +375,7 @@ const WRITABLE_CASES = Object.freeze({
   },
 })
 
-export const WRITABLE_CASE_IDS = Object.freeze(Object.keys(WRITABLE_CASES))
+export const WRITABLE_CASE_IDS = Object.freeze(Object.keys(WRITABLE_CASES).sort())
 
 function parseArgs(argv) {
   const options = { root: undefined, caseId: undefined, phase: undefined, json: false }
@@ -546,7 +553,9 @@ function newFacts() {
     declarations: new Set(),
     decorators: new Set(),
     exportedFunctions: new Map(),
+    exportedObjectFacts: new Map(),
     exportedVariables: new Set(),
+    functionFacts: new Map(),
     functions: new Set(),
     finallyBlocks: 0,
     importedBindings: new Map(),
@@ -646,7 +655,7 @@ function collectFunctionFact(ts, node) {
     }
     ts.forEachChild(current, visit)
   }
-  if (node.body) visit(node.body)
+  visit(node.body ?? node)
   return fact
 }
 
@@ -714,9 +723,11 @@ function collectFacts(ts, sourceFiles) {
         for (const decorator of decorators) facts.decorators.add(decorator)
       }
       if (ts.isFunctionDeclaration(node) && node.name) {
+        const functionFact = collectFunctionFact(ts, node)
         facts.functions.add(node.name.text)
         facts.declarations.add(node.name.text)
-        if (isExportedFunction(ts, node)) facts.exportedFunctions.set(node.name.text, collectFunctionFact(ts, node))
+        facts.functionFacts.set(node.name.text, functionFact)
+        if (isExportedFunction(ts, node)) facts.exportedFunctions.set(node.name.text, functionFact)
       }
       if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isEnumDeclaration(node)) {
         facts.declarations.add(node.name.text)
@@ -726,6 +737,7 @@ function collectFacts(ts, sourceFiles) {
         if (isExportedVariable(ts, node)) facts.exportedVariables.add(node.name.text)
         const properties = new Set()
         if (node.initializer && ts.isObjectLiteralExpression(node.initializer)) {
+          if (isExportedVariable(ts, node)) facts.exportedObjectFacts.set(node.name.text, collectFunctionFact(ts, node.initializer))
           for (const property of node.initializer.properties) {
             const name = propertyName(ts, property.name)
             if (name) properties.add(name)
@@ -858,9 +870,31 @@ function hasStringPrefix(facts, value) {
   return [...facts.strings].some((entry) => entry.startsWith(value))
 }
 
+function factReachesCalls(facts, start, requiredCalls) {
+  if (!start) return false
+  const reached = new Set(start.calls)
+  const pending = [...start.calls]
+  const visited = new Set()
+  while (pending.length) {
+    const name = pending.pop()
+    if (visited.has(name)) continue
+    visited.add(name)
+    const local = facts.functionFacts.get(name)
+    if (!local) continue
+    for (const call of local.calls) {
+      reached.add(call)
+      pending.push(call)
+    }
+  }
+  return requiredCalls.every((name) => reached.has(name))
+}
+
 function exportedFunctionCalls(facts, functionName, requiredCalls) {
-  const fact = facts.exportedFunctions.get(functionName)
-  return Boolean(fact && requiredCalls.every((name) => fact.calls.has(name)))
+  return factReachesCalls(facts, facts.exportedFunctions.get(functionName), requiredCalls)
+}
+
+function exportedObjectCalls(facts, variableName, requiredCalls) {
+  return factReachesCalls(facts, facts.exportedObjectFacts.get(variableName), requiredCalls)
 }
 
 function exportedFunctionHasCallOptions(facts, functionName, callName, requiredOptions) {
@@ -911,7 +945,7 @@ function check(id, passed, requirement) {
   return { id, passed: Boolean(passed), requirement }
 }
 
-function caseChecks(ts, caseId, facts) {
+function caseChecks(ts, caseId, facts, root) {
   const definition = WRITABLE_CASES[caseId]
   if (definition.family === 'complete-module') {
     const scopedEntity = facts.classes.some((entry) => entry.decorators.has('Entity') && ['tenant_id', 'organization_id', 'updated_at'].every((name) => entry.members.has(name)))
@@ -920,18 +954,23 @@ function caseChecks(ts, caseId, facts) {
       check('module.activation', facts.moduleEntries.some((entry) => entry.id === 'library' && entry.from === '@app') && facts.moduleEntries.some((entry) => entry.id === 'directory' && entry.from === '@open-mercato/core') && facts.moduleEntries.some((entry) => entry.id === 'example' && entry.from === '@app'), 'src/modules.ts preserves statically discoverable baseline entries and activates library from @app'),
       check('module.entity', scopedEntity, 'a scoped editable @Entity includes tenant_id, organization_id, and updated_at'),
       check('module.validator', hasCall(facts, 'z.object', 'object'), 'the book input boundary uses a concrete validator object'),
-      check('module.acl', facts.exportedVariables.has('features') && hasString(facts, 'library.books.view') && hasString(facts, 'library.books.manage'), 'acl.ts exports stable view/manage features'),
+      check('module.acl', facts.exportedVariables.has('features') && hasExactString(facts, 'library.books.view') && hasExactString(facts, 'library.books.manage'), 'acl.ts exports stable view/manage features'),
       check('module.setup', facts.exportedVariables.has('setup') && facts.objectProperties.has('defaultRoleFeatures'), 'setup.ts grants module features through defaultRoleFeatures'),
-      check('module.crud-host', hasCallOptions(facts, 'makeCrudRoute', ['metadata', 'orm', 'list', 'actions', 'indexer', 'enrichers']) && hasString(facts, 'library:book'), 'the scoped CRUD route publishes aligned indexer and enricher hosts for library:book'),
-      check('module.crud-actions', hasCall(facts, 'registerCommand') && ['library.books.create', 'library.books.update', 'library.books.delete'].every((id) => hasString(facts, id)) && ['create', 'update', 'delete'].every((name) => facts.objectProperties.has(name)), 'create, update, and delete actions are backed by aligned registered commands'),
+      check('module.crud-host', hasCallOptions(facts, 'makeCrudRoute', ['metadata', 'orm', 'list', 'actions', 'indexer', 'enrichers']) && hasExactString(facts, 'library:book'), 'the scoped CRUD route publishes aligned indexer and enricher hosts for library:book'),
+      check('module.crud-actions', hasCall(facts, 'registerCommand') && ['library.books.create', 'library.books.update', 'library.books.delete'].every((id) => hasExactString(facts, id)) && ['create', 'update', 'delete'].every((name) => facts.objectProperties.has(name)), 'create, update, and delete actions are backed by aligned registered commands'),
       check('module.api-metadata', ['GET', 'POST', 'PUT', 'DELETE', 'requireAuth', 'requireFeatures'].every((name) => facts.objectProperties.has(name)), 'CRUD API metadata declares per-method auth and features'),
       check('module.openapi', facts.exportedVariables.has('openApi'), 'the CRUD API exports OpenAPI documentation separately'),
-      check('module.command-atomic', hasCallOptions(facts, 'withAtomicFlush', ['transaction']) && hasCall(facts, 'enforceCommandOptimisticLock'), 'commands use transactional withAtomicFlush and command-level optimistic locking'),
-      check('module.command-undo', hasCall(facts, 'extractUndoPayload') && hasCall(facts, 'buildCustomFieldResetMap') && hasCall(facts, 'emitCrudSideEffects') && hasCall(facts, 'emitCrudUndoSideEffects'), 'commands capture and restore custom fields with symmetric forward/undo side effects'),
-      check('module.encryption-map', facts.exportedVariables.has('defaultEncryptionMaps') && hasString(facts, 'library:book'), 'encryption.ts exports a library:book defaultEncryptionMaps entry'),
+      check('module.command-atomic', exportedObjectCalls(facts, 'createBook', ['withAtomicFlush'])
+        && ['updateBook', 'deleteBook'].every((name) => exportedObjectCalls(facts, name, ['withAtomicFlush', 'enforceCommandOptimisticLock'])),
+      'each declared create/update/delete command reaches its own transaction seam, and update/delete each enforce their own optimistic lock'),
+      check('module.command-undo', exportedObjectCalls(facts, 'createBook', ['extractUndoPayload', 'emitCrudUndoSideEffects'])
+        && ['updateBook', 'deleteBook'].every((name) => exportedObjectCalls(facts, name, ['extractUndoPayload', 'buildCustomFieldResetMap', 'emitCrudUndoSideEffects']))
+        && hasCall(facts, 'emitCrudSideEffects'),
+      'each declared create/update/delete command owns concrete undo behavior; update/delete restore custom fields and all commands retain forward side effects'),
+      check('module.encryption-map', facts.exportedVariables.has('defaultEncryptionMaps') && hasExactString(facts, 'library:book'), 'encryption.ts exports a library:book defaultEncryptionMaps entry'),
       check('module.encrypted-read', ['findWithDecryption', 'findOneWithDecryption', 'findAndCountWithDecryption'].some((name) => hasCall(facts, name)) && [...facts.importSources].includes('@open-mercato/shared/lib/encryption/find'), 'read paths use a scoped framework decryption helper'),
       check('module.search', facts.exportedVariables.has('searchConfig') && ['fieldPolicy', 'checksumSource', 'formatResult'].every((name) => facts.objectProperties.has(name)), 'search.ts defines policy, checksum, and presentation contracts'),
-      check('module.table', facts.jsxTags.has('DataTable') && facts.jsxTags.has('RowActions') && facts.jsxAttributes.has('extensionTableId') && hasString(facts, '/backend/library/books/create') && [...facts.strings].some((value) => value === 'edit' || value.endsWith('.edit')) && [...facts.strings].some((value) => value === 'delete' || value.endsWith('.delete')), 'the extensible DataTable list exposes add, linked edit, and guarded delete actions'),
+      check('module.table', facts.jsxTags.has('DataTable') && facts.jsxTags.has('RowActions') && facts.jsxAttributes.has('extensionTableId') && hasExactString(facts, '/backend/library/books/create') && [...facts.strings].some((value) => value === 'edit' || value.endsWith('.edit')) && [...facts.strings].some((value) => value === 'delete' || value.endsWith('.delete')), 'the extensible DataTable list exposes add, linked edit, and guarded delete actions'),
       check('module.list-query', facts.jsxAttributes.has('searchValue') && facts.jsxAttributes.has('onSearchChange') && ['search', 'buildFilters'].every((name) => facts.objectProperties.has(name)), 'the DataTable and scoped CRUD list connect server search and filters'),
       check('module.form', facts.jsxTags.has('CrudForm') && facts.jsxAttributes.has('initialValues') && (facts.jsxAttributes.has('entityId') || facts.objectProperties.has('entityIds')) && ['createCrud', 'updateCrud', 'deleteCrud'].every((name) => hasCall(facts, name)), 'CrudForm create/edit/delete binds the stable custom-field entity identity and initial values'),
       check('module.custom-fields', hasCall(facts, 'collectCustomFieldValues') && hasCall(facts, 'buildCustomFieldResetMap'), 'UI submission and command undo preserve custom fields'),
@@ -985,6 +1024,30 @@ function caseChecks(ts, caseId, facts) {
       check('workflow.terminal-graph', hasExactString(facts, 'START') && hasExactString(facts, 'END'), 'the graph declares an explicit start and a reachable end'),
       check('workflow.confirmation-beats-expiry', hasExactString(facts, 'signal') && hasExactString(facts, 'timer'), 'confirmation arrives as a signal transition competing with the expiry timer'),
       check('workflow.dispatch-update-entity', hasExactString(facts, 'UPDATE_ENTITY'), 'the release path cancels the hold through an UPDATE_ENTITY activity, not a direct mutation'),
+    ]
+  }
+  if (definition.family === 'crm-library-regression') {
+    const schemaFacts = collectFacts(ts, collectSourceFiles(root, [definition.schemaSource]))
+    const testFacts = collectFacts(ts, collectSourceFiles(root, [definition.testSource]))
+    const scopedActions = ['createBook', 'undoCreateBook', 'deleteBook', 'undoDeleteBook', 'checkoutBook', 'returnLoan', 'renewLoan', 'markLoanLost']
+    return [
+      check('crm-library.exports', scopedActions.every((name) => facts.exportedFunctions.has(name)), 'the stable lifecycle, checkout, return, renew, and mark-lost seams remain exported'),
+      check('crm-library.trusted-scope', scopedActions.every((name) => exportedFunctionCalls(facts, name, ['requireTrustedScope'])), 'every mutating seam fails closed through the same trusted tenant/organization scope guard'),
+      check('crm-library.lifecycle', exportedFunctionCalls(facts, 'createBook', ['effects.createBook'])
+        && exportedFunctionCalls(facts, 'undoCreateBook', ['effects.softDeleteBook'])
+        && exportedFunctionCalls(facts, 'deleteBook', ['effects.softDeleteBook'])
+        && exportedFunctionCalls(facts, 'undoDeleteBook', ['effects.restoreBook']),
+      'create undo soft-deletes, delete soft-deletes, and delete undo restores through explicit scoped effects'),
+      check('crm-library.crm-checkout', exportedFunctionCalls(facts, 'checkoutBook', ['effects.resolveCustomer', 'effects.claimCheckout'])
+        && !hasExactString(facts, 'memberId'), 'checkout resolves an existing CRM customer and reaches the atomic claim seam without a duplicate local member'),
+      check('crm-library.loan-scope', ['returnLoan', 'renewLoan', 'markLoanLost'].every((name) => exportedFunctionCalls(facts, name, ['effects.findLoan', 'effects.updateLoan'])), 'every loan action performs both lookup and mutation through scoped effects'),
+      check('crm-library.public-schema', !schemaFacts.objectProperties.has('tenantId') && !schemaFacts.objectProperties.has('organizationId')
+        && schemaFacts.exportedVariables.has('createBookRequestSchema') && schemaFacts.exportedVariables.has('checkoutBookRequestSchema'),
+      'public create/checkout request schemas omit tenantId and organizationId because runtime scope is server-derived'),
+      check('crm-library.jest-import', [...testFacts.importSources].includes('@jest/globals') && hasOnlyEnabledTests(testFacts), 'generated Jest coverage imports its globals explicitly and contains no disabled/focused/expected-failure modifiers'),
+      check('crm-library.semantic-tests', ['createBook', 'undoCreateBook', 'deleteBook', 'undoDeleteBook', 'returnLoan', 'renewLoan', 'markLoanLost'].every((name) => hasCall(testFacts, name))
+        && (testFacts.calls.get('checkoutBook') ?? 0) >= 3 && hasCall(testFacts, 'Promise.all'),
+      'generated tests exercise lifecycle undo, every scoped loan action, concurrent checkout, and deterministic retry'),
     ]
   }
   if (definition.family === 'business-command') {
@@ -1271,7 +1334,7 @@ export function evaluateWritableAstOracle({ root: requestedRoot, caseId, phase }
   const checks = definition.artifacts.map((artifact) => check(`artifact:${artifact}`, artifactExists(root, artifact), `artifact ${artifact} exists`))
   const sourceFiles = collectSourceFiles(root, definition.sources)
   checks.push(check('source.present', sourceFiles.length > 0, 'at least one case-owned TypeScript source file'))
-  if (sourceFiles.length) checks.push(...caseChecks(ts, caseId, collectFacts(ts, sourceFiles)))
+  if (sourceFiles.length) checks.push(...caseChecks(ts, caseId, collectFacts(ts, sourceFiles), root))
   if (phase === 'after') checks.push(runTargetTypecheck(root))
   const failures = checks.filter((entry) => !entry.passed).map((entry) => `${entry.id}: ${entry.requirement}`)
   return { passed: failures.length === 0, failures, checks }

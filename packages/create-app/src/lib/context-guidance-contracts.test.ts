@@ -172,6 +172,8 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(verification, /Jest/)
   assert.match(verification, /commands\/__tests__\//)
   assert.match(verification, /never Vitest/)
+  assert.match(verification, /@jest\/globals/)
+  assert.match(verification, /discover and execute/)
   const testingGuide = readAgentic('guides/testing-debugging.md')
   assert.match(testingGuide, /om-module-scaffold\/references\/verification\.md/)
 
@@ -240,6 +242,11 @@ test('standalone review flow enforces the customers-derived module and design-sy
     'installed AI framework',
     'session tokens',
     'design system',
+    'Public request/OpenAPI schemas',
+    'helper vocabulary elsewhere',
+    'atomic claim seam',
+    'scalar IDs plus intentional snapshots',
+    '@jest/globals',
   ]) assert.ok(checklist.includes(required), `missing module review rule ${required}`)
 
   const autoReview = readAgentic('shared/ai/skills/om-auto-review-pr/SKILL.md')
