@@ -218,6 +218,30 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   Until insert-on-edge exists there is no call site either. Placement + collision avoidance covers the
   real need; full Tidy stays explicit.
 
+## Undo / Redo
+
+- **One stack over the whole editor document.** `lib/editor-history.ts` (PURE) versions
+  `{ nodes, edges, metadata }` as SNAPSHOTS — at this scale a snapshot cannot drift out of sync the
+  way an inverse-command log can, and the node/edge arrays are already replaced rather than mutated,
+  so an entry costs a few references. Cmd/Ctrl+Z undoes, Cmd/Ctrl+Shift+Z redoes, the stack caps at
+  `EDITOR_HISTORY_LIMIT = 100`, and a new edit after an undo invalidates the redo branch.
+- **Entries store the document as it was BEFORE the edit, plus a translated label** ("Delete step",
+  "Paste"). The label is what the shortcut announces, and a later phase names AI checkpoints in the
+  same stack. Because the snapshot is captured up front and committed separately, an asynchronous
+  handler (anything behind a confirm dialog) commits only once the edit actually lands — a cancelled
+  confirmation leaves no entry.
+- **Every mutating page path commits**: inspector saves, deletes, connects, reattachment, conversion,
+  drag end (one entry per drag, from the arrangement the drag started at — not per frame), sample
+  pin/unpin, Tidy, paste, duplicate and palette drops. The stack lives in the page, so it survives
+  dialog open/close and panel switches.
+- **The definition-panel text fields are deliberately NOT versioned.** They have native input undo,
+  and committing per keystroke would evict real structural edits from a 100-entry stack. The
+  consequence is that a whole-document replacement — draft restore, template load, Clear canvas —
+  RESETS the stack rather than pushing an entry, because undoing into it would restore the graph
+  without the panel fields it was saved with.
+- The shortcut is suppressed while a field has focus (the page's existing `isEditing` guard) and
+  while a dialog is open, so it never hijacks form input.
+
 ## Environment
 
 | Variable | Effect | Default |

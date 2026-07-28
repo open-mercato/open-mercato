@@ -15,6 +15,14 @@ import { collectValidationIssues, countIssuesBySeverity, type WorkflowIssueTrans
 import { formatWorkflowValidationError } from '../../../lib/format-validation-error'
 import type { WorkflowGraphFocusTarget, WorkflowGraphNodesChangeMeta } from '../../../components/WorkflowGraph'
 import { resolveNewNodePlacement } from '../../../lib/node-placement'
+import {
+  commitEditorHistory,
+  createEditorHistory,
+  redoEditorHistory,
+  undoEditorHistory,
+  type EditorHistoryState,
+  type WorkflowEditorDocument,
+} from '../../../lib/editor-history'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-flag'
 import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } from '../../../lib/draft-restore'
@@ -374,34 +382,54 @@ export default function VisualEditorPage() {
   const [startContext, setStartContext] = useState('{}')
   const [starting, setStarting] = useState(false)
 
-  // Keyboard shortcuts: `F` toggles Focus mode, `Esc` exits it. Suppressed while
-  // the user is typing in a field or a dialog is open, so it never hijacks form
-  // input or the dialog's own Escape-to-close.
-  useEffect(() => {
-    if (isMobile) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return
-      const active = document.activeElement as HTMLElement | null
-      const tag = (active?.tagName || '').toLowerCase()
-      const isEditing = tag === 'input' || tag === 'textarea' || tag === 'select' || !!active?.isContentEditable
-      if (isEditing) return
-      const isDialogOpen = showNodeDialog || showEdgeDialog || showClearConfirm || startOpen
-      if (event.key === 'Escape') {
-        if (focusMode && !isDialogOpen) {
-          event.preventDefault()
-          setFocusMode(false)
-        }
-        return
-      }
-      if (event.key === 'f' || event.key === 'F') {
-        if (isDialogOpen) return
-        event.preventDefault()
-        toggleFocus()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isMobile, focusMode, showNodeDialog, showEdgeDialog, showClearConfirm, startOpen, toggleFocus, setFocusMode])
+  // Undo/redo (spec §4.5). One stack over the whole editor document, so an
+  // inspector save undoes exactly like a deleted route. Snapshots are cheap
+  // because every mutating path already replaces the node/edge arrays instead
+  // of mutating them, so an entry only holds references.
+  const [history, setHistory] = useState<EditorHistoryState<WorkflowEditorDocument>>(createEditorHistory)
+  const historyRef = React.useRef(history)
+  historyRef.current = history
+  const loadedMetadataRef = React.useRef<Record<string, unknown> | null>(null)
+  loadedMetadataRef.current = loadedMetadata
+
+  const historyLabels = useMemo(() => ({
+    addStep: t('workflows.visualEditor.history.addStep', 'Add step'),
+    editStep: t('workflows.visualEditor.history.editStep', 'Edit step'),
+    editRoute: t('workflows.visualEditor.history.editRoute', 'Edit route'),
+    deleteStep: t('workflows.visualEditor.history.deleteStep', 'Delete step'),
+    deleteRoute: t('workflows.visualEditor.history.deleteRoute', 'Delete route'),
+    connect: t('workflows.visualEditor.history.connect', 'Connect steps'),
+    reattach: t('workflows.visualEditor.history.reattach', 'Re-target route'),
+    move: t('workflows.visualEditor.history.move', 'Move steps'),
+    convert: t('workflows.visualEditor.history.convert', 'Change step type'),
+    branchRoutes: t('workflows.visualEditor.history.branchRoutes', 'Edit branch routes'),
+    routeOrder: t('workflows.visualEditor.history.routeOrder', 'Reorder routes'),
+    pinSample: t('workflows.visualEditor.history.pinSample', 'Pin sample'),
+    unpinSample: t('workflows.visualEditor.history.unpinSample', 'Unpin sample'),
+    tidy: t('workflows.visualEditor.history.tidy', 'Tidy layout'),
+  }), [t])
+
+  const captureDocument = useCallback((): WorkflowEditorDocument => ({
+    nodes: nodesRef.current,
+    edges: edgesRef.current,
+    metadata: loadedMetadataRef.current,
+  }), [])
+
+  const commitCapturedDocument = useCallback((document: WorkflowEditorDocument, label: string) => {
+    setHistory((current) => commitEditorHistory(current, document, label))
+  }, [])
+
+  const commitHistory = useCallback((label: string) => {
+    commitCapturedDocument(captureDocument(), label)
+  }, [captureDocument, commitCapturedDocument])
+
+  // A whole-document replacement (draft restore, template load, clear) starts a
+  // fresh stack: those paths also rewrite the definition-panel fields, which the
+  // document deliberately does not version, so undoing into them would restore
+  // half a workflow.
+  const resetHistory = useCallback(() => {
+    setHistory(createEditorHistory<WorkflowEditorDocument>())
+  }, [])
 
   const mutationContextId = `workflows.definitions.visual-editor:${definitionId ?? 'unknown'}`
   const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
@@ -644,6 +672,7 @@ export default function VisualEditorPage() {
         definition: pendingDraft.draft.definition,
         metadata: pendingDraft.draft.metadata ?? null,
       })
+      resetHistory()
       flash(t('workflows.visualEditor.draft.restored', 'Draft restored'), 'success')
     } catch (error) {
       logger.error('Error restoring workflow definition draft', { err: error })
@@ -652,7 +681,7 @@ export default function VisualEditorPage() {
       setPendingDraft(null)
       setDraftAutosaveReady(true)
     }
-  }, [pendingDraft, t])
+  }, [pendingDraft, resetHistory, t])
 
   const handleDiscardDraft = useCallback(async () => {
     setPendingDraft(null)
@@ -681,25 +710,102 @@ export default function VisualEditorPage() {
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
   }, [])
 
+  const applyHistoryDocument = useCallback((document: WorkflowEditorDocument) => {
+    setNodes(document.nodes)
+    setEdges(document.edges)
+    setLoadedMetadata(document.metadata)
+    scheduleAutosave()
+  }, [scheduleAutosave])
+
+  const handleUndo = useCallback(() => {
+    if (isCodeOnly) return
+    const step = undoEditorHistory(historyRef.current, captureDocument())
+    if (!step) {
+      flash(t('workflows.visualEditor.history.nothingToUndo', 'Nothing to undo'), 'info')
+      return
+    }
+    setHistory(step.state)
+    applyHistoryDocument(step.document)
+    flash(t('workflows.visualEditor.history.undone', 'Undone: {label}', { label: step.label }), 'success')
+  }, [isCodeOnly, captureDocument, applyHistoryDocument, t])
+
+  const handleRedo = useCallback(() => {
+    if (isCodeOnly) return
+    const step = redoEditorHistory(historyRef.current, captureDocument())
+    if (!step) {
+      flash(t('workflows.visualEditor.history.nothingToRedo', 'Nothing to redo'), 'info')
+      return
+    }
+    setHistory(step.state)
+    applyHistoryDocument(step.document)
+    flash(t('workflows.visualEditor.history.redone', 'Redone: {label}', { label: step.label }), 'success')
+  }, [isCodeOnly, captureDocument, applyHistoryDocument, t])
+
+  // Keyboard shortcuts: Cmd/Ctrl+Z undoes, Cmd/Ctrl+Shift+Z redoes, `F` toggles
+  // Focus mode, `Esc` exits it. Suppressed while the user is typing in a field
+  // (a text input keeps its own native undo) or while a dialog is open, so the
+  // shortcut never hijacks form input or the dialog's own Escape-to-close.
+  useEffect(() => {
+    if (isMobile) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      const active = document.activeElement as HTMLElement | null
+      const tag = (active?.tagName || '').toLowerCase()
+      const isEditing = tag === 'input' || tag === 'textarea' || tag === 'select' || !!active?.isContentEditable
+      if (isEditing) return
+      const isDialogOpen = showNodeDialog || showEdgeDialog || showClearConfirm || startOpen
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.key === 'z' || event.key === 'Z')) {
+        if (isDialogOpen) return
+        event.preventDefault()
+        if (event.shiftKey) handleRedo()
+        else handleUndo()
+        return
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key === 'Escape') {
+        if (focusMode && !isDialogOpen) {
+          event.preventDefault()
+          setFocusMode(false)
+        }
+        return
+      }
+      if (event.key === 'f' || event.key === 'F') {
+        if (isDialogOpen) return
+        event.preventDefault()
+        toggleFocus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isMobile, focusMode, showNodeDialog, showEdgeDialog, showClearConfirm, startOpen, toggleFocus, setFocusMode, handleUndo, handleRedo])
+
   // Handle node changes from ReactFlow. The lazy graph applies React Flow's
   // change reducers internally (#3169) and hands back the resolved nodes plus a
   // note on what the batch meant, so this page never imports the @xyflow/react
   // runtime. A drag persists once, on drag end (#4248); selecting or measuring
   // a node changes nothing worth saving and must not touch the stored row.
+  // A drag reports one change batch per frame, so the undoable "before" state is
+  // the arrangement captured when the drag STARTED — not the previous frame.
+  const dragBaselineRef = React.useRef<WorkflowEditorDocument | null>(null)
+
   const handleNodesChange = useCallback((nextNodes: Node[], meta?: WorkflowGraphNodesChangeMeta) => {
     if (isCodeOnly) return
+    if (meta?.dragging && !dragBaselineRef.current) dragBaselineRef.current = captureDocument()
+    const baseline = dragBaselineRef.current ?? captureDocument()
     setNodes(nextNodes)
     if (meta && !meta.persistable) return
+    dragBaselineRef.current = null
+    commitCapturedDocument(baseline, historyLabels.move)
     scheduleAutosave()
-  }, [isCodeOnly, scheduleAutosave])
+  }, [isCodeOnly, captureDocument, commitCapturedDocument, historyLabels.move, scheduleAutosave])
 
   // Auto-arrange / Tidy: the single intentional full re-layout. Re-runs dagre
   // (LR) over the current graph, overwrites positions, and persists via autosave.
   const handleAutoArrange = useCallback(() => {
     if (isCodeOnly) return
+    commitHistory(historyLabels.tidy)
     setNodes((nds) => applyAutoLayout(nds, edges))
     scheduleAutosave()
-  }, [isCodeOnly, edges, scheduleAutosave])
+  }, [isCodeOnly, edges, commitHistory, historyLabels.tidy, scheduleAutosave])
 
   // Handle edge changes from ReactFlow (resolved edges from the lazy graph).
   const handleEdgesChange = useCallback((nextEdges: Edge[]) => {
@@ -725,9 +831,10 @@ export default function VisualEditorPage() {
       },
     }
 
+    commitHistory(historyLabels.addStep)
     setNodes((nds) => [...nds, newNode])
     scheduleAutosave()
-  }, [nodes, isCodeOnly, scheduleAutosave])
+  }, [nodes, isCodeOnly, commitHistory, historyLabels.addStep, scheduleAutosave])
 
   // Handle node selection - open edit dialog (suppressed in read-only mode
   // so users can't open the node editor on a code-defined workflow).
@@ -762,6 +869,7 @@ export default function VisualEditorPage() {
 
   // Save node updates
   const handleSaveNode = useCallback((nodeId: string, updates: Partial<Node['data']>) => {
+    commitHistory(historyLabels.editStep)
     setNodes((nds) =>
       nds.map((node) =>
         node.id === nodeId
@@ -770,7 +878,7 @@ export default function VisualEditorPage() {
       )
     )
     flash('Node updated successfully', 'success')
-  }, [])
+  }, [commitHistory, historyLabels.editStep])
 
   // Branching (IF_ELSE / SWITCH) routes are read from and written back to the
   // node's outgoing edges — the inspector never introduces a bespoke shape.
@@ -784,9 +892,10 @@ export default function VisualEditorPage() {
 
   const handleSaveBranchingRoutes = useCallback((nodeId: string, value: SwitchRoutesValue) => {
     const nodeType = nodes.find((node) => node.id === nodeId)?.type
+    commitHistory(historyLabels.branchRoutes)
     setEdges((eds) => (nodeType === 'switch' ? applySwitchRoutes(eds, nodeId, value) : applyIfElseRoutes(eds, nodeId, value.routes)))
     scheduleAutosave()
-  }, [nodes, scheduleAutosave])
+  }, [nodes, commitHistory, historyLabels.branchRoutes, scheduleAutosave])
 
   // Route order (spec 4.4): a non-branching step's outgoing routes are ordered
   // in the inspector and the priority number is derived from that order.
@@ -813,13 +922,15 @@ export default function VisualEditorPage() {
 
   const handleSaveRouteOrder = useCallback((nodeId: string, entries: RouteOrderEntry[]) => {
     if (isCodeOnly) return
+    commitHistory(historyLabels.routeOrder)
     normalizeRoutesOnFirstEdit(nodeId)
     setEdges((eds) => applyRouteOrder(eds, nodeId, entries))
     scheduleAutosave()
-  }, [isCodeOnly, normalizeRoutesOnFirstEdit, scheduleAutosave])
+  }, [isCodeOnly, normalizeRoutesOnFirstEdit, commitHistory, historyLabels.routeOrder, scheduleAutosave])
 
   // Save edge updates
   const handleSaveEdge = useCallback((edgeId: string, updates: Partial<Edge['data']>) => {
+    commitHistory(historyLabels.editRoute)
     setEdges((eds) =>
       eds.map((edge) =>
         edge.id === edgeId
@@ -828,11 +939,14 @@ export default function VisualEditorPage() {
       )
     )
     flash('Transition updated successfully', 'success')
-  }, [])
+  }, [commitHistory, historyLabels.editRoute])
 
-  // Delete edge
+  // Delete edge. The undo snapshot is taken before the confirmation and only
+  // committed once the delete actually lands, so a cancelled confirm leaves no
+  // entry on the stack.
   const handleDeleteEdge = useCallback(async (edgeId: string) => {
-    await performDeleteEdgeFlow(edgeId, {
+    const before = captureDocument()
+    const deleted = await performDeleteEdgeFlow(edgeId, {
       confirm,
       t,
       setShowEdgeDialog,
@@ -840,11 +954,13 @@ export default function VisualEditorPage() {
       setEdges,
       notifyDeleted: () => flash('Transition deleted successfully', 'success'),
     })
-  }, [confirm, t])
+    if (deleted) commitCapturedDocument(before, historyLabels.deleteRoute)
+  }, [confirm, t, captureDocument, commitCapturedDocument, historyLabels.deleteRoute])
 
   // Delete node
   const handleDeleteNode = useCallback(async (nodeId: string) => {
-    await performDeleteNodeFlow(nodeId, {
+    const before = captureDocument()
+    const deleted = await performDeleteNodeFlow(nodeId, {
       nodes,
       confirm,
       t,
@@ -854,7 +970,8 @@ export default function VisualEditorPage() {
       setEdges,
       notifyDeleted: () => flash('Step deleted successfully', 'success'),
     })
-  }, [confirm, nodes, t])
+    if (deleted) commitCapturedDocument(before, historyLabels.deleteStep)
+  }, [confirm, nodes, t, captureDocument, commitCapturedDocument, historyLabels.deleteStep])
 
   // In-place step type conversion (spec 4.5, #4237). The step keeps its id,
   // name, position and every incoming/outgoing route; config the new type
@@ -866,6 +983,7 @@ export default function VisualEditorPage() {
     const node = nodesRef.current.find((candidate) => candidate.id === nodeId)
     if (!node) return
 
+    const before = captureDocument()
     const result = convertStepType({ type: node.type, data: node.data as Record<string, unknown> }, targetType)
     if (!result.ok) {
       flash(t('workflows.stepConversion.unavailable', 'This step type cannot be changed.'), 'error')
@@ -886,6 +1004,7 @@ export default function VisualEditorPage() {
     })
     if (!confirmed) return
 
+    commitCapturedDocument(before, historyLabels.convert)
     setNodes((nds) =>
       nds.map((candidate) =>
         candidate.id === nodeId
@@ -900,7 +1019,7 @@ export default function VisualEditorPage() {
         : t('workflows.stepConversion.converted', 'Step type changed'),
       result.quarantined.length > 0 ? 'warning' : 'success',
     )
-  }, [isCodeOnly, confirm, scheduleAutosave, t])
+  }, [isCodeOnly, confirm, captureDocument, commitCapturedDocument, historyLabels.convert, scheduleAutosave, t])
 
   // Inline node delete: a node's trash button dispatches WORKFLOW_NODE_DELETE_EVENT
   // (decoupled from the node component); route it through the same confirm +
@@ -936,6 +1055,7 @@ export default function VisualEditorPage() {
 
     if (classification.kind === 'data-mapping') {
       const { targetNodeId, childPortKey, parentPath } = classification
+      commitHistory(historyLabels.connect)
       setNodes((nds) => applyInputMappingToNodes(nds, targetNodeId, childPortKey, parentPath))
       const dataEdge = buildDataMappingEdge(connection, childPortKey)
       setEdges((eds) => appendWorkflowEdge(eds.filter((e) => e.id !== dataEdge.id), dataEdge))
@@ -965,8 +1085,9 @@ export default function VisualEditorPage() {
       },
     }
 
+    commitHistory(historyLabels.connect)
     setEdges((eds) => appendWorkflowEdge(eds, newEdge))
-  }, [])
+  }, [commitHistory, historyLabels.connect])
 
   // Route reattachment (#4233): dropping an existing route endpoint on another
   // node re-targets it. The route keeps its durable transitionId, so its label,
@@ -999,10 +1120,11 @@ export default function VisualEditorPage() {
       flash(describeReattachRejection(result), 'error')
       return
     }
+    commitHistory(historyLabels.reattach)
     setEdges(result.edges)
     scheduleAutosave()
     flash(t('workflows.reattach.retargeted', 'Route re-targeted'), 'success')
-  }, [isCodeOnly, describeReattachRejection, scheduleAutosave, t])
+  }, [isCodeOnly, describeReattachRejection, commitHistory, historyLabels.reattach, scheduleAutosave, t])
 
   // Typed trigger contextMapping targets (spec section 3.1, step 1.9): the
   // ledger stays pure, so trigger event payload contracts are pre-resolved
@@ -1068,6 +1190,7 @@ export default function VisualEditorPage() {
   }, [loadedMetadata])
 
   const handlePinSample = useCallback((stepId: string, data: unknown) => {
+    commitHistory(historyLabels.pinSample)
     setLoadedMetadata((previous) => {
       const base: Record<string, unknown> = { ...(previous ?? {}) }
       const editorValue = base.editor
@@ -1086,9 +1209,10 @@ export default function VisualEditorPage() {
       return base
     })
     flash(t('workflows.testStep.pinnedFlash', 'Sample pinned — it is stored with the definition on save'), 'success')
-  }, [t])
+  }, [commitHistory, historyLabels.pinSample, t])
 
   const handleUnpinSample = useCallback((stepId: string) => {
+    commitHistory(historyLabels.unpinSample)
     setLoadedMetadata((previous) => {
       if (!previous) return previous
       const editorValue = previous.editor
@@ -1106,7 +1230,7 @@ export default function VisualEditorPage() {
       else delete base.editor
       return Object.keys(base).length > 0 ? base : null
     })
-  }, [])
+  }, [commitHistory, historyLabels.unpinSample])
 
   const edgeDialogLedgerEntries = useMemo(
     () => (dialogLedger && selectedEdge ? dialogLedger.steps[selectedEdge.target]?.entries : undefined),
@@ -1636,8 +1760,9 @@ export default function VisualEditorPage() {
     setInterpolation(resolveDefinitionInterpolationMode(template.definition) ?? 'strict')
     setErrorHandler((template.definition as { errorHandler?: WorkflowErrorHandlerConfig }).errorHandler ?? undefined)
     setLoadedMetadata(null)
+    resetHistory()
     flash(t('workflows.visualEditor.templateLoaded', 'Template loaded'), 'success')
-  }, [t])
+  }, [resetHistory, t])
 
   // Open the template gallery (replaces the old hardcoded inline example).
   const handleOpenTemplateGallery = useCallback(() => {
@@ -1696,8 +1821,9 @@ export default function VisualEditorPage() {
     setDefinitionIo(undefined)
     setLoadedMetadata(null)
     setShowClearConfirm(false)
+    resetHistory()
     flash('Canvas cleared', 'success')
-  }, [])
+  }, [resetHistory])
 
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so the enterprise record_locks widget resolves `workflows.definition` + id
