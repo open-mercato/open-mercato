@@ -13,6 +13,11 @@
  * `module.entity` (`resourceKind`). Both must resolve to the same target.
  */
 
+import {
+  TASK_ENTITY_TYPE_ALIAS_GROUPS,
+  normalizeTaskEntityTypeSpelling,
+} from '../task-entity-aliases'
+
 const CUSTOMER_PERSON = 'customers:person'
 const CUSTOMER_COMPANY = 'customers:company'
 const CUSTOMER_DEAL = 'customers:deal'
@@ -28,25 +33,24 @@ export const WORK_INBOX_LINKED_ENTITY_TYPES = [
 export type WorkInboxLinkedEntityType = (typeof WORK_INBOX_LINKED_ENTITY_TYPES)[number]
 
 /**
- * Alternate spellings that unambiguously mean one of the canonical types.
- * `customers:customer_entity` is deliberately absent — it backs both people and
- * companies, so it cannot pick a detail page.
+ * The generated entity id behind each linkable record type. This is the only
+ * mapping this file owns — the SPELLINGS come from `lib/task-entity-types.ts`,
+ * which is the single alias dictionary, so a spelling added for the visibility
+ * gate automatically resolves to a deep link too and the two cannot drift.
  */
-const ENTITY_TYPE_ALIASES: Record<string, WorkInboxLinkedEntityType> = {
-  'customers:person': CUSTOMER_PERSON,
-  'customers:people': CUSTOMER_PERSON,
+const LINK_TARGET_BY_ENTITY_ID: Record<string, WorkInboxLinkedEntityType> = {
   'customers:customer_person_profile': CUSTOMER_PERSON,
-  'customers:company': CUSTOMER_COMPANY,
-  'customers:companies': CUSTOMER_COMPANY,
   'customers:customer_company_profile': CUSTOMER_COMPANY,
-  'customers:deal': CUSTOMER_DEAL,
-  'customers:deals': CUSTOMER_DEAL,
   'customers:customer_deal': CUSTOMER_DEAL,
-  'sales:order': SALES_ORDER,
-  'sales:orders': SALES_ORDER,
   'sales:sales_order': SALES_ORDER,
-  'sales:document': SALES_ORDER,
 }
+
+const ENTITY_TYPE_ALIASES: Record<string, WorkInboxLinkedEntityType> = Object.fromEntries(
+  TASK_ENTITY_TYPE_ALIAS_GROUPS.flatMap((group) => {
+    const target = LINK_TARGET_BY_ENTITY_ID[group.entityId]
+    return target ? group.spellings.map((spelling) => [spelling, target] as const) : []
+  }),
+)
 
 const ENTITY_DETAIL_PATHS: Record<WorkInboxLinkedEntityType, string> = {
   [CUSTOMER_PERSON]: '/backend/customers/people-v2',
@@ -56,9 +60,7 @@ const ENTITY_DETAIL_PATHS: Record<WorkInboxLinkedEntityType, string> = {
 }
 
 /** `Customers.Person` / `customers.person` / `customers:person` → `customers:person`. */
-export function normalizeEntityType(entityType: string): string {
-  return entityType.trim().toLowerCase().replace(/\./g, ':')
-}
+export const normalizeEntityType = normalizeTaskEntityTypeSpelling
 
 export function resolveLinkedEntityType(entityType: string): WorkInboxLinkedEntityType | null {
   return ENTITY_TYPE_ALIASES[normalizeEntityType(entityType)] ?? null
