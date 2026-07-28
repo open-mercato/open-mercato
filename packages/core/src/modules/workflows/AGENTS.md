@@ -179,6 +179,14 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - **Rejection is a business route, not an error** (§7.2): a rejected proposal routes `rejected`;
   infra failure keeps the retry policy and then the `error` route. Events: `OUTCOME_ROUTED` /
   `OUTCOME_UNHANDLED`.
+- **Guardrail escalation (§7.3).** A runtime guardrail `block` is recognised STRUCTURALLY
+  (`isGuardrailBlockedError` — `code === 'agent_guardrail_blocked'` or `guardrailBlocked === true`),
+  the same way `isRetryableError` reads `retryable: true`, so `agent_orchestrator` stays an optional
+  peer core never imports. The activity worker resumes the parked step down the `guardrailBlocked`
+  route **only when the step wired one**; otherwise its fail-stop is byte-identical to before, which
+  is what keeps §7.3 additive. Only the guardrail CLASSIFICATION travels into the run context
+  (`__guardrailBlock`: phase, kind, guardrail-set version) — never the evidence blob, per
+  `agent_orchestrator/AGENTS.md`'s redaction rule.
 - Author-time checks live in `validateOutcomeRoutes` (unknown outcome kind, two routes claiming the
   same kind on one step) and surface through the Problems panel.
 

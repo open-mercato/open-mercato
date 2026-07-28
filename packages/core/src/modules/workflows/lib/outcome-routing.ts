@@ -223,6 +223,55 @@ export function mapDispositionToAgentOutcome(disposition: unknown): AgentOutcome
   return DISPOSITION_TO_OUTCOME[disposition] ?? null
 }
 
+/**
+ * Structural recognition of a runtime guardrail `block` (spec §7.3).
+ *
+ * Shaped like `isRetryableError` in `activity-worker-handler`: core reads a tag
+ * off the thrown value rather than importing `agent_orchestrator`, which stays
+ * an OPTIONAL peer. `agent_guardrail_blocked` is the code
+ * `AgentGuardrailBlockedError` carries; `guardrailBlocked: true` is the
+ * forward-compatible tag any other runtime can set.
+ */
+export function isGuardrailBlockedError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const tagged = error as { code?: unknown; guardrailBlocked?: unknown }
+  return tagged.code === 'agent_guardrail_blocked' || tagged.guardrailBlocked === true
+}
+
+/**
+ * The guardrail facts safe to bind to a workflow route.
+ *
+ * `agent_orchestrator/AGENTS.md` requires guardrail evidence to be REDACTED —
+ * never raw PII — so only the classification travels: which phase tripped, which
+ * check kind, and the guardrail-set version. The evidence blob itself stays on
+ * the `AgentGuardrailCheck` row and is reached by id.
+ */
+export interface GuardrailBlockEvidenceRef {
+  phase?: string
+  kind?: string
+  guardrailSetVersion?: string
+  checkId?: string
+}
+
+export function readGuardrailBlockEvidenceRef(error: unknown): GuardrailBlockEvidenceRef {
+  if (typeof error !== 'object' || error === null) return {}
+  const tagged = error as Record<string, unknown>
+  const pick = (key: string): string | undefined =>
+    typeof tagged[key] === 'string' ? (tagged[key] as string) : undefined
+  return {
+    ...(pick('phase') ? { phase: pick('phase') } : {}),
+    ...(pick('kind') ? { kind: pick('kind') } : {}),
+    ...(pick('guardrailSetVersion') ? { guardrailSetVersion: pick('guardrailSetVersion') } : {}),
+    ...(pick('checkId') ? { checkId: pick('checkId') } : {}),
+  }
+}
+
+/**
+ * Context key the guardrail evidence REFERENCE lands under when a block takes
+ * the guardrail route, so the review task the author wires can bind it.
+ */
+export const WORKFLOW_GUARDRAIL_BLOCK_CONTEXT_KEY = '__guardrailBlock'
+
 /** The engine-owned outcome marker for a step, or null when it names another step. */
 export function readAgentOutcomeMarker(
   context: Record<string, unknown> | null | undefined,

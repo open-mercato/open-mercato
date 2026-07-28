@@ -13,6 +13,13 @@ import {
   WorkflowActivityJobResumeSubWorkflowParent,
 } from './activity-queue-types'
 import { mapAgentResultToContext } from './agent-result-mapping'
+import {
+  WORKFLOW_GUARDRAIL_BLOCK_CONTEXT_KEY,
+  findOutcomeTransition,
+  isGuardrailBlockedError,
+  readGuardrailBlockEvidenceRef,
+  type OutcomeRoutingDefinitionLike,
+} from './outcome-routing'
 import { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
@@ -404,8 +411,20 @@ export async function handleInvokeAgentJob(
       )
       throw agentError
     }
+    // Guardrail escalation (spec 7.3). A guardrail `block` is a GOVERNANCE
+    // outcome, not an infra failure: when the step wired the `guardrailBlocked`
+    // handle, resume it down that route (typically → a review task carrying the
+    // guardrail evidence REFERENCE — never the evidence blob, which stays on the
+    // AgentGuardrailCheck row). A step that wired no such route keeps the
+    // fail-stop below byte-for-byte, so nothing changes until an author opts in.
+    if (isGuardrailBlockedError(agentError)) {
+      const routed = await resumeInvokeAgentWithGuardrailBlock(em, container, instance, payload, agentError)
+      if (routed) return
+    }
+
     // Fail-stop: an INVOKE_AGENT step whose agent cannot produce an outcome
-    // (unknown agent id, run error, guardrail block) must HALT the instance, not
+    // (unknown agent id, run error, an unwired guardrail block) must HALT the
+    // instance, not
     // silently retry the job forever while the step stays parked. Mark the parked
     // step + instance FAILED so progression stops and the failure is visible, and
     // do NOT rethrow — a retry would never succeed and would re-run any partial
@@ -635,6 +654,55 @@ export async function resumeParentAfterSubWorkflow(
  * runs compensation if configured). Best-effort and self-contained: any error
  * here is logged, never rethrown, so the queue does not retry an unwinnable job.
  */
+/**
+ * Resume a parked agent step down its `guardrailBlocked` outcome route.
+ *
+ * Returns false — leaving the caller's untouched fail-stop to run — when the
+ * step wired no guardrail route, which is every definition written before spec
+ * §7.3. Wiring the handle is the whole opt-in.
+ */
+async function resumeInvokeAgentWithGuardrailBlock(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  payload: WorkflowActivityJobInvokeAgent,
+  agentError: unknown,
+): Promise<boolean> {
+  let definition: { definition?: OutcomeRoutingDefinitionLike } | null = null
+  try {
+    const { findDefinitionForInstance } = await import('./find-definition')
+    definition = await findDefinitionForInstance(em, instance)
+  } catch {
+    return false
+  }
+  if (!definition?.definition) return false
+  if (!findOutcomeTransition(definition.definition, payload.stepId, 'guardrailBlocked')) return false
+
+  const evidenceRef = readGuardrailBlockEvidenceRef(agentError)
+  try {
+    const { sendSignal } = await import('./signal-handler')
+    await sendSignal(em, container, {
+      instanceId: payload.workflowInstanceId,
+      signalName: payload.signalName,
+      payload: {
+        disposition: 'guardrail_blocked',
+        agentId: payload.agentId,
+        [WORKFLOW_GUARDRAIL_BLOCK_CONTEXT_KEY]: { stepId: payload.stepId, ...evidenceRef },
+      },
+      userId: payload.userId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+    })
+    return true
+  } catch (resumeError: any) {
+    console.error(
+      `[ActivityWorker] invoke_agent ${payload.agentId}: guardrail block could not be routed for instance ${payload.workflowInstanceId}; falling back to fail-stop:`,
+      resumeError?.message ?? resumeError,
+    )
+    return false
+  }
+}
+
 async function failInvokeAgentStep(
   em: EntityManager,
   container: AwilixContainer,
