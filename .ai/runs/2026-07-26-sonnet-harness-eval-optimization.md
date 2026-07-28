@@ -333,6 +333,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.17 Retry one trace-free read-only routing startup without retrying safety violations — `829babd95`
 - [x] 3.18 Diagnose one semantic routing correction without leaking oracle answers, then allow one independent trace-start recovery — `574924d33`
 - [x] 3.19 Abort a matrix when Claude reports an expired OAuth session inside its terminal result event — `63f62ae62`
+- [x] 3.20 Prioritize scalar-ID/snapshot fix routing to UMES plus the data-model and system-extension skills — `7314d448d`
 
 ### Phase 4: Compatibility baseline
 
