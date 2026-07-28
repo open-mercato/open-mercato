@@ -22,7 +22,7 @@
 | 5 | 5.8 | Migration: `assignee_kind` + `entity_types` + GIN index; creation writes both | done | `5ccd0a990` |
 | 5 | 5.9 | Wire the predicate into every backoffice READ surface (+ 404-vs-403 policy) | done | `49c2dcd16` |
 | 5 | 5.10 | Wire the ACT surfaces (claim/unclaim/complete) | done | `5845d4f4d` |
-| 5 | 5.11 | `POST /api/workflows/tasks/[id]/reassign` with audit + optimistic lock | todo | — |
+| 5 | 5.11 | `POST /api/workflows/tasks/[id]/reassign` with audit + optimistic lock | done | `552ee0990` |
 | 5 | 5.12 | `administrativeQueueFeature` on the provider + enterprise registers its own source | todo | — |
 | 5 | 5.13 | Author-time Problems checks on USER_TASK bindings | todo | — |
 | 5 | 5.14 | Inbox diagnostics: "hidden — entity access" marker + workload bucket | todo | — |

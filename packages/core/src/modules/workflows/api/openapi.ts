@@ -119,6 +119,17 @@ export const userTaskClaimResponseSchema = z.object({
   message: z.string(),
 })
 
+/**
+ * Reassignment answers with the same row projection every other task surface
+ * serves, so a client can refresh its copy — including the `reassignedBy` /
+ * `reassignedAt` / `reassignReason` audit fields and the new `updatedAt` the
+ * next optimistic-lock header must carry.
+ */
+export const userTaskReassignResponseSchema = z.object({
+  data: userTaskRowSchema,
+  message: z.string(),
+})
+
 // ============================================================================
 // Work Inbox (spec §6.2/§6.3 — one queue over every registered source)
 // ============================================================================

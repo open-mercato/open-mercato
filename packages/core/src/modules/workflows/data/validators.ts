@@ -1319,6 +1319,52 @@ export const updateUserTaskSchema = createUserTaskSchema.partial().extend({
 
 export type UpdateUserTaskInput = z.infer<typeof updateUserTaskSchema>
 
+/**
+ * Body of `POST /api/workflows/tasks/[id]/reassign`.
+ *
+ * The refinement is the point: §6.4 makes a task with no assignee AND no role
+ * queue actionable by nobody, so a reassignment that wrote that shape would
+ * create the very state reassignment exists to repair. Empty arrays and blank
+ * strings are normalized away first, so `{ assignedTo: '  ' }` is refused rather
+ * than silently storing whitespace as a user id.
+ */
+export const reassignUserTaskSchema = z
+  .object({
+    assignedTo: z
+      .string()
+      .max(255)
+      .nullable()
+      .optional()
+      .transform((value) => {
+        const trimmed = typeof value === 'string' ? value.trim() : ''
+        return trimmed.length > 0 ? trimmed : null
+      }),
+    assignedToRoles: z
+      .array(z.string().max(100))
+      .nullable()
+      .optional()
+      .transform((value) => {
+        if (!Array.isArray(value)) return null
+        const roles = value.map((role) => role.trim()).filter((role) => role.length > 0)
+        return roles.length > 0 ? roles : null
+      }),
+    reason: z
+      .string()
+      .max(2000)
+      .nullable()
+      .optional()
+      .transform((value) => {
+        const trimmed = typeof value === 'string' ? value.trim() : ''
+        return trimmed.length > 0 ? trimmed : null
+      }),
+  })
+  .refine((value) => value.assignedTo !== null || value.assignedToRoles !== null, {
+    message: 'Provide an assignee or at least one role queue',
+    path: ['assignedTo'],
+  })
+
+export type ReassignUserTaskInput = z.infer<typeof reassignUserTaskSchema>
+
 export const userTaskFilterSchema = z.object({
   workflowInstanceId: uuid.optional(),
   status: userTaskStatusSchema.optional(),

@@ -58,6 +58,7 @@ export interface TaskHandlerService {
   completeUserTask: typeof completeUserTask
   claimUserTask: typeof claimUserTask
   releaseUserTask: typeof releaseUserTask
+  reassignUserTask: typeof reassignUserTask
 }
 
 export interface CompleteUserTaskOptions {
@@ -618,6 +619,144 @@ export async function releaseUserTask(
       organizationId: instance.organizationId,
     })
   }
+}
+
+// ============================================================================
+// User Task Reassignment
+// ============================================================================
+
+/**
+ * The new owner of a task, as the reassign route resolved it.
+ *
+ * At least one of the two must be non-empty, and the route enforces it: the
+ * shape §6.4 makes uncompletable is precisely "no assignee AND no role queue",
+ * so a reassignment that produced it would be the one write that can create the
+ * problem reassignment exists to fix.
+ */
+export interface ReassignUserTaskTarget {
+  assignedTo?: string | null
+  assignedToRoles?: readonly string[] | null
+}
+
+export interface ReassignUserTaskOptions {
+  taskId: string
+  /** Who performed the reassignment — recorded on `reassigned_by`. */
+  userId: string
+  target: ReassignUserTaskTarget
+  reason?: string | null
+  scope: UserTaskScope
+}
+
+/**
+ * Statuses a task can be reassigned in.
+ *
+ * The same pair `completeUserTask` accepts: moving a COMPLETED or CANCELLED row
+ * to somebody else records an audit trail for work that can never be done, and
+ * the assignee would be handed a task whose Complete button always fails.
+ */
+const REASSIGNABLE_STATUSES: readonly string[] = ['PENDING', 'IN_PROGRESS']
+
+/**
+ * Move a task to a different assignee or role queue, with an audit trail.
+ *
+ * This is the ACT half of the §6.4 model's central asymmetry: administration
+ * widens seeing, never acting, so an administrator who can see a colleague's
+ * task — or a task that belongs to nobody at all — takes it first and the taking
+ * is permanently recorded. It is also the documented remedy for the one shape
+ * the model leaves uncompletable (no assignee, no claim, no role queue), which
+ * is why it deliberately accepts a task in exactly that state.
+ *
+ * No new `UserTaskStatus` value is introduced. The audit lives on the columns
+ * Phase 4a added (`reassigned_by` / `reassigned_at` / `reassign_reason`) plus a
+ * `WorkflowEvent`, and a reassigned task is exactly as pending or in-progress as
+ * it was — the same choice `releaseUserTask` made, and the one Phase 3a's
+ * failure queue made when it reused `PAUSED` plus a marker.
+ *
+ * An in-flight CLAIM is always released. Handing a row to somebody else while a
+ * colleague still holds it would leave `claimedBy ?? assignedTo` naming the old
+ * claimant, so the predicate would keep treating the task as theirs and the new
+ * assignee could not act on what they were just given.
+ *
+ * @throws UserTaskError when the task is absent from the caller's scope or is
+ *         in a terminal status
+ */
+export async function reassignUserTask(
+  em: EntityManager,
+  options: ReassignUserTaskOptions,
+): Promise<UserTask> {
+  const { taskId, userId, target, reason, scope } = options
+
+  const task = await em.findOne(UserTask, {
+    id: taskId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+
+  if (!task) {
+    throw new UserTaskError('Task not found', 'TASK_NOT_FOUND', { taskId })
+  }
+
+  if (!REASSIGNABLE_STATUSES.includes(task.status)) {
+    throw new UserTaskError(
+      'Task is no longer open and cannot be reassigned',
+      'TASK_NOT_REASSIGNABLE',
+      { taskId, status: task.status },
+    )
+  }
+
+  const assignedTo = target.assignedTo ?? null
+  const assignedToRoles =
+    target.assignedToRoles && target.assignedToRoles.length > 0 ? [...target.assignedToRoles] : null
+
+  const previous = {
+    assignedTo: task.assignedTo ?? null,
+    assignedToRoles: task.assignedToRoles ?? null,
+    claimedBy: task.claimedBy ?? null,
+  }
+
+  const now = new Date()
+
+  task.assignedTo = assignedTo
+  // Reassignment is a backoffice administration act and its target is resolved
+  // from the tenant's user/role vocabulary, so the row lands in the backoffice
+  // namespace. Portal reassignment would need a portal principal picker and is
+  // not part of this surface.
+  task.assigneeKind = 'user'
+  task.assignedToRoles = assignedToRoles
+  task.claimedBy = null
+  task.claimedAt = null
+  // A queued task must be PENDING to be claimable, and a task whose claim was
+  // just released is exactly as pending as it was before anyone claimed it.
+  if (task.status === 'IN_PROGRESS') task.status = 'PENDING'
+  task.reassignedBy = userId
+  task.reassignedAt = now
+  task.reassignReason = reason ?? null
+  task.updatedAt = now
+
+  await em.flush()
+
+  const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
+  if (instance) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      stepInstanceId: task.stepInstanceId,
+      branchInstanceId: task.branchInstanceId ?? null,
+      eventType: 'USER_TASK_REASSIGNED',
+      eventData: {
+        taskId: task.id,
+        taskName: task.taskName,
+        reassignedBy: userId,
+        reason: reason ?? null,
+        from: previous,
+        to: { assignedTo, assignedToRoles },
+      },
+      userId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+  }
+
+  return task
 }
 
 // ============================================================================
