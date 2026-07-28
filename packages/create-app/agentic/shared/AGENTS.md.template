@@ -68,7 +68,7 @@ Match every work-unit row; OPEN its skill before selection.
 |---|---|---|
 | `architecture` | Explain/choose module, UMES, package, eject | architecture; `om-help` for an unresolved or comparative choice across these mechanisms |
 | `module-data` | Business slice or multi-seam domain/API/command fix | MUST load `om-module-scaffold` + its exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key, which resolves units inside the slice, not ownership — an ownership/capability outline adds `architecture` |
-| `spec-pr` | Working spec/plan | Axis 3; phases+integration coverage=`integration-coverage` |
+| `spec-pr` | Spec/plan | Axis 3; phases+integration coverage (`integration-coverage`); no domain routes |
 | `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts`/`package.json` |
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |
 | `module-data` | Entity/link/validator/migration/encryption/lock/transaction | `om-data-model-design` + contracts |
@@ -118,7 +118,7 @@ Load facts for every named/targeted module, not incidental use. Mechanisms: even
 
 ## Working Sequence
 
-1. `spec-pr`: list `.ai/specs` one level; open one non-template match; plan-only skips specs.
+1. `spec-pr`: list `.ai/specs` once; open one match; plan-only skips specs.
 2. Route; load only matched guides/skills/facts.
 3. Implement the smallest complete slice through real call sites.
 4. Discovery change: run `yarn generate`; then the smallest gate/integration paths.
