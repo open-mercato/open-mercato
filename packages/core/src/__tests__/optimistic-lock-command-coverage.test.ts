@@ -61,6 +61,8 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only — weekly availability rule-set edit (sibling of the allowlisted availability-date-specific site) added on develop; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/messages/api/[id]/route.ts':
     'OSS-only — draft update/send (PATCH) + delete (DELETE) of messages.message enforce the synchronous OSS updated_at floor in the hand-written route (no makeCrudRoute decorator); the 409 surfaces on the shared conflict banner (#3260). Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/workflows/api/tasks/[id]/reassign/route.ts':
+    'OSS-only — task reassignment is an administrative one-shot move of ownership (workflows.user_task), gated on `workflows.tasks.reassign` and already refused for a terminal task; `UserTask` is not in the curated editable-entity list and the coverage guard only matches PUT/PATCH/DELETE, so the synchronous OSS floor is what makes the stale-modal race a structured 409 at all. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/messages/commands/actions.ts':
     'OSS-only — message action execute (messages.message) enforces the synchronous OSS updated_at floor before the terminal-action claim; the action also has its own actionTaken idempotency guard. Enterprise record_locks migration deferred.',
   // agent_orchestrator (enterprise) — terminal one-shot state transitions, not

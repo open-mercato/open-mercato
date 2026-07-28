@@ -29,7 +29,15 @@ export const userTaskSchema = z.object({
   formSchema: z.unknown().nullable().optional(),
   formData: z.unknown().nullable().optional(),
   assignedTo: z.string().nullable().optional(),
+  assigneeKind: z
+    .enum(['user', 'customer'])
+    .describe('Which principal namespace assignedTo names — a backoffice user or a portal principal'),
   assignedToRoles: z.array(z.string()).nullable().optional(),
+  entityTypes: z
+    .array(z.string())
+    .nullable()
+    .optional()
+    .describe('Distinct authored entity types of the bindings, denormalized for the visibility filter'),
   claimedBy: z.string().nullable().optional(),
   claimedAt: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
@@ -79,9 +87,42 @@ export const paginationSchema = z.object({
   hasMore: z.boolean(),
 })
 
+/**
+ * A row the caller may know exists but may not read (design §3.6).
+ *
+ * Three fields and no fourth: the id (the argument to reassignment and to a
+ * support conversation), the reason (an author's typo vs a policy refusal) and
+ * the entity type that names the grant which would fix it. Nothing that says
+ * what the task is ABOUT appears here — that is the difference between a
+ * diagnostic and a leak.
+ */
+export const taskEntityHiddenMarkerSchema = z.object({
+  id: z.string(),
+  reason: z.enum(['denied:entity-access', 'denied:unknown-entity-type']),
+  entityType: z.string().nullable(),
+})
+
+/**
+ * Emitted only for a principal that already knows the rows are there — a
+ * `workflows.tasks.view_all` holder or a superadmin. For everybody else the
+ * entity gate removed those rows in SQL, `entityHidden` is empty and its
+ * absence discloses nothing.
+ *
+ * `pagination.total` COUNTS the hidden rows, and that is deliberate: an
+ * administrator asking "how much work is open?" wants the true number, and the
+ * marker list is what explains why the page is shorter than it. Suppressing them
+ * from the count would make the page short for no stated reason, which is the
+ * silent disappearance §3.6 exists to prevent.
+ */
+export const taskListDiagnosticsSchema = z.object({
+  entityHidden: z.array(taskEntityHiddenMarkerSchema),
+  entityHiddenCount: z.number().int().nonnegative(),
+})
+
 export const userTaskListResponseSchema = z.object({
   data: z.array(userTaskRowSchema),
   pagination: paginationSchema,
+  diagnostics: taskListDiagnosticsSchema.optional(),
 })
 
 /**
@@ -108,6 +149,17 @@ export const userTaskDetailResponseSchema = z.object({
 
 export const userTaskClaimResponseSchema = z.object({
   data: userTaskSchema,
+  message: z.string(),
+})
+
+/**
+ * Reassignment answers with the same row projection every other task surface
+ * serves, so a client can refresh its copy — including the `reassignedBy` /
+ * `reassignedAt` / `reassignReason` audit fields and the new `updatedAt` the
+ * next optimistic-lock header must carry.
+ */
+export const userTaskReassignResponseSchema = z.object({
+  data: userTaskRowSchema,
   message: z.string(),
 })
 
@@ -180,6 +232,7 @@ export const workInboxListResponseSchema = z.object({
     kinds: z.array(z.string()).describe('Source kinds that answered this request'),
     degradedKinds: z.array(z.string()).describe('Source kinds that failed; their work is missing from this page'),
   }),
+  diagnostics: taskListDiagnosticsSchema.optional(),
 })
 
 export const workInboxClaimNextResponseSchema = z.object({
@@ -199,6 +252,57 @@ export const completeTaskRequestSchema = z.object({
 export const userTaskCompleteResponseSchema = z.object({
   data: userTaskSchema,
   message: z.string(),
+})
+
+/**
+ * Portal task surface (design §7.4).
+ *
+ * A separate response envelope from the backoffice one on purpose: the portal
+ * routes speak the portal convention (`{ ok, … }`, page/pageSize paging) that
+ * every other `customer_accounts` portal route already speaks, and keeping the
+ * two shapes apart means a future change to one cannot silently reshape the
+ * other. The ROW projection is deliberately shared — a task is the same record
+ * whoever reads it, and a divergent portal projection is how a field ends up
+ * exposed on one surface and not the other.
+ */
+export const portalTaskErrorSchema = z
+  .object({ ok: z.literal(false), error: z.string() })
+  .describe('Portal error response')
+
+export const portalTaskListQuerySchema = z.object({
+  status: z.string().optional().describe('Filter by status (comma-separated for multiple)'),
+  page: z.coerce.number().min(1).optional().default(1).describe('Page number'),
+  pageSize: z.coerce.number().min(1).max(100).optional().default(25).describe('Rows per page (max 100)'),
+})
+
+export const portalPaginationSchema = z.object({
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().positive(),
+})
+
+export const portalTaskListResponseSchema = z.object({
+  ok: z.literal(true),
+  tasks: z.array(userTaskRowSchema),
+  pagination: portalPaginationSchema,
+})
+
+export const portalTaskDetailResponseSchema = z.object({
+  ok: z.literal(true),
+  task: userTaskRowSchema,
+  decisions: z.array(userTaskDecisionSchema),
+  formKey: z.string().nullable().describe('External renderer key, when the author declared one'),
+  canComplete: z
+    .boolean()
+    .describe('True only for the assignee; a portal admin reading a company member\'s task gets false'),
+})
+
+export const portalTaskCompleteRequestSchema = completeTaskRequestSchema
+
+export const portalTaskCompleteResponseSchema = z.object({
+  ok: z.literal(true),
+  task: userTaskRowSchema.nullable(),
 })
 
 export const advanceWorkflowRequestSchema = z.object({

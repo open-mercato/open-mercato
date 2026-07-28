@@ -2,6 +2,7 @@ import type {
   TaskDecision,
   TaskEntityBinding,
   TaskLocalizedString,
+  UserTaskAssigneeKind,
   UserTaskConfig,
 } from '../data/validators'
 
@@ -33,6 +34,24 @@ export interface ResolvedTaskAssignment {
   assignedToRoles: string[] | null
   /** True when a dynamic assignee was authored and resolved to nothing. */
   fellBackToRoles: boolean
+  /**
+   * Which principal namespace `assignedTo` names — the `user_tasks.assignee_kind`
+   * discriminator, decided here so every creation site gets the same answer.
+   *
+   * `'customer'` requires BOTH that the author asked for it AND that an
+   * individual assignee actually resolved. A customer-addressed task with no
+   * assignee is unaddressable: portal principals cannot claim from a queue, and
+   * the portal branch of the visibility predicate has no arm that would ever
+   * admit it.
+   */
+  assigneeKind: UserTaskAssigneeKind
+  /**
+   * True when the author asked for a portal assignee and the dynamic id resolved
+   * to nothing, so the task fell back to the authored backoffice role queue.
+   * Worth a log line: the work is still reachable, but by a different audience
+   * than the author intended.
+   */
+  fellBackFromCustomer: boolean
 }
 
 export interface ResolvedTaskDecision {
@@ -107,31 +126,66 @@ export function flattenTaskText(
  * spec's mandatory fallback role; the inspector is what makes it mandatory.
  *
  * The legacy array form of `assignedTo` keeps meaning "these are roles".
+ *
+ * ## `assigneeKind`
+ *
+ * `userTaskConfig.assigneeKind: 'customer'` is what addresses a task to a PORTAL
+ * principal — the id in `assignedTo` is then a `CustomerUser.id`, not a
+ * backoffice user id, and only the portal routes can see or complete it. It is
+ * honoured only when an individual assignee actually resolves, and it forces
+ * `assignedToRoles` to null: portal roles are a different namespace
+ * (`CustomerRole`), a backoffice role queue on a customer-addressed row would
+ * offer the work to an audience that can never reach it, and design §7.1 makes
+ * that combination an invariant rather than a preference.
+ *
+ * Absent (every definition authored before this existed), the answer is `'user'`
+ * — which is exactly what those rows have always meant.
  */
 export function resolveTaskAssignment(
-  config: Pick<UserTaskConfig, 'assignedTo' | 'assignedToRoles'>,
+  config: Pick<UserTaskConfig, 'assignedTo' | 'assignedToRoles' | 'assigneeKind'>,
   interpolate: TaskInterpolate
 ): ResolvedTaskAssignment {
   const authoredRoles = config.assignedToRoles?.length ? config.assignedToRoles : null
+  const wantsCustomer = config.assigneeKind === 'customer'
 
   if (Array.isArray(config.assignedTo)) {
     return {
       assignedTo: null,
       assignedToRoles: config.assignedTo.length ? config.assignedTo : authoredRoles,
       fellBackToRoles: false,
+      assigneeKind: 'user',
+      fellBackFromCustomer: wantsCustomer,
     }
   }
 
   if (typeof config.assignedTo !== 'string' || !config.assignedTo.length) {
-    return { assignedTo: null, assignedToRoles: authoredRoles, fellBackToRoles: false }
+    return {
+      assignedTo: null,
+      assignedToRoles: authoredRoles,
+      fellBackToRoles: false,
+      assigneeKind: 'user',
+      fellBackFromCustomer: wantsCustomer,
+    }
   }
 
   const resolved = toResolvedString(interpolate(config.assignedTo))
   if (resolved) {
-    return { assignedTo: resolved, assignedToRoles: authoredRoles, fellBackToRoles: false }
+    return {
+      assignedTo: resolved,
+      assignedToRoles: wantsCustomer ? null : authoredRoles,
+      fellBackToRoles: false,
+      assigneeKind: wantsCustomer ? 'customer' : 'user',
+      fellBackFromCustomer: false,
+    }
   }
 
-  return { assignedTo: null, assignedToRoles: authoredRoles, fellBackToRoles: true }
+  return {
+    assignedTo: null,
+    assignedToRoles: authoredRoles,
+    fellBackToRoles: true,
+    assigneeKind: 'user',
+    fellBackFromCustomer: wantsCustomer,
+  }
 }
 
 /**
@@ -168,6 +222,26 @@ export function resolveTaskEntityBindings(
   }
 
   return { bindings: resolvedBindings, unresolved }
+}
+
+/**
+ * The distinct AUTHORED entity types across a task's resolved bindings, for the
+ * denormalized `user_tasks.entity_types` column the §6.4 entity gate filters on.
+ *
+ * Verbatim, deduped, order-preserving. Verbatim because the visibility
+ * predicate's per-request access map is keyed on exactly the string the binding
+ * carries — normalizing here would give the SQL filter and the JS predicate two
+ * different notions of "the same type".
+ *
+ * Empty in, empty out: the caller stores NULL for a task about nothing, which is
+ * what the vacuous-pass rule reads. Same expression the work-inbox projection
+ * already computes per row, so a row's stored column and its projected
+ * `entityTypes` cannot disagree.
+ */
+export function collectResolvedEntityTypes(
+  bindings: readonly ResolvedTaskEntityBinding[],
+): string[] {
+  return [...new Set(bindings.map((binding) => binding.entityType))]
 }
 
 /** Resolve decision-button copy; the route binding itself is already durable. */

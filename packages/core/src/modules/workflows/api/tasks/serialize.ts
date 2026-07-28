@@ -55,6 +55,25 @@ function readEntityBindings(task: UserTask): unknown[] | null {
   return Array.isArray(value) ? value : null
 }
 
+/**
+ * The stored denormalization when there is one, otherwise derived from the
+ * bindings the row actually carries. The fallback is what keeps a row written
+ * before the column existed reporting the same set the work-inbox projection
+ * computes for it — the two must never disagree, because that disagreement is
+ * exactly a task hidden by the SQL gate and shown by the JS one.
+ */
+function readEntityTypes(task: UserTask): string[] | null {
+  if (Array.isArray(task.entityTypes)) return task.entityTypes
+  const bindings = readEntityBindings(task)
+  if (!bindings) return null
+  const types = new Set<string>()
+  for (const binding of bindings) {
+    const entityType = asRecord(binding)?.entityType
+    if (typeof entityType === 'string' && entityType.length > 0) types.add(entityType)
+  }
+  return types.size > 0 ? [...types] : null
+}
+
 function toIso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null
 }
@@ -71,7 +90,12 @@ export function serializeUserTask(task: UserTask): SerializedUserTask {
     formSchema: task.formSchema ?? null,
     formData: task.formData ?? null,
     assignedTo: task.assignedTo ?? null,
+    // Defaulted rather than coalesced to null: the column is NOT NULL precisely
+    // so no branch has to handle an absent discriminator, and a row read through
+    // a stale projection is a backoffice task like every row that predates it.
+    assigneeKind: task.assigneeKind ?? 'user',
     assignedToRoles: task.assignedToRoles ?? null,
+    entityTypes: readEntityTypes(task),
     claimedBy: task.claimedBy ?? null,
     claimedAt: toIso(task.claimedAt),
     dueDate: toIso(task.dueDate),

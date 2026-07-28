@@ -17,6 +17,12 @@
  * modules stay independent of each other's load order.
  */
 
+import { hasFeature } from '@open-mercato/shared/security/features'
+import type {
+  TaskEntityHiddenMarker,
+  TaskVisibilityRequestContext,
+} from '../task-visibility-request'
+
 /** Mirrors the platform's priority labels (root AGENTS.md → PR Workflow). */
 export const WORK_INBOX_PRIORITIES = ['extreme', 'high', 'medium', 'low'] as const
 
@@ -101,12 +107,19 @@ export type WorkInboxQuery = {
  * Caller scope every provider MUST filter on. `organizationIds === null` is the
  * wildcard scope the directory helper returns for an unrestricted operator;
  * `tenantId` is never optional (module MUST #10).
+ *
+ * `visibility` carries the §6.4 rule's per-request inputs — the principal, the
+ * tenant policy and the entity-access map — resolved ONCE by the route. It is
+ * required rather than optional on purpose: a provider that forgets to apply it
+ * would silently serve every row in the organization, and a compile error is the
+ * only reliable way to notice that.
  */
 export type WorkInboxScope = {
   tenantId: string
   organizationIds: string[] | null
   userId: string
   roles: string[]
+  visibility: TaskVisibilityRequestContext
 }
 
 /**
@@ -117,11 +130,28 @@ export type WorkInboxScope = {
 export type WorkInboxSourceContext = {
   scope: WorkInboxScope
   resolve: <T>(name: string) => T
+  /**
+   * The queue feature the source being invoked declared, handed back to it so a
+   * provider that serves `UserTask` rows can pass it to the §6.4 predicate
+   * (`TaskFacts.administrativeQueueFeature`) without importing the registry it
+   * is registered in.
+   */
+  administrativeQueueFeature?: string | null
 }
 
 export type WorkInboxSourceResult = {
   rows: WorkInboxRow[]
   total: number
+  /**
+   * Rows this source refused on entity access to a caller entitled to know they
+   * are there (design §3.6). Optional and additive: a source that omits it
+   * reports nothing, which is what every source did before.
+   *
+   * It carries ids and the blocking entity type, never row content — the point
+   * is that an administrator can tell "no such task" from "you cannot see its
+   * record", not that they can read the record anyway.
+   */
+  entityHidden?: TaskEntityHiddenMarker[]
 }
 
 export type WorkInboxSourceProvider = {
@@ -130,6 +160,32 @@ export type WorkInboxSourceProvider = {
   /** Injection spot id the detail view renders for this kind, when any. */
   render?: string
   actions?: WorkInboxAction[]
+  /**
+   * ACL feature that admits a principal to this source's UNASSIGNED rows,
+   * declaring "this kind is an administrative queue, not personal work".
+   *
+   * §6.4 makes a row visible to whoever it belongs to, and a queue item belongs
+   * to nobody: it carries no assignee, no claimant and no role queue, because
+   * the module that raised it cannot know a tenant's routing policy or role
+   * vocabulary. Without a declaration such a row falls back to core's own
+   * administrative grant (`workflows.tasks.view_all`); with one it is admitted
+   * to exactly the population that could already act on that kind of work.
+   *
+   * It has two consumers, and both must agree or a row is counted in one place
+   * and dropped in another:
+   *
+   * 1. **Source admission** — a source declaring a queue feature contributes
+   *    nothing at all to a caller who does not hold it, so the whole kind
+   *    disappears rather than answering an expensive query per request.
+   * 2. **The §6.4 predicate** — passed back to the provider through
+   *    `WorkInboxSourceContext.administrativeQueueFeature` so a provider serving
+   *    `UserTask` rows uses it as the unassigned-queue arm instead of
+   *    `workflows.tasks.view_all`.
+   *
+   * Absent (the core `user_task` source) leaves both behaviours exactly as they
+   * were: no admission gate, `workflows.tasks.view_all` as the queue feature.
+   */
+  administrativeQueueFeature?: string
   list: (query: WorkInboxQuery, context: WorkInboxSourceContext) => Promise<WorkInboxSourceResult>
 }
 
@@ -196,15 +252,51 @@ export function clearWorkInboxSources(): void {
 }
 
 /**
+ * The caller facts source admission is decided from — the same principal the
+ * §6.4 predicate reads, narrowed to what this decision needs.
+ */
+export type WorkInboxSourceAdmission = {
+  grantedFeatures: readonly string[]
+  isSuperAdmin: boolean
+}
+
+/**
+ * Whether this caller is admitted to an administrative-queue source at all.
+ *
+ * `hasFeature` rather than an array membership test, because a tenant `admin`
+ * holds `agent_orchestrator.*` and not the concrete id — comparing raw strings
+ * would lock every real administrator out of the queue the grant exists for.
+ * A source that declares no queue feature is open to everyone the rows
+ * themselves admit.
+ */
+export function isWorkInboxSourceAdmitted(
+  provider: WorkInboxSourceProvider,
+  admission: WorkInboxSourceAdmission | null | undefined,
+): boolean {
+  const required = provider.administrativeQueueFeature
+  if (!required) return true
+  if (!admission) return true
+  if (admission.isSuperAdmin) return true
+  return hasFeature(admission.grantedFeatures, required)
+}
+
+/**
  * Providers that can contribute to this query. Kind and module narrowing is
  * answered here rather than inside each provider so a filtered request does not
  * pay for a query per excluded source.
+ *
+ * `admission` is optional so every existing caller keeps its behaviour; when it
+ * is supplied, a source declaring an `administrativeQueueFeature` the caller
+ * does not hold is dropped before it is ever asked for rows.
  */
-export function selectWorkInboxSources(query: WorkInboxQuery): WorkInboxSourceEntry[] {
+export function selectWorkInboxSources(
+  query: WorkInboxQuery,
+  admission?: WorkInboxSourceAdmission | null,
+): WorkInboxSourceEntry[] {
   return getWorkInboxSources().filter((entry) => {
     if (query.kinds && !query.kinds.includes(entry.provider.kind)) return false
     if (query.moduleIds && !query.moduleIds.includes(entry.moduleId)) return false
-    return true
+    return isWorkInboxSourceAdmitted(entry.provider, admission)
   })
 }
 

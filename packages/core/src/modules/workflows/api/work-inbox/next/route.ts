@@ -32,6 +32,10 @@ import { parseWorkInboxQuery } from '../../../lib/work-inbox/query'
 import { toUserTaskWorkInboxRow } from '../../../lib/work-inbox/user-task-source'
 import type { WorkInboxService } from '../../../lib/work-inbox/service'
 import type { TaskHandlerService } from '../../../lib/task-handler'
+import {
+  collectScopedTaskEntityTypes,
+  resolveTaskVisibilityForRequest,
+} from '../../../lib/task-visibility-request'
 import { UserTask } from '../../../data/entities'
 import {
   workflowsTag,
@@ -80,6 +84,19 @@ export async function POST(request: NextRequest) {
     const query = parseWorkInboxQuery(new URL(request.url).searchParams, new Date())
     const workInboxService = container.resolve<WorkInboxService>('workInboxService')
 
+    // The candidate list is a READ, so it is subject to the same §6.4 rule as
+    // every other read. Claiming is gated again by `taskHandler`, which owns
+    // queue membership and the compare-and-set.
+    const organizationIds = [organizationId]
+    const visibility = await resolveTaskVisibilityForRequest({
+      container,
+      em,
+      auth: { userId: auth.sub, tenantId, roleNames: roles },
+      organizationIds,
+      aclOrganizationId: organizationId,
+      entityTypes: await collectScopedTaskEntityTypes(em, { tenantId, organizationIds }),
+    })
+
     const candidates = await workInboxService.listClaimableWorkInbox(
       {
         ...query,
@@ -89,7 +106,7 @@ export async function POST(request: NextRequest) {
         myWork: false,
       },
       {
-        scope: { tenantId, organizationIds: [organizationId], userId: auth.sub, roles },
+        scope: { tenantId, organizationIds, userId: auth.sub, roles, visibility },
         resolve: <T,>(name: string): T => container.resolve<T>(name),
       },
     )
@@ -98,7 +115,13 @@ export async function POST(request: NextRequest) {
 
     for (const candidate of candidates) {
       try {
-        await taskHandler.claimUserTask(em, candidate.id, auth.sub, { tenantId, organizationId })
+        await taskHandler.claimUserTask(
+          em,
+          candidate.id,
+          auth.sub,
+          { tenantId, organizationId },
+          roles,
+        )
       } catch (error) {
         if (isRaceLost(error)) continue
         throw error

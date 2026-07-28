@@ -31,6 +31,20 @@ const events = [
   { id: 'workflows.task.assigned', label: 'Task Assigned', entity: 'task', category: 'lifecycle' },
   { id: 'workflows.task.reminder_due', label: 'Task Reminder Due', entity: 'task', category: 'lifecycle' },
   { id: 'workflows.task.deadline_breached', label: 'Task Deadline Breached', entity: 'task', category: 'lifecycle' },
+  /**
+   * A task addressed to a PORTAL principal, bridged to that principal's browser
+   * so it appears without a reload.
+   *
+   * A separate event rather than `portalBroadcast` on `workflows.task.assigned`,
+   * and the difference is a leak. The portal SSE bridge scopes a payload by
+   * tenant + organization and narrows to one user ONLY when the payload carries
+   * `recipientUserId`; `workflows.task.assigned` carries none, plus the task
+   * name and its entity bindings — broadcasting it would hand every portal user
+   * in the organization the name of every other customer's task. This one is
+   * addressed to exactly one principal and carries an ID and nothing else, so
+   * the receiver has to ask the (authorized) API what it is.
+   */
+  { id: 'workflows.task.portal_assigned', label: 'Portal Task Assigned', entity: 'task', category: 'lifecycle', portalBroadcast: true, excludeFromTriggers: true },
 
   // Activity Events
   { id: 'workflows.activity.started', label: 'Activity Started', category: 'lifecycle' },

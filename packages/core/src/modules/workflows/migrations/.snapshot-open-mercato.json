@@ -403,6 +403,23 @@
           "enumItems": [],
           "mappedType": "array"
         },
+        "assignee_kind": {
+          "name": "assignee_kind",
+          "type": "varchar(20)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 20,
+          "precision": null,
+          "scale": null,
+          "default": "'user'",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "string"
+        },
         "branch_instance_id": {
           "name": "branch_instance_id",
           "type": "uuid",
@@ -572,6 +589,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "json"
+        },
+        "entity_types": {
+          "name": "entity_types",
+          "type": "text[]",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "array"
         },
         "escalated_at": {
           "name": "escalated_at",
@@ -847,6 +881,17 @@
         }
       },
       "indexes": [
+        {
+          "columnNames": [
+            "entity_types"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "user_tasks_entity_types_gin_idx",
+          "primary": false,
+          "unique": false,
+          "type": "gin"
+        },
         {
           "columnNames": [
             "id"

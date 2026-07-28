@@ -81,7 +81,7 @@ describe('workflows DI registrations', () => {
     const taskHandler = container.resolve<Record<string, (...args: unknown[]) => unknown>>('taskHandler')
 
     expect(taskHandler.completeUserTask.length).toBe(3)
-    expect(taskHandler.claimUserTask.length).toBe(4)
+    expect(taskHandler.claimUserTask.length).toBe(5)
   })
 })
 

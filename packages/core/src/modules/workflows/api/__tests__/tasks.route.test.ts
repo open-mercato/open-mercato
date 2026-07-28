@@ -14,6 +14,10 @@ import { GET as listTasks } from '../tasks/route'
 import { serializeUserTask } from '../tasks/serialize'
 import { userTaskRowSchema } from '../openapi'
 import { UserTask } from '../../data/entities'
+import {
+  makeTaskVisibilityRouteStubs,
+  type TaskVisibilityRouteStubs,
+} from './helpers/taskVisibilityRoute'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -32,9 +36,37 @@ type WhereClause = Record<string, unknown>
 const TENANT_ID = '11111111-2222-4333-8444-aaaaaaaaaaaa'
 const ORG_ID = '11111111-2222-4333-8444-bbbbbbbbbbbb'
 const USER_ID = 'user-1'
+const HIDDEN_TASK_ID = '11111111-2222-4333-8444-555555555555'
+
+/**
+ * Assigned to the caller and bound to an order they may not view: visible by
+ * RELATIONSHIP, refused by the ENTITY clause. The row carries real content so a
+ * leak would be detectable in the serialized body.
+ */
+function makeOrderBoundTask(): UserTask {
+  const task = new UserTask()
+  task.id = HIDDEN_TASK_ID
+  task.workflowInstanceId = '11111111-2222-4333-8444-666666666666'
+  task.stepInstanceId = '11111111-2222-4333-8444-777777777777'
+  task.taskName = 'Approve the order'
+  task.description = 'Approve the order'
+  task.status = 'PENDING'
+  task.assignedTo = USER_ID
+  task.assigneeKind = 'user'
+  task.assignedToRoles = null
+  task.claimedBy = null
+  task.entityBindings = [{ entityType: 'sales:sales_order', entityId: 'order-1' }]
+  task.entityTypes = ['sales:sales_order']
+  task.tenantId = TENANT_ID
+  task.organizationId = ORG_ID
+  task.createdAt = new Date('2026-07-28T09:00:00.000Z')
+  task.updatedAt = new Date('2026-07-28T09:00:00.000Z')
+  return task
+}
 
 describe('GET /api/workflows/tasks', () => {
-  let mockEm: { findAndCount: jest.Mock }
+  let mockEm: { findAndCount: jest.Mock; getConnection: () => { execute: jest.Mock } }
+  let stubs: TaskVisibilityRouteStubs
 
   function setAuthRoles(roles: string[] | undefined) {
     const { getAuthFromRequest } = require('@open-mercato/shared/lib/auth/server')
@@ -46,6 +78,24 @@ describe('GET /api/workflows/tasks', () => {
     })
   }
 
+  /**
+   * Rebuild the container with a different §6.4 posture. Every task read now
+   * depends on who is asking, so the suite has to be able to say.
+   */
+  function withVisibility(options: Parameters<typeof makeTaskVisibilityRouteStubs>[0]) {
+    stubs = makeTaskVisibilityRouteStubs(options)
+    mockEm.getConnection = stubs.getConnection
+    const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
+    createRequestContainer.mockResolvedValue({
+      resolve: (name: string) => {
+        if (name === 'em') return mockEm
+        if (name === 'rbacService') return stubs.rbacService
+        if (name === 'moduleConfigService') return stubs.moduleConfigService
+        return null
+      },
+    })
+  }
+
   async function runList(query: string): Promise<WhereClause> {
     await listTasks(new NextRequest(`http://localhost/api/workflows/tasks${query}`))
     return mockEm.findAndCount.mock.calls[0][1] as WhereClause
@@ -54,12 +104,15 @@ describe('GET /api/workflows/tasks', () => {
   beforeEach(() => {
     jest.clearAllMocks()
 
-    mockEm = { findAndCount: jest.fn().mockResolvedValue([[], 0]) }
+    mockEm = {
+      findAndCount: jest.fn().mockResolvedValue([[], 0]),
+      getConnection: () => ({ execute: jest.fn() }),
+    }
 
-    const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
-    createRequestContainer.mockResolvedValue({
-      resolve: (name: string) => (name === 'em' ? mockEm : null),
-    })
+    // The suite's default caller is an administrator, so the pre-existing filter
+    // assertions stay about the filters they were written for; the narrowing
+    // itself gets its own describe block below.
+    withVisibility({ acl: { features: ['workflows.tasks.view', 'workflows.tasks.view_all'] } })
 
     setAuthRoles(['warehouse'])
 
@@ -128,6 +181,217 @@ describe('GET /api/workflows/tasks', () => {
     expect(body.data[0].proposalId).toBe('proposal-9')
     expect(body.data[0].kind).toBe('user_task')
   })
+
+  /**
+   * §6.4 on the list route. `workflows.tasks.view` admits the caller to the
+   * endpoint; the visibility rule decides which rows come back.
+   */
+  describe('the §6.4 read gate', () => {
+    test('narrows an ordinary caller to their own work, their queues and viewable entities', async () => {
+      withVisibility({
+        acl: { features: ['workflows.tasks.view'] },
+        scopedEntityTypes: ['sales:sales_order'],
+      })
+
+      const where = await runList('')
+
+      expect(where.$and).toEqual([
+        {
+          $or: [
+            { assignedTo: USER_ID, assigneeKind: 'user' },
+            { claimedBy: USER_ID },
+            { assignedToRoles: { $overlap: ['warehouse'] } },
+          ],
+        },
+        // `sales:sales_order` requires `sales.orders.view`, which this caller
+        // does not hold, so the whitelist is empty and only tasks about nothing
+        // survive.
+        { $or: [{ entityTypes: null }, { entityTypes: { $contained: [] } }] },
+      ])
+    })
+
+    test('an administrator queries unnarrowed, and is TOLD what the entity gate refuses', async () => {
+      // The gate is not weakened — the predicate still refuses the row, so it
+      // never reaches `data`. It is moved out of the `WHERE` so the refusal can
+      // be reported instead of leaving a page short by an unexplained row
+      // (design §3.6).
+      withVisibility({
+        acl: { features: ['workflows.tasks.view', 'workflows.tasks.view_all'] },
+        scopedEntityTypes: ['sales:sales_order'],
+      })
+      mockEm.findAndCount.mockResolvedValue([[makeOrderBoundTask()], 1])
+
+      const response = await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+      const where = mockEm.findAndCount.mock.calls[0][1] as WhereClause
+      const body = await response.json()
+
+      expect(where.$and).toBeUndefined()
+      expect(body.data).toEqual([])
+      expect(body.diagnostics).toEqual({
+        entityHidden: [
+          { id: HIDDEN_TASK_ID, reason: 'denied:entity-access', entityType: 'sales:sales_order' },
+        ],
+        entityHiddenCount: 1,
+      })
+      // `total` counts it: an administrator asking "how much work is open?"
+      // wants the true number, and the marker is what explains the short page.
+      expect(body.pagination.total).toBe(1)
+      // Nothing about the task itself crosses the wire.
+      expect(JSON.stringify(body)).not.toContain('Approve the order')
+    })
+
+    test('an ordinary caller keeps the entity gate in SQL and is told nothing', async () => {
+      withVisibility({
+        acl: { features: ['workflows.tasks.view'] },
+        scopedEntityTypes: ['sales:sales_order'],
+      })
+
+      const where = await runList('')
+      const response = await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+      const body = await response.json()
+
+      expect(where.$and).toContainEqual({
+        $or: [{ entityTypes: null }, { entityTypes: { $contained: [] } }],
+      })
+      expect(body.diagnostics).toBeUndefined()
+    })
+
+    test('adds nothing at all for a superadmin', async () => {
+      withVisibility({ acl: { isSuperAdmin: true }, scopedEntityTypes: ['sales:sales_order'] })
+
+      expect((await runList('')).$and).toBeUndefined()
+    })
+
+    test('the tenant opt-out restores the legacy read filter, additively', async () => {
+      withVisibility({
+        acl: { features: ['workflows.tasks.view'] },
+        scopedEntityTypes: ['sales:sales_order'],
+        businessContextEnabled: false,
+      })
+
+      const where = await runList('')
+
+      // Same rows as before the change: tenant + organization and nothing else.
+      expect(where.$and).toBeUndefined()
+      expect(where).toMatchObject({ tenantId: TENANT_ID, organizationId: { $in: [ORG_ID] } })
+    })
+
+    test('composes with the caller own filters instead of overwriting them', async () => {
+      withVisibility({ acl: { features: ['workflows.tasks.view'] } })
+
+      const where = await runList('?myTasks=true&status=PENDING')
+
+      expect(where.status).toBe('PENDING')
+      expect(where.$or).toBeDefined()
+      expect(Array.isArray(where.$and)).toBe(true)
+    })
+
+    test('enumerates the bound entity types inside the caller scope', async () => {
+      withVisibility({ acl: { features: ['workflows.tasks.view'] } })
+
+      await runList('')
+
+      const [sql, params] = stubs.execute.mock.calls[0] as [string, unknown[]]
+      expect(sql).toContain('unnest(entity_types)')
+      expect(params).toEqual([TENANT_ID, ORG_ID])
+    })
+
+    test('a legacy row with null columns still reaches its own assignee', async () => {
+      withVisibility({ acl: { features: ['workflows.tasks.view'] } })
+      const legacy = makeTask({
+        assignedTo: USER_ID,
+        assignedToRoles: null,
+        entityBindings: null,
+        entityTypes: null,
+      })
+      delete (legacy as Partial<UserTask>).assigneeKind
+      mockEm.findAndCount.mockResolvedValue([[legacy], 1])
+
+      const body = await (
+        await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+      ).json()
+
+      expect(body.data).toHaveLength(1)
+      expect(body.pagination.total).toBe(1)
+    })
+
+    test('costs one ACL load for a whole page, not one per task', async () => {
+      withVisibility({
+        acl: { features: ['workflows.tasks.view'] },
+        scopedEntityTypes: ['sales:sales_order', 'customers:customer_deal'],
+      })
+      mockEm.findAndCount.mockResolvedValue([
+        Array.from({ length: 25 }, (_unused, index) =>
+          makeTask({
+            id: `11111111-2222-4333-8444-0000000000${String(index).padStart(2, '0')}`,
+            assignedTo: USER_ID,
+            entityBindings: [
+              { entityType: 'sales:sales_order', entityId: `order-${index}` },
+              { entityType: 'customers:customer_deal', entityId: `deal-${index}` },
+            ],
+          }),
+        ),
+        25,
+      ])
+
+      await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+
+      expect(stubs.rbacService.loadAcl).toHaveBeenCalledTimes(1)
+      expect(stubs.execute).toHaveBeenCalledTimes(1)
+      expect(stubs.moduleConfigService.getValue).toHaveBeenCalledTimes(1)
+    })
+
+    test('a page the SQL gate returned is reported whole, so total is not a lie', async () => {
+      withVisibility({ acl: { features: ['workflows.tasks.view'] } })
+      mockEm.findAndCount.mockResolvedValue([
+        [makeTask({ assignedTo: USER_ID }), makeTask({ id: 'other', claimedBy: USER_ID })],
+        2,
+      ])
+
+      const body = await (
+        await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+      ).json()
+
+      expect(body.data).toHaveLength(2)
+      expect(body.pagination).toMatchObject({ total: 2, hasMore: false })
+    })
+
+    test('a row the SQL gate should never have returned is dropped rather than served', async () => {
+      // Defense in depth: the `WHERE` is the same rule, so this cannot happen —
+      // and if it ever does, losing a row is recoverable and leaking one is not.
+      withVisibility({ acl: { features: ['workflows.tasks.view'] } })
+      mockEm.findAndCount.mockResolvedValue([
+        [makeTask({ assignedTo: 'somebody-else', assignedToRoles: null })],
+        1,
+      ])
+
+      const body = await (
+        await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+      ).json()
+
+      expect(body.data).toEqual([])
+    })
+
+    test('a missing rbacService grants nothing rather than everything', async () => {
+      // No ACL means no features, so the administrative arm cannot admit anyone.
+      // Queue membership is deliberately unaffected — it is a relationship, not
+      // a grant — so the row here belongs to nobody.
+      const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
+      createRequestContainer.mockResolvedValue({
+        resolve: (name: string) => (name === 'em' ? mockEm : null),
+      })
+      mockEm.findAndCount.mockResolvedValue([
+        [makeTask({ assignedTo: 'somebody-else', assignedToRoles: null })],
+        1,
+      ])
+
+      const body = await (
+        await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+      ).json()
+
+      expect(body.data).toEqual([])
+    })
+  })
 })
 
 function makeTask(overrides: Partial<UserTask> = {}): UserTask {
@@ -181,6 +445,40 @@ describe('serializeUserTask', () => {
     for (const column of columns) {
       expect(Object.keys(serialized)).toContain(column)
     }
+  })
+
+  test('reports the assignee kind, defaulting a projection that lacks it', () => {
+    expect(serializeUserTask(makeTask()).assigneeKind).toBe('user')
+    expect(serializeUserTask(makeTask({ assigneeKind: 'customer' })).assigneeKind).toBe('customer')
+    const legacy = makeTask()
+    delete (legacy as Partial<UserTask>).assigneeKind
+    expect(serializeUserTask(legacy).assigneeKind).toBe('user')
+  })
+
+  test('reports the stored entity types, deriving them for a row written before the column', () => {
+    expect(
+      serializeUserTask(makeTask({ entityTypes: ['customers:person'] })).entityTypes,
+    ).toEqual(['customers:person'])
+
+    // A pre-column row: NULL column, real bindings. The derived answer must
+    // match what the SQL gate would have filtered on, or the two disagree.
+    const legacy = makeTask({
+      entityTypes: null,
+      entityBindings: [
+        { entityType: 'customers:person', entityId: 'a' },
+        { entityType: 'customers:person', entityId: 'b' },
+        { entityType: 'sales:sales_order', entityId: 'c' },
+      ],
+    })
+    expect(serializeUserTask(legacy).entityTypes).toEqual([
+      'customers:person',
+      'sales:sales_order',
+    ])
+  })
+
+  test('a task about nothing reports null entity types, never an empty array', () => {
+    expect(serializeUserTask(makeTask()).entityTypes).toBeNull()
+    expect(serializeUserTask(makeTask({ entityBindings: [] })).entityTypes).toBeNull()
   })
 
   test('emits dates in the same ISO form the entity dump produced', () => {

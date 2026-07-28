@@ -414,6 +414,33 @@ const { rows, total, kinds, degradedKinds } = await workInboxService.listWorkInb
 })
 ```
 
+## Task Administration and Portal Tasks
+
+```
+POST /api/workflows/tasks/{id}/reassign   # feature workflows.tasks.reassign
+GET  /api/workflows/task-settings         # feature workflows.tasks.view_all
+PUT  /api/workflows/task-settings         # feature workflows.tasks.manage
+GET  /api/workflows/portal/tasks          # customer feature portal.tasks.view
+GET  /api/workflows/portal/tasks/{id}     # customer feature portal.tasks.view
+POST /api/workflows/portal/tasks/{id}/complete  # customer feature portal.tasks.complete
+```
+
+Every one of these is a **new** route; no existing route's URL, method or response fields changed. Which rows the existing task routes return did change — see [**Task Visibility**](./task-visibility) for the full model, which is required reading before integrating against any of them.
+
+```typescript
+// Take a colleague's task before acting on it. `view_all` grants reading, never acting:
+// completing somebody else's task answers 409 TASK_ASSIGNED_TO_ANOTHER_USER.
+await apiFetch(`/api/workflows/tasks/${taskId}/reassign`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ assignedTo: myUserId, reason: 'Owner on leave' }),
+})
+```
+
+Reassignment stamps `reassigned_by` / `reassigned_at` / `reassign_reason`, logs a `USER_TASK_REASSIGNED` event, releases an in-flight claim, and returns an `IN_PROGRESS` task to `PENDING`. It honours `x-om-ext-optimistic-lock-expected-updated-at` when a client sends one. Its gate is **visibility, not ownership** — which is what makes it the remedy for a task nobody owns (`403 TASK_NOT_ACTIONABLE` on the act routes).
+
+The portal routes are a **new surface, not a relaxation**: they take a portal session (not a bearer token), refuse a backoffice principal with `401`, and the backoffice task routes still refuse a portal session with `401`. `GET /api/workflows/portal/tasks/{id}` additionally returns `canComplete`, which is `false` for a company administrator reading a member's task. Every portal refusal is the same `404` body.
+
 ## Task Deadlines and Reminders
 
 A USER_TASK with a `deadline` schedules its reminders and its breach **once, at task creation**, as delayed jobs on the existing `workflow-activities` queue (job kind `task_sla`) — the same absolute-deadline backstop `WAIT_FOR_CONDITION` uses. A new queue would need its own worker registration and its own database connection budget for jobs that are one row read plus an event.

@@ -1,7 +1,12 @@
 import type { Node, Edge } from '@xyflow/react'
 import type { ValidationError } from './graph-utils'
 import type { ContextLedger } from './context-ledger'
-import { collectFlowLogicWarnings, type FlowLogicDefinition, type FlowLogicWarningCode } from './flow-logic-warnings'
+import {
+  collectFlowLogicWarnings,
+  type FlowLogicDefinition,
+  type FlowLogicWarningCode,
+  type TaskAssigneeEntityAccess,
+} from './flow-logic-warnings'
 
 export type WorkflowValidationIssueSeverity = 'error' | 'warning'
 
@@ -61,6 +66,18 @@ export const FLOW_LOGIC_MESSAGE_KEYS: Record<FlowLogicWarningCode, { key: string
     key: 'workflows.visualEditor.problems.taskDecisionDuplicateId',
     fallback: 'Task "{stepId}" has more than one decision with the id "{decisionId}"; only one of them can ever be recorded',
   },
+  taskWithoutOwner: {
+    key: 'workflows.visualEditor.problems.taskWithoutOwner',
+    fallback: 'Task "{stepId}" names neither an assignee nor a role queue, so nobody can complete it and the workflow will stall there',
+  },
+  taskBindingUnknownEntityType: {
+    key: 'workflows.visualEditor.problems.taskBindingUnknownEntityType',
+    fallback: 'Task "{stepId}" is about "{entityType}", which is not a known record type; the task would be hidden from its own assignee',
+  },
+  taskBindingAssigneeCannotView: {
+    key: 'workflows.visualEditor.problems.taskBindingAssigneeCannotView',
+    fallback: 'Task "{stepId}" is about "{entityType}", which {roles} may not view; assignees holding only those roles would not see the task',
+  },
 }
 
 export type WorkflowIssueTranslator = (
@@ -89,6 +106,13 @@ export interface CollectValidationIssuesInput {
   definition?: FlowLogicDefinition | null
   /** Context ledger enabling the condition-path resolution check. */
   ledger?: ContextLedger
+  /**
+   * Generated entity ids that exist. Without it the unknown-binding check falls
+   * back to a shape test rather than flagging every id it cannot enumerate.
+   */
+  knownEntityIds?: ReadonlySet<string> | null
+  /** Tenant role features + entity view requirements, when the caller has them. */
+  assigneeEntityAccess?: TaskAssigneeEntityAccess | null
   translate?: WorkflowIssueTranslator
 }
 
@@ -131,6 +155,8 @@ export function collectValidationIssues(input: CollectValidationIssuesInput): Wo
     edges,
     definition,
     ledger,
+    knownEntityIds = null,
+    assigneeEntityAccess = null,
     translate = defaultTranslator,
   } = input
 
@@ -165,20 +191,24 @@ export function collectValidationIssues(input: CollectValidationIssuesInput): Wo
     }
   })
 
-  // Phase 3a flow-logic + ledger checks. Always WARNINGS: flow logic is
+  // Phase 3a flow-logic + ledger checks default to WARNINGS: flow logic is
   // transition sugar and a path a later edit will provide must never make the
-  // definition unsaveable. Structural problems stay in `graphErrors`.
-  const flowLogicIssues: WorkflowValidationIssue[] = collectFlowLogicWarnings(definition, { ledger }).map(
-    (warning, index) => {
-      const message = FLOW_LOGIC_MESSAGE_KEYS[warning.code]
-      return {
-        id: `flow-${warning.code}-${index}`,
-        severity: 'warning',
-        message: translate(message.key, message.fallback, warning.params),
-        ...mapZodPathToGraph(warning.path, nodes, edges),
-      }
-    },
-  )
+  // definition unsaveable. The §6.4 task checks opt into `error` because they
+  // describe a step the engine can never advance past — the same class as the
+  // structural problems `graphErrors` carries.
+  const flowLogicIssues: WorkflowValidationIssue[] = collectFlowLogicWarnings(definition, {
+    ledger,
+    knownEntityIds,
+    assigneeEntityAccess,
+  }).map((warning, index) => {
+    const message = FLOW_LOGIC_MESSAGE_KEYS[warning.code]
+    return {
+      id: `flow-${warning.code}-${index}`,
+      severity: warning.severity ?? 'warning',
+      message: translate(message.key, message.fallback, warning.params),
+      ...mapZodPathToGraph(warning.path, nodes, edges),
+    }
+  })
 
   const all = [...graphIssues, ...schemaIssues, ...configWarningIssues, ...flowLogicIssues]
   const errors = all.filter((issue) => issue.severity === 'error')

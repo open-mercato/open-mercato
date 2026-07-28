@@ -5,8 +5,16 @@ import {
   resolveAclDependencyDiagnostics,
   type FeatureDescriptor,
 } from '@open-mercato/shared/security/aclDependencies'
+import { matchFeature } from '@open-mercato/shared/security/features'
 import { features as workflowsFeatures } from '../acl'
 import { setup as workflowsSetup } from '../setup'
+
+/** Spec §6.4 administration — read others' work, move it, administer it. */
+const TASK_ADMINISTRATION_FEATURES = [
+  'workflows.tasks.view_all',
+  'workflows.tasks.reassign',
+  'workflows.tasks.manage',
+] as const
 
 // All workflows dependencies are intra-module (spec §6.10), so the resolver
 // catalog is just the module's own feature set.
@@ -43,6 +51,7 @@ describe('workflows ACL dependency declarations', () => {
     expect(dependsOnById.get('workflows.definitions.edit')).toEqual(['workflows.definitions.view'])
     expect(dependsOnById.get('workflows.definitions.delete')).toEqual(['workflows.definitions.view'])
     expect(dependsOnById.get('workflows.definitions.test_run')).toEqual(['workflows.definitions.edit'])
+    expect(dependsOnById.get('workflows.definitions.publish')).toEqual(['workflows.definitions.edit'])
     expect(dependsOnById.get('workflows.instances.view')).toEqual(['workflows.view'])
     expect(dependsOnById.get('workflows.instances.create')).toEqual([
       'workflows.definitions.view',
@@ -55,6 +64,9 @@ describe('workflows ACL dependency declarations', () => {
     expect(dependsOnById.get('workflows.tasks.view')).toEqual(['workflows.view'])
     expect(dependsOnById.get('workflows.tasks.claim')).toEqual(['workflows.tasks.view'])
     expect(dependsOnById.get('workflows.tasks.complete')).toEqual(['workflows.tasks.view'])
+    expect(dependsOnById.get('workflows.tasks.view_all')).toEqual(['workflows.tasks.view'])
+    expect(dependsOnById.get('workflows.tasks.reassign')).toEqual(['workflows.tasks.view_all'])
+    expect(dependsOnById.get('workflows.tasks.manage')).toEqual(['workflows.tasks.view_all'])
     expect(dependsOnById.get('workflows.signals.send')).toEqual(['workflows.view'])
     expect(dependsOnById.get('workflows.events.view')).toEqual(['workflows.view'])
   })
@@ -107,6 +119,53 @@ describe('workflows ACL dependency declarations', () => {
     const employeeGrants = workflowsSetup.defaultRoleFeatures?.employee ?? []
     expect(employeeGrants).not.toContain('workflows.instances.update_context')
     expect(employeeGrants).not.toContain('workflows.*')
+  })
+
+  test('every task administration feature is declared and roots at workflows.tasks.view', () => {
+    const dependsOnById = new Map(
+      workflowsCatalog.map((feature) => [feature.id, feature.dependsOn ?? []]),
+    )
+    const transitiveDependencies = (featureId: string): Set<string> => {
+      const collected = new Set<string>()
+      const pending = [...(dependsOnById.get(featureId) ?? [])]
+      while (pending.length > 0) {
+        const next = pending.pop() as string
+        if (collected.has(next)) continue
+        collected.add(next)
+        pending.push(...(dependsOnById.get(next) ?? []))
+      }
+      return collected
+    }
+    for (const featureId of TASK_ADMINISTRATION_FEATURES) {
+      expect(workflowsFeatureIds).toContain(featureId)
+      const diagnostics = resolveAclDependencyDiagnostics([featureId], workflowsCatalog)
+      expect(diagnostics.unknownReferences).toEqual([])
+      // The closure pulls in the older read grant, which is what keeps
+      // `workflows.tasks.view` load-bearing instead of a dead stored grant.
+      expect([...transitiveDependencies(featureId)]).toEqual(
+        expect.arrayContaining(['workflows.tasks.view', 'workflows.view']),
+      )
+    }
+    expect(dependsOnById.get('workflows.tasks.view')).toEqual(['workflows.view'])
+  })
+
+  // Design §9 item 15: nobody loses access on upgrade. `admin: ['workflows.*']`
+  // must match the new ids through the real matcher, not by inspection.
+  test('the admin workflows wildcard matches every new administration feature', () => {
+    const adminGrants = workflowsSetup.defaultRoleFeatures?.admin ?? []
+    expect(adminGrants).toContain('workflows.*')
+    for (const featureId of TASK_ADMINISTRATION_FEATURES) {
+      expect(matchFeature(featureId, 'workflows.*')).toBe(true)
+      expect(matchFeature(featureId, '*')).toBe(true)
+    }
+  })
+
+  test('employee defaults withhold task administration', () => {
+    const employeeGrants = workflowsSetup.defaultRoleFeatures?.employee ?? []
+    for (const featureId of TASK_ADMINISTRATION_FEATURES) {
+      expect(employeeGrants).not.toContain(featureId)
+      expect(employeeGrants.some((grant) => matchFeature(featureId, grant))).toBe(false)
+    }
   })
 
   test('keeps every dependency target within the workflows feature set', () => {

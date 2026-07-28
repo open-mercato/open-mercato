@@ -225,6 +225,13 @@ export type TaskDecision = z.infer<typeof taskDecisionSchema>
 // Complex Object Schemas - Workflow Definition Components
 // ============================================================================
 
+/**
+ * The `user_tasks.assignee_kind` vocabulary, declared here because the AUTHORED
+ * config is what decides it and the ORM column merely stores the answer.
+ */
+export const userTaskAssigneeKindSchema = z.enum(['user', 'customer'])
+export type UserTaskAssigneeKind = z.infer<typeof userTaskAssigneeKindSchema>
+
 // User task configuration
 export const userTaskConfigSchema = z.object({
   // Support both custom fields array format and JSON Schema format
@@ -256,6 +263,20 @@ export const userTaskConfigSchema = z.object({
   // strips unknown keys and the definition PUT persists the PARSED value, so
   // authored role assignment was silently discarded on every save.
   assignedToRoles: z.array(z.string()).optional(),
+  /**
+   * Which principal namespace `assignedTo` names (design §7.1).
+   *
+   * `'customer'` addresses the task to a PORTAL principal — the resolved id is a
+   * `CustomerUser.id`, the row is written with `assignee_kind = 'customer'`, and
+   * only `/api/workflows/portal/tasks*` can see or complete it. It is honoured
+   * only when an individual assignee resolves, and it forces `assignedToRoles`
+   * to null: portal roles are a different namespace and a portal principal
+   * cannot claim from a backoffice queue.
+   *
+   * Absent means `'user'`, which is what every definition authored before this
+   * key existed has always meant.
+   */
+  assigneeKind: userTaskAssigneeKindSchema.optional(),
   // Renderer key for an externally registered task form. Same round-trip as
   // `assignedToRoles`: written by the editor, previously stripped on save.
   formKey: z.string().optional(),
@@ -1318,6 +1339,52 @@ export const updateUserTaskSchema = createUserTaskSchema.partial().extend({
 })
 
 export type UpdateUserTaskInput = z.infer<typeof updateUserTaskSchema>
+
+/**
+ * Body of `POST /api/workflows/tasks/[id]/reassign`.
+ *
+ * The refinement is the point: §6.4 makes a task with no assignee AND no role
+ * queue actionable by nobody, so a reassignment that wrote that shape would
+ * create the very state reassignment exists to repair. Empty arrays and blank
+ * strings are normalized away first, so `{ assignedTo: '  ' }` is refused rather
+ * than silently storing whitespace as a user id.
+ */
+export const reassignUserTaskSchema = z
+  .object({
+    assignedTo: z
+      .string()
+      .max(255)
+      .nullable()
+      .optional()
+      .transform((value) => {
+        const trimmed = typeof value === 'string' ? value.trim() : ''
+        return trimmed.length > 0 ? trimmed : null
+      }),
+    assignedToRoles: z
+      .array(z.string().max(100))
+      .nullable()
+      .optional()
+      .transform((value) => {
+        if (!Array.isArray(value)) return null
+        const roles = value.map((role) => role.trim()).filter((role) => role.length > 0)
+        return roles.length > 0 ? roles : null
+      }),
+    reason: z
+      .string()
+      .max(2000)
+      .nullable()
+      .optional()
+      .transform((value) => {
+        const trimmed = typeof value === 'string' ? value.trim() : ''
+        return trimmed.length > 0 ? trimmed : null
+      }),
+  })
+  .refine((value) => value.assignedTo !== null || value.assignedToRoles !== null, {
+    message: 'Provide an assignee or at least one role queue',
+    path: ['assignedTo'],
+  })
+
+export type ReassignUserTaskInput = z.infer<typeof reassignUserTaskSchema>
 
 export const userTaskFilterSchema = z.object({
   workflowInstanceId: uuid.optional(),

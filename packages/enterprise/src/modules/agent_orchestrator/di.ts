@@ -49,6 +49,26 @@ import { DocumentIngestServiceImpl } from './lib/context/documentIngest'
 import { resolveDefaultOcrProvider } from './lib/context/documentOcrProvider'
 import { resolveWebSearchProvider } from './lib/webSearch/webSearchProvider'
 import type { DispositionService } from './lib/disposition/dispositionService'
+import { registerWorkInboxSources } from '@open-mercato/core/modules/workflows/lib/work-inbox/provider'
+import {
+  agentDispositionWorkInboxSource,
+  AGENT_ORCHESTRATOR_MODULE_ID,
+} from './lib/workInbox/agentDispositionSource'
+
+// Registered at module-DI load time (top-level, like the core `user_task`
+// source) so the queue is present before the first work-inbox request resolves
+// `workInboxService`. Registration merges by module id, so load order between
+// this module and workflows is irrelevant, and on an install without enterprise
+// the inbox simply lists workflow tasks (spec §2.3).
+//
+// The source declares `administrativeQueueFeature`, which is what gives
+// disposition work a visibility class of its own under §6.4: an item nobody was
+// assigned is admitted to holders of `agent_orchestrator.proposals.view` rather
+// than to nobody at all. Nothing in `dispositionService.ts` changes — the
+// auto-approve boundary is not touched.
+registerWorkInboxSources([
+  { moduleId: AGENT_ORCHESTRATOR_MODULE_ID, sources: [agentDispositionWorkInboxSource] },
+])
 
 export function register(container: AppContainer) {
   container.register({

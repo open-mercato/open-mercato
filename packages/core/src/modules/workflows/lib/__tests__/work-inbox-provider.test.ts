@@ -35,17 +35,31 @@ import {
 } from '../work-inbox/user-task-source'
 import { listClaimableWorkInbox, listWorkInbox } from '../work-inbox/service'
 import { UserTask } from '../../data/entities'
+import { makeTaskVisibilityContext } from './helpers/taskVisibilityContext'
 
 const TENANT_ID = '11111111-2222-4333-8444-aaaaaaaaaaaa'
 const ORG_ID = '11111111-2222-4333-8444-bbbbbbbbbbbb'
 const USER_ID = '11111111-2222-4333-8444-cccccccccccc'
 const NOW = new Date('2026-07-28T12:00:00.000Z')
 
+/**
+ * An administrator for these fixtures: `workflows.tasks.view_all` means the
+ * §6.4 clause contributes nothing, so the assertions below stay about the
+ * filters they are testing. The narrowing itself is covered in
+ * `task-visibility-request.test.ts` and in the route suites.
+ */
 const scope: WorkInboxScope = {
   tenantId: TENANT_ID,
   organizationIds: [ORG_ID],
   userId: USER_ID,
   roles: ['approver'],
+  visibility: makeTaskVisibilityContext({
+    userId: USER_ID,
+    tenantId: TENANT_ID,
+    organizationIds: [ORG_ID],
+    roleNames: ['approver'],
+    grantedFeatures: ['workflows.tasks.view', 'workflows.tasks.view_all'],
+  }),
 }
 
 function makeQuery(overrides: Partial<WorkInboxQuery> = {}): WorkInboxQuery {
@@ -290,8 +304,41 @@ describe('user_task source query', () => {
     expect(where.$and).toContainEqual({ workflowInstanceId: 'wf-1' })
   })
 
-  test('an unfiltered query carries no extra predicates at all', () => {
+  test('an unfiltered administrator query carries no extra predicates', () => {
     const where = buildUserTaskWorkInboxWhere(makeQuery(), scope) as Record<string, unknown>
+
+    // `view_all` drops the RELATIONSHIP clause, and the ENTITY clause moves out
+    // of the `WHERE` for this caller so the refused rows can be REPORTED rather
+    // than silently missing (design §3.6). The gate itself is not weakened —
+    // `partitionTaskPage` still refuses every one of those rows before they can
+    // reach a response. Tenant/organization scoping below is untouched.
+    expect(where.$and).toBeUndefined()
+    expect(where.tenantId).toBe(TENANT_ID)
+    expect(where.organizationId).toEqual({ $in: [ORG_ID] })
+  })
+
+  test('an ordinary caller still gets the entity gate in SQL', () => {
+    const where = buildUserTaskWorkInboxWhere(makeQuery(), {
+      ...scope,
+      visibility: makeTaskVisibilityContext({
+        userId: USER_ID,
+        tenantId: TENANT_ID,
+        organizationIds: [ORG_ID],
+        roleNames: ['approver'],
+        grantedFeatures: ['workflows.tasks.view'],
+      }),
+    }) as Record<string, unknown>
+
+    expect(where.$and).toContainEqual({
+      $or: [{ entityTypes: null }, { entityTypes: { $contained: [] } }],
+    })
+  })
+
+  test('a superadmin carries no extra predicates at all', () => {
+    const where = buildUserTaskWorkInboxWhere(makeQuery(), {
+      ...scope,
+      visibility: makeTaskVisibilityContext({ isSuperAdmin: true }),
+    }) as Record<string, unknown>
 
     expect(where.$and).toBeUndefined()
   })

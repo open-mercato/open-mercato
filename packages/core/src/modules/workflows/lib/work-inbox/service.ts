@@ -18,12 +18,15 @@ import type {
   WorkInboxRow,
   WorkInboxSourceContext,
 } from './provider'
+import type { TaskEntityHiddenMarker } from '../task-visibility-request'
 
 const logger = createLogger('workflows')
 
 export type WorkInboxListResult = {
   rows: WorkInboxRow[]
   total: number
+  /** Entity-gated rows, merged across sources — see `WorkInboxSourceResult`. */
+  entityHidden: TaskEntityHiddenMarker[]
   /** Kinds that actually answered — the UI offers exactly these as filters. */
   kinds: string[]
   /** Kinds whose provider failed, so the caller can say the view is partial. */
@@ -43,17 +46,28 @@ export async function listWorkInbox(
   query: WorkInboxQuery,
   context: WorkInboxSourceContext,
 ): Promise<WorkInboxListResult> {
-  const entries = selectWorkInboxSources(query)
+  // Administrative-queue sources are dropped before they are asked for rows: a
+  // caller without the declared feature must not pay for a query whose every row
+  // the rule would then refuse.
+  const entries = selectWorkInboxSources(query, context.scope.visibility.principal)
 
   const collected: WorkInboxRow[] = []
+  const entityHidden: TaskEntityHiddenMarker[] = []
   const kinds: string[] = []
   const degradedKinds: string[] = []
   let total = 0
 
   for (const entry of entries) {
     try {
-      const result = await entry.provider.list(query, context)
+      // Each source is handed its OWN declaration, so a provider serving
+      // `UserTask` rows applies its queue feature as the unassigned-queue arm
+      // without importing the registry it is registered in.
+      const result = await entry.provider.list(query, {
+        ...context,
+        administrativeQueueFeature: entry.provider.administrativeQueueFeature ?? null,
+      })
       collected.push(...result.rows)
+      if (result.entityHidden) entityHidden.push(...result.entityHidden)
       total += result.total
       kinds.push(entry.provider.kind)
     } catch (error) {
@@ -72,6 +86,10 @@ export async function listWorkInbox(
   return {
     rows: ordered.slice(query.offset, query.offset + query.limit),
     total,
+    // NOT sliced with the page: a marker is a diagnosis about the whole result,
+    // and paging it would make an administrator hunt for the explanation of a
+    // gap they can already see.
+    entityHidden,
     kinds,
     degradedKinds,
   }

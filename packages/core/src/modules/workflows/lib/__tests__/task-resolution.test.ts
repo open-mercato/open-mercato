@@ -1,6 +1,7 @@
 import { describe, test, expect } from '@jest/globals'
 import { interpolateVariables } from '../activity-executor'
 import {
+  collectResolvedEntityTypes,
   flattenTaskText,
   resolveTaskAssignment,
   resolveTaskDeadlineDuration,
@@ -8,6 +9,7 @@ import {
   resolveTaskEntityBindings,
   resolveTaskText,
 } from '../task-resolution'
+import { decideTaskVisibility } from '../task-visibility'
 
 /**
  * The pure half of "task creation resolves what authors wrote".
@@ -94,13 +96,81 @@ describe('resolveTaskAssignment', () => {
       assignedTo: 'manager@example.com',
       assignedToRoles: null,
       fellBackToRoles: false,
+      assigneeKind: 'user',
+      fellBackFromCustomer: false,
     })
 
     expect(resolveTaskAssignment({ assignedTo: ['approver', 'controller'] }, interpolate)).toEqual({
       assignedTo: null,
       assignedToRoles: ['approver', 'controller'],
       fellBackToRoles: false,
+      assigneeKind: 'user',
+      fellBackFromCustomer: false,
     })
+  })
+})
+
+/**
+ * `assigneeKind: 'customer'` is the ONLY way a task becomes portal work. Nothing
+ * else in the engine writes `user_tasks.assignee_kind = 'customer'`, so without
+ * this the entire portal surface would be authorization over an empty set.
+ */
+describe('resolveTaskAssignment — the portal discriminator', () => {
+  test('an authored customer assignee produces a portal task', () => {
+    const resolved = resolveTaskAssignment(
+      { assignedTo: '{{context.deal.ownerId}}', assigneeKind: 'customer' },
+      interpolate
+    )
+
+    expect(resolved.assignedTo).toBe('user-42')
+    expect(resolved.assigneeKind).toBe('customer')
+  })
+
+  test('a role queue is REFUSED alongside a customer assignee', () => {
+    // Portal roles are a different namespace and a portal principal cannot claim
+    // from a backoffice queue, so offering the row to one would advertise work to
+    // an audience that can never reach it (design §7.1).
+    const resolved = resolveTaskAssignment(
+      { assignedTo: 'portal-user-1', assignedToRoles: ['approver'], assigneeKind: 'customer' },
+      interpolate
+    )
+
+    expect(resolved.assigneeKind).toBe('customer')
+    expect(resolved.assignedToRoles).toBeNull()
+  })
+
+  test('an unresolvable customer id falls back to the backoffice, loudly', () => {
+    const resolved = resolveTaskAssignment(
+      {
+        assignedTo: '{{context.deal.missingOwner}}',
+        assignedToRoles: ['approver'],
+        assigneeKind: 'customer',
+      },
+      interpolate
+    )
+
+    // A customer-addressed task with no assignee is unaddressable: the portal
+    // branch has no arm that admits it and portal principals cannot claim.
+    expect(resolved.assigneeKind).toBe('user')
+    expect(resolved.assignedToRoles).toEqual(['approver'])
+    expect(resolved.fellBackFromCustomer).toBe(true)
+  })
+
+  test('the legacy array form never becomes a portal task', () => {
+    const resolved = resolveTaskAssignment(
+      { assignedTo: ['approver'], assigneeKind: 'customer' },
+      interpolate
+    )
+
+    expect(resolved.assigneeKind).toBe('user')
+    expect(resolved.fellBackFromCustomer).toBe(true)
+  })
+
+  test('every definition authored before this key existed still means `user`', () => {
+    expect(resolveTaskAssignment({ assignedTo: 'user-1' }, interpolate).assigneeKind).toBe('user')
+    expect(resolveTaskAssignment({ assignedToRoles: ['approver'] }, interpolate).assigneeKind).toBe(
+      'user'
+    )
   })
 })
 
@@ -174,5 +244,72 @@ describe('resolveTaskDeadlineDuration', () => {
     expect(resolveTaskDeadlineDuration({ deadline: { duration: 'PT4H' }, slaDuration: 'P1D' })).toBe('PT4H')
     expect(resolveTaskDeadlineDuration({ slaDuration: 'P1D' })).toBe('P1D')
     expect(resolveTaskDeadlineDuration({})).toBeNull()
+  })
+})
+
+/**
+ * `user_tasks.entity_types` is the denormalization the §6.4 entity gate filters
+ * on in SQL. It is derived here so the stored column and the work-inbox
+ * projection compute the same set from the same bindings.
+ */
+describe('collectResolvedEntityTypes', () => {
+  test('is verbatim, deduped and order-preserving', () => {
+    expect(
+      collectResolvedEntityTypes([
+        { entityType: 'customers:person', entityId: 'a' },
+        { entityType: 'sales:sales_order', entityId: 'b' },
+        { entityType: 'customers:person', entityId: 'c' },
+      ])
+    ).toEqual(['customers:person', 'sales:sales_order'])
+  })
+
+  test('does not normalize an authored spelling', () => {
+    // Normalizing here would give the SQL filter and the JS predicate two
+    // different notions of "the same type"; the predicate keys its access map
+    // on exactly the string the binding carries.
+    expect(collectResolvedEntityTypes([{ entityType: 'Custmers:Deal', entityId: 'a' }])).toEqual([
+      'Custmers:Deal',
+    ])
+  })
+
+  test('no bindings produce no types — the vacuous-pass case', () => {
+    expect(collectResolvedEntityTypes([])).toEqual([])
+  })
+
+  test('agrees with the predicate: an empty type set is an empty binding set', () => {
+    const bindings = resolveTaskEntityBindings(
+      [{ entityType: 'sales:invoice', idPath: 'context.missing' }],
+      interpolate
+    ).bindings
+    expect(bindings).toEqual([])
+    expect(collectResolvedEntityTypes(bindings)).toEqual([])
+    // Which is what the writer stores as NULL, and NULL is what every
+    // pre-Phase-4 row carries — read by the predicate as "no bindings" and
+    // passed vacuously for a backoffice principal.
+    const decision = decideTaskVisibility(
+      {
+        kind: 'backoffice',
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        organizationIds: ['org-1'],
+        roleNames: [],
+        grantedFeatures: [],
+        isSuperAdmin: false,
+      },
+      {
+        id: 'task-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        status: 'PENDING',
+        assignedTo: 'user-1',
+        assigneeKind: 'user',
+        assignedToRoles: null,
+        claimedBy: null,
+        entityBindings: bindings,
+      },
+      new Map(),
+      { businessContextEnabled: true }
+    )
+    expect(decision).toEqual({ visible: true, actable: true, claimable: false, reason: 'assignee' })
   })
 })

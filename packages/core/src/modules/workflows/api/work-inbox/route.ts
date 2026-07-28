@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import type { EntityManager } from '@mikro-orm/core'
 import type { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -20,6 +21,10 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { serializeWorkInboxRow } from '../../lib/work-inbox/provider'
 import { parseWorkInboxQuery } from '../../lib/work-inbox/query'
 import type { WorkInboxService } from '../../lib/work-inbox/service'
+import {
+  collectScopedTaskEntityTypes,
+  resolveTaskVisibilityForRequest,
+} from '../../lib/task-visibility-request'
 import {
   workflowsTag,
   workInboxListQuerySchema,
@@ -61,13 +66,28 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const query = parseWorkInboxQuery(searchParams, new Date())
 
+    // §6.4, resolved ONCE for the whole merged page: one ACL load, one entity
+    // classification pass, one tenant-setting read, whatever a source does with
+    // it.
+    const em = container.resolve<EntityManager>('em')
+    const organizationIds = orgFilter.organizationIds ?? null
+    const visibility = await resolveTaskVisibilityForRequest({
+      container,
+      em,
+      auth: { userId: auth.sub, tenantId, roleNames: auth.roles ?? [] },
+      organizationIds,
+      aclOrganizationId: orgFilter.rbacOrganizationId,
+      entityTypes: await collectScopedTaskEntityTypes(em, { tenantId, organizationIds }),
+    })
+
     const workInboxService = container.resolve<WorkInboxService>('workInboxService')
     const result = await workInboxService.listWorkInbox(query, {
       scope: {
         tenantId,
-        organizationIds: orgFilter.organizationIds ?? null,
+        organizationIds,
         userId: auth.sub,
         roles: auth.roles ?? [],
+        visibility,
       },
       resolve: <T,>(name: string): T => container.resolve<T>(name),
     })
@@ -84,6 +104,18 @@ export async function GET(request: NextRequest) {
         kinds: result.kinds,
         degradedKinds: result.degradedKinds,
       },
+      // Only ever populated for a caller who already knows the rows are there —
+      // a `workflows.tasks.view_all` holder or a superadmin. Its absence for
+      // everyone else discloses nothing, because the entity gate removed those
+      // rows in SQL before the query ran (design §3.6).
+      ...(result.entityHidden.length > 0
+        ? {
+            diagnostics: {
+              entityHidden: result.entityHidden,
+              entityHiddenCount: result.entityHidden.length,
+            },
+          }
+        : {}),
     }
 
     return NextResponse.json(body)

@@ -58,6 +58,7 @@ export interface TaskHandlerService {
   completeUserTask: typeof completeUserTask
   claimUserTask: typeof claimUserTask
   releaseUserTask: typeof releaseUserTask
+  reassignUserTask: typeof reassignUserTask
 }
 
 export interface CompleteUserTaskOptions {
@@ -373,6 +374,23 @@ export async function completeUserTask(
 }
 
 /**
+ * Whether the caller belongs to at least one of the task's queues.
+ *
+ * Exact string equality on role NAMES — no case folding and no trimming, because
+ * the names on both sides come from the same tenant role table and normalizing
+ * one side would let `Approver` claim an `approver` queue that RBAC treats as a
+ * different role.
+ */
+function hasRoleOverlap(
+  taskRoles: readonly string[],
+  callerRoleNames: readonly string[],
+): boolean {
+  if (callerRoleNames.length === 0) return false
+  const held = new Set(callerRoleNames)
+  return taskRoles.some((role) => held.has(role))
+}
+
+/**
  * Claim a user task from a role queue
  *
  * Allows a user to claim a task that's assigned to their role(s).
@@ -386,19 +404,35 @@ export async function completeUserTask(
  * later. Reading the status and flushing the entity afterwards would have let
  * both transactions read `PENDING` and both write.
  *
+ * Membership in the queue is a REQUIREMENT, not a hint: a caller who holds none
+ * of `assignedToRoles` is refused with the same `TASK_NOT_FOUND` a nonexistent
+ * id produces, so a queue the caller does not belong to is indistinguishable
+ * from a task that is not there. Holding `workflows.tasks.claim` admits you to
+ * the endpoint; it does not admit you to somebody else's queue.
+ *
+ * `assignedToRoles` and `callerRoleNames` are both role NAMES — the Studio
+ * picker writes names, the engine copies them onto the task, and `auth.roles`
+ * carries names. A role RENAME therefore orphans existing assignments; moving
+ * the comparison onto immutable role ids is a coordinated data + authored-
+ * definition migration and is deliberately not done here.
+ *
  * @param em - Entity manager
  * @param taskId - Task ID to claim
  * @param userId - User claiming the task
  * @param scope - Tenant/organization the caller acts within; both the lookup and
  *   the conditional update filter on it, so a task belonging to another tenant
  *   is never reachable and never writable
+ * @param callerRoleNames - Server-derived role names of the caller (`auth.roles`),
+ *   never client-supplied. Required rather than optional so a caller that cannot
+ *   supply them fails to compile instead of silently claiming any queue.
  * @throws UserTaskError if task cannot be claimed
  */
 export async function claimUserTask(
   em: EntityManager,
   taskId: string,
   userId: string,
-  scope: UserTaskScope
+  scope: UserTaskScope,
+  callerRoleNames: readonly string[]
 ): Promise<void> {
   const task = await em.findOne(UserTask, {
     id: taskId,
@@ -427,6 +461,14 @@ export async function claimUserTask(
     throw new UserTaskError(
       'Task is not assigned to any roles',
       'TASK_NOT_ROLE_ASSIGNED',
+      { taskId }
+    )
+  }
+
+  if (!hasRoleOverlap(task.assignedToRoles, callerRoleNames)) {
+    throw new UserTaskError(
+      'Task not found or already claimed',
+      'TASK_NOT_FOUND',
       { taskId }
     )
   }
@@ -577,6 +619,144 @@ export async function releaseUserTask(
       organizationId: instance.organizationId,
     })
   }
+}
+
+// ============================================================================
+// User Task Reassignment
+// ============================================================================
+
+/**
+ * The new owner of a task, as the reassign route resolved it.
+ *
+ * At least one of the two must be non-empty, and the route enforces it: the
+ * shape §6.4 makes uncompletable is precisely "no assignee AND no role queue",
+ * so a reassignment that produced it would be the one write that can create the
+ * problem reassignment exists to fix.
+ */
+export interface ReassignUserTaskTarget {
+  assignedTo?: string | null
+  assignedToRoles?: readonly string[] | null
+}
+
+export interface ReassignUserTaskOptions {
+  taskId: string
+  /** Who performed the reassignment — recorded on `reassigned_by`. */
+  userId: string
+  target: ReassignUserTaskTarget
+  reason?: string | null
+  scope: UserTaskScope
+}
+
+/**
+ * Statuses a task can be reassigned in.
+ *
+ * The same pair `completeUserTask` accepts: moving a COMPLETED or CANCELLED row
+ * to somebody else records an audit trail for work that can never be done, and
+ * the assignee would be handed a task whose Complete button always fails.
+ */
+const REASSIGNABLE_STATUSES: readonly string[] = ['PENDING', 'IN_PROGRESS']
+
+/**
+ * Move a task to a different assignee or role queue, with an audit trail.
+ *
+ * This is the ACT half of the §6.4 model's central asymmetry: administration
+ * widens seeing, never acting, so an administrator who can see a colleague's
+ * task — or a task that belongs to nobody at all — takes it first and the taking
+ * is permanently recorded. It is also the documented remedy for the one shape
+ * the model leaves uncompletable (no assignee, no claim, no role queue), which
+ * is why it deliberately accepts a task in exactly that state.
+ *
+ * No new `UserTaskStatus` value is introduced. The audit lives on the columns
+ * Phase 4a added (`reassigned_by` / `reassigned_at` / `reassign_reason`) plus a
+ * `WorkflowEvent`, and a reassigned task is exactly as pending or in-progress as
+ * it was — the same choice `releaseUserTask` made, and the one Phase 3a's
+ * failure queue made when it reused `PAUSED` plus a marker.
+ *
+ * An in-flight CLAIM is always released. Handing a row to somebody else while a
+ * colleague still holds it would leave `claimedBy ?? assignedTo` naming the old
+ * claimant, so the predicate would keep treating the task as theirs and the new
+ * assignee could not act on what they were just given.
+ *
+ * @throws UserTaskError when the task is absent from the caller's scope or is
+ *         in a terminal status
+ */
+export async function reassignUserTask(
+  em: EntityManager,
+  options: ReassignUserTaskOptions,
+): Promise<UserTask> {
+  const { taskId, userId, target, reason, scope } = options
+
+  const task = await em.findOne(UserTask, {
+    id: taskId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+
+  if (!task) {
+    throw new UserTaskError('Task not found', 'TASK_NOT_FOUND', { taskId })
+  }
+
+  if (!REASSIGNABLE_STATUSES.includes(task.status)) {
+    throw new UserTaskError(
+      'Task is no longer open and cannot be reassigned',
+      'TASK_NOT_REASSIGNABLE',
+      { taskId, status: task.status },
+    )
+  }
+
+  const assignedTo = target.assignedTo ?? null
+  const assignedToRoles =
+    target.assignedToRoles && target.assignedToRoles.length > 0 ? [...target.assignedToRoles] : null
+
+  const previous = {
+    assignedTo: task.assignedTo ?? null,
+    assignedToRoles: task.assignedToRoles ?? null,
+    claimedBy: task.claimedBy ?? null,
+  }
+
+  const now = new Date()
+
+  task.assignedTo = assignedTo
+  // Reassignment is a backoffice administration act and its target is resolved
+  // from the tenant's user/role vocabulary, so the row lands in the backoffice
+  // namespace. Portal reassignment would need a portal principal picker and is
+  // not part of this surface.
+  task.assigneeKind = 'user'
+  task.assignedToRoles = assignedToRoles
+  task.claimedBy = null
+  task.claimedAt = null
+  // A queued task must be PENDING to be claimable, and a task whose claim was
+  // just released is exactly as pending as it was before anyone claimed it.
+  if (task.status === 'IN_PROGRESS') task.status = 'PENDING'
+  task.reassignedBy = userId
+  task.reassignedAt = now
+  task.reassignReason = reason ?? null
+  task.updatedAt = now
+
+  await em.flush()
+
+  const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
+  if (instance) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      stepInstanceId: task.stepInstanceId,
+      branchInstanceId: task.branchInstanceId ?? null,
+      eventType: 'USER_TASK_REASSIGNED',
+      eventData: {
+        taskId: task.id,
+        taskName: task.taskName,
+        reassignedBy: userId,
+        reason: reason ?? null,
+        from: previous,
+        to: { assignedTo, assignedToRoles },
+      },
+      userId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+  }
+
+  return task
 }
 
 // ============================================================================

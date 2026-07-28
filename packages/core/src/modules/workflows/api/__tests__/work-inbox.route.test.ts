@@ -23,6 +23,10 @@ import {
   expectListHandlerOmitsOrganizationForWildcardScope,
   expectListHandlerScopesToFilterIds,
 } from './helpers/orgScopeAssertions'
+import {
+  makeTaskVisibilityRouteStubs,
+  type TaskVisibilityRouteStubs,
+} from './helpers/taskVisibilityRoute'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -45,10 +49,12 @@ type MockEm = {
   findOne: jest.Mock
   nativeUpdate: jest.Mock
   flush: jest.Mock
+  getConnection: () => { execute: jest.Mock }
 }
 
 let mockEm: MockEm
 let taskHandler: { claimUserTask: jest.Mock; completeUserTask: jest.Mock }
+let visibilityStubs: TaskVisibilityRouteStubs
 
 function stubSource(kind: string, moduleId: string, rows: WorkInboxRow[]): WorkInboxSourceProvider {
   return { kind, moduleId, list: async () => ({ rows, total: rows.length }) }
@@ -134,11 +140,19 @@ beforeEach(() => {
   jest.clearAllMocks()
   clearWorkInboxSources()
 
+  // The suite's default caller is an administrator, so the merge, ordering and
+  // filter assertions stay about those behaviours; the §6.4 narrowing gets its
+  // own describe block below.
+  visibilityStubs = makeTaskVisibilityRouteStubs({
+    acl: { features: ['workflows.tasks.view', 'workflows.tasks.view_all'] },
+  })
+
   mockEm = {
     findAndCount: jest.fn(async () => [[], 0]),
     findOne: jest.fn(async () => null),
     nativeUpdate: jest.fn(async () => 1),
     flush: jest.fn(async () => undefined),
+    getConnection: visibilityStubs.getConnection,
   }
 
   taskHandler = {
@@ -152,6 +166,8 @@ beforeEach(() => {
       if (name === 'em') return mockEm
       if (name === 'workInboxService') return workInboxService
       if (name === 'taskHandler') return taskHandler
+      if (name === 'rbacService') return visibilityStubs.rbacService
+      if (name === 'moduleConfigService') return visibilityStubs.moduleConfigService
       return null
     },
   })
@@ -315,6 +331,80 @@ describe('GET /api/workflows/work-inbox — merge and row shape', () => {
   })
 })
 
+describe('GET /api/workflows/work-inbox — the §6.4 read gate', () => {
+  function withVisibility(options: Parameters<typeof makeTaskVisibilityRouteStubs>[0]) {
+    visibilityStubs = makeTaskVisibilityRouteStubs(options)
+    mockEm.getConnection = visibilityStubs.getConnection
+  }
+
+  test('narrows an ordinary caller to their own work and viewable entity types', async () => {
+    withVisibility({
+      acl: { features: ['workflows.tasks.view'] },
+      scopedEntityTypes: ['sales:sales_order'],
+    })
+
+    await runList()
+    const where = mockEm.findAndCount.mock.calls[0][1] as Record<string, unknown>
+
+    expect(where.$and).toContainEqual({
+      $or: [
+        { assignedTo: USER_ID, assigneeKind: 'user' },
+        { claimedBy: USER_ID },
+        { assignedToRoles: { $overlap: ['approver'] } },
+      ],
+    })
+    expect(where.$and).toContainEqual({
+      $or: [{ entityTypes: null }, { entityTypes: { $contained: [] } }],
+    })
+  })
+
+  test('the opt-out restores the legacy read filter and adds nothing else', async () => {
+    withVisibility({ acl: { features: ['workflows.tasks.view'] }, businessContextEnabled: false })
+
+    await runList()
+    const where = mockEm.findAndCount.mock.calls[0][1] as Record<string, unknown>
+
+    expect(where.$and).toBeUndefined()
+    expect(where).toMatchObject({ tenantId: TENANT_ID, organizationId: { $in: [ORG_ID] } })
+  })
+
+  test('a task about nothing still reaches its own assignee', async () => {
+    withVisibility({ acl: { features: ['workflows.tasks.view'] } })
+    const legacy = makeTask({
+      assignedTo: USER_ID,
+      assignedToRoles: null,
+      entityBindings: null,
+      entityTypes: null,
+    })
+    delete (legacy as Partial<UserTask>).assigneeKind
+    mockEm.findAndCount.mockResolvedValue([[legacy], 1])
+
+    const body = await (await runList()).json()
+
+    expect(body.data).toHaveLength(1)
+    expect(body.pagination.total).toBe(1)
+  })
+
+  test('costs one ACL load and one type enumeration for the whole merged page', async () => {
+    withVisibility({ acl: { features: ['workflows.tasks.view'] } })
+    mockEm.findAndCount.mockResolvedValue([
+      Array.from({ length: 12 }, (_unused, index) =>
+        makeTask({
+          id: `11111111-2222-4333-8444-0000000000${String(index).padStart(2, '0')}`,
+          assignedTo: USER_ID,
+          entityBindings: [{ entityType: 'sales:sales_order', entityId: `order-${index}` }],
+        }),
+      ),
+      12,
+    ])
+
+    await runList()
+
+    expect(visibilityStubs.rbacService.loadAcl).toHaveBeenCalledTimes(1)
+    expect(visibilityStubs.execute).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('POST /api/workflows/work-inbox/next — claim-next atomicity', () => {
   const firstTask = makeTask({ id: '11111111-2222-4333-8444-111111111111', priority: 'high' })
   const secondTask = makeTask({ id: '11111111-2222-4333-8444-222222222222', priority: 'low' })
@@ -387,6 +477,9 @@ describe('POST /api/workflows/work-inbox/next — claim-next atomicity', () => {
       tenantId: TENANT_ID,
       organizationId: ORG_ID,
     })
+    // The handler re-checks queue membership, so claim-next must hand it the
+    // caller's server-derived role names rather than trusting its own filter.
+    expect(taskHandler.claimUserTask.mock.calls[0][4]).toEqual(['approver'])
     expect(mockEm.findAndCount.mock.calls[0][1]).toMatchObject({
       tenantId: TENANT_ID,
       organizationId: { $in: [ORG_ID] },

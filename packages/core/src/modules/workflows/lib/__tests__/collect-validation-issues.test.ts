@@ -336,6 +336,113 @@ describe('Phase 3a flow-logic and ledger checks (step 2.12)', () => {
   })
 })
 
+describe('§6.4 task checks carry their own severity', () => {
+  const taskNodes: Node[] = [
+    { id: 'approve', type: 'userTask', position: { x: 0, y: 0 }, data: { label: 'Approve order' } },
+  ]
+
+  it('a task nobody owns is a WARNING, so it reports without blocking the save', () => {
+    // The save gate counts ERRORS only, so severity here is the difference
+    // between "you should fix this" and "you cannot save until you do".
+    // Reassignment is the runtime remedy for a task that belongs to nobody, and
+    // a definition authored before this check existed must stay saveable.
+    const definition = {
+      steps: [{ stepId: 'approve', stepType: 'USER_TASK', userTaskConfig: { formKey: 'approval' } }],
+      transitions: [],
+    }
+
+    const issues = collectValidationIssues({
+      graphErrors: [],
+      nodes: taskNodes,
+      edges: [],
+      definition,
+    })
+
+    expect(issues).toHaveLength(1)
+    expect(issues[0].severity).toBe('warning')
+    // Mapped onto the node so the panel can select it.
+    expect(issues[0].nodeId).toBe('approve')
+    expect(countIssuesBySeverity(issues)).toEqual({ errors: 0, warnings: 1 })
+  })
+
+  it('an unresolvable binding type stays an ERROR — nothing at runtime repairs a typo', () => {
+    const definition = {
+      steps: [
+        {
+          stepId: 'approve',
+          stepType: 'USER_TASK',
+          userTaskConfig: {
+            assignedToRoles: ['approver'],
+            entityBindings: [{ entityType: 'not an entity' }],
+          },
+        },
+      ],
+      transitions: [],
+    }
+
+    const issues = collectValidationIssues({
+      graphErrors: [],
+      nodes: taskNodes,
+      edges: [],
+      definition,
+    })
+
+    expect(issues).toHaveLength(1)
+    expect(issues[0].severity).toBe('error')
+    expect(countIssuesBySeverity(issues)).toEqual({ errors: 1, warnings: 0 })
+  })
+
+  it('an unviewable binding stays a WARNING, so the definition remains saveable', () => {
+    const definition = {
+      steps: [
+        {
+          stepId: 'approve',
+          stepType: 'USER_TASK',
+          userTaskConfig: {
+            assignedToRoles: ['approver'],
+            entityBindings: [{ entityType: 'customers:customer_deal' }],
+          },
+        },
+      ],
+      transitions: [],
+    }
+
+    const issues = collectValidationIssues({
+      graphErrors: [],
+      nodes: taskNodes,
+      edges: [],
+      definition,
+      knownEntityIds: new Set(['customers:customer_deal']),
+      assigneeEntityAccess: {
+        roleFeatures: { approver: ['workflows.tasks.view'] },
+        entityViewRequirements: { 'customers:customer_deal': ['customers.deals.view'] },
+      },
+    })
+
+    expect(countIssuesBySeverity(issues)).toEqual({ errors: 0, warnings: 1 })
+  })
+
+  it('a well-formed task raises nothing at all', () => {
+    const definition = {
+      steps: [
+        {
+          stepId: 'approve',
+          stepType: 'USER_TASK',
+          userTaskConfig: {
+            assignedToRoles: ['approver'],
+            entityBindings: [{ entityType: 'customers:deal' }],
+          },
+        },
+      ],
+      transitions: [],
+    }
+
+    expect(
+      collectValidationIssues({ graphErrors: [], nodes: taskNodes, edges: [], definition }),
+    ).toEqual([])
+  })
+})
+
 describe('countIssuesBySeverity', () => {
   it('counts errors and warnings', () => {
     const issues = collectValidationIssues({

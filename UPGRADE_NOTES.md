@@ -24,6 +24,64 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.6 → 0.6.7 (unreleased)
 
+### Workflows: task visibility is now assignment + entity access (security-semantics change)
+
+**Who is affected:** every tenant with workflow user tasks. **This change is ON by default.**
+
+Until this release, any user holding `workflows.tasks.view` could list and read **every** user task in their organization — including other people's work and agent-disposition rows carrying proposal payloads — and any user holding `workflows.tasks.complete` could complete **anyone's** task. As of this release (spec `.ai/specs/2026-07-26-workflows-ux-redesign.md` §6.4), a task is visible and actionable only to a principal who
+
+1. is the assignee, holds the task's claim, or holds one of its assigned roles — **and**
+2. passes an access check on every entity the task is bound to (entity-**type** view feature plus tenant/organization scope; there is no record-level ACL in the platform and this change does not add one).
+
+**This is a security-semantics change to an already-shipped, STABLE API surface, and `BACKWARD_COMPATIBILITY.md` has no rule covering that case.** It is not claimed to be covered by one. It ships as an intentional, documented behavior change with the full package: a spec section, this entry, an opt-out bridge that satisfies the deprecation protocol's "keep the old behavior alongside the new one for at least one minor version", and a dedicated security review (`.ai/runs/2026-07-28-workflows-task-visibility/SECURITY-REVIEW.md`) that was a release precondition. Proposing a 14th contract-surface category for route authorization semantics is itself a contract change and is raised separately, not merged here.
+
+**What a deploying tenant will observe change**
+
+| Population | Before | After |
+|---|---|---|
+| `admin` (`workflows.*`) and superadmins | see all tasks | **unchanged** — the wildcard matches the three new features |
+| An employee who is an assignee or role-queue member | saw every task in the organization | **sees only their own work and their role queues.** This is the headline change and the one your support inbox will hear about. |
+| An employee assigned nothing | saw every task in the organization | **sees an empty inbox** |
+| Anyone completing someone else's task | possible | **refused** (`409 TASK_ASSIGNED_TO_ANOTHER_USER`) |
+| Anyone claiming a role queue they do not belong to | possible | **refused** |
+| A task with no assignee, no claim and no role queue | anyone with `workflows.tasks.complete` could finish it | **nobody can finish it** — `403 TASK_NOT_ACTIONABLE`; reassign it first |
+| A cross-tenant task id on claim | mutated the foreign row, then failed | **404, with no write** |
+| Agent-disposition tasks | visible to `workflows.tasks.view` holders | visible to `agent_orchestrator.proposals.view` holders (seeded on `admin`/`employee`/`operator`/`engineer`) |
+| A notification deep link to your own task | worked | **works** — single-task read is relationship-based |
+| Rows written before entity bindings existed (zero bindings) | — | the entity gate is a **no-op** for them; only the assignment gate applies |
+
+**What you need to do**
+
+- **Nothing, if you use the seeded roles.** `admin` holds `workflows.*`, which matches the three new administration features automatically; `employee` keeps its own work.
+- **Grant `workflows.tasks.view_all`** to any role whose members must see other people's tasks (supervisors, support).
+- **Grant `workflows.tasks.reassign`** to roles that move work between people. This is now the only supported way to act on someone else's task: an administrator with `view_all` can *see* a task but not complete it — they reassign it to themselves first, with a reason, and the move is audited (`reassigned_by` / `reassigned_at` / `reassign_reason` plus a `USER_TASK_REASSIGNED` workflow event).
+- **Grant `workflows.tasks.manage`** for force-unclaim, cancel, bulk operations and the tenant setting below.
+- **Then run `yarn mercato auth sync-role-acls`.** New tenants get the grants from `setup.ts`; **existing tenants receive nothing until this command runs.** Treat it as a required deploy step for this release.
+- **Check any custom role that receives task assignments** still holds `workflows.view_tasks` (the pages) and `workflows.tasks.view` (the API). Both are in the seeded `employee` grant; a hand-built role may be missing them.
+
+**New ACL features (additive):** `workflows.tasks.view_all`, `workflows.tasks.reassign`, `workflows.tasks.manage`. **No feature id was renamed or removed.** `workflows.tasks.view` is now the dependency root of all three — it admits you to the task API, and the visibility rule decides which rows you get. `workflows.tasks.claim` / `.complete` stay on their routes (a deliberate deviation from the spec's ACL-appendix sentence, which proposed dropping them: removing them would strand two FROZEN ids that no route consults, and the sentence's purpose — portal parity — is served by the new `portal.tasks.*` features instead). Holding `.complete` no longer completes anyone else's task, which is the narrowing §6.4 actually asks for.
+
+**Escape hatch (temporary).** Set the tenant setting `task_permissions_business_context` to `false` (module `workflows`; `PUT /api/workflows/task-settings`, requires `workflows.tasks.manage`) to restore the **read** filter you had before. It restores reads only: completing someone else's task, claiming a queue you do not belong to, and cross-tenant access remain refused, and the portal task routes ignore the setting entirely. A settings read that fails defaults to the **new** model, never the permissive one. **The flag is a migration aid and is removed one minor release from now.**
+
+**New API routes, none removed, no response field dropped.** `POST /api/workflows/tasks/[id]/reassign`, `GET`/`PUT /api/workflows/task-settings`, and the portal trio `GET /api/workflows/portal/tasks`, `GET …/[id]`, `POST …/[id]/complete`. `serializeUserTask` gains `assigneeKind` and `entityTypes` and remains a strict superset.
+
+**New portal surface.** Portal principals can now be task assignees and act on their own bound tasks, through the new customer features `portal.tasks.view` / `portal.tasks.complete`. Two caveats:
+
+- **Existing tenants must grant them by hand** from the customer-role editor. `setup.ts` `defaultCustomerRoleFeatures` is merged into seeded customer roles during *tenant setup* only, and there is no `sync-customer-role-acls` counterpart to `sync-role-acls`. Adding one is filed as a follow-up.
+- `CustomerRbacService` caches ACLs for **five minutes**, so a fresh grant is not immediately visible to a signed-in portal user.
+
+The backoffice task routes were **not** loosened for portal principals — a portal session still gets 401/403 there — and a portal task with **no** entity binding is visible to nobody by design (on the portal the binding to your own record *is* the authorization; on the backoffice an absent binding passes vacuously, which is what keeps the pre-existing task corpus readable). Authoring a portal task currently means setting `userTaskConfig.assigneeKind: "customer"` in the Studio's **Code view** — there is no inspector picker yet.
+
+**New event id (additive):** `workflows.task.portal_assigned`, `portalBroadcast: true`, carrying `{ taskId, recipientUserId, tenantId, organizationId }` and nothing else. It is deliberately a separate event rather than `portalBroadcast` on `workflows.task.assigned`: the portal SSE bridge narrows to one recipient only when the payload carries `recipientUserId`, which `workflows.task.assigned` does not — broadcasting it would have leaked task names and entity bindings across customers.
+
+**Schema (additive) — migration `Migration20260728163001_workflows`.** `user_tasks.assignee_kind varchar(20) NOT NULL DEFAULT 'user'` discriminates a backoffice user id from a portal principal id in `assigned_to` (existing rows backfill to `'user'`), and `user_tasks.entity_types text[]` (nullable, **GIN**-indexed) denormalizes the bound entity types so the visibility rule is a `WHERE` rather than a post-filter that would make `pagination.total` lie. No column was renamed or removed. *(The generator emitted a btree for `entity_types`; the migration writes the GIN index by hand, as `workflow_definitions_definition_gin_idx` already does.)*
+
+**Bugs fixed in the same release, previously exploitable:** claiming a task belonging to another tenant wrote to that tenant's row before failing; completing did not check the assignee; claiming did not check that the caller held one of the task's assigned roles.
+
+**Known limits, stated rather than implied.** Role queues still match on role **names**, not ids — names are server-derived so they are not client-spoofable, but they are tenant-mutable, and renaming a role silently orphans assignments authored against the old name. Entity access is entity-**type** access plus scope: there is no per-record check. The backoffice task page still renders the Complete button for a `view_all` administrator (the detail response carries no `canComplete`) and has no reassign control — the refusal is enforced server-side, but the UI currently offers an action it cannot perform. All four are recorded in the security review with follow-ups.
+
+Full model, including the fail-closed rules and the 404-vs-403 policy: [`apps/docs/docs/framework/workflows/task-visibility.mdx`](apps/docs/docs/framework/workflows/task-visibility.mdx).
+
 ### Workflows UX Phase 4a: task inspector, Work Inbox, deadlines and task notifications
 
 Phase 4a makes workflow user tasks workable end to end (`.ai/specs/2026-07-26-workflows-ux-redesign.md` §6.1–§6.3, §2.3): a real task inspector, a Work Inbox assembled from registered sources rather than a single-table list, entity context where the work is, deadlines that actually fire, and notifications that are actually sent. The inbox is a **projection** over the existing `user_tasks` rows — no new table, no data migration.
@@ -43,6 +101,7 @@ What else changed, and what you need to do:
 - **New extension point: `WorkInboxSourceProvider`.** A module contributes work items to the inbox by calling `registerWorkInboxSources([{ moduleId, sources }])` from its own `di.ts` (`@open-mercato/core/modules/workflows/lib/work-inbox/provider`). Registration merges by module id, so order between modules does not matter, and a module that registers nothing simply contributes nothing — the inbox degrades to workflow tasks with no error. A provider whose `list()` throws is reported in the response's `meta.degradedKinds` instead of failing the whole page.
 - **New DI key `workInboxService`** (`listWorkInbox`, `listClaimableWorkInbox`). Additive; nothing resolves it implicitly.
 - **`claimUserTask` is now a compare-and-set.** It previously read the row with `status: 'PENDING'` and then flushed the entity, so two concurrent callers could both read `PENDING` and both write. It now takes the row with a conditional `UPDATE … WHERE status = 'PENDING' AND claimed_by IS NULL` and raises the same `TASK_NOT_FOUND` (`'Task not found or already claimed'`) when it affects zero rows. Every error code, message and scoping guarantee is unchanged; the only behavior difference is that a losing racer now reliably loses instead of overwriting the winner.
+- **`claimUserTask` now verifies queue membership, and takes the caller's role names.** Holding `workflows.tasks.claim` admitted a caller to the endpoint and, until now, to *any* role queue — a user could claim a task queued to a role they do not hold. The handler now compares the task's `assignedToRoles` against the caller's server-derived `auth.roles` and refuses a non-member with the existing `TASK_NOT_FOUND` (`'Task not found or already claimed'`), byte-identical to the refusal a nonexistent id produces, so a queue you do not belong to is indistinguishable from a task that is not there. **Signature change:** `claimUserTask(em, taskId, userId, scope, callerRoleNames)` gains a required fifth parameter (`TaskHandlerService.claimUserTask` likewise). It is required rather than optional on purpose — a caller that cannot supply role names fails to compile instead of silently claiming any queue. *Action:* a third-party module calling `claimUserTask` directly must pass `auth.roles ?? []`. Both sides are role **names**, not ids (the Studio picker writes names and the engine copies them onto the task), so renaming a tenant role orphans existing role assignments; migrating the comparison to immutable role ids is separate, coordinated work.
 - **New `user_tasks` columns + migration `Migration20260728104038_workflows`.** All nullable and additive: `entity_bindings` (jsonb — the records a task is about, resolved at creation), `priority` (varchar(20) — authored `low|medium|high|extreme`), and the reassignment audit trio `reassigned_by` / `reassigned_at` / `reassign_reason`. **No `UserTaskStatus` value was added**: reassignment is audit columns plus a workflow event, and a routed deadline breach reuses the existing `ESCALATED` status. Ship the migration as usual; nothing backfills, and rows written before it read exactly as they did.
 - **New event ids (additive; §5 of `BACKWARD_COMPATIBILITY.md` allows adding, never renaming).** `workflows.task.reminder_due` and `workflows.task.deadline_breached` join the already-declared `workflows.task.assigned`, which is now actually emitted. All three are `persistent: true` with at-least-once delivery — **subscribers must be idempotent**. `workflows.task.assigned` additionally carries `entityBindings`, which is how a module that owns those records surfaces the task on its own turf: the customers module subscribes to it and writes its own `CustomerTodoLink` with `todoSource: 'workflows'`. Workflows never writes another module's table.
 - **New notification type ids** (FROZEN surface, add-only): `workflows.task.reminder_due` and `workflows.task.deadline_breached`, beside the existing `workflows.task.assigned`.

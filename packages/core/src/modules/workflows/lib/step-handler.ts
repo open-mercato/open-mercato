@@ -32,6 +32,7 @@ import { logWorkflowEvent } from './event-logger'
 import { findDefinitionForInstance } from './find-definition'
 import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from './interpolation-pipeline'
 import {
+  collectResolvedEntityTypes,
   flattenTaskText,
   resolveTaskAssignment,
   resolveTaskDeadlineDuration,
@@ -727,6 +728,31 @@ async function emitTaskAssignedEvent(
       err: error,
     })
   }
+
+  if (userTask.assigneeKind !== 'customer' || !userTask.assignedTo) return
+
+  try {
+    // Addressed to ONE portal principal (`recipientUserId` is what narrows the
+    // SSE audience) and carrying an id and nothing else. The receiver asks the
+    // authorized portal API what the task is; the bridge never carries the
+    // answer, so a mis-scoped connection learns nothing from it.
+    await emitWorkflowsEvent(
+      'workflows.task.portal_assigned',
+      {
+        taskId: userTask.id,
+        recipientUserId: userTask.assignedTo,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId ?? null,
+      },
+      { persistent: false }
+    )
+  } catch (error) {
+    logger.error('Failed to emit workflows.task.portal_assigned', {
+      component: 'step-handler',
+      taskId: userTask.id,
+      err: error,
+    })
+  }
 }
 
 /**
@@ -767,6 +793,16 @@ async function handleUserTaskStep(
       assignedToRoles: assignment.assignedToRoles,
     })
   }
+  if (assignment.fellBackFromCustomer) {
+    // The author addressed this to a portal principal and no id resolved, so it
+    // landed in the backoffice namespace instead. The work is still reachable,
+    // but by a different audience than intended — that is worth saying out loud.
+    logger.warn('Portal task assignee resolved to nothing; task created for the backoffice instead', {
+      component: 'step-handler',
+      stepId: stepDef.stepId,
+      workflowInstanceId: instance.id,
+    })
+  }
 
   const { bindings, unresolved } = resolveTaskEntityBindings(userTaskConfig.entityBindings, interpolate)
   if (unresolved.length) {
@@ -795,8 +831,16 @@ async function handleUserTaskStep(
     formSchema: userTaskConfig.formSchema || null,
     formData: null,
     assignedTo: assignment.assignedTo,
+    // Decided by `resolveTaskAssignment` from the authored `assigneeKind`, and
+    // `'customer'` only when an individual assignee actually resolved. Written
+    // explicitly rather than left to the column default so the discriminator is
+    // a decision at every creation site, not an accident.
+    assigneeKind: assignment.assigneeKind,
     assignedToRoles: assignment.assignedToRoles,
     entityBindings: bindings.length ? bindings : null,
+    // Denormalized from the SAME resolved bindings, so the two can never drift.
+    // Null for a task about nothing, which is what the vacuous-pass rule reads.
+    entityTypes: bindings.length ? collectResolvedEntityTypes(bindings) : null,
     priority: userTaskConfig.priority ?? null,
     dueDate: deadlineDuration
       ? resolveUserTaskDeadline(stepDef.stepId, deadlineDuration)
