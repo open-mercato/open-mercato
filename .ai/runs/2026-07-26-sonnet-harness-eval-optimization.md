@@ -328,6 +328,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.12 Keep debugging additive to cross-module domain/extension work and remove negated-label routing ambiguity — `1a34781da`
 - [x] 3.13 Route multi-seam domain fixes through the blueprint/API scaffold references and pin trusted public-schema scope — `68d7645a2`
 - [x] 3.14 Keep the Codex MCP discovery gate available for gpt-5.4-mini while denying every model-authored capability — `a97a3e8bb`
+- [x] 3.15 Name the exact harness MCP tools under isolated Codex and remove ambiguous OMH-192 counterfactual labels — `962f042e8`
 
 ### Phase 4: Compatibility baseline
 
