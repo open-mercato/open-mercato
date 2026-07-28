@@ -325,6 +325,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.9 Add progressive cache/invalidation and queue guidance plus two-model generative evaluation coverage — `4ab32d393`; OMH-186/187 pass on both models
 - [x] 3.10 Merge field-tested OMH-188–191 and add the combined scoped CRM/library OMH-192 regression with executable oracles, Jest, and review rules — `9675e5678`
 - [x] 3.11 Pin reproducible Codex reasoning effort for the requested gpt-5.4-mini comparison and strengthen durable-workflow progressive routing — `e7654fec8`
+- [x] 3.12 Keep debugging additive to cross-module domain/extension work and remove negated-label routing ambiguity — `1a34781da`
 
 ### Phase 4: Compatibility baseline
 
