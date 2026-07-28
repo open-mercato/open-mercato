@@ -236,6 +236,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     }
 
     const operation = prepared.claim.record
+    // Everything after this flips to true is post-settlement: the provider moved the money and the
+    // completion transaction committed it. A later event or logging failure must not undo either,
+    // so the failure path below only runs while the operation can still be rolled back.
+    let settled = false
     try {
       await input.beforeInvoke?.({ transaction, operation })
       const { adapter, credentials } = await resolveAdapterAndCredentials(
@@ -259,6 +263,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           return changed
         },
       )
+      settled = true
       if (statusChanged) {
         await emitStatusEvent(result.status, {
           transactionId: transaction.id,
@@ -271,10 +276,12 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       await input.afterCommit(transaction, result)
       return result
     } catch (error: unknown) {
-      if (input.releaseOnFailure) {
-        await input.releaseOnFailure({ transaction, operation }).catch(() => undefined)
+      if (!settled) {
+        if (input.releaseOnFailure) {
+          await input.releaseOnFailure({ transaction, operation }).catch(() => undefined)
+        }
+        await Promise.allSettled([failPaymentOperation(em, prepared.claim)])
       }
-      await Promise.allSettled([failPaymentOperation(em, prepared.claim)])
       throw error
     }
   }

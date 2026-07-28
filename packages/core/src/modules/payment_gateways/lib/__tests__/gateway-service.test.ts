@@ -499,6 +499,30 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
     expect(transaction.capturedAmount).toBe('100.0000')
   })
 
+  it('keeps a settled capture settled when the post-completion event emission fails', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn } = buildService(transaction, {})
+    captureFn.mockResolvedValue({ status: 'captured', capturedAmount: 60 })
+    setGlobalEventBus({ emit: async () => { throw new Error('event bus down') } })
+
+    try {
+      await expect(service.capturePayment(transaction.id, 60, scope, 'capture-event-fails'))
+        .rejects.toThrow('event bus down')
+    } finally {
+      setGlobalEventBus({ emit: async () => {} })
+    }
+
+    expect(transaction.capturedAmount).toBe('60.0000')
+
+    const replay = await service.capturePayment(transaction.id, 60, scope, 'capture-event-fails')
+    expect(replay).toMatchObject({ status: 'captured', capturedAmount: 60 })
+    expect(captureFn).toHaveBeenCalledTimes(1)
+
+    await expect(service.capturePayment(transaction.id, 60, scope, 'capture-after-event-failure'))
+      .rejects.toMatchObject({ status: 409, body: { code: 'payment_capture_ceiling_exceeded' } })
+    expect(transaction.capturedAmount).toBe('60.0000')
+  })
+
   it('keeps fractional captures exact instead of accumulating floating-point drift', async () => {
     const transaction = makeTransaction('authorized')
     const { service, captureFn } = buildService(transaction, {})
