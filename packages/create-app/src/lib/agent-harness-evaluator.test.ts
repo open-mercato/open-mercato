@@ -197,7 +197,8 @@ if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
 if (!prompt.includes('implement the complete request with repeated use of the allowlisted harness write tool')
   || !prompt.includes('A manifest of intended files, metadata-only stub, TODO, placeholder')
-  || !prompt.includes('selectedContext records only instruction/fact paths')) process.exit(10)
+  || !prompt.includes('selectedContext records only instruction/fact paths')
+  || !prompt.includes('Call harness.read or harness.write; never call read_mcp_resource or any resource API')) process.exit(10)
 JSON.parse(fs.readFileSync(args[args.indexOf('--output-schema') + 1], 'utf8'))
 ${sandboxProbe ? `
 try { fs.readFileSync(${JSON.stringify(sandboxProbe.readPath)}, 'utf8'); process.exit(31) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT'].includes(error.code)) throw error }
@@ -701,7 +702,7 @@ const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
-if (!prompt.includes('Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories') || !prompt.includes('an all-guides/all-skills/all-facts read is an automatic failure') || !prompt.includes('selectedSkills names only skills you actually invoked during this evaluation after opening their SKILL.md')) process.exit(10)
+if (!prompt.includes('Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories') || !prompt.includes('an all-guides/all-skills/all-facts read is an automatic failure') || !prompt.includes('selectedSkills names only skills you actually invoked during this evaluation after opening their SKILL.md') || !prompt.includes('Call harness.read; never call read_mcp_resource or any resource API') || !prompt.includes('call harness.read with {"path":"AGENTS.md"}')) process.exit(10)
 const disabled = args.flatMap((arg, index) => arg === '--disable' ? [args[index + 1]] : [])
 if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || !['shell_tool','unified_exec','apps','multi_agent','browser_use','computer_use','image_generation','standalone_web_search'].every((feature) => disabled.includes(feature)) || disabled.includes('skill_search') || args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('sandbox_workspace_write.network_access=false') || !args.includes('shell_environment_policy.inherit=none') || !args.includes('mcp_servers.harness.required=true') || !args.includes('mcp_servers.harness.default_tools_approval_mode="approve"') || args[args.indexOf('--model') + 1] !== 'gpt-5.4-mini' || !args.includes('model_reasoning_effort="high"') || !args.some((arg) => arg.startsWith('mcp_servers.harness.command=')) || !args.some((arg) => arg.startsWith('mcp_servers.harness.args=')) || !process.env.CODEX_HOME?.includes('om-harness-result-') || !process.env.HOME?.includes('om-harness-result-')) process.exit(9)
 const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
@@ -993,12 +994,15 @@ if (args[0] === 'features' && args[1] === 'list') {
 const disabled = args.reduce((names, value, index) => (
   args[index - 1] === '--disable' ? [...names, value] : names
 ), [])
+const enabled = args.reduce((names, value, index) => (
+  args[index - 1] === '--enable' ? [...names, value] : names
+), [])
 // Every capability this CLI knows about must be denied...
 for (const name of known.filter((entry) => !['unrelated_feature', 'skill_search'].includes(entry))) {
   if (!disabled.includes(name)) process.exit(9)
 }
-// The discovery gate and an unrelated feature must not be denied.
-if (disabled.includes('skill_search')) process.exit(9)
+// The discovery gate must be explicit under --ignore-user-config; unrelated features stay untouched.
+if (disabled.includes('skill_search') || !enabled.includes('skill_search') || enabled.includes('unrelated_feature')) process.exit(9)
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['architecture'], selectedSkills: [],
   selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
