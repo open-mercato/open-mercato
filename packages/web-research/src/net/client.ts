@@ -131,9 +131,6 @@ function send(target: URL, addresses: readonly string[], options: SendOptions): 
     const agent = secure
       ? new HttpsAgent({ keepAlive: false, lookup: createPinnedLookup(addresses) })
       : new HttpAgent({ keepAlive: false, lookup: createPinnedLookup(addresses) })
-    const dispose = (): void => {
-      agent.destroy()
-    }
     const transport = secure ? sendHttps : sendHttp
     const request = transport(
       {
@@ -146,15 +143,33 @@ function send(target: URL, addresses: readonly string[], options: SendOptions): 
         agent,
       },
       (response) => {
-        clearTimeout(timer)
-        options.signal?.removeEventListener('abort', onAbort)
+        clearTimeout(headerTimer)
         resolve({ response, dispose })
       },
     )
 
-    const timer = setTimeout(() => {
+    /**
+     * Teardown for the whole exchange, headers *and* body. The abort listener and
+     * the socket idle timer deliberately stay armed past the response callback:
+     * releasing them there leaves a body read that no signal and no deadline can
+     * interrupt, so a server that trickles bytes forever pins a socket and an
+     * adapter promise for the life of the process.
+     */
+    const dispose = (): void => {
+      clearTimeout(headerTimer)
+      request.setTimeout(0)
+      options.signal?.removeEventListener('abort', onAbort)
+      request.destroy()
+      agent.destroy()
+    }
+
+    const headerTimer = setTimeout(() => {
       request.destroy(new WebResearchError('timeout', `Request to ${target.href} timed out`))
     }, options.timeoutMs)
+
+    request.setTimeout(options.timeoutMs, () => {
+      request.destroy(new WebResearchError('timeout', `Request to ${target.href} stalled`))
+    })
 
     function onAbort(): void {
       request.destroy(new WebResearchError('aborted', `Request to ${target.href} was aborted`))
@@ -162,8 +177,6 @@ function send(target: URL, addresses: readonly string[], options: SendOptions): 
     options.signal?.addEventListener('abort', onAbort, { once: true })
 
     request.on('error', (error) => {
-      clearTimeout(timer)
-      options.signal?.removeEventListener('abort', onAbort)
       dispose()
       reject(
         error instanceof WebResearchError
@@ -255,14 +268,19 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     if (delay > 0) await sleep(delay, signal)
   }
 
-  async function attempt(target: URL, addresses: readonly string[], init: HttpRequestInit) {
+  async function attempt(
+    target: URL,
+    addresses: readonly string[],
+    init: HttpRequestInit,
+    carryCallerHeaders: boolean,
+  ) {
     const headers: Record<string, string> = {
       'user-agent': userAgent,
       'accept-language': acceptLanguage,
       'accept-encoding': 'gzip, deflate, br',
       accept: init.accept?.length ? `${init.accept.join(', ')}, */*;q=0.1` : '*/*',
       ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
-      ...(init.headers ?? {}),
+      ...(carryCallerHeaders ? (init.headers ?? {}) : {}),
     }
     return send(target, addresses, {
       method: init.method ?? 'GET',
@@ -276,6 +294,10 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
   async function request(rawUrl: string, init: HttpRequestInit = {}): Promise<HttpResponse> {
     const maxBytes = init.maxBytes ?? defaultMaxBytes
     let currentUrl = rawUrl
+    // Caller headers carry vendor credentials (`authorization`, an API-key header).
+    // A redirect to another origin must not replay them, or a compromised or
+    // merely sloppy endpoint can harvest a tenant's key with a single 302.
+    let sameOrigin = true
 
     for (let hop = 0; hop <= maxRedirects; hop += 1) {
       const vetted = await assertPublicUrl(currentUrl, 'web research fetch', {
@@ -287,7 +309,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
       let lastError: WebResearchError | null = null
       for (let retry = 0; retry <= maxRetries; retry += 1) {
         try {
-          sent = await attempt(vetted.url, vetted.addresses, init)
+          sent = await attempt(vetted.url, vetted.addresses, init, sameOrigin)
           const status = sent.response.statusCode ?? 0
           if (status >= 400) {
             const error = statusError(status, vetted.url.href, headerMap(sent.response))
@@ -320,7 +342,9 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
         if (!location) {
           throw new WebResearchError('bad_response', `Redirect from ${currentUrl} without a Location header`)
         }
-        currentUrl = new URL(location, vetted.url).toString()
+        const next = new URL(location, vetted.url)
+        if (next.origin !== vetted.url.origin) sameOrigin = false
+        currentUrl = next.toString()
         continue
       }
 
@@ -337,6 +361,12 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
       try {
         const { text, truncated } = await readCapped(decompress(sent.response), maxBytes)
         return { url: vetted.url.href, status, headers, contentType, body: text, truncated }
+      } catch (error) {
+        throw error instanceof WebResearchError
+          ? error
+          : new WebResearchError('network', `Reading ${vetted.url.href} failed: ${errorMessage(error)}`, {
+              cause: error,
+            })
       } finally {
         sent.dispose()
       }
