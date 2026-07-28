@@ -46,16 +46,18 @@ const dict = {
   'query_index.table.status.purging': 'PurgingStatus',
   'query_index.table.status.in_sync': 'InSyncStatus',
   'query_index.table.status.out_of_sync': 'OutOfSyncStatus',
-  'query_index.table.status.vectorLabel': 'Vector',
-  'query_index.table.status.vectorValue': '{{count}} of {{total}}',
+  'query_index.table.status.not_measured': 'NotMeasuredStatus',
   'query_index.table.status.scopeLabel': 'Scope',
   'query_index.table.columns.entity': 'Entity',
-  'query_index.table.columns.label': 'Label',
   'query_index.table.columns.records': 'Records',
   'query_index.table.columns.indexed': 'Indexed',
   'query_index.table.columns.vector': 'Vector',
   'query_index.table.columns.fulltext': 'Fulltext',
   'query_index.table.columns.status': 'Status',
+  'query_index.table.filters.backend': 'Backend',
+  'query_index.table.filters.backendOptions.vector': 'Vector search',
+  'query_index.table.filters.backendOptions.fulltext': 'Full-text search',
+  'query_index.table.filters.backendOptions.customFields': 'Custom fields',
 }
 
 const mockItems = [
@@ -135,7 +137,7 @@ describe('QueryIndexesTable', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('Idle OK')).toBeInTheDocument()
+      expect(screen.getByText('idle_ok')).toBeInTheDocument()
     })
 
     // Verify mapping job.status -> StatusBadge variant
@@ -159,7 +161,7 @@ describe('QueryIndexesTable', () => {
     const { container } = renderWithProviders(<QueryIndexesTable />, { dict })
 
     await waitFor(() => {
-      expect(screen.getByText('Idle OK')).toBeInTheDocument()
+      expect(screen.getByText('idle_ok')).toBeInTheDocument()
     })
 
     const html = container.innerHTML
@@ -168,5 +170,53 @@ describe('QueryIndexesTable', () => {
     expect(html).not.toMatch(/text-green-\d+/)
     expect(html).not.toMatch(/text-orange-\d+/)
     expect(html).not.toMatch(/text-red-\d+/)
+  })
+
+  it('drops the Label column that always duplicated Entity', async () => {
+    renderWithProviders(<QueryIndexesTable />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByText('idle_ok')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText('Idle OK')).not.toBeInTheDocument()
+  })
+
+  it('reports an unmeasured entity as pending rather than out of sync', async () => {
+    ;(readApiResultOrThrow as jest.Mock).mockResolvedValue({
+      items: [
+        {
+          entityId: 'never_measured',
+          label: 'never_measured',
+          baseCount: null,
+          indexCount: null,
+          vectorCount: null,
+          vectorEnabled: false,
+          fulltextCount: null,
+          fulltextEnabled: false,
+          ok: false,
+          job: { status: 'idle' },
+        },
+      ],
+    })
+    renderWithProviders(<QueryIndexesTable />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByText('never_measured')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('NotMeasuredStatus')).toBeInTheDocument()
+    expect(screen.queryByText('OutOfSyncStatus')).not.toBeInTheDocument()
+  })
+
+  it('does not repeat vector coverage under the status badge', async () => {
+    const { container } = renderWithProviders(<QueryIndexesTable />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByText('idle_ok')).toBeInTheDocument()
+    })
+
+    // Vector coverage belongs in the Vector column only — the status cell used to repeat it.
+    expect(container.innerHTML).not.toContain('Vector: ')
   })
 })

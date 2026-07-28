@@ -3,6 +3,7 @@ import * as React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -53,13 +54,25 @@ type Row = {
   indexCount: number | null
   vectorCount: number | null
   vectorEnabled: boolean
+  vectorConfigured?: boolean
   fulltextCount: number | null
   fulltextEnabled: boolean
+  hasCustomFields?: boolean
   ok: boolean
   job?: JobStatus
 }
 
 type Resp = { items: Row[] }
+
+const BACKEND_FILTER_ID = 'backend'
+
+type BackendFilter = 'vector' | 'fulltext' | 'custom_fields'
+
+function matchesBackendFilter(row: Row, backend: BackendFilter): boolean {
+  if (backend === 'vector') return Boolean(row.vectorConfigured ?? row.vectorEnabled)
+  if (backend === 'fulltext') return row.fulltextEnabled
+  return Boolean(row.hasCustomFields)
+}
 
 function formatCount(value: number | null): string {
   if (value == null) return '—'
@@ -83,14 +96,23 @@ function formatProgressLabel(
   return t('query_index.table.status.progressSingle', { processed: processedText })
 }
 
-function translateJobStatus(t: Translator, status: JobStatus['status'] | undefined, ok: boolean): string {
-  if (!status || status === 'idle') {
+function translateJobStatus(
+  t: Translator,
+  status: JobStatus['status'] | undefined,
+  ok: boolean,
+  measured: boolean,
+): string {
+  const idleLabel = () => {
+    // No coverage snapshot yet — an async refresh is pending, so the index is not known to
+    // be out of sync. Saying so would be the same false alarm this page used to raise.
+    if (!measured) return t('query_index.table.status.not_measured')
     return ok ? t('query_index.table.status.in_sync') : t('query_index.table.status.out_of_sync')
   }
+  if (!status || status === 'idle') return idleLabel()
   if (status === 'reindexing') return t('query_index.table.status.reindexing')
   if (status === 'purging') return t('query_index.table.status.purging')
   if (status === 'stalled') return t('query_index.table.status.stalled')
-  return ok ? t('query_index.table.status.in_sync') : t('query_index.table.status.out_of_sync')
+  return idleLabel()
 }
 
 function translateScopeStatus(
@@ -107,7 +129,6 @@ function translateScopeStatus(
 function createColumns(t: Translator): ColumnDef<Row>[] {
   return [
     { id: 'entityId', header: () => t('query_index.table.columns.entity'), accessorKey: 'entityId', meta: { priority: 1 } },
-    { id: 'label', header: () => t('query_index.table.columns.label'), accessorKey: 'label', meta: { priority: 2 } },
     {
       id: 'baseCount',
       header: () => t('query_index.table.columns.records'),
@@ -157,8 +178,9 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
         const record = row.original
         const job = record.job
         const partitions = job?.partitions ?? []
+        const measured = record.baseCount != null || record.indexCount != null
         const ok = record.ok && (!job || job.status === 'idle')
-        const statusText = translateJobStatus(t, job?.status, ok)
+        const statusText = translateJobStatus(t, job?.status, ok, measured)
         const jobProgress = job ? formatProgressLabel(job.processedCount ?? null, job.totalCount ?? null, t) : null
         const label = jobProgress
           ? t('query_index.table.status.withProgress', { status: statusText, progress: jobProgress })
@@ -193,16 +215,6 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
           }
         }
 
-        if (record.vectorEnabled) {
-          const vectorLabel = t('query_index.table.status.vectorLabel')
-          const vectorCount = formatCount(record.vectorCount)
-          const vectorTotal = record.baseCount != null ? formatCount(record.baseCount) : null
-          const vectorValue = vectorTotal
-            ? t('query_index.table.status.vectorValue', { count: vectorCount, total: vectorTotal })
-            : vectorCount
-          lines.push(`${vectorLabel}: ${vectorValue}`)
-        }
-
         return (
           <div className="space-y-1.5">
             <div>
@@ -227,14 +239,26 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
 
 export default function QueryIndexesTable() {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'entityId', desc: false }])
-  const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const qc = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
   const [refreshSeq, setRefreshSeq] = React.useState(0)
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const columns = React.useMemo(() => createColumns(t), [t])
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: BACKEND_FILTER_ID,
+      label: t('query_index.table.filters.backend'),
+      type: 'select',
+      options: [
+        { label: t('query_index.table.filters.backendOptions.vector'), value: 'vector' },
+        { label: t('query_index.table.filters.backendOptions.fulltext'), value: 'fulltext' },
+        { label: t('query_index.table.filters.backendOptions.customFields'), value: 'custom_fields' },
+      ],
+    },
+  ], [t])
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
     resourceKind: string
@@ -261,10 +285,26 @@ export default function QueryIndexesTable() {
 
   const rowsAll = data?.items || []
   const rows = React.useMemo(() => {
-    if (!search) return rowsAll
-    const q = search.toLowerCase()
-    return rowsAll.filter((r) => r.entityId.toLowerCase().includes(q) || r.label.toLowerCase().includes(q))
-  }, [rowsAll, search])
+    const backend = filterValues[BACKEND_FILTER_ID] as BackendFilter | undefined
+    const q = search.trim().toLowerCase()
+    if (!q && !backend) return rowsAll
+    return rowsAll.filter((row) => {
+      if (q && !row.entityId.toLowerCase().includes(q)) return false
+      if (backend && !matchesBackendFilter(row, backend)) return false
+      return true
+    })
+  }, [rowsAll, search, filterValues])
+
+  // The status payload is not paged and the table sorts client-side, so slicing here would
+  // sort only the visible page. Report the true row count instead of the hard-coded single
+  // page of 50, which under-reported as soon as the entity list stopped being CF-gated.
+  const pagination = React.useMemo(() => ({
+    page: 1,
+    pageSize: Math.max(1, rows.length),
+    total: rows.length,
+    totalPages: 1,
+    onPageChange: () => {},
+  }), [rows.length])
 
   const trigger = React.useCallback(
     async (action: 'reindex' | 'purge', entityId: string, opts?: { force?: boolean }) => {
@@ -411,7 +451,14 @@ export default function QueryIndexesTable() {
         searchPlaceholder={t('query_index.table.searchPlaceholder')}
         onSearchChange={(value) => {
           setSearch(value)
-          setPage(1)
+        }}
+        filters={filters}
+        filterValues={filterValues}
+        onFiltersApply={(values) => {
+          setFilterValues(values)
+        }}
+        onFiltersClear={() => {
+          setFilterValues({})
         }}
         sortable
         sorting={sorting}
@@ -433,7 +480,9 @@ export default function QueryIndexesTable() {
             },
           ]
 
-          if (row.vectorEnabled) {
+          // Manual vector actions stay available whenever the entity declares `buildSource`,
+          // even when auto-indexing is off — `vectorEnabled` only governs coverage reporting.
+          if (row.vectorConfigured ?? row.vectorEnabled) {
             items.push(
               {
                 id: 'vector-reindex',
@@ -467,7 +516,7 @@ export default function QueryIndexesTable() {
 
           return <RowActions items={items} />
         }}
-        pagination={{ page, pageSize: 50, total: rows.length, totalPages: 1, onPageChange: setPage }}
+        pagination={pagination}
         isLoading={isLoading}
       />
       {ConfirmDialogElement}
