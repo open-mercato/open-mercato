@@ -23,6 +23,7 @@ import type { Node, Edge } from '@xyflow/react'
 import type { WorkflowDefinition } from '../data/entities'
 import { definitionToGraph, generateStepId, generateTransitionId, graphToDefinition } from './graph-utils'
 import { isDataMappingEdge } from './data-edge-mapping'
+import { isAnnotationNode } from './editor-annotations'
 
 /** Format discriminator. Written by the canvas and by the Code view alike. */
 export const WORKFLOW_SUBGRAPH_CLIPBOARD_KIND = 'open-mercato.workflow-subgraph'
@@ -72,7 +73,9 @@ export function serializeWorkflowSubgraph(
   selectedNodeIds: string[],
 ): WorkflowSubgraphClipboard | null {
   const selected = new Set(selectedNodeIds)
-  const selectedNodes = nodes.filter((node) => selected.has(node.id))
+  // Annotations never travel on the clipboard: the payload speaks the definition
+  // vocabulary, and a note has no definition form to speak.
+  const selectedNodes = nodes.filter((node) => selected.has(node.id) && !isAnnotationNode(node))
   if (selectedNodes.length === 0) return null
 
   const internalEdges = edges.filter(

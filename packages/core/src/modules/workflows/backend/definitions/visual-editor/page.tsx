@@ -31,6 +31,20 @@ import {
   type SubgraphClipboardParseFailure,
   type WorkflowSubgraphClipboard,
 } from '../../../lib/subgraph-clipboard'
+import {
+  annotationsFromNodes,
+  annotationsToNodes,
+  createGroupNode,
+  createNoteNode,
+  isAnnotationNode,
+  readEditorAnnotations,
+  removeAnnotationNode,
+  updateAnnotationNode,
+  type WorkflowGroupNodeData,
+  type WorkflowNoteNodeData,
+} from '../../../lib/editor-annotations'
+import { WORKFLOW_GROUP_TOGGLE_EVENT } from '../../../lib/annotation-events'
+import { AnnotationEditDialog } from '../../../components/AnnotationEditDialog'
 import { readPaletteDragItem, writePaletteDragPayload } from '../../../lib/palette-drag'
 import { appendActivityToRoute, insertStepOnRoute, type PaletteDropRejectionCode } from '../../../lib/palette-drop'
 import { useActivityTypeOptions } from '../../../components/fields/useActivityTypeOptions'
@@ -105,7 +119,7 @@ import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, Trash2, TriangleAlert, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Group, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
 import { useSidebarCollapse } from '@open-mercato/ui/backend/AppShell'
@@ -341,6 +355,11 @@ export default function VisualEditorPage() {
   }, [])
   const [showNodeDialog, setShowNodeDialog] = useState(false)
   const [showEdgeDialog, setShowEdgeDialog] = useState(false)
+  // Sticky notes and groups (spec 4.5) are canvas nodes with their own tiny
+  // inspector — they carry no step configuration, so they never open the step
+  // dialog.
+  const [selectedAnnotation, setSelectedAnnotation] = useState<Node | null>(null)
+  const [showAnnotationDialog, setShowAnnotationDialog] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [showTemplateGallery, setShowTemplateGallery] = useState(false)
   const [problems, setProblems] = useState<WorkflowValidationIssue[]>([])
@@ -423,6 +442,11 @@ export default function VisualEditorPage() {
     duplicate: t('workflows.visualEditor.history.duplicate', 'Duplicate'),
     insertOnRoute: t('workflows.visualEditor.history.insertOnRoute', 'Insert step on route'),
     addActivity: t('workflows.visualEditor.history.addActivity', 'Add action to route'),
+    addNote: t('workflows.visualEditor.history.addNote', 'Add note'),
+    addGroup: t('workflows.visualEditor.history.addGroup', 'Add group'),
+    editAnnotation: t('workflows.visualEditor.history.editAnnotation', 'Edit annotation'),
+    deleteAnnotation: t('workflows.visualEditor.history.deleteAnnotation', 'Delete annotation'),
+    toggleGroup: t('workflows.visualEditor.history.toggleGroup', 'Collapse group'),
   }), [t])
 
   const captureDocument = useCallback((): WorkflowEditorDocument => ({
@@ -505,9 +529,15 @@ export default function VisualEditorPage() {
         // render IN/OUT ports without opening the child (fail-open).
         const childContracts = await loadSubWorkflowContracts(definition.definition)
 
-        // Convert definition to graph
+        // Convert definition to graph. Annotations ride alongside the steps as
+        // canvas nodes so a note drags, undoes and autosaves like everything
+        // else — they are filtered back out on the way to `definition.steps`.
         const graph = definitionToGraph(definition.definition, { childContracts })
-        setNodes(graph.nodes)
+        const loadedMetadataBag = definition.metadata && typeof definition.metadata === 'object'
+          ? (definition.metadata as Record<string, unknown>)
+          : null
+        const annotationNodes = annotationsToNodes(readEditorAnnotations(loadedMetadataBag))
+        setNodes([...graph.nodes, ...annotationNodes])
         setEdges(graph.edges)
 
         // Load embedded triggers from definition
@@ -525,9 +555,7 @@ export default function VisualEditorPage() {
         setInterpolation(loadedInterpolation)
         const loadedErrorHandler = (definition.definition?.errorHandler ?? undefined) as WorkflowErrorHandlerConfig | undefined
         setErrorHandler(loadedErrorHandler)
-        const loadedMetadataObject = definition.metadata && typeof definition.metadata === 'object'
-          ? { ...(definition.metadata as Record<string, unknown>) }
-          : null
+        const loadedMetadataObject = loadedMetadataBag ? { ...loadedMetadataBag } : null
         setLoadedMetadata(loadedMetadataObject)
 
         // Track source so the editor mirrors the non-visual edit page UX:
@@ -554,6 +582,7 @@ export default function VisualEditorPage() {
           category: definition.metadata?.category || '',
           tags: definition.metadata?.tags || [],
           icon: definition.metadata?.icon || '',
+          annotations: annotationsFromNodes(annotationNodes),
         })
         lastPersistedDraftRef.current = stableSerializeDefinition({
           definition: comparableDefinition,
@@ -592,9 +621,13 @@ export default function VisualEditorPage() {
     loadDefinition()
   }, [definitionId])
 
+  // The canvas owns the annotations, so every persistence path derives them back
+  // out of the node array rather than tracking a second copy that could drift.
+  const annotations = useMemo(() => annotationsFromNodes(nodes), [nodes])
+
   const draftMetadata = useMemo(
-    () => buildMetadataPayload({ loadedMetadata, tags, category, icon }),
-    [loadedMetadata, tags, category, icon],
+    () => buildMetadataPayload({ loadedMetadata, tags, category, icon, annotations }),
+    [loadedMetadata, tags, category, icon, annotations],
   )
 
   // Debounced autosave-to-draft (~2s): watches the same editor-state dep set
@@ -666,7 +699,7 @@ export default function VisualEditorPage() {
     try {
       const draftDefinition = pendingDraft.draft.definition as unknown as Parameters<typeof definitionToGraph>[0]
       const graph = definitionToGraph(draftDefinition)
-      setNodes(graph.nodes)
+      setNodes([...graph.nodes, ...annotationsToNodes(readEditorAnnotations(pendingDraft.draft.metadata ?? null))])
       setEdges(graph.edges)
       const draftTriggers = pendingDraft.draft.definition.triggers
       setTriggers(Array.isArray(draftTriggers) ? (draftTriggers as WorkflowDefinitionTrigger[]) : [])
@@ -868,7 +901,7 @@ export default function VisualEditorPage() {
       const tag = (active?.tagName || '').toLowerCase()
       const isEditing = tag === 'input' || tag === 'textarea' || tag === 'select' || !!active?.isContentEditable
       if (isEditing) return
-      const isDialogOpen = showNodeDialog || showEdgeDialog || showClearConfirm || startOpen
+      const isDialogOpen = showNodeDialog || showEdgeDialog || showAnnotationDialog || showClearConfirm || startOpen
       const isCommandKey = (event.metaKey || event.ctrlKey) && !event.altKey
       if (isCommandKey && (event.key === 'z' || event.key === 'Z')) {
         if (isDialogOpen) return
@@ -910,7 +943,7 @@ export default function VisualEditorPage() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isMobile, focusMode, showNodeDialog, showEdgeDialog, showClearConfirm, startOpen, toggleFocus, setFocusMode, handleUndo, handleRedo, handleCopySelection, handlePaste, handleDuplicateSelection])
+  }, [isMobile, focusMode, showNodeDialog, showEdgeDialog, showAnnotationDialog, showClearConfirm, startOpen, toggleFocus, setFocusMode, handleUndo, handleRedo, handleCopySelection, handlePaste, handleDuplicateSelection])
 
   // Handle node changes from ReactFlow. The lazy graph applies React Flow's
   // change reducers internally (#3169) and hands back the resolved nodes plus a
@@ -923,7 +956,7 @@ export default function VisualEditorPage() {
 
   const handleNodesChange = useCallback((nextNodes: Node[], meta?: WorkflowGraphNodesChangeMeta) => {
     if (isCodeOnly) return
-    if (meta?.dragging && !dragBaselineRef.current) dragBaselineRef.current = captureDocument()
+    if ((meta?.dragging || meta?.resizing) && !dragBaselineRef.current) dragBaselineRef.current = captureDocument()
     const baseline = dragBaselineRef.current ?? captureDocument()
     setNodes(nextNodes)
     if (meta && !meta.persistable) return
@@ -970,6 +1003,22 @@ export default function VisualEditorPage() {
     setNodes((nds) => [...nds, newNode])
     scheduleAutosave()
   }, [isCodeOnly, buildPaletteNode, commitHistory, historyLabels.addStep, scheduleAutosave])
+
+  // Notes and groups are added from the palette exactly like steps: a click
+  // appends one at a free spot and opens its inspector, so the keyboard path is
+  // the same path.
+  const handleAddAnnotation = useCallback((kind: 'note' | 'group') => {
+    if (isCodeOnly) return
+    const position = resolveNewNodePlacement(nodesRef.current, {})
+    const node = kind === 'note'
+      ? createNoteNode(position, '')
+      : createGroupNode(position, t('workflows.annotations.group.untitled', 'Untitled group'))
+    commitHistory(kind === 'note' ? historyLabels.addNote : historyLabels.addGroup)
+    setNodes((nds) => [...nds, node])
+    setSelectedAnnotation(node)
+    setShowAnnotationDialog(true)
+    scheduleAutosave()
+  }, [isCodeOnly, commitHistory, historyLabels.addNote, historyLabels.addGroup, scheduleAutosave, t])
 
   const activityTypeOptions = useActivityTypeOptions()
 
@@ -1059,6 +1108,13 @@ export default function VisualEditorPage() {
   // so users can't open the node editor on a code-defined workflow).
   const handleNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     if (isCodeOnly) return
+    if (isAnnotationNode(node)) {
+      setSelectedAnnotation(node)
+      setSelectedNode(null)
+      setSelectedEdge(null)
+      setShowAnnotationDialog(true)
+      return
+    }
     setSelectedNode(node)
     setSelectedEdge(null)
     setShowNodeDialog(true)
@@ -1176,8 +1232,57 @@ export default function VisualEditorPage() {
     if (deleted) commitCapturedDocument(before, historyLabels.deleteRoute)
   }, [confirm, t, captureDocument, commitCapturedDocument, historyLabels.deleteRoute])
 
+  // Annotation inspector (spec 4.5). Notes and groups edit a single field each
+  // and commit one undo entry, exactly like a step inspector save.
+  const handleSaveAnnotation = useCallback((nodeId: string, updates: Partial<WorkflowNoteNodeData & WorkflowGroupNodeData>) => {
+    if (isCodeOnly) return
+    commitHistory(historyLabels.editAnnotation)
+    setNodes((nds) => updateAnnotationNode(nds, nodeId, updates))
+    scheduleAutosave()
+  }, [isCodeOnly, commitHistory, historyLabels.editAnnotation, scheduleAutosave])
+
+  const handleDeleteAnnotation = useCallback(async (nodeId: string) => {
+    if (isCodeOnly) return
+    const before = captureDocument()
+    setShowAnnotationDialog(false)
+    setSelectedAnnotation(null)
+    const confirmed = await confirm({
+      title: t('workflows.annotations.confirmDeleteTitle', 'Delete annotation?'),
+      text: t('workflows.annotations.confirmDeleteText', 'The note or group is removed from the canvas. Nothing the workflow executes changes.'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    commitCapturedDocument(before, historyLabels.deleteAnnotation)
+    setNodes((nds) => removeAnnotationNode(nds, nodeId))
+    scheduleAutosave()
+  }, [isCodeOnly, captureDocument, commitCapturedDocument, historyLabels.deleteAnnotation, confirm, scheduleAutosave, t])
+
+  const handleToggleGroupCollapsed = useCallback((nodeId: string) => {
+    if (isCodeOnly) return
+    const node = nodesRef.current.find((candidate) => candidate.id === nodeId)
+    if (!node) return
+    const collapsed = (node.data as Partial<WorkflowGroupNodeData> | undefined)?.collapsed === true
+    commitHistory(historyLabels.toggleGroup)
+    setNodes((nds) => updateAnnotationNode(nds, nodeId, { collapsed: !collapsed }))
+    scheduleAutosave()
+  }, [isCodeOnly, commitHistory, historyLabels.toggleGroup, scheduleAutosave])
+
+  useEffect(() => {
+    const onToggle = (event: Event) => {
+      const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId
+      if (typeof nodeId === 'string') handleToggleGroupCollapsed(nodeId)
+    }
+    window.addEventListener(WORKFLOW_GROUP_TOGGLE_EVENT, onToggle)
+    return () => window.removeEventListener(WORKFLOW_GROUP_TOGGLE_EVENT, onToggle)
+  }, [handleToggleGroupCollapsed])
+
   // Delete node
   const handleDeleteNode = useCallback(async (nodeId: string) => {
+    const annotation = nodesRef.current.find((candidate) => candidate.id === nodeId && isAnnotationNode(candidate))
+    if (annotation) {
+      await handleDeleteAnnotation(nodeId)
+      return
+    }
     const before = captureDocument()
     const deleted = await performDeleteNodeFlow(nodeId, {
       nodes,
@@ -1190,7 +1295,7 @@ export default function VisualEditorPage() {
       notifyDeleted: () => flash('Step deleted successfully', 'success'),
     })
     if (deleted) commitCapturedDocument(before, historyLabels.deleteStep)
-  }, [confirm, nodes, t, captureDocument, commitCapturedDocument, historyLabels.deleteStep])
+  }, [confirm, nodes, t, captureDocument, commitCapturedDocument, historyLabels.deleteStep, handleDeleteAnnotation])
 
   // In-place step type conversion (spec 4.5, #4237). The step keeps its id,
   // name, position and every incoming/outgoing route; config the new type
@@ -1582,7 +1687,7 @@ export default function VisualEditorPage() {
 
     try {
 
-      const metadataPayload = buildMetadataPayload({ loadedMetadata, tags, category, icon, definition: definitionData })
+      const metadataPayload = buildMetadataPayload({ loadedMetadata, tags, category, icon, definition: definitionData, annotations })
 
       // Determine if creating new or updating existing
       const isUpdate = !!definitionId
@@ -1689,7 +1794,7 @@ export default function VisualEditorPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, contextSchema, definitionIo, interpolation, errorHandler, loadedMetadata, definitionId, updatedAt, router, t])
+  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, contextSchema, definitionIo, interpolation, errorHandler, loadedMetadata, annotations, definitionId, updatedAt, router, t])
 
   // Quiet autosave routine (no redirect, no success flash). Mirrors the update
   // branch of `handleSave` exactly — same payload and the same optimistic-lock
@@ -1716,7 +1821,7 @@ export default function VisualEditorPage() {
     })
     if (!workflowDefinitionDataSchema.safeParse(definitionData).success) return
 
-    const metadataPayload = buildMetadataPayload({ loadedMetadata, tags, category, icon, definition: definitionData })
+    const metadataPayload = buildMetadataPayload({ loadedMetadata, tags, category, icon, definition: definitionData, annotations })
 
     const updateBody: DefinitionUpdateBody = {
       workflowName,
@@ -2095,6 +2200,13 @@ export default function VisualEditorPage() {
       ) : (
         <EdgeEditDialog edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
       )}
+      <AnnotationEditDialog
+        node={selectedAnnotation}
+        isOpen={showAnnotationDialog}
+        onClose={() => setShowAnnotationDialog(false)}
+        onSave={handleSaveAnnotation}
+        onDelete={handleDeleteAnnotation}
+      />
       <TemplateGalleryDialog
         open={showTemplateGallery}
         onOpenChange={setShowTemplateGallery}
@@ -2839,6 +2951,39 @@ export default function VisualEditorPage() {
                       </button>
                     )
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* Annotations (spec §4.5): documentation only — filtered out of the
+                saved definition, so they can never change what the engine runs. */}
+            {!paletteCollapsed && (
+              <div className="mt-4">
+                <h2 className="mb-1 px-1 text-xs font-semibold uppercase text-muted-foreground">
+                  {t('workflows.annotations.paletteTitle', 'Annotations')}
+                </h2>
+                <p className="mb-2 px-1 text-xs text-muted-foreground">
+                  {t('workflows.annotations.paletteHint', 'Documentation only — never executed')}
+                </p>
+                <div className="flex flex-col gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleAddAnnotation('note')}
+                    title={t('workflows.annotations.note.addHint', 'Add a markdown sticky note to the canvas')}
+                    className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs hover:bg-muted"
+                  >
+                    <StickyNote className="h-4 w-4 shrink-0 text-status-warning-text" aria-hidden="true" />
+                    <span className="truncate font-medium text-foreground">{t('workflows.annotations.note.add', 'Note')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAddAnnotation('group')}
+                    title={t('workflows.annotations.group.addHint', 'Add a named region around part of the canvas')}
+                    className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs hover:bg-muted"
+                  >
+                    <Group className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <span className="truncate font-medium text-foreground">{t('workflows.annotations.group.add', 'Group')}</span>
+                  </button>
                 </div>
               </div>
             )}

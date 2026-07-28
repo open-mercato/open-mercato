@@ -24,7 +24,8 @@ import {
   MarkerType,
   type ReactFlowInstance,
 } from '@xyflow/react'
-import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, WaitForConditionNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode, IfElseNode, SwitchNode} from './nodes'
+import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, WaitForConditionNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode, IfElseNode, SwitchNode, StickyNoteNode, AnnotationGroupNode} from './nodes'
+import { ANNOTATION_GROUP_NODE_TYPE, ANNOTATION_NOTE_NODE_TYPE } from '../lib/editor-annotations'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
 import { WorkflowDataMappingEdge } from './WorkflowDataMappingEdge'
 import { STATUS_COLORS, toWorkflowStatus } from '../lib/status-colors'
@@ -47,17 +48,27 @@ export interface WorkflowGraphFocusTarget {
  */
 export interface WorkflowGraphNodesChangeMeta {
   dragging: boolean
+  /**
+   * An annotation resize is in flight. Resizing behaves exactly like dragging:
+   * many frames, one persisted arrangement at the end.
+   */
+  resizing: boolean
   persistable: boolean
 }
 
 function describeNodeChanges(changes: NodeChange[]): WorkflowGraphNodesChangeMeta {
   const dragging = changes.some((change) => change.type === 'position' && change.dragging === true)
+  const resizing = changes.some((change) => change.type === 'dimensions' && change.resizing === true)
+  if (dragging || resizing) return { dragging, resizing, persistable: false }
   const persistable = changes.some((change) => {
-    if (change.type === 'select' || change.type === 'dimensions') return false
+    if (change.type === 'select') return false
+    // React Flow's own measurement carries no `resizing` flag; only the resizer's
+    // final frame reports `false`, and that is the arrangement worth saving.
+    if (change.type === 'dimensions') return change.resizing === false
     if (change.type === 'position') return change.dragging !== true
     return true
   })
-  return { dragging, persistable }
+  return { dragging, resizing, persistable }
 }
 
 /**
@@ -321,6 +332,8 @@ export default function WorkflowGraphImpl({
       invokeAgent: InvokeAgentNode,
       ifElse: IfElseNode,
       switch: SwitchNode,
+      [ANNOTATION_NOTE_NODE_TYPE]: StickyNoteNode,
+      [ANNOTATION_GROUP_NODE_TYPE]: AnnotationGroupNode,
     }),
     []
   )

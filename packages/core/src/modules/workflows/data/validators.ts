@@ -852,6 +852,36 @@ export type WorkflowSampleEnvelopeInput = z.infer<typeof sampleEnvelopeSchema>
 
 export const WORKFLOW_EDITOR_SAMPLES_MAX_CHARS = 65536
 
+export const WORKFLOW_EDITOR_ANNOTATIONS_MAX_CHARS = 65536
+
+// Editor annotations (spec §4.5): markdown sticky notes and named groups. They
+// are documentation only — never execution semantics — which is why they live
+// here in metadata and never in `definition.steps`.
+const annotationPointSchema = z.object({ x: z.number(), y: z.number() })
+const annotationSizeSchema = z.object({ width: z.number().positive(), height: z.number().positive() })
+
+export const editorNoteSchema = z.object({
+  id: z.string().min(1).max(100),
+  markdown: z.string().max(10000),
+  position: annotationPointSchema,
+  size: annotationSizeSchema,
+})
+
+export const editorGroupSchema = z.object({
+  id: z.string().min(1).max(100),
+  name: z.string().max(200),
+  rect: z.object({ x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive() }),
+  collapsed: z.boolean().optional(),
+})
+
+export const editorAnnotationsSchema = z.object({
+  notes: z.array(editorNoteSchema).optional(),
+  groups: z.array(editorGroupSchema).optional(),
+})
+
+export type WorkflowEditorNoteInput = z.infer<typeof editorNoteSchema>
+export type WorkflowEditorGroupInput = z.infer<typeof editorGroupSchema>
+
 // Workflow metadata
 export const workflowMetadataSchema = z.object({
   tags: z.array(z.string().max(50)).optional(),
@@ -862,15 +892,23 @@ export const workflowMetadataSchema = z.object({
   minEngineVersion: z.number().int().min(1).optional(),
   editor: z.object({
     samples: z.record(z.string(), sampleEnvelopeSchema).optional(),
+    annotations: editorAnnotationsSchema.optional(),
   }).passthrough().optional(),
 }).superRefine((metadata, ctx) => {
   const samples = metadata.editor?.samples
-  if (!samples) return
-  if (JSON.stringify(samples).length > WORKFLOW_EDITOR_SAMPLES_MAX_CHARS) {
+  if (samples && JSON.stringify(samples).length > WORKFLOW_EDITOR_SAMPLES_MAX_CHARS) {
     ctx.addIssue({
       code: 'custom',
       path: ['editor', 'samples'],
       message: `Pinned samples exceed the ${WORKFLOW_EDITOR_SAMPLES_MAX_CHARS}-character limit; unpin or shrink samples before saving`,
+    })
+  }
+  const annotations = metadata.editor?.annotations
+  if (annotations && JSON.stringify(annotations).length > WORKFLOW_EDITOR_ANNOTATIONS_MAX_CHARS) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['editor', 'annotations'],
+      message: `Notes and groups exceed the ${WORKFLOW_EDITOR_ANNOTATIONS_MAX_CHARS}-character limit; shorten or remove some before saving`,
     })
   }
 })

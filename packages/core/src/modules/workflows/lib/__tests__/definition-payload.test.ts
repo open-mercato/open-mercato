@@ -172,6 +172,45 @@ describe('buildMetadataPayload', () => {
     expect(payload).toEqual({ category: 'Sales' })
   })
 
+  it('writes editor annotations through every persistence path', () => {
+    const annotations = {
+      notes: [{ id: 'note_1', markdown: '## Why', position: { x: 1, y: 2 }, size: { width: 220, height: 140 } }],
+      groups: [{ id: 'group_1', name: 'Ops', rect: { x: 0, y: 0, width: 360, height: 260 }, collapsed: true }],
+    }
+    const payload = buildMetadataPayload({ loadedMetadata: null, category: '', tags: [], icon: '', annotations })
+    const parsed = workflowMetadataSchema.parse(asWirePayload(payload))
+    expect(parsed.editor?.annotations).toEqual(annotations)
+  })
+
+  it('keeps pinned samples when annotations are written alongside them', () => {
+    const samples = { step_1: { pinnedAt: '2026-07-27T00:00:00.000Z', source: 'manual' as const, data: { orderId: '42' } } }
+    const payload = buildMetadataPayload({
+      loadedMetadata: { editor: { samples } },
+      category: '',
+      tags: [],
+      icon: '',
+      annotations: { notes: [{ id: 'n', markdown: 'x', position: { x: 0, y: 0 }, size: { width: 220, height: 140 } }], groups: [] },
+    })
+    expect((payload?.editor as Record<string, unknown>).samples).toEqual(samples)
+  })
+
+  it('drops the annotations key when the canvas carries none', () => {
+    const payload = buildMetadataPayload({
+      loadedMetadata: { editor: { annotations: { notes: [{ id: 'n', markdown: 'x', position: { x: 0, y: 0 }, size: { width: 1, height: 1 } }] } } },
+      category: '',
+      tags: [],
+      icon: '',
+      annotations: { notes: [], groups: [] },
+    })
+    expect(payload).toBeNull()
+  })
+
+  it('leaves loaded annotations untouched when no annotations argument is supplied', () => {
+    const loadedMetadata = { editor: { annotations: { notes: [{ id: 'n', markdown: 'x', position: { x: 0, y: 0 }, size: { width: 1, height: 1 } }] } } }
+    const payload = buildMetadataPayload({ loadedMetadata, category: '', tags: [], icon: '' })
+    expect(payload).toEqual(loadedMetadata)
+  })
+
   it('does not mutate the carried loaded-metadata object', () => {
     const loadedMetadata = { category: 'Sales', editor: { samples: {} } }
     const snapshot = JSON.parse(JSON.stringify(loadedMetadata))

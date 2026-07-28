@@ -271,6 +271,30 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   in-page buffer and says so; paste reads that buffer. It is never a silent no-op — the reason is
   always surfaced.
 
+## Editor Annotations (sticky notes · groups)
+
+- **Annotations are documentation and NEVER execution semantics.** `lib/editor-annotations.ts`
+  (PURE) owns them; they live in `metadata.editor.annotations`
+  (`{ notes: [{id, markdown, position, size}], groups: [{id, name, rect, collapsed?}] }`) and nowhere
+  else. `graphToDefinition` filters their nodes out of `steps` AND drops any edge that touches one,
+  so a definition carrying a hundred notes serializes byte-identically to one carrying none — a test
+  asserts exactly that. `validateWorkflowGraph`, `applyAutoLayout` and the subgraph clipboard skip
+  them for the same reason: a note has no routes, no rank and no definition form.
+- **They are still React Flow NODES while the editor is open.** That is what makes a note drag, undo,
+  select and autosave exactly like a step without a second code path. The node array is the single
+  source of truth; `annotationsFromNodes` derives the persisted shape on every save, draft and quiet
+  autosave, and `buildMetadataPayload` writes it back. Omitting its `annotations` argument leaves
+  whatever the loaded metadata carried untouched, which keeps non-canvas callers byte-compatible.
+- **A group stores a RECT, not a member-id list.** A region needs no maintenance when a step it
+  overlaps is deleted, pasted or converted, and an id list would be a second source of truth the
+  engine must never read anyway.
+- **Collapse is visual only** — the body fades and the region shrinks to its header; no step moves and
+  no route changes, because a graph-mutating collapse would be execution semantics.
+- Notes and groups are resizable (`NodeResizer`), and a resize persists like a drag: `WorkflowGraphImpl`
+  reports `resizing: true` frames as `persistable: false` and only the resizer's final frame
+  (`resizing === false`) commits, so one gesture is one autosave and one undo entry. React Flow's own
+  measurement changes carry no `resizing` flag and stay non-persistable as before.
+
 ## Palette Drops (drag-from-palette · insert-on-route)
 
 - **Click stays the keyboard path.** Every palette entry is a `<button>` that appends on click; drag

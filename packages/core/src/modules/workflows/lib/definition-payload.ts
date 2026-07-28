@@ -18,6 +18,7 @@ import type {
   WorkflowIoContract,
 } from '../data/entities'
 import type { WorkflowErrorHandlerConfig } from '../data/validators'
+import { writeEditorAnnotations, type WorkflowEditorAnnotations } from './editor-annotations'
 import { resolveRequiredEngineVersion } from './engine-version'
 import type { WorkflowInterpolationMode } from './interpolation-pipeline'
 
@@ -53,10 +54,19 @@ export type MetadataPayloadInput = {
    * saving an existing workflow stays byte-identical.
    */
   definition?: { steps?: unknown } | null
+  /**
+   * Sticky notes and groups (spec section 4.5). The canvas owns them as nodes,
+   * so they are derived back out of the node array on every persistence path and
+   * written to `metadata.editor.annotations` here. Omitting the field leaves
+   * whatever the loaded metadata carried untouched, which is what keeps callers
+   * that never render a canvas (tests, migrations) byte-compatible.
+   */
+  annotations?: WorkflowEditorAnnotations | null
 }
 
-export function buildMetadataPayload({ loadedMetadata, tags, category, icon, definition }: MetadataPayloadInput): Record<string, unknown> | null {
-  const metadata: Record<string, unknown> = { ...(loadedMetadata ?? {}) }
+export function buildMetadataPayload({ loadedMetadata, tags, category, icon, definition, annotations }: MetadataPayloadInput): Record<string, unknown> | null {
+  const base = annotations === undefined ? loadedMetadata : writeEditorAnnotations(loadedMetadata, annotations)
+  const metadata: Record<string, unknown> = { ...(base ?? {}) }
   if (category) metadata.category = category
   else delete metadata.category
   if (tags.length > 0) metadata.tags = [...tags]

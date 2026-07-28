@@ -36,3 +36,6 @@ export type { IfElseNodeData } from './IfElseNode'
 
 export { SwitchNode } from './SwitchNode'
 export type { SwitchNodeData } from './SwitchNode'
+
+export { StickyNoteNode } from './StickyNoteNode'
+export { AnnotationGroupNode } from './AnnotationGroupNode'

@@ -3,6 +3,7 @@ import dagre from '@dagrejs/dagre'
 import type { WorkflowDefinition } from '../data/entities'
 import type { WorkflowIoContract } from '../data/validators'
 import { isDataMappingEdge } from './data-edge-mapping'
+import { isAnnotationNode } from './editor-annotations'
 import { ERROR_SOURCE_HANDLE_ID } from './error-routing'
 
 /**
@@ -47,10 +48,17 @@ export interface LayoutWithDagreOptions {
  * Convert ReactFlow graph (nodes + edges) to workflow definition JSON
  */
 export function graphToDefinition(
-  nodes: Node[],
+  allNodes: Node[],
   edges: Edge[],
   options: GraphToDefinitionOptions = {}
 ): WorkflowDefinition['definition'] {
+  // Sticky notes and groups are editor annotations (spec 4.5): they live only in
+  // `metadata.editor.annotations` and MUST NOT reach `steps` or `transitions`,
+  // so a definition carrying them serializes byte-identically to one that does
+  // not and the engine can never see them.
+  const nodes = allNodes.filter((node) => !isAnnotationNode(node))
+  const annotationIds = new Set(allNodes.filter(isAnnotationNode).map((node) => node.id))
+
   // Extract steps from nodes
   const steps = nodes.map((node) => {
     const step: any = {
@@ -172,7 +180,9 @@ export function graphToDefinition(
   // Extract transitions from edges. Drag-authored data-mapping edges are NOT
   // transitions — their binding lives in the target step's config.inputMapping —
   // so they are excluded here.
-  const transitions = edges.filter((edge) => !isDataMappingEdge(edge)).map((edge) => {
+  const transitions = edges
+    .filter((edge) => !isDataMappingEdge(edge) && !annotationIds.has(edge.source) && !annotationIds.has(edge.target))
+    .map((edge) => {
     const edgeData = edge.data as any
     const transition: any = {
       transitionId: edge.id,
@@ -594,13 +604,18 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
   // Use each node's exact measured footprint so dagre reserves the real on-screen
   // size; React Flow has already measured the cards by the time the user clicks
   // Auto-arrange. Fall back to the estimate only for any not-yet-measured node.
-  const steps = nodes.map((node) => ({
-    stepId: node.id,
-    stepName: (node.data as any)?.label,
-    description: (node.data as any)?.description,
-    width: node.measured?.width,
-    height: node.measured?.height,
-  }))
+  // Annotations are not ranked: dagre only knows about the control-flow graph,
+  // so a note or group placed deliberately beside a step keeps the position its
+  // author gave it while Tidy re-lays the steps around it.
+  const steps = nodes
+    .filter((node) => !isAnnotationNode(node))
+    .map((node) => ({
+      stepId: node.id,
+      stepName: (node.data as any)?.label,
+      description: (node.data as any)?.description,
+      width: node.measured?.width,
+      height: node.measured?.height,
+    }))
   const transitions = edges
     .filter((edge) => !isDataMappingEdge(edge))
     .map((edge) => ({
@@ -699,8 +714,12 @@ export interface ValidationError {
   edgeId?: string
 }
 
-export function validateWorkflowGraph(nodes: Node[], edges: Edge[]): ValidationError[] {
+export function validateWorkflowGraph(allNodes: Node[], edges: Edge[]): ValidationError[] {
   const errors: ValidationError[] = []
+
+  // Annotations are documentation, not steps: a sticky note has no routes by
+  // design and must never be reported as a disconnected node.
+  const nodes = allNodes.filter((node) => !isAnnotationNode(node))
 
   // Check for at least one start node
   const startNodes = nodes.filter((n) => n.type === 'start')
