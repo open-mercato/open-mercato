@@ -15,6 +15,7 @@ const standaloneTemplatePackageJsonPath = path.join(repoRoot, 'packages', 'creat
 const agenticRoot = path.join(repoRoot, 'packages', 'create-app', 'agentic')
 const packagesRoot = path.join(repoRoot, 'packages')
 const coreVersion = JSON.parse(fs.readFileSync(path.join(packagesRoot, 'core', 'package.json'), 'utf8')).version as string
+const UNROUTED_PACKAGE_GUIDES = new Set(['cache', 'core', 'events', 'queue', 'search', 'shared', 'ui'])
 
 // Modules the standalone fixture enables in src/modules.ts. Both are on the
 // fact-sheet allowlist, so agentic:init must ship exactly their fact-sheets
@@ -228,7 +229,7 @@ function expectedGuideOutputNames(): string[] {
 
   for (const packageName of fs.readdirSync(packagesRoot)) {
     const packageGuide = path.join(packagesRoot, packageName, 'agentic', 'standalone-guide.md')
-    if (fs.existsSync(packageGuide)) {
+    if (fs.existsSync(packageGuide) && !UNROUTED_PACKAGE_GUIDES.has(packageName)) {
       collected.add(`${packageName}.md`)
     }
 
