@@ -20,6 +20,7 @@ export interface WaitForConditionNodeData {
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
   hasError?: boolean
+  hasCompensation?: boolean
   errorCount?: number
 }
 
@@ -43,6 +44,7 @@ export function WaitForConditionNode({ id, data, isConnectable, selected }: Node
         nodeType="waitForCondition"
         selected={selected}
         hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
         errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}

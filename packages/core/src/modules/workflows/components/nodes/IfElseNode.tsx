@@ -20,6 +20,7 @@ export interface IfElseNodeData {
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
   hasError?: boolean
+  hasCompensation?: boolean
   errorCount?: number
 }
 
@@ -43,6 +44,7 @@ export function IfElseNode({ id, data, isConnectable, selected }: NodeProps) {
         nodeType="ifElse"
         selected={selected}
         hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
         errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}

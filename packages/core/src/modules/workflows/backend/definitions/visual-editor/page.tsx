@@ -125,7 +125,7 @@ import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Code, Command, Group, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Code, Command, Group, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, ShieldMinus, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
 import { useSidebarCollapse } from '@open-mercato/ui/backend/AppShell'
@@ -307,6 +307,9 @@ export default function VisualEditorPage() {
   const { value: paletteCollapsed, toggle: togglePaletteCollapsed, setValue: setPaletteCollapsed } = usePersistedBooleanFlag('om:wf-editor-palette', false)
   const [showPaletteHowTo, setShowPaletteHowTo] = useState(false)
   const { value: focusMode, setValue: setFocusMode, toggle: toggleFocus } = usePersistedBooleanFlag('om:wf-editor-focus', false)
+  // Compensation ghosts (spec §4.4) are OFF by default and remembered per
+  // author: they are a read-only overlay, never part of the document.
+  const { value: showCompensation, toggle: toggleCompensation } = usePersistedBooleanFlag('om:wf-editor-compensation', false)
   const { requestCollapse, releaseRequest } = useSidebarCollapse()
   // Remember the palette/metadata state from before Focus mode took over so we
   // can restore exactly what the author had when they exit.
@@ -1907,6 +1910,7 @@ export default function VisualEditorPage() {
       toggleFocus: t('workflows.commandPalette.toggleFocus', 'Toggle focus mode'),
       toggleProblems: t('workflows.commandPalette.toggleProblems', 'Toggle the Problems panel'),
       toggleCodeView: t('workflows.commandPalette.toggleCodeView', 'Toggle the Code view'),
+      toggleCompensation: t('workflows.commandPalette.toggleCompensation', 'Toggle compensation paths'),
       validate: t('workflows.visualEditor.validate'),
       runTest: t('workflows.actions.startInstance'),
       save: t('workflows.common.save'),
@@ -1928,6 +1932,7 @@ export default function VisualEditorPage() {
       toggleFocus,
       toggleProblems: () => setShowProblems((visible) => !visible),
       toggleCodeView: () => setShowCodeView((visible) => !visible),
+      toggleCompensation,
       validate: handleValidate,
       runTest: () => setStartOpen(true),
       save: () => { void handleSave() },
@@ -1936,7 +1941,7 @@ export default function VisualEditorPage() {
     isCodeOnly, history, nodes, edges, definitionId, t,
     handleUndo, handleRedo, handleDeleteSelection, handleCopySelection, handlePaste, handleDuplicateSelection,
     handleAddNode, handleAddAnnotation, focusNode, handleAutoArrange, togglePaletteCollapsed, toggleFocus,
-    handleValidate, handleSave,
+    toggleCompensation, handleValidate, handleSave,
   ])
 
   // Keyboard shortcuts: Cmd/Ctrl+K opens the command palette, Cmd/Ctrl+Z undoes,
@@ -2796,6 +2801,19 @@ export default function VisualEditorPage() {
                 <Code className="mr-1.5 h-4 w-4" aria-hidden="true" />
                 {t('workflows.visualEditor.codeView.title', 'Code')}
               </Button>
+              {/* Compensation ghosts (spec §4.4): a read-only overlay of the
+                  undo paths a failure would walk. Never an engine change. */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={toggleCompensation}
+                aria-pressed={showCompensation}
+                className="h-8 px-2 text-xs"
+                aria-label={t('workflows.compensation.toggle', 'Show compensation paths')}
+              >
+                <ShieldMinus className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                {t('workflows.compensation.toggleShort', 'Compensation')}
+              </Button>
               {definitionId && (
                 <Button
                   variant="outline"
@@ -3080,6 +3098,7 @@ export default function VisualEditorPage() {
                 height="100%"
                 focusTarget={focusTarget}
                 nodeErrorCounts={nodeErrorCounts}
+                showCompensation={showCompensation}
               />
             </div>
 
@@ -3306,6 +3325,7 @@ export default function VisualEditorPage() {
                   height="100%"
                   focusTarget={focusTarget}
                   nodeErrorCounts={nodeErrorCounts}
+                  showCompensation={showCompensation}
                 />
               </div>
 

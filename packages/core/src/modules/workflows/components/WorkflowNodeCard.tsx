@@ -1,6 +1,6 @@
 'use client'
 
-import { Check, Play, Pause, Circle, CircleAlert, XCircle, Trash2 } from 'lucide-react'
+import { Check, Play, Pause, Circle, CircleAlert, ShieldMinus, XCircle, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../lib/node-type-icons'
@@ -47,6 +47,12 @@ interface WorkflowNodeCardProps {
   selected?: boolean
   hasError?: boolean
   errorCount?: number
+  /**
+   * Spec section 4.3: the badge cluster's compensation marker. Set by the canvas
+   * while the compensation toggle is on, for a step whose outgoing routes carry
+   * activities that declare compensation.
+   */
+  hasCompensation?: boolean
   /** Node id — required to render the inline delete affordance. */
   nodeId?: string
   /** When true (and `nodeId` is set), show the hover/selected trash button. */
@@ -61,6 +67,7 @@ export function WorkflowNodeCard({
   selected = false,
   hasError = false,
   errorCount,
+  hasCompensation = false,
   nodeId,
   editable = false,
 }: WorkflowNodeCardProps) {
@@ -92,6 +99,10 @@ export function WorkflowNodeCard({
       : isEditMode
         ? 'border-border'
         : colors.border
+  const compensationBadgeLabel = t(
+    'workflows.compensation.nodeBadge',
+    'Leaving this step schedules compensation',
+  )
   const errorBadgeLabel = t(
     'workflows.visualEditor.problems.nodeErrorBadge',
     '{count} validation error(s)',
@@ -138,6 +149,20 @@ export function WorkflowNodeCard({
           ) : (
             <CircleAlert className="h-3 w-3" aria-hidden="true" />
           )}
+        </span>
+      )}
+
+      {/* Compensation marker (spec section 4.3). Paired with its own icon shape
+          and an announced name, never colour alone (spec section 4.6). */}
+      {hasCompensation && (
+        <span
+          role="img"
+          data-testid="workflow-node-compensation-badge"
+          aria-label={compensationBadgeLabel}
+          title={compensationBadgeLabel}
+          className="absolute -bottom-2 -right-2 z-10 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-background bg-status-warning-bg px-1 text-status-warning-text"
+        >
+          <ShieldMinus className="h-3 w-3" aria-hidden="true" />
         </span>
       )}
 

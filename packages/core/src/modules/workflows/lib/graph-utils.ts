@@ -2,6 +2,7 @@ import type { Node, Edge } from '@xyflow/react'
 import dagre from '@dagrejs/dagre'
 import type { WorkflowDefinition } from '../data/entities'
 import type { WorkflowIoContract } from '../data/validators'
+import { isCompensationGhostEdge } from './compensation-ghosts'
 import { isDataMappingEdge } from './data-edge-mapping'
 import { isAnnotationNode } from './editor-annotations'
 import { ERROR_SOURCE_HANDLE_ID } from './error-routing'
@@ -179,9 +180,13 @@ export function graphToDefinition(
 
   // Extract transitions from edges. Drag-authored data-mapping edges are NOT
   // transitions — their binding lives in the target step's config.inputMapping —
-  // so they are excluded here.
+  // and compensation ghosts (spec 4.4) are a rendering of existing routes, not
+  // routes of their own, so both are excluded here.
   const transitions = edges
-    .filter((edge) => !isDataMappingEdge(edge) && !annotationIds.has(edge.source) && !annotationIds.has(edge.target))
+    .filter((edge) => !isDataMappingEdge(edge)
+      && !isCompensationGhostEdge(edge)
+      && !annotationIds.has(edge.source)
+      && !annotationIds.has(edge.target))
     .map((edge) => {
     const edgeData = edge.data as any
     const transition: any = {
@@ -239,6 +244,10 @@ export function graphToDefinition(
         ...(activity.timeout && { timeout: activity.timeout }),
         ...(activity.retryPolicy && { retryPolicy: activity.retryPolicy }),
         ...(activity.compensate !== undefined && { compensate: activity.compensate }),
+      // Saga compensation (`compensation.activityId`) is what the canvas'
+      // compensation ghosts render and what `lib/compensation-handler.ts`
+      // executes on failure — it MUST survive the editor round trip.
+      ...(activity.compensation && { compensation: activity.compensation }),
       }))
     } else if (transition.kind !== 'error') {
       // Check if source node is automated and has activity data

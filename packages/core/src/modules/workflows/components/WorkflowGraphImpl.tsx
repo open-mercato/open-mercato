@@ -28,6 +28,12 @@ import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitFo
 import { ANNOTATION_GROUP_NODE_TYPE, ANNOTATION_NOTE_NODE_TYPE } from '../lib/editor-annotations'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
 import { WorkflowDataMappingEdge } from './WorkflowDataMappingEdge'
+import { WorkflowCompensationGhostEdge } from './WorkflowCompensationGhostEdge'
+import {
+  buildCompensationGhostEdges,
+  compensatingStepIds,
+  WORKFLOW_COMPENSATION_GHOST_EDGE_TYPE,
+} from '../lib/compensation-ghosts'
 import { STATUS_COLORS, toWorkflowStatus } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
@@ -121,6 +127,12 @@ export interface WorkflowGraphImplProps {
   height?: string
   focusTarget?: WorkflowGraphFocusTarget | null
   nodeErrorCounts?: Record<string, number>
+  /**
+   * Compensation ghosts (spec section 4.4). Display-only: the dashed reverse
+   * edges are minted at render time and never enter the editor's edge state, so
+   * they can never reach `graphToDefinition`.
+   */
+  showCompensation?: boolean
 }
 
 export default function WorkflowGraphImpl({
@@ -138,6 +150,7 @@ export default function WorkflowGraphImpl({
   height = '600px',
   focusTarget = null,
   nodeErrorCounts,
+  showCompensation = false,
 }: WorkflowGraphImplProps) {
   const t = useT()
   const [nodes, setNodes] = useNodesState(initialNodes)
@@ -317,6 +330,28 @@ export default function WorkflowGraphImpl({
     })
   }, [nodes, nodeErrorCounts])
 
+  // Compensation ghosts + their node badges, both derived from the committed
+  // edges at render time only (spec section 4.4). Read-only visualization: no
+  // engine change, and nothing here is part of the document.
+  const compensationBadgeIds = useMemo(
+    () => (showCompensation ? new Set(compensatingStepIds(edges)) : null),
+    [showCompensation, edges],
+  )
+
+  const decoratedNodes = useMemo(() => {
+    if (!compensationBadgeIds || compensationBadgeIds.size === 0) return displayNodes
+    return displayNodes.map((node) => (
+      compensationBadgeIds.has(node.id)
+        ? { ...node, data: { ...node.data, hasCompensation: true } }
+        : node
+    ))
+  }, [displayNodes, compensationBadgeIds])
+
+  const displayEdges = useMemo(
+    () => (showCompensation ? [...edges, ...buildCompensationGhostEdges(edges)] : edges),
+    [showCompensation, edges],
+  )
+
   const nodeTypes = useMemo(
     () => ({
       start: StartNode,
@@ -342,6 +377,7 @@ export default function WorkflowGraphImpl({
     () => ({
       workflowTransition: WorkflowTransitionEdge,
       workflowDataMapping: WorkflowDataMappingEdge,
+      [WORKFLOW_COMPENSATION_GHOST_EDGE_TYPE]: WorkflowCompensationGhostEdge,
     }),
     []
   )
@@ -361,8 +397,8 @@ export default function WorkflowGraphImpl({
       } as React.CSSProperties}
     >
       <ReactFlow
-        nodes={displayNodes}
-        edges={edges}
+        nodes={decoratedNodes}
+        edges={displayEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={handleNodesChange}

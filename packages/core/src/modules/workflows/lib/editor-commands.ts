@@ -52,6 +52,7 @@ export interface WorkflowCommandPaletteLabels {
   toggleFocus: string
   toggleProblems: string
   toggleCodeView: string
+  toggleCompensation: string
   validate: string
   runTest: string
   save: string
@@ -74,6 +75,7 @@ export interface WorkflowCommandPaletteActions {
   toggleFocus: () => void
   toggleProblems: () => void
   toggleCodeView: () => void
+  toggleCompensation: () => void
   validate: () => void
   runTest: () => void
   save: () => void
@@ -178,6 +180,7 @@ export function buildWorkflowEditorCommands(context: WorkflowCommandContext): Wo
     { id: 'view.toggleFocus', group: 'view', label: labels.toggleFocus, shortcut: 'F', disabled: false, run: actions.toggleFocus },
     { id: 'view.toggleProblems', group: 'view', label: labels.toggleProblems, disabled: false, run: actions.toggleProblems },
     { id: 'view.toggleCodeView', group: 'view', label: labels.toggleCodeView, disabled: false, run: actions.toggleCodeView },
+    { id: 'view.toggleCompensation', group: 'view', label: labels.toggleCompensation, disabled: false, run: actions.toggleCompensation },
     { id: 'run.validate', group: 'run', label: labels.validate, disabled: false, run: actions.validate },
     { id: 'run.test', group: 'run', label: labels.runTest, disabled: !context.canRunTest, run: actions.runTest },
     { id: 'run.save', group: 'run', label: labels.save, shortcut: 'Cmd+S', disabled: readOnly, run: actions.save },

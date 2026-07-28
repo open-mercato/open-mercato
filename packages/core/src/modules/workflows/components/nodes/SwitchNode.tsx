@@ -20,6 +20,7 @@ export interface SwitchNodeData {
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
   hasError?: boolean
+  hasCompensation?: boolean
   errorCount?: number
 }
 
@@ -43,6 +44,7 @@ export function SwitchNode({ id, data, isConnectable, selected }: NodeProps) {
         nodeType="switch"
         selected={selected}
         hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
         errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}

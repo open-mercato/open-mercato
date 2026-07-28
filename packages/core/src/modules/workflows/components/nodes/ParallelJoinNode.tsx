@@ -21,6 +21,7 @@ export interface ParallelJoinNodeData {
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
   hasError?: boolean
+  hasCompensation?: boolean
   errorCount?: number
 }
 
@@ -48,6 +49,7 @@ export function ParallelJoinNode({ id, data, isConnectable, selected }: NodeProp
         nodeType="parallelJoin"
         selected={selected}
         hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
         errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}

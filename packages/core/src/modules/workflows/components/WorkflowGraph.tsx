@@ -37,6 +37,8 @@ export interface WorkflowGraphProps {
   height?: string
   focusTarget?: WorkflowGraphFocusTarget | null
   nodeErrorCounts?: Record<string, number>
+  /** Render the dashed reverse compensation ghosts (spec section 4.4). */
+  showCompensation?: boolean
 }
 
 const WorkflowGraphImpl = dynamic(() => import('./WorkflowGraphImpl'), {

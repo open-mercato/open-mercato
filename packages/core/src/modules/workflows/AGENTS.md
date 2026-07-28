@@ -271,6 +271,29 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   in-page buffer and says so; paste reads that buffer. It is never a silent no-op — the reason is
   always surfaced.
 
+## Compensation Ghosts (read-only overlay)
+
+- **Visualization only — never an engine change.** `lib/compensation-ghosts.ts` (PURE) derives the
+  spec §4.4 "dashed reverse, behind a toggle" overlay from the model the engine already executes
+  (`activity.compensation.activityId`, LIFO in `lib/compensation-handler.ts`). Nothing here changes
+  what runs; MUST NOT grow into editing compensation (that is an Ask-First state-machine change).
+- **A route's activities run LEAVING its source step**, so the compensable step is the route's
+  SOURCE (it carries the §4.3 ⛨ badge) and the undo walks back along the route, which is exactly the
+  ghost edge that is minted (`target → source`). One ghost per route, however many of its activities
+  compensate.
+- **Ghosts never enter the document.** `WorkflowGraphImpl` mints them at RENDER time from the
+  committed edges (like the validation-error node decoration), so they are absent from the edge
+  state, from undo, from autosave and from `graphToDefinition` — which filters them anyway, so the
+  guarantee is testable rather than merely true. They are non-interactive (not selectable,
+  reattachable or deletable) so no editing gesture can reach one.
+- **The overlay is off by default** and persisted per author (`om:wf-editor-compensation`), reachable
+  from the toolbar and the Cmd+K palette. Its stroke uses the warning token with its OWN dash-dot
+  pattern (`10,4,2,4` — distinct from pending `5,5`, error `8,4` and data-mapping `2,3`) and always
+  carries an icon + label, per the never-colour-only rule.
+- `graphToDefinition` now preserves `activity.compensation` through the editor round trip. It used to
+  drop the field, which meant opening a compensating workflow and saving it silently deleted the
+  compensation the engine relies on.
+
 ## The Form Editor Is Retired (bridge routes)
 
 - **The Studio is the only workflow editor** (spec §10). `backend/definitions/create/page.tsx` and
