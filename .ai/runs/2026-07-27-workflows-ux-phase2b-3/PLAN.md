@@ -37,7 +37,7 @@
 | 2 | 2.8 | Error-route canvas rendering + directive UI | done | 02b836777 |
 | 2 | 2.9 | Inline Business Rules editor (business_rules component) + workflows embed + usage panel | done | abf71b7cc |
 | 2 | 2.10 | Route condition/activity/otherwise chips + semantic zoom + overflow | done | 7c0197932 |
-| 2 | 2.11 | Priority drag-to-reorder + normalization pass | todo | — |
+| 2 | 2.11 | Priority drag-to-reorder + normalization pass | done | 75f75dfe2 |
 | 2 | 2.12 | Problems-panel ledger checks extension + 60-node density fixture | todo | — |
 | 3 | 3.1 | Durable transition ids (opaque, legacy-accepting) | todo | — |
 | 3 | 3.2 | Edit-safety rule: structural-edit guard + "Create version" flow | todo | — |

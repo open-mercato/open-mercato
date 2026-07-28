@@ -21,6 +21,8 @@ import { RolesMultiSelect } from './fields/RolesMultiSelect'
 import { StartPreConditionsEditor } from './fields/StartPreConditionsEditor'
 import { AgentInvokeConfigField } from './fields/AgentInvokeConfigField'
 import { IfElseRoutesField, SwitchRoutesField } from './fields/BranchingRoutesEditor'
+import { RouteOrderEditor } from './fields/RouteOrderEditor'
+import type { RouteOrderEntry } from '../lib/route-priority'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/components/utils/conditionValidation'
 import { InputDataPanel } from './InputDataPanel'
@@ -94,6 +96,13 @@ export interface NodeEditDialogCrudFormProps {
    */
   branchingRoutes?: SwitchRoutesValue
   onSaveBranchingRoutes?: (nodeId: string, value: SwitchRoutesValue) => void
+  /**
+   * Outgoing routes of a NON-branching step, in evaluation order. Reordering the
+   * list derives the transition priorities (spec 4.4) — branching steps order
+   * their routes through their own case list instead.
+   */
+  routeOrder?: RouteOrderEntry[]
+  onSaveRouteOrder?: (nodeId: string, entries: RouteOrderEntry[]) => void
 }
 
 /**
@@ -116,7 +125,7 @@ export interface NodeEditDialogCrudFormProps {
  * - waitForCondition: ConditionBuilder predicate + mandatory timeout policy
  * - decision: Basic fields only
  */
-export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries, definitionId, samples, onPinSample, onUnpinSample, branchingRoutes, onSaveBranchingRoutes }: NodeEditDialogCrudFormProps) {
+export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries, definitionId, samples, onPinSample, onUnpinSample, branchingRoutes, onSaveBranchingRoutes, routeOrder, onSaveRouteOrder }: NodeEditDialogCrudFormProps) {
   const t = useT()
   const activityTypeOptions = useActivityTypeOptions()
   const [initialValues, setInitialValues] = useState<Partial<NodeFormValues>>({})
@@ -141,11 +150,11 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       setInitialValues(
         isBranchingNodeType(node.type)
           ? { ...values, branchingRoutes: branchingRoutes ?? { field: '', routes: [] } }
-          : values,
+          : { ...values, routeOrder: routeOrder ?? [] },
       )
       setShowJsonSchemaWarning(isJsonSchemaFormat(node))
     }
-  }, [node, isOpen, branchingRoutes])
+  }, [node, isOpen, branchingRoutes, routeOrder])
 
   const handleSubmit = useCallback(async (values: Record<string, unknown>) => {
     if (!node) return
@@ -162,13 +171,16 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       if (isBranchingNodeType(node.type) && onSaveBranchingRoutes) {
         const routesValue = values.branchingRoutes as SwitchRoutesValue | undefined
         onSaveBranchingRoutes(node.id, routesValue ?? { field: '', routes: [] })
+      } else if (onSaveRouteOrder) {
+        const entries = values.routeOrder as RouteOrderEntry[] | undefined
+        if (Array.isArray(entries) && entries.length > 0) onSaveRouteOrder(node.id, entries)
       }
       onClose()
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       throw new Error(t(message))
     }
-  }, [node, onSave, onSaveBranchingRoutes, onClose, t])
+  }, [node, onSave, onSaveBranchingRoutes, onSaveRouteOrder, onClose, t])
 
   const handleDelete = useCallback(() => {
     if (!node || !onDelete) return
@@ -236,6 +248,18 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         fields: ['stepName', 'description', 'timeout'],
       },
     ]
+
+    // Route ordering (spec 4.4) only makes sense once a step has a choice to
+    // make. Branching steps order their routes through their own case list.
+    if (!isBranchingNodeType(node.type) && (routeOrder?.length ?? 0) > 1) {
+      baseGroups.push({
+        id: 'routeOrder',
+        title: t('workflows.routeOrder.groupTitle'),
+        column: 1,
+        description: t('workflows.routeOrder.groupDescription'),
+        fields: ['routeOrder'],
+      })
+    }
 
     const advancedGroup: CrudFormGroup = {
       id: 'advanced',
@@ -686,6 +710,19 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       type: 'custom',
       component: (props) => (
         <AgentInvokeConfigField {...props} value={props.value as any} ledgerEntries={ledgerEntries} />
+      ),
+    },
+    {
+      id: 'routeOrder',
+      label: '',
+      type: 'custom',
+      component: (props) => (
+        <RouteOrderEditor
+          id={props.id}
+          value={props.value as RouteOrderEntry[] | undefined}
+          setValue={props.setValue}
+          disabled={props.disabled}
+        />
       ),
     },
     {

@@ -23,6 +23,7 @@ import { DefinitionErrorHandlerField } from '../../../components/DefinitionError
 import type { WorkflowErrorHandlerConfig } from '../../../data/validators'
 import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard'
 import { WORKFLOW_ROUTE_CHIP_EVENT, type RouteChipEventDetail } from '../../../lib/route-chip-events'
+import { applyRouteOrder, canNormalizeRoutePriorities, normalizeRoutePriorities, readRouteOrder, type RouteOrderEntry } from '../../../lib/route-priority'
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
 import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
@@ -777,6 +778,36 @@ export default function VisualEditorPage() {
     scheduleAutosave()
   }, [nodes, scheduleAutosave])
 
+  // Route order (spec 4.4): a non-branching step's outgoing routes are ordered
+  // in the inspector and the priority number is derived from that order.
+  const routeOrderValue = useMemo<RouteOrderEntry[] | undefined>(() => {
+    if (!selectedNode || isBranchingNodeType(selectedNode.type)) return undefined
+    return readRouteOrder(edges, selectedNode.id)
+  }, [selectedNode, edges])
+
+  // Nodes whose legacy priorities have already been rewritten this session. The
+  // normalization pass runs on the FIRST edit of a node's routes and is
+  // idempotent afterwards.
+  const normalizedRouteNodesRef = React.useRef<Set<string>>(new Set())
+
+  // A `source: 'code'` definition is read-only in the editor, so normalization
+  // simply cannot run for it. Customize mints an editable override (source
+  // becomes 'code_override') and the pass runs there on the first route edit —
+  // which is exactly the spec's "only on Customize".
+  const normalizeRoutesOnFirstEdit = useCallback((nodeId: string) => {
+    if (!canNormalizeRoutePriorities(source)) return
+    if (normalizedRouteNodesRef.current.has(nodeId)) return
+    normalizedRouteNodesRef.current.add(nodeId)
+    setEdges((eds) => normalizeRoutePriorities(eds, nodeId))
+  }, [source])
+
+  const handleSaveRouteOrder = useCallback((nodeId: string, entries: RouteOrderEntry[]) => {
+    if (isCodeOnly) return
+    normalizeRoutesOnFirstEdit(nodeId)
+    setEdges((eds) => applyRouteOrder(eds, nodeId, entries))
+    scheduleAutosave()
+  }, [isCodeOnly, normalizeRoutesOnFirstEdit, scheduleAutosave])
+
   // Save edge updates
   const handleSaveEdge = useCallback((edgeId: string, updates: Partial<Edge['data']>) => {
     setEdges((eds) =>
@@ -1507,7 +1538,7 @@ export default function VisualEditorPage() {
   const sharedDialogs = (
     <>
       {crudFormDialogsEnabled ? (
-        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} definitionId={definitionId} samples={editorSamples} onPinSample={handlePinSample} onUnpinSample={handleUnpinSample} branchingRoutes={branchingRoutesValue} onSaveBranchingRoutes={handleSaveBranchingRoutes} />
+        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} definitionId={definitionId} samples={editorSamples} onPinSample={handlePinSample} onUnpinSample={handleUnpinSample} branchingRoutes={branchingRoutesValue} onSaveBranchingRoutes={handleSaveBranchingRoutes} routeOrder={routeOrderValue} onSaveRouteOrder={handleSaveRouteOrder} />
       ) : (
         <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       )}

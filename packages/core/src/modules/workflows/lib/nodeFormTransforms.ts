@@ -7,6 +7,7 @@
 
 import type { Node } from '@xyflow/react'
 import type { SwitchRoutesValue } from './branching-routes'
+import type { RouteOrderEntry } from './route-priority'
 import type { FormField } from '../components/fields/FormFieldArrayEditor'
 import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { Mapping } from '../components/fields/MappingArrayEditor'
@@ -145,6 +146,10 @@ export interface NodeFormValues {
   // Branching (IF_ELSE / SWITCH) outgoing routes — edited in the node dialog,
   // applied to edges by the editor page, never written into step data.
   branchingRoutes?: SwitchRoutesValue
+
+  // Outgoing route order of a non-branching step (spec 4.4). Same contract as
+  // branchingRoutes: transition state, applied to edges, never step data.
+  routeOrder?: RouteOrderEntry[]
 
   // InvokeAgent fields
   agentConfig?: AgentInvokeConfigValue
