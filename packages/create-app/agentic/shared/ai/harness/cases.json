@@ -6174,7 +6174,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "For a standalone service-management module that needs entities, validators, commands, APIs, backend and public pages, page middleware, UI locales, ACL/setup/DI/encryption, search, vector config, analytics, dashboard widgets, typed events, async and sync query subscribers, workers, workflows, progress, notification definitions/renderers/reactive handlers, messages and inbox actions, widgets, command/API interceptors, response/query enrichers, guards, AI tools, MFA provider and sudo-target contributions, integration metadata, generator plugins, CLI, translatable fields, and tests, map each named capability to the current canonical discovery or support surface. Include the installed facts for API keys, configs, dictionaries, Stripe gateway, perspectives, record locks, resources, SSO, S3 storage, Akeneo sync, Excel sync, and system-status overlays so none of those capabilities is rebuilt unnecessarily. For AI, explicitly choose typed defineAiTool versus low-level registerMcpTool/OpenCode Code Mode, including Zod/moduleId/requiredFeatures/serializable results, installed ai_assistant facts, per-request MCP/RBAC, two-tier auth, and ask-first config/session changes. Distinguish generator discovery from imported support files; reject retired flat pages, HTTP-method API directories, data/fields.ts, and unnecessary placeholders; include generation and focused verification.",
+    "prompt": "For a standalone service-management module that needs entities, validators, commands, APIs, backend and public pages, page middleware, UI locales, ACL/setup/DI/encryption, search, vector config, analytics, dashboard widgets, typed events, async and sync query subscribers, workers, workflows, progress, notification definitions/renderers/reactive handlers, messages and inbox actions, widgets, command/API interceptors, response/query enrichers, guards, AI tools, MFA provider and sudo-target contributions, integration metadata, generator plugins, CLI, translatable fields, and tests, map each named capability to the current canonical discovery or support surface. Include the emitted installed facts for API keys, configs, dictionaries, Stripe gateway, perspectives, resources, Akeneo sync, and Excel sync so none of those enabled capabilities is rebuilt unnecessarily. For AI, explicitly choose typed defineAiTool versus low-level registerMcpTool/OpenCode Code Mode, including Zod/moduleId/requiredFeatures/serializable results, installed ai_assistant facts, per-request MCP/RBAC, two-tier auth, and ask-first config/session changes. Distinguish generator discovery from imported support files; reject retired flat pages, HTTP-method API directories, data/fields.ts, and unnecessary placeholders; include generation and focused verification.",
     "tags": ["module", "discovery", "surface-catalog", "architecture"],
     "owner": {
       "kind": "skill",
@@ -6191,13 +6191,12 @@
         ".ai/skills/om-create-ai-agent/SKILL.md", ".ai/skills/om-create-ai-agent/references/surface-selector.md",
         ".ai/guides/modules/ai_assistant.md",
         ".ai/guides/modules/api_keys.md", ".ai/guides/modules/configs.md", ".ai/guides/modules/dictionaries.md",
-        ".ai/guides/modules/gateway_stripe.md", ".ai/guides/modules/perspectives.md", ".ai/guides/modules/record_locks.md",
-        ".ai/guides/modules/resources.md", ".ai/guides/modules/sso.md", ".ai/guides/modules/storage_s3.md",
-        ".ai/guides/modules/sync_akeneo.md", ".ai/guides/modules/sync_excel.md", ".ai/guides/modules/system_status_overlays.md"
+        ".ai/guides/modules/gateway_stripe.md", ".ai/guides/modules/perspectives.md", ".ai/guides/modules/resources.md",
+        ".ai/guides/modules/sync_akeneo.md", ".ai/guides/modules/sync_excel.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-framework-context/SKILL.md",
-        ".ai/guides/modules/auth.md", ".ai/guides/modules/security.md", ".ai/guides/modules/generators.md", ".ai/guides/modules/search.md",
+        ".ai/guides/modules/auth.md", ".ai/guides/modules/search.md",
         ".ai/guides/modules/events.md", ".ai/guides/modules/query_index.md", ".ai/guides/modules/translations.md",
         ".ai/guides/modules/progress.md", ".ai/guides/modules/workflows.md",
         ".ai/guides/modules/integrations.md", ".ai/guides/modules/dashboards.md", ".ai/guides/modules/notifications.md",

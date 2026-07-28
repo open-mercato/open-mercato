@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+import { selectModuleFactSheets } from '../setup/tools/shared.js'
 
 const D5_MODULES = [
   'auth',
@@ -19,6 +20,7 @@ const D5_MODULES = [
 
 const pkgRoot = fileURLToPath(new URL('../../', import.meta.url))
 const guidesDir = join(pkgRoot, 'dist', 'agentic', 'guides')
+const templateRoot = join(pkgRoot, 'template')
 const LEGACY_PACKAGE_GUIDES = ['cache', 'core', 'events', 'queue', 'search', 'shared', 'ui']
 let buildComplete = false
 
@@ -46,9 +48,10 @@ test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {
   }
 })
 
-test('every emitted module fact is exercised by the evaluation catalog', () => {
+test('every default-controller module fact is exercised by the evaluation catalog', () => {
   ensureBuilt()
   const moduleGuidesDir = join(guidesDir, 'modules')
+  const selectedModuleIds = selectModuleFactSheets(templateRoot, moduleGuidesDir)
   const cases = JSON.parse(fs.readFileSync(
     join(pkgRoot, 'dist', 'agentic', 'shared', 'ai', 'harness', 'cases.json'),
     'utf8',
@@ -61,9 +64,8 @@ test('every emitted module fact is exercised by the evaluation catalog', () => {
     ...caseRecord.context.required,
     ...(caseRecord.context.allowedExtra ?? []),
   ]))
-  const uncovered = fs.readdirSync(moduleGuidesDir)
-    .filter((filename) => filename.endsWith('.md'))
-    .map((filename) => `.ai/guides/modules/${filename}`)
+  const uncovered = selectedModuleIds
+    .map((moduleId) => `.ai/guides/modules/${moduleId}.md`)
     .filter((guide) => !catalogReferences.has(guide))
     .sort()
 

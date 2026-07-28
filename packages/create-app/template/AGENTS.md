@@ -35,9 +35,9 @@ Use the smallest relevant set. Broad: `yarn generate && yarn typecheck && yarn l
 
 Routes are additive, never exclusive: ownership says WHOSE code changes, the rest say WHAT changes. Select every match, then stop.
 
-Combine matches: lifecycle reaction = `module-data` + `umes`; convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. `framework-context` only for an unresolved contract.
+Combine: lifecycle reaction = `module-data` + `umes`; convergence bugs add `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. Fixes retain domain/extension routes; `debugging` is additive. `framework-context` is only for unresolved contracts.
 
-`debugging` = reported bug/security/drift; designed failure UI is not. Specs/delivery = `spec-pr` + integration coverage; spec-only work reads root + `om-spec-writing` + config, implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; an editable or save/reload/clear round-trip surface adds `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
+`debugging` = reported bug/security/drift, not designed failure UI. Specs use `spec-pr`; implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
 Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`. Persistent multi-stage business state that waits/cancels/survives restarts is durable; one-step reminders are `module-data`.
 
@@ -58,7 +58,7 @@ Staff preview/report/bulk actions add `backend-ui` unless API-only.
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
-Location never decides the route: app code changing an installed module's records, commands, events, pages, agents, or tools is `module-data` + `umes`; reading its facts is not. Reusable providers are published dependencies, never `packages/*`.
+Location never decides routing. Installed-record changes use `module-data` + `umes`; reading facts does not. Scalar-ID/snapshot links to installed records also load `om-data-model-design` + `om-system-extension`. Reusable providers are published dependencies, never `packages/*`.
 
 ### Axis 2 — Work Units
 
@@ -67,7 +67,7 @@ Match every work-unit row; OPEN its skill before selection.
 | Route | Work unit | Skill/context |
 |---|---|---|
 | `architecture` | Explain/choose module, UMES, package, eject | architecture; `om-help` for an unresolved or comparative choice across these mechanisms |
-| `module-data` | Business outcome or vertical slice | MUST load `om-module-scaffold` + its exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key, which resolves units inside the slice, not ownership — an ownership/capability outline adds `architecture` |
+| `module-data` | Business slice or multi-seam domain/API/command fix | MUST load `om-module-scaffold` + its exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key, which resolves units inside the slice, not ownership — an ownership/capability outline adds `architecture` |
 | `spec-pr` | Spec or plan in safe working stages | Axis 3 skill; deployable phases |
 | `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts`/`package.json` |
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |

@@ -387,6 +387,36 @@ test('deterministic evaluation passes every concrete catalog case in an emitted-
   }
 })
 
+test('deterministic evaluation rejects module-fact context absent from an emitted controller', () => {
+  const root = stageApp()
+  try {
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{
+      context: { required: string[]; allowedExtra?: string[] }
+    }>
+    const moduleFactPaths = new Set(cases.flatMap((caseRecord) => [
+      ...caseRecord.context.required,
+      ...(caseRecord.context.allowedExtra ?? []),
+    ]).filter((reference) => reference.startsWith('.ai/guides/modules/')))
+    for (const reference of moduleFactPaths) {
+      const absolute = path.join(root, reference)
+      fs.mkdirSync(path.dirname(absolute), { recursive: true })
+      fs.writeFileSync(absolute, '# Generated module fact\n')
+    }
+    cases[0].context.allowedExtra = [
+      ...(cases[0].context.allowedExtra ?? []),
+      '.ai/guides/modules/not_enabled.md',
+    ]
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /allowed-extra context does not exist: \.ai\/guides\/modules\/not_enabled\.md/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('deterministic evaluation enforces the case schema through OMH-192', () => {
   const root = stageApp()
   try {

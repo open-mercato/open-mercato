@@ -349,16 +349,16 @@ test('workflow skill binds implementation prompts to the progressive contract re
 
 test('debugging stays additive to cross-module domain and extension work', () => {
   const root = readAgentic('shared/AGENTS.md.template')
-  assert.match(root, /`debugging` never replaces them/)
-  assert.match(root, /links an installed module's record by scalar ID\/snapshot/)
-  assert.match(root, /loads `om-data-model-design` \+ `om-system-extension`/)
+  assert.match(root, /`debugging` is additive/)
+  assert.match(root, /Scalar-ID\/snapshot links to installed records/)
+  assert.match(root, /load `om-data-model-design` \+ `om-system-extension`/)
 })
 
 test('API and command fixes load trusted-scope domain contracts', () => {
   const moduleSkill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
   const apiDomain = readAgentic('shared/ai/skills/om-module-scaffold/references/api-and-domain.md')
   const root = readAgentic('shared/AGENTS.md.template')
-  assert.match(root, /including a fix spanning multiple domain\/API\/command seams/)
+  assert.match(root, /multi-seam domain\/API\/command fix/)
   assert.match(moduleSkill, /A fix spanning multiple domain, API, or command seams is a business slice/)
   assert.match(moduleSkill, /Every API\/schema\/command implementation or fix MUST read/)
   assert.match(apiDomain, /Public request schemas never accept `tenantId` or `organizationId`/)

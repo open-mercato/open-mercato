@@ -291,7 +291,10 @@ function discoverExternalSkills(root) {
 }
 
 function pathReferenceExists(root, reference) {
-  if (reference.startsWith('.ai/guides/modules/')) return true // generated after enabled-module discovery
+  if (reference.startsWith('.ai/guides/modules/')) {
+    const generatedModuleRoot = path.join(root, '.ai', 'guides', 'modules')
+    return !fs.existsSync(generatedModuleRoot) || fs.existsSync(path.resolve(root, reference))
+  }
   if (reference.includes('*') || reference.includes('?')) {
     return walkFiles(root).some((file) => globToRegExp(reference).test(file))
   }
