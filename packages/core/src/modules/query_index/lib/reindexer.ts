@@ -318,6 +318,7 @@ export async function reindexEntity(
 
   let processed = 0
   let lastId: string | null = null
+  let jobFailed = false
   const writeTotals = createEmptyUpsertIndexBatchResult()
 
   options?.onProgress?.({ processed, total, chunkSize: 0 })
@@ -569,8 +570,13 @@ export async function reindexEntity(
       })
     }
     assertIndexBatchWritesLanded(entityType, writeTotals)
+  } catch (error) {
+    jobFailed = true
+    throw error
   } finally {
-    await finalizeJob(db, jobScope)
+    // Still finalized on failure: the scope stays wedged behind the active-job guard
+    // while finished_at is null. The status carries the outcome instead.
+    await finalizeJob(db, jobScope, jobFailed ? { status: 'failed' } : {})
   }
 
   return {

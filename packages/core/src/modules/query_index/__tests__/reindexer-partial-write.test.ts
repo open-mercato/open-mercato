@@ -121,7 +121,8 @@ describe('reindexEntity write reconciliation (GSM-266)', () => {
 
     // The authoritative recount still runs, so reported coverage stays truthful.
     expect(mockRefreshCoverageSnapshot).toHaveBeenCalled()
-    expect(mockFinalizeJob).toHaveBeenCalled()
+    // Finished, but recorded as failed — finished_at alone reads as "completed".
+    expect(mockFinalizeJob).toHaveBeenCalledWith(expect.anything(), expect.anything(), { status: 'failed' })
   })
 
   it('aborts immediately when a whole batch fails, without scanning the rest of the table', async () => {
@@ -134,7 +135,7 @@ describe('reindexEntity write reconciliation (GSM-266)', () => {
     expect(baseTableSelects).toHaveLength(1)
     expect(mockPurgeOrphans).not.toHaveBeenCalled()
     // Still finalized, otherwise the scope stays wedged behind the active-job guard.
-    expect(mockFinalizeJob).toHaveBeenCalled()
+    expect(mockFinalizeJob).toHaveBeenCalledWith(expect.anything(), expect.anything(), { status: 'failed' })
   })
 
   it('leaves the happy path untouched', async () => {
@@ -155,5 +156,6 @@ describe('reindexEntity write reconciliation (GSM-266)', () => {
     expect(mockRefreshCoverageSnapshot).toHaveBeenCalled()
     expect(writeCoverageCounts).toHaveBeenCalled()
     expect(prepareJob).toHaveBeenCalled()
+    expect(mockFinalizeJob).toHaveBeenCalledWith(expect.anything(), expect.anything(), {})
   })
 })
