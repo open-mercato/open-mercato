@@ -12,9 +12,9 @@ Compose the installed workflow engine; do not bypass its executor, state machine
 Route before reading: workflow definitions, activities, durable engine state, idempotency, tasks, and outputs stay on `ai-workflow`. Load `.ai/guides/modules/workflows.md`, not `.ai/guides/contracts.md`; use module-data or `om-data-model-design` only when the request also adds a separate app-owned business entity.
 
 1. Read `.ai/guides/ai-workflows.md`; inspect the installed workflows module facts and use `om-framework-context` for exact service/activity contracts.
-2. Model definition, steps, transitions, triggers, variables, tasks, compensation, and terminal states with `references/workflow-design.md`.
-3. For a custom activity, follow `references/activity-contracts.md`: validated config/input/output, handler registration, editor/i18n, sync/async choice, retries/timeouts, SSRF, and command/event coupling.
-4. Follow `references/durability-and-progress.md` for idempotency keys that survive rollback, event logging, queue resume, cancellation, stable output/artifact paths, user-task auth, and live progress.
+2. Always load `references/workflow-design.md` before defining steps, transitions, triggers, variables, tasks, compensation, or terminal states.
+3. Load `references/activity-contracts.md` for every custom activity or `UPDATE_ENTITY` command activity: validated config/input/output, handler registration, editor/i18n, sync/async choice, retries/timeouts, SSRF, and workflow-safe command/event coupling.
+4. Load `references/durability-and-progress.md` whenever the workflow waits, handles signals, schedules timers, resumes from a queue, cancels, or must survive restart; apply its idempotency, event-log, stable-output, user-task authorization, and live-progress contracts.
 5. Run `yarn generate`; test event storms, retry/restart, rollback, duplicate signal/callback, cancellation, compensation failure, and scope isolation.
 
 ## Rules

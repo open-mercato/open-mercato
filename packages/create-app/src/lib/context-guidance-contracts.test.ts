@@ -339,3 +339,10 @@ test('router distinguishes durable multi-stage state from one-step schedules', (
   assert.match(root, /waits\/cancels\/survives restarts is durable/)
   assert.match(root, /one-step reminders are `module-data`/)
 })
+
+test('workflow skill binds implementation prompts to the progressive contract references', () => {
+  const workflowSkill = readAgentic('shared/ai/skills/om-build-workflow/SKILL.md')
+  assert.match(workflowSkill, /Always load `references\/workflow-design\.md`/)
+  assert.match(workflowSkill, /custom activity or `UPDATE_ENTITY` command activity/)
+  assert.match(workflowSkill, /Load `references\/durability-and-progress\.md` whenever the workflow waits, handles signals, schedules timers/)
+})

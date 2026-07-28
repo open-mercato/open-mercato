@@ -117,7 +117,7 @@ function usage() {
 
 Usage:
   node scripts/evaluate-agent-harness.mjs [--root <app>] [--case <OMH-NNN> | --family <name> | --all]
-  node scripts/evaluate-agent-harness.mjs --runner <codex|claude> [selector] [--model <selector>] [--timeout <ms>]
+  node scripts/evaluate-agent-harness.mjs --runner <codex|claude> [selector] [--model <selector>] [--reasoning-effort <level>] [--timeout <ms>]
   node scripts/evaluate-agent-harness.mjs --runner <codex|claude> --case <id> --writable-root <absolute-path> --acknowledge-writes
   node scripts/evaluate-agent-harness.mjs --runner <codex|claude> --review-writable-result <absolute-result.json> --writable-root <absolute-path> [--review-validation-result <absolute-result.json>]
 
@@ -136,6 +136,7 @@ function parseArgs(argv) {
     selectorExplicit: false,
     runner: undefined,
     model: undefined,
+    reasoningEffort: undefined,
     timeout: 300_000,
     batchSize: 1,
     writableRoot: undefined,
@@ -158,6 +159,7 @@ function parseArgs(argv) {
     else if (arg === '--all') { options.selector = 'all'; options.selectorValue = undefined; options.selectorExplicit = true }
     else if (arg === '--runner') options.runner = value()
     else if (arg === '--model') options.model = value()
+    else if (arg === '--reasoning-effort') options.reasoningEffort = value()
     else if (arg === '--timeout') options.timeout = Number(value())
     else if (arg === '--batch-size') options.batchSize = Number(value())
     else if (arg === '--writable-root') options.writableRoot = value()
@@ -168,6 +170,12 @@ function parseArgs(argv) {
   }
   if (options.runner && !['codex', 'claude'].includes(options.runner)) {
     throw new Error('--runner must be codex or claude')
+  }
+  if (options.reasoningEffort && options.runner !== 'codex') {
+    throw new Error('--reasoning-effort is supported only with --runner codex')
+  }
+  if (options.reasoningEffort && !['minimal', 'low', 'medium', 'high', 'xhigh'].includes(options.reasoningEffort)) {
+    throw new Error('--reasoning-effort must be minimal, low, medium, high, or xhigh')
   }
   if (!Number.isInteger(options.timeout) || options.timeout < 1_000 || options.timeout > 3_600_000) {
     throw new Error('--timeout must be an integer from 1000 to 3600000')
@@ -1704,7 +1712,7 @@ function harnessMcpConfig(root, writable, allowedReads, allowedWrites) {
   }
 }
 
-function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, writable, allowedReads, allowedWrites }) {
+function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, reasoningEffort, writable, allowedReads, allowedWrites }) {
   const mcp = harnessMcpConfig(root, writable, allowedReads, allowedWrites)
   if (runner === 'codex') {
     const args = [
@@ -1726,6 +1734,7 @@ function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, wr
       '-C', root, '--output-schema', schemaPath, '-o', outputPath,
     ]
     if (model && model !== 'default') args.push('--model', model)
+    if (reasoningEffort) args.push('-c', `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`)
     args.push('-')
     return { command: 'codex', args }
   }
@@ -1761,14 +1770,14 @@ function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, wr
   return { command: 'claude', args }
 }
 
-function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, writable, allowedReads = [], allowedWrites = [], validateResponse = validateRoutingResponse }) {
+function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, reasoningEffort, writable, allowedReads = [], allowedWrites = [], validateResponse = validateRoutingResponse }) {
   const canonicalRoot = fs.realpathSync(root)
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-result-'))
   const outputPath = path.join(tempDir, 'structured.json')
   const isolatedSchemaPath = path.join(tempDir, 'output.schema.json')
   fs.copyFileSync(schemaPath, isolatedSchemaPath, fs.constants.COPYFILE_EXCL)
   fs.chmodSync(isolatedSchemaPath, 0o600)
-  const invocation = buildRunnerInvocation({ runner, root: canonicalRoot, schemaPath: isolatedSchemaPath, outputPath, model, writable, allowedReads, allowedWrites })
+  const invocation = buildRunnerInvocation({ runner, root: canonicalRoot, schemaPath: isolatedSchemaPath, outputPath, model, reasoningEffort, writable, allowedReads, allowedWrites })
   const runnerEnv = narrowRunnerEnv(runner)
   if (runner === 'codex') {
     const isolatedCodexHome = path.join(tempDir, 'codex-home')
@@ -2387,6 +2396,7 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
       prompt: buildReviewPrompt(reviewedPaths, evidenceIds, reviewReferences),
       timeout: options.timeout,
       model,
+      reasoningEffort: options.reasoningEffort,
       writable: false,
       allowedReads: expectedReads,
       allowedWrites: [],
@@ -2414,6 +2424,7 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
       runner: options.runner,
       runnerVersion: version,
       model,
+      ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
       skill: skill.provenance,
       policyHash,
       reviewedPaths,
@@ -2462,7 +2473,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
   const writableRoot = options.writableRoot ? path.resolve(options.writableRoot) : undefined
   if (writableRoot) assertFilesystemDisjoint(root, writableRoot, 'writable root')
   let failures = 0
-  console.log(`Runner: ${options.runner} ${version}; model selector: ${model}; cases: ${selected.length}; fresh process per case`)
+  console.log(`Runner: ${options.runner} ${version}; model selector: ${model}${options.reasoningEffort ? `; reasoning effort: ${options.reasoningEffort}` : ''}; cases: ${selected.length}; fresh process per case`)
   for (let offset = 0; offset < selected.length; offset += options.batchSize) {
     const batch = selected.slice(offset, offset + options.batchSize)
     for (const caseRecord of batch) {
@@ -2497,7 +2508,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
       const allowedReads = caseReadAllowlist(evaluationCase, writable)
       const timeout = Math.max(options.timeout, caseRecord.timeoutMs ?? 0)
       const executions = [runAgentOnce({
-        runner: options.runner, root: runRoot, schemaPath, prompt, timeout, model, writable,
+        runner: options.runner, root: runRoot, schemaPath, prompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
         allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [],
       })]
       let execution = executions[0]
@@ -2509,7 +2520,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
           ? `${prompt}\n\nYour previous response was not valid structured output. Return only the schema object.`
           : `${prompt}\n\nThis is retry attempt 2 after a transient provider failure. Continue with the same routing contract.`
         execution = runAgentOnce({
-          runner: options.runner, root: runRoot, schemaPath, prompt: retryPrompt, timeout, model, writable,
+          runner: options.runner, root: runRoot, schemaPath, prompt: retryPrompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
           allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [],
         })
         executions.push(execution)
@@ -2553,7 +2564,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         && evaluated.violations.every(isCorrectableRoutingFailure)) {
         const retryPrompt = `${prompt}\n\nThis is correction attempt 2 after the first routing answer failed a non-safety semantic contract. Start the routing audit again from AGENTS.md using only the harness read tool. Re-evaluate every additive Axis 1 route, Axis 2 work-unit skill, module fact, and required decision while opening only the smallest task-matching initial context. Before returning, reconcile selectedContext exactly with successful reads and re-check the context budget. Return only the schema object.`
         execution = runAgentOnce({
-          runner: options.runner, root: runRoot, schemaPath, prompt: retryPrompt, timeout, model, writable,
+          runner: options.runner, root: runRoot, schemaPath, prompt: retryPrompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
           allowedReads, allowedWrites: [],
         })
         executions.push(execution)
@@ -2609,6 +2620,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         runner: options.runner,
         runnerVersion: version,
         model,
+        ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
         evaluationKind: writable ? caseRecord.evaluationKind : 'routing',
         selectedRouter: recursivelySanitize(response.selectedRouter, runRoot),
         selectedSkills: recursivelySanitize(response.selectedSkills, runRoot),

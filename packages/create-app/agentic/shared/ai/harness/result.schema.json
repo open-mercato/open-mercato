@@ -11,6 +11,7 @@
     "runner": { "enum": ["deterministic", "codex", "claude"] },
     "runnerVersion": { "type": "string", "maxLength": 200 },
     "model": { "type": "string", "maxLength": 200 },
+    "reasoningEffort": { "enum": ["minimal", "low", "medium", "high", "xhigh"] },
     "evaluationKind": { "enum": ["static", "routing", "implementation", "regression"] },
     "selectedRouter": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
     "selectedSkills": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },

@@ -703,7 +703,7 @@ if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
 if (!prompt.includes('Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories') || !prompt.includes('an all-guides/all-skills/all-facts read is an automatic failure') || !prompt.includes('selectedSkills names only skills you actually invoked during this evaluation after opening their SKILL.md')) process.exit(10)
 const disabled = args.flatMap((arg, index) => arg === '--disable' ? [args[index + 1]] : [])
-if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || !['skill_search','shell_tool','unified_exec','apps','multi_agent','browser_use','computer_use','image_generation','standalone_web_search'].every((feature) => disabled.includes(feature)) || args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('sandbox_workspace_write.network_access=false') || !args.includes('shell_environment_policy.inherit=none') || !args.includes('mcp_servers.harness.required=true') || !args.includes('mcp_servers.harness.default_tools_approval_mode="approve"') || !args.some((arg) => arg.startsWith('mcp_servers.harness.command=')) || !args.some((arg) => arg.startsWith('mcp_servers.harness.args=')) || !process.env.CODEX_HOME?.includes('om-harness-result-') || !process.env.HOME?.includes('om-harness-result-')) process.exit(9)
+if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || !['skill_search','shell_tool','unified_exec','apps','multi_agent','browser_use','computer_use','image_generation','standalone_web_search'].every((feature) => disabled.includes(feature)) || args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('sandbox_workspace_write.network_access=false') || !args.includes('shell_environment_policy.inherit=none') || !args.includes('mcp_servers.harness.required=true') || !args.includes('mcp_servers.harness.default_tools_approval_mode="approve"') || args[args.indexOf('--model') + 1] !== 'gpt-5.4-mini' || !args.includes('model_reasoning_effort="high"') || !args.some((arg) => arg.startsWith('mcp_servers.harness.command=')) || !args.some((arg) => arg.startsWith('mcp_servers.harness.args=')) || !process.env.CODEX_HOME?.includes('om-harness-result-') || !process.env.HOME?.includes('om-harness-result-')) process.exit(9)
 const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
 const allowedReads = JSON.parse(mcpArgs.at(-2))
 for (const required of ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/testing-debugging.md', '.ai/skills/om-help/SKILL.md', '.ai/skills/om-troubleshooter/SKILL.md', '.ai/skills/om-troubleshooter/references/**']) if (!allowedReads.includes(required)) process.exit(9)
@@ -721,7 +721,7 @@ for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) console.log(JSON
 `)
   fs.chmodSync(fake, 0o755)
   try {
-    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001', '--model', 'gpt-5.4-mini', '--reasoning-effort', 'high'], {
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
@@ -736,11 +736,13 @@ for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) console.log(JSON
     const parsed = JSON.parse(stored) as {
       attempts: number
       corrections: number
+      reasoningEffort: string
       actualContext: { paths: string[] }
       declaredContext: { paths: string[] }
     }
     assert.equal(parsed.attempts, 1)
     assert.equal(parsed.corrections, 0)
+    assert.equal(parsed.reasoningEffort, 'high')
     assert.deepEqual(parsed.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
     assert.deepEqual(parsed.declaredContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
   } finally {
