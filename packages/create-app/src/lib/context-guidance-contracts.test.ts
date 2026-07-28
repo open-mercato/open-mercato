@@ -279,6 +279,7 @@ test('business one-shot route keys remain binding for installed-module links', (
   assert.match(blueprints, /route key is binding/)
   assert.match(blueprints, /do not remove `U`/)
   assert.match(blueprints, /every unparenthesized route letter and its skill/)
+  assert.match(blueprints, /BACKWARD_COMPATIBILITY\.md` before extending existing customer response, event, or ID surfaces/)
 })
 
 test('spec routing binds integration coverage to its decision label', () => {
