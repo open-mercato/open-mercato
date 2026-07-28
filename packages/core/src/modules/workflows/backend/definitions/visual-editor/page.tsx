@@ -12,7 +12,8 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { graphToDefinition, definitionToGraph, applyAutoLayout, validateWorkflowGraph, generateStepId, generateTransitionId, appendWorkflowEdge, ValidationError } from '../../../lib/graph-utils'
 import { collectValidationIssues, countIssuesBySeverity, type WorkflowIssueTranslator, type WorkflowValidationIssue, type ZodIssueLike } from '../../../lib/collect-validation-issues'
 import { formatWorkflowValidationError } from '../../../lib/format-validation-error'
-import type { WorkflowGraphFocusTarget } from '../../../components/WorkflowGraph'
+import type { WorkflowGraphFocusTarget, WorkflowGraphNodesChangeMeta } from '../../../components/WorkflowGraph'
+import { resolveNewNodePlacement } from '../../../lib/node-placement'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-flag'
 import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } from '../../../lib/draft-restore'
@@ -258,6 +259,10 @@ export default function VisualEditorPage() {
   // render so the debounced timer always runs the latest closure (no stale nodes).
   const autosaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const performAutosaveRef = React.useRef<() => Promise<void>>(async () => {})
+  // Last payload the quiet autosave actually persisted, so an unchanged graph
+  // never issues a redundant PUT (#4248). Cleared on failure so the next change
+  // retries the write.
+  const lastAutosavedBodyRef = React.useRef<string | null>(null)
   const { value: paletteCollapsed, toggle: togglePaletteCollapsed, setValue: setPaletteCollapsed } = usePersistedBooleanFlag('om:wf-editor-palette', false)
   const [showPaletteHowTo, setShowPaletteHowTo] = useState(false)
   const { value: focusMode, setValue: setFocusMode, toggle: toggleFocus } = usePersistedBooleanFlag('om:wf-editor-focus', false)
@@ -676,12 +681,14 @@ export default function VisualEditorPage() {
   }, [])
 
   // Handle node changes from ReactFlow. The lazy graph applies React Flow's
-  // change reducers internally (#3169) and hands back the resolved nodes, so
-  // this page never imports the @xyflow/react runtime. Position changes land
-  // here too, so the debounced autosave persists drag arrangements quietly.
-  const handleNodesChange = useCallback((nextNodes: Node[]) => {
+  // change reducers internally (#3169) and hands back the resolved nodes plus a
+  // note on what the batch meant, so this page never imports the @xyflow/react
+  // runtime. A drag persists once, on drag end (#4248); selecting or measuring
+  // a node changes nothing worth saving and must not touch the stored row.
+  const handleNodesChange = useCallback((nextNodes: Node[], meta?: WorkflowGraphNodesChangeMeta) => {
     if (isCodeOnly) return
     setNodes(nextNodes)
+    if (meta && !meta.persistable) return
     scheduleAutosave()
   }, [isCodeOnly, scheduleAutosave])
 
@@ -699,16 +706,16 @@ export default function VisualEditorPage() {
     setEdges(nextEdges)
   }, [isCodeOnly])
 
-  // Handle adding new node from palette
-  const handleAddNode = useCallback((nodeType: string) => {
+  // Handle adding new node from palette. A drop position (drag-from-palette)
+  // places the card under the cursor; the click-append path lands after the
+  // right-most card. Both are nudged clear of existing cards (#4248) and both
+  // count as a manual arrangement, so the placement is persisted like a drag.
+  const handleAddNode = useCallback((nodeType: string, dropPosition?: { x: number; y: number } | null) => {
     if (isCodeOnly) return
     const newNode: Node = {
       id: generateStepId(nodeType),
       type: nodeType,
-      position: {
-        x: 250 + nodes.length * 50,
-        y: 100 + nodes.length * 150,
-      },
+      position: resolveNewNodePlacement(nodes, { dropPosition }),
       data: {
         label: getDefaultLabel(nodeType),
         description: '',
@@ -718,7 +725,8 @@ export default function VisualEditorPage() {
     }
 
     setNodes((nds) => [...nds, newNode])
-  }, [nodes.length, isCodeOnly])
+    scheduleAutosave()
+  }, [nodes, isCodeOnly, scheduleAutosave])
 
   // Handle node selection - open edit dialog (suppressed in read-only mode
   // so users can't open the node editor on a code-defined workflow).
@@ -1250,6 +1258,7 @@ export default function VisualEditorPage() {
       }
 
       setStructuralConflict(null)
+      if (updateBody) lastAutosavedBodyRef.current = stableSerializeDefinition(updateBody)
 
       const savedDefinition = result.result?.data
 
@@ -1330,6 +1339,13 @@ export default function VisualEditorPage() {
       effectiveTo: effectiveTo || null,
     }
 
+    // Autosave only when the payload actually differs from what the row already
+    // holds. Without this a selection or a re-render would PUT an identical body
+    // and bump the optimistic-lock token for nothing.
+    const serializedBody = stableSerializeDefinition(updateBody)
+    if (serializedBody === lastAutosavedBodyRef.current) return
+    lastAutosavedBodyRef.current = serializedBody
+
     setAutosaveState('saving')
     try {
       const result = await withScopedApiRequestHeaders(
@@ -1343,6 +1359,7 @@ export default function VisualEditorPage() {
 
       if (!result.ok) {
         setAutosaveState('idle')
+        lastAutosavedBodyRef.current = null
         // A quiet autosave carrying a structural change hits the same edit-safety
         // rule as Save. Surfacing the banner here keeps the author from watching
         // "Saved" never appear with no explanation.
@@ -1368,6 +1385,7 @@ export default function VisualEditorPage() {
       setAutosaveState('saved')
     } catch (error) {
       console.error('[internal] workflow autosave failed', error)
+      lastAutosavedBodyRef.current = null
       setAutosaveState('idle')
     }
   }

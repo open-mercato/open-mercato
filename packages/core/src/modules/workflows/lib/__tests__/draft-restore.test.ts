@@ -37,6 +37,19 @@ describe('stableSerializeDefinition', () => {
     )
   })
 
+  it('treats a moved node as a real change so a drag reaches the draft (#4248)', () => {
+    const before = { steps: [{ stepId: 'task', _editorPosition: { x: 10, y: 20 } }] }
+    const after = { steps: [{ stepId: 'task', _editorPosition: { x: 480, y: 96 } }] }
+    expect(stableSerializeDefinition(before)).not.toBe(stableSerializeDefinition(after))
+  })
+
+  it('treats an unchanged arrangement as identical so no redundant write happens', () => {
+    const payload = { steps: [{ stepId: 'task', _editorPosition: { x: 10, y: 20 } }] }
+    expect(stableSerializeDefinition(payload)).toBe(
+      stableSerializeDefinition({ steps: [{ _editorPosition: { y: 20, x: 10 }, stepId: 'task' }] }),
+    )
+  })
+
   it('remains sensitive to array order', () => {
     expect(stableSerializeDefinition({ steps: [1, 2] })).not.toBe(
       stableSerializeDefinition({ steps: [2, 1] }),
@@ -139,6 +152,32 @@ describe('decideDraftRestore', () => {
         draftBaseUpdatedAt: null,
         loadedDefinition,
         definitionUpdatedAt: '2026-07-27T11:30:00.000Z',
+      }),
+    ).toEqual({ offerRestore: true, baseMismatch: false })
+  })
+
+  it('offers to restore a draft that differs only by a manual arrangement (#4248)', () => {
+    const withPositions = {
+      ...loadedDefinition,
+      steps: (loadedDefinition.steps as Array<Record<string, unknown>>).map((step) => ({
+        ...step,
+        _editorPosition: { x: 0, y: 0 },
+      })),
+    }
+    const dragged = {
+      ...withPositions,
+      steps: withPositions.steps.map((step, index) => ({
+        ...step,
+        _editorPosition: { x: 320 * (index + 1), y: 64 },
+      })),
+    }
+
+    expect(
+      decideDraftRestore({
+        draftDefinition: dragged,
+        draftBaseUpdatedAt: '2026-07-27T10:00:00.000Z',
+        loadedDefinition: withPositions,
+        definitionUpdatedAt: '2026-07-27T10:00:00.000Z',
       }),
     ).toEqual({ offerRestore: true, baseMismatch: false })
   })

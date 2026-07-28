@@ -177,6 +177,27 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   id — keeping the id is what makes the canvas edit safe, and the edit-safety guard still refuses
   the SAVE while instances are active, so mid-flight runs never see the new wiring.
 
+## Canvas Arrangement
+
+- **Manual placement always wins until explicit Tidy.** `graphToDefinition(..., { includePositions: true })`
+  writes each node's `_editorPosition`; `definitionToGraph` prefers a stored position and dagre-places
+  (LR) only the steps that lack one. `applyAutoLayout` (the Tidy button) is the ONE place that
+  overwrites an author's arrangement. Every persistence path — explicit Save, the quiet definition
+  autosave, and the per-user draft — uses the same `includePositions` payload builders, so a drag
+  survives a save, a draft restore, and a reload identically.
+- **A drag persists once, on drag end.** `WorkflowGraphImpl` classifies each React Flow change batch
+  (`WorkflowGraphNodesChangeMeta`) and hands the page `persistable: false` for in-flight drag frames,
+  selections and measurements. The quiet autosave additionally skips a PUT whose body is byte-equal to
+  the last one it wrote, so no interaction bumps the optimistic-lock token for nothing.
+- **New nodes land deliberately.** `lib/node-placement.ts` (PURE) resolves the position: the cursor
+  when a drop position is supplied (drag-from-palette), otherwise after the right-most card, nudged
+  down until it clears every existing card.
+- **Scoped re-tidy is deliberately NOT implemented.** Spec §4.1 allows "re-tidy only the affected
+  region" on a structural mutation; re-running dagre over an inserted node's neighbourhood cannot be
+  bounded without moving nodes outside the region (dagre re-ranks the whole component it is given).
+  Until insert-on-edge exists there is no call site either. Placement + collision avoidance covers the
+  real need; full Tidy stays explicit.
+
 ## Environment
 
 | Variable | Effect | Default |

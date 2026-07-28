@@ -3,7 +3,10 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import type { Node, Edge, Connection } from '@xyflow/react'
+import type { WorkflowGraphNodesChangeMeta } from './WorkflowGraphImpl'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+
+export type { WorkflowGraphNodesChangeMeta } from './WorkflowGraphImpl'
 
 export interface WorkflowGraphFocusTarget {
   nodeId?: string
@@ -14,7 +17,7 @@ export interface WorkflowGraphFocusTarget {
 export interface WorkflowGraphProps {
   initialNodes?: Node[]
   initialEdges?: Edge[]
-  onNodesChange?: (nodes: Node[]) => void
+  onNodesChange?: (nodes: Node[], meta: WorkflowGraphNodesChangeMeta) => void
   onEdgesChange?: (edges: Edge[]) => void
   onNodeClick?: (event: React.MouseEvent, node: Node) => void
   onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void

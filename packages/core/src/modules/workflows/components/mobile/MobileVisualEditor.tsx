@@ -12,7 +12,7 @@ import {
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Save, MoreVertical, FileText, Trash2, CircleQuestionMark, Play } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_LABELS } from '../../lib/node-type-icons'
-import { WorkflowGraph } from '../WorkflowGraph'
+import { WorkflowGraph, type WorkflowGraphNodesChangeMeta } from '../WorkflowGraph'
 import { MobileMetadataSheet } from './MobileMetadataSheet'
 import type { WorkflowMetadataState, WorkflowMetadataHandlers } from '../../data/types'
 
@@ -21,7 +21,7 @@ export interface MobileVisualEditorProps {
   isSaving: boolean
   nodes: Node[]
   edges: Edge[]
-  onNodesChange: (nodes: Node[]) => void
+  onNodesChange: (nodes: Node[], meta: WorkflowGraphNodesChangeMeta) => void
   onEdgesChange: (edges: Edge[]) => void
   onNodeClick: (event: React.MouseEvent, node: Node) => void
   onEdgeClick: (event: React.MouseEvent, edge: Edge) => void

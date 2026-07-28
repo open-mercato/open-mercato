@@ -38,10 +38,32 @@ export interface WorkflowGraphFocusTarget {
   requestId: number
 }
 
+/**
+ * What a node-change batch means for persistence (#4248). React Flow reports a
+ * position change on every drag frame plus one final frame with `dragging:
+ * false`; selection and measurement changes carry no arrangement at all. The
+ * parent only commits an arrangement when `persistable` is true, so a drag
+ * persists once — on drag end — and clicking a node never writes anything.
+ */
+export interface WorkflowGraphNodesChangeMeta {
+  dragging: boolean
+  persistable: boolean
+}
+
+function describeNodeChanges(changes: NodeChange[]): WorkflowGraphNodesChangeMeta {
+  const dragging = changes.some((change) => change.type === 'position' && change.dragging === true)
+  const persistable = changes.some((change) => {
+    if (change.type === 'select' || change.type === 'dimensions') return false
+    if (change.type === 'position') return change.dragging !== true
+    return true
+  })
+  return { dragging, persistable }
+}
+
 export interface WorkflowGraphImplProps {
   initialNodes?: Node[]
   initialEdges?: Edge[]
-  onNodesChange?: (nodes: Node[]) => void
+  onNodesChange?: (nodes: Node[], meta: WorkflowGraphNodesChangeMeta) => void
   onEdgesChange?: (edges: Edge[]) => void
   onNodeClick?: (event: React.MouseEvent, node: Node) => void
   onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void
@@ -198,7 +220,7 @@ export default function WorkflowGraphImpl({
       const nextNodes = applyNodeChanges(changes, latestNodesRef.current)
       setNodes(nextNodes)
       if (onNodesChangeProp) {
-        onNodesChangeProp(nextNodes)
+        onNodesChangeProp(nextNodes, describeNodeChanges(changes))
       }
     },
     [setNodes, onNodesChangeProp]
