@@ -28,7 +28,7 @@
 | 5 | 5.14 | Inbox diagnostics: "hidden — entity access" marker (workload aggregate n/a — no such surface exists) | done | `57cbca082` |
 | 5 | 5.15 | Correction: owner-less USER_TASK is a warning, not a save-blocking error | done | `39215ed21` |
 | 6 | 6.1 | Portal ACL features + portal task routes (list/get/complete) | done | `b89911792` |
-| 6 | 6.2 | Portal task pages + nav + `portalBroadcast` live updates | todo | — |
+| 6 | 6.2 | Portal task pages + nav + `portalBroadcast` live updates | done | `2b7f610fd` |
 | 7 | 7.1 | Integration + Playwright suites (design §10.3/§10.4) | todo | — |
 | 7 | 7.2 | Docs + UPGRADE_NOTES + spec changelog | todo | — |
 | 7 | 7.3 | Security-review evidence against the design's §9 checklist | todo | — |

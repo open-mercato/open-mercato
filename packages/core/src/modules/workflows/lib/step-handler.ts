@@ -728,6 +728,31 @@ async function emitTaskAssignedEvent(
       err: error,
     })
   }
+
+  if (userTask.assigneeKind !== 'customer' || !userTask.assignedTo) return
+
+  try {
+    // Addressed to ONE portal principal (`recipientUserId` is what narrows the
+    // SSE audience) and carrying an id and nothing else. The receiver asks the
+    // authorized portal API what the task is; the bridge never carries the
+    // answer, so a mis-scoped connection learns nothing from it.
+    await emitWorkflowsEvent(
+      'workflows.task.portal_assigned',
+      {
+        taskId: userTask.id,
+        recipientUserId: userTask.assignedTo,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId ?? null,
+      },
+      { persistent: false }
+    )
+  } catch (error) {
+    logger.error('Failed to emit workflows.task.portal_assigned', {
+      component: 'step-handler',
+      taskId: userTask.id,
+      err: error,
+    })
+  }
 }
 
 /**

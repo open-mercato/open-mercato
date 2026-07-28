@@ -21,6 +21,7 @@ import type { CustomerRbacService } from '@open-mercato/core/modules/customer_ac
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { UserTask } from '../../../../data/entities'
 import { serializeUserTask } from '../../../tasks/serialize'
+import { loadTaskDecisionContext } from '../../../../lib/task-decision-context'
 import {
   decidePortalTaskAccess,
   PORTAL_TASK_REFUSAL,
@@ -78,9 +79,16 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json(PORTAL_TASK_REFUSAL.body, { status: PORTAL_TASK_REFUSAL.status })
     }
 
+    // Re-resolved from the instance's pinned definition, exactly as the
+    // backoffice detail does — the portal must offer the SAME named outcomes the
+    // author wrote, or a portal completion silently takes the default route.
+    const { decisions, formKey } = await loadTaskDecisionContext(em, task)
+
     const body: z.infer<typeof portalTaskDetailResponseSchema> = {
       ok: true,
       task: serializeUserTask(task),
+      decisions,
+      formKey,
       // What the UI needs to decide whether to render the completion form at
       // all. A portal admin reading a member's task gets `false` — they see the
       // work, they never finish it.

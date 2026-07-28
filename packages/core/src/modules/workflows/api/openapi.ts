@@ -291,6 +291,8 @@ export const portalTaskListResponseSchema = z.object({
 export const portalTaskDetailResponseSchema = z.object({
   ok: z.literal(true),
   task: userTaskRowSchema,
+  decisions: z.array(userTaskDecisionSchema),
+  formKey: z.string().nullable().describe('External renderer key, when the author declared one'),
   canComplete: z
     .boolean()
     .describe('True only for the assignee; a portal admin reading a company member\'s task gets false'),
