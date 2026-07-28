@@ -66,23 +66,60 @@ export function usePortalNotifications(): UsePortalNotificationsResult {
     setIsLoading(false)
   }, [])
 
-  // Poll
+  const [usePolling, setUsePolling] = React.useState(() => {
+    if (typeof window === 'undefined' || !('EventSource' in window)) {
+      return true
+    }
+    return (window as any).__portalBridgeHealthy === false
+  })
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !('EventSource' in window)) {
+      return
+    }
+    const handleStatusChange = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (detail && typeof detail.healthy === 'boolean') {
+        setUsePolling(!detail.healthy)
+      }
+    }
+    window.addEventListener('om:portal-bridge:status', handleStatusChange)
+    return () => {
+      window.removeEventListener('om:portal-bridge:status', handleStatusChange)
+    }
+  }, [])
+
+  // Poll when fallback is active
   React.useEffect(() => {
     fetchAll()
+    if (!usePolling) return
     const interval = setInterval(fetchAll, POLL_INTERVAL)
     return () => clearInterval(interval)
-  }, [fetchAll])
+  }, [fetchAll, usePolling])
 
-  // Listen for portal SSE notification events
+  // Listen for portal SSE notification and bridge events
   React.useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail
-      if (detail?.id === 'notifications.notification.created' || detail?.id === 'notifications.notification.batch_created') {
+      if (
+        detail?.id === 'notifications.notification.created' ||
+        detail?.id === 'notifications.notification.batch_created' ||
+        detail?.id === 'om:portal-bridge:reconnected'
+      ) {
         fetchAll()
       }
     }
     window.addEventListener('om:portal-event', handler)
     return () => window.removeEventListener('om:portal-event', handler)
+  }, [fetchAll])
+
+  // Focus refetch
+  React.useEffect(() => {
+    const onFocus = () => {
+      fetchAll()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [fetchAll])
 
   const markAsRead = React.useCallback(async (id: string) => {

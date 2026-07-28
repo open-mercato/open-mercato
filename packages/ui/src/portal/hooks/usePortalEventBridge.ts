@@ -62,6 +62,12 @@ export function usePortalEventBridge(): void {
       if (heartbeatTimer.current) clearTimeout(heartbeatTimer.current)
       heartbeatTimer.current = setTimeout(() => {
         logger.warn('Heartbeat timeout — reconnecting')
+        if (typeof window !== 'undefined') {
+          ;(window as any).__portalBridgeHealthy = false
+          window.dispatchEvent(
+            new CustomEvent('om:portal-bridge:status', { detail: { healthy: false } })
+          )
+        }
         disconnect()
         scheduleReconnect()
       }, HEARTBEAT_TIMEOUT)
@@ -80,6 +86,12 @@ export function usePortalEventBridge(): void {
           hasEverConnected.current = true
           reconnectPending.current = false
           reconnectAttempts.current = 0
+          if (typeof window !== 'undefined') {
+            ;(window as any).__portalBridgeHealthy = true
+            window.dispatchEvent(
+              new CustomEvent('om:portal-bridge:status', { detail: { healthy: true } })
+            )
+          }
           resetHeartbeatTimer()
           if (shouldEmitReconnect) {
             window.dispatchEvent(
@@ -116,12 +128,24 @@ export function usePortalEventBridge(): void {
           if (hasEverConnected.current) {
             reconnectPending.current = true
           }
+          if (typeof window !== 'undefined') {
+            ;(window as any).__portalBridgeHealthy = false
+            window.dispatchEvent(
+              new CustomEvent('om:portal-bridge:status', { detail: { healthy: false } })
+            )
+          }
           disconnect()
           if (mounted) scheduleReconnect()
         }
       } catch {
         if (hasEverConnected.current) {
           reconnectPending.current = true
+        }
+        if (typeof window !== 'undefined') {
+          ;(window as any).__portalBridgeHealthy = false
+          window.dispatchEvent(
+            new CustomEvent('om:portal-bridge:status', { detail: { healthy: false } })
+          )
         }
         if (mounted) scheduleReconnect()
       }
