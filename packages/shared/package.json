@@ -48,6 +48,10 @@
       "types": "./src/lib/events/patterns.ts",
       "default": "./dist/lib/events/patterns.js"
     },
+    "./lib/data/consistency": {
+      "types": "./src/lib/data/consistency.ts",
+      "default": "./dist/lib/data/consistency.js"
+    },
     "./lib/logger": {
       "types": "./src/lib/logger/index.ts",
       "default": "./dist/lib/logger/index.js"

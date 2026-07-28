@@ -184,6 +184,7 @@ Integration (Playwright, per-module under `__integration__/`):
 
 - 2026-06-18 - Implemented `OM_CACHE_SAFETY_ALWAYS_CONSISTENT`: flag helper, transaction-threaded query-index tail, flag-gated error propagation, docs/env updates, and focused unit coverage.
 - 2026-07-27 - Addressed PR #3236 UI QA: preserved singleton multi-value projection cardinality, removed duplicate domain-bridge indexing without exposing the ownership marker to client payloads, restored `suppressCoverage` in the ON delete branch, and added browser regressions for label replacement and deterministic index failure handling.
+- 2026-07-28 - Reconciled the ON delete path with metadata-driven global-entity scoping from `develop`, added an ID-only global-entity coverage regression, and made the new shared consistency helper an explicit package export for standalone consumers.
 
 ## Implementation Status
 
