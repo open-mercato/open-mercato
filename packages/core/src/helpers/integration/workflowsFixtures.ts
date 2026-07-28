@@ -302,6 +302,104 @@ export async function pollWorkflowInstance(
   }
 }
 
+/**
+ * Single-USER_TASK definition whose `userTaskConfig` is supplied verbatim by the caller.
+ *
+ * The Phase-4a task inspector vocabulary (`priority`, `deadline`, `entityBindings`,
+ * `assignedToRoles`, `formKey`, `allowedActions`, `instructions`) is all optional and all
+ * additive, so a builder per combination would multiply without end. This one takes the
+ * config as-is, which also makes it the honest fixture for the A1 regression: what the test
+ * posts is exactly what the definition endpoint is asked to persist.
+ */
+export function buildInspectorUserTaskDefinitionPayload(
+  timestamp: number,
+  options: {
+    suffix?: string;
+    userTaskConfig?: Record<string, unknown>;
+    /** `auto` resumes the instance to END on completion; `manual` leaves it parked. */
+    postTaskTrigger?: 'auto' | 'manual';
+    stepName?: string;
+  } = {},
+) {
+  const suffix = options.suffix ?? '';
+  const id = `qa-wf-inspector${suffix}-${timestamp}`;
+  return {
+    workflowId: id,
+    workflowName: `QA Inspector User Task${suffix} ${timestamp}`,
+    description: `Integration test definition ${id}`,
+    version: 1,
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        {
+          stepId: 'review',
+          stepName: options.stepName ?? 'Review',
+          stepType: 'USER_TASK',
+          userTaskConfig: options.userTaskConfig ?? {
+            assignedToRoles: ['admin'],
+            formSchema: { properties: { approved: { type: 'boolean' } } },
+          },
+        },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [
+        { transitionId: 'start-to-review', fromStepId: 'start', toStepId: 'review', trigger: 'auto' },
+        {
+          transitionId: 'review-to-end',
+          fromStepId: 'review',
+          toStepId: 'end',
+          trigger: options.postTaskTrigger ?? 'auto',
+        },
+      ],
+    },
+    enabled: true,
+  };
+}
+
+/**
+ * USER_TASK with two decision buttons, each bound 1:1 to its own outgoing route ending at a
+ * DIFFERENT END step — so the step the instance finishes on proves which route was taken.
+ *
+ * Both routes are `manual` on purpose: completion without a decision then finds no `auto`
+ * transition and leaves the instance parked, which makes "the decision selected the route"
+ * an assertion rather than a coincidence of route order.
+ */
+export function buildDecisionUserTaskDefinitionPayload(timestamp: number, suffix = '') {
+  const id = `qa-wf-decision${suffix}-${timestamp}`;
+  return {
+    workflowId: id,
+    workflowName: `QA Decision User Task${suffix} ${timestamp}`,
+    description: `Integration test definition ${id}`,
+    version: 1,
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        {
+          stepId: 'review',
+          stepName: 'Review',
+          stepType: 'USER_TASK',
+          userTaskConfig: {
+            assignedToRoles: ['admin'],
+            formSchema: { properties: { comments: { type: 'string' } } },
+            decisions: [
+              { id: 'approve', label: 'Approve', transitionId: 'review-to-approved', style: 'primary' },
+              { id: 'reject', label: 'Reject', transitionId: 'review-to-rejected', style: 'destructive' },
+            ],
+          },
+        },
+        { stepId: 'approved', stepName: 'Approved', stepType: 'END' },
+        { stepId: 'rejected', stepName: 'Rejected', stepType: 'END' },
+      ],
+      transitions: [
+        { transitionId: 'start-to-review', fromStepId: 'start', toStepId: 'review', trigger: 'auto' },
+        { transitionId: 'review-to-approved', fromStepId: 'review', toStepId: 'approved', trigger: 'manual' },
+        { transitionId: 'review-to-rejected', fromStepId: 'review', toStepId: 'rejected', trigger: 'manual' },
+      ],
+    },
+    enabled: true,
+  };
+}
+
 export type UserTaskSnapshot = {
   id?: string;
   status?: string;
@@ -311,7 +409,97 @@ export type UserTaskSnapshot = {
   completedBy?: string | null;
   completedAt?: string | null;
   workflowInstanceId?: string;
+  formData?: Record<string, unknown> | null;
+  priority?: string | number | null;
+  entityBindings?: unknown[] | null;
+  dueDate?: string | null;
 };
+
+/** Task detail adds the DERIVED fields the list cannot carry (see `api/tasks/[id]/route.ts`). */
+export type UserTaskDetail = UserTaskSnapshot & {
+  stepId?: string | null;
+  formKey?: string | null;
+  decisions?: Array<{ id: string; label: string; transitionId: string; style?: string }>;
+};
+
+export async function getUserTaskDetail(
+  request: APIRequestContext,
+  token: string,
+  taskId: string,
+): Promise<UserTaskDetail | null> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/workflows/tasks/${encodeURIComponent(taskId)}`,
+    { token },
+  );
+  if (response.status() !== 200) return null;
+  const body = await readJsonSafe<{ data?: UserTaskDetail }>(response);
+  return body?.data ?? null;
+}
+
+/**
+ * One work-inbox row on the wire: the common projection plus the provider payload flattened
+ * underneath it (`serializeWorkInboxRow`), which is what keeps a `user_task` row a strict
+ * superset of a `GET /api/workflows/tasks` row.
+ */
+export type WorkInboxRowSnapshot = {
+  id?: string;
+  kind?: string;
+  moduleId?: string;
+  title?: string;
+  status?: string;
+  priority?: string | null;
+  dueDate?: string | null;
+  overdue?: boolean;
+  assignedTo?: string | null;
+  assignedToRoles?: string[] | null;
+  claimedBy?: string | null;
+  entityTypes?: string[];
+  entityBindings?: Array<{ entityType?: string; entityId?: string; label?: string | null }>;
+  detailHref?: string | null;
+  actions?: Array<{ id?: string; labelKey?: string; endpoint?: string; appliesTo?: string }>;
+  proposalId?: string | null;
+};
+
+export type WorkInboxListBody = {
+  data?: WorkInboxRowSnapshot[];
+  pagination?: { total?: number; limit?: number; offset?: number; hasMore?: boolean };
+  meta?: { kinds?: string[]; degradedKinds?: string[] };
+};
+
+export async function listWorkInbox(
+  request: APIRequestContext,
+  token: string,
+  query: string,
+): Promise<WorkInboxListBody | null> {
+  const response = await apiRequest(request, 'GET', `/api/workflows/work-inbox${query}`, { token });
+  expect(response.status(), `GET /api/workflows/work-inbox${query} should return 200`).toBe(200);
+  return readJsonSafe<WorkInboxListBody>(response);
+}
+
+/**
+ * Polls the work inbox until `predicate` holds. Tasks are created by the background executor
+ * after the instance-start response, so the inbox is eventually — not immediately — populated.
+ */
+export async function pollWorkInbox(
+  request: APIRequestContext,
+  token: string,
+  query: string,
+  predicate: (body: WorkInboxListBody) => boolean,
+  options: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<WorkInboxListBody | null> {
+  const timeoutMs = options.timeoutMs ?? 8_000;
+  const intervalMs = options.intervalMs ?? 250;
+  const deadline = Date.now() + timeoutMs;
+  let last: WorkInboxListBody | null = null;
+  for (;;) {
+    last = await listWorkInbox(request, token, query);
+    if (last && predicate(last)) return last;
+    if (Date.now() >= deadline) return last;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
 
 export async function listWorkflowInstanceTasks(
   request: APIRequestContext,
