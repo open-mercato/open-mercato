@@ -166,6 +166,9 @@ COPY --from=dev-build /app/packages/search/dist /opt/prebuilt/dist/search
 COPY --from=dev-build /app/packages/scheduler/dist /opt/prebuilt/dist/scheduler
 COPY --from=dev-build /app/packages/ai-assistant/dist /opt/prebuilt/dist/ai-assistant
 COPY --from=dev-build /app/packages/create-app/dist /opt/prebuilt/dist/create-app
+# The documents-collab sidecar runs `dist/server/documents-collab-server.js` out of the shared
+# pkg_documents_dist volume, so this package must be seedable like the rest.
+COPY --from=dev-build /app/packages/documents/dist /opt/prebuilt/dist/documents
 
 # Entrypoint scripts are also bind-mounted at runtime (.:/app); baking them in
 # keeps the image runnable/consistent on its own and matches the runner stage.

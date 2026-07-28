@@ -23,6 +23,10 @@ import {
   readJsonSafe,
 } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import {
+  ensureManagedCollabSidecar,
+  type ManagedCollabSidecar,
+} from './helpers/collabSidecar'
 
 export const integrationMeta = {
   dependsOnModules: ['documents'],
@@ -539,8 +543,12 @@ test.describe('TC-DOCUMENTS-015: durable CRDT comment anchors', () => {
     let tenantId: string | null = null
     let organizationId: string | null = null
     let context: BrowserContext | null = null
+    let collabSidecar: ManagedCollabSidecar | null = null
 
     try {
+      // Comment anchors are CRDT state: without a reachable sidecar the editor re-mounts into
+      // single-user mode and clicking a comment no longer selects its anchored range.
+      collabSidecar = await ensureManagedCollabSidecar(BASE_URL)
       adminToken = await getAuthToken(request, 'admin')
       const adminScope = getTokenScope(adminToken)
       tenantId = adminScope.tenantId
@@ -661,6 +669,7 @@ test.describe('TC-DOCUMENTS-015: durable CRDT comment anchors', () => {
       await deleteUserIfExists(request, adminToken, collaborator?.id ?? null)
       await deleteUserIfExists(request, adminToken, author?.id ?? null)
       await deleteRoleIfExists(request, adminToken, roleId)
+      await collabSidecar?.stop()
     }
   })
 

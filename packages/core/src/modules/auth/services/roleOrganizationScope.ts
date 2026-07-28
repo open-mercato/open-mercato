@@ -45,3 +45,26 @@ export function roleAclAllowsOrganization(
   if (!organizations || organizations.length === 0 || organizations.includes('__all__')) return true
   return organizations.some((organizationId) => scope.has(organizationId))
 }
+
+/**
+ * Principal eligibility — which roles may be selected as, or resolved into, an explicit share
+ * target — follows the human-principal deny-all contract instead: an empty allowlist grants no
+ * organization reach, so such a role must not become a share principal here (#4033).
+ *
+ * This deliberately differs from `roleAclAllowsOrganization` above, which governs *feature*
+ * evaluation and keeps the wider "an empty list applies everywhere" meaning, and from the
+ * API-key projection, where an empty list means "inherit the key's own organization binding".
+ * Without this split a user who reaches an organization through a second role could inherit
+ * viewer/editor access from a share assigned to a deny-all role.
+ */
+export function roleAclGrantsPrincipalOrganization(
+  acl: Pick<RoleAcl, 'organizationsJson'>,
+  scope: RoleOrganizationScope,
+): boolean {
+  if (!scope) return true
+  const organizations = Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null
+  if (!organizations) return true
+  if (organizations.length === 0) return false
+  if (organizations.includes('__all__')) return true
+  return organizations.some((organizationId) => scope.has(organizationId))
+}

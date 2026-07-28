@@ -184,13 +184,33 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       : []
     const roleNames = roles.map((role) => role.name).filter((name): name is string => typeof name === 'string' && name.length > 0)
 
+    // A role-level super-admin grant is authorization-grade only when it is genuinely
+    // unrestricted: the grant itself must not be organization-scoped, it must belong to the
+    // key's tenant, and the key must not be bound to a single organization. RbacService applies
+    // the same intersection when projecting the scoped ACL, but generic guards
+    // (tenantAccess.resolveIsSuperAdmin, the scoped-API helpers) trust this raw bit *before*
+    // live RBAC runs — so an organization-restricted key must never carry it.
     let keyIsSuperAdmin = false
-    if (roleIds.length) {
-      const superAcl = await em.findOne(
+    const keyOrganizationId = typeof record.organizationId === 'string' && record.organizationId.trim().length > 0
+      ? record.organizationId.trim()
+      : null
+    if (roleIds.length && !keyOrganizationId) {
+      const superAcls = await em.find(
         RoleAcl,
-        { role: { $in: roleIds } as any, isSuperAdmin: true, deletedAt: null } as any,
+        {
+          role: { $in: roleIds } as any,
+          tenantId: record.tenantId ?? null,
+          isSuperAdmin: true,
+          deletedAt: null,
+        } as any,
       )
-      keyIsSuperAdmin = !!(superAcl && (superAcl as { isSuperAdmin?: boolean }).isSuperAdmin)
+      keyIsSuperAdmin = superAcls.some((acl) => {
+        const organizations = Array.isArray((acl as { organizationsJson?: string[] | null }).organizationsJson)
+          ? (acl as { organizationsJson?: string[] | null }).organizationsJson as string[]
+          : null
+        // An empty list means "inherit the key's own binding"; with no binding that is tenant-wide.
+        return !organizations || organizations.length === 0 || organizations.includes('__all__')
+      })
     }
 
     if (cache.shouldWriteLastUsed(record.id)) {

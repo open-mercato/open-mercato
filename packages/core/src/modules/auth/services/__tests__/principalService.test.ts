@@ -100,6 +100,42 @@ describe('DefaultAuthPrincipalService organization-scoped roles', () => {
     ])
   })
 
+  it('never treats a deny-all role as a share principal, even for a user who reaches the organization through another role (#4033)', async () => {
+    const denyAllRole = {
+      id: 'role-deny-all',
+      tenantId: scope.tenantId,
+      name: 'Deny-all scope',
+      deletedAt: null,
+    }
+    mockedFind.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, any>) => {
+      if (entity === UserRole) {
+        // The user reaches org-2 through roleB while also holding the deny-all role.
+        return [{ role: denyAllRole }, { role: roleB }]
+      }
+      if (entity === Role) {
+        const requested = Array.isArray(where?.id?.$in) ? where.id.$in : []
+        return [denyAllRole, roleB].filter((role) => requested.includes(role.id))
+      }
+      if (entity === RoleAcl) {
+        return [
+          { role: denyAllRole, tenantId: scope.tenantId, organizationsJson: [], deletedAt: null },
+          { role: roleB, tenantId: scope.tenantId, organizationsJson: ['org-2'], deletedAt: null },
+        ]
+      }
+      return []
+    })
+    const service = createService()
+
+    // An empty allowlist grants no organization reach, so the role must not be resolvable into a
+    // share target — otherwise a document shared with it would leak through the second role.
+    await expect(service.resolveActiveUserRoleIds('user-1', scope)).resolves.toEqual(['role-b'])
+    await expect(service.filterActiveRoleIds([denyAllRole.id, roleB.id], scope)).resolves.toEqual([roleB.id])
+    await expect(service.principalExists({ type: 'role', id: denyAllRole.id, scope })).resolves.toBe(false)
+    await expect(service.resolveLabels({ type: 'role', ids: [denyAllRole.id, roleB.id], scope })).resolves.toEqual([
+      { id: 'role-b', label: 'Organization B', secondary: null },
+    ])
+  })
+
   it('accepts a parent-scoped role for a selected descendant organization', async () => {
     const parentRole = {
       id: 'role-parent',

@@ -10,6 +10,10 @@ import {
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import {
+  ensureManagedCollabSidecar,
+  type ManagedCollabSidecar,
+} from './helpers/collabSidecar'
 
 export const integrationMeta = { dependsOnModules: ['documents'] }
 
@@ -121,9 +125,13 @@ test.describe('TC-DOCUMENTS-013: preview, capability chrome, and readable fallba
     let readOnlyDocument: Created | null = null
     let owner: TestUser | null = null
     let viewer: TestUser | null = null
+    let collabSidecar: ManagedCollabSidecar | null = null
     const extraContexts: BrowserContext[] = []
 
     try {
+      // The comment bubble menu is a selection-driven surface: without a reachable sidecar the
+      // editor re-mounts into single-user mode and drops the selection that opens it.
+      collabSidecar = await ensureManagedCollabSidecar(BASE_URL)
       adminToken = await getAuthToken(request, 'admin')
       owner = await createUser(request, adminToken, stamp, 'owner', ['documents.view', 'documents.create'])
       viewer = await createUser(request, adminToken, stamp, 'viewer', ['documents.view'])
@@ -231,6 +239,7 @@ test.describe('TC-DOCUMENTS-013: preview, capability chrome, and readable fallba
       await deleteRoleIfExists(request, adminToken, viewer?.roleId ?? null)
       await deleteUserIfExists(request, adminToken, owner?.id ?? null)
       await deleteRoleIfExists(request, adminToken, owner?.roleId ?? null)
+      await collabSidecar?.stop()
     }
   })
 })

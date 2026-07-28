@@ -366,4 +366,90 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     await getAuthFromRequest(buildRequest('secret-invalidate'))
     expect(findApiKeyBySecret).toHaveBeenCalledTimes(2)
   })
+
+  describe('super-admin bit stays bounded by the effective key scope', () => {
+    async function resolveWithSuperAdminRole(input: {
+      secret: string
+      keyId: string
+      keyOrganizationId: string | null
+      aclOrganizations: string[] | null
+    }) {
+      const { RoleAcl } = await import('@open-mercato/core/modules/auth/data/entities')
+      const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      // A creator-less key is validated against a live tenant (and organization when bound).
+      emFindOne.mockImplementation(async (entity: unknown) => {
+        if (entity === Tenant) return { id: 'tenant-1' }
+        if (entity === Organization) return { id: input.keyOrganizationId, tenant: { id: 'tenant-1' } }
+        return null
+      })
+      findApiKeyBySecret.mockResolvedValue({
+        id: input.keyId,
+        name: 'super admin key',
+        tenantId: 'tenant-1',
+        organizationId: input.keyOrganizationId,
+        rolesJson: ['role-super'],
+        sessionToken: null,
+        sessionUserId: null,
+        sessionSecretEncrypted: null,
+        opencodeSessionId: null,
+        createdBy: null,
+        expiresAt: null,
+        lastUsedAt: null,
+      })
+      emFind.mockImplementation(async (entity: unknown) => {
+        if (entity === RoleAcl) {
+          return [{ isSuperAdmin: true, organizationsJson: input.aclOrganizations }]
+        }
+        return []
+      })
+      return getAuthFromRequest(buildRequest(input.secret))
+    }
+
+    it('withholds it from an organization-bound key even when a role grants it', async () => {
+      // Generic guards trust this bit before live RBAC, so an organization-restricted key must
+      // never take super-admin shortcuts outside its own scope.
+      const auth = await resolveWithSuperAdminRole({
+        secret: 'super-bound',
+        keyId: 'key-super-bound',
+        keyOrganizationId: 'org-1',
+        aclOrganizations: null,
+      })
+
+      expect(auth).toMatchObject({ isApiKey: true, isSuperAdmin: false })
+    })
+
+    it('withholds it when the granting role ACL is itself organization-restricted', async () => {
+      const auth = await resolveWithSuperAdminRole({
+        secret: 'super-restricted',
+        keyId: 'key-super-restricted',
+        keyOrganizationId: null,
+        aclOrganizations: ['org-1'],
+      })
+
+      expect(auth).toMatchObject({ isApiKey: true, isSuperAdmin: false })
+    })
+
+    it('grants it for an unbound key with an unrestricted role grant', async () => {
+      const auth = await resolveWithSuperAdminRole({
+        secret: 'super-global',
+        keyId: 'key-super-global',
+        keyOrganizationId: null,
+        aclOrganizations: null,
+      })
+
+      expect(auth).toMatchObject({ isApiKey: true, isSuperAdmin: true })
+    })
+
+    it('grants it for an unbound key whose role ACL uses the __all__ sentinel', async () => {
+      const auth = await resolveWithSuperAdminRole({
+        secret: 'super-all-sentinel',
+        keyId: 'key-super-all-sentinel',
+        keyOrganizationId: null,
+        aclOrganizations: ['__all__'],
+      })
+
+      expect(auth).toMatchObject({ isApiKey: true, isSuperAdmin: true })
+    })
+  })
 })

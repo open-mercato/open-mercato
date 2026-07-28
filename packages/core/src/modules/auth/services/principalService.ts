@@ -12,7 +12,7 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Role, RoleAcl, User, UserRole } from '../data/entities'
 import { listSuperAdminUserIds } from '../lib/grantChecks'
-import { resolveRoleOrganizationScope, roleAclAllowsOrganization } from './roleOrganizationScope'
+import { resolveRoleOrganizationScope, roleAclGrantsPrincipalOrganization } from './roleOrganizationScope'
 
 const MAX_ROLE_PAGE_SIZE = 100
 const MAX_ROLE_RESULTS = 1_000
@@ -111,7 +111,7 @@ export class DefaultAuthPrincipalService implements AuthPrincipalService {
       if (!id) continue
       eligibilityById.set(
         id,
-        eligibilityById.get(id) === true || roleAclAllowsOrganization(acl, roleOrganizationScope),
+        eligibilityById.get(id) === true || roleAclGrantsPrincipalOrganization(acl, roleOrganizationScope),
       )
     }
     // A tenant role without an ACL remains a valid explicit-share principal.

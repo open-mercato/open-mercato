@@ -221,6 +221,10 @@ services:
       - pkg_scheduler_dist:/app/packages/scheduler/dist
       - pkg_ai_assistant_dist:/app/packages/ai-assistant/dist
       - pkg_create_app_dist:/app/packages/create-app/dist
+      # The documents-collab sidecar reads its server entry from this volume. The app service
+      # owns the build that populates it, so it must be mounted here too — otherwise the volume
+      # masks the bind-mounted host dist for the sidecar and nothing ever fills it.
+      - pkg_documents_dist:/app/packages/documents/dist
       - mcp_shared:/run/mcp-shared:ro
     ports:
       - "${APP_PORT:-3000}:3000"
