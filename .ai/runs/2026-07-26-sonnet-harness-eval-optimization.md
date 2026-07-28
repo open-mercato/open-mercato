@@ -336,6 +336,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.20 Prioritize scalar-ID/snapshot fix routing to UMES plus the data-model and system-extension skills — `7314d448d`
 - [x] 3.21 Recover once from the exact model-reported `harness.read`-unavailable startup without retrying arbitrary model or safety violations — `72a7cf0ce`
 - [x] 3.22 Recognize the equivalent `Harness read tool is unavailable` startup wording observed on the current Codex CLI — `b19da559a`
+- [x] 3.23 Bind retried integration callbacks to the existing `subscriber-idempotency` decision label — `132d8e634`
 
 ### Phase 4: Compatibility baseline
 
