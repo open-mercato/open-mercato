@@ -1268,7 +1268,8 @@ const correction = prompt.includes('Correction kind: trace-start')
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['architecture'], selectedSkills: [],
   selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
-  decisions: ['standalone-boundary', 'facts-first'], violations: []
+  decisions: ['standalone-boundary', 'facts-first'],
+  violations: correction ? [] : ['harness.read was unavailable in this environment']
 }))
 if (correction) {
   for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) {

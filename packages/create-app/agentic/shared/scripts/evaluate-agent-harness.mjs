@@ -1634,6 +1634,15 @@ function isCorrectableTraceStartupFailure(violation) {
   return violation === 'runner trace unavailable; observed context cannot be verified'
 }
 
+function isCorrectableTraceStartupResponseViolation(violation) {
+  return /^harness\.read (?:is|was) unavailable\b/i.test(violation)
+}
+
+function isCorrectableTraceStartupResponseFailure(violation) {
+  return violation.startsWith('runner violation: ')
+    && isCorrectableTraceStartupResponseViolation(violation.slice('runner violation: '.length))
+}
+
 function routingCorrectionDiagnostics(violations) {
   const diagnostics = new Set()
   for (const violation of violations) {
@@ -2602,13 +2611,18 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
       let traceStartupCorrectionUsed = false
       while (!writable
         && execution.kind === 'success'
-        && evaluated.response.violations.length === 0
         && evaluated.violations.length > 0) {
+        const correctableTraceStartupResponse = evaluated.response.violations.length > 0
+          && evaluated.response.violations.every(isCorrectableTraceStartupResponseViolation)
         const traceStartupFailure = evaluated.trace.violations.length > 0
           && evaluated.trace.violations.every(isCorrectableTraceStartupFailure)
+          && (evaluated.response.violations.length === 0 || correctableTraceStartupResponse)
           && evaluated.violations.every((violation) =>
-            isCorrectableRoutingFailure(violation) || isCorrectableTraceStartupFailure(violation))
+            isCorrectableRoutingFailure(violation)
+            || isCorrectableTraceStartupFailure(violation)
+            || isCorrectableTraceStartupResponseFailure(violation))
         const semanticFailure = evaluated.trace.violations.length === 0
+          && evaluated.response.violations.length === 0
           && evaluated.violations.every(isCorrectableRoutingFailure)
         let correctionKind
         if (traceStartupFailure && !traceStartupCorrectionUsed) {
