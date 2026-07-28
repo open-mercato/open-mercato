@@ -340,6 +340,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.24 Bind successful cursor commits and bounded transient retries to their existing decision labels — `700ee18ea`
 - [x] 3.25 Bind safe working-stage specifications to the existing `integration-coverage` decision label within the root budget — `a0d8ce447`
 - [x] 3.26 Bind the required debugging regression oracle to the existing `unit-regression-oracle` decision label — `e3dcacb86`
+- [x] 3.27 Make the integration skill's three existing provider contract references non-skippable for provider implementations — `732c61ce5`
 
 ### Phase 4: Compatibility baseline
 
