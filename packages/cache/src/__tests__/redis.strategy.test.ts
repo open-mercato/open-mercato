@@ -7,6 +7,8 @@ type PipelineOp = () => void
 class FakeRedis {
   values = new Map<string, string>()
   sets = new Map<string, Set<string>>()
+  /** Records the shape of each reap script call so tests can assert its cost. */
+  evalCalls: { numKeys: number; memberCount: number }[] = []
 
   async ping(): Promise<string> {
     return 'PONG'
@@ -47,17 +49,13 @@ class FakeRedis {
    * Mirrors the reap script's KEYS/ARGV contract rather than interpreting Lua —
    * there is no Lua runtime here, and pulling one in for a single script is not
    * worth the dependency. What this pins down is the strategy's side of the
-   * contract (key ordering, the tag/value split, member alignment, chunking)
-   * and the exists-guarded semantics. The script *body* is not covered; verify
-   * it against a real Redis when changing it.
+   * contract (key ordering, member alignment, chunking) and the exists-guarded
+   * semantics. The script *body* is not covered; verify it against a real Redis
+   * when changing it.
    */
-  async eval(_script: string, numKeys: number, ...args: (string | number)[]): Promise<number> {
-    const keys = args.slice(0, numKeys) as string[]
-    const argv = args.slice(numKeys).map(String)
-    const tagCount = Number(argv[0])
-    const tagKeys = keys.slice(0, tagCount)
-    const valueKeys = keys.slice(tagCount)
-    const members = argv.slice(1)
+  runEval(_script: string, numKeys: number, ...args: (string | number)[]): number {
+    const [tagKey, ...valueKeys] = args.slice(0, numKeys) as string[]
+    const members = args.slice(numKeys).map(String)
 
     if (valueKeys.length !== members.length) {
       throw new Error(`[internal] eval contract: ${valueKeys.length} value keys vs ${members.length} members`)
@@ -66,12 +64,10 @@ class FakeRedis {
     let removed = 0
     for (const [index, valueKey] of valueKeys.entries()) {
       if (this.values.has(valueKey)) continue
-      for (const tagKey of tagKeys) {
-        const set = this.sets.get(tagKey)
-        if (!set?.delete(members[index])) continue
-        removed++
-        if (set.size === 0) this.sets.delete(tagKey)
-      }
+      const set = this.sets.get(tagKey)
+      if (!set?.delete(members[index])) continue
+      removed++
+      if (set.size === 0) this.sets.delete(tagKey)
     }
     return removed
   }
@@ -107,6 +103,11 @@ class FakeRedis {
       },
       del: (key: string) => {
         ops.push(() => void this.values.delete(key))
+        return chain
+      },
+      eval: (script: string, numKeys: number, ...args: (string | number)[]) => {
+        this.evalCalls.push({ numKeys, memberCount: args.length - numKeys })
+        ops.push(() => void this.runEval(script, numKeys, ...args))
         return chain
       },
       exec: async () => {
@@ -226,6 +227,36 @@ describe('redis strategy tag index', () => {
 
     expect(await strategy.deleteByTags(['rbac:tenant:t1'])).toBe(0)
     expect(await currentRedis.smembers('tag:rbac:tenant:t1')).toEqual([])
+  })
+
+  it('keeps reap work linear in real memberships across disjoint tags', async () => {
+    const tagCount = 10
+    const perTag = 10
+    for (let tag = 0; tag < tagCount; tag++) {
+      for (let index = 0; index < perTag; index++) {
+        const key = `t${tag}-k${index}`
+        await strategy.set(key, { index }, { ttl: 60_000, tags: [`tag-${tag}`] })
+        currentRedis.expire(`cache:${key}`)
+      }
+    }
+
+    currentRedis.evalCalls = []
+    await strategy.deleteByTags(Array.from({ length: tagCount }, (_, tag) => `tag-${tag}`))
+
+    // Pairing every orphan with every requested tag would make this tagCount
+    // times larger — 1000 removals to clear 100 real memberships.
+    const removals = currentRedis.evalCalls.reduce((total, call) => total + call.memberCount, 0)
+    expect(removals).toBe(tagCount * perTag)
+
+    // No single atomic call may exceed the chunk bound, whatever the tag count.
+    for (const call of currentRedis.evalCalls) {
+      expect(call.memberCount).toBeLessThanOrEqual(256)
+      expect(call.numKeys).toBeLessThanOrEqual(256 + 1)
+    }
+
+    for (let tag = 0; tag < tagCount; tag++) {
+      expect(await currentRedis.smembers(`tag:tag-${tag}`)).toEqual([])
+    }
   })
 
   it('only reaps orphans from the tags it was asked to invalidate', async () => {
