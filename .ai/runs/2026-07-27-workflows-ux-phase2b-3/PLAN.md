@@ -49,7 +49,7 @@
 | 3 | 3.8 | Drag-from-palette + insert-on-edge + drag-onto-route append | done | 0991da2d9 |
 | 3 | 3.9 | Notes & groups annotations (metadata.editor.annotations) | done | c90e45420 |
 | 3 | 3.10 | Icon picker (lazy searchable lucide grid) | done | 15fe62a05 |
-| 3 | 3.11 | Keyboard path + command palette + ARIA acceptance | todo | — |
+| 3 | 3.11 | Keyboard path + command palette + ARIA acceptance | done | 823a9385e |
 | 3 | 3.12 | Code view stage 1 (read-only + copy/paste + validation display) | todo | — |
 | 3 | 3.13 | Form-editor retirement (redirects, @deprecated, UPGRADE_NOTES, test retargeting) | todo | — |
 | 3 | 3.14 | Compensation-edge visualization toggle | todo | — |

@@ -46,6 +46,10 @@ import {
 import { WORKFLOW_GROUP_TOGGLE_EVENT } from '../../../lib/annotation-events'
 import { AnnotationEditDialog } from '../../../components/AnnotationEditDialog'
 import { WorkflowIconPicker } from '../../../components/WorkflowIconPicker'
+import { WorkflowCommandPalette } from '../../../components/WorkflowCommandPalette'
+import { buildWorkflowEditorCommands, type WorkflowEditorCommand } from '../../../lib/editor-commands'
+import { NUDGE_COMMIT_DELAY_MS, nudgeOffset, nudgeSelectedNodes, resolveNudgeDirection, selectedNodeIds } from '../../../lib/node-nudge'
+import { canRedoEditorHistory, canUndoEditorHistory } from '../../../lib/editor-history'
 import { readPaletteDragItem, writePaletteDragPayload } from '../../../lib/palette-drag'
 import { appendActivityToRoute, insertStepOnRoute, type PaletteDropRejectionCode } from '../../../lib/palette-drop'
 import { useActivityTypeOptions } from '../../../components/fields/useActivityTypeOptions'
@@ -120,7 +124,7 @@ import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Group, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Command, Group, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
 import { useSidebarCollapse } from '@open-mercato/ui/backend/AppShell'
@@ -361,6 +365,10 @@ export default function VisualEditorPage() {
   // dialog.
   const [selectedAnnotation, setSelectedAnnotation] = useState<Node | null>(null)
   const [showAnnotationDialog, setShowAnnotationDialog] = useState(false)
+  // Cmd+K command palette (spec 4.6). Together with the inspector and the
+  // Problems panel it is the complete non-pointer authoring path, so every
+  // mutating action the toolbar offers is reachable through it.
+  const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [showTemplateGallery, setShowTemplateGallery] = useState(false)
   const [problems, setProblems] = useState<WorkflowValidationIssue[]>([])
@@ -888,63 +896,6 @@ export default function VisualEditorPage() {
     }
     spliceSubgraph(payload, historyLabels.duplicate)
   }, [isCodeOnly, selectedSubgraph, spliceSubgraph, historyLabels.duplicate, t])
-
-  // Keyboard shortcuts: Cmd/Ctrl+Z undoes, Cmd/Ctrl+Shift+Z redoes, Cmd/Ctrl+C,
-  // +V and +D copy, paste and duplicate the selected subgraph, `F` toggles Focus
-  // mode, `Esc` exits it. Suppressed while the user is typing in a field (a text
-  // input keeps its own native undo and its own copy/paste) or while a dialog is
-  // open, so the shortcut never hijacks form input or the dialog's own
-  // Escape-to-close.
-  useEffect(() => {
-    if (isMobile) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      const active = document.activeElement as HTMLElement | null
-      const tag = (active?.tagName || '').toLowerCase()
-      const isEditing = tag === 'input' || tag === 'textarea' || tag === 'select' || !!active?.isContentEditable
-      if (isEditing) return
-      const isDialogOpen = showNodeDialog || showEdgeDialog || showAnnotationDialog || showClearConfirm || startOpen
-      const isCommandKey = (event.metaKey || event.ctrlKey) && !event.altKey
-      if (isCommandKey && (event.key === 'z' || event.key === 'Z')) {
-        if (isDialogOpen) return
-        event.preventDefault()
-        if (event.shiftKey) handleRedo()
-        else handleUndo()
-        return
-      }
-      if (isCommandKey && !event.shiftKey && !isDialogOpen) {
-        if (event.key === 'c' || event.key === 'C') {
-          event.preventDefault()
-          void handleCopySelection()
-          return
-        }
-        if (event.key === 'v' || event.key === 'V') {
-          event.preventDefault()
-          void handlePaste()
-          return
-        }
-        if (event.key === 'd' || event.key === 'D') {
-          event.preventDefault()
-          handleDuplicateSelection()
-          return
-        }
-      }
-      if (event.metaKey || event.ctrlKey || event.altKey) return
-      if (event.key === 'Escape') {
-        if (focusMode && !isDialogOpen) {
-          event.preventDefault()
-          setFocusMode(false)
-        }
-        return
-      }
-      if (event.key === 'f' || event.key === 'F') {
-        if (isDialogOpen) return
-        event.preventDefault()
-        toggleFocus()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isMobile, focusMode, showNodeDialog, showEdgeDialog, showAnnotationDialog, showClearConfirm, startOpen, toggleFocus, setFocusMode, handleUndo, handleRedo, handleCopySelection, handlePaste, handleDuplicateSelection])
 
   // Handle node changes from ReactFlow. The lazy graph applies React Flow's
   // change reducers internally (#3169) and hands back the resolved nodes plus a
@@ -1797,6 +1748,225 @@ export default function VisualEditorPage() {
     }
   }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, contextSchema, definitionIo, interpolation, errorHandler, loadedMetadata, annotations, definitionId, updatedAt, router, t])
 
+  // ── Non-pointer authoring path (spec §4.6) ────────────────────────────────
+  // Every canvas operation is reachable from the keyboard: the command palette
+  // reaches all of them, and the direct bindings below cover the ones an author
+  // performs constantly (open, delete, nudge).
+
+  const focusNode = useCallback((nodeId: string) => {
+    focusRequestRef.current += 1
+    setFocusTarget({ nodeId, requestId: focusRequestRef.current })
+  }, [])
+
+  const openSelectedInspector = useCallback(() => {
+    const selected = nodesRef.current.find((node) => node.selected)
+    if (!selected) {
+      const selectedEdgeNode = edgesRef.current.find((edge) => edge.selected)
+      if (!selectedEdgeNode || isCodeOnly) return
+      setSelectedEdge(selectedEdgeNode)
+      setSelectedNode(null)
+      setEdgeDialogFocusFieldId(null)
+      setShowEdgeDialog(true)
+      return
+    }
+    handleNodeClick({} as React.MouseEvent, selected)
+  }, [isCodeOnly, handleNodeClick])
+
+  // Del removes whatever is selected. Each removal runs its own confirm +
+  // cleanup flow, so a multi-selection deletes exactly as clicking each trash
+  // button would — and each one is undoable.
+  const handleDeleteSelection = useCallback(async () => {
+    if (isCodeOnly) return
+    const nodeIds = selectedNodeIds(nodesRef.current)
+    const edgeIds = edgesRef.current.filter((edge) => edge.selected).map((edge) => edge.id)
+    if (nodeIds.length === 0 && edgeIds.length === 0) {
+      flash(t('workflows.visualEditor.keyboard.nothingSelected', 'Select a step or a route first'), 'info')
+      return
+    }
+    for (const edgeId of edgeIds) await handleDeleteEdge(edgeId)
+    for (const nodeId of nodeIds) await handleDeleteNode(nodeId)
+  }, [isCodeOnly, handleDeleteEdge, handleDeleteNode, t])
+
+  // Arrow-key nudging follows the drag rule (#4248): a burst of keystrokes is
+  // ONE arrangement, so the baseline is captured on the first press and the undo
+  // entry plus the autosave land once the burst settles.
+  const nudgeBaselineRef = React.useRef<WorkflowEditorDocument | null>(null)
+  const nudgeCommitTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleNudge = useCallback((key: string, coarse: boolean) => {
+    if (isCodeOnly) return false
+    const direction = resolveNudgeDirection(key)
+    if (!direction) return false
+    if (selectedNodeIds(nodesRef.current).length === 0) return false
+    if (!nudgeBaselineRef.current) nudgeBaselineRef.current = captureDocument()
+    setNodes((nds) => nudgeSelectedNodes(nds, nudgeOffset(direction, coarse)))
+    if (nudgeCommitTimerRef.current) clearTimeout(nudgeCommitTimerRef.current)
+    nudgeCommitTimerRef.current = setTimeout(() => {
+      nudgeCommitTimerRef.current = null
+      const baseline = nudgeBaselineRef.current
+      nudgeBaselineRef.current = null
+      if (baseline) commitCapturedDocument(baseline, historyLabels.move)
+      scheduleAutosave()
+    }, NUDGE_COMMIT_DELAY_MS)
+    return true
+  }, [isCodeOnly, captureDocument, commitCapturedDocument, historyLabels.move, scheduleAutosave])
+
+  useEffect(() => () => {
+    if (nudgeCommitTimerRef.current) clearTimeout(nudgeCommitTimerRef.current)
+  }, [])
+
+  const commandPaletteCommands = useMemo<WorkflowEditorCommand[]>(() => buildWorkflowEditorCommands({
+    readOnly: isCodeOnly,
+    canUndo: canUndoEditorHistory(history),
+    canRedo: canRedoEditorHistory(history),
+    hasNodes: nodes.length > 0,
+    hasSelection: nodes.some((node) => node.selected) || edges.some((edge) => edge.selected),
+    canRunTest: !!definitionId,
+    stepTypes: PALETTE_NODE_TYPES.map((nodeType) => ({
+      nodeType,
+      typeLabel: NODE_TYPE_LABELS[nodeType]?.title ?? nodeType,
+    })),
+    steps: nodes
+      .filter((node) => !isAnnotationNode(node))
+      .map((node) => ({
+        id: node.id,
+        label: typeof node.data?.label === 'string' && node.data.label ? node.data.label : node.id,
+        typeLabel: NODE_TYPE_LABELS[(node.type ?? '') as keyof typeof NODE_TYPE_LABELS]?.title ?? node.type ?? '',
+      })),
+    labels: {
+      undo: t('workflows.commandPalette.undo', 'Undo'),
+      redo: t('workflows.commandPalette.redo', 'Redo'),
+      deleteSelection: t('workflows.commandPalette.delete', 'Delete selection'),
+      copy: t('workflows.commandPalette.copy', 'Copy selection'),
+      paste: t('workflows.commandPalette.paste', 'Paste'),
+      duplicate: t('workflows.commandPalette.duplicate', 'Duplicate selection'),
+      addStep: (typeLabel: string) => t('workflows.commandPalette.addStep', 'Add step: {type}', { type: typeLabel }),
+      addNote: t('workflows.commandPalette.addNote', 'Add note'),
+      addGroup: t('workflows.commandPalette.addGroup', 'Add group'),
+      goToStep: t('workflows.commandPalette.goToStep', 'Go to step'),
+      tidy: t('workflows.visualEditor.autoArrange'),
+      togglePalette: t('workflows.commandPalette.togglePalette', 'Toggle the step palette'),
+      toggleMetadata: t('workflows.commandPalette.toggleMetadata', 'Toggle the workflow details panel'),
+      toggleFocus: t('workflows.commandPalette.toggleFocus', 'Toggle focus mode'),
+      toggleProblems: t('workflows.commandPalette.toggleProblems', 'Toggle the Problems panel'),
+      validate: t('workflows.visualEditor.validate'),
+      runTest: t('workflows.actions.startInstance'),
+      save: t('workflows.common.save'),
+    },
+    actions: {
+      undo: handleUndo,
+      redo: handleRedo,
+      deleteSelection: () => { void handleDeleteSelection() },
+      copy: () => { void handleCopySelection() },
+      paste: () => { void handlePaste() },
+      duplicate: handleDuplicateSelection,
+      addStep: (nodeType: string) => handleAddNode(nodeType),
+      addNote: () => handleAddAnnotation('note'),
+      addGroup: () => handleAddAnnotation('group'),
+      goToStep: focusNode,
+      tidy: handleAutoArrange,
+      togglePalette: togglePaletteCollapsed,
+      toggleMetadata: () => setShowMetadata((visible) => !visible),
+      toggleFocus,
+      toggleProblems: () => setShowProblems((visible) => !visible),
+      validate: handleValidate,
+      runTest: () => setStartOpen(true),
+      save: () => { void handleSave() },
+    },
+  }), [
+    isCodeOnly, history, nodes, edges, definitionId, t,
+    handleUndo, handleRedo, handleDeleteSelection, handleCopySelection, handlePaste, handleDuplicateSelection,
+    handleAddNode, handleAddAnnotation, focusNode, handleAutoArrange, togglePaletteCollapsed, toggleFocus,
+    handleValidate, handleSave,
+  ])
+
+  // Keyboard shortcuts: Cmd/Ctrl+K opens the command palette, Cmd/Ctrl+Z undoes,
+  // Cmd/Ctrl+Shift+Z redoes, Cmd/Ctrl+C, +V and +D copy, paste and duplicate the
+  // selected subgraph, Enter opens the inspector for the selection, Del removes
+  // it, the arrows nudge it, `F` toggles Focus mode and `Esc` exits it.
+  //
+  // Everything except the palette is suppressed while the user is typing in a
+  // field (a text input keeps its own native undo, copy/paste and caret keys) or
+  // while a dialog is open, so a shortcut never hijacks form input or the
+  // dialog's own Escape-to-close. Cmd+K is deliberately exempt from the typing
+  // guard: it is the way out of any focus, which is the whole point of a palette.
+  useEffect(() => {
+    if (isMobile) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      const active = document.activeElement as HTMLElement | null
+      const tag = (active?.tagName || '').toLowerCase()
+      const isEditing = tag === 'input' || tag === 'textarea' || tag === 'select' || !!active?.isContentEditable
+      const isDialogOpen = showNodeDialog || showEdgeDialog || showAnnotationDialog || showClearConfirm || startOpen
+      const isCommandKey = (event.metaKey || event.ctrlKey) && !event.altKey
+
+      if (isCommandKey && (event.key === 'k' || event.key === 'K')) {
+        if (isDialogOpen) return
+        event.preventDefault()
+        setShowCommandPalette((open) => !open)
+        return
+      }
+      if (isEditing || showCommandPalette) return
+
+      if (isCommandKey && (event.key === 'z' || event.key === 'Z')) {
+        if (isDialogOpen) return
+        event.preventDefault()
+        if (event.shiftKey) handleRedo()
+        else handleUndo()
+        return
+      }
+      if (isCommandKey && !event.shiftKey && !isDialogOpen) {
+        if (event.key === 'c' || event.key === 'C') {
+          event.preventDefault()
+          void handleCopySelection()
+          return
+        }
+        if (event.key === 'v' || event.key === 'V') {
+          event.preventDefault()
+          void handlePaste()
+          return
+        }
+        if (event.key === 'd' || event.key === 'D') {
+          event.preventDefault()
+          handleDuplicateSelection()
+          return
+        }
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key === 'Escape') {
+        if (focusMode && !isDialogOpen) {
+          event.preventDefault()
+          setFocusMode(false)
+        }
+        return
+      }
+      if (isDialogOpen) return
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        openSelectedInspector()
+        return
+      }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        event.preventDefault()
+        void handleDeleteSelection()
+        return
+      }
+      if (resolveNudgeDirection(event.key)) {
+        if (handleNudge(event.key, event.shiftKey)) event.preventDefault()
+        return
+      }
+      if (event.key === 'f' || event.key === 'F') {
+        event.preventDefault()
+        toggleFocus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [
+    isMobile, focusMode, showNodeDialog, showEdgeDialog, showAnnotationDialog, showClearConfirm, startOpen,
+    showCommandPalette, toggleFocus, setFocusMode, handleUndo, handleRedo, handleCopySelection, handlePaste,
+    handleDuplicateSelection, openSelectedInspector, handleDeleteSelection, handleNudge,
+  ])
+
   // Quiet autosave routine (no redirect, no success flash). Mirrors the update
   // branch of `handleSave` exactly — same payload and the same optimistic-lock
   // header — so dragged positions persist without an explicit Save. Reassigned
@@ -2201,6 +2371,11 @@ export default function VisualEditorPage() {
       ) : (
         <EdgeEditDialog edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
       )}
+      <WorkflowCommandPalette
+        open={showCommandPalette}
+        onOpenChange={setShowCommandPalette}
+        commands={commandPaletteCommands}
+      />
       <AnnotationEditDialog
         node={selectedAnnotation}
         isOpen={showAnnotationDialog}
@@ -2455,6 +2630,18 @@ export default function VisualEditorPage() {
                   {autosaveState === 'saving' ? t('workflows.visualEditor.autosaving') : t('workflows.visualEditor.autosaved')}
                 </span>
               )}
+              {/* The palette is the non-pointer authoring path (spec §4.6); the
+                  button is how a pointer user discovers the shortcut exists. */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCommandPalette(true)}
+                className="h-8 px-2 text-xs"
+                aria-label={t('workflows.commandPalette.open', 'Commands (Cmd+K)')}
+              >
+                <Command className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                {t('workflows.commandPalette.buttonLabel', 'Commands')}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -3006,6 +3193,8 @@ export default function VisualEditorPage() {
                         <li>{t('workflows.visualEditor.hint.connectSteps', 'Connect steps by dragging from handles')}</li>
                         <li>{t('workflows.visualEditor.hint.editSteps', 'Click steps and transitions to edit them')}</li>
                         <li>{t('workflows.visualEditor.hint.copyPaste', 'Select steps and copy, paste or duplicate them with Cmd/Ctrl+C, +V and +D')}</li>
+                        <li>{t('workflows.visualEditor.hint.commandPalette', 'Press Cmd/Ctrl+K for every command without the mouse')}</li>
+                        <li>{t('workflows.visualEditor.hint.keyboardCanvas', 'With a step selected: Enter opens it, Del removes it, arrows nudge it (hold Shift for bigger steps)')}</li>
                         <li>{t('workflows.visualEditor.hint.validate', 'Validate before saving')}</li>
                       </ul>
                     </div>

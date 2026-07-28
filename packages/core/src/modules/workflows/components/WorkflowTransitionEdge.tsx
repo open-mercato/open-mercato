@@ -66,13 +66,23 @@ export function WorkflowTransitionEdge({
 
   const openSection = (section: RouteChipSection) => requestRouteChipSection(id, section)
 
+  // Spec section 4.6: a route is a graph element a screen reader must be able to
+  // name. An error route says so, a labelled route reads its label, and an
+  // unlabelled one still announces that it is a route rather than a bare path.
+  const routeAriaLabel = isErrorRoute
+    ? errorRouteLabel
+    : label
+      ? t('workflows.visualEditor.routeLabelled', 'Route: {label}', { label })
+      : t('workflows.visualEditor.routeUnlabelled', 'Route')
+
   return (
     <>
       <BaseEdge
         id={id}
         path={edgePath}
         markerEnd={markerEnd}
-        aria-label={isErrorRoute ? errorRouteLabel : undefined}
+        role="img"
+        aria-label={routeAriaLabel}
         style={{
           stroke: colors.stroke,
           strokeWidth: 2,

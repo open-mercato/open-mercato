@@ -295,6 +295,35 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   (`resizing === false`) commits, so one gesture is one autosave and one undo entry. React Flow's own
   measurement changes carry no `resizing` flag and stay non-persistable as before.
 
+## Keyboard Path & Accessibility (acceptance criterion)
+
+Spec §4.6 makes this an EXPLICIT acceptance criterion, not a polish item: *"Every canvas operation is
+reachable without a pointer… ARIA labeling on nodes/routes/badges… Status is never color-only."*
+Treat a regression here as a broken feature, not a nit.
+
+- **The Cmd/Ctrl+K command palette is the complete non-pointer path.** `lib/editor-commands.ts`
+  (PURE) builds the descriptors — undo/redo, delete, copy/paste/duplicate, add any step type, add a
+  note or group, go to any step, Tidy, every panel toggle, Validate, Start instance, Save — and
+  `components/WorkflowCommandPalette.tsx` renders them through the platform's `CommandMenu`
+  primitive (`@open-mercato/ui/primitives/command-menu`, `cmdk` + Radix dialog) rather than a second
+  palette implementation. A command that cannot run right now is DISABLED with its shortcut shown,
+  never hidden: a missing entry reads as "unsupported", a disabled one as "not now". Because the
+  descriptors are pure data, dispatch is unit-tested without a dialog or a canvas.
+- **Direct bindings** cover what an author does constantly: `Enter` opens the inspector for the
+  selection (step or route), `Del`/`Backspace` deletes it through the same confirm + cleanup flow the
+  trash button uses, the arrows nudge it (`Shift` for a coarse step). Nudging follows the drag rule
+  (#4248) — a BURST of keystrokes is one arrangement, so `lib/node-nudge.ts` (PURE) moves the nodes
+  and the page commits one undo entry plus one autosave once the burst settles.
+- **Guards.** Every binding except Cmd+K is suppressed while a field has focus or a dialog is open, so
+  it never hijacks form input, native copy/paste, the caret keys or a dialog's Escape. Cmd+K is
+  deliberately EXEMPT from the typing guard — it is the way out of any focus, which is the point of a
+  palette. Every dialog keeps `Cmd/Ctrl+Enter` to submit and `Escape` to cancel.
+- **Status is never colour-only.** Each node status pairs its DS token colour with its own icon shape
+  AND an `sr-only` name; the card carries `role="group"` with a `{type}: {title} — {status}` label and
+  a `data-node-status` hook. Error routes pair red + dashes + a warning icon, completed route labels
+  pair green + a check, route chips are labelled buttons and the collapsed semantic-zoom dot row is a
+  labelled `role="img"`. `components/__tests__/canvasAccessibility.test.tsx` is the guard.
+
 ## Definition Icon Picker
 
 - `components/WorkflowIconPicker.tsx` replaces the free-text `metadata.icon` input with a searchable

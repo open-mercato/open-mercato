@@ -1,4 +1,4 @@
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Check } from 'lucide-react'
 import { EdgeState } from '../lib/status-colors'
 
 interface WorkflowTransitionLabelProps {
@@ -26,7 +26,10 @@ export function WorkflowTransitionLabel({
         ${STATE_CLASSES[state] ?? STATE_CLASSES.pending}
       `}
     >
+      {/* Spec section 4.6: status is never colour-only — each non-neutral state
+          pairs its token colour with its own icon shape. */}
       {state === 'error' ? <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" /> : null}
+      {state === 'completed' ? <Check className="h-3 w-3 shrink-0" aria-hidden="true" /> : null}
       {label}
     </div>
   )
