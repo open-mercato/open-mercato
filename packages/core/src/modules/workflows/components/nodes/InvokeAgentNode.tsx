@@ -4,6 +4,7 @@ import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ErrorOutputHandle } from './ErrorOutputHandle'
 
 export interface InvokeAgentNodeData {
   label: string
@@ -105,6 +106,8 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-brand-violet !border-2 !border-background"
       />
+
+      <ErrorOutputHandle isConnectable={isConnectable} />
     </div>
   )
 }

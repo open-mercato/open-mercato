@@ -134,6 +134,11 @@ export interface NodeFormValues {
   waitConditionOnTimeout?: string
   waitConditionPollIntervalMs?: string | number
 
+  // Error directive (spec section 5.9): what happens when this step fails and
+  // no error route is wired. 'fail' (or unset) keeps today's behavior.
+  errorDirectiveMode?: string
+  errorDirectiveFallbackValue?: string
+
   // Start node pre-conditions
   preConditions?: StartPreCondition[]
 
@@ -234,6 +239,16 @@ export function nodeToFormValues(node: Node): NodeFormValues {
     stepName: nodeData?.stepName || nodeData?.label || '',
     description: nodeData?.description || '',
     timeout: nodeData?.timeout || '',
+  }
+
+  const errorDirective = nodeData?.errorDirective
+  if (isPlainRecord(errorDirective)) {
+    values.errorDirectiveMode = typeof errorDirective.mode === 'string' ? errorDirective.mode : 'fail'
+    values.errorDirectiveFallbackValue =
+      errorDirective.fallbackValue === undefined ? '' : JSON.stringify(errorDirective.fallbackValue, null, 2)
+  } else {
+    values.errorDirectiveMode = 'fail'
+    values.errorDirectiveFallbackValue = ''
   }
 
   // UserTask fields
@@ -592,6 +607,24 @@ export function formValuesToNodeUpdates(
   }
 
   // Merge the advanced config (object from JsonBuilder, or legacy JSON string).
+  // Error directive (spec section 5.9). Only a non-default directive is written,
+  // so a step whose picker was never touched saves byte-identically.
+  const errorDirectiveMode = values.errorDirectiveMode
+  if (errorDirectiveMode === 'continueWithFallback' || errorDirectiveMode === 'failureQueue') {
+    const directive: Record<string, unknown> = { mode: errorDirectiveMode }
+    const rawFallback = (values.errorDirectiveFallbackValue ?? '').trim()
+    if (errorDirectiveMode === 'continueWithFallback' && rawFallback) {
+      try {
+        directive.fallbackValue = JSON.parse(rawFallback)
+      } catch {
+        throw new Error('workflows.validation.errorDirectiveFallbackInvalid')
+      }
+    }
+    updates.errorDirective = directive
+  } else {
+    updates.errorDirective = undefined
+  }
+
   // For user tasks the structured fields are authoritative: the advanced blob
   // only contributes keys the dialog does not handle structurally.
   const advanced = parseAdvancedConfigValue(values.advancedConfig)

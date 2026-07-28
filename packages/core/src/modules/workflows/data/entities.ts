@@ -147,6 +147,12 @@ export interface WorkflowIoContract {
   outputs?: WorkflowIoPortField[]
 }
 
+export interface WorkflowErrorHandlerData {
+  workflowId?: string
+  version?: number
+  stepId?: string
+}
+
 export interface WorkflowDefinitionData {
   steps: any[] // WorkflowStep[] - will define schema in validators.ts
   transitions: any[] // WorkflowTransition[] - will define schema in validators.ts
@@ -154,6 +160,7 @@ export interface WorkflowDefinitionData {
   contextSchema?: WorkflowContextSchema // Declared typed-input contract (spec §3.1) — canonical input contract
   io?: WorkflowIoContract // Sub-workflow port contract; io.inputs is a read-through alias of contextSchema.input
   interpolation?: 'strict' | 'lenient' // Interpolation mode (spec §3.6): absent = lenient; create path defaults new definitions to 'strict'
+  errorHandler?: WorkflowErrorHandlerData // Catch-all error handler (spec §5.9): a handler workflow OR a handler step, never both
   activities?: any[] // ActivityDefinition[] - will define schema in validators.ts
   queries?: any[]
   signals?: any[]

@@ -6,6 +6,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
 import type { PortField } from '../../data/validators'
+import { ErrorOutputHandle } from './ErrorOutputHandle'
 
 export interface SubWorkflowNodeData {
   label: string
@@ -151,6 +152,8 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"
       />
+
+      <ErrorOutputHandle isConnectable={isConnectable} />
     </div>
   )
 }

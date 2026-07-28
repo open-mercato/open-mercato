@@ -20,6 +20,14 @@
 export const ERROR_TRANSITION_KIND = 'error'
 
 /**
+ * Canvas handle id every activity-bearing node exposes for its error output. A
+ * connection drawn from it compiles to a transition with `kind: 'error'`. Lives
+ * in this pure module so `graph-utils` can read it without pulling the React
+ * component chain (enforced by the xyflow import-boundary test).
+ */
+export const ERROR_SOURCE_HANDLE_ID = 'error'
+
+/**
  * Run-context key carrying the failure that caused an error route to be taken,
  * so the handling branch can render/forward it. Engine-owned and reserved
  * against user context writes.

@@ -3,6 +3,7 @@
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
+import { ErrorOutputHandle } from './ErrorOutputHandle'
 
 /**
  * AutomatedNode display data.
@@ -73,6 +74,8 @@ export function AutomatedNode({ id, data, isConnectable, selected }: NodeProps) 
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"
       />
+
+      <ErrorOutputHandle isConnectable={isConnectable} />
     </div>
   )
 }

@@ -245,6 +245,19 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       fields: ['advancedConfig'],
     }
 
+    // Error handling (spec section 5.9): what this step does when it fails and
+    // no error route is wired from its error handle.
+    const errorHandlingGroup: CrudFormGroup = {
+      id: 'errorHandling',
+      title: t('workflows.nodeEditor.groups.errorHandling', 'Error Handling'),
+      column: 1,
+      description: t(
+        'workflows.nodeEditor.groups.errorHandlingDescription',
+        'Applies when this step fails and no error route is wired from its error output handle.',
+      ),
+      fields: ['errorDirectiveMode', 'errorDirectiveFallbackValue'],
+    }
+
     // UserTask specific groups
     if (node.type === 'userTask') {
       return [
@@ -262,6 +275,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           description: t('workflows.form.descriptions.formFields'),
           fields: ['formFields'],
         },
+        errorHandlingGroup,
         advancedGroup,
       ]
     }
@@ -283,6 +297,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           description: t('workflows.nodeEditor.groups.stepActivitiesDescription'),
           fields: ['stepActivities'],
         },
+        errorHandlingGroup,
         advancedGroup,
       ]
     }
@@ -304,6 +319,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           description: t('workflows.nodeEditor.groups.mappingsDescription'),
           fields: ['inputMappings', 'outputMappings'],
         },
+        errorHandlingGroup,
         advancedGroup,
       ]
     }
@@ -410,6 +426,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           ),
           fields: ['branchingRoutes'],
         },
+        errorHandlingGroup,
         advancedGroup,
       ]
     }
@@ -584,6 +601,38 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       type: 'datetime',
       minDate: new Date(),
       description: t('workflows.nodeEditor.timerUntilDescription'),
+    },
+
+    // Error directive fields (spec section 5.9)
+    {
+      id: 'errorDirectiveMode',
+      label: t('workflows.form.errorDirective.mode', 'On failure'),
+      type: 'select',
+      options: [
+        { value: 'fail', label: t('workflows.form.errorDirective.modeFail', 'Fail the instance (default)') },
+        {
+          value: 'continueWithFallback',
+          label: t('workflows.form.errorDirective.modeContinue', 'Continue with a fallback value'),
+        },
+        {
+          value: 'failureQueue',
+          label: t('workflows.form.errorDirective.modeQueue', 'Send to the failure queue'),
+        },
+      ],
+      description: t(
+        'workflows.form.descriptions.errorDirectiveMode',
+        'Fail the instance, continue with a fallback value written to the run context under this step id, or park the run for triage.',
+      ),
+    },
+    {
+      id: 'errorDirectiveFallbackValue',
+      label: t('workflows.form.errorDirective.fallbackValue', 'Fallback value (JSON)'),
+      type: 'textarea',
+      placeholder: '{ "ok": false }',
+      description: t(
+        'workflows.form.descriptions.errorDirectiveFallbackValue',
+        'JSON value used when the directive is "Continue with a fallback value". Typed against this step output contract; leave empty to continue without writing anything.',
+      ),
     },
 
     // WaitForCondition fields

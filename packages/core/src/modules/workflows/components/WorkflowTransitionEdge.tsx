@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { BaseEdge, EdgeProps, EdgeLabelRenderer, getSmoothStepPath } from '@xyflow/react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { WorkflowTransitionLabel } from './WorkflowTransitionLabel'
 import { EDGE_COLORS, EdgeState } from '../lib/status-colors'
 
@@ -14,10 +15,18 @@ export function WorkflowTransitionEdge({
   data,
   markerEnd,
 }: EdgeProps) {
+  const t = useT()
   const [hovered, setHovered] = useState(false)
-  const state = (data?.state || 'pending') as EdgeState
-  const label = (data?.label as string) || ''
+  // An error route (spec 5.9) always renders in its own state: the persisted
+  // `state` field tracks run progress, the route kind is structural.
+  const isErrorRoute = data?.kind === 'error'
+  const state = (isErrorRoute ? 'error' : data?.state || 'pending') as EdgeState
+  const errorRouteLabel = t('workflows.transitions.errorRoute', 'On error')
+  const label = (data?.label as string) || (isErrorRoute ? errorRouteLabel : '')
   const colors = EDGE_COLORS[state]
+  // Status is never color-only: the error route pairs its red dashed stroke with
+  // a permanently visible icon+label chip, not just a hover affordance.
+  const showLabel = Boolean(label) && (hovered || isErrorRoute)
 
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
@@ -34,10 +43,11 @@ export function WorkflowTransitionEdge({
         id={id}
         path={edgePath}
         markerEnd={markerEnd}
+        aria-label={isErrorRoute ? errorRouteLabel : undefined}
         style={{
           stroke: colors.stroke,
           strokeWidth: 2,
-          strokeDasharray: colors.dashed ? '5,5' : undefined,
+          strokeDasharray: colors.dashed ? colors.dashArray : undefined,
         }}
       />
       <path
@@ -49,7 +59,7 @@ export function WorkflowTransitionEdge({
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       />
-      {label && hovered && (
+      {showLabel && (
         <EdgeLabelRenderer>
           <div
             style={{

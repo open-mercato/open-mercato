@@ -3,6 +3,7 @@ import dagre from '@dagrejs/dagre'
 import type { WorkflowDefinition } from '../data/entities'
 import type { WorkflowIoContract } from '../data/validators'
 import { isDataMappingEdge } from './data-edge-mapping'
+import { ERROR_SOURCE_HANDLE_ID } from './error-routing'
 
 /**
  * Graph Utilities for Visual Workflow Editor
@@ -133,6 +134,12 @@ export function graphToDefinition(
       step.preConditions = (node.data as any).preConditions
     }
 
+    // Error directive (spec 5.9). Absent stays absent so definitions that never
+    // opened the picker save byte-identically.
+    if ((node.data as any).errorDirective) {
+      step.errorDirective = (node.data as any).errorDirective
+    }
+
     // Store position for visual editor
     if (options.includePositions && node.position) {
       step._editorPosition = {
@@ -164,6 +171,12 @@ export function graphToDefinition(
     // Add priority if present (default 0)
     if (edgeData?.priority !== undefined) {
       transition.priority = edgeData.priority
+    }
+
+    // Error route marker (spec 5.9). Only the explicit 'error' kind is persisted;
+    // normal routes stay exactly as they were serialized before.
+    if (edgeData?.kind === 'error' || edge.sourceHandle === ERROR_SOURCE_HANDLE_ID) {
+      transition.kind = 'error'
     }
 
     // Add continueOnActivityFailure if present (default false)
@@ -199,9 +212,11 @@ export function graphToDefinition(
         ...(activity.retryPolicy && { retryPolicy: activity.retryPolicy }),
         ...(activity.compensate !== undefined && { compensate: activity.compensate }),
       }))
-    } else {
+    } else if (transition.kind !== 'error') {
       // Check if source node is automated and has activity data
-      // If so, place the activity in this transition
+      // If so, place the activity in this transition. An error route never
+      // inherits the source step's activity — it is the recovery path, and
+      // re-running the activity that just failed is exactly wrong.
       const sourceNode = nodes.find(n => n.id === edge.source)
       if (sourceNode && sourceNode.type === 'automated' && sourceNode.data) {
         if (sourceNode.data.activityType || sourceNode.data.activityId) {
@@ -391,6 +406,11 @@ export function definitionToGraph(
       nodeData.preConditions = (step as any).preConditions
     }
 
+    // Error directive (spec 5.9)
+    if ((step as any).errorDirective) {
+      nodeData.errorDirective = (step as any).errorDirective
+    }
+
     // Set badge based on type
     nodeData.badge = getBadgeForNodeType(nodeType)
 
@@ -407,13 +427,18 @@ export function definitionToGraph(
 
   // Convert transitions to edges
   const edges: Edge[] = definition.transitions.map((transition) => {
+    const isErrorRoute = (transition as any).kind === 'error'
     return {
       id: transition.transitionId,
       source: transition.fromStepId,
       target: transition.toStepId,
       type: 'workflowTransition',
+      // Error routes re-attach to the node's error output handle so the canvas
+      // renders them leaving the same port the author drew them from.
+      ...(isErrorRoute ? { sourceHandle: ERROR_SOURCE_HANDLE_ID } : {}),
       data: {
         trigger: transition.trigger,
+        ...(isErrorRoute ? { kind: 'error' } : {}),
         transitionName: (transition as any).transitionName,
         priority: (transition as any).priority !== undefined ? (transition as any).priority : 0,
         continueOnActivityFailure: (transition as any).continueOnActivityFailure !== undefined

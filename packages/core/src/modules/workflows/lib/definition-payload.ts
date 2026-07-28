@@ -17,6 +17,7 @@ import type {
   WorkflowDefinitionTrigger,
   WorkflowIoContract,
 } from '../data/entities'
+import type { WorkflowErrorHandlerConfig } from '../data/validators'
 import { resolveRequiredEngineVersion } from './engine-version'
 import type { WorkflowInterpolationMode } from './interpolation-pipeline'
 
@@ -26,15 +27,17 @@ export type DefinitionPayloadInput = {
   contextSchema?: WorkflowContextSchema | null
   io?: WorkflowIoContract | null
   interpolation?: WorkflowInterpolationMode | null
+  errorHandler?: WorkflowErrorHandlerConfig | null
 }
 
-export function buildDefinitionPayload({ graphDefinition, triggers, contextSchema, io, interpolation }: DefinitionPayloadInput): WorkflowDefinitionData {
+export function buildDefinitionPayload({ graphDefinition, triggers, contextSchema, io, interpolation, errorHandler }: DefinitionPayloadInput): WorkflowDefinitionData {
   return {
     ...graphDefinition,
     triggers: triggers.length > 0 ? triggers : undefined,
     contextSchema: contextSchema ?? undefined,
     io: io ?? undefined,
     interpolation: interpolation ?? undefined,
+    errorHandler: errorHandler ?? undefined,
   }
 }
 

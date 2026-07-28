@@ -18,6 +18,9 @@ import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-fl
 import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } from '../../../lib/draft-restore'
 import { buildDefinitionPayload, buildMetadataPayload } from '../../../lib/definition-payload'
 import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from '../../../lib/interpolation-pipeline'
+import { ERROR_SOURCE_HANDLE_ID } from '../../../lib/error-routing'
+import { DefinitionErrorHandlerField } from '../../../components/DefinitionErrorHandlerField'
+import type { WorkflowErrorHandlerConfig } from '../../../data/validators'
 import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard'
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
@@ -345,6 +348,9 @@ export default function VisualEditorPage() {
   // ABSENT stays absent through save round-trips so existing lenient
   // definitions are never flipped by an unrelated edit.
   const [interpolation, setInterpolation] = useState<WorkflowInterpolationMode | undefined>(undefined)
+  // Definition-level catch-all error handler (spec section 5.9). Pass-through
+  // state like contextSchema/io: absent stays absent through save round-trips.
+  const [errorHandler, setErrorHandler] = useState<WorkflowErrorHandlerConfig | undefined>(undefined)
   const [loadedMetadata, setLoadedMetadata] = useState<Record<string, unknown> | null>(null)
   const [source, setSource] = useState<'code' | 'code_override' | 'user' | null>(null)
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
@@ -459,6 +465,8 @@ export default function VisualEditorPage() {
         setDefinitionIo(loadedIo)
         const loadedInterpolation = resolveDefinitionInterpolationMode(definition.definition)
         setInterpolation(loadedInterpolation)
+        const loadedErrorHandler = (definition.definition?.errorHandler ?? undefined) as WorkflowErrorHandlerConfig | undefined
+        setErrorHandler(loadedErrorHandler)
         const loadedMetadataObject = definition.metadata && typeof definition.metadata === 'object'
           ? { ...(definition.metadata as Record<string, unknown>) }
           : null
@@ -481,6 +489,7 @@ export default function VisualEditorPage() {
           contextSchema: loadedContextSchema,
           io: loadedIo,
           interpolation: loadedInterpolation,
+          errorHandler: loadedErrorHandler,
         })
         const loadedDraftMetadata = buildMetadataPayload({
           loadedMetadata: loadedMetadataObject,
@@ -546,6 +555,7 @@ export default function VisualEditorPage() {
           contextSchema,
           io: definitionIo,
           interpolation,
+          errorHandler,
         }),
         metadata: draftMetadata,
         baseUpdatedAt: updatedAt,
@@ -578,7 +588,7 @@ export default function VisualEditorPage() {
       }
     }, DRAFT_AUTOSAVE_DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [draftAutosaveReady, draftEligible, definitionId, nodes, edges, triggers, contextSchema, definitionIo, interpolation, draftMetadata, updatedAt, workflowName, description, version, enabled, effectiveFrom, effectiveTo])
+  }, [draftAutosaveReady, draftEligible, definitionId, nodes, edges, triggers, contextSchema, definitionIo, interpolation, errorHandler, draftMetadata, updatedAt, workflowName, description, version, enabled, effectiveFrom, effectiveTo])
 
   // Keep the "Draft saved Xs ago" label fresh without re-rendering per second.
   useEffect(() => {
@@ -607,6 +617,8 @@ export default function VisualEditorPage() {
       const draftIo = (pendingDraft.draft.definition as { io?: WorkflowIoContract }).io
       setDefinitionIo(draftIo ?? undefined)
       setInterpolation(resolveDefinitionInterpolationMode(pendingDraft.draft.definition))
+      const draftErrorHandler = (pendingDraft.draft.definition as { errorHandler?: WorkflowErrorHandlerConfig }).errorHandler
+      setErrorHandler(draftErrorHandler ?? undefined)
       const restoredMetadata = pendingDraft.draft.metadata ?? null
       setLoadedMetadata(restoredMetadata)
       if (restoredMetadata) {
@@ -814,17 +826,26 @@ export default function VisualEditorPage() {
       return
     }
 
+    // A connection drawn from a node's error output handle authors an error
+    // route (spec 5.9): normal routing never selects it, the engine follows it
+    // only when that step fails.
+    const isErrorRoute = connection.sourceHandle === ERROR_SOURCE_HANDLE_ID
+
     const newEdge: Edge = {
       id: generateTransitionId(connection.source!, connection.target!),
       source: connection.source!,
       target: connection.target!,
-      type: 'smoothstep',
+      // An error route must read as one the moment it is drawn, so it takes the
+      // workflow edge renderer immediately instead of on the next reload.
+      type: isErrorRoute ? 'workflowTransition' : 'smoothstep',
+      ...(isErrorRoute ? { sourceHandle: ERROR_SOURCE_HANDLE_ID } : {}),
       data: {
         trigger: 'auto',
         preConditions: [],
         postConditions: [],
         activities: [],
         label: '',
+        ...(isErrorRoute ? { kind: 'error' } : {}),
       },
     }
 
@@ -836,6 +857,19 @@ export default function VisualEditorPage() {
   // here from the already-fetched declared-events list (which carries
   // payloadSchema since step 1.7) and passed in as plain data. Schema-less or
   // wildcard triggers get no contract and their mapping targets stay unknown.
+  // Handler-step candidates for the definition-level error handler: every step
+  // that can actually receive the run (START/END are not recovery targets).
+  const errorHandlerStepOptions = useMemo(
+    () =>
+      nodes
+        .filter((node) => node.type !== 'start' && node.type !== 'end')
+        .map((node) => ({
+          stepId: node.id,
+          label: typeof node.data?.label === 'string' && node.data.label ? node.data.label : node.id,
+        })),
+    [nodes],
+  )
+
   const { events: availableEvents } = useAvailableEvents()
   const triggerPayloadContracts = useMemo(
     () => buildTriggerPayloadContracts(triggers, availableEvents),
@@ -940,7 +974,7 @@ export default function VisualEditorPage() {
       if (!result.success) {
         zodIssues = result.error.issues
       }
-      const ledgerDefinition = buildDefinitionPayload({ graphDefinition: definitionData, triggers, contextSchema, io: definitionIo, interpolation })
+      const ledgerDefinition = buildDefinitionPayload({ graphDefinition: definitionData, triggers, contextSchema, io: definitionIo, interpolation, errorHandler })
       configWarnings = [
         ...collectActivityConfigWarnings(definitionData),
         ...collectOtherwiseRouteWarnings(definitionData, t),
@@ -973,7 +1007,7 @@ export default function VisualEditorPage() {
         errors > 0 ? 'error' : 'warning',
       )
     }
-  }, [nodes, edges, triggers, contextSchema, definitionIo, interpolation, t])
+  }, [nodes, edges, triggers, contextSchema, definitionIo, interpolation, errorHandler, t])
 
   // Focus the offending node or edge on the canvas when a problem row is clicked
   const handleProblemClick = useCallback((issue: WorkflowValidationIssue) => {
@@ -1004,6 +1038,7 @@ export default function VisualEditorPage() {
       contextSchema,
       io: definitionIo,
       interpolation,
+      errorHandler,
     })
 
     const schemaResult = workflowDefinitionDataSchema.safeParse(definitionData)
@@ -1129,7 +1164,7 @@ export default function VisualEditorPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, contextSchema, definitionIo, interpolation, loadedMetadata, definitionId, updatedAt, router, t])
+  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, contextSchema, definitionIo, interpolation, errorHandler, loadedMetadata, definitionId, updatedAt, router, t])
 
   // Quiet autosave routine (no redirect, no success flash). Mirrors the update
   // branch of `handleSave` exactly — same payload and the same optimistic-lock
@@ -1152,6 +1187,7 @@ export default function VisualEditorPage() {
       contextSchema,
       io: definitionIo,
       interpolation,
+      errorHandler,
     })
     if (!workflowDefinitionDataSchema.safeParse(definitionData).success) return
 
@@ -1335,6 +1371,7 @@ export default function VisualEditorPage() {
     setContextSchema(template.definition.contextSchema ?? undefined)
     setDefinitionIo((template.definition.io ?? undefined) as WorkflowIoContract | undefined)
     setInterpolation(resolveDefinitionInterpolationMode(template.definition) ?? 'strict')
+    setErrorHandler((template.definition as { errorHandler?: WorkflowErrorHandlerConfig }).errorHandler ?? undefined)
     setLoadedMetadata(null)
     flash(t('workflows.visualEditor.templateLoaded', 'Template loaded'), 'success')
   }, [t])
@@ -1990,6 +2027,15 @@ export default function VisualEditorPage() {
                 'Controls what happens when a variable placeholder cannot be resolved at run time: strict fails the step so problems surface immediately; lenient keeps the unresolved text unchanged. New workflows start strict.',
               )}
             </p>
+          </fieldset>
+
+          {/* Workflow-level error handler (spec §5.9) — same lock as triggers/context */}
+          <fieldset disabled={isCodeOnly} className="mt-3 disabled:opacity-70">
+            <DefinitionErrorHandlerField
+              value={errorHandler ?? null}
+              onChange={(next) => setErrorHandler(next ?? undefined)}
+              stepOptions={errorHandlerStepOptions}
+            />
           </fieldset>
         </div>
       )}
