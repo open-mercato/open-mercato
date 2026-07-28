@@ -5,6 +5,7 @@ import { ArrowUpRight } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
+import { buildNodeConfigSummary } from '../../lib/node-config-summary'
 import type { PortField } from '../../data/validators'
 import { ErrorOutputHandle } from './ErrorOutputHandle'
 
@@ -54,6 +55,7 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
   const isNavigable = childInstanceCount > 0
 
   const workflowStatus = toWorkflowStatus(nodeData.status)
+  const summary = buildNodeConfigSummary('subWorkflow', nodeData as never)
 
   const description = nodeData.description ||
     (nodeData.subWorkflowName
@@ -87,6 +89,7 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
       />
 
       <WorkflowNodeCard
+        summary={summary}
         title={nodeData.label}
         description={description}
         status={workflowStatus}

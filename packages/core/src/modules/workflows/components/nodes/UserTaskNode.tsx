@@ -3,6 +3,7 @@
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
+import { buildNodeConfigSummary } from '../../lib/node-config-summary'
 import { ErrorOutputHandle } from './ErrorOutputHandle'
 import { NodeOutcomeRows } from './NodeOutcomeRows'
 import { buildDecisionOutcomeRows, type DecisionRowLike } from '../../lib/node-outcome-rows'
@@ -37,6 +38,7 @@ export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as UserTaskNodeData
 
   const workflowStatus = toWorkflowStatus(nodeData.status)
+  const summary = buildNodeConfigSummary('userTask', nodeData as never)
   const decisionRows = buildDecisionOutcomeRows(nodeData.decisions)
 
   return (
@@ -51,6 +53,7 @@ export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
       />
 
       <WorkflowNodeCard
+        summary={summary}
         title={nodeData.label}
         description={nodeData.description}
         status={workflowStatus}

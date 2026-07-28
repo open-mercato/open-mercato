@@ -3,6 +3,7 @@
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
+import { buildNodeConfigSummary } from '../../lib/node-config-summary'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ErrorOutputHandle } from './ErrorOutputHandle'
 import { NodeOutcomeRows } from './NodeOutcomeRows'
@@ -42,6 +43,7 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
   const nodeData = data as unknown as InvokeAgentNodeData
 
   const workflowStatus = toWorkflowStatus(nodeData.status)
+  const summary = buildNodeConfigSummary('invokeAgent', nodeData as never)
 
   const agentId =
     nodeData.agentId ||
@@ -88,6 +90,7 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
 
       <div className="relative">
         <WorkflowNodeCard
+          summary={summary}
           title={nodeData.label}
           description={description}
           status={workflowStatus}

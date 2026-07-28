@@ -213,6 +213,19 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   `estimateNodeSize` counts them (`NODE_OUTCOME_ROW_HEIGHT`) — a footer makes a card materially
   taller and dagre would otherwise pack ranks into each other.
 
+## Node Config Summaries (fidelity gap #6)
+
+- **`lib/node-config-summary.ts` (PURE) owns the card's body line.** A step states its
+  CONFIGURATION — `customers.deals.update · retries 3×`, `deal_enricher · auto ≥ 0.8`,
+  `role: Sales Rep · bound: 1 · 2 decisions` — not two clamped lines of the author's prose, which
+  truncate mid-word and cannot say which command runs or what the threshold is.
+- **Nothing new is stored.** Every value is derived from config already on the step, and
+  `description` is not lost: it becomes the card's `title=` tooltip. A step with nothing configured
+  produces an EMPTY summary and the card renders its description exactly as before, so no node ever
+  reads emptier than it did.
+- Command / function / event / agent / signal / sub-workflow ids render `font-mono`; the mockup's
+  10.4px mono has no DS equivalent and is NOT reproduced — `text-xs` is the floor.
+
 ## Route Kinds (the handle ↔ `kind` round trip)
 
 - **`lib/route-kinds.ts` (PURE) is the ONE place a non-normal route kind is registered.** It answers

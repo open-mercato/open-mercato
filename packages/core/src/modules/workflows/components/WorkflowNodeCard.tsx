@@ -6,6 +6,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
 import { NODE_TYPE_ICONS, NODE_TYPE_ACCENTS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../lib/node-type-icons'
 import { NODE_MAX_WIDTH, NODE_MIN_WIDTH } from '../lib/node-geometry'
+import { NODE_CONFIG_SUMMARY_SEPARATOR, type NodeConfigSummarySegment } from '../lib/node-config-summary'
 
 /**
  * Rendered node sizing. Cards size to their content between these bounds and
@@ -79,6 +80,14 @@ interface WorkflowNodeCardProps {
    * one: a pill has no body to hang rows off.
    */
   footer?: React.ReactNode
+  /**
+   * One-line CONFIG summary (fidelity gap #6): `customers.deals.update ·
+   * retries 3×`. Preferred over `description`, which then becomes the card's
+   * tooltip — two clamped lines of prose truncate mid-word and cannot tell you
+   * what the step actually does. An empty list falls back to `description`, so
+   * an unconfigured node never reads emptier than before.
+   */
+  summary?: NodeConfigSummarySegment[]
 }
 
 export function WorkflowNodeCard({
@@ -94,6 +103,7 @@ export function WorkflowNodeCard({
   editable = false,
   variant = 'card',
   footer,
+  summary,
 }: WorkflowNodeCardProps) {
   const t = useT()
   // In edit mode (not_started), use white background
@@ -264,11 +274,20 @@ export function WorkflowNodeCard({
           <h3 className={`break-words text-sm font-semibold leading-snug ${colors.text}`}>
             {title}
           </h3>
-          {description && (
+          {summary && summary.length > 0 ? (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground" title={description}>
+              {summary.map((segment, index) => (
+                <span key={`${segment.text}-${index}`}>
+                  {index > 0 && NODE_CONFIG_SUMMARY_SEPARATOR}
+                  <span className={segment.mono ? 'font-mono' : undefined}>{segment.text}</span>
+                </span>
+              ))}
+            </p>
+          ) : description ? (
             <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
               {description}
             </p>
-          )}
+          ) : null}
         </div>
       </div>
 

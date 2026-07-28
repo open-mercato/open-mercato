@@ -3,6 +3,7 @@
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
+import { buildNodeConfigSummary } from '../../lib/node-config-summary'
 
 export interface WaitForTimerNodeData {
   label: string
@@ -29,6 +30,7 @@ export function WaitForTimerNode({ id, data, isConnectable, selected }: NodeProp
   const nodeData = data as unknown as WaitForTimerNodeData
 
   const workflowStatus = toWorkflowStatus(nodeData.status)
+  const summary = buildNodeConfigSummary('waitForTimer', nodeData as never)
 
   const duration = nodeData.duration || nodeData.config?.duration
   const until = nodeData.until || nodeData.config?.until
@@ -46,6 +48,7 @@ export function WaitForTimerNode({ id, data, isConnectable, selected }: NodeProp
       />
 
       <WorkflowNodeCard
+        summary={summary}
         title={nodeData.label}
         description={description}
         status={workflowStatus}
