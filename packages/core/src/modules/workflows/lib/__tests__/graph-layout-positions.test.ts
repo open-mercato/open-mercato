@@ -212,12 +212,14 @@ describe('applyAutoLayout', () => {
     const edges: Edge[] = [
       { id: 'a-b', source: 'a', target: 'b', type: 'workflowTransition' },
     ]
+    // Both upstream nodes are steps: a terminal is a fixed-size pill and
+    // deliberately ignores its description (see the next case).
     const described: Node[] = [
-      { id: 'a', type: 'start', position: { x: 0, y: 0 }, data: { label: 'A', description: 'Some explanatory copy' } },
+      { id: 'a', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'A', description: 'Some explanatory copy' } },
       { id: 'b', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'B', description: 'Some explanatory copy' } },
     ]
     const bare: Node[] = [
-      { id: 'a', type: 'start', position: { x: 0, y: 0 }, data: { label: 'A' } },
+      { id: 'a', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'A' } },
       { id: 'b', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'B' } },
     ]
 
@@ -227,5 +229,26 @@ describe('applyAutoLayout', () => {
     // With no measured size, a described card is estimated at the max width, so
     // its downstream neighbour is pushed further right than the bare-title case.
     expect(downstreamX(described)).toBeGreaterThan(downstreamX(bare))
+  })
+
+  test('a terminal reserves a compact pill footprint, not a step-sized card', () => {
+    const edges: Edge[] = [
+      { id: 'a-b', source: 'a', target: 'b', type: 'workflowTransition' },
+    ]
+    const withTerminal: Node[] = [
+      { id: 'a', type: 'start', position: { x: 0, y: 0 }, data: { label: 'A', description: 'Some explanatory copy' } },
+      { id: 'b', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'B' } },
+    ]
+    const withStep: Node[] = [
+      { id: 'a', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'A', description: 'Some explanatory copy' } },
+      { id: 'b', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'B' } },
+    ]
+
+    const downstreamX = (input: Node[]) =>
+      applyAutoLayout(input, edges).find((node) => node.id === 'b')!.position.x
+
+    // START/END render as auto-width pills, so they take less horizontal room
+    // than the described step card they used to be indistinguishable from.
+    expect(downstreamX(withTerminal)).toBeLessThan(downstreamX(withStep))
   })
 })

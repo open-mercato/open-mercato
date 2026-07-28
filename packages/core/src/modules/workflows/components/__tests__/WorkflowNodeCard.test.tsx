@@ -63,6 +63,31 @@ describe('WorkflowNodeCard — validation error badge', () => {
     expect(erroredCard.querySelector('[role="group"]')?.className).not.toContain('border-t-chart-amber')
   })
 
+  it('renders a terminal as an auto-width pill with no accent cap or type row', () => {
+    const { container } = renderWithProviders(
+      <WorkflowNodeCard title="Start" nodeType="start" variant="pill" />,
+    )
+
+    const pill = container.querySelector('[data-node-variant="pill"]')
+    expect(pill).not.toBeNull()
+    expect(pill?.className).toContain('rounded-full')
+    expect(pill?.className).not.toContain('border-t-4')
+    // The type row is what a 190px-wide pill has no room for; the aria-label
+    // still names the type, so nothing is lost to a screen reader.
+    expect(container.textContent).not.toContain('START')
+    expect(pill?.getAttribute('aria-label')).toContain('START')
+  })
+
+  it('keeps the delete affordance and the badge cluster on a pill', () => {
+    renderWithProviders(
+      <WorkflowNodeCard title="Start" nodeType="start" variant="pill" nodeId="start_1" editable hasError hasCompensation />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Delete step' })).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: '1 validation error(s)' })).toBeInTheDocument()
+    expect(screen.getByTestId('workflow-node-compensation-badge')).toBeInTheDocument()
+  })
+
   it('maps the error status to the error visual state instead of not_started', () => {
     const { container } = renderWithProviders(
       <WorkflowNodeCard title="Review Request" nodeType="userTask" status="error" />,
