@@ -24,7 +24,7 @@
 | 5 | 5.10 | Wire the ACT surfaces (claim/unclaim/complete) | done | `5845d4f4d` |
 | 5 | 5.11 | `POST /api/workflows/tasks/[id]/reassign` with audit + optimistic lock | done | `552ee0990` |
 | 5 | 5.12 | `administrativeQueueFeature` on the provider + enterprise registers its own source | done | `cfb89fe8e` |
-| 5 | 5.13 | Author-time Problems checks on USER_TASK bindings | todo | — |
+| 5 | 5.13 | Author-time Problems checks on USER_TASK bindings | done | `babbb5b40` |
 | 5 | 5.14 | Inbox diagnostics: "hidden — entity access" marker + workload bucket | todo | — |
 | 6 | 6.1 | Portal ACL features + portal task routes (list/get/complete) | todo | — |
 | 6 | 6.2 | Portal task pages + nav + `portalBroadcast` live updates | todo | — |

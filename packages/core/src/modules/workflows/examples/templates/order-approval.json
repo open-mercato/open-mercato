@@ -35,6 +35,7 @@
               }
             }
           },
+          "assignedToRoles": ["employee"],
           "slaDuration": "PT24H"
         }
       },

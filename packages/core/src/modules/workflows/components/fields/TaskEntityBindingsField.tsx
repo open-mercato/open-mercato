@@ -9,7 +9,22 @@ import { Plus, Trash2 } from 'lucide-react'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import type { LedgerEntry } from '../../lib/context-ledger'
 import { newEntityBindingDraft, type TaskEntityBindingDraft } from '../../lib/task-inspector-config'
+import { TASK_ENTITY_TYPE_ALIAS_GROUPS } from '../../lib/task-entity-aliases'
 import { TemplateTextControl } from './TemplateTextControl'
+
+/**
+ * Generated entity ids offered as suggestions.
+ *
+ * Sourced from the alias dictionary's canonical ids rather than the entity
+ * registry: the dictionary is a zero-import module that is safe in a client
+ * bundle, and its canonical side is exactly the set the §6.4 access model is
+ * keyed on. Offering the ids the author should be typing is what turns a free
+ * text field into a picker — `customers:person` normalizes fine today, but
+ * `customers:persons` does not, and a typo hides the task from its own assignee.
+ */
+const SUGGESTED_ENTITY_IDS: readonly string[] = TASK_ENTITY_TYPE_ALIAS_GROUPS.map(
+  (group) => group.entityId,
+)
 
 /**
  * "About what" (spec §6.1, section 2): the records a task is about.
@@ -69,7 +84,20 @@ export function TaskEntityBindingsField({
                     placeholder={t('workflows.tasks.inspector.bindings.entityTypePlaceholder')}
                     disabled={disabled}
                     className="font-mono"
+                    // Suggestions, not a closed list: the field has always
+                    // stored free text and third-party entity ids are valid, so
+                    // narrowing it to a select would refuse bindings that work.
+                    list={`${id}-entity-types`}
+                    aria-describedby={`${id}-entity-types-hint`}
                   />
+                  <datalist id={`${id}-entity-types`}>
+                    {SUGGESTED_ENTITY_IDS.map((entityId) => (
+                      <option key={entityId} value={entityId} />
+                    ))}
+                  </datalist>
+                  <span id={`${id}-entity-types-hint`} className="sr-only">
+                    {t('workflows.tasks.inspector.bindings.entityTypeKnown')}
+                  </span>
                 </div>
                 <IconButton
                   variant="ghost"

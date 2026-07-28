@@ -16,7 +16,12 @@
  * JSON and (optionally) an already-computed ledger.
  */
 
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import type { ContextLedger } from './context-ledger'
+import {
+  normalizeTaskEntityTypeSpelling,
+  resolveAliasedTaskEntityId,
+} from './task-entity-aliases'
 import { resolvesAgainstEntries } from './expression-refs'
 import { validateErrorRoutes, type ErrorRoutingDefinitionLike } from './error-routing'
 import {
@@ -34,12 +39,28 @@ export type FlowLogicWarningCode =
   | 'unmappedStepConfig'
   | 'taskDecisionUnknownRoute'
   | 'taskDecisionDuplicateId'
+  | 'taskWithoutOwner'
+  | 'taskBindingUnknownEntityType'
+  | 'taskBindingAssigneeCannotView'
 
 export interface FlowLogicWarning {
   code: FlowLogicWarningCode
   /** Zod-style path so the Problems panel can map the warning to a node/edge. */
   path: Array<string | number>
   params: Record<string, string>
+  /**
+   * `'error'` for the two §6.4 checks that describe a definition the ENGINE
+   * cannot run to completion, `undefined` (⇒ warning) for everything else.
+   *
+   * The standing module rule is that flow-logic findings never block a save,
+   * because flow logic is transition sugar and a path a later edit will provide
+   * must not trap work in an unsaveable state. The task-ownership and
+   * unknown-entity-type checks are a different kind of finding: they do not say
+   * "this may not be what you meant", they say "no principal can ever complete
+   * this task", and the run stalls at that step forever. That is the same class
+   * as a missing START, which `validateWorkflowGraph` has always made an error.
+   */
+  severity?: 'error' | 'warning'
 }
 
 export type FlowLogicDefinition = ErrorRoutingDefinitionLike
@@ -243,6 +264,181 @@ export function collectTaskDecisionWarnings(definition: FlowLogicDefinition): Fl
   return warnings
 }
 
+/**
+ * What a caller can tell the binding checks about the world outside the
+ * definition. Every field is optional and a missing one SKIPS its check rather
+ * than guessing — the browser has no ACL and no tenant role table, and a check
+ * that invented an answer would flag valid definitions.
+ */
+export type TaskBindingCheckOptions = {
+  /**
+   * Generated entity ids that exist (`#generated/entities.ids.generated`,
+   * flattened). Without it the unknown-type check only catches values that are
+   * not even SHAPED like an entity id, because the alternative — treating every
+   * id the caller cannot enumerate as unknown — would make the Problems panel
+   * reject correct definitions wherever the registry is not loaded.
+   */
+  knownEntityIds?: ReadonlySet<string> | null
+  /**
+   * Role name → the features that role grants, and entity id → the features
+   * viewing it requires. Both are TENANT data, so both arrive from the caller;
+   * absent, the assignee-cannot-view check does not run.
+   */
+  assigneeEntityAccess?: TaskAssigneeEntityAccess | null
+}
+
+export type TaskAssigneeEntityAccess = {
+  roleFeatures: Readonly<Record<string, readonly string[]>>
+  entityViewRequirements: Readonly<Record<string, readonly string[]>>
+}
+
+/** Shaped like a generated entity id: `module:entity`, both snake_case. */
+const ENTITY_ID_SHAPE = /^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$/
+
+function readUserTaskConfig(step: unknown): Record<string, unknown> | null {
+  const config = (step as { userTaskConfig?: unknown }).userTaskConfig
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return null
+  return config as Record<string, unknown>
+}
+
+function isUserTaskStep(step: unknown): boolean {
+  return readString(step, 'stepType') === 'USER_TASK'
+}
+
+/** Assignee spellings the engine accepts: a single id or a list of them. */
+function hasAssignee(config: Record<string, unknown>): boolean {
+  const assignedTo = config.assignedTo
+  if (typeof assignedTo === 'string') return assignedTo.trim().length > 0
+  if (Array.isArray(assignedTo)) {
+    return assignedTo.some((entry) => typeof entry === 'string' && entry.trim().length > 0)
+  }
+  return false
+}
+
+function assignedRoleNames(config: Record<string, unknown>): string[] {
+  const roles = config.assignedToRoles
+  if (!Array.isArray(roles)) return []
+  return roles.filter((role): role is string => typeof role === 'string' && role.trim().length > 0)
+}
+
+/**
+ * A USER_TASK naming neither an assignee nor a role queue — an ERROR.
+ *
+ * Under §6.4 a task is actionable by the principal it belongs to, and this one
+ * belongs to nobody: not an assignee, not a claimant, not a queue member. The
+ * act routes refuse it with `TASK_NOT_ACTIONABLE` and administration widens
+ * seeing without ever widening acting, so the workflow parks at that step until
+ * somebody reassigns the row by hand. Catching it in the editor is the whole
+ * point — the alternative is discovering it on a live instance.
+ *
+ * `assignmentRule` counts as an owner: it defers assignment to a business rule
+ * the engine resolves at task creation, so the definition does name a source of
+ * truth even though this file cannot evaluate it.
+ */
+export function collectTaskOwnerWarnings(definition: FlowLogicDefinition): FlowLogicWarning[] {
+  const warnings: FlowLogicWarning[] = []
+
+  asArray(definition.steps).forEach((step, stepIndex) => {
+    if (!isUserTaskStep(step)) return
+    const stepId = readString(step, 'stepId')
+    if (!stepId) return
+    const config = readUserTaskConfig(step)
+    // A USER_TASK with no config at all is an unfinished node, and the schema
+    // already speaks to that; this check is about a config that says who owns
+    // the work and gets the answer wrong.
+    if (!config) return
+    if (hasAssignee(config)) return
+    if (assignedRoleNames(config).length > 0) return
+    if (readString(config, 'assignmentRule')) return
+
+    warnings.push({
+      code: 'taskWithoutOwner',
+      path: ['steps', stepIndex],
+      params: { stepId },
+      severity: 'error',
+    })
+  })
+
+  return warnings
+}
+
+/**
+ * Binding problems on a USER_TASK's "About what" list.
+ *
+ * - An `entityType` that resolves to no known entity is an ERROR: the visibility
+ *   gate refuses a binding it cannot normalize (`denied:unknown-entity-type`),
+ *   so a typo hides the task from its own assignee — silently, which is exactly
+ *   the class of bug that must not survive authoring.
+ * - A type the ASSIGNEE cannot view is a WARNING: the entity clause is `every`,
+ *   so one unviewable binding blinds a legitimately assigned worker. It stays a
+ *   warning because role feature sets are tenant data that can change after
+ *   authoring, and the author is often not the person who grants features.
+ */
+export function collectTaskBindingWarnings(
+  definition: FlowLogicDefinition,
+  options: TaskBindingCheckOptions = {},
+): FlowLogicWarning[] {
+  const warnings: FlowLogicWarning[] = []
+
+  asArray(definition.steps).forEach((step, stepIndex) => {
+    if (!isUserTaskStep(step)) return
+    const stepId = readString(step, 'stepId')
+    if (!stepId) return
+    const config = readUserTaskConfig(step)
+    if (!config) return
+
+    const bindings = asArray(config.entityBindings)
+    if (bindings.length === 0) return
+
+    const roles = assignedRoleNames(config)
+
+    for (const binding of bindings) {
+      const authored = readString(binding, 'entityType')
+      if (!authored) continue
+
+      const normalized = normalizeTaskEntityTypeSpelling(authored)
+      const entityId = resolveAliasedTaskEntityId(normalized) ?? normalized
+      const known = options.knownEntityIds
+      const resolves = known ? known.has(entityId) : ENTITY_ID_SHAPE.test(entityId)
+
+      if (!resolves) {
+        warnings.push({
+          code: 'taskBindingUnknownEntityType',
+          path: ['steps', stepIndex],
+          params: { stepId, entityType: authored },
+          severity: 'error',
+        })
+        continue
+      }
+
+      const access = options.assigneeEntityAccess
+      if (!access || roles.length === 0) continue
+
+      const required = access.entityViewRequirements[entityId]
+      if (!required || required.length === 0) continue
+
+      // Every queued role must be able to view it: a queue whose members see
+      // different things is a queue where the task is claimable by people who
+      // then cannot open it.
+      const blindRoles = roles.filter((role) => {
+        const granted = access.roleFeatures[role]
+        if (!granted) return false
+        return !hasAllFeatures(granted, required)
+      })
+
+      if (blindRoles.length > 0) {
+        warnings.push({
+          code: 'taskBindingAssigneeCannotView',
+          path: ['steps', stepIndex],
+          params: { stepId, entityType: authored, roles: blindRoles.join(', ') },
+        })
+      }
+    }
+  })
+
+  return warnings
+}
+
 /** Error-route problems (spec 5.9), mapped onto the transition that carries them. */
 export function collectErrorRouteWarnings(definition: FlowLogicDefinition): FlowLogicWarning[] {
   const transitions = asArray(definition.transitions)
@@ -272,7 +468,7 @@ export function collectErrorRouteWarnings(definition: FlowLogicDefinition): Flow
  */
 export function collectFlowLogicWarnings(
   definition: FlowLogicDefinition | null | undefined,
-  options: { ledger?: ContextLedger } = {},
+  options: { ledger?: ContextLedger } & TaskBindingCheckOptions = {},
 ): FlowLogicWarning[] {
   if (!definition) return []
 
@@ -280,6 +476,8 @@ export function collectFlowLogicWarnings(
     ...collectErrorRouteWarnings(definition),
     ...collectUnmappedStepConfigWarnings(definition),
     ...collectTaskDecisionWarnings(definition),
+    ...collectTaskOwnerWarnings(definition),
+    ...collectTaskBindingWarnings(definition, options),
     ...collectBranchingRouteWarnings(definition).map<FlowLogicWarning>((warning) => ({
       code: 'branchingWithoutOtherwise',
       path: warning.path,

@@ -11,6 +11,7 @@
 
 import { workflowDefinitionDataSchema } from '../../data/validators'
 import { definitionToGraph, validateWorkflowGraph } from '../graph-utils'
+import { collectTaskOwnerWarnings } from '../flow-logic-warnings'
 import {
   WORKFLOW_TEMPLATE_FILES,
   clearWorkflowTemplateCacheForTests,
@@ -68,6 +69,17 @@ describe('workflow template assets', () => {
       const issues = validateWorkflowGraph(nodes, edges)
       const blocking = issues.filter((issue) => issue.type === 'error')
       expect(blocking).toEqual([])
+    })
+
+    it('every USER_TASK it ships names somebody who can complete it', () => {
+      // §6.4 moved "who can complete this?" from a feature grant into the
+      // definition, which turned an omission that used to be harmless into a
+      // task the engine parks on forever. `order-approval.json` shipped exactly
+      // that omission until the author-time check caught it; this is the guard
+      // that keeps a gallery template from starting a workflow nobody can
+      // finish.
+      const warnings = collectTaskOwnerWarnings(raw.definition as never)
+      expect(warnings.map((warning) => warning.params.stepId)).toEqual([])
     })
   })
 
