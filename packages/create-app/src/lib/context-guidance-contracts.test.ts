@@ -361,9 +361,11 @@ test('workflow skill binds implementation prompts to the progressive contract re
 
 test('debugging stays additive to cross-module domain and extension work', () => {
   const root = readAgentic('shared/AGENTS.md.template')
+  const debugging = readAgentic('guides/testing-debugging.md')
   assert.match(root, /`debugging` is additive/)
   assert.match(root, /A scalar-ID\/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` \+ `umes`/)
   assert.match(root, /load `om-data-model-design` \+ `om-system-extension`/)
+  assert.match(debugging, /`unit-regression-oracle` when that decision vocabulary is requested/)
 })
 
 test('API and command fixes load trusted-scope domain contracts', () => {

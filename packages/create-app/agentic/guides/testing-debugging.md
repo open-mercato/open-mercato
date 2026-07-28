@@ -18,7 +18,7 @@ Then stop. Budgets here are tight — several fixes allow only five files — so
 2. Classify the failing bootstrap: browser/server, API, CLI, worker, queue, generated registry, package artifact, or external provider.
 3. Read the routed guide plus generated module facts. Use `om-framework-context` only when exact installed implementation is necessary.
 4. Trace from the public call site to the first incorrect invariant. Check scope, auth, validation, state transition, transaction boundary, side effects, and response serialization in that order.
-5. Add a regression oracle that fails before the fix. Implement the minimal complete repair and rerun affected plus safety cases.
+5. Add a regression oracle that fails before the fix (`unit-regression-oracle` when that decision vocabulary is requested). Implement the minimal complete repair and rerun affected plus safety cases.
 
 ## Frequent Failure Families
 
