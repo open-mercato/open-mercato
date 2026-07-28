@@ -12,6 +12,8 @@
  * supplies the flow-space cursor position.
  */
 
+import { NODE_HEIGHT, NODE_MIN_WIDTH } from './node-geometry'
+
 export interface NodeFootprint {
   position: { x: number; y: number }
   measured?: { width?: number | null; height?: number | null } | null
@@ -28,8 +30,6 @@ export interface NodePlacementOptions {
   gap?: number
 }
 
-const DEFAULT_NODE_WIDTH = 180
-const DEFAULT_NODE_HEIGHT = 84
 const DEFAULT_GAP = 48
 
 function footprintOf(node: NodeFootprint, width: number, height: number) {
@@ -72,8 +72,8 @@ export function resolveNewNodePlacement(
   nodes: NodeFootprint[],
   options: NodePlacementOptions = {},
 ): { x: number; y: number } {
-  const width = options.width ?? DEFAULT_NODE_WIDTH
-  const height = options.height ?? DEFAULT_NODE_HEIGHT
+  const width = options.width ?? NODE_MIN_WIDTH
+  const height = options.height ?? NODE_HEIGHT
   const gap = options.gap ?? DEFAULT_GAP
 
   let candidate: { x: number; y: number }

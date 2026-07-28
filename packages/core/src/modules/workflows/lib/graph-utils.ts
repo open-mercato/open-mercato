@@ -6,22 +6,18 @@ import { isCompensationGhostEdge } from './compensation-ghosts'
 import { isDataMappingEdge } from './data-edge-mapping'
 import { isAnnotationNode } from './editor-annotations'
 import { ERROR_SOURCE_HANDLE_ID } from './error-routing'
+import {
+  NODE_DESCRIPTION_HEIGHT,
+  NODE_HEIGHT,
+  NODE_MAX_WIDTH,
+  NODE_MIN_WIDTH,
+} from './node-geometry'
 
 /**
  * Graph Utilities for Visual Workflow Editor
  *
  * Converts between ReactFlow graph representation and workflow definition JSON
  */
-
-/**
- * Node footprint used by the dagre layout engine. `NODE_WIDTH` must match the
- * `NODE_WIDTH` exported from `../components/WorkflowNodeCard`; it is mirrored as
- * a local constant here so this pure data-transform module stays free of the
- * React/`lucide-react` import chain (it runs in node + jest contexts).
- */
-const NODE_WIDTH = 180
-const NODE_MAX_WIDTH = 280
-const NODE_HEIGHT = 84
 
 export interface GraphToDefinitionOptions {
   includePositions?: boolean
@@ -326,7 +322,7 @@ export function definitionToGraph(
   const dagrePositions = needsDagre
     ? layoutWithDagre(definition.steps, definition.transitions, {
         direction: 'LR',
-        nodeWidth: NODE_WIDTH,
+        nodeWidth: NODE_MIN_WIDTH,
         nodeHeight: NODE_HEIGHT,
       })
     : null
@@ -519,7 +515,7 @@ export function definitionToGraph(
 /**
  * Approximate a node card's rendered footprint when its true measured size is
  * not yet known (initial open, before React Flow measures the DOM). Cards are
- * `w-fit` between `NODE_WIDTH` and `NODE_MAX_WIDTH` (see WorkflowNodeCard); their
+ * `w-fit` between `NODE_MIN_WIDTH` and `NODE_MAX_WIDTH` (see lib/node-geometry); their
  * width is driven mostly by the two-line `line-clamp-2` description, which pushes
  * almost any described node to the max width. So a node WITH a description is
  * estimated at the cap (and taller for the extra line); a bare-title node sizes
@@ -532,8 +528,8 @@ function estimateNodeSize(label: unknown, hasDescription: boolean): { width: num
   const titleWidth = Math.round(text.length * 7) + 64
   const width = hasDescription
     ? NODE_MAX_WIDTH
-    : Math.min(Math.max(NODE_WIDTH, titleWidth), NODE_MAX_WIDTH)
-  const height = hasDescription ? NODE_HEIGHT + 24 : NODE_HEIGHT
+    : Math.min(Math.max(NODE_MIN_WIDTH, titleWidth), NODE_MAX_WIDTH)
+  const height = hasDescription ? NODE_HEIGHT + NODE_DESCRIPTION_HEIGHT : NODE_HEIGHT
   return { width, height }
 }
 
@@ -634,7 +630,7 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
 
   const positions = layoutWithDagre(steps, transitions, {
     direction: 'LR',
-    nodeWidth: NODE_WIDTH,
+    nodeWidth: NODE_MIN_WIDTH,
     nodeHeight: NODE_HEIGHT,
   })
 

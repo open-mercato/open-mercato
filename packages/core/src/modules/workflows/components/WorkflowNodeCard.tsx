@@ -4,11 +4,15 @@ import { Check, Play, Pause, Circle, CircleAlert, ShieldMinus, XCircle, Trash2 }
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../lib/node-type-icons'
+import { NODE_MAX_WIDTH, NODE_MIN_WIDTH } from '../lib/node-geometry'
 
-/** Rendered node sizing. Cards size to their content between these bounds; the
- * dagre layout mirrors the same bounds when estimating per-node footprints. */
-export const NODE_MIN_WIDTH = 180
-export const NODE_MAX_WIDTH = 280
+/**
+ * Rendered node sizing. Cards size to their content between these bounds and
+ * the dagre layout reserves the same bounds; both read `lib/node-geometry`, so
+ * there is one place to change them. Re-exported here because third-party code
+ * has always imported them from this module.
+ */
+export { NODE_MIN_WIDTH, NODE_MAX_WIDTH }
 /** @deprecated kept for back-compat; prefer NODE_MIN_WIDTH/NODE_MAX_WIDTH. */
 export const NODE_WIDTH = NODE_MIN_WIDTH
 
