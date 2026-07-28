@@ -59,6 +59,18 @@ export type UserTaskStatus =
   | 'CANCELLED'
   | 'ESCALATED'
 
+/**
+ * Which principal namespace `user_tasks.assigned_to` names.
+ *
+ * `'user'` = a backoffice user id. `'customer'` = a portal principal
+ * (`CustomerAuthContext.sub`). A discriminator column rather than a
+ * `customer:<id>` string prefix (maintainer decision): a prefix is unindexable,
+ * collides with any id containing a colon, and would force a parsing rule into
+ * every existing comparison — the claim filter, the `myWork` `$or`, the
+ * reassign write.
+ */
+export type UserTaskAssigneeKind = 'user' | 'customer'
+
 // ============================================================================
 // Event Trigger Types
 // ============================================================================
@@ -626,8 +638,13 @@ export class StepInstance {
 @Index({ name: 'user_tasks_status_assigned_idx', properties: ['status', 'assignedTo'] })
 @Index({ name: 'user_tasks_status_due_date_idx', properties: ['status', 'dueDate'] })
 @Index({ name: 'user_tasks_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+// The §6.4 entity gate is "no binding whose type is outside my allowed set",
+// which is a containment test over `entity_types` — so it must be a SQL WHERE,
+// not a JS post-filter. Post-filtering a page makes `pagination.total` a lie and
+// returns short pages. GIN is what makes `<@` indexable.
+@Index({ name: 'user_tasks_entity_types_gin_idx', properties: ['entityTypes'], type: 'gin' })
 export class UserTask {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'assigneeKind'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -659,6 +676,23 @@ export class UserTask {
 
   @Property({ name: 'assigned_to', type: 'varchar', length: 255, nullable: true })
   assignedTo?: string | null
+
+  /**
+   * Which principal namespace `assignedTo` names.
+   *
+   * NOT NULL with a default rather than nullable: the column exists precisely to
+   * remove ambiguity, and reintroducing a null case defeats it. Existing rows
+   * backfill to `'user'`, which is correct — every `assigned_to` written before
+   * this column existed is a backoffice user id. Rows with `assigned_to IS NULL`
+   * also get `'user'`; harmless, because every branch that reads it first checks
+   * that `assignedTo` is set.
+   *
+   * `assignedToRoles` is never combined with `'customer'`: portal roles are a
+   * different namespace (`CustomerRole`) and portal principals cannot claim from
+   * a queue.
+   */
+  @Property({ name: 'assignee_kind', type: 'varchar', length: 20, default: 'user' })
+  assigneeKind: UserTaskAssigneeKind = 'user'
 
   @Property({ name: 'assigned_to_roles', type: 'text[]', nullable: true })
   assignedToRoles?: string[] | null
@@ -699,6 +733,25 @@ export class UserTask {
    */
   @Property({ name: 'entity_bindings', type: 'jsonb', nullable: true })
   entityBindings?: unknown[] | null
+
+  /**
+   * The distinct AUTHORED `entityType` values from `entityBindings`, denormalized
+   * so the §6.4 entity gate is expressible as `entity_types <@ ARRAY[allowed]`
+   * against a GIN index.
+   *
+   * Authored verbatim, not normalized to generated entity ids, because the
+   * visibility predicate keys its per-request access map on exactly the string
+   * the binding carries. Storing a second, normalized spelling here would give
+   * the SQL filter and the JS predicate two different notions of "the same type"
+   * — and the one place they could disagree is the one place a task goes
+   * invisible without a trace.
+   *
+   * NULL means "no bindings", which is §2.4's vacuous pass for a backoffice
+   * principal. Every row written before this column existed is therefore correct
+   * by construction — no backfill needed.
+   */
+  @Property({ name: 'entity_types', type: 'text[]', nullable: true })
+  entityTypes?: string[] | null
 
   /** Authored `low|medium|high|extreme`, mirroring the platform's labels. */
   @Property({ name: 'priority', type: 'varchar', length: 20, nullable: true })

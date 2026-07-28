@@ -183,6 +183,40 @@ describe('serializeUserTask', () => {
     }
   })
 
+  test('reports the assignee kind, defaulting a projection that lacks it', () => {
+    expect(serializeUserTask(makeTask()).assigneeKind).toBe('user')
+    expect(serializeUserTask(makeTask({ assigneeKind: 'customer' })).assigneeKind).toBe('customer')
+    const legacy = makeTask()
+    delete (legacy as Partial<UserTask>).assigneeKind
+    expect(serializeUserTask(legacy).assigneeKind).toBe('user')
+  })
+
+  test('reports the stored entity types, deriving them for a row written before the column', () => {
+    expect(
+      serializeUserTask(makeTask({ entityTypes: ['customers:person'] })).entityTypes,
+    ).toEqual(['customers:person'])
+
+    // A pre-column row: NULL column, real bindings. The derived answer must
+    // match what the SQL gate would have filtered on, or the two disagree.
+    const legacy = makeTask({
+      entityTypes: null,
+      entityBindings: [
+        { entityType: 'customers:person', entityId: 'a' },
+        { entityType: 'customers:person', entityId: 'b' },
+        { entityType: 'sales:sales_order', entityId: 'c' },
+      ],
+    })
+    expect(serializeUserTask(legacy).entityTypes).toEqual([
+      'customers:person',
+      'sales:sales_order',
+    ])
+  })
+
+  test('a task about nothing reports null entity types, never an empty array', () => {
+    expect(serializeUserTask(makeTask()).entityTypes).toBeNull()
+    expect(serializeUserTask(makeTask({ entityBindings: [] })).entityTypes).toBeNull()
+  })
+
   test('emits dates in the same ISO form the entity dump produced', () => {
     const serialized = serializeUserTask(makeTask())
 

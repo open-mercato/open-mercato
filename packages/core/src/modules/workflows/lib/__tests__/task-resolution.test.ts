@@ -1,6 +1,7 @@
 import { describe, test, expect } from '@jest/globals'
 import { interpolateVariables } from '../activity-executor'
 import {
+  collectResolvedEntityTypes,
   flattenTaskText,
   resolveTaskAssignment,
   resolveTaskDeadlineDuration,
@@ -8,6 +9,7 @@ import {
   resolveTaskEntityBindings,
   resolveTaskText,
 } from '../task-resolution'
+import { decideTaskVisibility } from '../task-visibility'
 
 /**
  * The pure half of "task creation resolves what authors wrote".
@@ -174,5 +176,72 @@ describe('resolveTaskDeadlineDuration', () => {
     expect(resolveTaskDeadlineDuration({ deadline: { duration: 'PT4H' }, slaDuration: 'P1D' })).toBe('PT4H')
     expect(resolveTaskDeadlineDuration({ slaDuration: 'P1D' })).toBe('P1D')
     expect(resolveTaskDeadlineDuration({})).toBeNull()
+  })
+})
+
+/**
+ * `user_tasks.entity_types` is the denormalization the §6.4 entity gate filters
+ * on in SQL. It is derived here so the stored column and the work-inbox
+ * projection compute the same set from the same bindings.
+ */
+describe('collectResolvedEntityTypes', () => {
+  test('is verbatim, deduped and order-preserving', () => {
+    expect(
+      collectResolvedEntityTypes([
+        { entityType: 'customers:person', entityId: 'a' },
+        { entityType: 'sales:sales_order', entityId: 'b' },
+        { entityType: 'customers:person', entityId: 'c' },
+      ])
+    ).toEqual(['customers:person', 'sales:sales_order'])
+  })
+
+  test('does not normalize an authored spelling', () => {
+    // Normalizing here would give the SQL filter and the JS predicate two
+    // different notions of "the same type"; the predicate keys its access map
+    // on exactly the string the binding carries.
+    expect(collectResolvedEntityTypes([{ entityType: 'Custmers:Deal', entityId: 'a' }])).toEqual([
+      'Custmers:Deal',
+    ])
+  })
+
+  test('no bindings produce no types — the vacuous-pass case', () => {
+    expect(collectResolvedEntityTypes([])).toEqual([])
+  })
+
+  test('agrees with the predicate: an empty type set is an empty binding set', () => {
+    const bindings = resolveTaskEntityBindings(
+      [{ entityType: 'sales:invoice', idPath: 'context.missing' }],
+      interpolate
+    ).bindings
+    expect(bindings).toEqual([])
+    expect(collectResolvedEntityTypes(bindings)).toEqual([])
+    // Which is what the writer stores as NULL, and NULL is what every
+    // pre-Phase-4 row carries — read by the predicate as "no bindings" and
+    // passed vacuously for a backoffice principal.
+    const decision = decideTaskVisibility(
+      {
+        kind: 'backoffice',
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        organizationIds: ['org-1'],
+        roleNames: [],
+        grantedFeatures: [],
+        isSuperAdmin: false,
+      },
+      {
+        id: 'task-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        status: 'PENDING',
+        assignedTo: 'user-1',
+        assigneeKind: 'user',
+        assignedToRoles: null,
+        claimedBy: null,
+        entityBindings: bindings,
+      },
+      new Map(),
+      { businessContextEnabled: true }
+    )
+    expect(decision).toEqual({ visible: true, actable: true, claimable: false, reason: 'assignee' })
   })
 })

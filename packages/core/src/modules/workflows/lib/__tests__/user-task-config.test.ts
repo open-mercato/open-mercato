@@ -462,6 +462,96 @@ describe('task creation resolves the authored task', () => {
     expect(events[0]?.eventData?.priority).toBe('high')
   })
 
+  /**
+   * The §6.4 entity gate filters on `user_tasks.entity_types` in SQL, so the
+   * column must be written from the SAME resolved bindings the row carries — a
+   * denormalization that can drift is a task that goes invisible without a
+   * trace.
+   */
+  test('denormalizes the distinct authored entity types beside the bindings', async () => {
+    const { task } = await createTaskFor(
+      {
+        stepId: 'approve-refund',
+        stepName: 'Approve refund',
+        userTaskConfig: {
+          entityBindings: [
+            { entityType: 'customers:person', idPath: 'context.customerId' },
+            { entityType: 'sales:sales_order', idPath: 'context.orderId' },
+            { entityType: 'customers:person', idPath: 'context.approverId' },
+            { entityType: 'sales:invoice', idPath: 'context.missingId' },
+          ],
+        },
+      },
+      { customerId: 'customer-7', orderId: 'order-9', approverId: 'person-3' }
+    )
+
+    // Verbatim, deduped, and derived only from bindings that actually resolved:
+    // a dropped binding must not leave a type the caller is gated on.
+    expect(task.entityTypes).toEqual(['customers:person', 'sales:sales_order'])
+    expect(new Set(task.entityBindings.map((binding: any) => binding.entityType))).toEqual(
+      new Set(task.entityTypes)
+    )
+  })
+
+  /**
+   * NULL is "no bindings", which the predicate passes vacuously for a backoffice
+   * principal. Storing `[]` instead would read the same today but invites a
+   * future `entity_types = '{}'` filter to treat it as a distinct case, and it
+   * would make new rows differ from the entire pre-Phase-4 corpus, which is NULL.
+   */
+  test('a task about nothing stores null entity types, not an empty array', async () => {
+    const { task } = await createTaskFor(
+      { stepId: 'approve-refund', stepName: 'Approve refund', userTaskConfig: {} },
+      {}
+    )
+    expect(task.entityBindings).toBeNull()
+    expect(task.entityTypes).toBeNull()
+  })
+
+  test('a binding whose id does not resolve contributes no entity type', async () => {
+    const { task } = await createTaskFor(
+      {
+        stepId: 'approve-refund',
+        stepName: 'Approve refund',
+        userTaskConfig: {
+          entityBindings: [{ entityType: 'sales:invoice', idPath: 'context.invoiceId' }],
+        },
+      },
+      {}
+    )
+    expect(task.entityBindings).toBeNull()
+    expect(task.entityTypes).toBeNull()
+  })
+
+  /**
+   * Design §7.1: a workflow-authored assignee is always a backoffice user id.
+   * A portal principal only ever becomes an assignee through the Phase 4b portal
+   * surface, and `assignedToRoles` is never combined with `'customer'` — portal
+   * roles are a different namespace and portal principals cannot claim a queue.
+   */
+  test('workflow-created tasks always carry the backoffice assignee kind', async () => {
+    const assigned = await createTaskFor(
+      {
+        stepId: 'approve-refund',
+        stepName: 'Approve refund',
+        userTaskConfig: { assignedTo: 'manager@example.com' },
+      },
+      {}
+    )
+    const queued = await createTaskFor(
+      {
+        stepId: 'approve-refund',
+        stepName: 'Approve refund',
+        userTaskConfig: { assignedToRoles: ['approver'] },
+      },
+      {}
+    )
+
+    expect(assigned.task.assigneeKind).toBe('user')
+    expect(queued.task.assigneeKind).toBe('user')
+    expect(queued.task.assignedToRoles).toEqual(['approver'])
+  })
+
   test('logs the resolved decisions on USER_TASK_CREATED', async () => {
     const { events } = await createTaskFor(
       {

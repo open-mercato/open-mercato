@@ -32,6 +32,7 @@ import { logWorkflowEvent } from './event-logger'
 import { findDefinitionForInstance } from './find-definition'
 import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from './interpolation-pipeline'
 import {
+  collectResolvedEntityTypes,
   flattenTaskText,
   resolveTaskAssignment,
   resolveTaskDeadlineDuration,
@@ -795,8 +796,17 @@ async function handleUserTaskStep(
     formSchema: userTaskConfig.formSchema || null,
     formData: null,
     assignedTo: assignment.assignedTo,
+    // A workflow-authored assignee is always a backoffice user id: the Studio's
+    // assignee picker and `{{context.*}}` interpolation both resolve one, and a
+    // portal principal only ever becomes an assignee through the Phase 4b portal
+    // surface. Written explicitly rather than left to the column default so the
+    // discriminator is a decision at every creation site, not an accident.
+    assigneeKind: 'user',
     assignedToRoles: assignment.assignedToRoles,
     entityBindings: bindings.length ? bindings : null,
+    // Denormalized from the SAME resolved bindings, so the two can never drift.
+    // Null for a task about nothing, which is what the vacuous-pass rule reads.
+    entityTypes: bindings.length ? collectResolvedEntityTypes(bindings) : null,
     priority: userTaskConfig.priority ?? null,
     dueDate: deadlineDuration
       ? resolveUserTaskDeadline(stepDef.stepId, deadlineDuration)

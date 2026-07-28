@@ -29,7 +29,15 @@ export const userTaskSchema = z.object({
   formSchema: z.unknown().nullable().optional(),
   formData: z.unknown().nullable().optional(),
   assignedTo: z.string().nullable().optional(),
+  assigneeKind: z
+    .enum(['user', 'customer'])
+    .describe('Which principal namespace assignedTo names — a backoffice user or a portal principal'),
   assignedToRoles: z.array(z.string()).nullable().optional(),
+  entityTypes: z
+    .array(z.string())
+    .nullable()
+    .optional()
+    .describe('Distinct authored entity types of the bindings, denormalized for the visibility filter'),
   claimedBy: z.string().nullable().optional(),
   claimedAt: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),

@@ -170,6 +170,26 @@ export function resolveTaskEntityBindings(
   return { bindings: resolvedBindings, unresolved }
 }
 
+/**
+ * The distinct AUTHORED entity types across a task's resolved bindings, for the
+ * denormalized `user_tasks.entity_types` column the §6.4 entity gate filters on.
+ *
+ * Verbatim, deduped, order-preserving. Verbatim because the visibility
+ * predicate's per-request access map is keyed on exactly the string the binding
+ * carries — normalizing here would give the SQL filter and the JS predicate two
+ * different notions of "the same type".
+ *
+ * Empty in, empty out: the caller stores NULL for a task about nothing, which is
+ * what the vacuous-pass rule reads. Same expression the work-inbox projection
+ * already computes per row, so a row's stored column and its projected
+ * `entityTypes` cannot disagree.
+ */
+export function collectResolvedEntityTypes(
+  bindings: readonly ResolvedTaskEntityBinding[],
+): string[] {
+  return [...new Set(bindings.map((binding) => binding.entityType))]
+}
+
 /** Resolve decision-button copy; the route binding itself is already durable. */
 export function resolveTaskDecisions(
   decisions: TaskDecision[] | undefined | null,
