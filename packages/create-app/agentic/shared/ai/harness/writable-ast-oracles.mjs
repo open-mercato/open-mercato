@@ -310,6 +310,42 @@ const WRITABLE_CASES = Object.freeze({
       'src/modules/order_risk/i18n/en.json',
     ],
   },
+  'OMH-188': {
+    family: 'booking-overlap',
+    sources: ['src/modules/room_bookings', 'src/modules.ts'],
+    artifacts: [
+      'src/modules/room_bookings/index.ts',
+      'src/modules/room_bookings/data/entities.ts',
+      'src/modules/room_bookings/data/validators.ts',
+      'src/modules/room_bookings/migrations/**',
+      'src/modules/room_bookings/commands/**',
+      'src/modules/room_bookings/api/bookings/route.ts',
+      'src/modules.ts',
+    ],
+  },
+  'OMH-189': {
+    family: 'provider-transport',
+    moduleId: 'room_calendar_sync',
+    healthService: 'roomCalendarSyncHealth',
+    sources: ['src/modules/room_calendar_sync', 'src/modules.ts'],
+    artifacts: [
+      'src/modules/room_calendar_sync/index.ts',
+      'src/modules/room_calendar_sync/integration.ts',
+      'src/modules/room_calendar_sync/di.ts',
+      'src/modules/room_calendar_sync/lib/**',
+      'src/modules.ts',
+    ],
+  },
+  'OMH-190': {
+    family: 'response-enricher',
+    sources: ['src/modules/room_bookings/data/enrichers.ts'],
+    artifacts: ['src/modules/room_bookings/data/enrichers.ts'],
+  },
+  'OMH-191': {
+    family: 'durable-workflow',
+    sources: ['src/modules/room_bookings/workflows.ts'],
+    artifacts: ['src/modules/room_bookings/workflows.ts'],
+  },
   'OMH-185': {
     family: 'complete-module',
     sources: ['src/modules/library', 'src/modules.ts'],
@@ -812,6 +848,12 @@ export function hasExactString(facts, value) {
   return facts.strings.has(value)
 }
 
+// SQL migrations arrive as one template-literal string, so containment is the
+// only way to assert a clause without hard-coding the author's formatting.
+function hasStringIncluding(facts, ...fragments) {
+  return [...facts.strings].some((entry) => fragments.every((fragment) => entry.includes(fragment)))
+}
+
 function hasStringPrefix(facts, value) {
   return [...facts.strings].some((entry) => entry.startsWith(value))
 }
@@ -895,6 +937,54 @@ function caseChecks(ts, caseId, facts) {
       check('module.custom-fields', hasCall(facts, 'collectCustomFieldValues') && hasCall(facts, 'buildCustomFieldResetMap'), 'UI submission and command undo preserve custom fields'),
       check('module.sidebar', ['pageTitleKey', 'pageGroupKey', 'pagePriority', 'pageOrder', 'icon', 'breadcrumb'].every((name) => facts.objectProperties.has(name)), 'the Books list page metadata publishes localized main-sidebar navigation'),
       check('module.localized-ui', hasCall(facts, 'useT') && hasCall(facts, 't') && uiFailures.length === 0, `rendered UI uses i18n and shared design-system policy${uiFailures.length ? ` (${uiFailures.join(', ')})` : ''}`),
+    ]
+  }
+  if (definition.family === 'booking-overlap') {
+    const scopedEntity = facts.classes.some((entry) => entry.decorators.has('Entity') && ['tenant_id', 'organization_id', 'updated_at'].every((name) => entry.members.has(name)))
+    return [
+      check('overlap.exclusion-constraint', hasStringIncluding(facts, 'btree_gist') && hasStringIncluding(facts, 'exclude using gist', 'tstzrange', "'[)'"), 'the migration guards overlaps with a btree_gist exclusion constraint over a half-open tstzrange'),
+      check('overlap.constraint-scope', hasStringIncluding(facts, 'exclude using gist', 'room_id', 'tenant_id', 'organization_id'), 'the exclusion constraint scopes by room and tenant/organization, not by period alone'),
+      check('overlap.constraint-liveness', hasStringIncluding(facts, 'exclude using gist', 'deleted_at', 'cancelled'), 'cancelled and soft-deleted rows are excluded so they do not block the slot'),
+      check('overlap.conflict-mapping', hasExactString(facts, '23P01') && facts.newCalls.has('CrudHttpError'), 'the command recognises the exclusion violation (SQLSTATE 23P01) and maps it to a conflict error instead of a 500'),
+      check('overlap.entity-id-source', [...facts.importSources].includes('@/.mercato/generated/entities.ids.generated'), 'entity IDs come from the generated E map through the app alias, never hand-written strings'),
+      check('overlap.scoped-entity', scopedEntity, 'the booking entity carries tenant_id, organization_id, and updated_at'),
+      check('overlap.command-atomic', hasCallOptions(facts, 'withAtomicFlush', ['transaction']), 'booking writes flush inside a transaction so the constraint decides atomically'),
+      check('overlap.command-undo', hasCall(facts, 'extractUndoPayload') && hasCall(facts, 'emitCrudSideEffects'), 'commands persist undo evidence and emit post-commit side effects'),
+      check('overlap.crud-host', hasCallOptions(facts, 'makeCrudRoute', ['metadata', 'orm', 'list', 'actions', 'indexer']), 'the bookings CRUD route wires metadata, scoped ORM, list, command actions, and indexer'),
+    ]
+  }
+  if (definition.family === 'provider-transport') {
+    const guard = facts.exportedFunctions.get('assertSafeEndpoint')
+    const client = facts.exportedFunctions.get('createRoomCalendarClient')
+    return [
+      check('provider.paired-exports', ['integration', 'integrations', 'bundle', 'bundles'].every((name) => facts.exportedVariables.has(name)), 'integration.ts declares all four paired exports the generated module registry reads'),
+      check('provider.credential-schema', hasObjectVariable(facts, 'integration', ['id', 'credentials', 'healthCheck']) && hasExactString(facts, 'secret') && hasExactString(facts, 'url'), 'the integration declares typed credential fields including a secret and the endpoint URL'),
+      check('provider.health-di', hasExactString(facts, definition.healthService) && hasCall(facts, 'container.register'), `DI registers the exact ${definition.healthService} service declared by integration.ts`),
+      check('provider.ssrf-guard', Boolean(guard && guard.throws > 0) && hasExactString(facts, 'https:'), 'exported assertSafeEndpoint rejects non-HTTPS and unsafe endpoints on every call'),
+      check('provider.idempotency-key', hasExactString(facts, 'idempotency-key'), 'every remote mutation carries a stable idempotency key header'),
+      check('provider.redirect-refusal', hasExactString(facts, 'manual'), 'the transport refuses to follow redirects'),
+      check('provider.bounded-retry', Boolean(client && client.loops > 0), 'exported createRoomCalendarClient retries through a bounded loop'),
+      check('provider.unconfigured-degraded', hasExactString(facts, 'unconfigured'), 'a missing configuration reports a degraded state instead of failing'),
+    ]
+  }
+  if (definition.family === 'response-enricher') {
+    return [
+      check('enricher.dot-target', hasExactString(facts, 'customers.person') && !hasExactString(facts, 'customers:person'), 'targetEntity uses the dot form customers.person; the colon-form ID never matches and is silently skipped'),
+      check('enricher.batched', facts.objectProperties.has('enrichMany') && facts.objectProperties.has('enrichOne'), 'the enricher implements both enrichOne and batched enrichMany'),
+      check('enricher.namespaced', facts.objectProperties.has('_room_bookings'), 'added fields live under the module underscore namespace'),
+      check('enricher.resilience', ['fallback', 'timeout', 'cacheableOnListHit'].every((name) => facts.objectProperties.has(name)), 'the enricher declares fallback, timeout, and conservative list-cache behaviour'),
+      check('enricher.acl', hasExactString(facts, 'room_bookings.bookings.view'), 'the enricher gates on the owning module feature'),
+      check('enricher.registration', facts.exportedVariables.has('enrichers') && facts.importedBindings.get('ResponseEnricher') === '@open-mercato/shared/lib/crud/response-enricher', 'the typed enricher list is exported for discovery'),
+    ]
+  }
+  if (definition.family === 'durable-workflow') {
+    return [
+      check('workflow.timer-config', hasExactString(facts, 'WAIT_FOR_TIMER') && facts.objectProperties.has('config') && facts.objectProperties.has('duration') && hasStringPrefix(facts, 'PT'), 'the WAIT_FOR_TIMER step declares an ISO 8601 duration; without one the instance fails with TIMER_CONFIG_MISSING after it is already paused'),
+      check('workflow.safe-commands', hasCall(facts, 'registerWorkflowSafeCommands') && facts.objectProperties.has('requiredFeatures') && hasExactString(facts, 'room_bookings.bookings.update'), 'the dispatched command is allowlisted with the features it is authorised against'),
+      check('workflow.builder', hasCall(facts, 'defineWorkflow') && hasCall(facts, 'createWorkflowsModuleConfig') && facts.exportedVariables.has('workflowsConfig'), 'the definition uses the typed builder and exports the discovered workflowsConfig'),
+      check('workflow.terminal-graph', hasExactString(facts, 'START') && hasExactString(facts, 'END'), 'the graph declares an explicit start and a reachable end'),
+      check('workflow.confirmation-beats-expiry', hasExactString(facts, 'signal') && hasExactString(facts, 'timer'), 'confirmation arrives as a signal transition competing with the expiry timer'),
+      check('workflow.dispatch-update-entity', hasExactString(facts, 'UPDATE_ENTITY'), 'the release path cancels the hold through an UPDATE_ENTITY activity, not a direct mutation'),
     ]
   }
   if (definition.family === 'business-command') {

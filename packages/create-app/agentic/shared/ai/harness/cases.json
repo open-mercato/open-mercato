@@ -12927,5 +12927,434 @@
     "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 122880,
     "relatedCases": ["OMH-019", "OMH-063", "OMH-185"]
+  },
+  {
+    "id": "OMH-188",
+    "title": "Build room bookings whose overlapping reservations are rejected atomically",
+    "family": "module",
+    "mode": "one-shot",
+    "evaluationKind": "implementation",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone app, build the core of a room_bookings module in one shot: Room and RoomBooking entities, validators, a reviewed migration, undoable create/update/delete commands, and a scoped CRUD API at api/bookings. Overlapping bookings for the same room must be rejected atomically even under concurrent requests - a read-then-check inside the command cannot reject a concurrent booking, so the database must own the decision - and a rejected overlap must surface as a conflict response, never an internal error. Abutting bookings (one ends exactly when the next starts) are valid; cancelled and soft-deleted bookings do not block a slot. Reference entity IDs from the generated E map through the app alias, never hand-written strings. Replace the seeded index stub with working implementation files, not a manifest of files to add later. Review the generated migration but do not apply it.",
+    "tags": [
+      "module",
+      "booking-overlap",
+      "concurrency",
+      "writable"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-data-model-design/references/schema-design.md",
+      "ruleIds": [
+        "BC-02",
+        "BC-04",
+        "BC-09"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "module-data"
+      ],
+      "allowedExtra": [
+        "umes",
+        "debugging",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-module-scaffold",
+      "om-data-model-design"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+        ".ai/skills/om-data-model-design/SKILL.md",
+        ".ai/skills/om-data-model-design/references/schema-design.md",
+        ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+        ".ai/skills/om-data-model-design/references/migration-workflow.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+        ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+        ".ai/skills/om-module-scaffold/references/verification.md",
+        ".ai/skills/om-module-scaffold/references/planning.md",
+        ".ai/skills/om-module-scaffold/references/data-and-migrations.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        "node_modules/**"
+      ]
+    },
+    "requiredDecisions": [
+      "exclusion-constraint-overlap",
+      "conflict-not-500",
+      "generated-entity-ids",
+      "migration-snapshot-no-apply",
+      "tenant-organization-scope"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "(?:apply|run).{0,20}(?:migration|db:migrate)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.business.booking-overlap"
+    ],
+    "fixture": {
+      "scaffold": "fresh-standalone",
+      "setup": [
+        "fixture:omh-188"
+      ]
+    },
+    "oracle": {
+      "validatorIds": [
+        "writable.allowed-paths",
+        "oracle.artifacts",
+        "oracle.business.booking-overlap"
+      ],
+      "expectedArtifacts": [
+        "src/modules/room_bookings/index.ts",
+        "src/modules/room_bookings/data/entities.ts",
+        "src/modules/room_bookings/data/validators.ts",
+        "src/modules/room_bookings/migrations/**",
+        "src/modules/room_bookings/commands/**",
+        "src/modules/room_bookings/api/bookings/route.ts",
+        "src/modules.ts"
+      ]
+    },
+    "allowedWrites": [
+      "src/modules/room_bookings/**",
+      "src/modules.ts"
+    ],
+    "timeoutMs": 600000,
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 81920,
+    "maxTotalContextBytes": 245760,
+    "relatedCases": [
+      "OMH-185"
+    ]
+  },
+  {
+    "id": "OMH-189",
+    "title": "Ship a calendar provider whose transport survives a hostile endpoint",
+    "family": "integration",
+    "mode": "one-shot",
+    "evaluationKind": "implementation",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone app, create an app-local provider module room_calendar_sync that pushes booking events to an external calendar service over HTTPS. integration.ts declares typed credentials (an endpoint URL field and a secret API token) and a healthCheck service named roomCalendarSyncHealth, and exports the full paired export set the generated module registry reads. di.ts registers that exact health service. The transport is an exported factory createRoomCalendarClient with an exported assertSafeEndpoint guard that rejects non-HTTPS and private-network endpoints on every call, refuses to follow redirects, retries transient failures through a bounded loop with a stable idempotency-key header so a retry cannot create a second event, never lets the token reach any error surface, and reports missing configuration as a degraded unconfigured outcome instead of failing. Activate the module in src/modules.ts. Replace the seeded index stub with working implementation files.",
+    "tags": [
+      "integration",
+      "provider-transport",
+      "ssrf",
+      "writable"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "ruleIds": [
+        "BC-02",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "integration"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "debugging",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-integration-builder"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/integrations.md",
+        ".ai/skills/om-integration-builder/SKILL.md",
+        ".ai/skills/om-integration-builder/references/package-and-activation.md",
+        ".ai/skills/om-integration-builder/references/provider-families.md",
+        ".ai/skills/om-integration-builder/references/security-and-reliability.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-integration-builder/references/sync-and-files.md",
+        ".ai/guides/modules/integrations.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        "node_modules/**"
+      ]
+    },
+    "requiredDecisions": [
+      "paired-integration-exports",
+      "ssrf-endpoint-guard",
+      "stable-idempotency-key",
+      "unconfigured-degraded"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.business.provider-transport"
+    ],
+    "fixture": {
+      "scaffold": "fresh-standalone",
+      "setup": [
+        "fixture:omh-189"
+      ]
+    },
+    "oracle": {
+      "validatorIds": [
+        "writable.allowed-paths",
+        "oracle.artifacts",
+        "oracle.business.provider-transport"
+      ],
+      "expectedArtifacts": [
+        "src/modules/room_calendar_sync/index.ts",
+        "src/modules/room_calendar_sync/integration.ts",
+        "src/modules/room_calendar_sync/di.ts",
+        "src/modules/room_calendar_sync/lib/**",
+        "src/modules.ts"
+      ]
+    },
+    "allowedWrites": [
+      "src/modules/room_calendar_sync/**",
+      "src/modules.ts"
+    ],
+    "timeoutMs": 600000,
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 81920,
+    "maxTotalContextBytes": 245760,
+    "relatedCases": [
+      "OMH-185"
+    ]
+  },
+  {
+    "id": "OMH-190",
+    "title": "Attach app-owned booking summaries to installed customer responses",
+    "family": "umes",
+    "mode": "one-shot",
+    "evaluationKind": "implementation",
+    "risk": "high",
+    "prompt": "The seeded room_bookings module persists bookings. Show each customer's confirmed-booking summary on the installed customers module's person list and detail responses without modifying that module and without a cross-module ORM relation: add src/modules/room_bookings/data/enrichers.ts with a typed response enricher targeting the installed person entity, batched for list responses, gated on the room_bookings.bookings.view feature, adding its fields under the _room_bookings namespace, and declaring fallback, timeout, and conservative list-cache behaviour. The block must reliably appear for authorized staff - an enricher whose target selector never matches is silently skipped, which is the failure this task exists to prevent.",
+    "tags": [
+      "umes",
+      "response-enricher",
+      "silent-failure",
+      "writable"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-02",
+        "BC-03",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-system-extension"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/modules/customers.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-system-extension/references/read-write-roundtrip.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        "node_modules/**"
+      ]
+    },
+    "requiredDecisions": [
+      "dot-form-target-entity",
+      "batched-enrichment",
+      "namespaced-additive-result"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.umes.response-enricher"
+    ],
+    "fixture": {
+      "scaffold": "fresh-standalone",
+      "setup": [
+        "fixture:omh-190"
+      ]
+    },
+    "oracle": {
+      "validatorIds": [
+        "writable.allowed-paths",
+        "oracle.artifacts",
+        "oracle.umes.response-enricher"
+      ],
+      "expectedArtifacts": [
+        "src/modules/room_bookings/data/enrichers.ts"
+      ]
+    },
+    "allowedWrites": [
+      "src/modules/room_bookings/**",
+      "src/modules.ts"
+    ],
+    "timeoutMs": 420000,
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 81920,
+    "maxTotalContextBytes": 245760,
+    "relatedCases": [
+      "OMH-185"
+    ]
+  },
+  {
+    "id": "OMH-191",
+    "title": "Expire unconfirmed booking holds through a durable workflow",
+    "family": "module",
+    "mode": "one-shot",
+    "evaluationKind": "implementation",
+    "risk": "high",
+    "prompt": "The seeded room_bookings module holds bookings as held until somebody confirms them. Add src/modules/room_bookings/workflows.ts defining a durable hold-expiry workflow with the typed builder: explicit START and END steps, a WAIT_FOR_TIMER step whose config carries an ISO 8601 duration of PT15M - a timer step without a duration fails the instance only after it is already paused - a signal-triggered confirmation transition that wins over expiry, and a release transition whose UPDATE_ENTITY activity dispatches the room_bookings.bookings.update command. A workflow may only dispatch commands explicitly allowlisted through registerWorkflowSafeCommands together with the features the dispatch is authorised against, so register that command with its required features. Export the discovered workflowsConfig.",
+    "tags": [
+      "module",
+      "durable-workflow",
+      "timer",
+      "writable"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-build-workflow/references/workflow-design.md",
+      "ruleIds": [
+        "BC-02",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "ai-workflow"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-build-workflow"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/ai-workflows.md",
+        ".ai/skills/om-build-workflow/SKILL.md",
+        ".ai/skills/om-build-workflow/references/workflow-design.md",
+        ".ai/skills/om-build-workflow/references/activity-contracts.md",
+        ".ai/skills/om-build-workflow/references/durability-and-progress.md",
+        ".ai/guides/modules/workflows.md"
+      ],
+      "allowedExtra": [],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        "node_modules/**"
+      ]
+    },
+    "requiredDecisions": [
+      "timer-duration-config",
+      "workflow-safe-commands",
+      "signal-over-timer"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.workflow.durable-timer"
+    ],
+    "fixture": {
+      "scaffold": "fresh-standalone",
+      "setup": [
+        "fixture:omh-191"
+      ]
+    },
+    "oracle": {
+      "validatorIds": [
+        "writable.allowed-paths",
+        "oracle.artifacts",
+        "oracle.workflow.durable-timer"
+      ],
+      "expectedArtifacts": [
+        "src/modules/room_bookings/workflows.ts"
+      ]
+    },
+    "allowedWrites": [
+      "src/modules/room_bookings/**",
+      "src/modules.ts"
+    ],
+    "timeoutMs": 420000,
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 81920,
+    "maxTotalContextBytes": 245760,
+    "relatedCases": [
+      "OMH-185"
+    ]
   }
 ]
