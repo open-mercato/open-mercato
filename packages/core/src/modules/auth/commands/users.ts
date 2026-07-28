@@ -122,6 +122,7 @@ const updateSchema = z.object({
   password: passwordSchema.optional(),
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
+  isConfirmed: z.boolean().optional(),
 })
 
 export const userCrudEvents: CrudEventsConfig = {
@@ -522,6 +523,9 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
+    const existing = await findOneWithDecryption(em, User, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+    if (!existing) throw new CrudHttpError(404, { error: 'User not found' })
+
     const rolesBefore = Array.isArray(parsed.roles)
       ? await loadUserRoleNames(em, parsed.id)
       : null
@@ -543,8 +547,17 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
     }
 
+    const userTenantId = existing.tenantId ? String(existing.tenantId) : null
+    const targetTenantId = tenantId !== undefined ? tenantId : userTenantId
+    const isTenantChanging = targetTenantId !== userTenantId
+
+    await enforceProtectedRoleFloor(em, userTenantId, parsed.id, {
+      deactivating: parsed.isConfirmed === false || isTenantChanging,
+      newRoles: parsed.roles,
+    })
+
     if (parsed.email !== undefined) {
-      const targetTenantId = tenantId !== undefined
+      const targetTenantIdCheck = tenantId !== undefined
         ? tenantId
         : await resolveUserTenantId(em, parsed.id)
       const duplicate = await findOneWithDecryption(
@@ -553,7 +566,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         {
           $or: [{ email: parsed.email }, { emailHash: { $in: emailHashLookupValues(parsed.email) } }],
           deletedAt: null,
-          tenantId: targetTenantId,
+          tenantId: targetTenantIdCheck,
           id: { $ne: parsed.id } as any,
         } as FilterQuery<User>,
         {},
@@ -593,6 +606,9 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           if (parsed.organizationId !== undefined) {
             entity.organizationId = parsed.organizationId
             entity.tenantId = tenantId ?? null
+          }
+          if (parsed.isConfirmed !== undefined) {
+            entity.isConfirmed = parsed.isConfirmed
           }
           if (hashed) entity.passwordHash = hashed
         },
@@ -780,6 +796,13 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const id = requireId(input, 'User id required')
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
+
+    const existing = await findOneWithDecryption(em, User, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+    if (existing) {
+      const userTenantId = existing.tenantId ? String(existing.tenantId) : null
+      await enforceProtectedRoleFloor(em, userTenantId, id, { deleting: true })
+    }
+
     const actorTenantScope = resolveActorTenantScope(ctx)
     const deleteWhere: Record<string, unknown> = { id, deletedAt: null }
     if (actorTenantScope) deleteWhere.tenantId = actorTenantScope
@@ -1098,4 +1121,73 @@ async function throwDuplicateEmailError(): Promise<never> {
     fieldErrors: { email: message },
     details: [{ path: ['email'], message, code: 'duplicate', origin: 'validation' }],
   })
+}
+
+async function enforceProtectedRoleFloor(
+  em: EntityManager,
+  tenantId: string | null,
+  userId: string,
+  options: {
+    deactivating?: boolean
+    newRoles?: string[]
+    deleting?: boolean
+  }
+): Promise<void> {
+  const normalizedTenantId = normalizeTenantId(tenantId) ?? null
+  if (!normalizedTenantId) return
+
+  // Find all protected roles in this tenant
+  const protectedRoles = await findWithDecryption(em, Role, {
+    tenantId: normalizedTenantId,
+    minActiveHolders: { $gt: 0 },
+    deletedAt: null
+  }, {}, { tenantId: normalizedTenantId, organizationId: null })
+
+  if (protectedRoles.length === 0) return
+
+  const { translate } = await resolveTranslations()
+
+  for (const role of protectedRoles) {
+    const minFloor = role.minActiveHolders ?? 0
+    if (minFloor <= 0) continue
+
+    // Find all active links for this role
+    const activeLinks = await findWithDecryption(em, UserRole, {
+      role: role.id,
+      deletedAt: null,
+      user: {
+        deletedAt: null,
+        isConfirmed: true
+      }
+    }, { populate: ['user'] }, { tenantId: null, organizationId: null })
+
+    const activeUserIds = activeLinks.map(link => String(link.user.id))
+
+    // Is the target user currently one of the active holders?
+    if (activeUserIds.includes(userId)) {
+      // Determine if they will remain an active holder
+      let willStillBeActiveHolder = true
+
+      if (options.deleting || options.deactivating) {
+        willStillBeActiveHolder = false
+      } else if (options.newRoles !== undefined) {
+        // Checking role list
+        const desiredUnique = Array.from(new Set(options.newRoles.map((r) => r.trim().toLowerCase()).filter(Boolean)))
+        const roleNameLower = role.name.toLowerCase()
+        const hasRoleByName = desiredUnique.includes(roleNameLower) || desiredUnique.includes(String(role.id).toLowerCase())
+        if (!hasRoleByName) {
+          willStillBeActiveHolder = false
+        }
+      }
+
+      if (!willStillBeActiveHolder) {
+        const remaining = activeUserIds.length - 1
+        if (remaining < minFloor) {
+          throw new CrudHttpError(400, {
+            error: translate('auth.users.errors.last_holder_critical_role', 'Cannot remove the last active holder of role "{roleName}"', { roleName: role.name })
+          })
+        }
+      }
+    }
+  }
 }

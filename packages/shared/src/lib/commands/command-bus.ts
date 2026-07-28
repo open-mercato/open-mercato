@@ -243,6 +243,24 @@ export class CommandBus {
     const snapshotsWithAfter = { ...snapshots, after: afterSnapshot }
     const logMeta = await this.buildLog(handler, effectiveOptions, result, snapshotsWithAfter)
     let mergedMeta = this.mergeMetadata(effectiveOptions.metadata, logMeta)
+    if (interceptorMetadata && interceptorMetadata.size > 0) {
+      let interceptorContextMerged: Record<string, unknown> = {}
+      for (const meta of interceptorMetadata.values()) {
+        if (meta && typeof meta === 'object' && 'context' in meta && meta.context && typeof meta.context === 'object') {
+          interceptorContextMerged = {
+            ...interceptorContextMerged,
+            ...meta.context,
+          }
+        }
+      }
+      if (Object.keys(interceptorContextMerged).length > 0) {
+        mergedMeta = mergedMeta ?? {}
+        mergedMeta.context = {
+          ...asRecord(mergedMeta.context),
+          ...interceptorContextMerged,
+        }
+      }
+    }
     const undoable = this.isUndoable(handler)
     if (undoable) {
       mergedMeta = mergedMeta ?? {}

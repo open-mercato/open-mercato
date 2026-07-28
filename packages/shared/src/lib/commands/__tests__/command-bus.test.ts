@@ -5,10 +5,12 @@ import {
   registerCommandLoaders,
   CommandBus,
 } from '@open-mercato/shared/lib/commands'
+import { registerCommandInterceptors } from '../command-interceptor-store'
 
 describe('CommandBus', () => {
   afterEach(() => {
     commandRegistry.clear()
+    registerCommandInterceptors([])
   })
 
   it('executes registered command and logs action metadata', async () => {
@@ -118,5 +120,59 @@ describe('CommandBus', () => {
 
     expect(result).toEqual({ ok: true })
     expect(execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('merges command interceptor beforeExecute returned metadata.context into logged context', async () => {
+    const logMock = jest.fn(async () => ({ id: 'log-entry' }))
+    registerCommand({
+      id: 'test.command.interceptor-context',
+      execute: jest.fn(async () => ({ ok: true })),
+      buildLog: jest.fn(() => ({ actionLabel: 'Test', resourceKind: 'test', resourceId: '123', context: { original: 'value' } })),
+    })
+
+    registerCommandInterceptors([
+      {
+        moduleId: 'test-module',
+        interceptors: [
+          {
+            id: 'test-interceptor',
+            targetCommand: 'test.command.*',
+            beforeExecute: async () => ({
+              ok: true,
+              metadata: {
+                context: {
+                  ip: '127.0.0.1',
+                  requestId: 'req-abc',
+                },
+              },
+            }),
+          },
+        ],
+      },
+    ])
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log: logMock }) })
+
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    await bus.execute('test.command.interceptor-context', { input: {}, ctx })
+
+    expect(logMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: {
+          original: 'value',
+          ip: '127.0.0.1',
+          requestId: 'req-abc',
+        },
+      })
+    )
   })
 })

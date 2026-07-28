@@ -5,60 +5,12 @@
   ],
   "tables": [
     {
-      "name": "roles",
+      "name": "password_resets",
       "schema": "public",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": true,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "text"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
         "created_at": {
           "name": "created_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -69,28 +21,13 @@
           "scale": null,
           "default": null,
           "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "datetime"
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -101,41 +38,27 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "datetime"
-        }
-      },
-      "indexes": [
-        {
-          "keyName": "roles_tenant_id_name_unique",
-          "columnNames": [
-            "tenant_id",
-            "name"
-          ],
-          "composite": true,
-          "constraint": true,
-          "primary": false,
-          "unique": true
         },
-        {
-          "keyName": "roles_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {},
-      "nativeEnums": {}
-    },
-    {
-      "name": "role_acls",
-      "schema": "public",
-      "columns": {
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
         "id": {
           "name": "id",
           "type": "uuid",
@@ -149,11 +72,46 @@
           "scale": null,
           "default": "gen_random_uuid()",
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
         },
-        "role_id": {
-          "name": "role_id",
+        "token": {
+          "name": "token",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": true,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "user_id": {
+          "name": "user_id",
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
@@ -165,24 +123,87 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "password_resets_pkey",
+          "primary": true,
+          "unique": true
         },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
+        {
+          "columnNames": [
+            "token"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "password_resets_token_unique",
+          "primary": false,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "triggers": [],
+      "foreignKeys": {
+        "password_resets_user_id_foreign": {
+          "columnNames": [
+            "user_id"
+          ],
+          "constraintName": "password_resets_user_id_foreign",
+          "localTableName": "public.password_resets",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.users"
+        }
+      },
+      "comment": null
+    },
+    {
+      "name": "role_acls",
+      "schema": "public",
+      "columns": {
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
           "unique": false,
-          "length": null,
+          "length": 6,
           "precision": null,
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
-          "mappedType": "uuid"
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
         },
         "features_json": {
           "name": "features_json",
@@ -197,8 +218,26 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "json"
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
         },
         "is_super_admin": {
           "name": "is_super_admin",
@@ -213,6 +252,7 @@
           "scale": null,
           "default": "false",
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "boolean"
         },
@@ -229,105 +269,9 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "json"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        }
-      },
-      "indexes": [
-        {
-          "keyName": "role_acls_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {
-        "role_acls_role_id_foreign": {
-          "constraintName": "role_acls_role_id_foreign",
-          "columnNames": [
-            "role_id"
-          ],
-          "localTableName": "public.role_acls",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.roles"
-        }
-      },
-      "nativeEnums": {}
-    },
-    {
-      "name": "role_sidebar_preferences",
-      "schema": "public",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": true,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
         },
         "role_id": {
           "name": "role_id",
@@ -342,6 +286,7 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
         },
@@ -351,13 +296,116 @@
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": true,
+          "nullable": false,
           "unique": false,
           "length": null,
           "precision": null,
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "role_acls_pkey",
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "triggers": [],
+      "foreignKeys": {
+        "role_acls_role_id_foreign": {
+          "columnNames": [
+            "role_id"
+          ],
+          "constraintName": "role_acls_role_id_foreign",
+          "localTableName": "public.role_acls",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.roles"
+        }
+      },
+      "comment": null
+    },
+    {
+      "name": "role_sidebar_preferences",
+      "schema": "public",
+      "columns": {
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
         },
@@ -374,8 +422,26 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "text"
+        },
+        "role_id": {
+          "name": "role_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
         },
         "settings_json": {
           "name": "settings_json",
@@ -390,105 +456,9 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "json"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        }
-      },
-      "indexes": [
-        {
-          "keyName": "role_sidebar_preferences_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {
-        "role_sidebar_preferences_role_id_foreign": {
-          "constraintName": "role_sidebar_preferences_role_id_foreign",
-          "columnNames": [
-            "role_id"
-          ],
-          "localTableName": "public.role_sidebar_preferences",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.roles"
-        }
-      },
-      "nativeEnums": {}
-    },
-    {
-      "name": "users",
-      "schema": "public",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": true,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
         },
         "tenant_id": {
           "name": "tenant_id",
@@ -503,140 +473,13 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "email": {
-          "name": "email",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "text"
-        },
-        "email_hash": {
-          "name": "email_hash",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "text"
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "text"
-        },
-        "password_hash": {
-          "name": "password_hash",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "text"
-        },
-        "is_confirmed": {
-          "name": "is_confirmed",
-          "type": "boolean",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "true",
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "boolean"
-        },
-        "last_login_at": {
-          "name": "last_login_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -647,22 +490,7 @@
           "scale": null,
           "default": null,
           "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "datetime"
         }
@@ -670,33 +498,70 @@
       "indexes": [
         {
           "columnNames": [
-            "email_hash"
-          ],
-          "composite": false,
-          "keyName": "users_email_hash_idx",
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "users_pkey",
-          "columnNames": [
             "id"
           ],
           "composite": false,
           "constraint": true,
+          "keyName": "role_sidebar_preferences_pkey",
           "primary": true,
           "unique": true
         }
       ],
       "checks": [],
-      "foreignKeys": {},
-      "nativeEnums": {}
+      "triggers": [],
+      "foreignKeys": {
+        "role_sidebar_preferences_role_id_foreign": {
+          "columnNames": [
+            "role_id"
+          ],
+          "constraintName": "role_sidebar_preferences_role_id_foreign",
+          "localTableName": "public.role_sidebar_preferences",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.roles"
+        }
+      },
+      "comment": null
     },
     {
-      "name": "sidebar_variants",
+      "name": "roles",
       "schema": "public",
       "columns": {
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
         "id": {
           "name": "id",
           "type": "uuid",
@@ -710,8 +575,212 @@
           "scale": null,
           "default": "gen_random_uuid()",
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "min_active_holders": {
+          "name": "min_active_holders",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": true,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "roles_pkey",
+          "primary": true,
+          "unique": true
+        },
+        {
+          "columnNames": [
+            "tenant_id",
+            "name"
+          ],
+          "composite": true,
+          "constraint": true,
+          "keyName": "roles_tenant_id_name_unique",
+          "primary": false,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "triggers": [],
+      "foreignKeys": {},
+      "comment": null
+    },
+    {
+      "name": "sessions",
+      "schema": "public",
+      "columns": {
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": true,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
         },
         "user_id": {
           "name": "user_id",
@@ -726,88 +795,104 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "sessions_pkey",
+          "primary": true,
+          "unique": true
         },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
+        {
+          "columnNames": [
+            "token"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "sessions_token_unique",
           "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "locale": {
-          "name": "locale",
-          "type": "text",
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "triggers": [],
+      "foreignKeys": {
+        "sessions_user_id_foreign": {
+          "columnNames": [
+            "user_id"
+          ],
+          "constraintName": "sessions_user_id_foreign",
+          "localTableName": "public.sessions",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.users"
+        }
+      },
+      "comment": null
+    },
+    {
+      "name": "sidebar_variants",
+      "schema": "public",
+      "columns": {
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
           "unique": false,
-          "length": null,
+          "length": 6,
           "precision": null,
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
-          "mappedType": "text"
+          "mappedType": "datetime"
         },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "text"
-        },
-        "settings_json": {
-          "name": "settings_json",
-          "type": "jsonb",
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": true,
           "unique": false,
-          "length": null,
+          "length": 6,
           "precision": null,
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
-          "mappedType": "json"
+          "mappedType": "datetime"
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
         },
         "is_active": {
           "name": "is_active",
@@ -822,124 +907,12 @@
           "scale": null,
           "default": "false",
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "boolean"
         },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        }
-      },
-      "indexes": [
-        {
-          "keyName": "sidebar_variants_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {
-        "sidebar_variants_user_id_foreign": {
-          "constraintName": "sidebar_variants_user_id_foreign",
-          "columnNames": [
-            "user_id"
-          ],
-          "localTableName": "public.sidebar_variants",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.users"
-        }
-      },
-      "nativeEnums": {}
-    },
-    {
-      "name": "sessions",
-      "schema": "public",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": true,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "token": {
-          "name": "token",
+        "locale": {
+          "name": "locale",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -951,150 +924,12 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "text"
         },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "last_used_at": {
-          "name": "last_used_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        }
-      },
-      "indexes": [
-        {
-          "columnNames": [
-            "token"
-          ],
-          "composite": false,
-          "keyName": "sessions_token_unique",
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
-        {
-          "keyName": "sessions_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {
-        "sessions_user_id_foreign": {
-          "constraintName": "sessions_user_id_foreign",
-          "columnNames": [
-            "user_id"
-          ],
-          "localTableName": "public.sessions",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.users"
-        }
-      },
-      "nativeEnums": {}
-    },
-    {
-      "name": "password_resets",
-      "schema": "public",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": true,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "token": {
-          "name": "token",
+        "name": {
+          "name": "name",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -1106,147 +941,43 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "text"
         },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "used_at": {
-          "name": "used_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        }
-      },
-      "indexes": [
-        {
-          "columnNames": [
-            "token"
-          ],
-          "composite": false,
-          "keyName": "password_resets_token_unique",
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
-        {
-          "keyName": "password_resets_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {
-        "password_resets_user_id_foreign": {
-          "constraintName": "password_resets_user_id_foreign",
-          "columnNames": [
-            "user_id"
-          ],
-          "localTableName": "public.password_resets",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.users"
-        }
-      },
-      "nativeEnums": {}
-    },
-    {
-      "name": "user_acls",
-      "schema": "public",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": true,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "user_id": {
-          "name": "user_id",
+        "organization_id": {
+          "name": "organization_id",
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "unique": false,
           "length": null,
           "precision": null,
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "settings_json": {
+          "name": "settings_json",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
         },
         "tenant_id": {
           "name": "tenant_id",
@@ -1254,6 +985,40 @@
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
           "nullable": false,
           "unique": false,
           "length": null,
@@ -1261,8 +1026,77 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "sidebar_variants_pkey",
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "triggers": [],
+      "foreignKeys": {
+        "sidebar_variants_user_id_foreign": {
+          "columnNames": [
+            "user_id"
+          ],
+          "constraintName": "sidebar_variants_user_id_foreign",
+          "localTableName": "public.sidebar_variants",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.users"
+        }
+      },
+      "comment": null
+    },
+    {
+      "name": "user_acls",
+      "schema": "public",
+      "columns": {
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
         },
         "features_json": {
           "name": "features_json",
@@ -1277,8 +1111,26 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "json"
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
         },
         "is_super_admin": {
           "name": "is_super_admin",
@@ -1293,6 +1145,7 @@
           "scale": null,
           "default": "false",
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "boolean"
         },
@@ -1309,105 +1162,43 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "json"
         },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        }
-      },
-      "indexes": [
-        {
-          "keyName": "user_acls_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {
-        "user_acls_user_id_foreign": {
-          "constraintName": "user_acls_user_id_foreign",
-          "columnNames": [
-            "user_id"
-          ],
-          "localTableName": "public.user_acls",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.users"
-        }
-      },
-      "nativeEnums": {}
-    },
-    {
-      "name": "user_consents",
-      "schema": "public",
-      "columns": {
-        "id": {
-          "name": "id",
+        "tenant_id": {
+          "name": "tenant_id",
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
           "unique": false,
           "length": null,
           "precision": null,
           "scale": null,
-          "default": "gen_random_uuid()",
+          "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
         },
         "user_id": {
           "name": "user_id",
@@ -1422,41 +1213,44 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "user_acls_pkey",
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "triggers": [],
+      "foreignKeys": {
+        "user_acls_user_id_foreign": {
+          "columnNames": [
+            "user_id"
+          ],
+          "constraintName": "user_acls_user_id_foreign",
+          "localTableName": "public.user_acls",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.users"
+        }
+      },
+      "comment": null
+    },
+    {
+      "name": "user_consents",
+      "schema": "public",
+      "columns": {
         "consent_type": {
           "name": "consent_type",
           "type": "text",
@@ -1470,28 +1264,47 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "text"
         },
-        "is_granted": {
-          "name": "is_granted",
-          "type": "boolean",
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
           "unique": false,
-          "length": null,
+          "length": 6,
           "precision": null,
           "scale": null,
-          "default": "false",
+          "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
-          "mappedType": "boolean"
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
         },
         "granted_at": {
           "name": "granted_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1502,27 +1315,29 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "datetime"
         },
-        "withdrawn_at": {
-          "name": "withdrawn_at",
-          "type": "timestamptz",
+        "id": {
+          "name": "id",
+          "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": false,
-          "nullable": true,
+          "primary": true,
+          "nullable": false,
           "unique": false,
-          "length": 6,
+          "length": null,
           "precision": null,
           "scale": null,
-          "default": null,
+          "default": "gen_random_uuid()",
           "comment": null,
+          "collation": null,
           "enumItems": [],
-          "mappedType": "datetime"
+          "mappedType": "uuid"
         },
-        "source": {
-          "name": "source",
+        "integrity_hash": {
+          "name": "integrity_hash",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -1534,6 +1349,7 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "text"
         },
@@ -1550,11 +1366,46 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "text"
         },
-        "integrity_hash": {
-          "name": "integrity_hash",
+        "is_granted": {
+          "name": "is_granted",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "false",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "source": {
+          "name": "source",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -1566,12 +1417,115 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "text"
         },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": true,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "withdrawn_at": {
+          "name": "withdrawn_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "user_consents_pkey",
+          "primary": true,
+          "unique": true
+        },
+        {
+          "columnNames": [
+            "user_id",
+            "tenant_id",
+            "consent_type"
+          ],
+          "composite": true,
+          "constraint": true,
+          "keyName": "user_consents_user_id_tenant_id_consent_type_unique",
+          "primary": false,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "triggers": [],
+      "foreignKeys": {},
+      "comment": null
+    },
+    {
+      "name": "user_roles",
+      "schema": "public",
+      "columns": {
         "created_at": {
           "name": "created_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1582,28 +1536,13 @@
           "scale": null,
           "default": null,
           "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "datetime"
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1614,42 +1553,10 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "datetime"
-        }
-      },
-      "indexes": [
-        {
-          "keyName": "user_consents_user_id_tenant_id_consent_type_unique",
-          "columnNames": [
-            "user_id",
-            "tenant_id",
-            "consent_type"
-          ],
-          "composite": true,
-          "constraint": true,
-          "primary": false,
-          "unique": true
         },
-        {
-          "keyName": "user_consents_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {},
-      "nativeEnums": {}
-    },
-    {
-      "name": "user_roles",
-      "schema": "public",
-      "columns": {
         "id": {
           "name": "id",
           "type": "uuid",
@@ -1663,22 +1570,7 @@
           "scale": null,
           "default": "gen_random_uuid()",
           "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
         },
@@ -1695,118 +1587,7 @@
           "scale": null,
           "default": null,
           "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        }
-      },
-      "indexes": [
-        {
-          "keyName": "user_roles_user_id_idx",
-          "columnNames": [
-            "user_id"
-          ],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "user_roles_role_id_idx",
-          "columnNames": [
-            "role_id"
-          ],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "user_roles_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {
-        "user_roles_user_id_foreign": {
-          "constraintName": "user_roles_user_id_foreign",
-          "columnNames": [
-            "user_id"
-          ],
-          "localTableName": "public.user_roles",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.users"
-        },
-        "user_roles_role_id_foreign": {
-          "constraintName": "user_roles_role_id_foreign",
-          "columnNames": [
-            "role_id"
-          ],
-          "localTableName": "public.user_roles",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.roles"
-        }
-      },
-      "nativeEnums": {}
-    },
-    {
-      "name": "user_sidebar_preferences",
-      "schema": "public",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": true,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "gen_random_uuid()",
-          "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
         },
@@ -1823,38 +1604,123 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "user_roles_pkey",
+          "primary": true,
+          "unique": true
         },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
+        {
+          "columnNames": [
+            "role_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "user_roles_role_id_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "user_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "user_roles_user_id_idx",
+          "primary": false,
+          "unique": false
+        }
+      ],
+      "checks": [],
+      "triggers": [],
+      "foreignKeys": {
+        "user_roles_role_id_foreign": {
+          "columnNames": [
+            "role_id"
+          ],
+          "constraintName": "user_roles_role_id_foreign",
+          "localTableName": "public.user_roles",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.roles"
+        },
+        "user_roles_user_id_foreign": {
+          "columnNames": [
+            "user_id"
+          ],
+          "constraintName": "user_roles_user_id_foreign",
+          "localTableName": "public.user_roles",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.users"
+        }
+      },
+      "comment": null
+    },
+    {
+      "name": "user_sidebar_preferences",
+      "schema": "public",
+      "columns": {
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": true,
           "unique": false,
-          "length": null,
+          "length": 6,
           "precision": null,
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
-          "mappedType": "uuid"
+          "mappedType": "datetime"
         },
-        "organization_id": {
-          "name": "organization_id",
+        "id": {
+          "name": "id",
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": false,
-          "nullable": true,
+          "primary": true,
+          "nullable": false,
           "unique": false,
           "length": null,
           "precision": null,
           "scale": null,
-          "default": null,
+          "default": "gen_random_uuid()",
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
         },
@@ -1871,8 +1737,26 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "text"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
         },
         "settings_json": {
           "name": "settings_json",
@@ -1887,12 +1771,98 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "json"
         },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "user_sidebar_preferences_pkey",
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "triggers": [],
+      "foreignKeys": {
+        "user_sidebar_preferences_user_id_foreign": {
+          "columnNames": [
+            "user_id"
+          ],
+          "constraintName": "user_sidebar_preferences_user_id_foreign",
+          "localTableName": "public.user_sidebar_preferences",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.users"
+        }
+      },
+      "comment": null
+    },
+    {
+      "name": "users",
+      "schema": "public",
+      "columns": {
         "created_at": {
           "name": "created_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1903,28 +1873,13 @@
           "scale": null,
           "default": null,
           "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "datetime"
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1935,37 +1890,207 @@
           "scale": null,
           "default": null,
           "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "email_hash": {
+          "name": "email_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "is_confirmed": {
+          "name": "is_confirmed",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "true",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
+        "last_login_at": {
+          "name": "last_login_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "password_hash": {
+          "name": "password_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
           "enumItems": [],
           "mappedType": "datetime"
         }
       },
       "indexes": [
         {
-          "keyName": "user_sidebar_preferences_pkey",
+          "columnNames": [
+            "email_hash"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "users_email_hash_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
           "columnNames": [
             "id"
           ],
           "composite": false,
           "constraint": true,
+          "keyName": "users_pkey",
           "primary": true,
           "unique": true
         }
       ],
       "checks": [],
-      "foreignKeys": {
-        "user_sidebar_preferences_user_id_foreign": {
-          "constraintName": "user_sidebar_preferences_user_id_foreign",
-          "columnNames": [
-            "user_id"
-          ],
-          "localTableName": "public.user_sidebar_preferences",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.users"
-        }
-      },
-      "nativeEnums": {}
+      "triggers": [],
+      "foreignKeys": {},
+      "comment": null
     }
   ],
   "views": [],
