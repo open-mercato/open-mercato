@@ -67,8 +67,8 @@ beforeEach(() => {
 
 const conditionedRoute = {
   label: 'Approved',
-  condition: { type: 'group', operator: 'AND', children: [{ type: 'condition', field: 'amount', operator: 'gt', value: 100 }] },
-  activities: [{ activityId: 'a1', activityType: 'SEND_EMAIL', activityName: 'Notify' }],
+  condition: { field: 'amount', operator: '>', value: 5000 },
+  activities: [{ activityId: 'a1', activityType: 'SEND_EMAIL', activityName: 'Notify', config: {} }],
 }
 
 describe('route geometry is a cubic bezier', () => {

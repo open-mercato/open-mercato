@@ -180,7 +180,12 @@ export default function WorkflowGraphImpl({
   const latestEdgesRef = useRef(edges)
   latestEdgesRef.current = edges
 
-  const backgroundDotColor = 'var(--border)'
+  // A 16px dot grid on a large canvas reads as moiré while each dot is nearly
+  // invisible. A 24px grid (the 4px-scale step nearest the design's 22px) at a
+  // low mix of `--muted-foreground` gives the plane a texture you can read
+  // depth from without competing with the graph.
+  const backgroundDotColor = 'color-mix(in oklab, var(--muted-foreground) 22%, transparent)'
+  const backgroundDotGap = 24
   const [isCompactViewport, setIsCompactViewport] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null)
@@ -440,17 +445,20 @@ export default function WorkflowGraphImpl({
       >
         <Background
           variant={BackgroundVariant.Dots}
-          gap={16}
+          gap={backgroundDotGap}
           size={1}
           color={backgroundDotColor}
         />
 
+        {/* Tools bottom-left, minimap bottom-right. Top-right put the canvas
+            controls directly under the editor's own header actions, so two
+            unrelated button clusters stacked on the same corner. */}
         <Controls
           showZoom={true}
           showFitView={true}
           showInteractive={false}
-          position={isCompactViewport ? 'bottom-right' : 'top-right'}
-          className={`!bg-card !border-border !shadow-md [&>button]:!bg-card [&>button]:!border-border [&>button]:!fill-foreground [&>button:hover]:!bg-muted ${isCompactViewport ? 'scale-90 origin-bottom-right' : ''}`}
+          position="bottom-left"
+          className={`!bg-card !border-border !shadow-md [&>button]:!bg-card [&>button]:!border-border [&>button]:!fill-foreground [&>button:hover]:!bg-muted ${isCompactViewport ? 'scale-90 origin-bottom-left' : ''}`}
         />
 
         {!isCompactViewport && (
@@ -461,7 +469,7 @@ export default function WorkflowGraphImpl({
               return STATUS_COLORS[status]?.hex || STATUS_COLORS.not_started.hex
             }}
             maskColor="rgba(0, 0, 0, 0.1)"
-            position="bottom-left"
+            position="bottom-right"
             className="!bg-card !border !border-border !rounded-lg"
           />
         )}
