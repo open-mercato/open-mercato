@@ -62,8 +62,8 @@ export class Role {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @Property({ name: 'min_active_holders', type: 'integer', nullable: true })
-  minActiveHolders?: number | null
+  @Property({ name: 'min_active_holders', type: 'integer', default: 0 })
+  minActiveHolders: number = 0
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

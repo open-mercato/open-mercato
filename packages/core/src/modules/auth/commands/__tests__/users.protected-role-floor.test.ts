@@ -39,6 +39,7 @@ import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { LockMode } from '@mikro-orm/core'
 
 describe('auth.users.update/delete protected role floor floor checks', () => {
   let findMock: jest.Mock
@@ -66,7 +67,7 @@ describe('auth.users.update/delete protected role floor floor checks', () => {
     return em
   }
 
-  function makeCtx(em: EntityManager, dataEngine: unknown): CommandRuntimeContext {
+  function makeCtx(em: EntityManager, dataEngine: unknown, tenantScope: string | null = '33333333-3333-3333-3333-333333333333'): CommandRuntimeContext {
     const container = {
       resolve: (token: string) => {
         if (token === 'em') return em
@@ -76,7 +77,7 @@ describe('auth.users.update/delete protected role floor floor checks', () => {
     }
     return {
       container: container as unknown as CommandRuntimeContext['container'],
-      auth: { sub: 'a7b05934-d021-4f11-9a74-b97c2718ef55', tenantId: 'c7b05934-d021-4f11-9a74-b97c2718ef55', orgId: 'e7b05934-d021-4f11-9a74-b97c2718ef55' } as any,
+      auth: { sub: 'a7b05934-d021-4f11-9a74-b97c2718ef55', tenantId: tenantScope, orgId: 'e7b05934-d021-4f11-9a74-b97c2718ef55' } as any,
       organizationScope: null,
       selectedOrganizationId: null,
       organizationIds: null,
@@ -85,7 +86,8 @@ describe('auth.users.update/delete protected role floor floor checks', () => {
   }
 
   const userId = 'a7b05934-d021-4f11-9a74-b97c2718ef55'
-  const tenantId = 'c7b05934-d021-4f11-9a74-b97c2718ef55'
+  const tenantId = '33333333-3333-3333-3333-333333333333'
+  const foreignTenantId = 'f7b05934-d021-4f11-9a74-b97c2718ef55'
 
   const mockAdminRole = {
     id: 'd7b05934-d021-4f11-9a74-b97c2718ef55',
@@ -249,5 +251,63 @@ describe('auth.users.update/delete protected role floor floor checks', () => {
     ).rejects.toThrow(
       new CrudHttpError(400, { error: 'Cannot remove the last active holder of role "admin"' })
     )
+  })
+
+  it('fails with 404 when target user is in a different tenant (Oracle Defense)', async () => {
+    const em = makeEm()
+    const dataEngine = {}
+    // Scoped ctx to 'tenant-1' (userId is mockUser1 which has 'tenant-1')
+    // We try to access mockUser1 with a different tenantScope in ctx
+    const ctx = makeCtx(em, dataEngine, foreignTenantId)
+
+    findOneMock.mockImplementation((entity, where) => {
+      if (entity === User) {
+        // User exists but belongs to 'tenant-1'
+        return mockUser1
+      }
+      return null
+    })
+
+    const handler = commandRegistry.get('auth.users.delete') as CommandHandler
+
+    await expect(handler.execute({ id: userId }, ctx)).rejects.toThrow(
+      new CrudHttpError(404, { error: 'User not found' })
+    )
+  })
+
+  it('acquires pessimistic write lock on Roles to prevent concurrent races', async () => {
+    const em = makeEm()
+    const dataEngine = {
+      deleteOrmEntity: jest.fn(async () => mockUser1),
+    }
+    const ctx = makeCtx(em, dataEngine)
+
+    findOneMock.mockImplementation((entity, where) => {
+      if (entity === User) return mockUser1
+      return null
+    })
+
+    findMock.mockImplementation((entity, where) => {
+      if (entity === Role) return [mockAdminRole]
+      if (entity === UserRole) return [{ user: mockUser1, role: mockAdminRole }]
+      return []
+    })
+
+    const handler = commandRegistry.get('auth.users.delete') as CommandHandler
+
+    try {
+      await handler.execute({ id: userId }, ctx)
+    } catch {}
+
+    // Verify find option passed LockMode.PESSIMISTIC_WRITE for Roles
+    const roleCall = findMock.mock.calls.find(call => call[0] === Role)
+    expect(roleCall[2]).toEqual(
+      expect.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE })
+    )
+  })
+
+  it('defaults minActiveHolders to 0 on new role entities', () => {
+    const role = new Role()
+    expect(role.minActiveHolders).toBe(0)
   })
 })

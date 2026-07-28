@@ -122,12 +122,20 @@ describe('CommandBus', () => {
     expect(execute).toHaveBeenCalledTimes(1)
   })
 
-  it('merges command interceptor beforeExecute returned metadata.context into logged context', async () => {
+  it('merges command interceptor beforeExecute returned metadata.context into logged context with correct precedence', async () => {
     const logMock = jest.fn(async () => ({ id: 'log-entry' }))
     registerCommand({
       id: 'test.command.interceptor-context',
       execute: jest.fn(async () => ({ ok: true })),
-      buildLog: jest.fn(() => ({ actionLabel: 'Test', resourceKind: 'test', resourceId: '123', context: { original: 'value' } })),
+      buildLog: jest.fn(() => ({
+        actionLabel: 'Test',
+        resourceKind: 'test',
+        resourceId: '123',
+        context: {
+          original: 'buildlog-original-value',
+          interceptorOverridden: 'buildlog-takes-precedence',
+        },
+      })),
     })
 
     registerCommandInterceptors([
@@ -135,14 +143,32 @@ describe('CommandBus', () => {
         moduleId: 'test-module',
         interceptors: [
           {
-            id: 'test-interceptor',
+            id: 'test-interceptor-priority-2',
             targetCommand: 'test.command.*',
+            priority: 60, // runs second
             beforeExecute: async () => ({
               ok: true,
               metadata: {
                 context: {
                   ip: '127.0.0.1',
-                  requestId: 'req-abc',
+                  requestId: 'req-second',
+                  interceptorOverlap: 'second-wins',
+                },
+              },
+            }),
+          },
+          {
+            id: 'test-interceptor-priority-1',
+            targetCommand: 'test.command.*',
+            priority: 40, // runs first
+            beforeExecute: async () => ({
+              ok: true,
+              metadata: {
+                context: {
+                  requestId: 'req-first',
+                  interceptorOverlap: 'first-loss',
+                  baseOverridden: 'interceptor-wins-over-base',
+                  interceptorOverridden: 'interceptor-loss-to-buildlog',
                 },
               },
             }),
@@ -163,14 +189,28 @@ describe('CommandBus', () => {
       organizationIds: null,
     }
 
-    await bus.execute('test.command.interceptor-context', { input: {}, ctx })
+    await bus.execute('test.command.interceptor-context', {
+      input: {},
+      ctx,
+      metadata: {
+        context: {
+          original: 'base-original-value', // will be overridden by buildLog
+          baseOverridden: 'base-original-to-be-overridden',
+          untouched: 'base-untouched',
+        },
+      },
+    })
 
     expect(logMock).toHaveBeenCalledWith(
       expect.objectContaining({
         context: {
-          original: 'value',
+          untouched: 'base-untouched',
+          baseOverridden: 'interceptor-wins-over-base',
+          requestId: 'req-second',
+          interceptorOverlap: 'second-wins',
           ip: '127.0.0.1',
-          requestId: 'req-abc',
+          original: 'buildlog-original-value',
+          interceptorOverridden: 'buildlog-takes-precedence',
         },
       })
     )

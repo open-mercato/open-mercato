@@ -69,7 +69,12 @@ export interface CommandInterceptorBeforeResult {
   message?: string
   /** Modified input — shallow-merged into command input if ok:true */
   modifiedInput?: Record<string, unknown>
-  /** Metadata passed to the corresponding after hook */
+  /**
+   * Metadata passed to the corresponding after hook.
+   * Additive audit log context: if this object contains a `context` record (e.g. `{ context: { ip: '...' } }`),
+   * its keys are shallow-merged into the final ActionLog.context_json at persist time.
+   * Interceptor-contributed context keys take precedence over options.metadata.context but yield to logMeta.context where there are conflicts.
+   */
   metadata?: Record<string, unknown>
 }
 

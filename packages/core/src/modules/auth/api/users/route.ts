@@ -74,6 +74,7 @@ const userUpdateSchema = z.object({
   password: passwordSchema.optional(),
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
+  isConfirmed: z.boolean().optional(),
 })
 
 const userListItemSchema = z.object({

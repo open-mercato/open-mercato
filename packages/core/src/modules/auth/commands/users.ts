@@ -13,7 +13,7 @@ import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/l
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { UniqueConstraintViolationException, LockMode } from '@mikro-orm/core'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User, UserRole, Role, UserAcl, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
@@ -523,8 +523,12 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
+    const actorTenantScope = resolveActorTenantScope(ctx)
     const existing = await findOneWithDecryption(em, User, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) throw new CrudHttpError(404, { error: 'User not found' })
+    if (actorTenantScope && existing.tenantId && String(existing.tenantId) !== actorTenantScope) {
+      throw new CrudHttpError(404, { error: 'User not found' })
+    }
 
     const rolesBefore = Array.isArray(parsed.roles)
       ? await loadUserRoleNames(em, parsed.id)
@@ -585,7 +589,6 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       emailHash = computeEmailHash(parsed.email)
     }
 
-    const actorTenantScope = resolveActorTenantScope(ctx)
     const updateWhere: Record<string, unknown> = { id: parsed.id, deletedAt: null }
     if (actorTenantScope) updateWhere.tenantId = actorTenantScope
 
@@ -796,14 +799,17 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const id = requireId(input, 'User id required')
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    const actorTenantScope = resolveActorTenantScope(ctx)
 
     const existing = await findOneWithDecryption(em, User, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
-    if (existing) {
-      const userTenantId = existing.tenantId ? String(existing.tenantId) : null
-      await enforceProtectedRoleFloor(em, userTenantId, id, { deleting: true })
+    if (!existing) throw new CrudHttpError(404, { error: 'User not found' })
+    if (actorTenantScope && existing.tenantId && String(existing.tenantId) !== actorTenantScope) {
+      throw new CrudHttpError(404, { error: 'User not found' })
     }
 
-    const actorTenantScope = resolveActorTenantScope(ctx)
+    const userTenantId = existing.tenantId ? String(existing.tenantId) : null
+    await enforceProtectedRoleFloor(em, userTenantId, id, { deleting: true })
+
     const deleteWhere: Record<string, unknown> = { id, deletedAt: null }
     if (actorTenantScope) deleteWhere.tenantId = actorTenantScope
 
@@ -1136,12 +1142,12 @@ async function enforceProtectedRoleFloor(
   const normalizedTenantId = normalizeTenantId(tenantId) ?? null
   if (!normalizedTenantId) return
 
-  // Find all protected roles in this tenant
+  // Find all protected roles in this tenant, acquiring a pessimistic write lock to prevent concurrent races
   const protectedRoles = await findWithDecryption(em, Role, {
     tenantId: normalizedTenantId,
     minActiveHolders: { $gt: 0 },
     deletedAt: null
-  }, {}, { tenantId: normalizedTenantId, organizationId: null })
+  }, { lockMode: LockMode.PESSIMISTIC_WRITE }, { tenantId: normalizedTenantId, organizationId: null })
 
   if (protectedRoles.length === 0) return
 
