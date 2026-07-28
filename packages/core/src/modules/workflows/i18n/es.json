@@ -1278,6 +1278,7 @@
   "workflows.reattach.rejected.selfLoop": "Una ruta no puede empezar y terminar en el mismo paso.",
   "workflows.reattach.rejected.unsupported": "Esa ruta no se puede redirigir.",
   "workflows.reattach.retargeted": "Ruta redirigida",
+  "workflows.redirect.toStudio": "Abriendo el estudio de flujos de trabajo…",
   "workflows.rolesSelect.lookupUnavailable": "La lista de roles no está disponible — escribe los nombres de los roles y pulsa Enter",
   "workflows.rolesSelect.placeholder": "Selecciona un rol o escribe un nombre y pulsa Enter",
   "workflows.routeChips.activityLabel": "Actividad de ruta: {{activity}} — abrir la lista de actividades",

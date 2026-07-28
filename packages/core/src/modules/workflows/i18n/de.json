@@ -1278,6 +1278,7 @@
   "workflows.reattach.rejected.selfLoop": "Eine Route kann nicht am selben Schritt beginnen und enden.",
   "workflows.reattach.rejected.unsupported": "Diese Route kann nicht neu verbunden werden.",
   "workflows.reattach.retargeted": "Route neu verbunden",
+  "workflows.redirect.toStudio": "Workflow-Studio wird geöffnet …",
   "workflows.rolesSelect.lookupUnavailable": "Rollenliste nicht verfügbar — Rollennamen eingeben und Enter drücken",
   "workflows.rolesSelect.placeholder": "Rolle auswählen oder Namen eingeben und Enter drücken",
   "workflows.routeChips.activityLabel": "Routenaktivität: {{activity}} — Aktivitätsliste öffnen",

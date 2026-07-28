@@ -27,56 +27,51 @@ async function findDefinitionIdByWorkflowId(
   return body?.data?.[0]?.id ?? null
 }
 
-async function createMinimalDefinitionViaUi(
+/**
+ * Author a definition entirely through the UI, in the Studio.
+ *
+ * The form editor is retired (spec section 10), so the create path is now:
+ * definitions list → "Create Workflow" → template gallery → a template card →
+ * the Studio, pre-populated. The template's own workflowId/name are overwritten
+ * with the test's unique values before saving so concurrent runs cannot collide.
+ * `task-escalation` is deliberate: it is the only gallery template that carries
+ * no event trigger of its own, so nothing runs behind the test's back.
+ */
+async function createDefinitionInStudio(
   page: Page,
   workflowId: string,
   workflowName: string,
 ): Promise<void> {
-  await page.goto('/backend/definitions/create')
-  await expect(page).toHaveURL(/\/backend\/definitions\/create/)
+  await page.goto('/backend/definitions')
+  await page.getByRole('button', { name: /^create workflow$/i }).first().click()
+
+  const gallery = page.getByRole('dialog')
+  await expect(gallery).toBeVisible({ timeout: 10_000 })
+  await page.getByTestId('template-card-task-escalation').click()
+
+  await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?template=task-escalation/, { timeout: 15_000 })
+  await expect(page.locator('.react-flow__node').first()).toBeVisible({ timeout: 15_000 })
 
   await fillText(page, page.getByPlaceholder('checkout_workflow'), workflowId)
-  await fillText(page, page.getByPlaceholder('Enter a descriptive workflow name'), workflowName)
+  await fillText(page, page.getByPlaceholder('Checkout Process'), workflowName)
 
-  const addStepBtn = page.getByRole('button', { name: /^add step$/i })
-  await addStepBtn.click()
-  await fillText(page, page.locator('#step-0-id'), 'start')
-  await fillText(page, page.locator('#step-0-name'), 'Start')
-  // Radix Select helpers
-  const pickRadix = async (triggerId: string, optionLabel: string | RegExp) => {
-    await page.locator(`#${triggerId}`).click()
-    const opt = typeof optionLabel === 'string'
-      ? page.getByRole('option', { name: optionLabel, exact: true })
-      : page.getByRole('option', { name: optionLabel })
-    await opt.first().click()
-  }
-  await pickRadix('step-0-type', 'Start')
-
-  await addStepBtn.click()
-  await fillText(page, page.locator('#step-1-id'), 'end')
-  await fillText(page, page.locator('#step-1-name'), 'End')
-  await pickRadix('step-1-type', 'End')
-
-  await page.getByRole('button', { name: /^add transition$/i }).click()
-  await fillText(page, page.locator('#transition-0-id'), 'start-to-end')
-  await fillText(page, page.locator('#transition-0-name'), 'Auto advance')
-  await pickRadix('transition-0-from', /^start$/i)
-  await pickRadix('transition-0-to', /^end$/i)
-
-  await page.getByRole('button', { name: /^create workflow$/i }).first().click()
-  await expect(page).toHaveURL(/\/backend\/definitions(\?|$|\/)/, { timeout: 15_000 })
+  // The Studio stays put after saving and switches into edit mode by replacing
+  // the URL with the new definition's id.
+  await page.getByRole('button', { name: /^save$/i }).first().click()
+  await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 15_000 })
 }
 
 /**
  * TC-WF-007: Open a UI-created workflow in the visual editor and verify React Flow
- * renders the START/END nodes and the connecting edge.
+ * renders its steps and routes.
  *
- * Entirely UI-driven: the definition is created via the Create form (not the API),
- * then opened in /backend/definitions/visual-editor. React Flow nodes are located
- * via ReactFlow's default `.react-flow__node` / `.react-flow__edge` class hooks.
+ * Entirely UI-driven: the definition is authored in the Studio through the
+ * template gallery (not the API), then re-opened from the definitions list.
+ * React Flow nodes are located via ReactFlow's default `.react-flow__node` /
+ * `.react-flow__edge` class hooks.
  */
 test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
-  test('loads START/END nodes and their transition in the graph', async ({ page, request }) => {
+  test('loads the authored steps and their transitions in the graph', async ({ page, request }) => {
     const timestamp = Date.now()
     const workflowId = `qa-wf-007-${timestamp}`
     const workflowName = `QA TC-WF-007 ${timestamp}`
@@ -86,9 +81,12 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       token = await getAuthToken(request, 'admin')
 
       await login(page, 'admin')
-      await createMinimalDefinitionViaUi(page, workflowId, workflowName)
+      await createDefinitionInStudio(page, workflowId, workflowName)
 
-      // Navigate via the visual editor row action instead of URL-typing — more UI-real.
+      // Re-open from the list through the row action instead of URL-typing —
+      // more UI-real, and it is the single Edit entry now that the form editor
+      // is retired (spec section 10).
+      await page.goto('/backend/definitions')
       const searchBox = page.getByPlaceholder(/search/i).first()
       if (await searchBox.isVisible().catch(() => false)) {
         await fillText(page, searchBox, workflowId)
@@ -98,20 +96,23 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       const row = page.getByRole('row').filter({ hasText: workflowId })
       await expect(row).toBeVisible({ timeout: 10_000 })
       await row.getByRole('button', { name: /open actions/i }).hover()
-      await page.getByRole('menuitem', { name: /edit visually/i }).click()
+      await page.getByRole('menuitem', { name: /^edit$/i }).first().click()
 
       await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=/, { timeout: 15_000 })
 
-      // React Flow renders nodes with `.react-flow__node` and edges with `.react-flow__edge`.
+      // React Flow renders nodes with `.react-flow__node` and edges with
+      // `.react-flow__edge`. Counts mirror `examples/templates/task-escalation.json`.
       const nodes = page.locator('.react-flow__node')
-      await expect(nodes).toHaveCount(2, { timeout: 15_000 })
+      await expect(nodes).toHaveCount(4, { timeout: 15_000 })
 
-      // Each node card shows its label — verify START and END are both present.
+      // Each node card shows its label — verify the template's steps survived
+      // the save → reload round trip.
       await expect(nodes.filter({ hasText: 'Start' })).toHaveCount(1)
-      await expect(nodes.filter({ hasText: 'End' })).toHaveCount(1)
+      await expect(nodes.filter({ hasText: 'Review Task' })).toHaveCount(1)
+      await expect(nodes.filter({ hasText: 'Notify Escalation' })).toHaveCount(1)
+      await expect(nodes.filter({ hasText: 'Done' })).toHaveCount(1)
 
-      // One edge (start → end).
-      await expect(page.locator('.react-flow__edge')).toHaveCount(1, { timeout: 10_000 })
+      await expect(page.locator('.react-flow__edge')).toHaveCount(4, { timeout: 10_000 })
 
       // Workflow metadata pane reflects what we created.
       await expect(page.locator(`input[value="${workflowId}"]`).first()).toBeVisible()

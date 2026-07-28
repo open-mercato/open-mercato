@@ -1278,6 +1278,7 @@
   "workflows.reattach.rejected.selfLoop": "A route cannot start and end on the same step.",
   "workflows.reattach.rejected.unsupported": "That route cannot be re-targeted.",
   "workflows.reattach.retargeted": "Route re-targeted",
+  "workflows.redirect.toStudio": "Opening the workflow studio…",
   "workflows.rolesSelect.lookupUnavailable": "Role list unavailable — type role names and press Enter",
   "workflows.rolesSelect.placeholder": "Select a role or type a name and press Enter",
   "workflows.routeChips.activityLabel": "Route activity: {{activity}} — open the activity list",

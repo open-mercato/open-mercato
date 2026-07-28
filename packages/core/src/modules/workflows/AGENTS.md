@@ -271,6 +271,27 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   in-page buffer and says so; paste reads that buffer. It is never a silent no-op — the reason is
   always surfaced.
 
+## The Form Editor Is Retired (bridge routes)
+
+- **The Studio is the only workflow editor** (spec §10). `backend/definitions/create/page.tsx` and
+  `backend/definitions/[id]/page.tsx` are BRIDGE ROUTES: their bodies are an immediate
+  `router.replace` onto `/backend/definitions/visual-editor[?id=…]`, and their `page.meta.ts` guards
+  are untouched so RBAC still applies exactly as before. MUST NOT delete either file — the
+  deprecation protocol keeps them for ≥1 minor so bookmarks and third-party links keep working.
+- **Retirement was gated on the Code view.** The spec allows retirement only once the Phase 3 Code
+  view exists, because until then there was no non-canvas way to read a definition. Do not reverse
+  that order if either surface is ever reworked.
+- `components/formConfig.tsx` (every export), `components/StepsEditor.tsx`,
+  `components/TransitionsEditor.tsx` and `components/mobile/MobileDefinitionDetail.tsx` are
+  `@deprecated` and have NO call site left in this module. They stay exported for third-party forms
+  and are removed one minor after the UPGRADE_NOTES entry — keep `components/__tests__/formConfig.test.ts`
+  alive while they are exported.
+- **The list page has one create entry and one edit row action.** "Create Workflow" opens the
+  template gallery (its *Blank* card is the empty canvas) and the `edit` row action points at the
+  Studio; the old `edit-visual` duplicate is gone. Build every editor href with
+  `buildVisualEditorHref` / `WORKFLOW_STUDIO_CREATE_HREF` (`lib/visual-editor-navigation.ts`) rather
+  than a literal path, so the next move is a one-line change.
+
 ## Code View (stage 1 — read-only)
 
 - `components/WorkflowCodeView.tsx` is the Phase 3 stage of spec §2.2: **read-only view + copy/paste

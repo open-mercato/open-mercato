@@ -77,7 +77,7 @@ async function openWorkflowDefinition(
   definitionId: string,
   readyText: string,
 ): Promise<void> {
-  const detailUrl = `/backend/definitions/${encodeURIComponent(definitionId)}`
+  const detailUrl = `/backend/definitions/visual-editor?id=${encodeURIComponent(definitionId)}`
   const readyLocator = page.getByText(readyText)
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -154,7 +154,7 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
       await login(page, 'admin')
       await ensureCleanState(request, apiToken)
 
-      await page.goto(`/backend/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}`)
+      await page.goto(`/backend/definitions/visual-editor?id=${encodeURIComponent(CODE_WORKFLOW_API_ID)}`)
       await expect(
         page.getByText('This workflow is defined in code. Customize it to make changes.'),
       ).toBeVisible()
@@ -172,8 +172,8 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
       ])
       expect(customizeResponse.status(), 'POST /customize should succeed').toBe(200)
 
-      await page.waitForURL(/\/backend\/definitions\/[0-9a-f-]{36}(?:\?.*)?$/i, { timeout: 30_000 })
-      overrideId = page.url().match(/\/backend\/definitions\/([0-9a-f-]{36})/i)?.[1] ?? null
+      await page.waitForURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 30_000 })
+      overrideId = page.url().match(/[?&]id=([0-9a-f-]{36})/i)?.[1] ?? null
       expect(overrideId).toBeTruthy()
 
       await expect(
@@ -202,7 +202,7 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
         'This workflow has been customized from its code-defined version.',
       )
 
-      // Edit description through the CrudForm (full payload PUT on UUID).
+      // Edit the description in the Studio (full payload PUT on UUID).
       const newDescription = `QA WF-011 edit ${Date.now()}`
       const descriptionField = page
         .getByPlaceholder('Optional: Describe the purpose of this workflow')
@@ -210,9 +210,7 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
       await expect(descriptionField).toBeEditable()
       await descriptionField.fill(newDescription)
 
-      const updateButton = page
-        .locator('button[type="submit"]', { hasText: 'Update Workflow' })
-        .first()
+      const updateButton = page.getByRole('button', { name: 'Update', exact: true }).first()
       await expect(updateButton).toBeVisible()
       const [putResponse] = await Promise.all([
         page.waitForResponse(
@@ -247,7 +245,7 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
       const confirmDialog = page.getByRole('alertdialog')
       await expect(confirmDialog).toBeVisible()
       await Promise.all([
-        page.waitForURL(/\/backend\/definitions\/code(?::|%3A)/i, { timeout: 30_000 }),
+        page.waitForURL(/\/backend\/definitions\/visual-editor\?id=code(?::|%3A)/i, { timeout: 30_000 }),
         confirmDialog.getByRole('button', { name: 'Reset to code version' }).click(),
       ])
       await expect(
