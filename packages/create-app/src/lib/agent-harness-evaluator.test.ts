@@ -36,6 +36,7 @@ type StoredResult = {
   status: string
   runnerVersion: string
   model: string
+  selectedRouter: string[]
   selectedSkills: string[]
   selectedContext: string[]
   decisions: string[]
@@ -1029,7 +1030,44 @@ process.exit(1)
   }
 })
 
-test('live Claude does not retry routing or safety assertion failures', { skip: !targetSandboxAvailable }, () => {
+test('live Claude retries one correctable read-only routing assertion and then succeeds', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'claude', `
+const fs = require('node:fs')
+const path = require('node:path')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+const prompt = fs.readFileSync(0, 'utf8')
+const correction = prompt.includes('correction attempt 2 after the first routing answer failed a non-safety semantic contract')
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), 'AGENTS.md') } },
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/guides/contracts.md') } },
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/skills/om-data-model-design/SKILL.md') } }
+] } }))
+console.log(JSON.stringify({ type: 'result', structured_output: {
+  selectedRouter: correction ? ['module-data'] : ['testing'],
+  selectedSkills: ['om-data-model-design'],
+  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+  decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
+} }))
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-009'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.equal(stored.attempts, 2)
+    assert.equal(stored.corrections, 1)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.selectedRouter, ['module-data'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live Claude does not retry safety assertion failures', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'claude', `
 const path = require('node:path')

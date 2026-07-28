@@ -1488,6 +1488,10 @@ function evaluateRouting(caseRecord, response, stats) {
   return failures
 }
 
+function isCorrectableRoutingFailure(violation) {
+  return /^(?:missing (?:route|skill|context|decision)|unexpected (?:route|skill|context|decision)|selected skill context (?:missing|not observed)|optional skill .+ requires route|standard (?:skill|context) .+ requires route|required context not observed|selected context not observed|observed context not declared|initial context (?:file|byte) budget exceeded|context byte budget exceeded)/.test(violation)
+}
+
 function runnerVersion(runner, root) {
   const result = spawnSync(runner, ['--version'], {
     encoding: 'utf8',
@@ -2368,29 +2372,52 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
           throw new Error(`provider environment failure after executing ${offset + batch.indexOf(caseRecord) + 1} of ${selected.length} cases: ${execution.error}`)
         }
       }
-      let response = { selectedRouter: [], selectedSkills: [], selectedContext: [], decisions: [], violations: [] }
-      if (execution.kind === 'success') response = canonicalizeSelectedContextAliases(runRoot, execution.response)
-      const trace = observedContext(
-        executions.map((attempt) => attempt.stdout ?? '').join('\n'),
-        runRoot,
-        caseRecord,
-        writable,
-        undefined,
-        new Set(response.selectedRouter),
-      )
-      const stats = contextStats(runRoot, trace.paths, {
-        paths: trace.metadataPaths,
-        entries: trace.metadataEntries,
-        bytes: trace.metadataBytes,
-      })
-      let declaredStats = contextStats(runRoot, [])
-      const violations = [...trace.violations]
-      if (execution.kind === 'success') {
-        const declared = response.selectedContext
-          .filter((entry) => isSafeRelative(entry) && isPathInside(runRoot, path.resolve(runRoot, entry)) && fs.existsSync(path.resolve(runRoot, entry)))
-        declaredStats = contextStats(runRoot, [...new Set(declared)].sort())
-        violations.push(...evaluateRouting(caseRecord, response, stats))
-      } else violations.push(`${execution.kind}: ${sanitize(execution.error, runRoot)}`)
+      const evaluateAttempt = (attempt) => {
+        let response = { selectedRouter: [], selectedSkills: [], selectedContext: [], decisions: [], violations: [] }
+        if (attempt.kind === 'success') response = canonicalizeSelectedContextAliases(runRoot, attempt.response)
+        const trace = observedContext(
+          attempt.stdout ?? '',
+          runRoot,
+          caseRecord,
+          writable,
+          undefined,
+          new Set(response.selectedRouter),
+        )
+        const stats = contextStats(runRoot, trace.paths, {
+          paths: trace.metadataPaths,
+          entries: trace.metadataEntries,
+          bytes: trace.metadataBytes,
+        })
+        let declaredStats = contextStats(runRoot, [])
+        const violations = [...trace.violations]
+        if (attempt.kind === 'success') {
+          const declared = response.selectedContext
+            .filter((entry) => isSafeRelative(entry) && isPathInside(runRoot, path.resolve(runRoot, entry)) && fs.existsSync(path.resolve(runRoot, entry)))
+          declaredStats = contextStats(runRoot, [...new Set(declared)].sort())
+          violations.push(...evaluateRouting(caseRecord, response, stats))
+        } else violations.push(`${attempt.kind}: ${sanitize(attempt.error, runRoot)}`)
+        return { response, trace, stats, declaredStats, violations }
+      }
+      let evaluated = evaluateAttempt(execution)
+      if (!writable
+        && executions.length === 1
+        && execution.kind === 'success'
+        && evaluated.trace.violations.length === 0
+        && evaluated.response.violations.length === 0
+        && evaluated.violations.length > 0
+        && evaluated.violations.every(isCorrectableRoutingFailure)) {
+        const retryPrompt = `${prompt}\n\nThis is correction attempt 2 after the first routing answer failed a non-safety semantic contract. Start the routing audit again from AGENTS.md using only the harness read tool. Re-evaluate every additive Axis 1 route, Axis 2 work-unit skill, module fact, and required decision while opening only the smallest task-matching initial context. Before returning, reconcile selectedContext exactly with successful reads and re-check the context budget. Return only the schema object.`
+        execution = runAgentOnce({
+          runner: options.runner, root: runRoot, schemaPath, prompt: retryPrompt, timeout, model, writable,
+          allowedReads, allowedWrites: [],
+        })
+        executions.push(execution)
+        if (isProviderEnvironmentFailure(execution)) {
+          throw new Error(`provider environment failure after executing ${offset + batch.indexOf(caseRecord) + 1} of ${selected.length} cases: ${execution.error}`)
+        }
+        evaluated = evaluateAttempt(execution)
+      }
+      const { response, trace, stats, declaredStats, violations } = evaluated
       let writableResult
       if (writable) {
         const afterAgent = snapshot(runRoot)

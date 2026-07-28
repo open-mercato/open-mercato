@@ -115,9 +115,13 @@ The release gate wraps this in a larger ordered sequence.
     - Provider auth is copied into an isolated `HOME`/`CODEX_HOME`/
       `CLAUDE_CONFIG_DIR` and the secrets are remembered for redaction (`:1512-1541`).
     - The structured result is validated by `validateResponse` (shape) **and** the
-      JSON-Schema (`:1573-1575`). **Retry:** exactly one, only for
-      `invalid-structured-output` or a recognized transient Claude failure
-      (`:2225-2234`); `attempts ≤ 2`, `corrections ≤ 1`.
+      JSON-Schema (`:1573-1575`). **Retry:** exactly one for
+      `invalid-structured-output`, a recognized transient Claude failure, or a
+      read-only routing response whose failures are all correctable contract
+      assertions. Routing correction starts a fresh isolated process and receives
+      no case-specific expected answer. Trace/safety failures, runner-declared
+      violations, forbidden patterns, and writable runs are never assertion-retried;
+      `attempts ≤ 2`, `corrections ≤ 1`.
 
 ### Phase E — Trace / observation validation (fail-closed)
 12. `observedContext()` reconstructs exactly which files the model read from the
@@ -238,7 +242,7 @@ tying the reviewed artifact to the exact validated bytes.
 | Runner set (codex/claude) | `evaluate…:159`, `run…:22,104` | Fixed |
 | Model selector per runner | matrix `:30-31,88-89`; `evaluate…:2199` | Config-driven; global `--model` |
 | Model **per-lane / per-case** | — | **Not tunable** (one global `model`) |
-| Retry count & triggers | `evaluate…:2224-2234, 625-635` | Fixed: max 1, no assertion retry, no codex transient retry |
+| Retry count & triggers | `evaluate…:2224-2234, 625-635` | Fixed: max 1 correction; bounded read-only contract assertions, invalid output, and Claude transient failures only |
 | Context budgets | `evaluate…:1405-1407`; cases | **Per-case tunable**, capped by catalog maxima |
 | Initial-vs-progressive split | `evaluate…:1297-1302` | Fixed |
 | `allowedExtra` routing tolerance | `evaluate…:1348`; cases | **Per-case tunable** |
@@ -279,14 +283,12 @@ distinct `modelSelector` (the review lane already has its own `runners` block) s
 weak model can drive *routing* while the security-sensitive writable/review lanes
 keep the strong model. Low risk; never silently downgrade the writable/review lanes.
 
-**B. Capability-scaled retry (biggest single lever).** Add
-`profile.retry = { maxAttempts, retryAssertionFailures, retryTransientAllRunners }`.
-Weak: `maxAttempts: 3`, feed the prior violations back into the retry prompt (the
-loop already does this for invalid-output at `:2226-2228`), enable transient retry
-for codex too. Strong default: `maxAttempts: 1`, no assertion retry (identical to
-now). **Never retry a *safety* violation** even under a relaxed profile (gate on the
-existing violation categorizer, `run…:797-802`); cap attempts and keep recording
-`corrections` so the metric stays honest.
+**B. Capability-scaled retry.** The strict harness now includes one generic
+fresh-process correction for bounded read-only routing contract assertions. A
+future profile could raise the attempt count or enable transient retries for every
+runner, but must never retry a trace/safety failure, runner-declared violation,
+forbidden pattern, or writable attempt. Attempts and corrections remain recorded
+so first-pass and corrected rates stay distinguishable.
 
 **C. Capability-scaled context budgets + a real step ceiling.** Add
 `profile.budgetMultiplier` (applied before the `:1405-1407` comparison, still clamped
@@ -405,10 +407,10 @@ their required set, with zero tolerance for one extra read. Across successive ru
 those cases moved between different violations under monotonically clearer guidance,
 which is the signature of run-to-run variance rather than a missing rule.
 
-That is the population Part 2's retry lever (B) is for, and it remains **untaken**
-here: retrying an assertion failure changes what the metric means, so it should be an
-explicit reviewed decision. The result schema already records `attempts` and
-`corrections` so a first-pass rate and a corrected rate stay distinguishable.
+That is the population Part 2's retry lever (B) is for. It is now implemented as
+one generic fresh-process correction for correctable read-only routing assertions;
+the result schema records `attempts` and `corrections` so a first-pass rate and a
+corrected rate stay distinguishable.
 
 ### 3.6 One catalog inconsistency, recorded rather than papered over
 
