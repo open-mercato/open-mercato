@@ -26,6 +26,7 @@ import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard
 import { WORKFLOW_ROUTE_CHIP_EVENT, type RouteChipEventDetail } from '../../../lib/route-chip-events'
 import { applyRouteOrder, canNormalizeRoutePriorities, normalizeRoutePriorities, readRouteOrder, type RouteOrderEntry } from '../../../lib/route-priority'
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
+import { reattachWorkflowEdge, type EdgeReattachRejection } from '../../../lib/edge-reattachment'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
 import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
 import {
@@ -246,6 +247,8 @@ export default function VisualEditorPage() {
   // every graph change (route chips resolve their edge through this).
   const edgesRef = React.useRef<Edge[]>([])
   edgesRef.current = edges
+  const nodesRef = React.useRef<Node[]>([])
+  nodesRef.current = nodes
   const [showMetadata, setShowMetadata] = useState(true)
   const [isCompactViewport, setIsCompactViewport] = useState(false)
   const [autosaveState, setAutosaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
@@ -909,6 +912,42 @@ export default function VisualEditorPage() {
 
     setEdges((eds) => appendWorkflowEdge(eds, newEdge))
   }, [])
+
+  // Route reattachment (#4233): dropping an existing route endpoint on another
+  // node re-targets it. The route keeps its durable transitionId, so its label,
+  // condition, activities and priority travel with it. A refused target leaves
+  // the edge list untouched, which is what snaps the endpoint back — the reason
+  // is surfaced instead of silently reverting.
+  const describeReattachRejection = useCallback((rejection: EdgeReattachRejection) => {
+    switch (rejection.code) {
+      case 'selfLoop':
+        return t('workflows.reattach.rejected.selfLoop', 'A route cannot start and end on the same step.')
+      case 'duplicateRoute':
+        return t('workflows.reattach.rejected.duplicateRoute', 'A route already connects those two steps.')
+      case 'dataMappingRoute':
+        return t('workflows.reattach.rejected.dataMappingRoute', 'Data mapping links are edited in the step configuration, not on the canvas.')
+      case 'errorHandleUnsupported':
+        return t('workflows.reattach.rejected.errorHandleUnsupported', 'An error route can only start at a step that can fail.')
+      case 'graphInvalid':
+        return t('workflows.reattach.rejected.graphInvalid', 'That target would break the workflow: {reason}', { reason: rejection.detail ?? '' })
+      case 'forkJoinInvalid':
+        return t('workflows.reattach.rejected.forkJoinInvalid', 'That target would break the parallel branch structure: {reason}', { reason: rejection.detail ?? '' })
+      default:
+        return t('workflows.reattach.rejected.unsupported', 'That route cannot be re-targeted.')
+    }
+  }, [t])
+
+  const handleReconnect = useCallback((oldEdge: Edge, connection: Connection) => {
+    if (isCodeOnly) return
+    const result = reattachWorkflowEdge(nodesRef.current, edgesRef.current, oldEdge.id, connection)
+    if (!result.ok) {
+      flash(describeReattachRejection(result), 'error')
+      return
+    }
+    setEdges(result.edges)
+    scheduleAutosave()
+    flash(t('workflows.reattach.retargeted', 'Route re-targeted'), 'success')
+  }, [isCodeOnly, describeReattachRejection, scheduleAutosave, t])
 
   // Typed trigger contextMapping targets (spec section 3.1, step 1.9): the
   // ledger stays pure, so trigger event payload contracts are pre-resolved
@@ -1829,6 +1868,7 @@ export default function VisualEditorPage() {
           onNodeClick={handleNodeClick}
           onEdgeClick={handleEdgeClick}
           onConnect={handleConnect}
+          onReconnect={handleReconnect}
           onAddNode={handleAddNode}
           onSave={handleSave}
           onValidate={handleValidate}
@@ -2247,6 +2287,7 @@ export default function VisualEditorPage() {
                 onNodeClick={handleNodeClick}
                 onEdgeClick={handleEdgeClick}
                 onConnect={handleConnect}
+                onReconnect={handleReconnect}
                 editable={!isCodeOnly}
                 height="100%"
                 focusTarget={focusTarget}
@@ -2395,6 +2436,7 @@ export default function VisualEditorPage() {
                   onNodeClick={handleNodeClick}
                   onEdgeClick={handleEdgeClick}
                   onConnect={handleConnect}
+                  onReconnect={handleReconnect}
                   editable={!isCodeOnly}
                   height="100%"
                   focusTarget={focusTarget}

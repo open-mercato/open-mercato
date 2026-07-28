@@ -167,6 +167,15 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   next version and re-applies the rejected edit there.
 - The guard fires on the definition PUT only. The per-user draft route
   (`api/definitions/[id]/draft`) is never blocked — work-in-progress must stay saveable.
+- **Reattachment rides on those durable ids.** Dragging a route endpoint onto another node
+  (`onReconnect` → `lib/edge-reattachment.ts`, PURE) re-targets the transition and keeps its
+  `transitionId`, label, condition, activities, priority and `kind`. Refusals return a code the
+  Studio translates and the edge list is left untouched, which is what snaps the endpoint back:
+  self-loop, duplicate route, data-mapping link, an error route moved off a step that can raise one,
+  or any graph / fork-join violation the graph does not already have. Reattaching a fork branch
+  changes which steps that branch visits, and `WorkflowBranchInstance.branchKey` is the transition
+  id — keeping the id is what makes the canvas edit safe, and the edit-safety guard still refuses
+  the SAVE while instances are active, so mid-flight runs never see the new wiring.
 
 ## Environment
 

@@ -46,6 +46,12 @@ export interface WorkflowGraphImplProps {
   onNodeClick?: (event: React.MouseEvent, node: Node) => void
   onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void
   onConnect?: (connection: Connection) => void
+  /**
+   * Route reattachment (#4233). React Flow calls this when an existing edge
+   * endpoint is dropped on another node; the parent decides whether to accept
+   * the new endpoints. Leaving the committed edges untouched snaps back.
+   */
+  onReconnect?: (oldEdge: Edge, connection: Connection) => void
   editable?: boolean
   className?: string
   height?: string
@@ -61,6 +67,7 @@ export default function WorkflowGraphImpl({
   onNodeClick: onNodeClickProp,
   onEdgeClick: onEdgeClickProp,
   onConnect: onConnectProp,
+  onReconnect: onReconnectProp,
   editable = false,
   className = '',
   height = '600px',
@@ -266,6 +273,8 @@ export default function WorkflowGraphImpl({
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={editable ? onConnect : undefined}
+        onReconnect={editable ? onReconnectProp : undefined}
+        edgesReconnectable={editable && !!onReconnectProp}
         onNodeClick={onNodeClickProp}
         onEdgeClick={onEdgeClickProp}
         onInit={(instance) => {

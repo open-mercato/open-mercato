@@ -19,6 +19,11 @@ export interface WorkflowGraphProps {
   onNodeClick?: (event: React.MouseEvent, node: Node) => void
   onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void
   onConnect?: (connection: Connection) => void
+  /**
+   * Route reattachment (#4233): fired when an existing edge endpoint is dropped
+   * on another node. Leaving the edge list unchanged snaps the endpoint back.
+   */
+  onReconnect?: (oldEdge: Edge, connection: Connection) => void
   editable?: boolean
   className?: string
   height?: string

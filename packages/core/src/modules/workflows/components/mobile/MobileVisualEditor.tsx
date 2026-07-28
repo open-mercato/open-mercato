@@ -26,6 +26,7 @@ export interface MobileVisualEditorProps {
   onNodeClick: (event: React.MouseEvent, node: Node) => void
   onEdgeClick: (event: React.MouseEvent, edge: Edge) => void
   onConnect: (connection: Connection) => void
+  onReconnect?: (oldEdge: Edge, connection: Connection) => void
   onAddNode: (nodeType: string) => void
   onSave: () => void
   onValidate: () => void
@@ -48,6 +49,7 @@ export function MobileVisualEditor({
   onNodeClick,
   onEdgeClick,
   onConnect,
+  onReconnect,
   onAddNode,
   onSave,
   onValidate,
@@ -138,6 +140,7 @@ export function MobileVisualEditor({
           onNodeClick={onNodeClick}
           onEdgeClick={onEdgeClick}
           onConnect={onConnect}
+          onReconnect={onReconnect}
           editable={true}
           height="100%"
         />
