@@ -204,22 +204,31 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
 
         const lines: string[] = []
 
-        if (job?.scope && partitions.length <= 1) {
-          const scopeStatus = translateScopeStatus(t, job.scope.status ?? null)
-          const scopeProgress = formatProgressLabel(job.scope.processedCount ?? null, job.scope.totalCount ?? null, t)
-          const scopeLabel = t('query_index.table.status.scopeLabel')
-          lines.push(`${scopeLabel}: ${scopeStatus}${scopeProgress ? ` (${scopeProgress})` : ''}`)
-        }
+        // Per-partition detail earns its space only while work is in flight — that is when
+        // it tells you which partition is running or stuck. Once the job is idle and every
+        // partition is finished, each line just restates the badge ("In sync (12/12)"
+        // followed by five "Partition n: Done"), on every row of the table.
+        const showJobDetail = Boolean(job && job.status !== 'idle')
+          || partitions.some((part) => part.status !== 'completed')
 
-        if (partitions.length > 1) {
-          for (const part of partitions) {
-            const partitionLabel =
-              part.partitionIndex != null
-                ? t('query_index.table.status.partitionLabel', { index: Number(part.partitionIndex) + 1 })
-                : t('query_index.table.status.scopeLabel')
-            const partitionStatus = translateScopeStatus(t, part.status)
-            const partitionProgress = formatProgressLabel(part.processedCount ?? null, part.totalCount ?? null, t)
-            lines.push(`${partitionLabel}: ${partitionStatus}${partitionProgress ? ` (${partitionProgress})` : ''}`)
+        if (showJobDetail) {
+          if (job?.scope && partitions.length <= 1) {
+            const scopeStatus = translateScopeStatus(t, job.scope.status ?? null)
+            const scopeProgress = formatProgressLabel(job.scope.processedCount ?? null, job.scope.totalCount ?? null, t)
+            const scopeLabel = t('query_index.table.status.scopeLabel')
+            lines.push(`${scopeLabel}: ${scopeStatus}${scopeProgress ? ` (${scopeProgress})` : ''}`)
+          }
+
+          if (partitions.length > 1) {
+            for (const part of partitions) {
+              const partitionLabel =
+                part.partitionIndex != null
+                  ? t('query_index.table.status.partitionLabel', { index: Number(part.partitionIndex) + 1 })
+                  : t('query_index.table.status.scopeLabel')
+              const partitionStatus = translateScopeStatus(t, part.status)
+              const partitionProgress = formatProgressLabel(part.processedCount ?? null, part.totalCount ?? null, t)
+              lines.push(`${partitionLabel}: ${partitionStatus}${partitionProgress ? ` (${partitionProgress})` : ''}`)
+            }
           }
         }
 

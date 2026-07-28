@@ -48,6 +48,12 @@ const dict = {
   'query_index.table.status.out_of_sync': 'OutOfSyncStatus',
   'query_index.table.status.not_measured': 'NotMeasuredStatus',
   'query_index.table.status.scopeLabel': 'Scope',
+  'query_index.table.status.partitionLabel': 'Partition {{index}}',
+  'query_index.table.status.scope.completed': 'Done',
+  'query_index.table.status.scope.reindexing': 'Running',
+  'query_index.table.status.scope.stalled': 'Stalled',
+  'query_index.table.status.progress': '{{processed}}/{{total}}',
+  'query_index.table.status.withProgress': '{{status}} ({{progress}})',
   'query_index.table.columns.entity': 'Entity',
   'query_index.table.columns.records': 'Records',
   'query_index.table.columns.indexed': 'Indexed',
@@ -207,6 +213,63 @@ describe('QueryIndexesTable', () => {
 
     expect(screen.getByText('NotMeasuredStatus')).toBeInTheDocument()
     expect(screen.queryByText('OutOfSyncStatus')).not.toBeInTheDocument()
+  })
+
+  const withPartitions = (jobStatus: string, partitionStatus: string) => ({
+    entityId: 'partitioned',
+    label: 'partitioned',
+    baseCount: 12,
+    indexCount: 12,
+    vectorCount: null,
+    vectorEnabled: false,
+    fulltextCount: null,
+    fulltextEnabled: false,
+    ok: true,
+    job: {
+      status: jobStatus,
+      processedCount: 12,
+      totalCount: 12,
+      partitions: [
+        { partitionIndex: 0, partitionCount: 2, status: partitionStatus, processedCount: 5, totalCount: 5, finishedAt: partitionStatus === 'completed' ? '2026-07-28T10:00:00Z' : null },
+        { partitionIndex: 1, partitionCount: 2, status: partitionStatus, processedCount: 3, totalCount: 3, finishedAt: partitionStatus === 'completed' ? '2026-07-28T10:00:00Z' : null },
+      ],
+    },
+  })
+
+  it('hides per-partition detail once the job is idle and every partition finished', async () => {
+    ;(readApiResultOrThrow as jest.Mock).mockResolvedValue({ items: [withPartitions('idle', 'completed')] })
+    renderWithProviders(<QueryIndexesTable />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByText('partitioned')).toBeInTheDocument()
+    })
+
+    // The badge already says "In sync (12/12)" — restating it per partition is noise.
+    expect(screen.queryByText(/Partition 1/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Partition 2/)).not.toBeInTheDocument()
+  })
+
+  it('keeps per-partition detail while a reindex is in flight', async () => {
+    ;(readApiResultOrThrow as jest.Mock).mockResolvedValue({ items: [withPartitions('reindexing', 'reindexing')] })
+    renderWithProviders(<QueryIndexesTable />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByText('partitioned')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText(/Partition 1: Running/)).toBeInTheDocument()
+    expect(screen.getByText(/Partition 2: Running/)).toBeInTheDocument()
+  })
+
+  it('keeps per-partition detail when a partition is stalled even if the job reads idle', async () => {
+    ;(readApiResultOrThrow as jest.Mock).mockResolvedValue({ items: [withPartitions('idle', 'stalled')] })
+    renderWithProviders(<QueryIndexesTable />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByText('partitioned')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText(/Partition 1: Stalled/)).toBeInTheDocument()
   })
 
   it('does not repeat vector coverage under the status badge', async () => {
