@@ -38,9 +38,13 @@ export const userTaskSchema = z.object({
   completedBy: z.string().nullable().optional(),
   completedAt: z.string().nullable().optional(),
   comments: z.string().nullable().optional(),
+  reassignedBy: z.string().nullable().optional().describe('Who last reassigned this task'),
+  reassignedAt: z.string().nullable().optional().describe('When it was last reassigned'),
+  reassignReason: z.string().nullable().optional().describe('Why it was reassigned'),
   tenantId: z.string().uuid(),
   organizationId: z.string().uuid(),
   createdAt: z.string(),
+  /** Optimistic-lock version — a reassign UI sends it back as the lock header. */
   updatedAt: z.string(),
 })
 

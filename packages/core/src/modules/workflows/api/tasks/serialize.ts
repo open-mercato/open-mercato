@@ -34,7 +34,15 @@ function readProposalId(task: UserTask): string | null {
   return null
 }
 
+/**
+ * Both readers prefer the real column and fall back to the authored
+ * `formSchema` blob. The column is authoritative from the moment task creation
+ * resolves it; the fallback keeps every row written before the column existed
+ * — and every third party that stuffed the value into `formSchema` — reading
+ * exactly as it read before.
+ */
 function readPriority(task: UserTask): string | number | null {
+  if (typeof task.priority === 'string' && task.priority.length > 0) return task.priority
   const value = asRecord(task.formSchema)?.priority
   if (typeof value === 'string' && value.length > 0) return value
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -42,6 +50,7 @@ function readPriority(task: UserTask): string | number | null {
 }
 
 function readEntityBindings(task: UserTask): unknown[] | null {
+  if (Array.isArray(task.entityBindings)) return task.entityBindings
   const value = asRecord(task.formSchema)?.entityBindings
   return Array.isArray(value) ? value : null
 }
@@ -71,6 +80,9 @@ export function serializeUserTask(task: UserTask): SerializedUserTask {
     completedBy: task.completedBy ?? null,
     completedAt: toIso(task.completedAt),
     comments: task.comments ?? null,
+    reassignedBy: task.reassignedBy ?? null,
+    reassignedAt: toIso(task.reassignedAt),
+    reassignReason: task.reassignReason ?? null,
     tenantId: task.tenantId,
     organizationId: task.organizationId,
     createdAt: task.createdAt.toISOString(),

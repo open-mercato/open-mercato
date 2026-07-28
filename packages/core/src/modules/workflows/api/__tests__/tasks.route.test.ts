@@ -218,4 +218,93 @@ describe('serializeUserTask', () => {
   test('conforms to the published list-row schema', () => {
     expect(userTaskRowSchema.safeParse(serializeUserTask(makeTask())).success).toBe(true)
   })
+
+  test('prefers the real columns over the authored form schema', () => {
+    const serialized = serializeUserTask(
+      makeTask({
+        priority: 'extreme',
+        entityBindings: [{ entityType: 'customers:person', entityId: 'person-1' }],
+        formSchema: {
+          priority: 'low',
+          entityBindings: [{ entityType: 'sales:order', entityId: 'order-1' }],
+        },
+      }),
+    )
+
+    expect(serialized.priority).toBe('extreme')
+    expect(serialized.entityBindings).toEqual([{ entityType: 'customers:person', entityId: 'person-1' }])
+  })
+
+  test('still falls back to the form schema for rows written before the columns existed', () => {
+    const serialized = serializeUserTask(
+      makeTask({
+        priority: null,
+        entityBindings: null,
+        formSchema: {
+          priority: 'high',
+          entityBindings: [{ entityType: 'sales:order', entityId: 'order-1' }],
+        },
+      }),
+    )
+
+    expect(serialized.priority).toBe('high')
+    expect(serialized.entityBindings).toEqual([{ entityType: 'sales:order', entityId: 'order-1' }])
+  })
+
+  test('an existing row with null columns and no form schema serializes as before', () => {
+    const serialized = serializeUserTask(makeTask())
+
+    expect(serialized.priority).toBeNull()
+    expect(serialized.entityBindings).toBeNull()
+    expect(serialized.reassignedBy).toBeNull()
+    expect(serialized.reassignedAt).toBeNull()
+    expect(serialized.reassignReason).toBeNull()
+  })
+
+  test('exposes the reassignment audit and the optimistic-lock version', () => {
+    const serialized = serializeUserTask(
+      makeTask({
+        reassignedBy: 'supervisor-1',
+        reassignedAt: new Date('2026-07-28T11:00:00.000Z'),
+        reassignReason: 'Owner on leave',
+      }),
+    )
+
+    expect(serialized.reassignedBy).toBe('supervisor-1')
+    expect(serialized.reassignedAt).toBe('2026-07-28T11:00:00.000Z')
+    expect(serialized.reassignReason).toBe('Owner on leave')
+    expect(serialized.updatedAt).toBe('2026-07-28T09:30:00.000Z')
+  })
+})
+
+/**
+ * The migration and the entity must not drift: an entity column with no
+ * matching snapshot column means the schema the app expects is not the schema
+ * `yarn db:migrate` would produce.
+ */
+describe('user_tasks schema', () => {
+  const snapshot = JSON.parse(
+    readFileSync(join(__dirname, '..', '..', 'migrations', '.snapshot-open-mercato.json'), 'utf8'),
+  ) as { tables: Array<{ name: string; columns: Record<string, { nullable: boolean; default: unknown }> }> }
+
+  const userTasks = snapshot.tables.find((table) => table.name === 'user_tasks')
+
+  test('the snapshot carries the new columns, all nullable (BC §8 additive-only)', () => {
+    expect(userTasks).toBeDefined()
+    for (const column of ['entity_bindings', 'priority', 'reassigned_by', 'reassigned_at', 'reassign_reason']) {
+      expect(userTasks?.columns[column]).toBeDefined()
+      expect(userTasks?.columns[column]?.nullable).toBe(true)
+    }
+  })
+
+  test('every declared entity property maps to a snapshot column', () => {
+    const source = readFileSync(join(__dirname, '..', '..', 'data', 'entities.ts'), 'utf8')
+    const classBody = source.split('export class UserTask {')[1]?.split('\n}')[0] ?? ''
+    const columnNames = [...classBody.matchAll(/@Property\(\{\s*name: '([^']+)'/g)].map((match) => match[1])
+
+    expect(columnNames.length).toBeGreaterThan(20)
+    for (const column of columnNames) {
+      expect(Object.keys(userTasks?.columns ?? {})).toContain(column)
+    }
+  })
 })
