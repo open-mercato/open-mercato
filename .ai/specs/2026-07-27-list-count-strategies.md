@@ -20,8 +20,8 @@
 **Concerns:**
 - A capped total is a *floor*, not a value. Six sites consume `total` as a loop bound over the full result set; converting them is a **correctness prerequisite**, not a follow-up. Capping without the conversion is silent data loss.
 - A cap bounds the count's *output*, not its *input* — a selective filter with no usable index still scans the table.
-- There is **no centralized client-side pagination helper** in this repo, so surfacing the flag in the UI is per-call-site work. Phase 3 wires the mechanism and the highest-traffic tables; the rest render a floor as exact until adopted.
-- The cap ships **disabled by default** for one minor release. Enabling it changes displayed counts for large installations.
+- There is **no centralized client-side pagination helper** in this repo, so surfacing the flag in the UI is per-call-site work across ~49 server-backed `DataTable` sites. Because the cap is on by default, Phase 3 must cover all of them rather than a subset.
+- The cap is **on by default** (`OM_LIST_COUNT_CAP=10000`). This is an accepted minor breaking change: above the cap, displayed counts become "10 000+" and page depth is bounded. `OM_LIST_COUNT_CAP=0` restores exact counts and stays permanently supported.
 
 ---
 
@@ -159,7 +159,7 @@ The cap bounds the count's *output*, not its *input*. A filter matching 3 rows o
 | `total` stays `number`, never null/absent | Keeps all four STABLE contract surfaces untouched and reduces the wire change to additive optional fields under `BACKWARD_COMPATIBILITY.md` §7. |
 | Encrypted-sort truncation detected from the candidate scan, not from `total` | `total` may itself be capped, which would silently disable the existing warning. Probing the candidate scan with `limit(cap + 1)` is an exact, count-independent truncation test. |
 | Convert loops to short-page termination rather than opting them out of the cap | Strictly better code independent of this spec: a count-terminated loop is already wrong when rows are inserted or deleted while it runs, and `customers/api/utils.ts:327` can already spin forever today. |
-| Ship disabled by default for one minor | The behaviour change is real for large installations and external API clients cannot be audited from this repo. A soak window with `UPGRADE_NOTES.md` costs one release and removes the "silently approximate" failure mode. |
+| Ship enabled by default, as an accepted minor breaking change | Opt-in does not spare large installations the problem, only the fix — they keep paying the unbounded count scan. The population that would have to find and set the flag is the population the feature is for. Nothing is lost above the cap once Phase 1 lands; only a label and page depth change. `UPGRADE_NOTES.md`, a breaking-change release note, and the permanent `OM_LIST_COUNT_CAP=0` escape hatch carry the communication burden instead. |
 
 ### Alternatives Considered
 
@@ -197,7 +197,7 @@ GET /api/<resource>
 
 ### Cap resolution
 
-A single module-level resolver in `packages/shared/src/lib/query/` reads `OM_LIST_COUNT_CAP` (default `0` — disabled — for the introducing release; see *Configuration*) and both engines consume it. It mirrors `resolveEncryptedSortMaxRows` (`packages/shared/src/lib/query/encrypted-sort.ts:32-38`) exactly, including returning a nullable number rather than a sentinel. No cap value travels through `QueryOptions`, request bodies, or the DI container.
+A single module-level resolver in `packages/shared/src/lib/query/` reads `OM_LIST_COUNT_CAP` (default `10000`; `0` disables capping — see *Configuration*) and both engines consume it. It mirrors `resolveEncryptedSortMaxRows` (`packages/shared/src/lib/query/encrypted-sort.ts:32-38`) exactly, including returning a nullable number rather than a sentinel. No cap value travels through `QueryOptions`, request bodies, or the DI container.
 
 ### Encrypted-sort truncation, decoupled from `total`
 
@@ -332,7 +332,9 @@ Two sites recompute `totalPages = Math.ceil(total / pageSize)` from a server-pro
 
 ### Adoption
 
-Phase 3 wires the mechanism plus the highest-traffic tables (catalog products, customers people/companies/deals, sales orders). Remaining tables continue to render a capped total as if exact — a wrong label, not wrong data — until adopted. This is tracked as a residual risk rather than hidden, and it is bounded by the cap shipping disabled by default.
+Because the cap is **on by default**, Phase 3 cannot stop at a highest-traffic subset: an unadopted table renders a floor as exact from the first upgraded release. Phase 3 therefore covers **every server-backed `DataTable` call site** — Patterns A (~40 files) and B (~9), which already plumb `total` and `totalPages` through local state or a `useQuery` derivation, so each is a mechanical three-line addition alongside fields that are already there. The two Pattern C sites need the flag for labelling only. Pattern D sites (fully client-side tables over a locally filtered array) never read a server total and are out of scope by construction.
+
+This is the largest single cost of defaulting the cap on, and it is deliberately paid here rather than deferred into a residual risk. The absence of a shared list hook is what makes it ~49 edits instead of one; introducing that hook is worth doing, but it is a separate refactor and is not a prerequisite.
 
 One non-pagination consumer needs the same treatment: `ProductsDataTable.tsx:707-712` passes `total` into `injectionContext` as `totalMatching`, where the merchandising AI widget reads it as a truthful match count.
 
@@ -340,11 +342,13 @@ No new component, no layout change, no new colour or spacing token.
 
 ## Configuration
 
-| Variable | Default (introducing release) | Default (next minor) | Meaning |
-|----------|------------------------------|----------------------|---------|
-| `OM_LIST_COUNT_CAP` | `0` (disabled) | `10000` | Maximum reported list total. `0` disables capping entirely, preserving exact counts. |
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `OM_LIST_COUNT_CAP` | `10000` | Maximum reported list total. `0` disables capping entirely, restoring exact counts globally. |
 
-Shipping disabled means the rebuilt count query — which is faster on its own (see *What this buys with the cap disabled*) — reaches everyone immediately, while the visible behaviour change is opt-in for one release. The default flip is a separate, documented change, not a silent one.
+**The cap is on by default from the introducing release.** Making it opt-in does not spare existing installations the consequences of the change — it spares them only the *fix*. An installation large enough for a capped total to be visible is, by definition, one already paying an unbounded count scan on every filtered list request; leaving the cap off leaves those clients timing out. The population that would have to discover and set the flag is exactly the population the feature exists for. Shipping it off would leave the status quo — materially Odoo's `search_count()`-per-list-view design — in place indefinitely.
+
+The change is invisible to any list whose filtered result set never reaches 10 000 rows, which is the overwhelming majority of lists in the overwhelming majority of installations. Above that it is a label and a page-depth change, not a data change: every path that consumed `total` as ground truth about the full result set is converted in Phase 1 and is correct regardless of the cap. `OM_LIST_COUNT_CAP=0` restores exact counts globally, is a permanently supported configuration, and takes effect without an application redeploy.
 
 Mirrored into `apps/mercato/.env.example` and the create-app template per the Template Sync Checklist. Surfaced in `packages/core/src/modules/configs/lib/system-status.ts` alongside the existing `OPTIMIZE_INDEX_COVERAGE_STATS` knob so operators can see the effective value.
 
@@ -365,14 +369,20 @@ Mirrored into `apps/mercato/.env.example` and the create-app template per the Te
 
 **The behavioural change** is that `total` becomes a floor, and `totalPages` a bounded page count, for result sets above the cap. `BACKWARD_COMPATIBILITY.md` classifies *fields*, not *values*, so no field-level contract is broken — but a value-level change to a STABLE response is still a change existing clients did not ask for, and third-party clients of `makeCrudRoute` cannot be audited from this repository. The six internal loops converted in Phase 1 are direct evidence that consumers do treat `total` as exact.
 
-**Therefore the rollout follows a deprecation-shaped window rather than relying on field classification alone:**
+**This is accepted as a minor breaking change, taken deliberately rather than deferred.** The cap ships enabled (`OM_LIST_COUNT_CAP=10000`) in the introducing release. The reasoning:
 
-1. The introducing minor ships `OM_LIST_COUNT_CAP=0`. Behaviour is byte-identical to today on every path; only the count query's internals change.
-2. `UPGRADE_NOTES.md` documents the flag, the behaviour it enables, the `totalIsCapped` field, and the "treat `total` as a floor when `totalIsCapped` is true" rule for client authors.
-3. Release notes call out the planned default change one release ahead.
-4. The next minor flips the default to `10000`. Operators who need exact counts unconditionally keep `OM_LIST_COUNT_CAP=0` indefinitely — it is a supported configuration, not a deprecated one.
+- **Nothing is lost, only bounded.** Every internal consumer that treated `total` as ground truth about the full result set is converted in Phase 1 and is correct whatever the cap says. What remains above the cap is a displayed label ("10 000+" instead of "14 302") and a bounded page depth. No export truncates, no filter omits matches, no delete acts on a subset.
+- **It is invisible below the cap.** Any list whose filtered result set never reaches 10 000 rows behaves byte-identically — which is most lists in most installations. Confirmed against the existing suites: no current test asserts a `total` anywhere near 10 000 (largest exact assertions are `317`, `137`, `120`).
+- **The alternative is that nobody gets the fix.** A default-off performance flag is discovered by the operators who read release notes, not by the ones drowning in a 1.4M-row table. Deferring the default is deferring the feature.
+- **It is reversible in seconds, without a deploy.** `OM_LIST_COUNT_CAP=0` restores exact counts globally and remains permanently supported — not a deprecation shim.
 
-**Deployment**: no downtime, no backfill, no ordering constraint against other deploys. Phase 1 is independently correct and can ship and soak before the cap exists; Phase 2's query rebuild is independently beneficial with the cap disabled.
+Communication requirements, which are not optional even though the default is:
+
+1. `UPGRADE_NOTES.md` documents the cap, the `totalIsCapped` field, the "treat `total` as a floor when `totalIsCapped` is true" rule for client authors, and the `OM_LIST_COUNT_CAP=0` escape hatch.
+2. Release notes call the behaviour change out explicitly, under a breaking-change heading, rather than burying it in a performance bullet.
+3. Because the default is on from day one, **Phase 3 must reach every server-backed `DataTable` call site**, not a highest-traffic subset — otherwise unadopted tables render a floor as exact on upgrade. See *UI/UX → Adoption*.
+
+**Deployment**: no downtime, no backfill, no ordering constraint against other deploys. Phase 1 is independently correct and must land before the cap; Phase 2's query rebuild is independently beneficial and can be verified against exact-count parity before Phase 3 lands.
 
 ## Implementation Plan
 
@@ -406,7 +416,7 @@ Mirrored into `apps/mercato/.env.example` and the create-app template per the Te
 2. Suppress the last-page jump when capped (`pagination.tsx:334-345`).
 3. Add `totalIsCapped` to `ListResponse` (`packages/ui/src/backend/utils/crud.ts:3-9`) so its `fetchCrudList` consumers get it for free.
 4. Add the two i18n keys across all eight locale files; run `yarn i18n:check-sync`.
-5. Adopt the flag at the highest-traffic tables: catalog products (`ProductsDataTable.tsx:83-87`, `:597-598`, `:714-721`), customers people (`people/page.tsx:121-126`, `:434-435`, `:991`), companies, deals, sales orders.
+5. Adopt the flag at **every** server-backed `DataTable` call site — all ~40 Pattern A files (`useState` + `setTotal`/`setTotalPages`) and ~9 Pattern B files (inline `useQuery` derivation), plus the two Pattern C sites for labelling. Reference edits: catalog products (`ProductsDataTable.tsx:83-87`, `:597-598`, `:714-721`) and customers people (`people/page.tsx:121-126`, `:434-435`, `:991`); the rest follow the same three-line shape. Add a grep- or lint-based check that no `pagination={{` site backed by a `makeCrudRoute` list omits `totalIsCapped`.
 6. Pass the flag alongside `totalMatching` in `ProductsDataTable.tsx:707-712` so the merchandising widget stops treating a floor as a match count.
 
 ### Phase 4 — AI tool packs
@@ -468,7 +478,7 @@ Mirrored into `apps/mercato/.env.example` and the create-app template per the Te
   - catalog filtered bulk delete → acts on the full filtered set
   - `DataTable` capped navigation and labelling → "N+" rendered, last-page jump absent
   - AI/MCP tool response → `totalIsCapped` surfaced; short-page pagination rule honoured
-- **Existing suites** must pass unchanged: no current test asserts a `total` anywhere near 10 000 (largest exact assertions are `317`, `137`, `120`, all mock-backed), and the introducing release ships the cap disabled, so nothing is perturbed.
+- **Existing suites** must pass unchanged **with the default cap active**, not merely with capping off: no current test asserts a `total` anywhere near 10 000 (largest exact assertions are `317`, `137`, `120`, all mock-backed), so the `10000` default does not perturb them. This is the evidence for the "invisible below the cap" claim in *Migration & Backward Compatibility* and must be re-checked if any suite later seeds a larger fixture.
 
 ## Risks & Impact Review
 
@@ -480,7 +490,7 @@ Mirrored into `apps/mercato/.env.example` and the create-app template per the Te
 - **Residual risk**: A future refactor reintroduces a projection join into the count path. The plan-level test is the guard; it is deliberately kept to a single case to stay maintainable.
 
 #### Count rebuild changing a total
-- **Scenario**: The rebuilt count query is not semantically equivalent to the derived one — an `EXISTS` rewrite drops a scope predicate on the joined side, or a dropped projection join was silently acting as an inner-join filter — and totals change while the cap is disabled.
+- **Scenario**: The rebuilt count query is not semantically equivalent to the derived one — an `EXISTS` rewrite drops a scope predicate on the joined side, or a dropped projection join was silently acting as an inner-join filter — and totals change even with capping switched off.
 - **Severity**: **High** — a wrong count with no visible signal, affecting every list.
 - **Affected area**: All four count sites.
 - **Mitigation**: Parity unit tests across the CF-filter, extension-join, explicit-join and or-group matrices assert identical totals before and after with `OM_LIST_COUNT_CAP=0`; compiled-SQL assertions verify joined-side scope predicates survive the `EXISTS` rewrite. Only `leftJoin`s are dropped, and only where no filter references the joined alias.
@@ -522,11 +532,11 @@ Mirrored into `apps/mercato/.env.example` and the create-app template per the Te
 - **Residual risk**: A legitimate result set larger than `MAX_PAGES × pageSize` becomes an error rather than a slow success. Accepted: at 1000 pages × 100 rows that is 100 000 records in one synchronous request, which is a job, not a request.
 
 #### Capped totals rendered as exact in unadopted tables
-- **Scenario**: There is no shared client pagination helper (`ListResponse` has zero importers; no `useCrudList` exists), so 65 `pagination={{ … }}` call sites parse the response individually. Phase 3 adopts the flag at the highest-traffic tables; the rest render "10 000" with no "+".
+- **Scenario**: There is no shared client pagination helper (`ListResponse` has zero importers; no `useCrudList` exists), so 65 `pagination={{ … }}` call sites parse the response individually. Any site Phase 3 misses renders "10 000" with no "+" — and because the cap is on by default, that is visible on the first upgraded release rather than only to opt-in operators.
 - **Severity**: **Medium** — a wrong label, not wrong data. Also affects `ProductsDataTable.tsx:707-712`, which passes `total` as `totalMatching` into the merchandising AI widget's injection context.
-- **Affected area**: The unadopted subset of the 65 `DataTable` pagination call sites.
-- **Mitigation**: The cap ships disabled by default, so no installation sees this until it opts in. Phase 3 covers the tables where large result sets actually occur, including the `totalMatching` leak.
-- **Residual risk**: Accepted and tracked; a follow-up may introduce the shared list hook whose absence causes this, which would make adoption a one-line change.
+- **Affected area**: Any server-backed `DataTable` pagination call site not covered by Phase 3.
+- **Mitigation**: Defaulting the cap on converts this from an accepted residual into a Phase 3 completion requirement: Phase 3 covers **every** Pattern A and Pattern B call site (~49), plus the two Pattern C sites for labelling and the `totalMatching` leak. Each is a mechanical addition next to `total`/`totalPages` plumbing that already exists. A lint or grep-based check that every `pagination={{` site backed by a `makeCrudRoute` list forwards `totalIsCapped` is the cheapest way to keep the set closed.
+- **Residual risk**: A site added after Phase 3 forgets the flag. Bounded to labelling; a follow-up introducing the shared list hook whose absence causes this would make adoption a one-line change and close the gap structurally.
 
 #### AI agents mis-stating counts and stopping pagination early
 - **Scenario**: ~12 `defineApiBackedAiTool` packs lift `total` into `mapResponse` and advertise it. `merchandising-pack.ts:100`, `:269` and `catalog/ai-agents.ts:410` instruct the model to paginate *"when `total` exceeds `limit + offset`"* — under a cap the model stops after `cap` records and reports "10 000 products" as fact.
@@ -537,10 +547,10 @@ Mirrored into `apps/mercato/.env.example` and the create-app template per the Te
 
 #### Counts becoming approximate for existing installations
 - **Scenario**: An operator upgrades, and lists that previously showed "14 302 results" now show "10 000+". Reports or screenshots built on those figures change. External API clients of `makeCrudRoute` — which cannot be audited from this repository — may treat `total` as exact.
-- **Severity**: **Medium** — expected product behaviour, but a value-level change to a STABLE response surface.
+- **Severity**: **Medium** — a value-level change to a STABLE response surface, shipped on by default. Deliberate, not incidental: this is the feature, and it is declared a minor breaking change rather than smuggled in behind a flag.
 - **Affected area**: Deals map located-count, entity-link search results, pipeline lane totals, company people badge, webhooks setup widget, and every `DataTable` footer above the cap.
-- **Mitigation**: The introducing release ships `OM_LIST_COUNT_CAP=0`, so behaviour is unchanged on upgrade. `UPGRADE_NOTES.md` documents the flag and the floor semantics; release notes announce the default flip one release ahead; `OM_LIST_COUNT_CAP=0` remains supported indefinitely.
-- **Residual risk**: Accepted once the default flips — this is the feature, and by then it has been documented and announced across two releases.
+- **Mitigation**: `UPGRADE_NOTES.md` documents the cap, the floor semantics of `total`, the `totalIsCapped` field and the escape hatch; release notes carry it under a breaking-change heading rather than a performance bullet. `OM_LIST_COUNT_CAP=0` restores exact counts globally, takes effect without an application redeploy, and is permanently supported. Nothing below 10 000 rows changes at all, so the blast radius is limited to installations large enough to already be suffering the unbounded scan.
+- **Residual risk**: Accepted. An external client that reads `total` as exact and ignores `totalIsCapped` will under-report above the cap; this cannot be detected from this repository, which is why the release-note treatment is a requirement rather than a courtesy.
 
 #### Cap does not help selective filters without an index
 - **Scenario**: A filter matching 3 rows out of 1.4M with no usable index still scans the table to prove only 3 match. The cap bounds the count's output, not its input, so this case is unimproved by the `LIMIT` — though it does benefit from the lighter rebuilt count query.
@@ -555,11 +565,11 @@ No new shared or global state: the cap is a read-only process-level constant, an
 
 ### Cascading Failures & Side Effects
 
-No events are emitted or subscribed. No module gains a dependency on another. The list response cache (`factory.ts:1464-1525`) stores the payload verbatim, so a cached capped payload replays consistently; entries written before the upgrade simply lack `totalIsCapped` and are read as exact, which is correct for the values they hold. The count-query rebuild changes SQL shape but not results while the cap is disabled — equality with today's totals is asserted by the parity tests across all four sites.
+No events are emitted or subscribed. No module gains a dependency on another. The list response cache (`factory.ts:1464-1525`) stores the payload verbatim, so a cached capped payload replays consistently; entries written before the upgrade simply lack `totalIsCapped` and are read as exact, which is correct for the values they hold. The count-query rebuild changes SQL shape but not results below the cap — equality with today's totals under `OM_LIST_COUNT_CAP=0` is asserted by the parity tests across all four sites.
 
 ### Operational
 
-Blast radius is bounded to list reads and the six converted loops. The failure mode most worth watching is an export or advanced filter returning fewer rows than expected — covered by the Phase 1 regression tests, and reversible in production by setting `OM_LIST_COUNT_CAP=0` without a redeploy of application code. The second is a count-query rebuild that changes a total while the cap is disabled, which the parity tests are designed to catch pre-merge. No storage growth, no new rate-limiting surface.
+Blast radius is bounded to list reads and the six converted loops. The failure mode most worth watching is an export or advanced filter returning fewer rows than expected — covered by the Phase 1 regression tests, and reversible in production by setting `OM_LIST_COUNT_CAP=0` without a redeploy of application code. The second is a count-query rebuild that changes a total independently of capping, which the `OM_LIST_COUNT_CAP=0` parity tests are designed to catch pre-merge. No storage growth, no new rate-limiting surface.
 
 ## Final Compliance Report — 2026-07-28
 
@@ -588,7 +598,7 @@ Blast radius is bounded to list reads and the six converted loops. The failure m
 | BACKWARD_COMPATIBILITY.md §2 | Optional fields may be added freely; required fields MUST NOT be removed or narrowed | Compliant | `total` unchanged; `totalIsCapped` and `listCountCapWarning` optional |
 | BACKWARD_COMPATIBILITY.md §7 | MUST NOT remove fields from existing response schemas | Compliant | Nothing removed; one optional field added |
 | BACKWARD_COMPATIBILITY.md §3 | `DataTable` props MUST NOT be removed | Compliant | Additive optional prop only |
-| BACKWARD_COMPATIBILITY.md rule 5 | Contract-surface PRs MUST reference a spec with a Migration & Backward Compatibility section | Compliant | Present above, including the value-level behaviour window and `UPGRADE_NOTES.md` entry |
+| BACKWARD_COMPATIBILITY.md rule 5 | Contract-surface PRs MUST reference a spec with a Migration & Backward Compatibility section | Compliant | Present above. Field-level: fully additive. Value-level: declared a minor breaking change, shipped on by default, with `UPGRADE_NOTES.md`, a breaking-change release note and a permanent escape hatch |
 | packages/ui/AGENTS.md | Use DS tokens; no arbitrary values or hardcoded status colours | Compliant | No new styling; label text only |
 | packages/core/AGENTS.md | API routes MUST export `openApi` | Compliant | No new route; shared schema updated additively |
 | .ai/specs/AGENTS.md | Required sections present; risks document scenario/severity/area/mitigation/residual | Compliant | Ten risks in the required format |
@@ -622,7 +632,7 @@ None blocking. One deferred item: integration tests are specified but not shippe
 Addressing the changes-requested review on [#4552](https://github.com/open-mercato/open-mercato/pull/4552):
 
 - **Proposed Solution rewritten.** The original `countBuilder.limit(cap + 1)` was a no-op: `LIMIT` bounds an aggregate's single output row, not the scan. Wrapping in a subquery is also insufficient where `GROUP BY`/`DISTINCT` remains, because `HashAggregate` is a blocking node. The count query is now **rebuilt** — scope + filters only, filtering joins as `EXISTS` semi-joins, projection joins dropped — which removes the barrier and makes the bound enforceable on every path, including the custom-field paths that dominate real queries. Per-site treatment table added. Noted that the rebuilt count is cheaper than today's even with the cap disabled.
-- **Compatibility window added.** Ships `OM_LIST_COUNT_CAP=0` (disabled) for one minor with an `UPGRADE_NOTES.md` entry and an announced default flip, rather than relying on field-level classification alone for a value-level change to a STABLE response.
+- **Default settled at `OM_LIST_COUNT_CAP=10000`, on from the introducing release**, and declared a minor breaking change. An earlier draft of this revision proposed shipping disabled for one minor; that was rejected by the spec author on the grounds that opt-in does not spare large installations the problem, only the fix — they keep paying the unbounded count scan, and the population that would have to find the flag is the population the feature is for. The communication burden moves to `UPGRADE_NOTES.md`, a breaking-change release note, and the permanent `OM_LIST_COUNT_CAP=0` escape hatch. Consequence, now explicit: Phase 3 must reach every server-backed `DataTable` call site rather than a highest-traffic subset.
 - **Encrypted-sort truncation decoupled from `total`.** `total > resolveEncryptedSortMaxRows()` silently stops firing once `total` is capped. Replaced with a `cap + 1` probe on the candidate scan itself.
 - **Iteration ceilings now fail closed.** They throw rather than returning a partial export or a partial id set.
 - **Propagation audited end to end.** `ListResponse` has zero importers, there is no shared list hook, and 65 `pagination={{ … }}` call sites parse responses individually — recorded honestly, with a phased adoption plan and a residual risk rather than a claim of completeness. Five direct-payload routes enumerated.
