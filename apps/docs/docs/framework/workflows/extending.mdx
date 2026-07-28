@@ -113,6 +113,65 @@ const updateThingCommand: CommandHandler<UpdateThingInput, { thingId: string }> 
 
 `commandRegistry.outputSchemaOf(commandId)` returns the declared schema (or `null`). `UPDATE_ENTITY`'s registry entry uses it for its output contract and degrades honestly to `'unknown'` when a command has not declared one.
 
+## Event Payload Schemas (Typed Triggers)
+
+`EventDefinition` accepts an optional `payloadSchema` so workflow triggers can offer typed payload paths instead of asking authors to type them from memory. It is a **flat field list**, not a nested JSON Schema — nested shapes are declared as dot-paths:
+
+```typescript
+const events = [
+  {
+    id: 'my_module.widget.scored',
+    label: 'Widget Scored',
+    entity: 'widget',
+    category: 'lifecycle',
+    payloadSchema: {
+      fields: [
+        { path: 'id', type: 'text' },
+        { path: 'score', type: 'number' },
+        { path: 'customer.id', type: 'text', optional: true },
+      ],
+    },
+  },
+] as const
+```
+
+- Field `type` is the same small vocabulary the rest of the editor uses (`text`, `number`, `boolean`, `date`, `object`, …); mark a field `optional` when the emitter does not always send it.
+- **Platform CRUD after-events get one for free.** An event with `category: 'crud'` whose id ends in `.created` / `.updated` / `.deleted` is given `DEFAULT_CRUD_PAYLOAD_SCHEMA` (`id`, `organizationId?`, `tenantId?`, `syncOrigin?`) at registration time, matching what the data engine actually emits.
+- Declared schemas are exposed through `getDeclaredEvents()` and `GET /api/events`, which is what the trigger editor's filter builder and context-mapping pickers read. An event without one still works — the editor falls back to free text and says the payload is untyped.
+- The field is **additive**: existing declarations are unchanged, and nothing rejects an event for lacking it.
+
+Only declare fields the emitter verifiably sends. A wrong declaration is worse than none, because the editor will offer paths that never arrive.
+
+## Transition Conditions (`condition`)
+
+`workflowTransitionSchema` accepts an optional `condition`, typed by `business_rules`' own `conditionExpressionSchema`:
+
+```json
+{
+  "transitionId": "qualified",
+  "fromStepId": "qualify_gate",
+  "toStepId": "contact_attempted",
+  "trigger": "auto",
+  "condition": { "operator": "AND", "rules": [{ "field": "leadScore", "operator": ">", "value": 60 }] }
+}
+```
+
+:::warning This field used to be stripped on save
+The engine has always evaluated `transition.condition`, but the definition schema did not declare it — so Zod's object-stripping silently discarded it on every save. If you have a definition whose inline route conditions never seemed to take effect, this is why; re-saving it through the current schema preserves them.
+:::
+
+Conditions inherit the business-rules safety bounds (nesting depth, rules per group, field-path length), and the `WAIT_FOR_CONDITION` step's predicate is validated by the same API validator.
+
+## Endpoint Catalog (CALL_API)
+
+`GET /api/workflows/endpoints` serves a trimmed, in-process projection of the application's OpenAPI surface — path, method, summary, tag, parameters and declared request/response schemas — for the `CALL_API` endpoint picker. Paths are `/api`-prefixed to match `CALL_API`'s own URL contract.
+
+An endpoint whose response is not declared with a Zod schema simply **omits `responseSchema`**, and consumers degrade to `unknown` typing rather than inventing a shape. Declaring typed responses on your own routes is therefore what makes the ledger downstream of a `CALL_API` step useful: the resolved response schema becomes the activity's output contract, wired through the `bindCallApiResponseSchemaResolver` seam. Endpoints outside the catalogue remain authorable as free text.
+
+## Agent Outcome Contracts (INVOKE_AGENT)
+
+When the enterprise agent-orchestration module is present, `INVOKE_AGENT`'s output contract is resolved through an **optional** method on the existing `agentWorkflowBridge` DI service, `listAgentOutcomeContracts()`, read duck-typed by core. Core never imports the enterprise module, no new DI key is introduced, and when the peer is absent every agent contract degrades to `unknown` instead of throwing. See the agent-orchestrator module guide for the enterprise side.
+
 ## The Context Ledger
 
 The editor's variable picker and unresolved-reference warnings are fed by a **per-step context ledger** — a pure computation of which context paths are available when each step runs.

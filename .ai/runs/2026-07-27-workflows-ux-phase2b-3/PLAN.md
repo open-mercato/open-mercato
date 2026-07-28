@@ -54,7 +54,7 @@
 | 3 | 3.13 | Form-editor retirement (redirects, @deprecated, UPGRADE_NOTES, test retargeting) | done | 6532f68e4 |
 | 3 | 3.14 | Compensation-edge visualization toggle | done | 0e8a55d10 |
 | 3 | 3.15 | Integration tests batch (reattach, conversion, chips@60-node, code view, a11y smoke) | done | 4a46f6770 |
-| 3 | 3.16 | Docs workstream + spec changelog update | todo | — |
+| 3 | 3.16 | Docs workstream + spec changelog update | done | 213c7e9e1 |
 
 ## Goal
 
