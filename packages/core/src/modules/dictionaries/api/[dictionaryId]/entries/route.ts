@@ -160,6 +160,9 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid input', details: err.issues }, { status: 400 })
+    }
     logger.error('Failed to load dictionary entries', { err })
     return NextResponse.json({ error: 'Failed to load dictionary entries' }, { status: 500 })
   }
@@ -251,6 +254,9 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid input', details: err.issues }, { status: 400 })
     }
     logger.error('Failed to create dictionary entry', { err })
     return NextResponse.json({ error: 'Failed to create dictionary entry' }, { status: 500 })
