@@ -188,6 +188,47 @@ describe('search engine scheduling', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 
+  it('does not escalate to a browser adapter the operator disabled', async () => {
+    const browser = createFakeAdapter({ id: 'browser-serp', kind: 'browser', results: hits('b.com', 3) })
+    const spy = jest.spyOn(browser, 'search')
+    const engine = engineWith(
+      [
+        entry(
+          createFakeAdapter({
+            id: 'serp-html',
+            kind: 'serp',
+            outcome: { status: 'blocked', reason: 'HTTP 429' },
+          }),
+          { order: 0 },
+        ),
+        entry(browser, { order: 1, enabled: false }),
+      ],
+      { escalateToBrowser: true, minResults: 3, lastResort: null },
+    )
+
+    const result = await engine.search({ query: 'x' })
+
+    expect(spy).not.toHaveBeenCalled()
+    expect(result.diagnostics.escalated).toBe(false)
+  })
+
+  it('does not escalate a fetch to a browser adapter the operator disabled', async () => {
+    // An empty client-side render root is what classifies as `js-shell` and asks
+    // for a browser render; without it there is nothing to escalate.
+    const shell = createStubHttpClient(() => ({ body: '<html><body><div id="root"></div></body></html>' }))
+    const browser = createFakeAdapter({ id: 'browser-fetch', kind: 'browser' })
+    const fetchSpy = jest.fn(async () => ({ status: 'unavailable' as const, reason: 'unused' }))
+    const engine = createSearchEngine({
+      policy: resolvePolicy({ escalateToBrowser: true }),
+      adapters: [entry({ ...browser, fetch: fetchSpy }, { enabled: false })],
+      http: shell,
+    })
+
+    await engine.fetch({ url: 'https://example.com/app' })
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
   it('reports a degraded run rather than failing when every adapter is down', async () => {
     const engine = engineWith(
       [

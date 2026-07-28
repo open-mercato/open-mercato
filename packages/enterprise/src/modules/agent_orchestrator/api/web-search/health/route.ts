@@ -52,7 +52,14 @@ export async function GET(req: Request) {
   const enabledIds = new Set(
     settings.policy.adapters.filter((entry) => entry.enabled).map((entry) => entry.id),
   )
-  const reports = await engine.health()
+  // The engine is per-request and adapters may hold OS resources (the browser
+  // tier spawns a sidecar to answer `ping`), so every probe must hand them back.
+  let reports
+  try {
+    reports = await engine.health()
+  } finally {
+    await engine.dispose().catch(() => undefined)
+  }
   const adapters: AdapterHealthRow[] = reports.map((report) => ({
     id: report.id,
     enabled: enabledIds.has(report.id),

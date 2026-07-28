@@ -14,6 +14,12 @@ in `agent_orchestrator`; individual sources live in their own `@open-mercato/web
 - Return **outcomes, never throw**, from anything implementing `SearchAdapter`. `unavailable`,
   `empty`, `blocked`, `timeout` and `error` drive different scheduler behaviour and must stay distinct.
 - Keep `readiness()` synchronous and I/O-free — the scheduler calls it while planning.
+- **Dispose every engine you create.** `createSearchEngine` is called per request by the host, and
+  `dispose()` is the only thing that releases adapter-owned OS resources (the browser tier holds a
+  sidecar process and a Chromium). A caller that skips it leaks one of each per request.
+- Gate any adapter you reach for outside the normal wave on `entry.enabled`. `policy.lastResort` is
+  the single documented exception — browser escalation is not one, or an operator who turned the
+  most expensive tier off still pays for it.
 - Parse HTML with `tokenizeHtml` (`src/extract/tokenizer.ts`). No new regex parsers.
 - Any new public type on the adapter contract is a **contract change**: bump `CONTRACT_VERSION`
   (`src/contract/version.ts`) and follow `BACKWARD_COMPATIBILITY.md`, because third-party adapter

@@ -36,7 +36,7 @@ export function enqueue(line: string): void {
 
   const key = chainKey(request)
   const previous = chains.get(key) ?? Promise.resolve()
-  const next = previous
+  const next: Promise<void> = previous
     .then(async () => {
       write(await dispatch(state, request))
     })
@@ -46,6 +46,12 @@ export function enqueue(line: string): void {
         ok: false,
         error: { message: error instanceof Error ? error.message : String(error), kind: 'unknown' },
       })
+    })
+    .finally(() => {
+      // Every render takes a fresh lease id, so without this the map grows one
+      // settled promise per request for the life of the process. Only the tail is
+      // dropped; a later request on the same lease owns the entry by then.
+      if (chains.get(key) === next) chains.delete(key)
     })
   chains.set(key, next)
 }

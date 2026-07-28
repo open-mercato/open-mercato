@@ -95,25 +95,33 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
   async function enrichContent(
     results: readonly SearchResult[],
     signal: AbortSignal,
+    deadlineAt: number,
     report: (event: SearchStepEvent, detail?: string, metrics?: SearchStepMetrics) => void,
   ): Promise<readonly SearchResult[]> {
     const targets = results.filter((result) => result.content === null).slice(0, policy.content.maxPages)
     if (targets.length === 0) return results
     report('started', `reading ${targets.length} page(s) for inline content`)
 
-    const fetched = await Promise.all(
-      targets.map(async (result) => {
-        const outcome = await fetchPage({ url: result.url, maxBytes: policy.content.maxBytesPerPage }, { signal })
-        return { url: result.url, outcome }
-      }),
-    )
-
     const contentByUrl = new Map<string, string>()
-    for (const { url, outcome } of fetched) {
-      if (outcome.status === 'ok' && outcome.page.text.trim().length > 0) {
-        contentByUrl.set(url, outcome.page.text)
+    const queue = [...targets]
+    // Bounded by the same knob as the search wave: reading N pages at once is the
+    // same egress burst as running N adapters, and it lands on third-party hosts.
+    const workers = Array.from({ length: Math.min(policy.concurrency, queue.length) }, async () => {
+      for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+        // The run deadline binds here too — otherwise a search bounded to
+        // `hardDeadlineMs` could spend minutes reading pages after fusion.
+        if (signal.aborted || now() >= deadlineAt) return
+        const outcome = await fetchPage(
+          { url: next.url, maxBytes: policy.content.maxBytesPerPage },
+          { signal },
+        )
+        if (outcome.status === 'ok' && outcome.page.text.trim().length > 0) {
+          contentByUrl.set(next.url, outcome.page.text)
+        }
       }
-    }
+    })
+    await Promise.all(workers)
+
     report('ok', `read ${contentByUrl.size} of ${targets.length} page(s)`, {
       resultCount: contentByUrl.size,
     })
@@ -182,7 +190,8 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
   ): Promise<FetchOutcome | null> {
     if (!policy.escalateToBrowser) return null
     const entry = browserEntries.find(
-      (candidate) => candidate.adapter.fetch !== undefined && candidate.adapter.readiness().ready,
+      (candidate) =>
+        candidate.enabled && candidate.adapter.fetch !== undefined && candidate.adapter.readiness().ready,
     )
     if (!entry?.adapter.fetch) return null
 
@@ -350,6 +359,7 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     ) {
       const entry = browserEntries.find(
         (candidate) =>
+          candidate.enabled &&
           candidate.adapter.capabilities.search &&
           candidate.adapter.readiness().ready &&
           !attempted.has(candidate.adapter.id),
@@ -404,12 +414,16 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
 
     let results = fused.results
     if (includeContent && results.length > 0) {
-      const enrichment = linkSignals([runOptions.signal])
+      const expiry = new AbortController()
+      const timer = setTimeout(() => expiry.abort(), Math.max(0, deadlineAt - now()))
+      timer.unref?.()
+      const enrichment = linkSignals([runOptions.signal, expiry.signal])
       try {
-        results = await enrichContent(results, enrichment.signal, (event, detail, metrics) =>
+        results = await enrichContent(results, enrichment.signal, deadlineAt, (event, detail, metrics) =>
           report('fetch', event, undefined, detail, metrics),
         )
       } finally {
+        clearTimeout(timer)
         enrichment.dispose()
       }
     }

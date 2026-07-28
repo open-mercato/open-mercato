@@ -74,6 +74,19 @@ async function loadContext(ctx: McpToolContext, query: string) {
   return { settings, runId, ...built }
 }
 
+/**
+ * The engine is built per call, and adapters may own OS resources — the browser
+ * tier holds a sidecar process and a Chromium. Without this every call that
+ * touched that tier would leak one of each for the life of the server.
+ */
+async function disposeQuietly(engine: { dispose(): Promise<void> }): Promise<void> {
+  try {
+    await engine.dispose()
+  } catch {
+    // Teardown is best-effort; a disposal fault must not mask the tool's result.
+  }
+}
+
 async function resolveAgentId(ctx: McpToolContext): Promise<string | null> {
   if (!ctx.sessionId) return null
   try {
@@ -104,38 +117,42 @@ export const webSearchTool: AiToolDefinition = {
     const input = webSearchInput.parse(rawInput)
     const { settings, engine, problems, runId } = await loadContext(ctx, input.query)
 
-    const gate = await enforceWebSearchRateLimit(
-      ctx.container,
-      { runId, tenantId: ctx.tenantId ?? null, kind: 'search' },
-      settings.guardrails,
-    )
-    if (!gate.ok) return { ok: false as const, code: 'rate_limited' as const, error: gate.error }
+    try {
+      const gate = await enforceWebSearchRateLimit(
+        ctx.container,
+        { runId, tenantId: ctx.tenantId ?? null, kind: 'search' },
+        settings.guardrails,
+      )
+      if (!gate.ok) return { ok: false as const, code: 'rate_limited' as const, error: gate.error }
 
-    const result = await engine.search({
-      query: input.query,
-      ...(input.limit === undefined ? {} : { limit: input.limit }),
-      ...(input.site === undefined ? {} : { site: input.site }),
-      ...(input.freshness === undefined ? {} : { freshness: input.freshness }),
-      ...(input.includeContent === undefined ? {} : { includeContent: input.includeContent }),
-    })
+      const result = await engine.search({
+        query: input.query,
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+        ...(input.site === undefined ? {} : { site: input.site }),
+        ...(input.freshness === undefined ? {} : { freshness: input.freshness }),
+        ...(input.includeContent === undefined ? {} : { includeContent: input.includeContent }),
+      })
 
-    const allowed = result.results.filter((hit) => {
-      const host = hostnameOf(hit.url)
-      return host ? isHostAllowed(host, settings.guardrails) : false
-    })
+      const allowed = result.results.filter((hit) => {
+        const host = hostnameOf(hit.url)
+        return host ? isHostAllowed(host, settings.guardrails) : false
+      })
 
-    return {
-      ok: true as const,
-      results: allowed,
-      answer: result.answer,
-      diagnostics: {
-        adapters: result.diagnostics.adapters,
-        degraded: result.diagnostics.degraded || allowed.length !== result.results.length,
-        cached: result.diagnostics.cached,
-        escalated: result.diagnostics.escalated,
-        elapsedMs: result.diagnostics.elapsedMs,
-        ...(problems.length > 0 ? { problems } : {}),
-      },
+      return {
+        ok: true as const,
+        results: allowed,
+        answer: result.answer,
+        diagnostics: {
+          adapters: result.diagnostics.adapters,
+          degraded: result.diagnostics.degraded || allowed.length !== result.results.length,
+          cached: result.diagnostics.cached,
+          escalated: result.diagnostics.escalated,
+          elapsedMs: result.diagnostics.elapsedMs,
+          ...(problems.length > 0 ? { problems } : {}),
+        },
+      }
+    } finally {
+      await disposeQuietly(engine)
     }
   },
 }
@@ -154,31 +171,45 @@ export const webFetchTool: AiToolDefinition = {
     const input = webFetchInput.parse(rawInput)
     const { settings, engine, runId } = await loadContext(ctx, input.url)
 
-    const host = hostnameOf(input.url)
-    if (!host || !isHostAllowed(host, settings.guardrails)) {
-      return {
-        ok: false as const,
-        code: 'domain_blocked' as const,
-        error: `domain not allowed: ${host ?? input.url}`,
+    try {
+      const host = hostnameOf(input.url)
+      if (!host || !isHostAllowed(host, settings.guardrails)) {
+        return {
+          ok: false as const,
+          code: 'domain_blocked' as const,
+          error: `domain not allowed: ${host ?? input.url}`,
+        }
       }
+
+      const gate = await enforceWebSearchRateLimit(
+        ctx.container,
+        { runId, tenantId: ctx.tenantId ?? null, kind: 'fetch' },
+        settings.guardrails,
+      )
+      if (!gate.ok) return { ok: false as const, code: 'rate_limited' as const, error: gate.error }
+
+      const outcome = await engine.fetch({
+        url: input.url,
+        maxBytes: settings.guardrails.maxFetchBytes,
+        ...(input.render === undefined ? {} : { render: input.render }),
+      })
+
+      if (outcome.status !== 'ok') {
+        return { ok: false as const, code: outcome.status, error: outcome.reason ?? outcome.status }
+      }
+      // The engine follows redirects, so the host that actually answered may not
+      // be the one the guardrail cleared above.
+      const finalHost = hostnameOf(outcome.page.url)
+      if (!finalHost || !isHostAllowed(finalHost, settings.guardrails)) {
+        return {
+          ok: false as const,
+          code: 'domain_blocked' as const,
+          error: `domain not allowed after redirect: ${finalHost ?? outcome.page.url}`,
+        }
+      }
+      return { ok: true as const, ...outcome.page }
+    } finally {
+      await disposeQuietly(engine)
     }
-
-    const gate = await enforceWebSearchRateLimit(
-      ctx.container,
-      { runId, tenantId: ctx.tenantId ?? null, kind: 'fetch' },
-      settings.guardrails,
-    )
-    if (!gate.ok) return { ok: false as const, code: 'rate_limited' as const, error: gate.error }
-
-    const outcome = await engine.fetch({
-      url: input.url,
-      maxBytes: settings.guardrails.maxFetchBytes,
-      ...(input.render === undefined ? {} : { render: input.render }),
-    })
-
-    if (outcome.status !== 'ok') {
-      return { ok: false as const, code: outcome.status, error: outcome.reason ?? outcome.status }
-    }
-    return { ok: true as const, ...outcome.page }
   },
 }
