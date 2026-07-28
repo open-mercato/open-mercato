@@ -307,10 +307,12 @@ test('progressive references pin reviewed standalone runtime contracts', () => {
   const integrationSkill = readAgentic(
     'shared/ai/skills/om-integration-builder/SKILL.md',
   )
-  assert.match(integrationSkill, /A provider implementation cannot stop at this file/)
+  assert.match(integrationSkill, /A new or complete provider implementation cannot stop at this file/)
   for (const reference of ['provider-families.md', 'package-and-activation.md', 'security-and-reliability.md']) {
     assert.match(integrationSkill, new RegExp(`references/${reference.replaceAll('.', '\\.')}`))
   }
+  assert.match(integrationSkill, /A narrow repair of an existing provider reads the reference that owns the changed contract/)
+  assert.match(integrationSkill, /cursor, retry, or idempotency repairs MUST read `references\/security-and-reliability\.md`/)
   assert.match(integrationSkill, /`subscriber-idempotency` when that decision vocabulary is requested/)
   assert.match(integrationSkill, /successful page \(`cursor-after-success`\)/)
   assert.match(integrationSkill, /transient provider failures \(`transient-retry`\)/)
@@ -370,15 +372,20 @@ test('debugging stays additive to cross-module domain and extension work', () =>
   assert.match(root, /A scalar-ID\/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` \+ `umes`/)
   assert.match(root, /load `om-data-model-design` \+ `om-system-extension`/)
   assert.match(debugging, /`unit-regression-oracle` when that decision vocabulary is requested/)
+  assert.match(debugging, /Provider cursor\/retry\/idempotency fixes therefore load `om-integration-builder`/)
 })
 
 test('API and command fixes load trusted-scope domain contracts', () => {
   const moduleSkill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
+  const dataModelSkill = readAgentic('shared/ai/skills/om-data-model-design/SKILL.md')
   const apiDomain = readAgentic('shared/ai/skills/om-module-scaffold/references/api-and-domain.md')
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /multi-seam domain\/API\/command fix/)
   assert.match(moduleSkill, /A fix spanning multiple domain, API, or command seams is a business slice/)
+  assert.match(moduleSkill, /also loads that blueprint, `references\/api-and-domain\.md`, and `references\/verification\.md`/)
   assert.match(moduleSkill, /Every API\/schema\/command implementation or fix MUST read/)
+  assert.match(moduleSkill, /also read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
+  assert.match(dataModelSkill, /A persisted concurrency, atomicity, or idempotency implementation or fix cannot stop at this file/)
   assert.match(apiDomain, /Public request schemas never accept `tenantId` or `organizationId`/)
   assert.match(apiDomain, /runtime scope comes only from the trusted request\/command context/)
 })

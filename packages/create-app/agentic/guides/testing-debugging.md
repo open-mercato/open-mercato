@@ -8,7 +8,7 @@ Name the areas the failure spans before loading anything, from the SYMPTOM and n
 
 A fix is always `debugging` plus every area you just named. Proving the fix with a regression oracle is part of `debugging` and does NOT add `testing`; only a request that asks for tests, coverage, or app-level verification does. Load exactly this guide, each named area's guide, and `om-troubleshooter` — that is what selects those routes.
 
-Add an area's authoring skill when the fix **introduces** something there — a concurrency header on existing calls, a new field or UI surface, a new command, a new invalidation, a new guard — because you are then designing that surface, not just repairing it. Load `om-troubleshooter` alone when you only correct existing behavior, such as a hydration mismatch or a value that fails to round-trip.
+Add an area's authoring skill when the fix **introduces or reworks** a contract there — a concurrency header on existing calls, a new field or UI surface, a new command, a new invalidation, a new guard, or a provider's pagination cursor, bounded retry, idempotency, or reconciliation — because you are then designing that surface, not just repairing it. Provider cursor/retry/idempotency fixes therefore load `om-integration-builder` even when the request is framed as a bug fix. Load `om-troubleshooter` alone when you only correct existing behavior, such as a hydration mismatch or a value that fails to round-trip.
 
 Then stop. Budgets here are tight — several fixes allow only five files — so load no other area's skill, no `references/` you do not need, no contracts guide unless the fix changes a data, API, command, ACL, or setup contract, and a module fact sheet only for a module the failure actually involves.
 
