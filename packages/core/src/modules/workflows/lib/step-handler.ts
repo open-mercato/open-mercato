@@ -19,7 +19,7 @@ import {
   type StepInstanceStatus,
   type WorkflowStepType,
 } from '../data/entities'
-import { parseDuration } from './duration'
+import { calculateDueDate, parseDuration } from './duration'
 import {
   CONDITION_STEP_TYPE,
   conditionReadContext,
@@ -646,6 +646,24 @@ async function handleAutomatedStep(
 }
 
 /**
+ * Resolve a user task's deadline from its authored duration.
+ *
+ * An unparseable duration fails the step with an actionable message instead of
+ * quietly resolving to some default the author never asked for.
+ */
+function resolveUserTaskDeadline(stepId: string, slaDuration: string): Date {
+  try {
+    return calculateDueDate(slaDuration)
+  } catch (error) {
+    throw new StepExecutionError(
+      `Invalid user task deadline "${slaDuration}": ${error instanceof Error ? error.message : String(error)}`,
+      'INVALID_USER_TASK_DEADLINE',
+      { stepId, slaDuration }
+    )
+  }
+}
+
+/**
  * Handle USER_TASK step - create user task and enter waiting state
  *
  * Creates a UserTask entity and returns WAITING status.
@@ -683,7 +701,9 @@ async function handleUserTaskStep(
     formData: null,
     assignedTo: assignedTo,
     assignedToRoles: assignedToRoles,
-    dueDate: userTaskConfig.slaDuration ? calculateDueDate(userTaskConfig.slaDuration) : null,
+    dueDate: userTaskConfig.slaDuration
+      ? resolveUserTaskDeadline(stepDef.stepId, userTaskConfig.slaDuration)
+      : null,
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
     createdAt: now,
@@ -1254,39 +1274,6 @@ async function logStepEvent(
 
   await em.persist(workflowEvent).flush()
   return workflowEvent
-}
-
-/**
- * Calculate due date from ISO 8601 duration string
- *
- * @param duration - ISO 8601 duration (e.g., "P1D" for 1 day)
- * @returns Due date
- */
-function calculateDueDate(duration: string): Date {
-  // Simple implementation for MVP
-  // Supports: P1D (1 day), P1H (1 hour), P1W (1 week)
-  const now = new Date()
-
-  const daysMatch = duration.match(/P(\d+)D/)
-  if (daysMatch) {
-    const days = parseInt(daysMatch[1], 10)
-    return new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
-  }
-
-  const hoursMatch = duration.match(/PT(\d+)H/)
-  if (hoursMatch) {
-    const hours = parseInt(hoursMatch[1], 10)
-    return new Date(now.getTime() + hours * 60 * 60 * 1000)
-  }
-
-  const weeksMatch = duration.match(/P(\d+)W/)
-  if (weeksMatch) {
-    const weeks = parseInt(weeksMatch[1], 10)
-    return new Date(now.getTime() + weeks * 7 * 24 * 60 * 60 * 1000)
-  }
-
-  // Default: 1 day
-  return new Date(now.getTime() + 24 * 60 * 60 * 1000)
 }
 
 /**
