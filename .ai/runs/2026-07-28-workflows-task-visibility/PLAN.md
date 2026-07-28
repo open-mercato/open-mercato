@@ -31,7 +31,7 @@
 | 6 | 6.2 | Portal task pages + nav + `portalBroadcast` live updates | done | `2b7f610fd` |
 | 7 | 7.1 | Integration + Playwright suites (design §10.3/§10.4) | done | `9a21c2b55` |
 | 7 | 7.2 | Docs + UPGRADE_NOTES + spec changelog | done | `6d07199fc` |
-| 7 | 7.3 | Security-review evidence against the design's §9 checklist | todo | — |
+| 7 | 7.3 | Security-review evidence against the design's §9 checklist | done | `9a331fa84` |
 
 ## Goal
 

@@ -185,6 +185,19 @@ function deny(reason: TaskVisibilityReason, blockedEntityType?: string): TaskVis
     : { visible: false, actable: false, claimable: false, reason }
 }
 
+/**
+ * Both sides are role NAMES, not ids.
+ *
+ * `assignedToRoles` holds what the Studio picker wrote, and `roleNames` is
+ * `auth.roles`, derived server-side from the session — so a client cannot forge
+ * membership by claiming a role. Names are tenant-MUTABLE, though: renaming a
+ * role silently orphans every assignment authored against the old name, and
+ * this comparison is where that shows up. Moving to immutable ids needs a
+ * coordinated data + authored-definition migration (`loadAcl` returns no role
+ * ids today, so changing only this side would match nothing); it is tracked as
+ * a follow-up and stated in `framework/workflows/task-visibility.mdx` →
+ * Known Limits.
+ */
 function hasRoleOverlap(
   taskRoles: readonly string[] | null,
   roleNames: readonly string[],
