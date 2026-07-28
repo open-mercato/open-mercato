@@ -14,7 +14,13 @@ type ProgressBarHandle = {
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
-import { upsertIndexBatch, type AnyRow } from './lib/batch'
+import {
+  upsertIndexBatch,
+  assertIndexBatchWritesLanded,
+  createEmptyUpsertIndexBatchResult,
+  mergeUpsertIndexBatchResults,
+  type AnyRow,
+} from './lib/batch'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import { purgeIndexScope } from './lib/purge'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
@@ -185,21 +191,20 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
   const encryption = resolveTenantEncryptionService(em as any)
   const dekKeyCache = new Map<string | null, string | null>()
 
+  // Neither helper swallows failures: upsertIndexBatch treats a failed encrypt as a
+  // failed row (writing the plaintext document instead would break encryption at rest)
+  // and records a failed decrypt against fulltext.
   const encryptDoc = async (
     targetEntity: string,
     doc: Record<string, unknown>,
     scope: { organizationId: string | null; tenantId: string | null },
   ) => {
-    try {
-      return await encryptIndexDocForStorage(
-        targetEntity,
-        doc,
-        { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId ?? null },
-        encryption,
-      )
-    } catch {
-      return doc
-    }
+    return await encryptIndexDocForStorage(
+      targetEntity,
+      doc,
+      { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId ?? null },
+      encryption,
+    )
   }
 
   const decryptDoc = async (
@@ -207,17 +212,13 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     doc: Record<string, unknown>,
     scope: { organizationId: string | null; tenantId: string | null },
   ) => {
-    try {
-      return await decryptIndexDocForSearch(
-        targetEntity,
-        doc,
-        { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId ?? null },
-        encryption,
-        dekKeyCache,
-      )
-    } catch {
-      return doc
-    }
+    return await decryptIndexDocForSearch(
+      targetEntity,
+      doc,
+      { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId ?? null },
+      encryption,
+      dekKeyCache,
+    )
   }
 
   const applyFilters = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
@@ -244,10 +245,11 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
       .executeTakeFirst() as AnyRow | undefined
     if (!row) return { processed: 0, matched: 0 }
     const bar = createProgressBar(progressLabel ?? `Rebuilding ${entityType}`, 1)
-    await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc })
-    bar.update(1)
+    const singleResult = await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc })
+    bar.update(singleResult.written)
     bar.complete()
-    return { processed: 1, matched: 1 }
+    assertIndexBatchWritesLanded(entityType, singleResult)
+    return { processed: singleResult.written, matched: 1 }
   }
 
   const countRow = await applyFilters(
@@ -265,10 +267,12 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
 
   const bar = createProgressBar(progressLabel ?? `Rebuilding ${entityType}`, intended)
   let processed = 0
+  let fetched = 0
   let cursorOffset = effectiveOffset
   let remaining = limitValue
+  const writeTotals = createEmptyUpsertIndexBatchResult()
 
-  while (processed < intended) {
+  while (fetched < intended) {
     const chunkLimit = remaining !== undefined ? Math.min(batchSize, remaining) : batchSize
     const chunk = await applyFilters(
       db
@@ -280,12 +284,14 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     ).execute() as AnyRow[]
     if (!chunk.length) break
 
-    await upsertIndexBatch(db, entityType, chunk as AnyRow[], {
+    const chunkResult = await upsertIndexBatch(db, entityType, chunk as AnyRow[], {
       orgId: orgOverride,
       tenantId: tenantOverride,
     }, { encryptDoc, decryptDoc })
+    mergeUpsertIndexBatchResults(writeTotals, chunkResult)
 
-    processed += chunk.length
+    processed += chunkResult.written
+    fetched += chunk.length
     cursorOffset += chunk.length
     if (remaining !== undefined) remaining -= chunk.length
     bar.update(processed)
@@ -296,6 +302,8 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     bar.update(processed)
   }
   bar.complete()
+  // After bar.complete() so the terminal is left in a sane state before we throw.
+  assertIndexBatchWritesLanded(entityType, writeTotals)
   return { processed, matched: intended }
 }
 
