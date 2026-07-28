@@ -341,6 +341,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.25 Bind safe working-stage specifications to the existing `integration-coverage` decision label within the root budget — `a0d8ce447`
 - [x] 3.26 Bind the required debugging regression oracle to the existing `unit-regression-oracle` decision label — `e3dcacb86`
 - [x] 3.27 Make the integration skill's three existing provider contract references non-skippable for provider implementations — `732c61ce5`
+- [x] 3.28 Clarify that plan-only spec work includes integration coverage but no implementation-domain routes — `3f8f14f87`
 
 ### Phase 4: Compatibility baseline
 
