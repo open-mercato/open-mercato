@@ -1,11 +1,11 @@
 /** @jest-environment jsdom */
 import * as React from 'react'
-import { renderHook, act } from '@testing-library/react'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import { usePortalNotifications } from '../usePortalNotifications'
 
 const apiCallMock = jest.fn()
 
-jest.mock('../../backend/utils/apiCall', () => ({
+jest.mock('../../../backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
 }))
 
@@ -38,17 +38,19 @@ describe('usePortalNotifications strategy', () => {
       return {} as EventSource
     } as unknown as typeof EventSource
 
-    renderHook(() => usePortalNotifications())
+    const { result } = renderHook(() => usePortalNotifications())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
 
     // Initial load happens, but no setInterval for polling
     expect(apiCallMock).toHaveBeenCalled()
-    expect(setIntervalSpy).not.toHaveBeenCalled()
+    expect(setIntervalSpy).not.toHaveBeenCalledWith(expect.any(Function), 8000)
   })
 
   it('falls back to polling strategy when EventSource is unavailable', async () => {
     delete (window as unknown as { EventSource?: typeof EventSource }).EventSource
 
-    renderHook(() => usePortalNotifications())
+    const { result } = renderHook(() => usePortalNotifications())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
 
     // Initial load + polling interval installed
     expect(apiCallMock).toHaveBeenCalled()
@@ -63,7 +65,8 @@ describe('usePortalNotifications strategy', () => {
     // Explicitly unhealthy
     (window as any).__portalBridgeHealthy = false
 
-    renderHook(() => usePortalNotifications())
+    const { result } = renderHook(() => usePortalNotifications())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
 
     expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 8000)
   })
@@ -73,9 +76,10 @@ describe('usePortalNotifications strategy', () => {
       return {} as EventSource
     } as unknown as typeof EventSource
 
-    renderHook(() => usePortalNotifications())
+    const { result } = renderHook(() => usePortalNotifications())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
 
-    expect(setIntervalSpy).not.toHaveBeenCalled()
+    expect(setIntervalSpy).not.toHaveBeenCalledWith(expect.any(Function), 8000)
 
     // Dispatch unhealthy status
     act(() => {
@@ -92,7 +96,8 @@ describe('usePortalNotifications strategy', () => {
       return {} as EventSource
     } as unknown as typeof EventSource
 
-    renderHook(() => usePortalNotifications())
+    const { result } = renderHook(() => usePortalNotifications())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
     expect(apiCallMock).toHaveBeenCalledTimes(2) // list and count initially
 
     act(() => {
@@ -107,6 +112,6 @@ describe('usePortalNotifications strategy', () => {
     })
 
     // apiCall called again (2 more times for list and count)
-    expect(apiCallMock).toHaveBeenCalledTimes(4)
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(4))
   })
 })
