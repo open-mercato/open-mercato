@@ -857,7 +857,7 @@ export default function VisualEditorPage() {
     const isErrorRoute = connection.sourceHandle === ERROR_SOURCE_HANDLE_ID
 
     const newEdge: Edge = {
-      id: generateTransitionId(connection.source!, connection.target!),
+      id: generateTransitionId(),
       source: connection.source!,
       target: connection.target!,
       // An error route must read as one the moment it is drawn, so it takes the

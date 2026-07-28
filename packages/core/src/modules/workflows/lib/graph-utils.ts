@@ -823,12 +823,36 @@ export function generateStepId(prefix: string = 'step'): string {
   return sanitizeId(id)
 }
 
+/** Prefix marking a durable, opaque transition id. */
+export const DURABLE_TRANSITION_ID_PREFIX = 't_'
+
+const LEGACY_TRANSITION_ID_PATTERN = /^e_/
+
 /**
- * Generate unique transition ID
+ * Generate a durable, opaque transition ID.
+ *
+ * Endpoint-derived ids (`e_<from>_<to>`) tie a route's identity to the pair of
+ * steps it happens to connect today, so re-pointing an edge would silently
+ * change the id that mid-flight state resolves against
+ * (`instance.pendingTransition`, `WorkflowBranchInstance.branchKey`). Opaque ids
+ * keep route identity stable across reattachment and let two routes share the
+ * same endpoints (a normal route and an error route, for example).
+ *
+ * Legacy endpoint-derived ids stay fully valid: stored definitions, seeded
+ * examples and gallery templates keep their ids on load and save, and the
+ * engine treats every transition id as an opaque string.
+ *
+ * The endpoint parameters are accepted for signature compatibility with callers
+ * written against the endpoint-derived form; they no longer affect the result.
  */
-export function generateTransitionId(fromStepId: string, toStepId: string): string {
-  const id = `e_${fromStepId}_${toStepId}`
+export function generateTransitionId(_fromStepId?: string, _toStepId?: string): string {
+  const id = `${DURABLE_TRANSITION_ID_PREFIX}${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`
   return sanitizeId(id)
+}
+
+/** True when the id uses the legacy endpoint-derived (`e_<from>_<to>`) shape. */
+export function isLegacyTransitionId(transitionId: string): boolean {
+  return LEGACY_TRANSITION_ID_PATTERN.test(transitionId)
 }
 
 /**

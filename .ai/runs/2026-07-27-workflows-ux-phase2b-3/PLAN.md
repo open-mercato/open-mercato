@@ -39,7 +39,7 @@
 | 2 | 2.10 | Route condition/activity/otherwise chips + semantic zoom + overflow | done | 7c0197932 |
 | 2 | 2.11 | Priority drag-to-reorder + normalization pass | done | 75f75dfe2 |
 | 2 | 2.12 | Problems-panel ledger checks extension + 60-node density fixture | done | de5c9d631 |
-| 3 | 3.1 | Durable transition ids (opaque, legacy-accepting) | todo | — |
+| 3 | 3.1 | Durable transition ids (opaque, legacy-accepting) | done | ab70ee27f |
 | 3 | 3.2 | Edit-safety rule: structural-edit guard + "Create version" flow | todo | — |
 | 3 | 3.3 | Edge reattachment (onReconnect, validation snap-back) | todo | — |
 | 3 | 3.4 | Persisted-arrangement completion (drag-end autosave, drop placement) | todo | — |
