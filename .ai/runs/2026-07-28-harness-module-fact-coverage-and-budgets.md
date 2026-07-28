@@ -47,8 +47,11 @@ PR: #4602
 - [x] 4.3 Live before/after evidence for the budget fixes and live runs for the six new cases —
       OMH-169's `initial context byte budget exceeded: 57372/57344` reproduced before and gone after;
       OMH-190/191/192 pass first try; OMH-193/194/195 retargeted to the skill live routing selects — f8af90d77
-- [ ] 5.1 Full configured validation gate
-- [ ] 5.2 Audit report committed under `.ai/analysis/`
+- [x] 5.1 Full configured validation gate — 8/8 commands green. `yarn test` needed two runs: each
+      lost one random jest worker to `SIGSEGV` (`ui/primitives/tag`, then `cli/testing/integration`)
+      with zero assertion failures, and every affected suite passes in isolation. Across the two runs
+      `core` 1033/1033, `ui` 206/206, `enterprise` 57/57, `create-app` 335 pass / 5 skipped.
+- [x] 5.2 Audit report committed under `.ai/analysis/` — c6e4f8afb
 - [ ] 5.3 Follow-up issue for the `allowedExtra`-only coverage tier
 
 ## Deliberately out of scope
