@@ -17,6 +17,8 @@
  * modules stay independent of each other's load order.
  */
 
+import type { TaskVisibilityRequestContext } from '../task-visibility-request'
+
 /** Mirrors the platform's priority labels (root AGENTS.md → PR Workflow). */
 export const WORK_INBOX_PRIORITIES = ['extreme', 'high', 'medium', 'low'] as const
 
@@ -101,12 +103,19 @@ export type WorkInboxQuery = {
  * Caller scope every provider MUST filter on. `organizationIds === null` is the
  * wildcard scope the directory helper returns for an unrestricted operator;
  * `tenantId` is never optional (module MUST #10).
+ *
+ * `visibility` carries the §6.4 rule's per-request inputs — the principal, the
+ * tenant policy and the entity-access map — resolved ONCE by the route. It is
+ * required rather than optional on purpose: a provider that forgets to apply it
+ * would silently serve every row in the organization, and a compile error is the
+ * only reliable way to notice that.
  */
 export type WorkInboxScope = {
   tenantId: string
   organizationIds: string[] | null
   userId: string
   roles: string[]
+  visibility: TaskVisibilityRequestContext
 }
 
 /**

@@ -14,6 +14,10 @@ import { GET as listTasks } from '../tasks/route'
 import { serializeUserTask } from '../tasks/serialize'
 import { userTaskRowSchema } from '../openapi'
 import { UserTask } from '../../data/entities'
+import {
+  makeTaskVisibilityRouteStubs,
+  type TaskVisibilityRouteStubs,
+} from './helpers/taskVisibilityRoute'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -34,7 +38,8 @@ const ORG_ID = '11111111-2222-4333-8444-bbbbbbbbbbbb'
 const USER_ID = 'user-1'
 
 describe('GET /api/workflows/tasks', () => {
-  let mockEm: { findAndCount: jest.Mock }
+  let mockEm: { findAndCount: jest.Mock; getConnection: () => { execute: jest.Mock } }
+  let stubs: TaskVisibilityRouteStubs
 
   function setAuthRoles(roles: string[] | undefined) {
     const { getAuthFromRequest } = require('@open-mercato/shared/lib/auth/server')
@@ -46,6 +51,24 @@ describe('GET /api/workflows/tasks', () => {
     })
   }
 
+  /**
+   * Rebuild the container with a different §6.4 posture. Every task read now
+   * depends on who is asking, so the suite has to be able to say.
+   */
+  function withVisibility(options: Parameters<typeof makeTaskVisibilityRouteStubs>[0]) {
+    stubs = makeTaskVisibilityRouteStubs(options)
+    mockEm.getConnection = stubs.getConnection
+    const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
+    createRequestContainer.mockResolvedValue({
+      resolve: (name: string) => {
+        if (name === 'em') return mockEm
+        if (name === 'rbacService') return stubs.rbacService
+        if (name === 'moduleConfigService') return stubs.moduleConfigService
+        return null
+      },
+    })
+  }
+
   async function runList(query: string): Promise<WhereClause> {
     await listTasks(new NextRequest(`http://localhost/api/workflows/tasks${query}`))
     return mockEm.findAndCount.mock.calls[0][1] as WhereClause
@@ -54,12 +77,15 @@ describe('GET /api/workflows/tasks', () => {
   beforeEach(() => {
     jest.clearAllMocks()
 
-    mockEm = { findAndCount: jest.fn().mockResolvedValue([[], 0]) }
+    mockEm = {
+      findAndCount: jest.fn().mockResolvedValue([[], 0]),
+      getConnection: () => ({ execute: jest.fn() }),
+    }
 
-    const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
-    createRequestContainer.mockResolvedValue({
-      resolve: (name: string) => (name === 'em' ? mockEm : null),
-    })
+    // The suite's default caller is an administrator, so the pre-existing filter
+    // assertions stay about the filters they were written for; the narrowing
+    // itself gets its own describe block below.
+    withVisibility({ acl: { features: ['workflows.tasks.view', 'workflows.tasks.view_all'] } })
 
     setAuthRoles(['warehouse'])
 
@@ -127,6 +153,184 @@ describe('GET /api/workflows/tasks', () => {
 
     expect(body.data[0].proposalId).toBe('proposal-9')
     expect(body.data[0].kind).toBe('user_task')
+  })
+
+  /**
+   * §6.4 on the list route. `workflows.tasks.view` admits the caller to the
+   * endpoint; the visibility rule decides which rows come back.
+   */
+  describe('the §6.4 read gate', () => {
+    test('narrows an ordinary caller to their own work, their queues and viewable entities', async () => {
+      withVisibility({
+        acl: { features: ['workflows.tasks.view'] },
+        scopedEntityTypes: ['sales:sales_order'],
+      })
+
+      const where = await runList('')
+
+      expect(where.$and).toEqual([
+        {
+          $or: [
+            { assignedTo: USER_ID, assigneeKind: 'user' },
+            { claimedBy: USER_ID },
+            { assignedToRoles: { $overlap: ['warehouse'] } },
+          ],
+        },
+        // `sales:sales_order` requires `sales.orders.view`, which this caller
+        // does not hold, so the whitelist is empty and only tasks about nothing
+        // survive.
+        { $or: [{ entityTypes: null }, { entityTypes: { $contained: [] } }] },
+      ])
+    })
+
+    test('drops the relationship clause for an administrator, never the entity clause', async () => {
+      withVisibility({
+        acl: { features: ['workflows.tasks.view', 'workflows.tasks.view_all'] },
+        scopedEntityTypes: ['sales:sales_order'],
+      })
+
+      const where = await runList('')
+
+      expect(where.$and).toEqual([
+        { $or: [{ entityTypes: null }, { entityTypes: { $contained: [] } }] },
+      ])
+    })
+
+    test('adds nothing at all for a superadmin', async () => {
+      withVisibility({ acl: { isSuperAdmin: true }, scopedEntityTypes: ['sales:sales_order'] })
+
+      expect((await runList('')).$and).toBeUndefined()
+    })
+
+    test('the tenant opt-out restores the legacy read filter, additively', async () => {
+      withVisibility({
+        acl: { features: ['workflows.tasks.view'] },
+        scopedEntityTypes: ['sales:sales_order'],
+        businessContextEnabled: false,
+      })
+
+      const where = await runList('')
+
+      // Same rows as before the change: tenant + organization and nothing else.
+      expect(where.$and).toBeUndefined()
+      expect(where).toMatchObject({ tenantId: TENANT_ID, organizationId: { $in: [ORG_ID] } })
+    })
+
+    test('composes with the caller own filters instead of overwriting them', async () => {
+      withVisibility({ acl: { features: ['workflows.tasks.view'] } })
+
+      const where = await runList('?myTasks=true&status=PENDING')
+
+      expect(where.status).toBe('PENDING')
+      expect(where.$or).toBeDefined()
+      expect(Array.isArray(where.$and)).toBe(true)
+    })
+
+    test('enumerates the bound entity types inside the caller scope', async () => {
+      withVisibility({ acl: { features: ['workflows.tasks.view'] } })
+
+      await runList('')
+
+      const [sql, params] = stubs.execute.mock.calls[0] as [string, unknown[]]
+      expect(sql).toContain('unnest(entity_types)')
+      expect(params).toEqual([TENANT_ID, ORG_ID])
+    })
+
+    test('a legacy row with null columns still reaches its own assignee', async () => {
+      withVisibility({ acl: { features: ['workflows.tasks.view'] } })
+      const legacy = makeTask({
+        assignedTo: USER_ID,
+        assignedToRoles: null,
+        entityBindings: null,
+        entityTypes: null,
+      })
+      delete (legacy as Partial<UserTask>).assigneeKind
+      mockEm.findAndCount.mockResolvedValue([[legacy], 1])
+
+      const body = await (
+        await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+      ).json()
+
+      expect(body.data).toHaveLength(1)
+      expect(body.pagination.total).toBe(1)
+    })
+
+    test('costs one ACL load for a whole page, not one per task', async () => {
+      withVisibility({
+        acl: { features: ['workflows.tasks.view'] },
+        scopedEntityTypes: ['sales:sales_order', 'customers:customer_deal'],
+      })
+      mockEm.findAndCount.mockResolvedValue([
+        Array.from({ length: 25 }, (_unused, index) =>
+          makeTask({
+            id: `11111111-2222-4333-8444-0000000000${String(index).padStart(2, '0')}`,
+            assignedTo: USER_ID,
+            entityBindings: [
+              { entityType: 'sales:sales_order', entityId: `order-${index}` },
+              { entityType: 'customers:customer_deal', entityId: `deal-${index}` },
+            ],
+          }),
+        ),
+        25,
+      ])
+
+      await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+
+      expect(stubs.rbacService.loadAcl).toHaveBeenCalledTimes(1)
+      expect(stubs.execute).toHaveBeenCalledTimes(1)
+      expect(stubs.moduleConfigService.getValue).toHaveBeenCalledTimes(1)
+    })
+
+    test('a page the SQL gate returned is reported whole, so total is not a lie', async () => {
+      withVisibility({ acl: { features: ['workflows.tasks.view'] } })
+      mockEm.findAndCount.mockResolvedValue([
+        [makeTask({ assignedTo: USER_ID }), makeTask({ id: 'other', claimedBy: USER_ID })],
+        2,
+      ])
+
+      const body = await (
+        await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+      ).json()
+
+      expect(body.data).toHaveLength(2)
+      expect(body.pagination).toMatchObject({ total: 2, hasMore: false })
+    })
+
+    test('a row the SQL gate should never have returned is dropped rather than served', async () => {
+      // Defense in depth: the `WHERE` is the same rule, so this cannot happen —
+      // and if it ever does, losing a row is recoverable and leaking one is not.
+      withVisibility({ acl: { features: ['workflows.tasks.view'] } })
+      mockEm.findAndCount.mockResolvedValue([
+        [makeTask({ assignedTo: 'somebody-else', assignedToRoles: null })],
+        1,
+      ])
+
+      const body = await (
+        await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+      ).json()
+
+      expect(body.data).toEqual([])
+    })
+
+    test('a missing rbacService grants nothing rather than everything', async () => {
+      // No ACL means no features, so the administrative arm cannot admit anyone.
+      // Queue membership is deliberately unaffected — it is a relationship, not
+      // a grant — so the row here belongs to nobody.
+      const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
+      createRequestContainer.mockResolvedValue({
+        resolve: (name: string) => (name === 'em' ? mockEm : null),
+      })
+      mockEm.findAndCount.mockResolvedValue([
+        [makeTask({ assignedTo: 'somebody-else', assignedToRoles: null })],
+        1,
+      ])
+
+      const body = await (
+        await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+      ).json()
+
+      expect(body.data).toEqual([])
+    })
   })
 })
 

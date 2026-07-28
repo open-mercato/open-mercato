@@ -22,6 +22,12 @@ import {
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 import { serializeUserTask } from './serialize'
+import {
+  buildTaskVisibilityRequestConditions,
+  collectScopedTaskEntityTypes,
+  filterVisibleTasks,
+  resolveTaskVisibilityForRequest,
+} from '../../lib/task-visibility-request'
 
 const logger = createLogger('workflows')
 
@@ -119,6 +125,26 @@ export async function GET(request: NextRequest) {
       ]
     }
 
+    // §6.4: `workflows.tasks.view` admits the caller to this endpoint, the
+    // visibility rule decides which rows they get. Resolved ONCE — one ACL load,
+    // one classification pass, one tenant-setting read for the whole page.
+    const visibility = await resolveTaskVisibilityForRequest({
+      container,
+      em,
+      auth: { userId: auth.sub, tenantId, roleNames: auth.roles ?? [] },
+      organizationIds: orgFilter.organizationIds ?? null,
+      aclOrganizationId: orgFilter.rbacOrganizationId,
+      entityTypes: await collectScopedTaskEntityTypes(em, {
+        tenantId,
+        organizationIds: orgFilter.organizationIds ?? null,
+      }),
+    })
+
+    const visibilityConditions = buildTaskVisibilityRequestConditions(visibility)
+    if (visibilityConditions.length > 0) {
+      where.$and = [...(Array.isArray(where.$and) ? where.$and : []), ...visibilityConditions]
+    }
+
     const [tasks, total] = await em.findAndCount(
       UserTask,
       where,
@@ -129,13 +155,19 @@ export async function GET(request: NextRequest) {
       }
     )
 
+    // The `WHERE` above IS the predicate, so this drops nothing in practice and
+    // `total` stays the count of what the caller may see. It runs because the
+    // predicate is the single decision point and because a divergence must lose
+    // a row rather than leak one.
+    const visibleTasks = filterVisibleTasks(visibility, tasks)
+
     const body: z.infer<typeof userTaskListResponseSchema> = {
-      data: tasks.map(serializeUserTask),
+      data: visibleTasks.map(serializeUserTask),
       pagination: {
         total,
         limit,
         offset,
-        hasMore: offset + tasks.length < total,
+        hasMore: offset + visibleTasks.length < total,
       },
     }
 

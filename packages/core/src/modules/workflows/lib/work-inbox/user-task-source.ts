@@ -18,6 +18,10 @@ import {
   deriveWorkInboxOverdue,
   normalizeWorkInboxPriority,
 } from './provider'
+import {
+  buildTaskVisibilityRequestConditions,
+  filterVisibleTasks,
+} from '../task-visibility-request'
 import type {
   WorkInboxAction,
   WorkInboxEntityBinding,
@@ -126,6 +130,13 @@ export function buildUserTaskWorkInboxWhere(
     })
   }
 
+  // §6.4. Pushed onto the SAME `$and` array as every other predicate, so the
+  // relationship clause, the entity gate and the caller's own filters compose
+  // rather than overwrite each other. Empty for an administrator, a superadmin,
+  // or a tenant that has flipped the opt-out — the rule then adds nothing and
+  // tenant/organization scoping below is still the floor.
+  conditions.push(...buildTaskVisibilityRequestConditions(scope.visibility))
+
   const where: Record<string, unknown> = { tenantId: scope.tenantId }
   if (scope.organizationIds) {
     where.organizationId = { $in: scope.organizationIds }
@@ -184,8 +195,13 @@ async function listUserTaskWorkItems(
     offset: 0,
   })
 
+  // The `WHERE` already IS the rule; running the predicate over the page keeps
+  // this source routed through the single decision point and makes a
+  // SQL/predicate divergence lose a row instead of leaking one.
+  const visible = filterVisibleTasks(context.scope.visibility, tasks)
+
   return {
-    rows: tasks.map((task) => toUserTaskWorkInboxRow(task, query.now)),
+    rows: visible.map((task) => toUserTaskWorkInboxRow(task, query.now)),
     total,
   }
 }

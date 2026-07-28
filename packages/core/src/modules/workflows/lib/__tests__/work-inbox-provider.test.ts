@@ -35,17 +35,31 @@ import {
 } from '../work-inbox/user-task-source'
 import { listClaimableWorkInbox, listWorkInbox } from '../work-inbox/service'
 import { UserTask } from '../../data/entities'
+import { makeTaskVisibilityContext } from './helpers/taskVisibilityContext'
 
 const TENANT_ID = '11111111-2222-4333-8444-aaaaaaaaaaaa'
 const ORG_ID = '11111111-2222-4333-8444-bbbbbbbbbbbb'
 const USER_ID = '11111111-2222-4333-8444-cccccccccccc'
 const NOW = new Date('2026-07-28T12:00:00.000Z')
 
+/**
+ * An administrator for these fixtures: `workflows.tasks.view_all` means the
+ * §6.4 clause contributes nothing, so the assertions below stay about the
+ * filters they are testing. The narrowing itself is covered in
+ * `task-visibility-request.test.ts` and in the route suites.
+ */
 const scope: WorkInboxScope = {
   tenantId: TENANT_ID,
   organizationIds: [ORG_ID],
   userId: USER_ID,
   roles: ['approver'],
+  visibility: makeTaskVisibilityContext({
+    userId: USER_ID,
+    tenantId: TENANT_ID,
+    organizationIds: [ORG_ID],
+    roleNames: ['approver'],
+    grantedFeatures: ['workflows.tasks.view', 'workflows.tasks.view_all'],
+  }),
 }
 
 function makeQuery(overrides: Partial<WorkInboxQuery> = {}): WorkInboxQuery {
@@ -290,8 +304,22 @@ describe('user_task source query', () => {
     expect(where.$and).toContainEqual({ workflowInstanceId: 'wf-1' })
   })
 
-  test('an unfiltered query carries no extra predicates at all', () => {
+  test('an unfiltered query carries only the entity gate', () => {
     const where = buildUserTaskWorkInboxWhere(makeQuery(), scope) as Record<string, unknown>
+
+    // `view_all` drops the RELATIONSHIP clause, never the ENTITY one — an
+    // administrator sees other people's work, not entity types they may not
+    // view. Only a superadmin short-circuits the gate.
+    expect(where.$and).toEqual([
+      { $or: [{ entityTypes: null }, { entityTypes: { $contained: [] } }] },
+    ])
+  })
+
+  test('a superadmin carries no extra predicates at all', () => {
+    const where = buildUserTaskWorkInboxWhere(makeQuery(), {
+      ...scope,
+      visibility: makeTaskVisibilityContext({ isSuperAdmin: true }),
+    }) as Record<string, unknown>
 
     expect(where.$and).toBeUndefined()
   })
