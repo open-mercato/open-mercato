@@ -1253,6 +1253,46 @@ process.exit(1)
   }
 })
 
+test('live Codex retries one trace-free routing startup and then succeeds', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+if (args[0] === 'features' && args[1] === 'list') process.exit(0)
+const prompt = fs.readFileSync(0, 'utf8')
+const correction = prompt.includes('correction attempt 2 after the first routing answer failed a non-safety semantic contract')
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+if (correction) {
+  for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) {
+    console.log(JSON.stringify({ type: 'item.completed', item: {
+      type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+    }}))
+  }
+} else {
+  console.log(JSON.stringify({ type: 'thread.started', thread_id: 'trace-free-first-attempt' }))
+}
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.equal(stored.attempts, 2)
+    assert.equal(stored.corrections, 1)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('live Claude retries one correctable read-only routing assertion and then succeeds', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'claude', `

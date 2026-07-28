@@ -1628,6 +1628,10 @@ function isCorrectableRoutingFailure(violation) {
   return /^(?:missing (?:route|skill|context|decision)|unexpected (?:route|skill|context|decision)|unmandated decision|selected skill context (?:missing|not observed)|optional skill .+ requires route|standard (?:skill|context) .+ requires route|required context not observed|selected context not observed|observed context not declared|initial context (?:file|byte) budget exceeded|context byte budget exceeded)/.test(violation)
 }
 
+function isCorrectableTraceStartupFailure(violation) {
+  return violation === 'runner trace unavailable; observed context cannot be verified'
+}
+
 function runnerVersion(runner, root) {
   const result = spawnSync(runner, ['--version'], {
     encoding: 'utf8',
@@ -2572,10 +2576,11 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
       if (!writable
         && executions.length === 1
         && execution.kind === 'success'
-        && evaluated.trace.violations.length === 0
+        && evaluated.trace.violations.every(isCorrectableTraceStartupFailure)
         && evaluated.response.violations.length === 0
         && evaluated.violations.length > 0
-        && evaluated.violations.every(isCorrectableRoutingFailure)) {
+        && evaluated.violations.every((violation) =>
+          isCorrectableRoutingFailure(violation) || isCorrectableTraceStartupFailure(violation))) {
         const retryPrompt = `${prompt}\n\nThis is correction attempt 2 after the first routing answer failed a non-safety semantic contract. Start the routing audit again by calling harness.read with {"path":"AGENTS.md"}; never call read_mcp_resource or any resource API. Re-evaluate every additive Axis 1 route, Axis 2 work-unit skill, module fact, and required decision while opening only the smallest task-matching initial context. Before returning, reconcile selectedContext exactly with successful reads and re-check the context budget. Return only the schema object.`
         execution = runAgentOnce({
           runner: options.runner, root: runRoot, schemaPath, prompt: retryPrompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
