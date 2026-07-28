@@ -9,11 +9,27 @@ know which skill applies.
 
 ## Scope
 
-- New local skill `om-pr-autopilot` under `.ai/skills/`, assigned to the
-  `automation` tier.
-- A thin `SKILL.md` router plus three `references/` files (diagnosis procedure,
-  state matrix, reporting contract).
-- Manifest and catalog updates: `.ai/skills/tiers.json`, `.ai/skills/README.md`.
+Revised in Phase 5 per @pkarw's request: the dispatcher itself is agnostic and
+ships in the shared collection, and this repository keeps only the stack-specific
+override. The phases below are preserved as the historical record of how the run
+got here — Phases 1–4 describe the superseded local-only implementation.
+
+- The agnostic skill lives upstream in `open-mercato/skills`
+  (open-mercato/skills#65), where it carries its own `SKILL.md` router and
+  `references/` (diagnosis, state matrix, reporting, plus its own copies of the
+  standard step files), and every tracker read goes through a named descriptor
+  operation rather than a `gh` command.
+- This repository ships only the thin repo-local override
+  `.ai/skills/om-pr-autopilot/SKILL.md` — the diff-scope layers, the label
+  taxonomy and QA gate pointer, the degraded-claim path for an account without
+  triage rights, and the validation/runner pointer. No `references/` here.
+- Registration in `.ai/skills/tiers.json` is `external` (not a tier), so
+  `validate-skills-tiers` treats the folder as an override and `install-skills`
+  never symlinks it into the harness directories; the `.ai/skills/README.md` row
+  moved to the external list accordingly.
+- Merge order is cross-repository: open-mercato/skills#65 lands first, then this
+  PR — the override is inert until `yarn install-skills` can fetch the shared
+  skill.
 
 ## Non-goals
 
@@ -120,3 +136,15 @@ PR: #4525
 - [ ] 5.4 Merge order — this PR waits for open-mercato/skills#65 to land, since
       the override is inert until `yarn install-skills` can fetch the shared
       skill
+
+### Phase 6: Review follow-up (@pkarw, 2026-07-27)
+
+- [ ] 6.1 Blocker — open-mercato/skills#65 must be review-clean and merged first.
+      Every finding of its review (3 majors, 5 minors, 2 nits) was addressed on
+      2026-07-28 and the branch is `MERGEABLE` again at `d08952c`; the PR still
+      shows `CHANGES_REQUESTED` and its `lint` run is `action_required`, both of
+      which only a maintainer can clear. Stays open until #65 merges.
+- [ ] 6.2 Major — make the no-triage fallback conditional on the active caller
+      instead of an unconditional repository fact (SKILL.md + frontmatter)
+- [ ] 6.3 Minor — refresh the plan's top-level Scope to describe the upstream
+      skill + thin override + external registration + cross-repo merge order

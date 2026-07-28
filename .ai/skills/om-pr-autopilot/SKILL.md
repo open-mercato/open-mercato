@@ -1,6 +1,6 @@
 ---
 name: om-pr-autopilot
-description: Open Mercato repo-local extension of the shared `om-pr-autopilot` skill (installed from open-mercato/skills into .agents/skills/). Adds this repo's label taxonomy and QA gate, the concrete diff-scope classification, the known no-triage-rights reality of the automation account, and the install command for a missing companion skill.
+description: Open Mercato repo-local extension of the shared `om-pr-autopilot` skill (installed from open-mercato/skills into .agents/skills/). Adds this repo's label taxonomy and QA gate, the concrete diff-scope classification, what a triage-permission `403` means for the claim when the active account hits one, and the install command for a missing companion skill.
 ---
 
 # PR Autopilot — Open Mercato extension
@@ -27,9 +27,11 @@ The label vocabulary, the mutual-exclusion groups, and the priority/risk inferen
 - **Never set the `qa` pipeline label.** It means "manual QA in progress" and is applied by QA reviewers only. This skill and everything it dispatches request QA with `needs-qa` alone.
 - **`qa-failed`, `blocked`, and `do-not-merge` are hard blocks** — matrix row 0c stops on them.
 
-## No triage rights is the normal path here
+## When the active account lacks triage rights
 
-The account this repository's automation runs from has no triage permission, so **assign-pr** and `apply_label` fail with a `403` (`replaceActorsForAssignable` / `addLabelsToLabelable`). That is expected, not an incident: the outer claim degrades to the 🤖 claim comment alone, the release path tolerates the absent `in-progress` label, and the intended label set is listed in the summary comment addressed to the maintainer. Do not retry, and do not report a label as applied.
+Triage permission here depends on **which account the run is executing as**: a maintainer run assigns and labels normally, an outside-contributor run cannot. Never assume either way — perform the full three-signal claim exactly as the shared `references/claim-pr.md` prescribes, and degrade only in response to a real permission error.
+
+When **assign-pr** or `apply_label` actually returns a `403` (`replaceActorsForAssignable` / `addLabelsToLabelable`), that is an expected outcome for a contributor account, not an incident: the outer claim degrades to the 🤖 claim comment alone, the release path tolerates the absent `in-progress` label, and the intended label set is listed in the summary comment addressed to a maintainer. Do not retry the mutation that failed, and never report a label or an assignee as applied when it was not — the reverse holds too: when the mutations succeed, the claim and the label state machine run in full.
 
 ## Validation
 
