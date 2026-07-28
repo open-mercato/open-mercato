@@ -11,6 +11,8 @@ Create a provider-owned app module or separately published package that composes
 
 Route before reading: select the provider and any UI/module/UMES work from the brief first, then read only those route guides/skills. Generated facts and the integration references are sufficient unless one named exact-version symbol remains unresolved; do not open `om-framework-context` merely to confirm supplied facts, and only select/read it after naming the missing detail.
 
+A provider implementation cannot stop at this file: `references/provider-families.md`, `references/package-and-activation.md`, and `references/security-and-reliability.md` are mandatory.
+
 1. Read `.ai/guides/integrations.md`; first separate transactional email from mailbox channels, then choose the provider family and supplied host contract with `references/provider-families.md`.
 2. Follow `references/package-and-activation.md` to choose the standalone-local or separately published branch, then apply its discovery, DI, `integration.ts`, setup/env preset, activation, and validation contract.
 3. Follow `references/security-and-reliability.md` for encrypted credentials, per-user scope, SSRF, redaction, signature/replay, timeouts, retries, rate limits, idempotency, concurrency, and reconciliation.
