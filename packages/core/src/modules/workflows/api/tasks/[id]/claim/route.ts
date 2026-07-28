@@ -58,7 +58,7 @@ export async function POST(
     }
 
     // Call task handler to claim task
-    await claimUserTask(em, params.id, auth.sub)
+    await claimUserTask(em, params.id, auth.sub, { tenantId, organizationId })
 
     // Fetch updated task
     const { UserTask } = await import('../../../../data/entities')

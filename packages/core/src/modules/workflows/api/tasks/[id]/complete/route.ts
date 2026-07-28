@@ -112,6 +112,7 @@ export async function POST(
       formData,
       userId: auth.sub,
       comments,
+      scope: { tenantId, organizationId },
     })
 
     // Fetch updated task

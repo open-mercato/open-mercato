@@ -30,11 +30,22 @@ const logger = createLogger('workflows')
 // Types and Interfaces
 // ============================================================================
 
+/**
+ * Tenant/organization the caller is acting within. Every task lookup filters on
+ * it, so a task id from another tenant resolves to "not found" instead of being
+ * mutated.
+ */
+export interface UserTaskScope {
+  tenantId: string
+  organizationId: string
+}
+
 export interface CompleteUserTaskOptions {
   taskId: string
   formData: Record<string, any>
   userId: string
   comments?: string
+  scope: UserTaskScope
 }
 
 export class UserTaskError extends Error {
@@ -72,11 +83,13 @@ export async function completeUserTask(
   container: AwilixContainer,
   options: CompleteUserTaskOptions
 ): Promise<void> {
-  const { taskId, formData, userId, comments } = options
+  const { taskId, formData, userId, comments, scope } = options
 
   // Fetch task
   const task = await em.findOne(UserTask, {
     id: taskId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
     status: { $in: ['PENDING', 'IN_PROGRESS'] },
   })
 
@@ -85,6 +98,19 @@ export async function completeUserTask(
       'Task not found or already completed',
       'TASK_NOT_FOUND',
       { taskId }
+    )
+  }
+
+  // A task addressed to one person is that person's to finish. Tasks that name
+  // nobody — agent dispositions, role queues nobody has claimed — stay open to
+  // anyone the route's feature gate already admitted, so this narrows the
+  // over-permissive case without stranding the unassigned ones.
+  const claimant = task.claimedBy ?? task.assignedTo
+  if (claimant && claimant !== userId) {
+    throw new UserTaskError(
+      'Task is assigned to another user',
+      'TASK_ASSIGNED_TO_ANOTHER_USER',
+      { taskId, assignedTo: claimant }
     )
   }
 
@@ -263,15 +289,20 @@ export async function completeUserTask(
  * @param em - Entity manager
  * @param taskId - Task ID to claim
  * @param userId - User claiming the task
+ * @param scope - Tenant/organization the caller acts within; the lookup filters
+ *   on it, so a task belonging to another tenant is never reachable
  * @throws UserTaskError if task cannot be claimed
  */
 export async function claimUserTask(
   em: EntityManager,
   taskId: string,
-  userId: string
+  userId: string,
+  scope: UserTaskScope
 ): Promise<void> {
   const task = await em.findOne(UserTask, {
     id: taskId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
     status: 'PENDING',
   })
 
