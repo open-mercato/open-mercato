@@ -26,6 +26,7 @@ against the on-disk byte size of the context that case declares.
 ## Progress
 
 PR: #4602
+Follow-up: #4603
 
 - [x] 1.1 Materialise a faithful controller and establish the pre-change baseline — deterministic
       189/189 on the stacked parent's exact bytes
@@ -52,7 +53,7 @@ PR: #4602
       with zero assertion failures, and every affected suite passes in isolation. Across the two runs
       `core` 1033/1033, `ui` 206/206, `enterprise` 57/57, `create-app` 335 pass / 5 skipped.
 - [x] 5.2 Audit report committed under `.ai/analysis/` — c6e4f8afb
-- [ ] 5.3 Follow-up issue for the `allowedExtra`-only coverage tier
+- [x] 5.3 Follow-up issue for the `allowedExtra`-only coverage tier — #4603
 
 ## Deliberately out of scope
 
