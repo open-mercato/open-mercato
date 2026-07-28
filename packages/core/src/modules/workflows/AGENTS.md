@@ -242,6 +242,35 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - The shortcut is suppressed while a field has focus (the page's existing `isEditing` guard) and
   while a dialog is open, so it never hijacks form input.
 
+## Subgraph Clipboard (copy · paste · duplicate)
+
+- `lib/subgraph-clipboard.ts` (PURE) owns the portable format. The payload speaks the DEFINITION
+  vocabulary, not React Flow's:
+
+  ```json
+  {
+    "kind": "open-mercato.workflow-subgraph",
+    "version": 1,
+    "steps": [ /* definition steps, positions as _editorPosition */ ],
+    "transitions": [ /* definition transitions, internal to the selection only */ ]
+  }
+  ```
+
+  The Code view renders the definition JSON, so a fragment copied from the canvas MUST be the shape a
+  fragment copied out of the Code view is — that is the whole reason the format is not nodes/edges.
+  Readers refuse an unknown `kind` or `version` rather than guessing.
+- **Only transitions internal to the selection travel.** A route with one endpoint outside the
+  selection describes a step the payload does not carry, so pasting it could only invent a dangling
+  id. Data-mapping links never travel either — their binding lives in the target step's config.
+- **Paste always re-IDs** (`generateStepId` / `generateTransitionId()`) and rewires the internal
+  routes onto the new ids, so pasting into the workflow a fragment came from can never collide with
+  or silently merge into the original. The new step id reuses the old id's meaningful prefix with the
+  generated `_<ms>_<rand>` suffix stripped, so ids stay recognisable without growing on every paste.
+  Copies land offset by `SUBGRAPH_PASTE_OFFSET` and arrive selected; the paste is ONE undo entry.
+- **Clipboard access can be denied** (insecure context, no permission). Copy then falls back to an
+  in-page buffer and says so; paste reads that buffer. It is never a silent no-op — the reason is
+  always surfaced.
+
 ## Environment
 
 | Variable | Effect | Default |

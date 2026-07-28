@@ -23,6 +23,14 @@ import {
   type EditorHistoryState,
   type WorkflowEditorDocument,
 } from '../../../lib/editor-history'
+import {
+  parseWorkflowSubgraph,
+  pasteWorkflowSubgraph,
+  serializeWorkflowSubgraph,
+  stringifyWorkflowSubgraph,
+  type SubgraphClipboardParseFailure,
+  type WorkflowSubgraphClipboard,
+} from '../../../lib/subgraph-clipboard'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-flag'
 import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } from '../../../lib/draft-restore'
@@ -407,6 +415,8 @@ export default function VisualEditorPage() {
     pinSample: t('workflows.visualEditor.history.pinSample', 'Pin sample'),
     unpinSample: t('workflows.visualEditor.history.unpinSample', 'Unpin sample'),
     tidy: t('workflows.visualEditor.history.tidy', 'Tidy layout'),
+    paste: t('workflows.visualEditor.history.paste', 'Paste'),
+    duplicate: t('workflows.visualEditor.history.duplicate', 'Duplicate'),
   }), [t])
 
   const captureDocument = useCallback((): WorkflowEditorDocument => ({
@@ -741,10 +751,110 @@ export default function VisualEditorPage() {
     flash(t('workflows.visualEditor.history.redone', 'Redone: {label}', { label: step.label }), 'success')
   }, [isCodeOnly, captureDocument, applyHistoryDocument, t])
 
-  // Keyboard shortcuts: Cmd/Ctrl+Z undoes, Cmd/Ctrl+Shift+Z redoes, `F` toggles
-  // Focus mode, `Esc` exits it. Suppressed while the user is typing in a field
-  // (a text input keeps its own native undo) or while a dialog is open, so the
-  // shortcut never hijacks form input or the dialog's own Escape-to-close.
+  // Copy / paste / duplicate of a selected subgraph (spec §4.5). The payload on
+  // the system clipboard is portable JSON in the DEFINITION vocabulary, so it
+  // travels to another workflow and to the Code view. When the browser denies
+  // clipboard access (insecure context, no permission) the editor falls back to
+  // an in-page buffer and says so, rather than failing silently.
+  const localClipboardRef = React.useRef<string | null>(null)
+
+  const selectedSubgraph = useCallback(() => {
+    const selectedIds = nodesRef.current.filter((node) => node.selected).map((node) => node.id)
+    return serializeWorkflowSubgraph(nodesRef.current, edgesRef.current, selectedIds)
+  }, [])
+
+  const handleCopySelection = useCallback(async () => {
+    const payload = selectedSubgraph()
+    if (!payload) {
+      flash(t('workflows.visualEditor.clipboard.nothingSelected', 'Select one or more steps first'), 'info')
+      return
+    }
+    const serialized = stringifyWorkflowSubgraph(payload)
+    localClipboardRef.current = serialized
+    try {
+      await navigator.clipboard.writeText(serialized)
+      flash(
+        t('workflows.visualEditor.clipboard.copied', 'Copied {count} step(s)', { count: String(payload.steps.length) }),
+        'success',
+      )
+    } catch (error) {
+      logger.warn('Workflow subgraph copy fell back to the in-page buffer', { err: error })
+      flash(
+        t(
+          'workflows.visualEditor.clipboard.copyUnavailable',
+          'The browser blocked clipboard access, so the selection was kept in this editor only — pasting into another tab will not work.',
+        ),
+        'warning',
+      )
+    }
+  }, [selectedSubgraph, t])
+
+  const describeClipboardFailure = useCallback((code: SubgraphClipboardParseFailure['code']) => {
+    switch (code) {
+      case 'invalidJson':
+        return t('workflows.visualEditor.clipboard.invalidJson', 'The clipboard does not contain valid JSON.')
+      case 'empty':
+        return t('workflows.visualEditor.clipboard.empty', 'The copied selection contains no steps.')
+      default:
+        return t('workflows.visualEditor.clipboard.unsupportedFormat', 'The clipboard does not contain a copied workflow selection.')
+    }
+  }, [t])
+
+  const spliceSubgraph = useCallback((payload: WorkflowSubgraphClipboard, label: string) => {
+    const result = pasteWorkflowSubgraph(nodesRef.current, edgesRef.current, payload)
+    commitHistory(label)
+    setNodes(result.nodes)
+    setEdges(result.edges)
+    scheduleAutosave()
+    flash(
+      t('workflows.visualEditor.clipboard.pasted', 'Pasted {count} step(s)', { count: String(result.pastedNodeIds.length) }),
+      'success',
+    )
+  }, [commitHistory, scheduleAutosave, t])
+
+  const handlePaste = useCallback(async () => {
+    if (isCodeOnly) return
+    let text: string | null = null
+    try {
+      text = await navigator.clipboard.readText()
+    } catch (error) {
+      logger.warn('Workflow subgraph paste fell back to the in-page buffer', { err: error })
+      text = localClipboardRef.current
+      if (!text) {
+        flash(
+          t(
+            'workflows.visualEditor.clipboard.pasteUnavailable',
+            'The browser blocked clipboard access, so there is nothing to paste. Copy a selection in this editor first.',
+          ),
+          'error',
+        )
+        return
+      }
+    }
+    const parsed = parseWorkflowSubgraph(text ?? '')
+    if (!parsed.ok) {
+      flash(describeClipboardFailure(parsed.code), 'error')
+      return
+    }
+    spliceSubgraph(parsed.payload, historyLabels.paste)
+  }, [isCodeOnly, describeClipboardFailure, spliceSubgraph, historyLabels.paste, t])
+
+  const handleDuplicateSelection = useCallback(() => {
+    if (isCodeOnly) return
+    const payload = selectedSubgraph()
+    if (!payload) {
+      flash(t('workflows.visualEditor.clipboard.nothingSelected', 'Select one or more steps first'), 'info')
+      return
+    }
+    spliceSubgraph(payload, historyLabels.duplicate)
+  }, [isCodeOnly, selectedSubgraph, spliceSubgraph, historyLabels.duplicate, t])
+
+  // Keyboard shortcuts: Cmd/Ctrl+Z undoes, Cmd/Ctrl+Shift+Z redoes, Cmd/Ctrl+C,
+  // +V and +D copy, paste and duplicate the selected subgraph, `F` toggles Focus
+  // mode, `Esc` exits it. Suppressed while the user is typing in a field (a text
+  // input keeps its own native undo and its own copy/paste) or while a dialog is
+  // open, so the shortcut never hijacks form input or the dialog's own
+  // Escape-to-close.
   useEffect(() => {
     if (isMobile) return
     const onKeyDown = (event: KeyboardEvent) => {
@@ -753,12 +863,30 @@ export default function VisualEditorPage() {
       const isEditing = tag === 'input' || tag === 'textarea' || tag === 'select' || !!active?.isContentEditable
       if (isEditing) return
       const isDialogOpen = showNodeDialog || showEdgeDialog || showClearConfirm || startOpen
-      if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.key === 'z' || event.key === 'Z')) {
+      const isCommandKey = (event.metaKey || event.ctrlKey) && !event.altKey
+      if (isCommandKey && (event.key === 'z' || event.key === 'Z')) {
         if (isDialogOpen) return
         event.preventDefault()
         if (event.shiftKey) handleRedo()
         else handleUndo()
         return
+      }
+      if (isCommandKey && !event.shiftKey && !isDialogOpen) {
+        if (event.key === 'c' || event.key === 'C') {
+          event.preventDefault()
+          void handleCopySelection()
+          return
+        }
+        if (event.key === 'v' || event.key === 'V') {
+          event.preventDefault()
+          void handlePaste()
+          return
+        }
+        if (event.key === 'd' || event.key === 'D') {
+          event.preventDefault()
+          handleDuplicateSelection()
+          return
+        }
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return
       if (event.key === 'Escape') {
@@ -776,7 +904,7 @@ export default function VisualEditorPage() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isMobile, focusMode, showNodeDialog, showEdgeDialog, showClearConfirm, startOpen, toggleFocus, setFocusMode, handleUndo, handleRedo])
+  }, [isMobile, focusMode, showNodeDialog, showEdgeDialog, showClearConfirm, startOpen, toggleFocus, setFocusMode, handleUndo, handleRedo, handleCopySelection, handlePaste, handleDuplicateSelection])
 
   // Handle node changes from ReactFlow. The lazy graph applies React Flow's
   // change reducers internally (#3169) and hands back the resolved nodes plus a
@@ -2604,6 +2732,7 @@ export default function VisualEditorPage() {
                         <li>{t('workflows.visualEditor.hint.dragSteps', 'Drag steps to position them')}</li>
                         <li>{t('workflows.visualEditor.hint.connectSteps', 'Connect steps by dragging from handles')}</li>
                         <li>{t('workflows.visualEditor.hint.editSteps', 'Click steps and transitions to edit them')}</li>
+                        <li>{t('workflows.visualEditor.hint.copyPaste', 'Select steps and copy, paste or duplicate them with Cmd/Ctrl+C, +V and +D')}</li>
                         <li>{t('workflows.visualEditor.hint.validate', 'Validate before saving')}</li>
                       </ul>
                     </div>
