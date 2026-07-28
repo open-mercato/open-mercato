@@ -32,10 +32,20 @@ describe('workflows DI registrations', () => {
       'timerHandler',
       'conditionHandler',
       'taskHandler',
+      'workInboxService',
     ]
     for (const token of tokens) {
       expect(container.hasRegistration(token)).toBe(true)
     }
+  })
+
+  test('exposes the work inbox entry points the inbox routes call', () => {
+    const container = buildContainer()
+    const workInboxService =
+      container.resolve<Record<string, (...args: unknown[]) => unknown>>('workInboxService')
+
+    expect(typeof workInboxService.listWorkInbox).toBe('function')
+    expect(typeof workInboxService.listClaimableWorkInbox).toBe('function')
   })
 
   test('preserves the legacy instance-based handler signatures', () => {

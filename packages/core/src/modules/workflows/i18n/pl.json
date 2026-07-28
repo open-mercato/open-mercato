@@ -1371,6 +1371,7 @@
   "workflows.steps.types.WAIT_FOR_TIMER": "Czekaj na Timer",
   "workflows.tasks.actions.claim": "Przejmij Zadanie",
   "workflows.tasks.actions.complete": "Zakończ Zadanie",
+  "workflows.tasks.actions.unclaim": "Zwolnij Zadanie",
   "workflows.tasks.actions.viewDetails": "Zobacz Szczegóły",
   "workflows.tasks.allTasks": "Wszystkie Zadania",
   "workflows.tasks.assignedTo": "Przypisane Do",

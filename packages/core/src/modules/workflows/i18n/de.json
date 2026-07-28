@@ -1371,6 +1371,7 @@
   "workflows.steps.types.WAIT_FOR_TIMER": "Auf Timer warten",
   "workflows.tasks.actions.claim": "Aufgabe übernehmen",
   "workflows.tasks.actions.complete": "Aufgabe abschließen",
+  "workflows.tasks.actions.unclaim": "Aufgabe freigeben",
   "workflows.tasks.actions.viewDetails": "Details anzeigen",
   "workflows.tasks.allTasks": "Alle Aufgaben",
   "workflows.tasks.assignedTo": "Zugewiesen an",

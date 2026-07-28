@@ -1371,6 +1371,7 @@
   "workflows.steps.types.WAIT_FOR_TIMER": "Wait for Timer",
   "workflows.tasks.actions.claim": "Claim Task",
   "workflows.tasks.actions.complete": "Complete Task",
+  "workflows.tasks.actions.unclaim": "Release Task",
   "workflows.tasks.actions.viewDetails": "View Details",
   "workflows.tasks.allTasks": "All Tasks",
   "workflows.tasks.assignedTo": "Assigned To",

@@ -1371,6 +1371,7 @@
   "workflows.steps.types.WAIT_FOR_TIMER": "Esperar temporizador",
   "workflows.tasks.actions.claim": "Reclamar tarea",
   "workflows.tasks.actions.complete": "Completar tarea",
+  "workflows.tasks.actions.unclaim": "Liberar tarea",
   "workflows.tasks.actions.viewDetails": "Ver detalles",
   "workflows.tasks.allTasks": "Todas las tareas",
   "workflows.tasks.assignedTo": "Asignado a",
