@@ -194,6 +194,7 @@ export type ModuleWorker = {
   moduleId?: string
   queue: string
   concurrency: number
+  lockDuration?: number
   maxStalledCount?: number
   handler: ModuleWorkerHandler
 }

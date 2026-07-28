@@ -2,7 +2,7 @@
 
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SyncCursor, SyncRun } from '../../data/entities'
-import { createSyncRunService } from '../sync-run-service'
+import { createSyncRunService, SyncRunCursorConflictError } from '../sync-run-service'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
@@ -129,6 +129,79 @@ describe('SyncRunService.commitBatchProgress — atomic counter + cursor (issue 
 
     expect(result).toBeNull()
     expect(em.begin).not.toHaveBeenCalled()
+  })
+})
+
+describe('SyncRunService.commitBatchProgress — cursor fencing against a concurrent delivery', () => {
+  beforeEach(() => {
+    ;(findOneWithDecryption as jest.Mock).mockReset()
+  })
+
+  it('advances the cursor only from the value the caller streamed from', async () => {
+    const em = buildFakeEm()
+    const run = buildRun()
+    mockLookups(run, { cursor: 'old-cursor' })
+
+    const service = createSyncRunService(em as any)
+    await service.commitBatchProgress('run-1', { createdCount: 1, batchesCompleted: 1 }, 'new-cursor', SCOPE, 'old-cursor')
+
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      SyncRun,
+      expect.objectContaining({
+        id: 'run-1',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        deletedAt: null,
+        cursor: 'old-cursor',
+      }),
+      expect.objectContaining({ cursor: 'new-cursor' }),
+    )
+    expect(em.commit).toHaveBeenCalledTimes(1)
+  })
+
+  it('fences a null starting cursor so only the first delivery can leave the initial position', async () => {
+    const em = buildFakeEm()
+    const run = buildRun({ cursor: null })
+    mockLookups(run, null)
+
+    const service = createSyncRunService(em as any)
+    await service.commitBatchProgress('run-1', { batchesCompleted: 1 }, 'first-cursor', SCOPE, null)
+
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      SyncRun,
+      expect.objectContaining({ cursor: null }),
+      expect.objectContaining({ cursor: 'first-cursor' }),
+    )
+  })
+
+  it('rejects the commit and rolls back when another worker already moved the cursor', async () => {
+    const em = buildFakeEm()
+    em.nativeUpdate.mockResolvedValueOnce(0)
+    const run = buildRun()
+    mockLookups(run, { cursor: 'moved-by-other-worker' })
+
+    const service = createSyncRunService(em as any)
+    await expect(
+      service.commitBatchProgress('run-1', { createdCount: 1, batchesCompleted: 1 }, 'new-cursor', SCOPE, 'old-cursor'),
+    ).rejects.toBeInstanceOf(SyncRunCursorConflictError)
+
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
+    expect(run.createdCount).toBe(5)
+    expect(run.batchesCompleted).toBe(2)
+    expect(run.cursor).toBe('old-cursor')
+  })
+
+  it('leaves the cursor unguarded when no expectation is supplied, preserving the legacy write', async () => {
+    const em = buildFakeEm()
+    const run = buildRun()
+    mockLookups(run, { cursor: 'old-cursor' })
+
+    const service = createSyncRunService(em as any)
+    await service.commitBatchProgress('run-1', { createdCount: 1, batchesCompleted: 1 }, 'new-cursor', SCOPE)
+
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+    expect(run.cursor).toBe('new-cursor')
   })
 })
 

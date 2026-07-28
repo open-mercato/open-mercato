@@ -9,6 +9,7 @@ import { emitDataSyncEvent } from '../events'
 import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch } from './adapter'
 import { getDataSyncAdapter } from './adapter-registry'
 import type { SyncRunService } from './sync-run-service'
+import { SyncRunCursorConflictError } from './sync-run-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('data_sync').child({ component: 'sync-engine' })
@@ -452,6 +453,7 @@ export function createSyncEngine(deps: EngineDeps) {
       const mapping = await resolveMapping(adapter, run.entityType, scope)
       let processedCount = 0
       let totalCount: number | null = null
+      let committedCursor: string | null = run.cursor ?? null
 
       try {
         for await (const batch of adapter.streamImport({
@@ -481,7 +483,9 @@ export function createSyncEngine(deps: EngineDeps) {
             },
             batch.cursor,
             scope,
+            committedCursor,
           )
+          committedCursor = batch.cursor
 
           await updateProgress(run.progressJobId, processedCount, totalCount, scope)
           await refreshCoverageSnapshots(batch.refreshCoverageEntityTypes, scope)
@@ -507,6 +511,13 @@ export function createSyncEngine(deps: EngineDeps) {
           })
         }
       } catch (error) {
+        if (error instanceof SyncRunCursorConflictError) {
+          logger.warn('Yielding import run to a concurrent worker that already advanced the cursor', {
+            runId: run.id,
+            expectedCursor: error.expectedCursor,
+          })
+          return
+        }
         const message = error instanceof Error ? error.message : 'Sync import failed'
         await integrationLogService.write(
           {
@@ -596,6 +607,7 @@ export function createSyncEngine(deps: EngineDeps) {
 
       const mapping = await resolveMapping(adapter, run.entityType, scope)
       let processedCount = 0
+      let committedCursor: string | null = run.cursor ?? null
 
       try {
         for await (const batch of adapter.streamExport({
@@ -626,7 +638,9 @@ export function createSyncEngine(deps: EngineDeps) {
             },
             batch.cursor,
             scope,
+            committedCursor,
           )
+          committedCursor = batch.cursor
           await updateProgress(run.progressJobId, processedCount, null, scope)
           await logExportItemFailures(run.id, run.integrationId, batch.results, scope)
 
@@ -647,6 +661,13 @@ export function createSyncEngine(deps: EngineDeps) {
           })
         }
       } catch (error) {
+        if (error instanceof SyncRunCursorConflictError) {
+          logger.warn('Yielding export run to a concurrent worker that already advanced the cursor', {
+            runId: run.id,
+            expectedCursor: error.expectedCursor,
+          })
+          return
+        }
         const message = error instanceof Error ? error.message : 'Sync export failed'
         await integrationLogService.write(
           {

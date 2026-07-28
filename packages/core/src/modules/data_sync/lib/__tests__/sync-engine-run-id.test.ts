@@ -27,6 +27,7 @@ jest.mock('../../../query_index/lib/coverage', () => ({
 }))
 
 import { createSyncEngine } from '../sync-engine'
+import { SyncRunCursorConflictError } from '../sync-run-service'
 
 function createScope() {
   return {
@@ -438,6 +439,114 @@ describe('data sync engine forwards run context to adapters', () => {
       expect.objectContaining({ updatedCount: 1, batchesCompleted: 1 }),
       'checkpoint-2',
       createScope(),
+      'checkpoint-1',
     )
+  })
+})
+
+describe('data sync engine fences cursor commits against a concurrent delivery', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetIntegration.mockReturnValue({ providerKey: 'excel' })
+  })
+
+  function createImportAdapter(batches: Array<{ cursor: string; batchIndex: number }>): DataSyncAdapter {
+    return {
+      providerKey: 'excel',
+      direction: 'import',
+      supportedEntities: ['catalog.product'],
+      getMapping: jest.fn(async () => ({
+        entityType: 'catalog.product',
+        matchStrategy: 'externalId',
+        fields: [],
+      })),
+      streamImport: jest.fn(async function* () {
+        for (const batch of batches) {
+          yield {
+            items: [{ externalId: `product-${batch.batchIndex}`, action: 'create', data: {} }],
+            cursor: batch.cursor,
+            hasMore: batch.batchIndex < batches.length,
+            batchIndex: batch.batchIndex,
+          }
+        }
+      }),
+    }
+  }
+
+  function buildEngine(syncRunService: SyncRunService) {
+    return createSyncEngine({
+      em: {} as EntityManager,
+      syncRunService,
+      integrationCredentialsService: {
+        resolve: jest.fn(async () => ({ uploadId: 'upload-1' })),
+      } as unknown as CredentialsService,
+      integrationLogService: {
+        write: jest.fn(async () => undefined),
+      } as unknown as IntegrationLogService,
+      integrationStateService: {
+        upsert: jest.fn(async () => undefined),
+      } as any,
+      progressService: createProgressService(),
+    })
+  }
+
+  it('chains each commit to the cursor it last committed, so a stale delivery cannot skip a window', async () => {
+    const run = {
+      id: 'run-chain',
+      integrationId: 'sync_excel',
+      entityType: 'catalog.product',
+      direction: 'import' as const,
+      status: 'pending' as const,
+      cursor: null,
+      progressJobId: null,
+    }
+    const commitBatchProgress = jest.fn(async () => run)
+    const syncRunService = {
+      getRun: jest.fn(async () => run),
+      markStatus: jest.fn(async () => ({ ...run, status: 'running' })),
+      commitBatchProgress,
+    } as unknown as SyncRunService
+
+    mockGetDataSyncAdapter.mockReturnValue(
+      createImportAdapter([
+        { cursor: 'c1', batchIndex: 1 },
+        { cursor: 'c2', batchIndex: 2 },
+      ]),
+    )
+
+    await buildEngine(syncRunService).runImport('run-chain', 100, createScope())
+
+    expect(commitBatchProgress.mock.calls.map((call) => [call[2], call[4]])).toEqual([
+      ['c1', null],
+      ['c2', 'c1'],
+    ])
+  })
+
+  it('yields the run instead of failing it when the cursor was advanced by another worker', async () => {
+    const run = {
+      id: 'run-conflict',
+      integrationId: 'sync_excel',
+      entityType: 'catalog.product',
+      direction: 'import' as const,
+      status: 'running' as const,
+      cursor: 'checkpoint-1',
+      progressJobId: null,
+    }
+    const markStatus = jest.fn(async () => ({ ...run, status: 'running' }))
+    const syncRunService = {
+      getRun: jest.fn(async () => run),
+      markStatus,
+      commitBatchProgress: jest.fn(async () => {
+        throw new SyncRunCursorConflictError('run-conflict', 'checkpoint-1', 'checkpoint-2')
+      }),
+    } as unknown as SyncRunService
+
+    mockGetDataSyncAdapter.mockReturnValue(createImportAdapter([{ cursor: 'checkpoint-2', batchIndex: 1 }]))
+
+    await buildEngine(syncRunService).runImport('run-conflict', 100, createScope())
+
+    const requestedStatuses = markStatus.mock.calls.map((call) => call[1])
+    expect(requestedStatuses).not.toContain('failed')
+    expect(requestedStatuses).not.toContain('completed')
   })
 })

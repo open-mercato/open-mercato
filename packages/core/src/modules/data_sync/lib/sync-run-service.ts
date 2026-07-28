@@ -26,6 +26,27 @@ type SyncScope = {
   tenantId: string
 }
 
+/**
+ * Raised when a batch commit loses the cursor compare-and-swap, meaning another
+ * delivery of the same job advanced the run while this worker was streaming.
+ *
+ * BullMQ guarantees at-least-once delivery: a job whose lock is not renewed is
+ * redelivered under the SAME job id, whether the previous worker died or is only
+ * blocked. No identity token can tell those apart, so ownership is enforced here
+ * — on the write that matters — instead of at claim time. The loser aborts and
+ * leaves the run to the worker that is still making progress.
+ */
+export class SyncRunCursorConflictError extends Error {
+  constructor(
+    readonly runId: string,
+    readonly expectedCursor: string | null,
+    readonly attemptedCursor: string,
+  ) {
+    super(`[internal] Sync run ${runId} cursor moved from ${expectedCursor ?? 'null'} under a concurrent worker`)
+    this.name = 'SyncRunCursorConflictError'
+  }
+}
+
 export function createSyncRunService(em: EntityManager) {
   async function resolveCursorRow(run: SyncRun, scope: SyncScope): Promise<SyncCursor | null> {
     return findOneWithDecryption(
@@ -213,11 +234,29 @@ export function createSyncRunService(em: EntityManager) {
       delta: Partial<Pick<SyncRun, 'createdCount' | 'updatedCount' | 'skippedCount' | 'failedCount' | 'batchesCompleted'>>,
       cursor: string,
       scope: SyncScope,
+      expectedCursor?: string | null,
     ): Promise<SyncRun | null> {
       const run = await this.getRun(runId, scope)
       if (!run) return null
       const cursorRow = await resolveCursorRow(run, scope)
+      const claimCursorAdvance = async () => {
+        const advanced = await em.nativeUpdate(
+          SyncRun,
+          {
+            id: runId,
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            deletedAt: null,
+            cursor: expectedCursor,
+          },
+          { cursor, updatedAt: new Date() },
+        )
+        if (advanced === 0) {
+          throw new SyncRunCursorConflictError(runId, expectedCursor ?? null, cursor)
+        }
+      }
       await withAtomicFlush(em, [
+        ...(expectedCursor === undefined ? [] : [claimCursorAdvance]),
         () => {
           run.createdCount += delta.createdCount ?? 0
           run.updatedCount += delta.updatedCount ?? 0
