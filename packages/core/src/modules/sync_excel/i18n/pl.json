@@ -26,7 +26,7 @@
   "sync_excel.mapping.targets.source": "Źródło",
   "sync_excel.mapping.targets.status": "Status",
   "sync_excel.preview.errors.notFound": "Nie znaleziono podglądu przesłanego pliku.",
-  "sync_excel.tabs.import": "Import CSV",
+  "sync_excel.tabs.import": "Importuj CSV",
   "sync_excel.upload.errors.fileRequired": "Wybierz plik CSV do przesłania.",
   "sync_excel.upload.errors.invalidPayload": "Nieprawidłowe dane przesłania.",
   "sync_excel.upload.errors.invalidType": "W tym etapie wspierane są tylko importy CSV.",
