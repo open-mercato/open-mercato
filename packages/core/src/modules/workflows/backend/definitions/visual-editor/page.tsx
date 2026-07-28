@@ -1969,6 +1969,12 @@ export default function VisualEditorPage() {
         setShowCommandPalette((open) => !open)
         return
       }
+      if (isCommandKey && !event.shiftKey && (event.key === 's' || event.key === 'S')) {
+        if (isDialogOpen || isCodeOnly) return
+        event.preventDefault()
+        void handleSave()
+        return
+      }
       if (isEditing || showCommandPalette) return
 
       if (isCommandKey && (event.key === 'z' || event.key === 'Z')) {
@@ -2029,6 +2035,7 @@ export default function VisualEditorPage() {
     isMobile, focusMode, showNodeDialog, showEdgeDialog, showAnnotationDialog, showClearConfirm, startOpen,
     showCodeView, showCommandPalette, toggleFocus, setFocusMode, handleUndo, handleRedo, handleCopySelection, handlePaste,
     handleDuplicateSelection, openSelectedInspector, handleDeleteSelection, handleNudge,
+    handleSave, isCodeOnly,
   ])
 
   // Quiet autosave routine (no redirect, no success flash). Mirrors the update
