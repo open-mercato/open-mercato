@@ -1,7 +1,7 @@
 # `mercato upgrade` — a single, lock-guarded reconcile phase for existing deployments
 
 **Date:** 2026-07-27
-**Status:** draft — awaiting maintainer decision on Open Question 1
+**Status:** draft, revised after maintainer review (PR #4547) — awaiting decision on Open Questions 1–2
 **Owner:** unassigned (proposed by Full Stack House, surfaced from a production incident)
 **Scope:** OSS. Touches `packages/cli`, `packages/core/src/modules/{entities,auth,feature_toggles}`, `docker/scripts/`, `packages/create-app/template/`, `apps/docs/docs/cli/`.
 
@@ -17,7 +17,7 @@
 
 Open Mercato ships idempotent reconcile commands that its own docs tell operators to run after a module change. **No deployment path in the repo runs them.** After first boot, every Open Mercato deployment runs `yarn db:migrate` and nothing else, forever. Enable a module that declares custom fields or ACL features, deploy it, and the schema lands while the *definitions* silently do not.
 
-Proposal: add `mercato upgrade` — one advisory-locked phase composing the **four provably-idempotent** reconcile steps — and point `init-or-migrate.sh`'s steady-state path at it.
+Proposal: one advisory-lock **contract** covering every shipped migration entrypoint, not a lock on one new command. `db:migrate` becomes the locked public migration path; `mercato upgrade` composes it with the **three provably-idempotent** reconcile steps under the same, singly-acquired lock; `init-or-migrate.sh`'s steady-state path points at `upgrade`. Whichever door a process comes in through, it serializes on the same lock.
 
 **`setup.seedDefaults` is deliberately excluded.** An audit of all 21 implementations found three that destructively overwrite tenant configuration on re-run (`sync_excel` wipes integration credentials to `{}`), several that silently revert admin customisations, and explicit in-repo comments stating "seed hooks are not fully idempotent". Reconciling that class needs a separate opt-in `setup.reconcile?()` hook, proposed here as future work rather than smuggled into a deploy-time command.
 
@@ -82,6 +82,8 @@ for (const migration of pending) {
 
 Two concurrent runs both observe the same `getPending()` and both apply → `42P07 relation already exists`. Today the only guard is GitHub Actions' `concurrency:` group, which does not cover a manual `kubectl create job`, an orphaned migrate Job, or a multi-replica rollout. On Railway the entrypoint runs *inside the app container*, arbitrated only by a marker file on a shared volume.
 
+MikroORM will not solve this upstream: v7 takes no lock of any kind — no advisory lock, no lock table, no `FOR UPDATE` on the tracking table (which also lacks a unique index on `name`). What "serializes" two concurrent migrators today is the `ACCESS EXCLUSIVE` DDL locks inside the migration bodies — the second run blocks, then crashes. And this repo's loop above weakens even `allOrNothing`: one `migrator.up()` per migration per module means a run is `N_modules × M_migrations` independent transactions across separate ORM instances, with no umbrella transaction to hang safety on. Prior art is unambiguous about where the fix belongs: every migration tool that owns the deploy path locks by default (Rails, Prisma, Knex, Flyway, Liquibase, EF Core 9+, Atlas, Ecto), single-upgrade-verb platforms lock the verb (Magento `setup:upgrade`, Frappe `bench migrate`, Keycloak's Liquibase boot), and all of them take **one** global lock around the entire run — none lock per-migration.
+
 ### 4. Cache purge is a workaround, not a fix — and is out of scope
 
 Recorded so the spec's exclusions are auditable. `mercato configs cache structural` enumerates keys via the **blocking Redis `KEYS`** command, not `SCAN`:
@@ -145,7 +147,7 @@ A new top-level command. Under a single Postgres advisory lock:
 
 | # | Step | Idempotency evidence | Notes |
 |---|------|---------------------|-------|
-| 1 | `dbMigrate(resolver)` | MikroORM migrations table | Schema first. Called directly, **not** via `runModuleCommand` — see Architecture. |
+| 1 | `dbMigrateUnlocked(resolver)` | MikroORM migrations table | Schema first. The internal, lock-free primitive — `upgrade` already holds the lock (see Advisory locking). Called directly, **not** via `runModuleCommand` — see Architecture. |
 | 2 | `entities install` | Checksum-cache short-circuit (`entities/lib/install-from-ce.ts:245-253`), field-level diff (`lib/field-definitions.ts:126-136`), `upsertCustomEntity` returns `'unchanged'` (`lib/register.ts:53-60`) | Strongest of the four. Defaults to all non-deleted tenants (`install-from-ce.ts:195-200`). **Do not pass `--force`** — it defeats the cache and forces invalidation on every scope. |
 | 3 | `auth sync-role-acls` | `ensureRoleAclFor` merges by set-union with change detection (`auth/lib/setup-app.ts:632-663`) | Additive-only: removing a feature from `defaultRoleFeatures` never revokes it. This is the step that fixes the originating incident. |
 | 4 | `feature_toggles seed-defaults` | Create-only skip (`feature_toggles/cli.ts:335-339`) | Global, no tenant concept. Safe but does **not** reconcile drift — an edited toggle's `name`/`defaultValue` is skipped, not updated. `{ optional: true }`. |
@@ -159,7 +161,7 @@ A new top-level command. Under a single Postgres advisory lock:
 - **Reindexing** — `mercato reindex` (→ `query_index reindex`, `mercato.ts:1551-1555`) is minutes-scale and belongs to a separate operator decision. Note in passing: `apps/docs/docs/framework/database/hybrid-query-engine.mdx:20` documents `entities install --reindex`, **a flag that does not exist in the code** and is silently swallowed. Doc bug to fix in Phase 5.
 - **User/tenant/org creation** — `upgrade` never creates a tenant, org, or user. This invariant is what makes it safe to run unattended.
 
-### Advisory locking
+### Advisory locking — one lock, every entrypoint
 
 A dedicated `pg.Client` — **never** the MikroORM pool, which recycles connections and would silently drop a session-level lock. Consistent with how `init` already opens raw clients (`mercato.ts:1020`).
 
@@ -170,11 +172,25 @@ const UPGRADE_LOCK_ID = 0x5547         // 'UG'
 
 `pg_try_advisory_lock(int4, int4)` with bounded retry — **not** plain `pg_advisory_lock`, which blocks indefinitely and converts a deploy race into a hung Job indistinguishable from slow migrations. On exhaustion: exit non-zero naming the lock, so the Job crashloops visibly. Defaults: retry every 5s for 10 minutes; `--lock-timeout=<seconds>`, `--no-lock` escape for local use.
 
+**`db:migrate` participates in the same lock.** Locking only `upgrade` while `db:migrate` stayed bare would leave the exact race from Problem §3 open through the doors that section names — the manual `kubectl create job`, the orphaned migrate Job, the `MIGRATE_COMMAND` override. So the migration primitive splits in two:
+
+- **`dbMigrate(resolver)`** — the public entry, wrapped in `withUpgradeLock`. What `yarn db:migrate` and every deploy script reach. Signature and CLI surface unchanged; it gains the same `--lock-timeout`/`--no-lock` flags.
+- **`dbMigrateUnlocked(resolver)`** — the internal primitive, no lock, exported for exactly one caller: `upgrade`, which invokes it while already holding the lock.
+
+The split is load-bearing, not cosmetic. Naively locking both `upgrade` and the inner migrate call self-deadlocks: `upgrade` holds the lock on its dedicated `pg.Client` (session A) while the nested acquisition would run on a different connection (session B). Advisory-lock re-entrancy is per-*session*, so B waits on A forever — and Postgres's deadlock detector never fires, because A is not blocked on a lock; it is blocked in application code waiting for the migrate call to return. The failure mode is a hung Job indistinguishable from slow migrations. One lock, acquired exactly once at the outermost entrypoint, is also the unanimous prior-art shape (Problem §3).
+
+Two operational constraints on the lock connection:
+
+- **Direct database URL only — never a transaction-mode pooler.** PgBouncer in transaction mode hands successive statements different backend sessions, silently dropping a session-level advisory lock while the caller believes it is held. This is a documented production failure mode for Rails, Prisma, Alembic and golang-migrate. Hard requirement for the AWS/K8s paths, where a pooler is most likely to sit in front of the database; goes in `UPGRADE_NOTES.md` and the docs page (Phase 4).
+- **The lock connection must stay separate from the connection running DDL.** Already true here (the lock lives on the dedicated client, migrations run on the ORM pool), recorded as a constraint so a future refactor does not merge them — a session advisory lock held on the same connection interferes with patterns like `CREATE INDEX CONCURRENTLY` (the reason Flyway exposes an opt-out for its session lock).
+
+Choosing a session advisory lock over a lock table is itself the recovery story: the lock **dies with its connection**. Kill the process — or let Kubernetes kill the pod — and the lock is released; there is no `DATABASECHANGELOGLOCK`-style stranded row and no `migrate:unlock` command to build and document (Knex, Liquibase and EF Core each need one). The runbook reduces to inspecting `pg_locks` — see § Rollback & Recovery.
+
 Separately and as cheap defence in depth: `mikro_orm_migrations_<mod>` has no unique constraint on `name`. Adding one turns a lost race from silent double-apply into a constraint violation. Proposed as an independent follow-up (needs a migration per module table), not a blocker.
 
 ### Rewiring the deploy path
 
-`init-or-migrate.sh`'s default `MIGRATE_COMMAND` becomes `yarn mercato upgrade`, on both the fallback path (`:48`) and the steady-state path (`:70`). The env var stays overridable, so `MIGRATE_COMMAND='yarn db:migrate'` restores the old behaviour.
+`init-or-migrate.sh`'s default `MIGRATE_COMMAND` becomes `yarn mercato upgrade`, on both the fallback path (`:48`) and the steady-state path (`:70`). The env var stays overridable, so `MIGRATE_COMMAND='yarn db:migrate'` restores the migrations-only behaviour — but it is no longer an *unlocked* bypass: with Phase 1, `db:migrate` acquires the same lock, so the override opts out of reconciliation, never of serialization.
 
 Because `upgrade` self-serializes, the marker file stops being load-bearing for correctness, and the AWS playbook's reason for bypassing the script (`2026-06-04-aws-terraform-deployment-playbook.md:742`) partly dissolves. Pipelines collapse from *migrate Job → rollout → purge Job* to *upgrade Job → rollout*.
 
@@ -206,8 +222,7 @@ Fixing it in `sync-role-acls` itself (Phase 3) rather than in `upgrade` also rep
 ## Architecture
 
 ```
-mercato upgrade [--tenant <id>] [--dry-run]
-                [--lock-timeout=<s>] [--no-lock] [--skip=<step,...>]
+mercato upgrade [--tenant <id>] [--lock-timeout=<s>] [--no-lock]
   │
   ├─ acquire pg_try_advisory_lock(0x4F4D, 0x5547) on a dedicated pg.Client
   │  └─ retry loop; non-zero exit on timeout
@@ -215,7 +230,7 @@ mercato upgrade [--tenant <id>] [--dry-run]
   ├─ guard: empty `users` table → exit non-zero pointing at `mercato init`
   ├─ generators + bootstrapFromAppRoot + registerCliModules  (as init does, mercato.ts:1052-1078)
   │
-  ├─ 1. await dbMigrate(resolver)                                    ← direct import, see below
+  ├─ 1. await dbMigrateUnlocked(resolver)      ← lock already held; direct import, see below
   ├─ 2. runModuleCommand(mods, 'entities', 'install', scopeArgs)
   ├─ 3. runModuleCommand(mods, 'auth', 'sync-role-acls', scopeArgs)
   ├─ 4. runModuleCommand(mods, 'feature_toggles', 'seed-defaults', [], { optional: true })
@@ -223,11 +238,13 @@ mercato upgrade [--tenant <id>] [--dry-run]
   └─ release lock (on every path, including throw)
 ```
 
+**No `--dry-run`, no `--skip` in v1.** Both appeared in this spec's first draft and are dropped: `dbMigrate` has no dry-run contract to compose, and skipping the schema step while still running entity/ACL reconciliation is an invalid sequence with no safe semantics. Either flag may return once it has a concrete contract — validated step dependencies, per-step planned-vs-executed output, rejection of unsafe combinations, and tests — as a follow-up spec, not a synopsis line.
+
 **Placement.** `run()` in `packages/cli/src/mercato.ts:862` is a series of `if (first === 'x') { … return N }` early returns, then a generic `<module> <command>` dispatcher from `:1487`. `upgrade` goes as a top-level early-return block alongside `init`, i.e. in the `:1324`–`:1485` band, because it orchestrates other modules the way `init` does.
 
 **Two implementation traps the code makes easy to fall into:**
 
-1. **`buildAllModules()` does not include the built-in modules.** It returns generated CLI modules plus the app's `@/cli` as a pseudo-module (`mercato.ts:843-860`); `db`, `deploy`, `queue`, `generate`, `server` and `test` are pushed inline in the *generic* dispatch path at `:1577`+ and are invisible to it. So `runModuleCommand(await buildAllModules(), 'db', 'migrate')` fails with `missing-module`. Step 1 must `await import('./lib/db')` and call `dbMigrate` directly, exactly as the built-in `db` module does at `:1925-1931`.
+1. **`buildAllModules()` does not include the built-in modules.** It returns generated CLI modules plus the app's `@/cli` as a pseudo-module (`mercato.ts:843-860`); `db`, `deploy`, `queue`, `generate`, `server` and `test` are pushed inline in the *generic* dispatch path at `:1577`+ and are invisible to it. So `runModuleCommand(await buildAllModules(), 'db', 'migrate')` fails with `missing-module`. Step 1 must `await import('./lib/db')` and call `dbMigrateUnlocked` directly, mirroring how the built-in `db` module dispatches to `dbMigrate` at `:1925-1931`.
 
 2. **`{ optional: true }` only tolerates *resolution* failure**, not runtime failure (`mercato.ts:679-707`). It returns `false` when the module is absent, has no `cli`, or lacks the command; an exception thrown by `run()` propagates regardless. That is the semantics we want for step 4 (`feature_toggles` may be disabled) — but it must not be mistaken for "best-effort, ignore errors".
 
@@ -278,13 +295,13 @@ No HTTP API changes. No route, OpenAPI, event, widget-spot, DI-key, ACL-feature 
 
 Each phase is independently mergeable and independently useful.
 
-**Phase 1 — lock primitive.** `withUpgradeLock(fn)` + unit tests (acquire, contend, timeout, release-on-throw, dedicated-client assertion). No behaviour change to any existing command.
+**Phase 1 — lock primitive + locked `db:migrate`.** `withUpgradeLock(fn)` with unit tests (acquire, contend, timeout, release-on-throw, dedicated-client assertion), plus the migrate split: public `dbMigrate` wraps itself in the lock; `dbMigrateUnlocked` is the internal primitive for a caller already holding it. The only behaviour change to `db:migrate` is serialization — a solo run is unaffected; a concurrent run now waits or fails loudly instead of crashing with `42P07`.
 
 **Phase 2 — `mercato upgrade`.** The command composing steps 1-4, the empty-database guard, per-step timings. Docs page `apps/docs/docs/cli/upgrade.mdx` + CLI overview entry.
 
-**Phase 3 — pre-existing defect fixes.** The four items above. Independently reviewable; each gets a test.
+**Phase 3 — pre-existing defect fixes.** The five items above. Independently reviewable; each gets a test.
 
-**Phase 4 — deploy rewire.** `init-or-migrate.sh` default `MIGRATE_COMMAND`, mirrored into `packages/create-app/template/` per the root AGENTS.md template-sync rule. `UPGRADE_NOTES.md`.
+**Phase 4 — deploy rewire + operational docs.** `init-or-migrate.sh` default `MIGRATE_COMMAND`, mirrored into `packages/create-app/template/` per the root AGENTS.md template-sync rule. `UPGRADE_NOTES.md`. Owns the operational deliverables from § Rollback & Recovery: the stuck-lock runbook and the direct-DB-URL (no transaction-mode pooler) requirement, in both `UPGRADE_NOTES.md` and `apps/docs/docs/cli/upgrade.mdx`.
 
 **Phase 5 — documentation truth-up.**
 - `ModuleSetupConfig.seedDefaults` JSDoc (`packages/shared/src/modules/setup.ts:39-46`): correct "Called during `mercato init`" — `seed:defaults` and onboarding's `verify.ts:285-300` also call it — and state plainly that it is **not** guaranteed idempotent and is **not** run at deploy time.
@@ -300,22 +317,39 @@ Per root `AGENTS.md` a spec must list integration coverage for affected API and 
 | Area | Coverage |
 |------|----------|
 | `withUpgradeLock` | Unit: acquires; second holder contends and times out non-zero; releases on throw; uses a dedicated client, not the ORM pool; `--no-lock` bypass. |
-| `upgrade` step order | Unit with mocked `runModuleCommand`: asserts the exact 4-step order and that step 1 calls `dbMigrate` directly rather than via `runModuleCommand`. |
+| `db:migrate` lock adoption | Unit: public `dbMigrate` acquires the lock; `dbMigrateUnlocked` never does; `--no-lock` bypass on the public path. |
+| `upgrade` step order | Unit with mocked `runModuleCommand`: asserts the exact 4-step order and that step 1 calls `dbMigrateUnlocked` directly rather than via `runModuleCommand`. |
+| **Concurrency (the core guarantee)** | Integration, ephemeral DB, two independent processes: while one session holds the lock (a spawned `upgrade` mid-run, or a harness connection holding `pg_advisory_lock(0x4F4D, 0x5547)`), a second real `mercato upgrade` process blocks and then exits non-zero on `--lock-timeout`, and succeeds after release. Repeat with the second process running `yarn db:migrate` — proving the bypass is closed, not just the happy path. |
+| Lock span & release-on-failure | Integration: probe with `pg_try_advisory_lock` from a second connection at checkpoints to assert the lock is held from before step 1 through step 4 **and** the RBAC cache invalidation; an injected failure in step 3 still releases the lock and exits non-zero. |
 | **Exclusion guard** | Unit: asserts `seedDefaults`, `seedExamples`, `configs restore-defaults` and any reindex are **never** invoked. This is a regression guard against someone re-adding them without revisiting the audit. |
 | `feature_toggles` disabled | Unit: step 4 tolerates absence via `{ optional: true }`; and a runtime throw from step 4 still fails the command. |
 | Empty-DB guard | Unit: exits non-zero pointing at `mercato init`. |
 | Idempotency | Integration: run `upgrade` twice against a seeded ephemeral DB (`yarn test:integration:ephemeral`); assert the second run adds no rows to `custom_field_defs`, `custom_entities`, `role_acls`, `feature_toggles`. **This is the test that would have caught the original incident.** |
 | Defect fixes (Phase 3) | Unit: soft-deleted tenants excluded from `sync-role-acls`; `--tenant=<id>` parsed; custom roles merged once per tenant; container disposed; **`invalidateTenantCache` called once per synced tenant** (the post-deploy-step replacement — assert it is tag-based, not a keyspace scan). |
-| Deploy script | Shell-level: `init-or-migrate.sh` invokes `upgrade` on the steady-state path and honours a `MIGRATE_COMMAND` override. |
+| Deploy script | Shell-level: `init-or-migrate.sh` invokes `upgrade` on **both** the existing-users fallback path (`:48`) and the steady-state path (`:70`), and honours a `MIGRATE_COMMAND` override on each. |
 
 Integration tests must be self-contained per `.ai/qa/AGENTS.md`: fixtures created in setup, cleaned up in teardown, no reliance on seeded demo data.
+
+## Rollback & Recovery
+
+**What an app rollback does and does not undo.** Rolling the Deployment back to the previous image does not revert what `upgrade` reconciled: installed custom-field/entity definitions, granted ACL features, and created feature toggles all persist. That is safe by construction — every step is additive, and old code ignores definitions and grants it never references (the same property that makes the pre-rollout ordering correct). Setting `MIGRATE_COMMAND='yarn db:migrate'` back only changes *future* runs; it undoes nothing.
+
+**Reversing an unintended reconcile.** Definitions: `entities install` installs what the running image's `ce.ts` declares, so the durable fix is reverting the declaration and redeploying; an already-installed stray definition is removed via the entities admin surface (soft delete — `install` filters deleted tenants and will not resurrect a deliberately removed definition unless it is still declared, which is Risk 4 and an `UPGRADE_NOTES.md` call-out). Grants: `sync-role-acls` is additive-only (Risk 5), so an unwanted grant is revoked per role via the roles admin, and the revocation sticks unless the feature remains in `defaultRoleFeatures`. Toggles: create-only; edit or remove the row.
+
+**Stuck-lock runbook (Risk 2).** The session advisory lock dies with its connection, so a "stuck" lock is almost always a live, slow holder. When a Job exits non-zero on lock timeout:
+
+1. Identify the holder: `SELECT a.pid, a.state, a.query_start, a.query FROM pg_locks l JOIN pg_stat_activity a USING (pid) WHERE l.locktype = 'advisory' AND l.classid = x'4F4D'::int;`
+2. If it is a live migrate/upgrade run, do nothing — the failed Job's retry/crashloop is the designed behaviour, and the next attempt succeeds once the holder finishes.
+3. Only if the holder is genuinely orphaned (a zombie connection from a killed pod): `SELECT pg_terminate_backend(pid);`. Nothing to clean up afterwards — no lock-table row, no unlock command.
+
+Ships with Phase 4 in `UPGRADE_NOTES.md` and the docs page.
 
 ## Risks & Impact Review
 
 | # | Failure scenario | Severity | Affected area | Mitigation | Residual risk |
 |---|---|---|---|---|---|
 | 1 | Someone later adds `seedDefaults` to `upgrade`, wiping `sync_excel` credentials on every deploy. | **High** | Any tenant with a configured integration | The audit is recorded in this spec; the exclusion-guard unit test fails the build if a step is added. | Low while the test stands. **The test is the control — do not drop it.** |
-| 2 | Lock acquisition times out; the deploy Job exits non-zero and blocks the rollout. | Medium | Deploy pipeline | Bounded retry with a message naming the lock; `--lock-timeout`; `--no-lock`. | A genuinely stuck lock still blocks — correct, but needs a documented `pg_advisory_unlock` recovery runbook. |
+| 2 | Lock acquisition times out; the deploy Job exits non-zero and blocks the rollout. | Medium | Deploy pipeline | Bounded retry with a message naming the lock; `--lock-timeout`; `--no-lock`; runbook in § Rollback & Recovery, shipped with Phase 4. | A genuinely stuck lock still blocks — correct and loud. Session advisory locks die with their connection, so recovery is `pg_terminate_backend` at worst, never lock-table surgery. |
 | 3 | Per-tenant loops make `upgrade` slow enough to stall rollouts at high tenant counts. | Medium | Multi-tenant installs | `--tenant` scoping; per-step timings; nothing minutes-scale (no reindex) on the default path. | **Unquantified.** No measurements exist. Explicitly deferred. |
 | 4 | `entities install` resurrects definitions an operator intentionally removed. | Medium | Existing tenants | Inherent to `install`'s declared purpose ("repair existing tenants"); unchanged by this spec, but now runs automatically rather than on request. | Real behaviour change. Call out in `UPGRADE_NOTES.md`. |
 | 5 | `auth sync-role-acls` is additive-only, so a feature removed from `defaultRoleFeatures` is never revoked. | Medium | RBAC hygiene | Pre-existing (`setup-app.ts:632-663`); documented, not changed here. | Real; revocation needs its own design. |
@@ -346,6 +380,7 @@ Integration tests must be self-contained per `.ai/qa/AGENTS.md`: fixtures create
 
 ## Changelog
 
+- **2026-07-28** — Revision after maintainer review on PR #4547. Adopted the review's strongest finding: the advisory lock is now a **contract over every migration entrypoint**, not a property of one command — public `dbMigrate` acquires the lock, `upgrade` calls a new internal `dbMigrateUnlocked` while already holding it, and `MIGRATE_COMMAND='yarn db:migrate'` stops being an unlocked bypass. Documented why naive nested locking self-deadlocks across sessions (undetectably, from Postgres's point of view). Grounded Problem §3 in prior art: MikroORM v7 takes no lock (and this repo's per-module/per-migration loop voids `allOrNothing` as an umbrella), while Rails/Prisma/Knex/Flyway/Liquibase/EF Core/Atlas/Ecto and Magento/Frappe/Keycloak all lock — one global lock per run, never per-migration. Added two operational constraints: direct DB URL for the lock connection (transaction-mode PgBouncer silently drops session advisory locks) and keeping the lock connection separate from the DDL connection. Dropped `--dry-run`/`--skip` from v1 (no defined safe semantics). Test plan now proves the concurrency guarantee with two real processes, asserts lock span through the final invalidation step and release-on-failure, and covers both deploy-script paths. Added § Rollback & Recovery (rollback semantics, grant/definition reversal, stuck-lock runbook) with Phase 4 owning the deliverable — the runbook doubles as the justification for advisory locks over a lock table, since the lock dies with its connection. Fixed the Phase 3 four/five count.
 - **2026-07-27** — Initial draft. Verified against `develop` at `e5ad6e8cdc`: `init` abort (`mercato.ts:1030-1041`), `init-or-migrate.sh:7,43-48,67`, `dbMigrate` lock absence (`lib/db/commands.ts:391-406`), `configs restore-defaults` `force: true` (`configs/cli.ts:316-330`), Redis `KEYS` (`cache/src/strategies/redis.ts:354-359`), `seed:defaults` semantics (`mercato.ts:1425-1485`), `ModuleSetupConfig` JSDoc gap (`shared/src/modules/setup.ts:32-46`), and a full idempotency audit of all 21 `setup.seedDefaults` implementations.
   Scope reduced twice from the originating proposal: no cache-purge step, no reindex, no performance budget — and, after the audit, **no `seedDefaults` step**, which was the proposal's largest component. The audit reversed this spec's own first draft, which had argued `seed:defaults` made re-running `seedDefaults` safe.
   Added "Why there is no post-deploy step" after review challenged the pre-rollout-only pipeline. That review surfaced Phase 3 defect 5: `auth sync-role-acls` never invalidates the RBAC cache, unlike the three API paths performing the same mutation. Confirmed bounded by the 5-minute TTL at `rbacService.ts:30`, and confirmed non-contaminating across image versions because `AclData.features` caches **raw** grants with `filterGrantsByEnabledModules` applied at check time (`rbacService.ts:416,467`) — the asymmetry with nav's cached-filtered-payload that explains why only nav needs a fingerprint.
