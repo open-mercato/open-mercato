@@ -373,6 +373,23 @@ export async function completeUserTask(
 }
 
 /**
+ * Whether the caller belongs to at least one of the task's queues.
+ *
+ * Exact string equality on role NAMES — no case folding and no trimming, because
+ * the names on both sides come from the same tenant role table and normalizing
+ * one side would let `Approver` claim an `approver` queue that RBAC treats as a
+ * different role.
+ */
+function hasRoleOverlap(
+  taskRoles: readonly string[],
+  callerRoleNames: readonly string[],
+): boolean {
+  if (callerRoleNames.length === 0) return false
+  const held = new Set(callerRoleNames)
+  return taskRoles.some((role) => held.has(role))
+}
+
+/**
  * Claim a user task from a role queue
  *
  * Allows a user to claim a task that's assigned to their role(s).
@@ -386,19 +403,35 @@ export async function completeUserTask(
  * later. Reading the status and flushing the entity afterwards would have let
  * both transactions read `PENDING` and both write.
  *
+ * Membership in the queue is a REQUIREMENT, not a hint: a caller who holds none
+ * of `assignedToRoles` is refused with the same `TASK_NOT_FOUND` a nonexistent
+ * id produces, so a queue the caller does not belong to is indistinguishable
+ * from a task that is not there. Holding `workflows.tasks.claim` admits you to
+ * the endpoint; it does not admit you to somebody else's queue.
+ *
+ * `assignedToRoles` and `callerRoleNames` are both role NAMES — the Studio
+ * picker writes names, the engine copies them onto the task, and `auth.roles`
+ * carries names. A role RENAME therefore orphans existing assignments; moving
+ * the comparison onto immutable role ids is a coordinated data + authored-
+ * definition migration and is deliberately not done here.
+ *
  * @param em - Entity manager
  * @param taskId - Task ID to claim
  * @param userId - User claiming the task
  * @param scope - Tenant/organization the caller acts within; both the lookup and
  *   the conditional update filter on it, so a task belonging to another tenant
  *   is never reachable and never writable
+ * @param callerRoleNames - Server-derived role names of the caller (`auth.roles`),
+ *   never client-supplied. Required rather than optional so a caller that cannot
+ *   supply them fails to compile instead of silently claiming any queue.
  * @throws UserTaskError if task cannot be claimed
  */
 export async function claimUserTask(
   em: EntityManager,
   taskId: string,
   userId: string,
-  scope: UserTaskScope
+  scope: UserTaskScope,
+  callerRoleNames: readonly string[]
 ): Promise<void> {
   const task = await em.findOne(UserTask, {
     id: taskId,
@@ -427,6 +460,14 @@ export async function claimUserTask(
     throw new UserTaskError(
       'Task is not assigned to any roles',
       'TASK_NOT_ROLE_ASSIGNED',
+      { taskId }
+    )
+  }
+
+  if (!hasRoleOverlap(task.assignedToRoles, callerRoleNames)) {
+    throw new UserTaskError(
+      'Task not found or already claimed',
+      'TASK_NOT_FOUND',
       { taskId }
     )
   }

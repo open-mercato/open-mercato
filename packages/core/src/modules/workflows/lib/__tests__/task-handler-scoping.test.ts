@@ -24,6 +24,7 @@ const USER_B = '66666666-6666-6666-6666-666666666666'
 const TASK_ID = '77777777-7777-7777-7777-777777777777'
 
 const scopeA = { tenantId: TENANT_A, organizationId: ORG_A }
+const APPROVER_ROLES = ['approver']
 
 type TaskRow = Record<string, unknown>
 
@@ -89,7 +90,7 @@ describe('claimUserTask tenant scoping', () => {
     const row = makeTask({ tenantId: TENANT_B, organizationId: ORG_B })
     const { em, flush } = makeEm([row])
 
-    await expect(claimUserTask(em, TASK_ID, USER_A, scopeA)).rejects.toThrow(UserTaskError)
+    await expect(claimUserTask(em, TASK_ID, USER_A, scopeA, APPROVER_ROLES)).rejects.toThrow(UserTaskError)
 
     expect(flush).not.toHaveBeenCalled()
     expect(row.claimedBy).toBeNull()
@@ -99,7 +100,7 @@ describe('claimUserTask tenant scoping', () => {
   test('filters the lookup on tenant and organization', async () => {
     const { em, findOne } = makeEm([makeTask()])
 
-    await claimUserTask(em, TASK_ID, USER_A, scopeA)
+    await claimUserTask(em, TASK_ID, USER_A, scopeA, APPROVER_ROLES)
 
     expect(findOne).toHaveBeenCalledWith(
       expect.anything(),
@@ -111,10 +112,78 @@ describe('claimUserTask tenant scoping', () => {
     const row = makeTask()
     const { em } = makeEm([row])
 
-    await claimUserTask(em, TASK_ID, USER_A, scopeA)
+    await claimUserTask(em, TASK_ID, USER_A, scopeA, APPROVER_ROLES)
 
     expect(row.claimedBy).toBe(USER_A)
     expect(row.status).toBe('IN_PROGRESS')
+  })
+})
+
+/**
+ * Holding `workflows.tasks.claim` admits a caller to the endpoint; it never
+ * admits them to somebody else's queue. Before this check, any holder of the
+ * feature could take a task queued to a role they do not hold — the last of the
+ * A2 family, left behind when tenant scoping and the atomic claim were fixed.
+ */
+describe('claimUserTask role membership', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  test('refuses a caller who holds none of the task roles and writes nothing', async () => {
+    const row = makeTask()
+    const { em, nativeUpdate, flush } = makeEm([row])
+
+    await expect(
+      claimUserTask(em, TASK_ID, USER_A, scopeA, ['viewer', 'editor']),
+    ).rejects.toMatchObject({ code: 'TASK_NOT_FOUND' })
+
+    expect(nativeUpdate).not.toHaveBeenCalled()
+    expect(flush).not.toHaveBeenCalled()
+    expect(row.claimedBy).toBeNull()
+    expect(row.status).toBe('PENDING')
+  })
+
+  test('refuses a caller carrying no roles at all', async () => {
+    const row = makeTask()
+    const { em } = makeEm([row])
+
+    await expect(claimUserTask(em, TASK_ID, USER_A, scopeA, [])).rejects.toMatchObject({
+      code: 'TASK_NOT_FOUND',
+    })
+    expect(row.claimedBy).toBeNull()
+  })
+
+  test('is indistinguishable from a task that does not exist', async () => {
+    const { em } = makeEm([makeTask()])
+
+    const refusal = await claimUserTask(em, TASK_ID, USER_A, scopeA, ['viewer']).catch(
+      (error) => error as UserTaskError,
+    )
+    const missing = await claimUserTask(em, 'no-such-task', USER_A, scopeA, APPROVER_ROLES).catch(
+      (error) => error as UserTaskError,
+    )
+
+    expect(refusal.code).toBe(missing.code)
+    expect(refusal.message).toBe(missing.message)
+  })
+
+  test('lets a holder of one of several queued roles through', async () => {
+    const row = makeTask({ assignedToRoles: ['approver', 'auditor'] })
+    const { em } = makeEm([row])
+
+    await claimUserTask(em, TASK_ID, USER_A, scopeA, ['auditor'])
+
+    expect(row.claimedBy).toBe(USER_A)
+    expect(row.status).toBe('IN_PROGRESS')
+  })
+
+  test('matches role names exactly — a differently-cased name is a different role', async () => {
+    const row = makeTask()
+    const { em } = makeEm([row])
+
+    await expect(claimUserTask(em, TASK_ID, USER_A, scopeA, ['Approver'])).rejects.toMatchObject({
+      code: 'TASK_NOT_FOUND',
+    })
+    expect(row.claimedBy).toBeNull()
   })
 })
 
@@ -129,7 +198,7 @@ describe('claimUserTask concurrency', () => {
   test('takes the row with a conditional update, scoped and guarded on status', async () => {
     const { em, nativeUpdate } = makeEm([makeTask()])
 
-    await claimUserTask(em, TASK_ID, USER_A, scopeA)
+    await claimUserTask(em, TASK_ID, USER_A, scopeA, APPROVER_ROLES)
 
     expect(nativeUpdate).toHaveBeenCalledWith(
       expect.anything(),
@@ -148,9 +217,9 @@ describe('claimUserTask concurrency', () => {
     const row = makeTask()
     const { em } = makeEm([row])
 
-    await claimUserTask(em, TASK_ID, USER_A, scopeA)
+    await claimUserTask(em, TASK_ID, USER_A, scopeA, APPROVER_ROLES)
 
-    await expect(claimUserTask(em, TASK_ID, USER_B, scopeA)).rejects.toMatchObject({
+    await expect(claimUserTask(em, TASK_ID, USER_B, scopeA, APPROVER_ROLES)).rejects.toMatchObject({
       code: 'TASK_NOT_FOUND',
     })
     expect(row.claimedBy).toBe(USER_A)
@@ -161,7 +230,7 @@ describe('claimUserTask concurrency', () => {
     const { em, nativeUpdate } = makeEm([row])
     nativeUpdate.mockResolvedValueOnce(0)
 
-    await expect(claimUserTask(em, TASK_ID, USER_A, scopeA)).rejects.toMatchObject({
+    await expect(claimUserTask(em, TASK_ID, USER_A, scopeA, APPROVER_ROLES)).rejects.toMatchObject({
       code: 'TASK_NOT_FOUND',
     })
     expect(row.claimedBy).toBeNull()

@@ -387,6 +387,9 @@ describe('POST /api/workflows/work-inbox/next — claim-next atomicity', () => {
       tenantId: TENANT_ID,
       organizationId: ORG_ID,
     })
+    // The handler re-checks queue membership, so claim-next must hand it the
+    // caller's server-derived role names rather than trusting its own filter.
+    expect(taskHandler.claimUserTask.mock.calls[0][4]).toEqual(['approver'])
     expect(mockEm.findAndCount.mock.calls[0][1]).toMatchObject({
       tenantId: TENANT_ID,
       organizationId: { $in: [ORG_ID] },

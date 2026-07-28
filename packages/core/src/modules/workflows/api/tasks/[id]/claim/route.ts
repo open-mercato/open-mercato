@@ -59,7 +59,15 @@ export async function POST(
 
     // Call task handler to claim task
     const taskHandler = container.resolve<TaskHandlerService>('taskHandler')
-    await taskHandler.claimUserTask(em, params.id, auth.sub, { tenantId, organizationId })
+    // Role names are server-derived (`auth.roles`), never read off the request —
+    // a caller who holds none of the task's queues is refused as "not found".
+    await taskHandler.claimUserTask(
+      em,
+      params.id,
+      auth.sub,
+      { tenantId, organizationId },
+      auth.roles ?? [],
+    )
 
     // Fetch updated task
     const { UserTask } = await import('../../../../data/entities')

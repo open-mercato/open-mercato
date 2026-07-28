@@ -98,7 +98,13 @@ export async function POST(request: NextRequest) {
 
     for (const candidate of candidates) {
       try {
-        await taskHandler.claimUserTask(em, candidate.id, auth.sub, { tenantId, organizationId })
+        await taskHandler.claimUserTask(
+          em,
+          candidate.id,
+          auth.sub,
+          { tenantId, organizationId },
+          roles,
+        )
       } catch (error) {
         if (isRaceLost(error)) continue
         throw error
