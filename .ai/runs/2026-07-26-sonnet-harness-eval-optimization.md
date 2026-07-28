@@ -2,7 +2,7 @@
 
 ## Goal
 
-Optimize the standalone AI development harness so the complete current evaluation catalog passes with the Claude runner on the `sonnet` model selector and the Codex runner (`modelSelector: "default"`). The catalog started at 184 cases and is now 187 after adding the complete-library, cache, and queue contracts requested during this run.
+Optimize the standalone AI development harness so the complete current evaluation catalog passes with the Claude runner on the `sonnet` model selector and the Codex runner (`modelSelector: "default"`). The catalog started at 184 cases and is now 192 after adding complete-library, cache, queue, four field-tested generative regressions, and the combined CRM/library contract requested during this run.
 
 Source doc: `.ai/specs/2026-07-24-standalone-ai-development-harness.md`
 Depends on: #4483 (`feat/standalone-app-ai-harness`), stacked from its head `e6c38e0be`.
@@ -29,6 +29,7 @@ Sibling follow-up: #4528 (`feat/kimi-cli-runner-harness-evals`) adds a third run
 - Verify create-mercato-app still exposes and runs the shared-skill installation/update flow used on the base branch (including the generated `npx skills`/installer-facing command where applicable). Ensure new apps can intentionally refresh to the current `open-mercato/skills` source while retaining ownership/provenance checks and deterministic pinned installs for harness release evidence.
 - Document the framework-owned cache and queue paths without forcing agents back into source archaeology: cache key/scope/TTL ownership, explicit invalidation after committed writes, and durable queue registration, enqueue/worker boundaries, retries, idempotency, tenant context, and observable failure handling. Add generative routing cases for cache invalidation and queue-backed work for both supported models.
 - Add or strengthen semantic catalog coverage for real gaps above. Preserve progressive disclosure and the fail-closed gates; modest per-case file/byte quota increases and limited WIP catalog compatibility changes are allowed only when both runner traces justify them and the final measurements disclose them.
+- Merge Zielivia's field-tested OMH-188–191 cases without renumbering them, fix their shared oracle defect, and add OMH-192 for the combined Kimi/Codex CRM-library findings. Require trusted runtime scope, scalar cross-module linkage with snapshots, command-local atomic/undo behavior, concurrent checkout/idempotency, executable Jest coverage with explicit globals, and matching generated-code review checks.
 
 ## Non-goals
 
@@ -322,6 +323,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.7 Default new editable module surfaces to linked/filterable full CRUD while preserving upstream review-skill behavior — `0dff12ef3`
 - [x] 3.8 Verify and, if needed, restore shared `open-mercato/skills` install/update parity for generated apps — `4e9ed542c`
 - [x] 3.9 Add progressive cache/invalidation and queue guidance plus two-model generative evaluation coverage — `4ab32d393`; OMH-186/187 pass on both models
+- [x] 3.10 Merge field-tested OMH-188–191 and add the combined scoped CRM/library OMH-192 regression with executable oracles, Jest, and review rules — `9675e5678`
 
 ### Phase 4: Compatibility baseline
 
