@@ -46,7 +46,7 @@
 
 import type { EntityManager } from '@mikro-orm/core'
 import { hasAllFeatures, hasFeature } from '@open-mercato/shared/security/features'
-import type { UserTask } from '../data/entities'
+import { UserTask as UserTaskEntity, type UserTask } from '../data/entities'
 import {
   collectTaskEntityTypes,
   resolveTaskEntityAccess,
@@ -55,7 +55,9 @@ import {
 } from './task-entity-access'
 import {
   buildTaskVisibilityConditions,
+  currentTaskOwnerId,
   decideTaskVisibility,
+  TASK_ACTIONABLE_STATUSES,
   WORKFLOWS_TASKS_VIEW_ALL_FEATURE,
   type BackofficeTaskPrincipal,
   type TaskEntityAccessMap,
@@ -385,7 +387,8 @@ export function canDiagnoseTaskRefusal(principal: BackofficeTaskPrincipal): bool
 }
 
 export type TaskRefusal = {
-  status: 404 | 403
+  /** 404 hides existence, 403 diagnoses, 409 is the act-path conflict. */
+  status: 403 | 404 | 409
   body: Record<string, unknown>
 }
 
@@ -397,6 +400,143 @@ export type TaskRefusal = {
  * to and a random uuid must all be the same answer.
  */
 export const TASK_NOT_FOUND_BODY: Record<string, unknown> = { error: 'Task not found' }
+
+/**
+ * Message and code the task handler already throws when the row belongs to
+ * somebody else. Reused verbatim so enforcing ownership one layer earlier does
+ * not change what a client sees.
+ */
+export const TASK_ASSIGNED_TO_ANOTHER_USER_BODY: Record<string, unknown> = {
+  error: 'Task is assigned to another user',
+  code: 'TASK_ASSIGNED_TO_ANOTHER_USER',
+}
+
+/**
+ * Refusal for a row §6.4 makes nobody's: no assignee, no claim and no role
+ * queue. Administration widens seeing, never acting, so the remedy is
+ * `workflows.tasks.reassign` rather than a wider grant.
+ */
+export const TASK_NOT_ACTIONABLE_BODY: Record<string, unknown> = {
+  error: 'Task is not assigned to anyone; reassign it before acting on it',
+  code: 'TASK_NOT_ACTIONABLE',
+}
+
+export type TaskActRefusalOptions = TaskFactsOptions & {
+  /**
+   * Enforce `actable` here rather than leaving it to the task handler.
+   *
+   * ON for **complete**, which is the whole point of the narrowing: holding
+   * `workflows.tasks.complete` must no longer complete anyone else's work, and
+   * the handler deliberately leaves an OWNERLESS row open to anyone the feature
+   * gate admitted — the pre-change semantics.
+   *
+   * OFF for **claim** and **unclaim**, where the handler is already the precise
+   * authority and answering here would coarsen its codes: an empty role queue is
+   * `TASK_NOT_ROLE_ASSIGNED`, a queue the caller does not belong to is
+   * `TASK_NOT_FOUND`, and unclaiming a row nobody holds is `TASK_NOT_FOUND`.
+   * Pre-empting those with one generic refusal would lose information the client
+   * has always had.
+   */
+  requireOwnership?: boolean
+}
+
+/**
+ * The act gate for claim / unclaim / complete.
+ *
+ * Deliberately narrow: it answers only what the task handler cannot answer for
+ * itself and hands everything else through, so the handler keeps producing the
+ * exact error codes it always has (`TASK_NOT_FOUND`, `TASK_ALREADY_ASSIGNED`,
+ * `TASK_NOT_ROLE_ASSIGNED`, `TASK_ASSIGNED_TO_ANOTHER_USER`) and keeps taking
+ * the row with its own compare-and-set.
+ *
+ * 1. **Can this caller see the row at all?** Running FIRST is the disclosure fix:
+ *    `claimUserTask` reports `TASK_ALREADY_ASSIGNED` before it checks queue
+ *    membership, so without this a caller with no relationship to the task could
+ *    tell an existing task from a nonexistent one by the status code alone.
+ * 2. **Does the entity gate block acting?** Reachable only under the tenant
+ *    opt-out, which restores the READ and never the act path. Refused as a plain
+ *    404 — a reason here would leak the binding to a principal the gate just
+ *    refused.
+ * 3. **Is the row theirs?** Only when `requireOwnership` is set. The owner is
+ *    `claimedBy ?? assignedTo`: holding a task's queued role confers the right
+ *    to CLAIM an open row, never to finish one a colleague already claimed.
+ *
+ * A row in a terminal status is always passed through: the handler answers
+ * `TASK_NOT_FOUND` for it, exactly as before.
+ */
+export function resolveTaskActRefusal(
+  context: TaskVisibilityRequestContext,
+  decision: TaskVisibilityDecision,
+  task: UserTask,
+  options: TaskActRefusalOptions = {},
+): TaskRefusal | null {
+  if (!decision.visible) return resolveTaskRefusal(context, decision)
+
+  if (decision.blockedEntityType) return { status: 404, body: TASK_NOT_FOUND_BODY }
+
+  if (!options.requireOwnership || decision.actable) return null
+
+  const facts = toTaskFacts(task, options)
+  if (!TASK_ACTIONABLE_STATUSES.includes(facts.status)) return null
+
+  return currentTaskOwnerId(facts) !== null
+    ? { status: 409, body: TASK_ASSIGNED_TO_ANOTHER_USER_BODY }
+    : { status: 403, body: TASK_NOT_ACTIONABLE_BODY }
+}
+
+export type TaskActionGateResult =
+  | { allowed: true; task: UserTask; visibility: TaskVisibilityRequestContext }
+  | { allowed: false; refusal: TaskRefusal }
+
+/**
+ * The whole §6.4 gate for one act route, in the order that keeps existence
+ * undisclosed.
+ *
+ * The lookup carries tenant AND organization, so a foreign id resolves to
+ * nothing before the predicate — and long before any write. That ordering is the
+ * point: it is what keeps `claimUserTask`'s conditional `UPDATE` from ever
+ * touching another tenant's row.
+ */
+export async function gateTaskAction(input: {
+  container: TaskVisibilityContainer
+  em: EntityManager
+  auth: TaskVisibilityAuth
+  taskId: string
+  organizationId: string
+  administrativeQueueFeature?: string | null
+  /** See `TaskActRefusalOptions.requireOwnership` — ON for complete only. */
+  requireOwnership?: boolean
+}): Promise<TaskActionGateResult> {
+  const task = await input.em.findOne(UserTaskEntity, {
+    id: input.taskId,
+    tenantId: input.auth.tenantId,
+    organizationId: input.organizationId,
+  })
+
+  if (!task) return { allowed: false, refusal: { status: 404, body: TASK_NOT_FOUND_BODY } }
+
+  const visibility = await resolveTaskVisibilityForRequest({
+    container: input.container,
+    em: input.em,
+    auth: input.auth,
+    organizationIds: [input.organizationId],
+    aclOrganizationId: input.organizationId,
+    entityTypes: collectTaskEntityTypesFromTasks([task]),
+  })
+
+  const options: TaskActRefusalOptions = {
+    administrativeQueueFeature: input.administrativeQueueFeature ?? null,
+    requireOwnership: input.requireOwnership ?? false,
+  }
+  const refusal = resolveTaskActRefusal(
+    visibility,
+    decideTaskAccess(visibility, task, options),
+    task,
+    options,
+  )
+
+  return refusal ? { allowed: false, refusal } : { allowed: true, task, visibility }
+}
 
 export function resolveTaskRefusal(
   context: TaskVisibilityRequestContext,

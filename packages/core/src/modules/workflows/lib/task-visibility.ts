@@ -167,9 +167,14 @@ export type TaskVisibilityDecision = {
   claimable: boolean
   reason: TaskVisibilityReason
   /**
-   * The binding that failed the entity clause, when one did. Powers the
-   * `view_all`-only 403-with-reason diagnostic — a task hidden by the entity
-   * gate must never disappear without trace.
+   * The binding that failed the entity clause, when one did.
+   *
+   * Set on refusals, where it powers the `view_all`-only 403-with-reason
+   * diagnostic — a task hidden by the entity gate must never disappear without
+   * trace. Also set on the `legacy-read-filter` ADMIT, which is the one path
+   * that shows a row whose entity clause failed: the opt-out restores the read
+   * and nothing else, so the act surfaces need to see that the gate is still
+   * closed underneath.
    */
   blockedEntityType?: string
 }
@@ -271,7 +276,7 @@ function resolveAdministrativeReason(
  * not disagree. `null` means the row is open, and membership in its queue is
  * then what confers the right to act.
  */
-function currentOwnerId(task: TaskFacts): string | null {
+export function currentTaskOwnerId(task: TaskFacts): string | null {
   if (task.claimedBy !== null) return task.claimedBy
   if (task.assigneeKind === 'user') return task.assignedTo
   return null
@@ -305,7 +310,7 @@ function decideBackoffice(
 
   // ACT is computed by the NEW rule always — the opt-out is a SELECT filter, not
   // an authorization mode, so it can neither widen nor narrow this.
-  const owner = currentOwnerId(task)
+  const owner = currentTaskOwnerId(task)
   const ownsTheRow =
     owner !== null
       ? owner === principal.userId
@@ -333,7 +338,15 @@ function decideBackoffice(
     !policy.businessContextEnabled &&
     hasFeature(principal.grantedFeatures, WORKFLOWS_TASKS_VIEW_FEATURE)
   ) {
-    return { visible: true, actable, claimable, reason: 'legacy-read-filter' }
+    return {
+      visible: true,
+      actable,
+      claimable,
+      reason: 'legacy-read-filter',
+      // Reported even though the row is admitted: the read came back, the entity
+      // gate did not, and an act surface must be able to tell the difference.
+      ...(entity.ok ? {} : { blockedEntityType: entity.entityType }),
+    }
   }
 
   // No relationship and no administrative grant discloses less than an entity

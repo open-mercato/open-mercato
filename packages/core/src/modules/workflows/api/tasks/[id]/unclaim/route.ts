@@ -19,6 +19,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { TaskHandlerService } from '../../../../lib/task-handler'
+import { gateTaskAction } from '../../../../lib/task-visibility-request'
 import { serializeUserTask } from '../../serialize'
 import { UserTask } from '../../../../data/entities'
 import {
@@ -56,6 +57,21 @@ export async function POST(
         { error: 'Missing tenant or organization context' },
         { status: 400 }
       )
+    }
+
+    // §6.4 first, so a caller with no relationship to the task cannot tell a
+    // claimed task from a nonexistent one. The handler still enforces that the
+    // caller IS the claimant, with the same compare-and-set.
+    const gate = await gateTaskAction({
+      container,
+      em,
+      auth: { userId: auth.sub, tenantId, roleNames: auth.roles ?? [] },
+      taskId: params.id,
+      organizationId,
+    })
+
+    if (!gate.allowed) {
+      return NextResponse.json(gate.refusal.body, { status: gate.refusal.status })
     }
 
     const taskHandler = container.resolve<TaskHandlerService>('taskHandler')
@@ -106,7 +122,8 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Missing tenant or organization context', schema: workflowErrorSchema },
         { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
-        { status: 404, description: 'Task not found or not claimed', schema: workflowErrorSchema },
+        { status: 403, description: 'The task is visible to the caller but is not theirs to act on — it has no assignee and no role queue, so it must be reassigned first (§6.4: administration widens seeing, never acting).', schema: workflowErrorSchema },
+        { status: 404, description: 'Task not found, not visible to the caller, or not claimed', schema: workflowErrorSchema },
         { status: 409, description: 'Task claimed by another user', schema: workflowErrorSchema },
         { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
       ],
