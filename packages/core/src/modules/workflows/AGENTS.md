@@ -271,6 +271,29 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   in-page buffer and says so; paste reads that buffer. It is never a silent no-op — the reason is
   always surfaced.
 
+## Palette Drops (drag-from-palette · insert-on-route)
+
+- **Click stays the keyboard path.** Every palette entry is a `<button>` that appends on click; drag
+  is an ENHANCEMENT layered on top (`draggable` + `lib/palette-drag.ts`, which writes a readable
+  `text/plain` label plus the private `application/x-om-workflow-palette` payload, mirroring
+  `lib/ledger-drag.ts`). Never make an entry drag-only.
+- **The graph resolves the target, the page performs the effect.** `WorkflowGraphImpl` owns the two
+  things only React Flow and the DOM can answer — the flow-space cursor position
+  (`screenToFlowPosition`) and which route the cursor is over (`document.elementsFromPoint` →
+  `.react-flow__edge[data-id]`, exact where geometry over a smooth-step curve would only approximate)
+  — and hands the page a plain `WorkflowGraphDropEvent`. The effects live in the PURE
+  `lib/palette-drop.ts`, so the xyflow boundary (#3169) is unaffected.
+- **Three drop outcomes**: a step on empty canvas is placed at the cursor via `lib/node-placement.ts`;
+  a step on a route is spliced between that route's endpoints; an action on a route is appended to
+  that route's activities (the #4244 chips then render it). An action needs a route — dropping one on
+  empty canvas says so instead of doing nothing. Each drop is ONE undo entry.
+- **Insert-on-route keeps the original route's data on the FIRST segment** (`from → new step`): a
+  condition guards LEAVING its source step and the activities run on the way out, so both belong to
+  the segment that still starts where the author put them, an error route stays the error path out of
+  that step, and the durable `transitionId` — which `instance.pendingTransition` and
+  `WorkflowBranchInstance.branchKey` resolve against — stays attached to it. The second segment
+  (`new step → to`) is a fresh unconditional auto route.
+
 ## Environment
 
 | Variable | Effect | Default |

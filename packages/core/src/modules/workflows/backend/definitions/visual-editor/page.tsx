@@ -13,7 +13,7 @@ import { graphToDefinition, definitionToGraph, applyAutoLayout, validateWorkflow
 import { convertStepType, type ConvertibleStepType } from '../../../lib/step-type-conversion'
 import { collectValidationIssues, countIssuesBySeverity, type WorkflowIssueTranslator, type WorkflowValidationIssue, type ZodIssueLike } from '../../../lib/collect-validation-issues'
 import { formatWorkflowValidationError } from '../../../lib/format-validation-error'
-import type { WorkflowGraphFocusTarget, WorkflowGraphNodesChangeMeta } from '../../../components/WorkflowGraph'
+import type { WorkflowGraphDropEvent, WorkflowGraphFocusTarget, WorkflowGraphNodesChangeMeta } from '../../../components/WorkflowGraph'
 import { resolveNewNodePlacement } from '../../../lib/node-placement'
 import {
   commitEditorHistory,
@@ -31,6 +31,10 @@ import {
   type SubgraphClipboardParseFailure,
   type WorkflowSubgraphClipboard,
 } from '../../../lib/subgraph-clipboard'
+import { readPaletteDragItem, writePaletteDragPayload } from '../../../lib/palette-drag'
+import { appendActivityToRoute, insertStepOnRoute, type PaletteDropRejectionCode } from '../../../lib/palette-drop'
+import { useActivityTypeOptions } from '../../../components/fields/useActivityTypeOptions'
+import { resolveActivityIcon } from '../../../components/WorkflowRouteChips'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-flag'
 import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } from '../../../lib/draft-restore'
@@ -417,6 +421,8 @@ export default function VisualEditorPage() {
     tidy: t('workflows.visualEditor.history.tidy', 'Tidy layout'),
     paste: t('workflows.visualEditor.history.paste', 'Paste'),
     duplicate: t('workflows.visualEditor.history.duplicate', 'Duplicate'),
+    insertOnRoute: t('workflows.visualEditor.history.insertOnRoute', 'Insert step on route'),
+    addActivity: t('workflows.visualEditor.history.addActivity', 'Add action to route'),
   }), [t])
 
   const captureDocument = useCallback((): WorkflowEditorDocument => ({
@@ -941,28 +947,113 @@ export default function VisualEditorPage() {
     setEdges(nextEdges)
   }, [isCodeOnly])
 
+  const buildPaletteNode = useCallback((nodeType: string, dropPosition?: { x: number; y: number } | null): Node => ({
+    id: generateStepId(nodeType),
+    type: nodeType,
+    position: resolveNewNodePlacement(nodesRef.current, { dropPosition }),
+    data: {
+      label: getDefaultLabel(nodeType),
+      description: '',
+      badge: getDefaultBadge(nodeType),
+      status: 'pending',
+    },
+  }), [])
+
   // Handle adding new node from palette. A drop position (drag-from-palette)
   // places the card under the cursor; the click-append path lands after the
   // right-most card. Both are nudged clear of existing cards (#4248) and both
   // count as a manual arrangement, so the placement is persisted like a drag.
   const handleAddNode = useCallback((nodeType: string, dropPosition?: { x: number; y: number } | null) => {
     if (isCodeOnly) return
-    const newNode: Node = {
-      id: generateStepId(nodeType),
-      type: nodeType,
-      position: resolveNewNodePlacement(nodes, { dropPosition }),
-      data: {
-        label: getDefaultLabel(nodeType),
-        description: '',
-        badge: getDefaultBadge(nodeType),
-        status: 'pending',
-      },
-    }
-
+    const newNode = buildPaletteNode(nodeType, dropPosition)
     commitHistory(historyLabels.addStep)
     setNodes((nds) => [...nds, newNode])
     scheduleAutosave()
-  }, [nodes, isCodeOnly, commitHistory, historyLabels.addStep, scheduleAutosave])
+  }, [isCodeOnly, buildPaletteNode, commitHistory, historyLabels.addStep, scheduleAutosave])
+
+  const activityTypeOptions = useActivityTypeOptions()
+
+  const describePaletteDropRejection = useCallback((code: PaletteDropRejectionCode) => {
+    switch (code) {
+      case 'dataMappingRoute':
+        return t('workflows.visualEditor.palette.rejected.dataMappingRoute', 'Data mapping links are edited in the step configuration, not on the canvas.')
+      default:
+        return t('workflows.visualEditor.palette.rejected.unknownRoute', 'That route no longer exists.')
+    }
+  }, [t])
+
+  // Drag-from-palette (spec §4.2). Dropping on empty canvas places the step at
+  // the cursor; dropping on a route splices it between that route's endpoints;
+  // dropping an action on a route appends it to the route's activities. The
+  // graph resolved the flow-space position and the route under the cursor — the
+  // effect itself is pure (`lib/palette-drop.ts`).
+  const handleCanvasDrop = useCallback((event: WorkflowGraphDropEvent) => {
+    if (isCodeOnly) return
+    const item = readPaletteDragItem(event.dataTransfer)
+    if (!item) return
+
+    if (item.kind === 'step') {
+      if (!event.edgeId) {
+        handleAddNode(item.nodeType, event.position)
+        return
+      }
+      const result = insertStepOnRoute(
+        nodesRef.current,
+        edgesRef.current,
+        event.edgeId,
+        buildPaletteNode(item.nodeType, event.position),
+      )
+      if (!result.ok) {
+        flash(describePaletteDropRejection(result.code), 'error')
+        return
+      }
+      commitHistory(historyLabels.insertOnRoute)
+      setNodes(result.nodes)
+      setEdges(result.edges)
+      scheduleAutosave()
+      flash(t('workflows.visualEditor.palette.insertedOnRoute', 'Step inserted on the route'), 'success')
+      return
+    }
+
+    if (!event.edgeId) {
+      flash(t('workflows.visualEditor.palette.dragActionHint', 'Drop an action onto a route to add it there'), 'info')
+      return
+    }
+    const activityLabel = activityTypeOptions.find((option) => option.value === item.activityType)?.label ?? item.activityType
+    const result = appendActivityToRoute(edgesRef.current, event.edgeId, {
+      activityId: `activity_${Date.now()}`,
+      activityName: activityLabel,
+      activityType: item.activityType,
+      config: {},
+    })
+    if (!result.ok) {
+      flash(describePaletteDropRejection(result.code), 'error')
+      return
+    }
+    commitHistory(historyLabels.addActivity)
+    setEdges(result.edges)
+    scheduleAutosave()
+    flash(t('workflows.visualEditor.palette.activityAdded', '{activity} added to the route', { activity: activityLabel }), 'success')
+  }, [
+    isCodeOnly,
+    handleAddNode,
+    buildPaletteNode,
+    activityTypeOptions,
+    describePaletteDropRejection,
+    commitHistory,
+    historyLabels.insertOnRoute,
+    historyLabels.addActivity,
+    scheduleAutosave,
+    t,
+  ])
+
+  const handlePaletteStepDragStart = useCallback((event: React.DragEvent<HTMLButtonElement>, nodeType: string) => {
+    writePaletteDragPayload(event.dataTransfer, { kind: 'step', nodeType }, NODE_TYPE_LABELS[nodeType as keyof typeof NODE_TYPE_LABELS]?.title ?? nodeType)
+  }, [])
+
+  const handlePaletteActivityDragStart = useCallback((event: React.DragEvent<HTMLButtonElement>, activityType: string, label: string) => {
+    writePaletteDragPayload(event.dataTransfer, { kind: 'activity', activityType }, label)
+  }, [])
 
   // Handle node selection - open edit dialog (suppressed in read-only mode
   // so users can't open the node editor on a code-defined workflow).
@@ -2607,6 +2698,7 @@ export default function VisualEditorPage() {
                 onEdgeClick={handleEdgeClick}
                 onConnect={handleConnect}
                 onReconnect={handleReconnect}
+                onCanvasDrop={handleCanvasDrop}
                 editable={!isCodeOnly}
                 height="100%"
                 focusTarget={focusTarget}
@@ -2641,6 +2733,8 @@ export default function VisualEditorPage() {
                   return (
                     <button
                       key={nodeType}
+                      draggable
+                      onDragStart={(event) => handlePaletteStepDragStart(event, nodeType)}
                       onClick={() => handleAddNode(nodeType)}
                       className="flex shrink-0 items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted active:bg-muted/50"
                     >
@@ -2688,6 +2782,8 @@ export default function VisualEditorPage() {
                     <button
                       key={nodeType}
                       type="button"
+                      draggable
+                      onDragStart={(event) => handlePaletteStepDragStart(event, nodeType)}
                       onClick={() => handleAddNode(nodeType)}
                       title={tooltip}
                       aria-label={tooltip}
@@ -2701,6 +2797,8 @@ export default function VisualEditorPage() {
                   <button
                     key={nodeType}
                     type="button"
+                    draggable
+                    onDragStart={(event) => handlePaletteStepDragStart(event, nodeType)}
                     onClick={() => handleAddNode(nodeType)}
                     title={label.description}
                     className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs hover:bg-muted"
@@ -2711,6 +2809,39 @@ export default function VisualEditorPage() {
                 )
               })}
             </div>
+
+            {/* Actions (spec §4.4): drag one onto a route to append it to that
+                route's activities — the chips (#4244) then render it. Clicking
+                explains where the keyboard path is, so the entry is never dead. */}
+            {!paletteCollapsed && (
+              <div className="mt-4">
+                <h2 className="mb-1 px-1 text-xs font-semibold uppercase text-muted-foreground">
+                  {t('workflows.visualEditor.palette.actionsTitle', 'Actions')}
+                </h2>
+                <p className="mb-2 px-1 text-xs text-muted-foreground">
+                  {t('workflows.visualEditor.palette.dragActionHint', 'Drop an action onto a route to add it there')}
+                </p>
+                <div className="flex flex-col gap-1">
+                  {activityTypeOptions.map((option) => {
+                    const ActionIcon = resolveActivityIcon(option.value)
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        draggable
+                        onDragStart={(event) => handlePaletteActivityDragStart(event, option.value, option.label)}
+                        onClick={() => flash(t('workflows.visualEditor.palette.dragActionHint', 'Drop an action onto a route to add it there'), 'info')}
+                        title={t('workflows.visualEditor.palette.dragActionHint', 'Drop an action onto a route to add it there')}
+                        className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs hover:bg-muted"
+                      >
+                        <ActionIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate font-medium text-foreground">{option.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {!paletteCollapsed && (
               <div className="mt-3">
@@ -2729,6 +2860,7 @@ export default function VisualEditorPage() {
                     <div className="mt-2">
                       <ul className="list-inside list-disc space-y-1 text-xs">
                         <li>{t('workflows.visualEditor.hint.addSteps', 'Click step types to add them')}</li>
+                        <li>{t('workflows.visualEditor.hint.dragFromPalette', 'Drag a step onto the canvas, or onto a route to insert it there')}</li>
                         <li>{t('workflows.visualEditor.hint.dragSteps', 'Drag steps to position them')}</li>
                         <li>{t('workflows.visualEditor.hint.connectSteps', 'Connect steps by dragging from handles')}</li>
                         <li>{t('workflows.visualEditor.hint.editSteps', 'Click steps and transitions to edit them')}</li>
@@ -2757,6 +2889,7 @@ export default function VisualEditorPage() {
                   onEdgeClick={handleEdgeClick}
                   onConnect={handleConnect}
                   onReconnect={handleReconnect}
+                  onCanvasDrop={handleCanvasDrop}
                   editable={!isCodeOnly}
                   height="100%"
                   focusTarget={focusTarget}

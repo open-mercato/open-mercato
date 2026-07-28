@@ -3,10 +3,10 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import type { Node, Edge, Connection } from '@xyflow/react'
-import type { WorkflowGraphNodesChangeMeta } from './WorkflowGraphImpl'
+import type { WorkflowGraphDropEvent, WorkflowGraphNodesChangeMeta } from './WorkflowGraphImpl'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
-export type { WorkflowGraphNodesChangeMeta } from './WorkflowGraphImpl'
+export type { WorkflowGraphDropEvent, WorkflowGraphNodesChangeMeta } from './WorkflowGraphImpl'
 
 export interface WorkflowGraphFocusTarget {
   nodeId?: string
@@ -27,6 +27,11 @@ export interface WorkflowGraphProps {
    * on another node. Leaving the edge list unchanged snaps the endpoint back.
    */
   onReconnect?: (oldEdge: Edge, connection: Connection) => void
+  /**
+   * Drag-from-palette (spec section 4.2): fired when something is dropped on the
+   * canvas, carrying the flow-space cursor position and the route under it.
+   */
+  onCanvasDrop?: (event: WorkflowGraphDropEvent) => void
   editable?: boolean
   className?: string
   height?: string

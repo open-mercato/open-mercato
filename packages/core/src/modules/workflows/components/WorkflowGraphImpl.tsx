@@ -60,6 +60,35 @@ function describeNodeChanges(changes: NodeChange[]): WorkflowGraphNodesChangeMet
   return { dragging, persistable }
 }
 
+/**
+ * A drop onto the canvas (spec section 4.2). The graph resolves the two things
+ * only it can know — the flow-space position under the cursor
+ * (`screenToFlowPosition`) and which route, if any, the cursor was over — and
+ * hands the parent plain data, so the drop EFFECT stays out of the React Flow
+ * boundary (#3169).
+ */
+export interface WorkflowGraphDropEvent {
+  dataTransfer: DataTransfer
+  position: { x: number; y: number }
+  edgeId: string | null
+}
+
+/**
+ * Resolve which route the cursor is over. React Flow renders each edge as a
+ * `<g class="react-flow__edge" data-id="…">` carrying a wide invisible
+ * interaction path, so hit-testing the DOM is exact where geometry over a
+ * smooth-step curve would only be an approximation.
+ */
+function edgeIdAtPoint(clientX: number, clientY: number): string | null {
+  if (typeof document === 'undefined' || typeof document.elementsFromPoint !== 'function') return null
+  for (const element of document.elementsFromPoint(clientX, clientY)) {
+    const edgeElement = (element as Element).closest?.('.react-flow__edge')
+    const edgeId = edgeElement?.getAttribute('data-id')
+    if (edgeId) return edgeId
+  }
+  return null
+}
+
 export interface WorkflowGraphImplProps {
   initialNodes?: Node[]
   initialEdges?: Edge[]
@@ -74,6 +103,8 @@ export interface WorkflowGraphImplProps {
    * the new endpoints. Leaving the committed edges untouched snaps back.
    */
   onReconnect?: (oldEdge: Edge, connection: Connection) => void
+  /** Drag-from-palette (spec section 4.2). Absent → the canvas accepts no drops. */
+  onCanvasDrop?: (event: WorkflowGraphDropEvent) => void
   editable?: boolean
   className?: string
   height?: string
@@ -90,6 +121,7 @@ export default function WorkflowGraphImpl({
   onEdgeClick: onEdgeClickProp,
   onConnect: onConnectProp,
   onReconnect: onReconnectProp,
+  onCanvasDrop: onCanvasDropProp,
   editable = false,
   className = '',
   height = '600px',
@@ -226,6 +258,32 @@ export default function WorkflowGraphImpl({
     [setNodes, onNodesChangeProp]
   )
 
+  const acceptsDrop = editable && !!onCanvasDropProp
+
+  const handleDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!acceptsDrop) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+    },
+    [acceptsDrop],
+  )
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!acceptsDrop) return
+      const instance = reactFlowInstanceRef.current
+      if (!instance) return
+      event.preventDefault()
+      onCanvasDropProp?.({
+        dataTransfer: event.dataTransfer,
+        position: instance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+        edgeId: edgeIdAtPoint(event.clientX, event.clientY),
+      })
+    },
+    [acceptsDrop, onCanvasDropProp],
+  )
+
   const handleEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
       const nextEdges = applyEdgeChanges(changes, latestEdgesRef.current)
@@ -279,6 +337,8 @@ export default function WorkflowGraphImpl({
     <div
       ref={containerRef}
       className={`workflow-graph-container ${className}`}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
       style={{
         height,
         // Edge colour tokens mapped to DS palette roles: control transitions vs

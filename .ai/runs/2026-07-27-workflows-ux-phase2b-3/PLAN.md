@@ -45,8 +45,8 @@
 | 3 | 3.4 | Persisted-arrangement completion (drag-end autosave, drop placement) | done | ed51e7b98 |
 | 3 | 3.5 | Step-type conversion (pure lib + quarantine drawer UI) | done | ba5220883 |
 | 3 | 3.6 | Undo/redo command stack + keyboard wiring | done | 6db818153 |
-| 3 | 3.7 | Copy/paste/duplicate portable-JSON subgraphs + multi-select | done | PENDING |
-| 3 | 3.8 | Drag-from-palette + insert-on-edge + drag-onto-route append | todo | — |
+| 3 | 3.7 | Copy/paste/duplicate portable-JSON subgraphs + multi-select | done | d7aacb0ab |
+| 3 | 3.8 | Drag-from-palette + insert-on-edge + drag-onto-route append | done | PENDING |
 | 3 | 3.9 | Notes & groups annotations (metadata.editor.annotations) | todo | — |
 | 3 | 3.10 | Icon picker (lazy searchable lucide grid) | todo | — |
 | 3 | 3.11 | Keyboard path + command palette + ARIA acceptance | todo | — |
