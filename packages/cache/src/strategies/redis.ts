@@ -325,9 +325,26 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
 
     // Delete all collected keys
     let deleted = 0
+    const orphans: string[] = []
     for (const key of keysToDelete) {
       const success = await deleteKey(key)
       if (success) deleted++
+      else orphans.push(key)
+    }
+
+    // A key whose value has already expired leaves its name behind in every tag
+    // set it was added to: `set()` only prunes tags when it overwrites a live
+    // key, `deleteKey` only prunes when it finds one, and `cleanup()` scans
+    // value keys rather than tag sets. Nothing else reaps them, so the sets grow
+    // without bound whenever TTL'd entries also rotate their key names — and
+    // every later invalidation pays a GET per orphan. Reap what we just walked.
+    if (orphans.length > 0) {
+      const pipeline = client.pipeline()
+      for (const tag of tags) {
+        const tagKey = getTagKey(tag)
+        for (const key of orphans) pipeline.srem(tagKey, key)
+      }
+      await pipeline.exec()
     }
 
     return deleted
