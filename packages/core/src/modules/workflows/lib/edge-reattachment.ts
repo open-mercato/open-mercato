@@ -18,6 +18,7 @@ import { graphToDefinition, validateWorkflowGraph } from './graph-utils'
 import { isDataMappingEdge } from './data-edge-mapping'
 import { ERROR_TRANSITION_KIND } from './error-routing'
 import { SLA_BREACH_TRANSITION_KIND } from './breach-routing'
+import { OUTCOME_TRANSITION_KIND } from './outcome-routing'
 import { resolveEdgeRouteKind, type RouteKindDescriptor } from './route-kinds'
 import { validateParallelForkJoin } from '../data/validators'
 
@@ -36,6 +37,12 @@ const ERROR_ROUTE_SOURCE_NODE_TYPES = new Set(['automated', 'userTask', 'subWork
 const SLA_BREACH_ROUTE_SOURCE_NODE_TYPES = new Set(['userTask'])
 
 /**
+ * Only an agent step resolves a disposition, so an outcome route (spec 7.2) can
+ * source nowhere else.
+ */
+const OUTCOME_ROUTE_SOURCE_NODE_TYPES = new Set(['invokeAgent'])
+
+/**
  * Which node types may source each kinded route. A kind absent from this table
  * is unrestricted; a kind present in it refuses a reattachment onto a node type
  * that cannot reach the route, rather than leaving a dead route behind.
@@ -43,6 +50,7 @@ const SLA_BREACH_ROUTE_SOURCE_NODE_TYPES = new Set(['userTask'])
 const ROUTE_KIND_SOURCE_NODE_TYPES: Record<string, Set<string>> = {
   [ERROR_TRANSITION_KIND]: ERROR_ROUTE_SOURCE_NODE_TYPES,
   [SLA_BREACH_TRANSITION_KIND]: SLA_BREACH_ROUTE_SOURCE_NODE_TYPES,
+  [OUTCOME_TRANSITION_KIND]: OUTCOME_ROUTE_SOURCE_NODE_TYPES,
 }
 
 export type EdgeReattachRejectionCode =

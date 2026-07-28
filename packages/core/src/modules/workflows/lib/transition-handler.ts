@@ -26,11 +26,10 @@ import { findDefinitionForInstance } from './find-definition'
 import { resolveDefinitionInterpolationMode } from './interpolation-pipeline'
 import { buildSetVariableContextPatch, isSetVariableOutput } from './set-variable'
 import {
-  excludeErrorTransitions,
   resolveStepFailureHandling,
   type StepFailureHandling,
 } from './error-routing'
-import { excludeSlaBreachTransitions } from './breach-routing'
+import { excludeNonNormalTransitions } from './route-kinds'
 import {
   type ExecutionToken,
   rootToken,
@@ -196,8 +195,9 @@ export async function evaluateTransition(
         }
       }
     } else {
-      // Auto-select first valid transition (never an error or SLA-breach route)
-      const availableTransitions = excludeSlaBreachTransitions(excludeErrorTransitions(transitions)).filter(
+      // Auto-select first valid transition (never a kinded route: error,
+      // SLA-breach or agent-outcome)
+      const availableTransitions = excludeNonNormalTransitions(transitions).filter(
         (t: any) => t.fromStepId === fromStepId
       )
 
@@ -284,11 +284,10 @@ export async function findValidTransitions(
     }
 
     // Find all transitions from current step, sorted by priority (highest first).
-    // Error routes are excluded (reachable only from a step failure) and so are
-    // SLA-breach routes (reachable only from a task's deadline passing).
-    const transitions = excludeSlaBreachTransitions(
-      excludeErrorTransitions(definition.definition.transitions || [])
-    )
+    // Every kinded route is excluded — each is reachable only from its own
+    // trigger (a step failure, a task's deadline passing, a resolved agent
+    // disposition), never from normal routing.
+    const transitions = excludeNonNormalTransitions(definition.definition.transitions || [])
       .filter((t: any) => t.fromStepId === fromStepId)
       .sort((a: any, b: any) => (b.priority || 0) - (a.priority || 0))
 

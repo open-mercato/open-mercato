@@ -15,6 +15,11 @@ import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
 import type * as workflowExecutorModule from './workflow-executor'
 import { resolveCodeDefinitionForInstance } from './find-definition'
+import {
+  WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY,
+  buildAgentOutcomeContextEntry,
+  mapDispositionToAgentOutcome,
+} from './outcome-routing'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -258,6 +263,30 @@ export async function sendSignal(
       ...payload,
       [`signal_${signalName}_payload`]: payload,
       [`signal_${signalName}_receivedAt`]: now.toISOString(),
+    }
+  }
+
+  // Outcome routing (spec 7.2). The signal is how EVERY resolved disposition
+  // reaches a parked agent step — the activity worker's auto_approved and
+  // informative resumes and the human dispose path alike — so this is the one
+  // place the disposition has to be translated into the engine-owned outcome
+  // marker the executor routes on. Recorded regardless of who sent the signal;
+  // the author-visible `disposition` key stays untouched and unread by routing.
+  if (isInvokeAgentStep && instance.currentStepId) {
+    const resolvedOutcome = mapDispositionToAgentOutcome(
+      (payload as Record<string, unknown> | undefined)?.disposition,
+    )
+    if (resolvedOutcome) {
+      const proposalId = (payload as Record<string, unknown> | undefined)?.agentProposalId
+        ?? (payload as Record<string, unknown> | undefined)?.proposalId
+      instance.context = {
+        ...instance.context,
+        [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry(
+          instance.currentStepId,
+          resolvedOutcome,
+          typeof proposalId === 'string' ? proposalId : undefined,
+        ),
+      }
     }
   }
 

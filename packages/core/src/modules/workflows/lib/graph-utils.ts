@@ -235,6 +235,7 @@ export function graphToDefinition(
     const routeKind = resolveEdgeRouteKind(edgeData?.kind, edge.sourceHandle)
     if (routeKind) {
       transition.kind = routeKind.kind
+      Object.assign(transition, routeKind.discriminatorFields(edge))
     }
 
     // Add continueOnActivityFailure if present (default false)
@@ -518,6 +519,7 @@ export function definitionToGraph(
       data: {
         trigger: transition.trigger,
         ...(routeKind ? { kind: routeKind.kind } : {}),
+        ...((transition as any).outcomeKind ? { outcomeKind: (transition as any).outcomeKind } : {}),
         transitionName: (transition as any).transitionName,
         priority: (transition as any).priority !== undefined ? (transition as any).priority : 0,
         continueOnActivityFailure: (transition as any).continueOnActivityFailure !== undefined

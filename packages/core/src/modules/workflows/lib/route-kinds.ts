@@ -22,6 +22,12 @@
 
 import { ERROR_SOURCE_HANDLE_ID, ERROR_TRANSITION_KIND } from './error-routing'
 import { SLA_BREACH_SOURCE_HANDLE_ID, SLA_BREACH_TRANSITION_KIND } from './breach-routing'
+import {
+  OUTCOME_TRANSITION_KIND,
+  isAgentOutcomeKind,
+  outcomeSourceHandleId,
+  parseOutcomeSourceHandleId,
+} from './outcome-routing'
 
 /**
  * The absent form. A transition with no `kind` and a transition with
@@ -33,7 +39,7 @@ export const NORMAL_TRANSITION_KIND = 'normal'
 
 export interface RouteKindTransitionLike {
   kind?: string
-  [key: string]: unknown
+  outcomeKind?: string
 }
 
 export interface RouteKindDescriptor {
@@ -43,6 +49,17 @@ export interface RouteKindDescriptor {
   matchesSourceHandle(sourceHandleId: string): boolean
   /** Canvas source handle a stored transition of this kind re-attaches to. */
   resolveSourceHandle(transition: RouteKindTransitionLike): string
+  /**
+   * Fields beyond `kind` this route persists, derived from what the canvas
+   * carries. A kind whose handles fan out (outcome routes) stores WHICH handle
+   * it was drawn from; a fixed-handle kind stores nothing extra.
+   */
+  discriminatorFields(edge: RouteKindEdgeLike): Record<string, unknown>
+}
+
+export interface RouteKindEdgeLike {
+  data?: RouteKindTransitionLike | null
+  sourceHandle?: string | null
 }
 
 function fixedHandleDescriptor(kind: string, sourceHandleId: string): RouteKindDescriptor {
@@ -50,7 +67,29 @@ function fixedHandleDescriptor(kind: string, sourceHandleId: string): RouteKindD
     kind,
     matchesSourceHandle: (candidate) => candidate === sourceHandleId,
     resolveSourceHandle: () => sourceHandleId,
+    discriminatorFields: () => ({}),
   }
+}
+
+/**
+ * Outcome routes are the one kind that fans out: an agent node exposes a handle
+ * per §7.2 disposition kind, so the handle carries the outcome and the stored
+ * route carries it back as `outcomeKind`. `approved` is the fallback because it
+ * is the outcome §7.2 renders unconditionally.
+ */
+const outcomeDescriptor: RouteKindDescriptor = {
+  kind: OUTCOME_TRANSITION_KIND,
+  matchesSourceHandle: (candidate) => parseOutcomeSourceHandleId(candidate) !== null,
+  resolveSourceHandle: (transition) =>
+    outcomeSourceHandleId(
+      isAgentOutcomeKind(transition.outcomeKind) ? transition.outcomeKind : 'approved',
+    ),
+  discriminatorFields: (edge) => {
+    const carried = edge.data?.outcomeKind
+    const fromHandle = parseOutcomeSourceHandleId(edge.sourceHandle)
+    const outcome = isAgentOutcomeKind(carried) ? carried : fromHandle
+    return { outcomeKind: outcome ?? 'approved' }
+  },
 }
 
 /**
@@ -60,6 +99,7 @@ function fixedHandleDescriptor(kind: string, sourceHandleId: string): RouteKindD
 const ROUTE_KIND_DESCRIPTORS: RouteKindDescriptor[] = [
   fixedHandleDescriptor(ERROR_TRANSITION_KIND, ERROR_SOURCE_HANDLE_ID),
   fixedHandleDescriptor(SLA_BREACH_TRANSITION_KIND, SLA_BREACH_SOURCE_HANDLE_ID),
+  outcomeDescriptor,
 ]
 
 export function listRouteKindDescriptors(): RouteKindDescriptor[] {
@@ -96,4 +136,19 @@ export function resolveEdgeRouteKind(
 /** True for any route the engine reaches only through its own dedicated path. */
 export function isNonNormalRouteKind(kind: unknown): boolean {
   return findRouteKindDescriptor(kind) !== null
+}
+
+/**
+ * Strip every kinded route from a normal-routing lookup.
+ *
+ * Each kind is reachable ONLY from its own trigger — a failure, a passed
+ * deadline, a resolved disposition — so a routing lookup that forgot one would
+ * auto-select it as a happy path. That is the bug shape `route-priority.ts`
+ * already had for `slaBreach`, so the filter lives here once and every lookup
+ * calls it instead of composing per-kind excludes and eventually missing one.
+ */
+export function excludeNonNormalTransitions<T extends { kind?: string }>(
+  transitions: T[],
+): T[] {
+  return transitions.filter((transition) => !isNonNormalRouteKind(transition?.kind))
 }

@@ -155,6 +155,33 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - Design rationale and the ordering/durability/recursion/branch decisions:
   `.ai/runs/2026-07-27-workflows-ux-phase2b-3/DESIGN-error-handler.md`.
 
+## Agent Outcome Routing (spec §7.2)
+
+- **`lib/outcome-routing.ts` (PURE) is the single decision point**, the third member of the family
+  `lib/error-routing.ts` and `lib/breach-routing.ts` belong to. The three share the mechanical parts
+  through `lib/route-kinds.ts` (`excludeNonNormalTransitions`, the handle ↔ kind round trip) and keep
+  their own decision points, because their fallback vocabularies genuinely differ.
+- **The handle set is spec §7.2's FIXED five disposition kinds** — `approved`, `informative`,
+  `rejected`, `guardrailBlocked`, `error` — NOT the selected agent's OUTCOME-schema enum. Enumerating
+  from the schema would need a per-value condition on each transition, which is exactly the context
+  string-matching §7.2 exists to remove. These five are governance states; the OUTCOME schema is
+  domain data.
+- **Precedence** (`resolveAgentOutcomeHandling`): the step wired NO outcome route ⇒ `default`
+  (today's normal routing, byte-identical for every pre-existing definition) → a wired route for this
+  outcome ⇒ `route` → `approved` unwired ⇒ `default` (§7.2 renders `approved` unconditionally because
+  it IS the node's ordinary output) → anything else ⇒ `inherit`, the step's `errorDirective`, which is
+  the "unhandled → fail instance" the node face states.
+- **Routing NEVER reads the author-visible `disposition` context key.** `lib/step-handler.ts` (inline
+  resolution) and `lib/signal-handler.ts` (every parked resume — the activity worker's and the human
+  dispose path alike) write the ENGINE-OWNED `__agentOutcome` marker
+  (`WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY`), and `dispatchAgentOutcome` in the executor consumes it —
+  clearing it first, so a route looping back through the step cannot re-fire on a stale disposition.
+- **Rejection is a business route, not an error** (§7.2): a rejected proposal routes `rejected`;
+  infra failure keeps the retry policy and then the `error` route. Events: `OUTCOME_ROUTED` /
+  `OUTCOME_UNHANDLED`.
+- Author-time checks live in `validateOutcomeRoutes` (unknown outcome kind, two routes claiming the
+  same kind on one step) and surface through the Problems panel.
+
 ## Route Kinds (the handle ↔ `kind` round trip)
 
 - **`lib/route-kinds.ts` (PURE) is the ONE place a non-normal route kind is registered.** It answers

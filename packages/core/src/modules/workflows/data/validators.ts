@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { conditionExpressionSchema } from '@open-mercato/core/modules/business_rules/data/validators'
 import { validateConditionExpressionForApi } from '@open-mercato/core/modules/business_rules/lib/payload-validation'
 import { parseDuration } from '../lib/duration'
-import { excludeErrorTransitions } from '../lib/error-routing'
+import { excludeNonNormalTransitions } from '../lib/route-kinds'
 import '../lib/activity-registry-bootstrap'
 import { activityTypeIds } from '../lib/activity-registry'
 import {
@@ -536,11 +536,12 @@ export type StepErrorDirective = z.infer<typeof stepErrorDirectiveSchema>
 
 /**
  * Transition discriminator. `error` routes are reachable ONLY from a step
- * failure and `slaBreach` routes ONLY from a user task's deadline passing —
- * normal routing filters both out — so adding one never changes the happy path.
- * Absent means `normal`.
+ * failure, `slaBreach` routes ONLY from a user task's deadline passing, and
+ * `outcome` routes ONLY from an agent step resolving a disposition (spec 7.2) —
+ * normal routing filters all of them out — so adding one never changes the happy
+ * path. Absent means `normal`.
  */
-export const transitionKindSchema = z.enum(['normal', 'error', 'slaBreach'])
+export const transitionKindSchema = z.enum(['normal', 'error', 'slaBreach', 'outcome'])
 
 export type WorkflowTransitionKind = z.infer<typeof transitionKindSchema>
 
@@ -676,6 +677,11 @@ export const workflowTransitionSchema = z.object({
   // Error route marker (spec 5.9). Normal routing never selects an `error`
   // route; the engine follows it only when the source step fails.
   kind: transitionKindSchema.optional(),
+  // Which of spec 7.2's five fixed disposition kinds an `outcome` route carries.
+  // Additive and optional: a definition declaring no outcome routes never
+  // carries it, and an unknown value is surfaced as a Problems-panel issue
+  // rather than rejected, so an older definition never fails to load.
+  outcomeKind: z.string().min(1).max(50).optional(),
   priority: z.number().int().min(0).max(9999).default(0),
 })
 
@@ -775,7 +781,7 @@ export function validateParallelForkJoin(definition: ForkJoinDefinitionLike): Fo
   const steps = definition.steps ?? []
   // Error routes leave the happy-path graph on purpose (spec 5.9): a branch step
   // may route its failure outside the fork region without breaking convergence.
-  const transitions = excludeErrorTransitions(definition.transitions ?? [])
+  const transitions = excludeNonNormalTransitions(definition.transitions ?? [])
 
   const stepById = new Map<string, ForkJoinStepLike>()
   for (const step of steps) stepById.set(step.stepId, step)
