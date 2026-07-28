@@ -18,7 +18,10 @@
  */
 
 import { hasFeature } from '@open-mercato/shared/security/features'
-import type { TaskVisibilityRequestContext } from '../task-visibility-request'
+import type {
+  TaskEntityHiddenMarker,
+  TaskVisibilityRequestContext,
+} from '../task-visibility-request'
 
 /** Mirrors the platform's priority labels (root AGENTS.md → PR Workflow). */
 export const WORK_INBOX_PRIORITIES = ['extreme', 'high', 'medium', 'low'] as const
@@ -139,6 +142,16 @@ export type WorkInboxSourceContext = {
 export type WorkInboxSourceResult = {
   rows: WorkInboxRow[]
   total: number
+  /**
+   * Rows this source refused on entity access to a caller entitled to know they
+   * are there (design §3.6). Optional and additive: a source that omits it
+   * reports nothing, which is what every source did before.
+   *
+   * It carries ids and the blocking entity type, never row content — the point
+   * is that an administrator can tell "no such task" from "you cannot see its
+   * record", not that they can read the record anyway.
+   */
+  entityHidden?: TaskEntityHiddenMarker[]
 }
 
 export type WorkInboxSourceProvider = {

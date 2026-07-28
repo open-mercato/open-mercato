@@ -1867,6 +1867,7 @@
   "workflows.workInbox.kinds.user_task": "Tarea de flujo",
   "workflows.workInbox.list.title": "Bandeja de trabajo",
   "workflows.workInbox.messages.degraded": "Algunas fuentes de trabajo no están disponibles; esta lista puede estar incompleta",
+  "workflows.workInbox.messages.entityHidden": "{count} elemento(s) de esta cola están ocultos porque no puedes ver los registros a los que se refieren. Reasígnalos o solicita acceso al tipo de registro para verlos.",
   "workflows.workInbox.messages.loadFailed": "No se pudo cargar la bandeja de trabajo",
   "workflows.workInbox.messages.nothingClaimable": "No hay trabajo disponible para tomar",
   "workflows.workInbox.messages.releaseFailed": "No se pudo liberar la tarea",

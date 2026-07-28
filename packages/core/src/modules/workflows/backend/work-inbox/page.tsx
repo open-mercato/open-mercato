@@ -25,6 +25,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
+import { Alert } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -56,6 +57,12 @@ type WorkInboxResponse = {
   data: WorkInboxWireRow[]
   pagination: { total: number; limit: number; offset: number; hasMore: boolean }
   meta: { kinds: string[]; degradedKinds: string[] }
+  /**
+   * Present only for a `workflows.tasks.view_all` holder or a superadmin. It is
+   * what turns "the page is shorter than the total and nobody says why" into
+   * "one row is here, you just cannot see its record" (design §3.6).
+   */
+  diagnostics?: { entityHiddenCount: number }
 }
 
 export default function WorkInboxPage() {
@@ -63,6 +70,7 @@ export default function WorkInboxPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [availableKinds, setAvailableKinds] = React.useState<string[]>([])
+  const [entityHiddenCount, setEntityHiddenCount] = React.useState(0)
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -87,6 +95,7 @@ export default function WorkInboxPage() {
         setTotal(response.pagination.total || 0)
         setTotalPages(Math.ceil((response.pagination.total || 0) / PAGE_SIZE) || 1)
       }
+      setEntityHiddenCount(response?.diagnostics?.entityHiddenCount ?? 0)
       if (response?.meta) {
         setAvailableKinds(response.meta.kinds ?? [])
         if ((response.meta.degradedKinds ?? []).length > 0) {
@@ -426,6 +435,11 @@ export default function WorkInboxPage() {
   return (
     <Page>
       <PageBody>
+        {entityHiddenCount > 0 ? (
+          <Alert status="information" className="mb-4">
+            {t('workflows.workInbox.messages.entityHidden', { count: entityHiddenCount })}
+          </Alert>
+        ) : null}
         <DataTable
           title={t('workflows.workInbox.list.title')}
           columns={columns}

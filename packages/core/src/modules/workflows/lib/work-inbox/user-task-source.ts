@@ -20,7 +20,7 @@ import {
 } from './provider'
 import {
   buildTaskVisibilityRequestConditions,
-  filterVisibleTasks,
+  partitionTaskPage,
 } from '../task-visibility-request'
 import type {
   WorkInboxAction,
@@ -222,11 +222,12 @@ async function listUserTaskWorkItems(
   // this source routed through the single decision point and makes a
   // SQL/predicate divergence lose a row instead of leaking one. It is handed the
   // SAME queue feature the filter was built with, for exactly that reason.
-  const visible = filterVisibleTasks(context.scope.visibility, tasks, options)
+  const { visible, entityHidden } = partitionTaskPage(context.scope.visibility, tasks, options)
 
   return {
     rows: visible.map((task) => toUserTaskWorkInboxRow(task, query.now)),
     total,
+    ...(entityHidden.length > 0 ? { entityHidden } : {}),
   }
 }
 

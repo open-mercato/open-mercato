@@ -304,15 +304,34 @@ describe('user_task source query', () => {
     expect(where.$and).toContainEqual({ workflowInstanceId: 'wf-1' })
   })
 
-  test('an unfiltered query carries only the entity gate', () => {
+  test('an unfiltered administrator query carries no extra predicates', () => {
     const where = buildUserTaskWorkInboxWhere(makeQuery(), scope) as Record<string, unknown>
 
-    // `view_all` drops the RELATIONSHIP clause, never the ENTITY one — an
-    // administrator sees other people's work, not entity types they may not
-    // view. Only a superadmin short-circuits the gate.
-    expect(where.$and).toEqual([
-      { $or: [{ entityTypes: null }, { entityTypes: { $contained: [] } }] },
-    ])
+    // `view_all` drops the RELATIONSHIP clause, and the ENTITY clause moves out
+    // of the `WHERE` for this caller so the refused rows can be REPORTED rather
+    // than silently missing (design §3.6). The gate itself is not weakened —
+    // `partitionTaskPage` still refuses every one of those rows before they can
+    // reach a response. Tenant/organization scoping below is untouched.
+    expect(where.$and).toBeUndefined()
+    expect(where.tenantId).toBe(TENANT_ID)
+    expect(where.organizationId).toEqual({ $in: [ORG_ID] })
+  })
+
+  test('an ordinary caller still gets the entity gate in SQL', () => {
+    const where = buildUserTaskWorkInboxWhere(makeQuery(), {
+      ...scope,
+      visibility: makeTaskVisibilityContext({
+        userId: USER_ID,
+        tenantId: TENANT_ID,
+        organizationIds: [ORG_ID],
+        roleNames: ['approver'],
+        grantedFeatures: ['workflows.tasks.view'],
+      }),
+    }) as Record<string, unknown>
+
+    expect(where.$and).toContainEqual({
+      $or: [{ entityTypes: null }, { entityTypes: { $contained: [] } }],
+    })
   })
 
   test('a superadmin carries no extra predicates at all', () => {

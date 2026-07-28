@@ -36,6 +36,33 @@ type WhereClause = Record<string, unknown>
 const TENANT_ID = '11111111-2222-4333-8444-aaaaaaaaaaaa'
 const ORG_ID = '11111111-2222-4333-8444-bbbbbbbbbbbb'
 const USER_ID = 'user-1'
+const HIDDEN_TASK_ID = '11111111-2222-4333-8444-555555555555'
+
+/**
+ * Assigned to the caller and bound to an order they may not view: visible by
+ * RELATIONSHIP, refused by the ENTITY clause. The row carries real content so a
+ * leak would be detectable in the serialized body.
+ */
+function makeOrderBoundTask(): UserTask {
+  const task = new UserTask()
+  task.id = HIDDEN_TASK_ID
+  task.workflowInstanceId = '11111111-2222-4333-8444-666666666666'
+  task.stepInstanceId = '11111111-2222-4333-8444-777777777777'
+  task.taskName = 'Approve the order'
+  task.description = 'Approve the order'
+  task.status = 'PENDING'
+  task.assignedTo = USER_ID
+  task.assigneeKind = 'user'
+  task.assignedToRoles = null
+  task.claimedBy = null
+  task.entityBindings = [{ entityType: 'sales:sales_order', entityId: 'order-1' }]
+  task.entityTypes = ['sales:sales_order']
+  task.tenantId = TENANT_ID
+  task.organizationId = ORG_ID
+  task.createdAt = new Date('2026-07-28T09:00:00.000Z')
+  task.updatedAt = new Date('2026-07-28T09:00:00.000Z')
+  return task
+}
 
 describe('GET /api/workflows/tasks', () => {
   let mockEm: { findAndCount: jest.Mock; getConnection: () => { execute: jest.Mock } }
@@ -183,17 +210,50 @@ describe('GET /api/workflows/tasks', () => {
       ])
     })
 
-    test('drops the relationship clause for an administrator, never the entity clause', async () => {
+    test('an administrator queries unnarrowed, and is TOLD what the entity gate refuses', async () => {
+      // The gate is not weakened — the predicate still refuses the row, so it
+      // never reaches `data`. It is moved out of the `WHERE` so the refusal can
+      // be reported instead of leaving a page short by an unexplained row
+      // (design §3.6).
       withVisibility({
         acl: { features: ['workflows.tasks.view', 'workflows.tasks.view_all'] },
         scopedEntityTypes: ['sales:sales_order'],
       })
+      mockEm.findAndCount.mockResolvedValue([[makeOrderBoundTask()], 1])
+
+      const response = await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+      const where = mockEm.findAndCount.mock.calls[0][1] as WhereClause
+      const body = await response.json()
+
+      expect(where.$and).toBeUndefined()
+      expect(body.data).toEqual([])
+      expect(body.diagnostics).toEqual({
+        entityHidden: [
+          { id: HIDDEN_TASK_ID, reason: 'denied:entity-access', entityType: 'sales:sales_order' },
+        ],
+        entityHiddenCount: 1,
+      })
+      // `total` counts it: an administrator asking "how much work is open?"
+      // wants the true number, and the marker is what explains the short page.
+      expect(body.pagination.total).toBe(1)
+      // Nothing about the task itself crosses the wire.
+      expect(JSON.stringify(body)).not.toContain('Approve the order')
+    })
+
+    test('an ordinary caller keeps the entity gate in SQL and is told nothing', async () => {
+      withVisibility({
+        acl: { features: ['workflows.tasks.view'] },
+        scopedEntityTypes: ['sales:sales_order'],
+      })
 
       const where = await runList('')
+      const response = await listTasks(new NextRequest('http://localhost/api/workflows/tasks'))
+      const body = await response.json()
 
-      expect(where.$and).toEqual([
-        { $or: [{ entityTypes: null }, { entityTypes: { $contained: [] } }] },
-      ])
+      expect(where.$and).toContainEqual({
+        $or: [{ entityTypes: null }, { entityTypes: { $contained: [] } }],
+      })
+      expect(body.diagnostics).toBeUndefined()
     })
 
     test('adds nothing at all for a superadmin', async () => {

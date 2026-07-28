@@ -259,14 +259,26 @@ export function resolveAllowedTaskEntityTypes(
 /**
  * The ENTITY half of the rule as ORM conditions.
  *
- * Empty for a superadmin (who short-circuits the gate in the predicate too) and
- * under the tenant opt-out (which skips the entity gate on reads by design).
+ * Empty for a superadmin (who short-circuits the gate in the predicate too),
+ * under the tenant opt-out (which skips the entity gate on reads by design),
+ * and — deliberately — for a principal entitled to a DIAGNOSIS.
+ *
+ * That last case is the §3.6 rule: a task hidden by the entity gate must never
+ * disappear without trace. Excluding the row in SQL is exactly the trace-free
+ * disappearance, because an administrator then sees a page that is short by an
+ * unexplained number of rows and cannot tell "no such task" from "you cannot see
+ * its record". So the gate is lifted from the `WHERE` for them, the predicate
+ * still refuses each row, and the caller reports the refusals as MARKERS —
+ * `partitionTaskPage` below. The rows themselves never reach the response body;
+ * only their ids and the entity type that blocked them do, which is exactly what
+ * §2.7 already entitles a `view_all` holder to on the single-task surface.
  */
 export function buildTaskEntityGateConditions(
   context: TaskVisibilityRequestContext,
 ): Record<string, unknown>[] {
   if (context.principal.isSuperAdmin) return []
   if (!context.policy.businessContextEnabled) return []
+  if (canDiagnoseTaskRefusal(context.principal)) return []
   return [
     {
       $or: [
@@ -370,6 +382,82 @@ export function filterVisibleTasks(
   options: TaskFactsOptions = {},
 ): UserTask[] {
   return tasks.filter((task) => decideTaskAccess(context, task, options).visible)
+}
+
+/**
+ * A row an administrator may know EXISTS but may not read.
+ *
+ * Three fields and no fourth. The id is what makes the marker actionable (it is
+ * the argument to reassignment and to a support conversation), the reason
+ * separates an author's typo from a policy refusal, and the entity type names
+ * the grant that would fix it. Everything that would say what the task is ABOUT
+ * — its name, description, form schema, form data, bindings, assignee — is
+ * absent by construction rather than by redaction, because a redaction is a
+ * field somebody later un-redacts.
+ */
+export type TaskEntityHiddenMarker = {
+  id: string
+  reason: 'denied:entity-access' | 'denied:unknown-entity-type'
+  /** The binding type that blocked it, when the predicate identified one. */
+  entityType: string | null
+}
+
+export type TaskPagePartition = {
+  /** Rows the caller may read in full. */
+  visible: UserTask[]
+  /**
+   * Rows the entity gate refused to a caller entitled to know they are there.
+   * Always empty for everybody else — the gate excluded those rows in SQL, so
+   * there is nothing to report and nothing is disclosed.
+   */
+  entityHidden: TaskEntityHiddenMarker[]
+}
+
+/**
+ * Split an already-filtered page into what the caller may read and what they may
+ * only be told about.
+ *
+ * This is the counterpart to lifting the entity gate for a diagnosable
+ * principal: the SQL returns the rows, the predicate refuses them one by one,
+ * and the refusals become markers instead of an unexplained gap in the page. For
+ * everybody else the `WHERE` already removed them, `entityHidden` is empty, and
+ * the result is byte-identical to `filterVisibleTasks`.
+ *
+ * A refusal that is NOT an entity refusal (a foreign tenant, an organization the
+ * caller cannot see, no relationship at all) is dropped silently, exactly as
+ * before: those callers have no legitimate knowledge that the row exists, and a
+ * marker would be the disclosure the 404 policy exists to prevent.
+ */
+export function partitionTaskPage(
+  context: TaskVisibilityRequestContext,
+  tasks: readonly UserTask[],
+  options: TaskFactsOptions = {},
+): TaskPagePartition {
+  const visible: UserTask[] = []
+  const entityHidden: TaskEntityHiddenMarker[] = []
+  const diagnosable = canDiagnoseTaskRefusal(context.principal)
+
+  for (const task of tasks) {
+    const decision = decideTaskAccess(context, task, options)
+    if (decision.visible) {
+      visible.push(task)
+      continue
+    }
+    if (!diagnosable) continue
+    if (
+      decision.reason !== 'denied:entity-access' &&
+      decision.reason !== 'denied:unknown-entity-type'
+    ) {
+      continue
+    }
+    entityHidden.push({
+      id: task.id,
+      reason: decision.reason,
+      entityType: decision.blockedEntityType ?? null,
+    })
+  }
+
+  return { visible, entityHidden }
 }
 
 /**

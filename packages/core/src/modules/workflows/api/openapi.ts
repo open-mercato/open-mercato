@@ -87,9 +87,42 @@ export const paginationSchema = z.object({
   hasMore: z.boolean(),
 })
 
+/**
+ * A row the caller may know exists but may not read (design §3.6).
+ *
+ * Three fields and no fourth: the id (the argument to reassignment and to a
+ * support conversation), the reason (an author's typo vs a policy refusal) and
+ * the entity type that names the grant which would fix it. Nothing that says
+ * what the task is ABOUT appears here — that is the difference between a
+ * diagnostic and a leak.
+ */
+export const taskEntityHiddenMarkerSchema = z.object({
+  id: z.string(),
+  reason: z.enum(['denied:entity-access', 'denied:unknown-entity-type']),
+  entityType: z.string().nullable(),
+})
+
+/**
+ * Emitted only for a principal that already knows the rows are there — a
+ * `workflows.tasks.view_all` holder or a superadmin. For everybody else the
+ * entity gate removed those rows in SQL, `entityHidden` is empty and its
+ * absence discloses nothing.
+ *
+ * `pagination.total` COUNTS the hidden rows, and that is deliberate: an
+ * administrator asking "how much work is open?" wants the true number, and the
+ * marker list is what explains why the page is shorter than it. Suppressing them
+ * from the count would make the page short for no stated reason, which is the
+ * silent disappearance §3.6 exists to prevent.
+ */
+export const taskListDiagnosticsSchema = z.object({
+  entityHidden: z.array(taskEntityHiddenMarkerSchema),
+  entityHiddenCount: z.number().int().nonnegative(),
+})
+
 export const userTaskListResponseSchema = z.object({
   data: z.array(userTaskRowSchema),
   pagination: paginationSchema,
+  diagnostics: taskListDiagnosticsSchema.optional(),
 })
 
 /**
@@ -199,6 +232,7 @@ export const workInboxListResponseSchema = z.object({
     kinds: z.array(z.string()).describe('Source kinds that answered this request'),
     degradedKinds: z.array(z.string()).describe('Source kinds that failed; their work is missing from this page'),
   }),
+  diagnostics: taskListDiagnosticsSchema.optional(),
 })
 
 export const workInboxClaimNextResponseSchema = z.object({

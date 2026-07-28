@@ -1867,6 +1867,7 @@
   "workflows.workInbox.kinds.user_task": "Zadanie procesu",
   "workflows.workInbox.list.title": "Skrzynka zadań",
   "workflows.workInbox.messages.degraded": "Część źródeł pracy jest niedostępna; ta lista może być niepełna",
+  "workflows.workInbox.messages.entityHidden": "{count} element(y) w tej kolejce są ukryte, ponieważ nie możesz zobaczyć rekordów, których dotyczą. Przypisz je ponownie lub poproś o dostęp do tego typu rekordu.",
   "workflows.workInbox.messages.loadFailed": "Nie udało się wczytać skrzynki zadań",
   "workflows.workInbox.messages.nothingClaimable": "Brak pracy do przejęcia",
   "workflows.workInbox.messages.releaseFailed": "Nie udało się zwolnić zadania",

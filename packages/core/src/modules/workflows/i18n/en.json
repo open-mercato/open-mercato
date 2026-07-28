@@ -1867,6 +1867,7 @@
   "workflows.workInbox.kinds.user_task": "Workflow task",
   "workflows.workInbox.list.title": "Work Inbox",
   "workflows.workInbox.messages.degraded": "Some work sources are unavailable; this list may be incomplete",
+  "workflows.workInbox.messages.entityHidden": "{count} item(s) in this queue are hidden because you cannot view the records they are about. Reassign or request access to the record type to see them.",
   "workflows.workInbox.messages.loadFailed": "Failed to load the work inbox",
   "workflows.workInbox.messages.nothingClaimable": "No claimable work available",
   "workflows.workInbox.messages.releaseFailed": "Failed to release task",

@@ -104,6 +104,18 @@ export async function GET(request: NextRequest) {
         kinds: result.kinds,
         degradedKinds: result.degradedKinds,
       },
+      // Only ever populated for a caller who already knows the rows are there —
+      // a `workflows.tasks.view_all` holder or a superadmin. Its absence for
+      // everyone else discloses nothing, because the entity gate removed those
+      // rows in SQL before the query ran (design §3.6).
+      ...(result.entityHidden.length > 0
+        ? {
+            diagnostics: {
+              entityHidden: result.entityHidden,
+              entityHiddenCount: result.entityHidden.length,
+            },
+          }
+        : {}),
     }
 
     return NextResponse.json(body)

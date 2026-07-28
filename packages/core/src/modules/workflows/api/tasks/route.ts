@@ -25,7 +25,7 @@ import { serializeUserTask } from './serialize'
 import {
   buildTaskVisibilityRequestConditions,
   collectScopedTaskEntityTypes,
-  filterVisibleTasks,
+  partitionTaskPage,
   resolveTaskVisibilityForRequest,
 } from '../../lib/task-visibility-request'
 
@@ -155,11 +155,18 @@ export async function GET(request: NextRequest) {
       }
     )
 
-    // The `WHERE` above IS the predicate, so this drops nothing in practice and
-    // `total` stays the count of what the caller may see. It runs because the
-    // predicate is the single decision point and because a divergence must lose
-    // a row rather than leak one.
-    const visibleTasks = filterVisibleTasks(visibility, tasks)
+    // The `WHERE` above IS the predicate, so for an ordinary caller this drops
+    // nothing and `total` stays the count of what they may see. It runs because
+    // the predicate is the single decision point and because a divergence must
+    // lose a row rather than leak one.
+    //
+    // For a principal entitled to a diagnosis the `WHERE` deliberately omits the
+    // entity gate, so the refused rows arrive here and become MARKERS rather
+    // than an unexplained gap in the page (design §3.6). `hasMore` is computed
+    // from the rows the query returned, not from the ones that survived, so
+    // paging still walks the whole set instead of stopping early on a page whose
+    // every row was hidden.
+    const { visible: visibleTasks, entityHidden } = partitionTaskPage(visibility, tasks)
 
     const body: z.infer<typeof userTaskListResponseSchema> = {
       data: visibleTasks.map(serializeUserTask),
@@ -167,8 +174,11 @@ export async function GET(request: NextRequest) {
         total,
         limit,
         offset,
-        hasMore: offset + visibleTasks.length < total,
+        hasMore: offset + tasks.length < total,
       },
+      ...(entityHidden.length > 0
+        ? { diagnostics: { entityHidden, entityHiddenCount: entityHidden.length } }
+        : {}),
     }
 
     return NextResponse.json(body)

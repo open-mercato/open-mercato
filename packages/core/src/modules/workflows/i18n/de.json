@@ -1867,6 +1867,7 @@
   "workflows.workInbox.kinds.user_task": "Workflow-Aufgabe",
   "workflows.workInbox.list.title": "Arbeitseingang",
   "workflows.workInbox.messages.degraded": "Einige Arbeitsquellen sind nicht verfügbar; diese Liste kann unvollständig sein",
+  "workflows.workInbox.messages.entityHidden": "{count} Element(e) in dieser Warteschlange sind ausgeblendet, weil Sie die zugehörigen Datensätze nicht sehen dürfen. Weisen Sie sie neu zu oder fordern Sie Zugriff auf den Datensatztyp an.",
   "workflows.workInbox.messages.loadFailed": "Arbeitseingang konnte nicht geladen werden",
   "workflows.workInbox.messages.nothingClaimable": "Keine übernehmbare Arbeit verfügbar",
   "workflows.workInbox.messages.releaseFailed": "Aufgabe konnte nicht freigegeben werden",

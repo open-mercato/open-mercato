@@ -134,7 +134,13 @@ describe('the entity gate as SQL', () => {
     ).toEqual([])
   })
 
-  test('survives a view_all administrator — administration widens seeing, not the entity gate', () => {
+  test('is lifted from the SQL for a view_all administrator, who is told about the rows instead', () => {
+    // Administration still does not widen the entity gate — the PREDICATE
+    // refuses every one of these rows, so none reaches the response. What
+    // changes is where the refusal happens: excluding them in SQL left an
+    // administrator with a page short by an unexplained number of rows, which is
+    // the trace-free disappearance design §3.6 forbids. They arrive, they are
+    // refused, and they are reported as markers (`partitionTaskPage`).
     const context = assigneeContext({
       grantedFeatures: ['workflows.tasks.view', 'workflows.tasks.view_all'],
       entityAccess: {
@@ -142,9 +148,7 @@ describe('the entity gate as SQL', () => {
       },
     })
 
-    expect(buildTaskVisibilityRequestConditions(context)).toEqual([
-      { $or: [{ entityTypes: null }, { entityTypes: { $contained: [] } }] },
-    ])
+    expect(buildTaskVisibilityRequestConditions(context)).toEqual([])
   })
 })
 
