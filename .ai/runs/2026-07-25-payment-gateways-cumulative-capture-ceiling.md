@@ -132,3 +132,16 @@ PR: #4508
 
 - [x] 4.1 Validation gate — f53e3ea04, 4ff5792fd
 - [x] 4.2 PR finalization
+
+### Phase 5: review round 1 (om-auto-review-pr, 2026-07-26)
+
+- [x] 5.1 Blocker — stop releasing a settled capture reservation when a post-commit event or log
+  call fails; add the regression test — d457a197c
+- [x] 5.2 Major — `TC-PGWY-022` did in fact run on this PR; answered with CI evidence instead of a
+  code change (see the note below)
+
+Note on 5.2: the review read the job name `ephemeral-integration (none)` as "no shard ran". `none`
+is the matrix value CI uses for the PR-mode **single runner**, not an empty selection — the 15
+numbered shards only exist for pushes to `main`/`develop`. Job `89659158994` for head `8b3d48427`
+ran with `OM_INTEGRATION_MODULES: payment_gateways` and executed all four `TC-PGWY-022` cases
+(`105 passed, 1 skipped`). No CI change is needed.
