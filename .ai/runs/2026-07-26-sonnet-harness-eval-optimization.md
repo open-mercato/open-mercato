@@ -343,6 +343,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.27 Make the integration skill's three existing provider contract references non-skippable for provider implementations — `732c61ce5`
 - [x] 3.28 Clarify that plan-only spec work includes integration coverage but no implementation-domain routes — `3f8f14f87`
 - [x] 3.29 Bind provider repair, multi-seam persistence, verification, and compatibility work to their progressive references — `5725cca14`
+- [x] 3.30 Bind installed customer-success response, event, and ID extensions to the compatibility snapshot — `65f481756`
 
 ### Phase 4: Compatibility baseline
 
