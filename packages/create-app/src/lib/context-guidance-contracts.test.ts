@@ -303,6 +303,8 @@ test('progressive references pin reviewed standalone runtime contracts', () => {
     'shared/ai/skills/om-integration-builder/SKILL.md',
   )
   assert.match(integrationSkill, /`subscriber-idempotency` when that decision vocabulary is requested/)
+  assert.match(integrationSkill, /successful page \(`cursor-after-success`\)/)
+  assert.match(integrationSkill, /transient provider failures \(`transient-retry`\)/)
 
   const integration = readAgentic(
     'shared/ai/skills/om-integration-builder/references/package-and-activation.md',
