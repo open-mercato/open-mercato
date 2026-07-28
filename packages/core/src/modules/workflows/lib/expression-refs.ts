@@ -227,7 +227,12 @@ function scopeStepId(scope: ContextRefScope): string | null {
   return null
 }
 
-function resolvesAgainstEntries(refPath: string, entries: LedgerEntry[]): boolean {
+/**
+ * The shared ledger-resolution rule. Exported so other author-time checks that
+ * validate a context path (condition `field` paths, step 2.12) apply exactly the
+ * same over-approximating semantics instead of re-deriving them.
+ */
+export function resolvesAgainstEntries(refPath: string, entries: LedgerEntry[]): boolean {
   for (const entry of entries) {
     if (entry.path === '*') return true
     if (entry.path === refPath) return true

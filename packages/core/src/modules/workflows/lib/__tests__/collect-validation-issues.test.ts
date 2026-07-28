@@ -166,6 +166,176 @@ describe('collectValidationIssues', () => {
   })
 })
 
+describe('Phase 3a flow-logic and ledger checks (step 2.12)', () => {
+  const flowNodes: Node[] = [
+    { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: { label: 'Start' } },
+    { id: 'gate', type: 'ifElse', position: { x: 0, y: 50 }, data: { label: 'Gate' } },
+    { id: 'wait', type: 'waitForCondition', position: { x: 0, y: 100 }, data: { label: 'Await payment' } },
+    { id: 'handler', type: 'automated', position: { x: 0, y: 150 }, data: { label: 'Handler' } },
+    { id: 'end', type: 'end', position: { x: 0, y: 200 }, data: { label: 'End' } },
+  ]
+  const flowEdges: Edge[] = [
+    { id: 'e_start_gate', source: 'start', target: 'gate', data: {} },
+    { id: 'e_gate_wait', source: 'gate', target: 'wait', data: {} },
+    { id: 'e_gate_end', source: 'gate', target: 'end', data: {} },
+    { id: 'e_wait_end', source: 'wait', target: 'end', data: {} },
+    { id: 'e_wait_handler', source: 'wait', target: 'handler', data: { kind: 'error' } },
+  ]
+  const eq = (field: string, value: string) => ({ operator: 'AND', rules: [{ field, operator: '==', value }] })
+
+  const ledger = {
+    steps: {
+      wait: { entries: [{ path: 'orderId', type: 'string', presence: 'always', source: 'start' }] },
+      end: { entries: [{ path: 'orderId', type: 'string', presence: 'always', source: 'start' }] },
+    },
+  } as never
+
+  it('reports an error route that shares its source and target with a normal route', () => {
+    const definition = {
+      steps: [{ stepId: 'start' }, { stepId: 'gate' }, { stepId: 'wait' }, { stepId: 'handler' }, { stepId: 'end' }],
+      transitions: [
+        { transitionId: 'e_wait_end', fromStepId: 'wait', toStepId: 'end' },
+        { transitionId: 'e_wait_handler', fromStepId: 'wait', toStepId: 'end', kind: 'error' },
+      ],
+    }
+
+    const issues = collectValidationIssues({ graphErrors: [], nodes: flowNodes, edges: flowEdges, definition })
+
+    expect(issues).toHaveLength(1)
+    expect(issues[0].severity).toBe('warning')
+    expect(issues[0].message).toContain('e_wait_handler')
+  })
+
+  it('reports a dangling error route pointing at a step that no longer exists', () => {
+    const definition = {
+      steps: [{ stepId: 'start' }, { stepId: 'wait' }],
+      transitions: [{ transitionId: 'e_wait_gone', fromStepId: 'wait', toStepId: 'deleted', kind: 'error' }],
+    }
+
+    const issues = collectValidationIssues({ graphErrors: [], nodes: flowNodes, edges: flowEdges, definition })
+
+    expect(issues.map((issue) => issue.severity)).toEqual(['warning'])
+    expect(issues[0].message).toContain('deleted')
+  })
+
+  it('reports a branching step with no otherwise route and a duplicate case value', () => {
+    const definition = {
+      steps: [{ stepId: 'gate', stepType: 'SWITCH' }],
+      transitions: [
+        { transitionId: 't1', fromStepId: 'gate', toStepId: 'wait', condition: eq('status', 'NEW') },
+        { transitionId: 't2', fromStepId: 'gate', toStepId: 'end', condition: eq('status', 'NEW') },
+      ],
+    }
+
+    const issues = collectValidationIssues({ graphErrors: [], nodes: flowNodes, edges: flowEdges, definition })
+
+    expect(issues.map((issue) => issue.severity)).toEqual(['warning', 'warning'])
+    expect(issues.some((issue) => issue.message.includes('no unconditioned route'))).toBe(true)
+    expect(issues.some((issue) => issue.message.includes('status=NEW'))).toBe(true)
+  })
+
+  it('reports a WAIT_FOR_CONDITION predicate referencing an unknown ledger path', () => {
+    const definition = {
+      steps: [
+        { stepId: 'start' },
+        { stepId: 'gate' },
+        { stepId: 'wait', stepType: 'WAIT_FOR_CONDITION', config: { condition: eq('payment.status', 'PAID') } },
+      ],
+      transitions: [],
+    }
+
+    const issues = collectValidationIssues({ graphErrors: [], nodes: flowNodes, edges: flowEdges, definition, ledger })
+
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toMatchObject({ severity: 'warning', nodeId: 'wait' })
+    expect(issues[0].message).toContain('payment.status')
+  })
+
+  it('accepts a predicate whose path the ledger provides, and skips the check without a ledger', () => {
+    const definition = {
+      steps: [{ stepId: 'wait', stepType: 'WAIT_FOR_CONDITION', config: { condition: eq('orderId', 'X') } }],
+      transitions: [],
+    }
+
+    expect(collectValidationIssues({ graphErrors: [], nodes: flowNodes, edges: flowEdges, definition, ledger })).toEqual([])
+    expect(
+      collectValidationIssues({
+        graphErrors: [],
+        nodes: flowNodes,
+        edges: flowEdges,
+        definition: {
+          steps: [{ stepId: 'wait', stepType: 'WAIT_FOR_CONDITION', config: { condition: eq('missing.path', 'X') } }],
+          transitions: [],
+        },
+      }),
+    ).toEqual([])
+  })
+
+  it('reports a route condition broken by an upstream change', () => {
+    const definition = {
+      steps: [{ stepId: 'gate' }, { stepId: 'end' }],
+      transitions: [
+        { transitionId: 'e_start_gate', fromStepId: 'start', toStepId: 'gate' },
+        { transitionId: 'e_gate_wait', fromStepId: 'gate', toStepId: 'wait' },
+        { transitionId: 'e_gate_end', fromStepId: 'gate', toStepId: 'end', condition: eq('renamed.output', 'OK') },
+      ],
+    }
+
+    const issues = collectValidationIssues({ graphErrors: [], nodes: flowNodes, edges: flowEdges, definition, ledger })
+
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toMatchObject({ severity: 'warning', edgeId: 'e_gate_end' })
+    expect(issues[0].message).toContain('renamed.output')
+  })
+
+  it('never blocks a save: every flow-logic finding is a warning, errors still come from the graph', () => {
+    const definition = {
+      steps: [
+        { stepId: 'gate', stepType: 'IF_ELSE' },
+        { stepId: 'wait', stepType: 'WAIT_FOR_CONDITION', config: { condition: eq('nope', 'X') } },
+      ],
+      transitions: [
+        { transitionId: 't1', fromStepId: 'gate', toStepId: 'wait', condition: eq('status', 'NEW') },
+        { transitionId: 't2', fromStepId: 'wait', toStepId: 'gone', kind: 'error' },
+      ],
+    }
+
+    const issues = collectValidationIssues({
+      graphErrors: [{ type: 'error', message: 'structural problem' }],
+      nodes: flowNodes,
+      edges: flowEdges,
+      definition,
+      ledger,
+    })
+
+    const { errors, warnings } = countIssuesBySeverity(issues)
+    expect(errors).toBe(1)
+    expect(warnings).toBeGreaterThanOrEqual(3)
+    expect(issues[0].message).toBe('structural problem')
+  })
+
+  it('routes messages through the supplied translator', () => {
+    const translate = jest.fn(() => 'translated')
+    const definition = {
+      steps: [{ stepId: 'gate', stepType: 'IF_ELSE' }],
+      transitions: [{ transitionId: 't1', fromStepId: 'gate', toStepId: 'wait', condition: eq('status', 'NEW') }],
+    }
+
+    const issues = collectValidationIssues({ graphErrors: [], nodes: flowNodes, edges: flowEdges, definition, translate })
+
+    expect(issues[0].message).toBe('translated')
+    expect(translate).toHaveBeenCalledWith(
+      'workflows.visualEditor.problems.branchingWithoutOtherwise',
+      expect.any(String),
+      expect.objectContaining({ stepId: 'gate' }),
+    )
+  })
+
+  it('does nothing when no definition is supplied', () => {
+    expect(collectValidationIssues({ graphErrors: [], nodes: flowNodes, edges: flowEdges })).toEqual([])
+  })
+})
+
 describe('countIssuesBySeverity', () => {
   it('counts errors and warnings', () => {
     const issues = collectValidationIssues({

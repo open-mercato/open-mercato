@@ -43,12 +43,12 @@ export interface RouteOrderEntry {
 }
 
 interface EdgeDataLike {
-  priority?: unknown
+  priority?: number
   condition?: unknown
   preConditions?: unknown
   transitionName?: string
   label?: string
-  kind?: unknown
+  kind?: string
 }
 
 function edgeData(edge: Edge): EdgeDataLike {

@@ -29,6 +29,7 @@ interface TransitionLike {
   condition?: unknown
   preConditions?: unknown
   postConditions?: unknown
+  kind?: unknown
 }
 
 function isBranchingStepType(value: unknown): value is BranchingStepType {
@@ -58,9 +59,12 @@ function forEachBranchingStep(
     const { stepId, stepType } = (step && typeof step === 'object' ? step : {}) as StepLike
     if (typeof stepId !== 'string' || !isBranchingStepType(stepType)) return
 
+    // An error route is only reachable from a failure, so it is neither a case
+    // route nor the otherwise route — counting it as one would silence the
+    // missing-otherwise warning on a branching step that really can stall.
     const outgoing = transitions.filter((transition) => {
       const from = (transition && typeof transition === 'object' ? transition : {}) as TransitionLike
-      return from.fromStepId === stepId
+      return from.fromStepId === stepId && from.kind !== 'error'
     }) as TransitionLike[]
 
     visit({ stepIndex, stepId, stepType, outgoing })

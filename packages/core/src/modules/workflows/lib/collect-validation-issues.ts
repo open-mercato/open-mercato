@@ -1,5 +1,7 @@
 import type { Node, Edge } from '@xyflow/react'
 import type { ValidationError } from './graph-utils'
+import type { ContextLedger } from './context-ledger'
+import { collectFlowLogicWarnings, type FlowLogicDefinition, type FlowLogicWarningCode } from './flow-logic-warnings'
 
 export type WorkflowValidationIssueSeverity = 'error' | 'warning'
 
@@ -17,12 +19,65 @@ export interface ZodIssueLike {
   message: string
 }
 
+/**
+ * Message keys for the Phase 3a flow-logic warnings. English fallbacks live with
+ * the translator so a caller without an i18n dictionary still gets readable
+ * text.
+ */
+export const FLOW_LOGIC_MESSAGE_KEYS: Record<FlowLogicWarningCode, { key: string; fallback: string }> = {
+  errorRouteUnknownSource: {
+    key: 'workflows.visualEditor.problems.errorRouteUnknownSource',
+    fallback: 'Error route "{transitionId}" starts at unknown step "{stepId}"',
+  },
+  errorRouteUnknownTarget: {
+    key: 'workflows.visualEditor.problems.errorRouteUnknownTarget',
+    fallback: 'Error route "{transitionId}" targets unknown step "{stepId}"',
+  },
+  errorRouteDuplicateTarget: {
+    key: 'workflows.visualEditor.problems.errorRouteDuplicateTarget',
+    fallback: 'Error route "{transitionId}" shares its source and target with a normal route; the engine cannot tell them apart',
+  },
+  branchingWithoutOtherwise: {
+    key: 'workflows.visualEditor.problems.branchingWithoutOtherwise',
+    fallback: 'Branching step "{stepId}" has no unconditioned route; add an otherwise route so the workflow cannot stall when no condition matches',
+  },
+  duplicateBranchingCase: {
+    key: 'workflows.visualEditor.problems.duplicateBranchingCase',
+    fallback: 'Branching step "{stepId}" has more than one route for {caseValue}; only the highest-priority one can ever match',
+  },
+  conditionUnknownPath: {
+    key: 'workflows.visualEditor.problems.conditionUnknownPath',
+    fallback: 'Condition path "{path}" is not provided by any earlier step, trigger, or input',
+  },
+}
+
+export type WorkflowIssueTranslator = (
+  key: string,
+  fallback: string,
+  params: Record<string, string>,
+) => string
+
+function interpolateFallback(template: string, params: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (match, name: string) => params[name] ?? match)
+}
+
+const defaultTranslator: WorkflowIssueTranslator = (_key, fallback, params) =>
+  interpolateFallback(fallback, params)
+
 export interface CollectValidationIssuesInput {
   graphErrors: ValidationError[]
   zodIssues?: ZodIssueLike[]
   configWarnings?: ZodIssueLike[]
   nodes: Node[]
   edges: Edge[]
+  /**
+   * Definition JSON for the Phase 3a checks (error routes, branching routes,
+   * condition paths). Omit it and only the legacy channels run.
+   */
+  definition?: FlowLogicDefinition | null
+  /** Context ledger enabling the condition-path resolution check. */
+  ledger?: ContextLedger
+  translate?: WorkflowIssueTranslator
 }
 
 function resolveNodeLabel(node: Node | undefined): string | undefined {
@@ -56,7 +111,16 @@ function formatZodPath(path: Array<string | number | symbol>): string {
 }
 
 export function collectValidationIssues(input: CollectValidationIssuesInput): WorkflowValidationIssue[] {
-  const { graphErrors, zodIssues = [], configWarnings = [], nodes, edges } = input
+  const {
+    graphErrors,
+    zodIssues = [],
+    configWarnings = [],
+    nodes,
+    edges,
+    definition,
+    ledger,
+    translate = defaultTranslator,
+  } = input
 
   const graphIssues: WorkflowValidationIssue[] = graphErrors.map((error, index) => ({
     id: `graph-${index}`,
@@ -89,7 +153,22 @@ export function collectValidationIssues(input: CollectValidationIssuesInput): Wo
     }
   })
 
-  const all = [...graphIssues, ...schemaIssues, ...configWarningIssues]
+  // Phase 3a flow-logic + ledger checks. Always WARNINGS: flow logic is
+  // transition sugar and a path a later edit will provide must never make the
+  // definition unsaveable. Structural problems stay in `graphErrors`.
+  const flowLogicIssues: WorkflowValidationIssue[] = collectFlowLogicWarnings(definition, { ledger }).map(
+    (warning, index) => {
+      const message = FLOW_LOGIC_MESSAGE_KEYS[warning.code]
+      return {
+        id: `flow-${warning.code}-${index}`,
+        severity: 'warning',
+        message: translate(message.key, message.fallback, warning.params),
+        ...mapZodPathToGraph(warning.path, nodes, edges),
+      }
+    },
+  )
+
+  const all = [...graphIssues, ...schemaIssues, ...configWarningIssues, ...flowLogicIssues]
   const errors = all.filter((issue) => issue.severity === 'error')
   const warnings = all.filter((issue) => issue.severity === 'warning')
   return [...errors, ...warnings]

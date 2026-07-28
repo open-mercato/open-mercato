@@ -130,6 +130,26 @@ describe('Workflows Validators', () => {
       expect(collectBranchingRouteWarnings(withOtherwise)).toEqual([])
     })
 
+    test('should not count an error route as the otherwise route (step 2.12)', () => {
+      const withErrorRoute = {
+        ...branchingDefinition,
+        transitions: [
+          ...branchingDefinition.transitions,
+          {
+            transitionId: 'e_branch_handler',
+            fromStepId: 'branch',
+            toStepId: 'end',
+            trigger: 'auto' as const,
+            priority: 0,
+            kind: 'error' as const,
+          },
+        ],
+      }
+      expect(collectBranchingRouteWarnings(withErrorRoute)).toEqual([
+        { path: ['steps', 1], stepId: 'branch', stepType: 'IF_ELSE' },
+      ])
+    })
+
     test('should treat business-rule pre/post conditions as conditioned routes', () => {
       const ruleRouted = {
         ...branchingDefinition,

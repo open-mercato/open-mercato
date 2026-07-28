@@ -10,6 +10,7 @@ import { CrudForm, type CrudFormGroup, type CrudField, type CrudCustomFieldRende
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
+import type { GroupCondition } from '@open-mercato/core/modules/business_rules/components/utils/conditionValidation'
 import { InputDataPanel } from './InputDataPanel'
 import { BusinessRuleConditionsEditor } from './fields/BusinessRuleConditionsEditor'
 import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
@@ -193,7 +194,7 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
       description: t('workflows.edgeEditor.conditionHint'),
       component: (props) => (
         <ConditionBuilder
-          value={props.value ?? null}
+          value={(props.value as GroupCondition | null | undefined) ?? null}
           onChangeAction={props.setValue}
           error={props.error}
           showJsonPreview

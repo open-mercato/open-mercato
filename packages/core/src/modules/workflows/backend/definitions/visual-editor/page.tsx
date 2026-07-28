@@ -10,7 +10,7 @@ import type { Node, Edge, Connection } from '@xyflow/react'
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { graphToDefinition, definitionToGraph, applyAutoLayout, validateWorkflowGraph, generateStepId, generateTransitionId, appendWorkflowEdge, ValidationError } from '../../../lib/graph-utils'
-import { collectValidationIssues, countIssuesBySeverity, type WorkflowValidationIssue, type ZodIssueLike } from '../../../lib/collect-validation-issues'
+import { collectValidationIssues, countIssuesBySeverity, type WorkflowIssueTranslator, type WorkflowValidationIssue, type ZodIssueLike } from '../../../lib/collect-validation-issues'
 import { formatWorkflowValidationError } from '../../../lib/format-validation-error'
 import type { WorkflowGraphFocusTarget } from '../../../components/WorkflowGraph'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
@@ -27,7 +27,6 @@ import { applyRouteOrder, canNormalizeRoutePriorities, normalizeRoutePriorities,
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
 import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
-import { collectBranchingRouteWarnings, collectDuplicateBranchingCaseWarnings } from '../../../data/branching-route-warnings'
 import {
   applyIfElseRoutes,
   applySwitchRoutes,
@@ -129,40 +128,6 @@ function computeClientContextLedger(
     resolveOutputContract: () => 'unknown',
     triggerPayloadContracts,
   })
-}
-
-/**
- * Advisory warnings for branching steps (IF_ELSE / SWITCH) whose outgoing
- * routes are all conditioned. Routing lives entirely in the transition
- * evaluator, so a branching node without an unconditioned "otherwise" route can
- * strand an instance — the editor warns, never blocks.
- */
-function collectOtherwiseRouteWarnings(
-  definitionData: WorkflowDefinitionData,
-  translate: ReturnType<typeof useT>,
-): ZodIssueLike[] {
-  return collectBranchingRouteWarnings(definitionData).map((warning) => ({
-    path: warning.path,
-    message: translate(
-      'workflows.visualEditor.problems.branchingWithoutOtherwise',
-      'Branching step "{stepId}" has no unconditioned route; add an otherwise route so the workflow cannot stall when no condition matches',
-      { stepId: warning.stepId },
-    ),
-  }))
-}
-
-function collectDuplicateCaseWarnings(
-  definitionData: WorkflowDefinitionData,
-  translate: ReturnType<typeof useT>,
-): ZodIssueLike[] {
-  return collectDuplicateBranchingCaseWarnings(definitionData).map((warning) => ({
-    path: warning.path,
-    message: translate(
-      'workflows.visualEditor.problems.duplicateBranchingCase',
-      'Branching step "{stepId}" has more than one route for {caseValue}; only the highest-priority one can ever match',
-      { stepId: warning.stepId, caseValue: warning.caseValue },
-    ),
-  }))
 }
 
 function collectContextRefWarnings(
@@ -1021,12 +986,22 @@ export default function VisualEditorPage() {
     [dialogLedger, selectedEdge],
   )
 
+  // Bridge the pure issue collector to the page's i18n. `t` already accepts a
+  // fallback plus params, so the flow-logic messages stay translatable without
+  // the collector depending on React.
+  const translateIssue = useCallback<WorkflowIssueTranslator>(
+    (key, fallback, params) => t(key, fallback, params),
+    [t],
+  )
+
   // Validate workflow — collect every graph and schema issue into the problems panel
   const handleValidate = useCallback(() => {
     const graphErrors = validateWorkflowGraph(nodes, edges)
     let zodIssues: ZodIssueLike[] = []
     let configWarnings: ZodIssueLike[] = []
     let schemaFailureMessage: string | null = null
+    let flowLogicDefinition: WorkflowDefinitionData | null = null
+    let flowLogicLedger: ReturnType<typeof computeClientContextLedger> | undefined
 
     try {
       const definitionData = graphToDefinition(nodes, edges, { includePositions: true })
@@ -1035,17 +1010,26 @@ export default function VisualEditorPage() {
         zodIssues = result.error.issues
       }
       const ledgerDefinition = buildDefinitionPayload({ graphDefinition: definitionData, triggers, contextSchema, io: definitionIo, interpolation, errorHandler })
+      flowLogicDefinition = ledgerDefinition
+      flowLogicLedger = computeClientContextLedger(ledgerDefinition, triggerPayloadContracts)
       configWarnings = [
         ...collectActivityConfigWarnings(definitionData),
-        ...collectOtherwiseRouteWarnings(definitionData, t),
-        ...collectDuplicateCaseWarnings(definitionData, t),
         ...collectContextRefWarnings(ledgerDefinition, t, triggerPayloadContracts),
       ]
     } catch (error) {
       schemaFailureMessage = error instanceof Error ? error.message : String(error)
     }
 
-    const issues = collectValidationIssues({ graphErrors, zodIssues, configWarnings, nodes, edges })
+    const issues = collectValidationIssues({
+      graphErrors,
+      zodIssues,
+      configWarnings,
+      nodes,
+      edges,
+      definition: flowLogicDefinition,
+      ledger: flowLogicLedger,
+      translate: translateIssue,
+    })
     if (schemaFailureMessage) {
       issues.unshift({
         id: 'schema-exception',
@@ -1067,7 +1051,7 @@ export default function VisualEditorPage() {
         errors > 0 ? 'error' : 'warning',
       )
     }
-  }, [nodes, edges, triggers, contextSchema, definitionIo, interpolation, errorHandler, t])
+  }, [nodes, edges, triggers, contextSchema, definitionIo, interpolation, errorHandler, triggerPayloadContracts, translateIssue, t])
 
   // Focus the offending node or edge on the canvas when a problem row is clicked
   const handleProblemClick = useCallback((issue: WorkflowValidationIssue) => {
@@ -1107,12 +1091,13 @@ export default function VisualEditorPage() {
       zodIssues: schemaResult.success ? [] : schemaResult.error.issues,
       configWarnings: [
         ...collectActivityConfigWarnings(definitionData),
-        ...collectOtherwiseRouteWarnings(definitionData, t),
-        ...collectDuplicateCaseWarnings(definitionData, t),
         ...collectContextRefWarnings(definitionData, t, triggerPayloadContracts),
       ],
       nodes,
       edges,
+      definition: definitionData,
+      ledger: computeClientContextLedger(definitionData, triggerPayloadContracts),
+      translate: translateIssue,
     })
     setProblems(issues)
     const { errors } = countIssuesBySeverity(issues)
