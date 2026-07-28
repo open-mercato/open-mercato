@@ -190,6 +190,29 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - Author-time checks live in `validateOutcomeRoutes` (unknown outcome kind, two routes claiming the
   same kind on one step) and surface through the Problems panel.
 
+## Node Outcome Rows (the canvas footer — fidelity gap #4)
+
+- **`lib/node-outcome-rows.ts` (PURE) decides what the rows ARE**; `components/nodes/NodeOutcomeRows.tsx`
+  only renders them. That split is what makes the progressive-disclosure rule testable without a
+  canvas.
+- **An agent node shows its WIRED outcomes plus `approved`, nothing else** (§7.2's fan-explosion
+  defense — five agent nodes in a 60-node flow must stay readable), and states the inheritance
+  ("unhandled → error directive") on the node face.
+- **The user-task half needed NO engine work.** `taskDecisionSchema` already binds each decision to a
+  durable `transitionId`, so a decision row's dot IS the route its button takes; the canvas and the
+  run agree by construction.
+- **The dot IS the connection handle** — wiring a disposition is drawing a line from the row that
+  names it.
+- **The LABEL carries the meaning, never the dot colour** (§4.6 acceptance criterion). Two rows paint
+  the same red (`rejected`, `guardrailBlocked`), which at 10px and at canvas zoom is not a
+  distinction anyone can read, so every row also carries its own GLYPH and every handle is named.
+  MUST NOT drop the labels for a denser rendering, and MUST NOT let the collapsed dot-only zoom
+  inherit this pattern.
+- Rows are derived from the committed EDGES at render time in `WorkflowGraphImpl` (like the
+  compensation badges), so they never enter the document, undo, autosave or `graphToDefinition`.
+  `estimateNodeSize` counts them (`NODE_OUTCOME_ROW_HEIGHT`) — a footer makes a card materially
+  taller and dagre would otherwise pack ranks into each other.
+
 ## Route Kinds (the handle ↔ `kind` round trip)
 
 - **`lib/route-kinds.ts` (PURE) is the ONE place a non-normal route kind is registered.** It answers

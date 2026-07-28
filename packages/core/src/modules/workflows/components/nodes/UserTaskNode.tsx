@@ -4,6 +4,8 @@ import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
 import { ErrorOutputHandle } from './ErrorOutputHandle'
+import { NodeOutcomeRows } from './NodeOutcomeRows'
+import { buildDecisionOutcomeRows, type DecisionRowLike } from '../../lib/node-outcome-rows'
 
 export interface UserTaskNodeData {
   label: string
@@ -19,6 +21,12 @@ export interface UserTaskNodeData {
   hasError?: boolean
   hasCompensation?: boolean
   errorCount?: number
+  /**
+   * Authored decision buttons (spec §6.1). Each already binds to a durable
+   * `transitionId`, so the footer row's dot IS the route the button takes — no
+   * engine work was needed for this half of the footer.
+   */
+  decisions?: DecisionRowLike[]
 }
 
 /**
@@ -29,6 +37,7 @@ export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as UserTaskNodeData
 
   const workflowStatus = toWorkflowStatus(nodeData.status)
+  const decisionRows = buildDecisionOutcomeRows(nodeData.decisions)
 
   return (
     <div className="user-task-node" title={nodeData.tooltip}>
@@ -52,6 +61,7 @@ export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
         errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
+        footer={<NodeOutcomeRows rows={decisionRows} isConnectable={isConnectable} testId="workflow-task-decision-rows" />}
       />
 
       {/* Source Handle */}

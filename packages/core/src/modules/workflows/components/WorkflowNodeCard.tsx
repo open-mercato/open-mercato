@@ -1,5 +1,6 @@
 'use client'
 
+import type React from 'react'
 import { Check, Play, Pause, Circle, CircleAlert, ShieldMinus, XCircle, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
@@ -70,6 +71,14 @@ interface WorkflowNodeCardProps {
    * competing for attention with the steps between them.
    */
   variant?: WorkflowNodeCardVariant
+  /**
+   * Outcome-row footer (fidelity gap #4). Rendered INSIDE the card, below a
+   * hairline rule, so the rows read as part of the node rather than a second
+   * floating object — which is what lets their dots double as the node's
+   * per-outcome connection handles. Terminals (`variant: 'pill'`) never take
+   * one: a pill has no body to hang rows off.
+   */
+  footer?: React.ReactNode
 }
 
 export function WorkflowNodeCard({
@@ -84,6 +93,7 @@ export function WorkflowNodeCard({
   nodeId,
   editable = false,
   variant = 'card',
+  footer,
 }: WorkflowNodeCardProps) {
   const t = useT()
   // In edit mode (not_started), use white background
@@ -261,6 +271,8 @@ export function WorkflowNodeCard({
           )}
         </div>
       </div>
+
+      {footer}
     </div>
   )
 }

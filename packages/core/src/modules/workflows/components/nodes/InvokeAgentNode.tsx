@@ -5,6 +5,8 @@ import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ErrorOutputHandle } from './ErrorOutputHandle'
+import { NodeOutcomeRows } from './NodeOutcomeRows'
+import type { NodeOutcomeRow } from '../../lib/node-outcome-rows'
 
 export interface InvokeAgentNodeData {
   label: string
@@ -19,6 +21,11 @@ export interface InvokeAgentNodeData {
   hasError?: boolean
   hasCompensation?: boolean
   errorCount?: number
+  /**
+   * Disposition outcome rows (spec §7.2), derived from the committed edges by
+   * `WorkflowGraphImpl` at RENDER time — never part of the saved definition.
+   */
+  outcomeRows?: NodeOutcomeRow[]
 }
 
 /**
@@ -91,6 +98,17 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
           errorCount={nodeData.errorCount}
           nodeId={id}
           editable={isConnectable}
+          footer={
+            <NodeOutcomeRows
+              rows={nodeData.outcomeRows ?? []}
+              isConnectable={isConnectable}
+              inheritanceNote={t(
+                'workflows.outcomes.inheritsErrorDirective',
+                'unhandled → error directive',
+              )}
+              testId="workflow-agent-outcome-rows"
+            />
+          }
         />
         {chip && (
           <span

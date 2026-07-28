@@ -35,6 +35,7 @@ import {
   compensatingStepIds,
   WORKFLOW_COMPENSATION_GHOST_EDGE_TYPE,
 } from '../lib/compensation-ghosts'
+import { buildAgentOutcomeRows } from '../lib/node-outcome-rows'
 import { EDGE_COLORS, STATUS_COLORS, toWorkflowStatus } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
@@ -354,7 +355,7 @@ export default function WorkflowGraphImpl({
     [showCompensation, edges],
   )
 
-  const decoratedNodes = useMemo(() => {
+  const compensationNodes = useMemo(() => {
     if (!compensationBadgeIds || compensationBadgeIds.size === 0) return displayNodes
     return displayNodes.map((node) => (
       compensationBadgeIds.has(node.id)
@@ -362,6 +363,35 @@ export default function WorkflowGraphImpl({
         : node
     ))
   }, [displayNodes, compensationBadgeIds])
+
+  // Outcome-row footers on agent nodes (spec §7.2 / fidelity gap #4). Which
+  // outcomes a node shows depends on which are WIRED, so it is a fact about the
+  // edges, not about the node — derived at render time exactly like the
+  // compensation badges above, so it never enters the document or the save.
+  const outcomeRowTransitions = useMemo(
+    () =>
+      edges.map((edge) => {
+        const data = (edge.data ?? {}) as { kind?: string; outcomeKind?: string }
+        return { fromStepId: edge.source, kind: data.kind, outcomeKind: data.outcomeKind }
+      }),
+    [edges],
+  )
+
+  const decoratedNodes = useMemo(
+    () =>
+      compensationNodes.map((node) =>
+        node.type === 'invokeAgent'
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                outcomeRows: buildAgentOutcomeRows(outcomeRowTransitions, node.id),
+              },
+            }
+          : node,
+      ),
+    [compensationNodes, outcomeRowTransitions],
+  )
 
   const displayEdges = useMemo(
     () => (showCompensation ? [...edges, ...buildCompensationGhostEdges(edges)] : edges),

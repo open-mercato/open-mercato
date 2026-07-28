@@ -9,6 +9,8 @@ import { findRouteKindDescriptor, resolveEdgeRouteKind } from './route-kinds'
 import {
   NODE_DESCRIPTION_HEIGHT,
   NODE_HEIGHT,
+  NODE_OUTCOME_FOOTER_CHROME_HEIGHT,
+  NODE_OUTCOME_ROW_HEIGHT,
   NODE_MAX_WIDTH,
   NODE_MIN_WIDTH,
   TERMINAL_NODE_HEIGHT,
@@ -564,6 +566,7 @@ function estimateNodeSize(
   label: unknown,
   hasDescription: boolean,
   isTerminal: boolean,
+  outcomeRowCount = 0,
 ): { width: number; height: number } {
   const text = typeof label === 'string' ? label.trim() : ''
   const titleWidth = Math.round(text.length * 7) + 64
@@ -578,8 +581,12 @@ function estimateNodeSize(
   const width = hasDescription
     ? NODE_MAX_WIDTH
     : Math.min(Math.max(NODE_MIN_WIDTH, titleWidth), NODE_MAX_WIDTH)
-  const height = hasDescription ? NODE_HEIGHT + NODE_DESCRIPTION_HEIGHT : NODE_HEIGHT
-  return { width, height }
+  const bodyHeight = hasDescription ? NODE_HEIGHT + NODE_DESCRIPTION_HEIGHT : NODE_HEIGHT
+  const footerHeight =
+    outcomeRowCount > 0
+      ? NODE_OUTCOME_FOOTER_CHROME_HEIGHT + outcomeRowCount * NODE_OUTCOME_ROW_HEIGHT
+      : 0
+  return { width, height: bodyHeight + footerHeight }
 }
 
 /**
@@ -600,13 +607,47 @@ function isTerminalStep(step: any): boolean {
  * otherwise the description-aware estimate above. Exported so a layout test can
  * assert that the boxes dagre reserved actually do not overlap.
  */
-export function nodeFootprint(step: any): { width: number; height: number } {
+export function nodeFootprint(step: any, outcomeRowCount = 0): { width: number; height: number } {
   if (typeof step.width === 'number' && typeof step.height === 'number') {
     return { width: step.width, height: step.height }
   }
   const description = step.description
   const hasDescription = typeof description === 'string' && description.trim().length > 0
-  return estimateNodeSize(step.stepName ?? step.label, hasDescription, isTerminalStep(step))
+  return estimateNodeSize(
+    step.stepName ?? step.label,
+    hasDescription,
+    isTerminalStep(step),
+    outcomeRowCount,
+  )
+}
+
+/**
+ * How many outcome rows a step's footer renders (fidelity gap #4). An agent step
+ * shows its WIRED outcomes plus `approved`; a user task shows one row per
+ * authored decision. Both are derived here rather than measured, because dagre
+ * runs before React Flow has laid a single card out.
+ */
+function countOutcomeRows(step: any, transitions: any[]): number {
+  const decisions = step?.userTaskConfig?.decisions ?? step?.decisions
+  if (Array.isArray(decisions)) {
+    return decisions.filter((decision: any) => decision?.transitionId).length
+  }
+  if (!isInvokeAgentStep(step)) return 0
+  const wired = new Set<string>()
+  for (const transition of transitions) {
+    if (transition?.fromStepId !== step.stepId) continue
+    if (transition?.kind !== 'outcome') continue
+    if (typeof transition.outcomeKind === 'string') wired.add(transition.outcomeKind)
+  }
+  wired.add('approved')
+  return wired.size
+}
+
+function isInvokeAgentStep(step: any): boolean {
+  if (step?.nodeType === 'invokeAgent') return true
+  const activities = step?.activities
+  return Array.isArray(activities)
+    && activities.some((activity: any) => activity?.activityType === 'INVOKE_AGENT')
 }
 
 function layoutWithDagre(
@@ -628,7 +669,7 @@ function layoutWithDagre(
   // description-aware estimate). `ranksep`/`nodesep` then become the actual
   // visible gap between cards, so the spacing is neither cramped nor blown apart.
   for (const step of steps) {
-    graph.setNode(step.stepId, nodeFootprint(step))
+    graph.setNode(step.stepId, nodeFootprint(step, countOutcomeRows(step, transitions)))
   }
 
   // Transition labels are hover-only (WorkflowTransitionEdge), so they occupy no
