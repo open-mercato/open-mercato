@@ -2,7 +2,7 @@
 
 Load only the selected branch.
 
-- **Enricher/query enricher:** exact target entity, namespaced additive result, scoped batched `enrichMany`, ACL, timeout/fallback, conservative cache behavior; set `queryEngine.enabled` only for query lifecycle participation.
+- **Enricher/query enricher:** use the dotted runtime entity ID in `targetEntity` (for example `customers.person`), never the colon-form CRUD/widget host ID; add a namespaced result, scoped batched `enrichMany`, ACL, timeout/fallback, and conservative cache behavior; set `queryEngine.enabled` only for query lifecycle participation.
 - **Interceptor:** exact route/method, schema-compatible request rewrite, additive response, timeout/fail posture, no auth/scope weakening.
 - **Command interceptor:** `commands/interceptors.ts`; stable `id` + exact `targetCommand`; choose `beforeExecute`/`afterExecute` and `beforeUndo`/`afterUndo` deliberately; wildcard-aware features and trusted scope; block or shallow-rewrite only through documented results; never bypass the command, locking, audit, or undo.
 - **Mutation guard:** operation mapping, wildcard features, explicit block/validated rewrite, post-commit callbacks, command/lock preservation.

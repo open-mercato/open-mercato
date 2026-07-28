@@ -44,10 +44,12 @@ function resolveDuplicateModuleIds(
   if (duplicates.length === 0) return sources
 
   const selectedProviders = new Map<string, Set<string>>()
+  const implicitCoreSelections = new Set<string>()
   for (const entry of resolver.loadEnabledModules()) {
     const providers = selectedProviders.get(entry.id) ?? new Set<string>()
     providers.add(entry.from ?? '@open-mercato/core')
     selectedProviders.set(entry.id, providers)
+    if (entry.from === undefined) implicitCoreSelections.add(entry.id)
   }
 
   const selectedSources = new Map<string, ModuleFactSource>()
@@ -62,7 +64,9 @@ function resolveDuplicateModuleIds(
 
     if (selected.length !== 1) {
       const configured = configuredProviders.length > 0
-        ? `; src/modules.ts selects ${configuredProviders.join(', ')}`
+        ? implicitCoreSelections.has(moduleId)
+          ? '; src/modules.ts omits "from", which defaults to @open-mercato/core'
+          : `; src/modules.ts selects ${configuredProviders.join(', ')}`
         : '; src/modules.ts does not select a provider'
       throw new Error(
         `[module-facts] duplicate module id "${moduleId}" is provided by ${providers.join(', ')}${configured}. `

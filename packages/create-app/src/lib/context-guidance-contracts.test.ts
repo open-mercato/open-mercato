@@ -291,6 +291,41 @@ test('data-model skill pins validators beside entities for generated discovery',
   assert.match(skill, /do not move validators to the module root/)
 })
 
+test('progressive references pin reviewed standalone runtime contracts', () => {
+  const integration = readAgentic(
+    'shared/ai/skills/om-integration-builder/references/package-and-activation.md',
+  )
+  assert.match(integration, /singular `integration`\/`bundle` definitions/)
+  assert.match(integration, /plural `integrations`\/`bundles` arrays/)
+
+  const schema = readAgentic(
+    'shared/ai/skills/om-data-model-design/references/schema-design.md',
+  )
+  assert.match(schema, /@\/\.mercato\/generated\/entities\.ids\.generated/)
+  assert.match(schema, /`#generated\/entities\.ids\.generated` is a package-internal alias/)
+  assert.match(schema, /smoke-test the affected API against its runtime registry/)
+
+  const extensions = readAgentic(
+    'shared/ai/skills/om-system-extension/references/extension-branches.md',
+  )
+  assert.match(extensions, /`targetEntity`/)
+  assert.match(extensions, /`customers\.person`/)
+  assert.match(extensions, /never the colon-form CRUD\/widget host ID/)
+
+  const activities = readAgentic(
+    'shared/ai/skills/om-build-workflow/references/activity-contracts.md',
+  )
+  assert.match(activities, /`registerWorkflowSafeCommands`/)
+  assert.match(activities, /command bus alone does not make a command workflow-safe/)
+
+  const workflow = readAgentic(
+    'shared/ai/skills/om-build-workflow/references/workflow-design.md',
+  )
+  assert.match(workflow, /`WAIT_FOR_TIMER`/)
+  assert.match(workflow, /ISO 8601 duration/)
+  assert.match(workflow, /`TIMER_CONFIG_MISSING`/)
+})
+
 test('router distinguishes durable multi-stage state from one-step schedules', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /Persistent multi-stage business state/)

@@ -50,8 +50,9 @@ for (const file of ['AGENTS.md', 'BACKWARD_COMPATIBILITY.md']) {
 }
 writeFileSync(join(upstreamDir, 'manifest.json'), `${JSON.stringify(upstreamManifest, null, 2)}\n`)
 
-// Auto-discover standalone guides from sibling packages
-// Each package can provide packages/<name>/agentic/standalone-guide.md
+// Auto-discover module-specific standalone guides from sibling packages.
+// Package-level guides are intentionally not shipped: the routed conceptual guides and
+// generated module fact-sheets are the standalone sources of truth.
 const packagesDir = join('..') // packages/create-app/.. = packages/
 const guidesDestDir = join('dist', 'agentic', 'guides')
 mkdirSync(guidesDestDir, { recursive: true })
@@ -59,9 +60,8 @@ mkdirSync(guidesDestDir, { recursive: true })
 // Clean stale per-module artifacts before regenerating so an incremental dist never
 // retains a removed module's full guide or fact-sheet. The legacy `core.<module>.md`
 // redirect stubs are no longer emitted (#3754); this purge also deletes any that linger
-// in an incremental `dist/` from an older build. The conceptual `module-system.md` and the
-// single-dot package guides (`core.md`, …) are re-emitted below (or copied from `agentic/`),
-// so they are intentionally left alone here.
+// in an incremental `dist/` from an older build. The conceptual `module-system.md` remains;
+// stale single-dot package guides (`core.md`, …) are removed below.
 rmSync(join(guidesDestDir, 'modules'), { recursive: true, force: true })
 for (const entry of readdirSync(guidesDestDir)) {
   if (/^core\..+\.md$/.test(entry)) {
@@ -71,11 +71,11 @@ for (const entry of readdirSync(guidesDestDir)) {
 
 let guidesFound = 0
 for (const pkg of readdirSync(packagesDir)) {
-  // Package-level guide: packages/<pkg>/agentic/standalone-guide.md → <pkg>.md
+  // Remove package-level guides left by an older incremental build. They were never
+  // reachable from the standalone router and duplicated the routed conceptual guides.
   const guideSource = join(packagesDir, pkg, 'agentic', 'standalone-guide.md')
   if (existsSync(guideSource)) {
-    cpSync(guideSource, join(guidesDestDir, `${pkg}.md`))
-    guidesFound++
+    rmSync(join(guidesDestDir, `${pkg}.md`), { force: true })
   }
 
   // Module-level guides: packages/<pkg>/src/modules/<mod>/agentic/standalone-guide.md → <pkg>.<mod>.md

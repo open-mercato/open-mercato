@@ -160,7 +160,7 @@ The hardest-18 set is the accumulated failure list, so it is a deliberately pess
 ### Resume procedure
 
 1. Worktree: `git worktree add <dir> origin/feat/sonnet-harness-eval-optimization`, then `yarn install && yarn build:packages && yarn generate && yarn build:packages`.
-2. Controller: copy `packages/create-app/template`, resolve `{{APP_NAME}}`/`{{PACKAGE_VERSION}}`, then `runAgenticSetup(dir, async () => 'skip', { tool: 'claude-code,codex,cursor' })` from the built CLI. Confirm `node scripts/evaluate-agent-harness.mjs --all` → 184/184.
+2. Controller: scaffold through the real built entry point, never by copying and substituting the template manually: `node packages/create-app/dist/index.js <temp-parent>/controller --agents claude-code,codex,cursor --no-shell`. On macOS put `<temp-parent>` under `/private/tmp` because `/tmp` resolves through a symlink; on Linux use `mktemp -d /tmp/omh-controller-XXXXXX`. To refresh an existing controller, run its real `yarn mercato agentic:init --force` path. Install its dependencies, then confirm `node scripts/evaluate-agent-harness.mjs --all` → 187/187.
 3. **Run exactly one sweep per runner and confirm nothing else is running first** (`pgrep -f sweep.mjs`). Concurrent runs across providers are fine; concurrent runs of the *same* lane are what corrupted the last measurement.
 4. Re-run the union of failures, fix in the smallest shared owner, re-emit, repeat.
 

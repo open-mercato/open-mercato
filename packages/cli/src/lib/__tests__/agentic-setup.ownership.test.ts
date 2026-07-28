@@ -326,7 +326,7 @@ describe('runAgenticSetup ownership modes', () => {
     symlinkSync(outsideDir, linkedPath, 'dir')
 
     await expect(
-      runAgenticSetup(targetDir, async () => '', { tool: 'codex', force: true, updateHarness: true }),
+      runAgenticSetup(targetDir, async () => '', { tool: 'codex', force: true }),
     ).rejects.toThrow('Harness-managed path contains a symbolic-link component')
     expect(readFileSync(join(outsideDir, 'sentinel.txt'), 'utf8')).toBe('outside sentinel\n')
     expect(readdirSync(outsideDir)).toEqual(['sentinel.txt'])

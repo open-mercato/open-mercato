@@ -11,4 +11,4 @@ Load this reference for entity shape and relationship decisions.
 - Same-module relations may use ORM relations with owned/inverse sides defined. Cross-module records use scalar IDs, snapshots, events/enrichers, or `data/extensions.ts`.
 - Add scoped uniqueness and partial indexes for soft-deleted data where needed. Ensure retries cannot create duplicates.
 
-Use generated entity IDs rather than class-name guesses in APIs/search/widgets.
+Use generated entity IDs rather than class-name guesses in APIs/search/widgets. App-owned modules import them from `@/.mercato/generated/entities.ids.generated`; `#generated/entities.ids.generated` is a package-internal alias and must not be copied into a standalone app. Typecheck cannot detect a valid-looking but wrong entity ID string, so also start the generated route and smoke-test the affected API against its runtime registry.

@@ -580,7 +580,7 @@ function generateShared(config: AgenticConfig): void {
   copyTree(join(srcDir, 'ai'), join(targetDir, '.ai'), config)
   copyTree(join(srcDir, 'scripts'), join(targetDir, 'scripts'), config)
 
-  // Package & conceptual guides are copied wholesale (framework-wide). Per-module
+  // Routed conceptual guides are copied wholesale (framework-wide). Per-module
   // fact-sheets (.ai/guides/modules/<module>.md) are filtered to the app's enabled
   // module set; the combined module-facts.json sidecar is copied as-is.
   if (existsSync(GUIDES_DIR)) {

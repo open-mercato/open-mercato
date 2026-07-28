@@ -9,6 +9,8 @@ Load this reference to choose provider ownership before creating files.
 5. If env bootstrap is needed, implement a provider-prefixed preset inside provider `setup.ts` and an idempotent rerun CLI.
 6. Test missing provider configuration as `unconfigured`/degraded, not a crash or secret leak.
 
+An app-owned `integration.ts` may export singular `integration`/`bundle` definitions or plural `integrations`/`bundles` arrays. Prefer the singular form for one provider and keep any default export aligned with it; generation normalizes both forms. Run `yarn generate` and `yarn typecheck` so the generated registry proves that exact export shape.
+
 For payment providers, implement `GatewayAdapter`, register it with `registerGatewayAdapter`, make its verified webhook path reachable with `registerWebhookHandler`, and publish UI capabilities with `registerPaymentGatewayDescriptor`. For shipping providers, implement `ShippingAdapter` and call `registerShippingAdapter`. Transactional email over SMTP has no equivalent installed generic adapter: register the app-owned sender and exact health service in DI instead. Mailbox providers use the separate installed `communication_channels` `ChannelAdapter` path described in `provider-families.md`.
 
 On the reusable branch, record the supported host/framework version range and test package exports from a fresh standalone consumer. Do not impose packed-consumer work on the local-module branch.

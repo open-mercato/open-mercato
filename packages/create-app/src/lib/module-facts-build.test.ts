@@ -19,11 +19,13 @@ const D5_MODULES = [
 
 const pkgRoot = fileURLToPath(new URL('../../', import.meta.url))
 const guidesDir = join(pkgRoot, 'dist', 'agentic', 'guides')
+const LEGACY_PACKAGE_GUIDES = ['cache', 'core', 'events', 'queue', 'search', 'shared', 'ui']
+let buildComplete = false
 
 function ensureBuilt() {
-  if (!fs.existsSync(join(guidesDir, 'modules'))) {
-    execSync('node build.mjs', { cwd: pkgRoot, stdio: 'ignore' })
-  }
+  if (buildComplete) return
+  execSync('node build.mjs', { cwd: pkgRoot, stdio: 'ignore' })
+  buildComplete = true
 }
 
 test('build emits the customers fact-sheet and the combined module-facts.json (T5)', () => {
@@ -50,6 +52,16 @@ test('build no longer emits legacy core.<module>.md redirect stubs (#3754)', () 
     assert.ok(
       !fs.existsSync(join(guidesDir, `core.${moduleId}.md`)),
       `core.${moduleId}.md redirect stub should not be emitted`,
+    )
+  }
+})
+
+test('build does not emit unreachable package-level standalone guides', () => {
+  ensureBuilt()
+  for (const guide of LEGACY_PACKAGE_GUIDES) {
+    assert.ok(
+      !fs.existsSync(join(guidesDir, `${guide}.md`)),
+      `${guide}.md should not compete with routed conceptual guides`,
     )
   }
 })
