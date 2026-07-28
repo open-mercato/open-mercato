@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Calendar, Check, ExternalLink, ListTodo, Mail, MoreHorizontal, Phone, StickyNote, Users } from 'lucide-react'
+import { Calendar, Check, ExternalLink, ListTodo, Mail, MoreHorizontal, Phone, StickyNote, Trash2, Users } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -27,6 +27,12 @@ type ActivityCardProps = {
   onOpen?: (activity: InteractionSummary) => void
   /** Called after a successful mark-done so the parent can refresh the timeline. */
   onChanged?: () => void
+  /**
+   * Deletion handler owned by the parent section so a single confirmation dialog is
+   * mounted per timeline instead of one per card. The delete affordance renders only
+   * when this is provided.
+   */
+  onDelete?: (activity: InteractionSummary) => void | Promise<void>
   /**
    * Optional guarded-mutation runner. When provided, mutations route through the parent's
    * `useGuardedMutation` so retry-last-mutation and the global injection contract apply.
@@ -113,7 +119,7 @@ function buildEmailCardWidgetData(activity: InteractionSummary): EmailCardWidget
   }
 }
 
-export function ActivityCard({ activity, onOpen, onChanged, runMutation }: ActivityCardProps) {
+export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutation }: ActivityCardProps) {
   const t = useT()
   const timestamp = activity.occurredAt ?? activity.scheduledAt ?? activity.createdAt
   const TypeIcon = TYPE_ICONS[activity.interactionType] ?? StickyNote
@@ -129,6 +135,7 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
       : ''
   const showExternalLink = Boolean(activity._integrations && Object.keys(activity._integrations).length > 0)
   const [markingDone, setMarkingDone] = React.useState(false)
+  const [deleting, setDeleting] = React.useState(false)
 
   const handleMarkDone = React.useCallback(async () => {
     if (markingDone) return
@@ -158,6 +165,16 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
       setMarkingDone(false)
     }
   }, [activity.id, markingDone, onChanged, runMutation, t])
+
+  const handleDelete = React.useCallback(async () => {
+    if (!onDelete || deleting) return
+    setDeleting(true)
+    try {
+      await onDelete(activity)
+    } finally {
+      setDeleting(false)
+    }
+  }, [activity, deleting, onDelete])
 
   return (
     <div
@@ -215,6 +232,22 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
                 <Check className="size-3.5" />
                 {t('customers.activities.actions.markDone', 'Mark done')}
               </Button>
+            ) : null}
+            {onDelete ? (
+              <IconButton
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={deleting}
+                aria-label={t('customers.activities.actions.delete', 'Delete activity')}
+                className="text-muted-foreground hover:text-status-error-foreground"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void handleDelete()
+                }}
+              >
+                <Trash2 className="size-4" />
+              </IconButton>
             ) : null}
             <IconButton
               type="button"
