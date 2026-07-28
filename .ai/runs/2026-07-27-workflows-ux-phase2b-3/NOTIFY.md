@@ -20,3 +20,7 @@ Append-only UTC log. Checkpoint events, blockers, and scope decisions only.
 - 2026-07-28T10:30Z — DECISION: active-instance status set for the edit-safety guard is RUNNING/PAUSED/WAITING_FOR_ACTIVITIES/FORKED/COMPENSATING. COMPENSATING added beyond the plan's four because the saga replays the same definition in reverse.
 - 2026-07-28T11:00Z — DECISION: scoped re-tidy (3.4) deferred with documented reasoning — dagre re-ranks whole components so a bounded neighbourhood run is not expressible; full Tidy remains the explicit override.
 - 2026-07-28T11:05Z — Checkpoint 5 recorded (30/41). Module scope 1768 tests green.
+- 2026-07-28T15:30Z — DECISION: subgraph clipboard format is {kind:'open-mercato.workflow-subgraph', version:1, steps, transitions} in DEFINITION vocabulary (not nodes/edges), so canvas and Code view (step 3.12) exchange the identical shape. Constants in lib/subgraph-clipboard.ts.
+- 2026-07-28T15:30Z — DECISION: insert-on-edge keeps route data on the FIRST segment (from -> new step): a condition guards leaving its source, activities run on the way out, an error route stays the error path out of that step, and the durable id is what pendingTransition/branchKey resolve against.
+- 2026-07-28T15:35Z — WATCH (CI): with default maxWorkers, two heavy pre-existing jsdom suites (page.toggleEnabled.optimisticLock, rolesMultiSelect) timed out once under contention from new page tests; green in isolation and at --maxWorkers=4. Flag for CI tuning if it recurs.
+- 2026-07-28T15:35Z — Steps 3.6-3.8 landed (33/41). Module scope 1810 tests green.
