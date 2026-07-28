@@ -393,6 +393,42 @@ describe('Workflows Validators', () => {
       expect(result.userTaskConfig?.slaDuration).toBe('P1D')
     })
 
+    test('should keep authored role assignment, form key and allowed actions (A1 regression)', () => {
+      // The Studio writes these three keys (`lib/graph-utils.ts`) and the engine
+      // reads `assignedToRoles` (`lib/step-handler.ts`), but the schema declared
+      // none of them: zod stripped the unknown keys and the definition PUT
+      // persisted the parsed value, silently discarding the author's work.
+      const roleAssignedStep = {
+        stepId: 'approve-order',
+        stepName: 'Approve Order',
+        stepType: 'USER_TASK' as const,
+        userTaskConfig: {
+          assignedToRoles: ['approver', 'manager'],
+          formKey: 'order-approval',
+          allowedActions: ['complete', 'reject'],
+        },
+      }
+
+      const result = workflowStepSchema.parse(roleAssignedStep)
+
+      expect(result.userTaskConfig?.assignedToRoles).toEqual(['approver', 'manager'])
+      expect(result.userTaskConfig?.formKey).toBe('order-approval')
+      expect(result.userTaskConfig?.allowedActions).toEqual(['complete', 'reject'])
+    })
+
+    test('should leave user task config without the new keys untouched', () => {
+      const minimalUserTaskStep = {
+        stepId: 'approve-order',
+        stepName: 'Approve Order',
+        stepType: 'USER_TASK' as const,
+        userTaskConfig: { assignedTo: 'manager@example.com' },
+      }
+
+      const result = workflowStepSchema.parse(minimalUserTaskStep)
+
+      expect(result.userTaskConfig).toEqual({ assignedTo: 'manager@example.com' })
+    })
+
     test('should validate step with retry policy', () => {
       const stepWithRetry = {
         ...validStep,

@@ -166,6 +166,17 @@ export const userTaskConfigSchema = z.object({
     z.string(),
     z.array(z.string()),
   ]).optional(),
+  // Role queue the task is offered to when no individual assignee is set. The
+  // editor has always written this key (`lib/graph-utils.ts`) and the engine has
+  // always read it (`lib/step-handler.ts`), but it was undeclared here — zod
+  // strips unknown keys and the definition PUT persists the PARSED value, so
+  // authored role assignment was silently discarded on every save.
+  assignedToRoles: z.array(z.string()).optional(),
+  // Renderer key for an externally registered task form. Same round-trip as
+  // `assignedToRoles`: written by the editor, previously stripped on save.
+  formKey: z.string().optional(),
+  // Actions offered on the task surface (editor default: complete + cancel).
+  allowedActions: z.array(z.string()).optional(),
   assignmentRule: z.string().optional(), // Business rule ID
   slaDuration: z.string().optional(), // ISO 8601 duration
   escalationRules: z.array(z.object({
