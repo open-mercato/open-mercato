@@ -59,10 +59,16 @@ export function fuseResults(inputs: readonly FusionInput[], options: FusionOptio
 
   for (const input of inputs) {
     const weight = input.weight > 0 ? input.weight : 1
+    // Two spellings of one URL inside a single adapter's list must not each earn
+    // that adapter a rank slot: the duplicate would compound its own score and
+    // let one source outvote the agreement between two independent ones.
+    const contributed = new Set<string>()
     let rank = 0
     for (const result of input.results) {
       const canonical = canonicalizeUrl(result.url)
       if (canonical === null) continue
+      if (contributed.has(canonical.key)) continue
+      contributed.add(canonical.key)
       rank += 1
       const existing = accumulators.get(canonical.key)
       const accumulator: Accumulator = existing ?? {

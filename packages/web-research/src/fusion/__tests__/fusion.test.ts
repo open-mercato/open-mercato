@@ -64,6 +64,26 @@ describe('fuseResults', () => {
     expect(results[0].sources).toHaveLength(2)
   })
 
+  it('does not let one adapter outvote genuine agreement by repeating a URL', () => {
+    const inputs: FusionInput[] = [
+      {
+        adapterId: 'noisy',
+        weight: 1,
+        results: [
+          { url: 'https://noisy.com/x' },
+          { url: 'https://noisy.com/x?utm_source=feed' },
+          { url: 'https://www.noisy.com/x/' },
+        ],
+      },
+      { adapterId: 'alpha', weight: 1, results: [{ url: 'https://shared.com/y' }] },
+      { adapterId: 'beta', weight: 1, results: [{ url: 'https://shared.com/y' }] },
+    ]
+    const { results } = fuseResults(inputs, OPTIONS)
+
+    expect(results[0].url).toBe('https://shared.com/y')
+    expect(results.find((hit) => hit.url.includes('noisy.com'))?.sources).toHaveLength(1)
+  })
+
   it('deduplicates across adapters and merges provenance', () => {
     const inputs: FusionInput[] = [
       { adapterId: 'alpha', weight: 1, results: [{ url: 'https://example.com/a?utm_source=x' }] },
