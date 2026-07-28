@@ -35,7 +35,7 @@
 | 2 | 2.6 | Error routes model + engine (kind:'error' transitions, directives, ERROR_ROUTED) | done | 36c0dc12b |
 | 2 | 2.7 | Workflow-level error handler (engine construct) + failure-queue park | done | 1fb16413c |
 | 2 | 2.8 | Error-route canvas rendering + directive UI | done | 02b836777 |
-| 2 | 2.9 | Inline Business Rules editor (business_rules component) + workflows embed + usage panel | todo | — |
+| 2 | 2.9 | Inline Business Rules editor (business_rules component) + workflows embed + usage panel | done | abf71b7cc |
 | 2 | 2.10 | Route condition/activity/otherwise chips + semantic zoom + overflow | todo | — |
 | 2 | 2.11 | Priority drag-to-reorder + normalization pass | todo | — |
 | 2 | 2.12 | Problems-panel ledger checks extension + 60-node density fixture | todo | — |
