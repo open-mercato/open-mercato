@@ -310,3 +310,224 @@ describe('user task config reaches the engine after a save', () => {
     expect(userTaskCall[1].assignedTo).toBeNull()
   })
 })
+
+/**
+ * Task creation resolves what the author wrote (spec §6.1).
+ *
+ * `handleUserTaskStep` used to do NO interpolation at all: a title, an assignee
+ * or a binding written as a ledger pill reached the database verbatim. These
+ * drive the real `executeStep` so the assertions are about the row the engine
+ * would actually insert.
+ */
+describe('task creation resolves the authored task', () => {
+  const testTenantId = '00000000-0000-4000-8000-000000000001'
+  const testOrgId = '00000000-0000-4000-8000-000000000002'
+  const testDefinitionId = '00000000-0000-4000-8000-000000000003'
+  const testInstanceId = '00000000-0000-4000-8000-000000000004'
+
+  type CreatedTask = Record<string, any>
+
+  async function createTaskFor(
+    step: Record<string, unknown>,
+    workflowContext: Record<string, unknown>
+  ): Promise<{ task: CreatedTask; events: CreatedTask[] }> {
+    const mockEm = {
+      findOne: jest.fn(),
+      find: jest.fn(),
+      create: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(),
+      nativeDelete: jest.fn(),
+    } as any
+
+    const savedStep = saveStep({ stepType: 'USER_TASK', ...step })
+    const definition: Partial<WorkflowDefinition> = {
+      id: testDefinitionId,
+      workflowId: 'refunds',
+      workflowName: 'Refunds',
+      version: 1,
+      enabled: true,
+      definition: { steps: [savedStep], transitions: [] } as any,
+      tenantId: testTenantId,
+      organizationId: testOrgId,
+    }
+
+    const instance: Partial<WorkflowInstance> = {
+      id: testInstanceId,
+      definitionId: testDefinitionId,
+      workflowId: 'refunds',
+      version: 1,
+      status: 'RUNNING',
+      currentStepId: savedStep.stepId,
+      context: workflowContext,
+      tenantId: testTenantId,
+      organizationId: testOrgId,
+      startedAt: new Date(),
+    }
+
+    mockEm.findOne
+      .mockResolvedValueOnce(definition as WorkflowDefinition)
+      .mockResolvedValueOnce(definition as WorkflowDefinition)
+
+    mockEm.create.mockImplementation((_entity: unknown, payload: CreatedTask) => ({
+      id: 'created-1',
+      ...payload,
+    }))
+
+    await stepHandler.executeStep(mockEm, instance as WorkflowInstance, savedStep.stepId, {
+      workflowContext,
+    })
+
+    const calls = (mockEm.create as jest.Mock).mock.calls as Array<[unknown, CreatedTask]>
+    const task = calls.find(([, payload]) => 'taskName' in payload)?.[1] as CreatedTask
+    const events = calls
+      .filter(([, payload]) => payload?.eventType === 'USER_TASK_CREATED')
+      .map(([, payload]) => payload)
+
+    return { task, events }
+  }
+
+  test('interpolates the task title and the authored instructions', async () => {
+    const { task } = await createTaskFor(
+      {
+        stepId: 'approve-refund',
+        stepName: 'Approve refund for {{context.customerName}}',
+        userTaskConfig: {
+          instructions: { en: 'Refund {{context.order.total}} on order {{context.order.id}}.' },
+        },
+      },
+      { customerName: 'Acme', order: { id: 'order-9', total: 250 } }
+    )
+
+    expect(task.taskName).toBe('Approve refund for Acme')
+    expect(task.description).toBe('Refund 250 on order order-9.')
+  })
+
+  test('resolves a dynamic assignee from a ledger pill', async () => {
+    const { task } = await createTaskFor(
+      {
+        stepId: 'approve-refund',
+        stepName: 'Approve refund',
+        userTaskConfig: {
+          assignedTo: '{{context.deal.ownerId}}',
+          assignedToRoles: ['approver'],
+        },
+      },
+      { deal: { ownerId: 'user-42' } }
+    )
+
+    expect(task.assignedTo).toBe('user-42')
+    expect(task.assignedToRoles).toEqual(['approver'])
+  })
+
+  test('falls back to the role queue when the dynamic assignee misses', async () => {
+    const { task, events } = await createTaskFor(
+      {
+        stepId: 'approve-refund',
+        stepName: 'Approve refund',
+        userTaskConfig: {
+          assignedTo: '{{context.deal.ownerId}}',
+          assignedToRoles: ['approver'],
+        },
+      },
+      { deal: {} }
+    )
+
+    expect(task.assignedTo).toBeNull()
+    expect(task.assignedToRoles).toEqual(['approver'])
+    expect(events[0]?.eventData?.assignmentFallback).toBe('roles')
+  })
+
+  test('writes the resolved entity bindings to the column and skips a missing id', async () => {
+    const { task, events } = await createTaskFor(
+      {
+        stepId: 'approve-refund',
+        stepName: 'Approve refund',
+        userTaskConfig: {
+          priority: 'high',
+          entityBindings: [
+            { entityType: 'customers:person', idPath: 'context.customerId', label: 'Customer' },
+            { entityType: 'sales:invoice', idPath: 'context.invoiceId' },
+          ],
+        },
+      },
+      { customerId: 'customer-7' }
+    )
+
+    expect(task.entityBindings).toEqual([
+      { entityType: 'customers:person', entityId: 'customer-7', label: 'Customer' },
+    ])
+    expect(task.priority).toBe('high')
+    expect(events[0]?.eventData?.entityBindings).toEqual(task.entityBindings)
+    expect(events[0]?.eventData?.priority).toBe('high')
+  })
+
+  test('logs the resolved decisions on USER_TASK_CREATED', async () => {
+    const { events } = await createTaskFor(
+      {
+        stepId: 'approve-refund',
+        stepName: 'Approve refund',
+        userTaskConfig: {
+          decisions: [
+            { id: 'approve', label: 'Approve {{context.order.id}}', transitionId: 't_approve' },
+          ],
+        },
+      },
+      { order: { id: 'order-9' } }
+    )
+
+    expect(events[0]?.eventData?.decisions).toEqual([
+      { id: 'approve', label: 'Approve order-9', transitionId: 't_approve' },
+    ])
+  })
+
+  test('the deadline supersedes slaDuration, which keeps working on its own', async () => {
+    const withDeadline = await createTaskFor(
+      {
+        stepId: 'approve-refund',
+        stepName: 'Approve refund',
+        userTaskConfig: { deadline: { duration: 'PT4H' }, slaDuration: 'P30D' },
+      },
+      {}
+    )
+    const legacy = await createTaskFor(
+      {
+        stepId: 'approve-refund',
+        stepName: 'Approve refund',
+        userTaskConfig: { slaDuration: 'PT4H' },
+      },
+      {}
+    )
+
+    const hoursAhead = (due: Date) => Math.round((due.getTime() - Date.now()) / 3_600_000)
+    expect(hoursAhead(withDeadline.task.dueDate)).toBe(4)
+    expect(hoursAhead(legacy.task.dueDate)).toBe(4)
+  })
+
+  test('a config using none of the new fields produces a byte-identical task row', async () => {
+    const { task, events } = await createTaskFor(
+      {
+        stepId: 'approve-refund',
+        stepName: 'Approve refund',
+        description: 'Check the paperwork',
+        userTaskConfig: { assignedTo: 'manager@example.com', slaDuration: 'P1D' },
+      },
+      { order: { id: 'order-9' } }
+    )
+
+    expect(task.taskName).toBe('Approve refund')
+    expect(task.description).toBe('Check the paperwork')
+    expect(task.assignedTo).toBe('manager@example.com')
+    expect(task.assignedToRoles).toBeNull()
+    expect(task.entityBindings).toBeNull()
+    expect(task.priority).toBeNull()
+    expect(task.formData).toBeNull()
+    expect(task.status).toBe('PENDING')
+    expect(Object.keys(events[0]?.eventData ?? {})).toEqual([
+      'userTaskId',
+      'taskName',
+      'assignedTo',
+      'assignedToRoles',
+    ])
+  })
+})

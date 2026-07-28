@@ -31,6 +31,15 @@ import { mapAgentResultToContext } from './agent-result-mapping'
 import { logWorkflowEvent } from './event-logger'
 import { findDefinitionForInstance } from './find-definition'
 import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from './interpolation-pipeline'
+import {
+  flattenTaskText,
+  resolveTaskAssignment,
+  resolveTaskDeadlineDuration,
+  resolveTaskDecisions,
+  resolveTaskEntityBindings,
+  resolveTaskText,
+  type TaskInterpolate,
+} from './task-resolution'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from './find-definition'
 import { validateAgainstPorts } from './port-contract'
@@ -724,14 +733,43 @@ async function handleUserTaskStep(
 ): Promise<StepExecutionResult> {
   const userTaskConfig = stepDef.userTaskConfig || {}
 
-  // Handle assignedTo - if it's an array, treat it as roles
-  let assignedTo = userTaskConfig.assignedTo || null
-  let assignedToRoles = userTaskConfig.assignedToRoles || null
+  // Everything an author can write on a task — its title, its instructions, its
+  // decision labels, its dynamic assignee and its entity bindings — is resolved
+  // HERE, once, against the context the run has at creation time. Resolving
+  // later would let a definition edit retro-change what a running task says.
+  // Lenient on purpose: an unresolved dynamic assignee is what the fallback role
+  // queue exists for, not a reason to fail the step.
+  //
+  // Imported dynamically like every other activity-executor use in this file, so
+  // the module graph stays acyclic.
+  const { interpolateVariables } = await import('./activity-executor')
+  const interpolate: TaskInterpolate = (value) =>
+    interpolateVariables(value, context.workflowContext, instance)
 
-  if (Array.isArray(assignedTo)) {
-    assignedToRoles = assignedTo
-    assignedTo = null
+  const assignment = resolveTaskAssignment(userTaskConfig, interpolate)
+  if (assignment.fellBackToRoles) {
+    logger.warn('Dynamic task assignee resolved to nothing; falling back to the role queue', {
+      component: 'step-handler',
+      stepId: stepDef.stepId,
+      workflowInstanceId: instance.id,
+      assignedToRoles: assignment.assignedToRoles,
+    })
   }
+
+  const { bindings, unresolved } = resolveTaskEntityBindings(userTaskConfig.entityBindings, interpolate)
+  if (unresolved.length) {
+    logger.warn('Task entity bindings skipped because their ids did not resolve', {
+      component: 'step-handler',
+      stepId: stepDef.stepId,
+      workflowInstanceId: instance.id,
+      unresolved,
+    })
+  }
+
+  const taskName = String(interpolate(stepDef.stepName) ?? stepDef.stepName)
+  const instructions = resolveTaskText(userTaskConfig.instructions, interpolate)
+  const decisions = resolveTaskDecisions(userTaskConfig.decisions, interpolate)
+  const deadlineDuration = resolveTaskDeadlineDuration(userTaskConfig)
 
   // Create user task
   const now = new Date()
@@ -739,15 +777,17 @@ async function handleUserTaskStep(
     workflowInstanceId: instance.id,
     stepInstanceId: stepInstance.id,
     branchInstanceId: branch ? branch.id : null,
-    taskName: stepDef.stepName,
-    description: stepDef.description || null,
+    taskName,
+    description: flattenTaskText(instructions) ?? stepDef.description ?? null,
     status: 'PENDING',
     formSchema: userTaskConfig.formSchema || null,
     formData: null,
-    assignedTo: assignedTo,
-    assignedToRoles: assignedToRoles,
-    dueDate: userTaskConfig.slaDuration
-      ? resolveUserTaskDeadline(stepDef.stepId, userTaskConfig.slaDuration)
+    assignedTo: assignment.assignedTo,
+    assignedToRoles: assignment.assignedToRoles,
+    entityBindings: bindings.length ? bindings : null,
+    priority: userTaskConfig.priority ?? null,
+    dueDate: deadlineDuration
+      ? resolveUserTaskDeadline(stepDef.stepId, deadlineDuration)
       : null,
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
@@ -768,6 +808,10 @@ async function handleUserTaskStep(
       taskName: userTask.taskName,
       assignedTo: userTask.assignedTo,
       assignedToRoles: userTask.assignedToRoles,
+      ...(bindings.length ? { entityBindings: bindings } : {}),
+      ...(userTask.priority ? { priority: userTask.priority } : {}),
+      ...(decisions.length ? { decisions } : {}),
+      ...(assignment.fellBackToRoles ? { assignmentFallback: 'roles' } : {}),
     },
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,

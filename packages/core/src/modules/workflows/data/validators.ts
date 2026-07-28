@@ -289,6 +289,7 @@ export const userTaskConfigSchema = z.object({
   decisions: z.array(taskDecisionSchema).optional(),
   editablePrefilled: z.array(z.string()).optional(),
 })
+export type UserTaskConfig = z.infer<typeof userTaskConfigSchema>
 
 // Sub-workflow configuration (Phase 8)
 export const subWorkflowConfigSchema = z.object({

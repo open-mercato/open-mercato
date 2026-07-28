@@ -1,0 +1,178 @@
+import { describe, test, expect } from '@jest/globals'
+import { interpolateVariables } from '../activity-executor'
+import {
+  flattenTaskText,
+  resolveTaskAssignment,
+  resolveTaskDeadlineDuration,
+  resolveTaskDecisions,
+  resolveTaskEntityBindings,
+  resolveTaskText,
+} from '../task-resolution'
+
+/**
+ * The pure half of "task creation resolves what authors wrote".
+ *
+ * These bind the RULES — dynamic assignment falling back to the role queue, a
+ * `maybe`-presence binding degrading rather than dangling, localized copy
+ * resolving leaf by leaf — against the real Phase-2b interpolator, so a test
+ * cannot pass with a stub that behaves differently from the engine.
+ */
+
+const runContext = {
+  deal: { ownerId: 'user-42' },
+  customerId: 'customer-7',
+  order: { id: 'order-9', total: 250 },
+  blank: '',
+}
+
+const interpolate = (value: unknown) => interpolateVariables(value, runContext)
+
+describe('resolveTaskText', () => {
+  test('resolves pills in a plain string', () => {
+    expect(resolveTaskText('Approve {{context.order.total}} now', interpolate)).toBe('Approve 250 now')
+  })
+
+  test('resolves every locale of a localized string', () => {
+    expect(
+      resolveTaskText({ en: 'Order {{context.order.id}}', pl: 'Zamówienie {{context.order.id}}' }, interpolate)
+    ).toEqual({ en: 'Order order-9', pl: 'Zamówienie order-9' })
+  })
+
+  test('leaves an unresolvable pill visible instead of blanking the copy', () => {
+    expect(resolveTaskText('Ref {{context.missing}}', interpolate)).toBe('Ref {{context.missing}}')
+  })
+
+  test('returns null for absent copy', () => {
+    expect(resolveTaskText(undefined, interpolate)).toBeNull()
+  })
+})
+
+describe('flattenTaskText', () => {
+  test('prefers the requested locale and falls back to the first declared one', () => {
+    expect(flattenTaskText({ en: 'English', pl: 'Polski' }, 'pl')).toBe('Polski')
+    expect(flattenTaskText({ pl: 'Polski' }, 'en')).toBe('Polski')
+    expect(flattenTaskText('plain')).toBe('plain')
+    expect(flattenTaskText(null)).toBeNull()
+  })
+})
+
+describe('resolveTaskAssignment', () => {
+  test('resolves a dynamic assignee from a ledger pill', () => {
+    const resolved = resolveTaskAssignment(
+      { assignedTo: '{{context.deal.ownerId}}', assignedToRoles: ['approver'] },
+      interpolate
+    )
+
+    expect(resolved.assignedTo).toBe('user-42')
+    expect(resolved.assignedToRoles).toEqual(['approver'])
+    expect(resolved.fellBackToRoles).toBe(false)
+  })
+
+  test('falls back to the role queue when the path misses', () => {
+    const resolved = resolveTaskAssignment(
+      { assignedTo: '{{context.deal.missingOwner}}', assignedToRoles: ['approver'] },
+      interpolate
+    )
+
+    expect(resolved.assignedTo).toBeNull()
+    expect(resolved.assignedToRoles).toEqual(['approver'])
+    expect(resolved.fellBackToRoles).toBe(true)
+  })
+
+  test('falls back when the path resolves to an empty value', () => {
+    const resolved = resolveTaskAssignment(
+      { assignedTo: '{{context.blank}}', assignedToRoles: ['approver'] },
+      interpolate
+    )
+
+    expect(resolved.assignedTo).toBeNull()
+    expect(resolved.fellBackToRoles).toBe(true)
+  })
+
+  test('a static assignee and the legacy array form are untouched', () => {
+    expect(resolveTaskAssignment({ assignedTo: 'manager@example.com' }, interpolate)).toEqual({
+      assignedTo: 'manager@example.com',
+      assignedToRoles: null,
+      fellBackToRoles: false,
+    })
+
+    expect(resolveTaskAssignment({ assignedTo: ['approver', 'controller'] }, interpolate)).toEqual({
+      assignedTo: null,
+      assignedToRoles: ['approver', 'controller'],
+      fellBackToRoles: false,
+    })
+  })
+})
+
+describe('resolveTaskEntityBindings', () => {
+  test('resolves each idPath against the run context', () => {
+    const { bindings, unresolved } = resolveTaskEntityBindings(
+      [
+        { entityType: 'customers:person', idPath: 'context.customerId', label: 'Customer' },
+        { entityType: 'sales:order', idPath: '{{context.order.id}}' },
+      ],
+      interpolate
+    )
+
+    expect(bindings).toEqual([
+      { entityType: 'customers:person', entityId: 'customer-7', label: 'Customer' },
+      { entityType: 'sales:order', entityId: 'order-9' },
+    ])
+    expect(unresolved).toEqual([])
+  })
+
+  test('drops a binding whose id is absent and names it', () => {
+    const { bindings, unresolved } = resolveTaskEntityBindings(
+      [
+        { entityType: 'customers:person', idPath: 'context.customerId' },
+        { entityType: 'sales:invoice', idPath: 'context.invoiceId' },
+      ],
+      interpolate
+    )
+
+    expect(bindings).toEqual([{ entityType: 'customers:person', entityId: 'customer-7' }])
+    expect(unresolved).toEqual(['context.invoiceId'])
+  })
+
+  test('resolves a localized binding label', () => {
+    const { bindings } = resolveTaskEntityBindings(
+      [{ entityType: 'sales:order', idPath: 'context.order.id', label: { en: 'Order {{context.order.id}}' } }],
+      interpolate
+    )
+
+    expect(bindings[0]?.label).toEqual({ en: 'Order order-9' })
+  })
+
+  test('no authored bindings resolve to nothing at all', () => {
+    expect(resolveTaskEntityBindings(undefined, interpolate)).toEqual({ bindings: [], unresolved: [] })
+  })
+})
+
+describe('resolveTaskDecisions', () => {
+  test('resolves labels and keeps the durable transition binding', () => {
+    expect(
+      resolveTaskDecisions(
+        [
+          { id: 'approve', label: 'Approve {{context.order.id}}', transitionId: 't_approve', style: 'primary' },
+          { id: 'reject', label: { en: 'Reject' }, transitionId: 'e_legacy_reject' },
+        ],
+        interpolate
+      )
+    ).toEqual([
+      { id: 'approve', label: 'Approve order-9', transitionId: 't_approve', style: 'primary' },
+      { id: 'reject', label: { en: 'Reject' }, transitionId: 'e_legacy_reject' },
+    ])
+  })
+
+  test('no authored decisions resolve to nothing at all', () => {
+    expect(resolveTaskDecisions(undefined, interpolate)).toEqual([])
+  })
+})
+
+describe('resolveTaskDeadlineDuration', () => {
+  test('deadline wins, slaDuration still works, absent stays absent', () => {
+    expect(resolveTaskDeadlineDuration({ deadline: { duration: 'PT4H' }, slaDuration: 'P1D' })).toBe('PT4H')
+    expect(resolveTaskDeadlineDuration({ slaDuration: 'P1D' })).toBe('P1D')
+    expect(resolveTaskDeadlineDuration({})).toBeNull()
+  })
+})
