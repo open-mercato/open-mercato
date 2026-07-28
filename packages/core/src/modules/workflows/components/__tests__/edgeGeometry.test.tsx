@@ -95,6 +95,32 @@ describe('route geometry is a cubic bezier', () => {
   })
 })
 
+describe('the default route reads as a plain wire', () => {
+  it('is solid — dashes are reserved for error, data-mapping and compensation', () => {
+    renderWithProviders(<WorkflowTransitionEdge {...(edgeProps as never)} data={{ label: 'Approved' }} />)
+
+    expect(screen.getByTestId('base-edge').getAttribute('data-dasharray')).toBe('')
+    expect(EDGE_COLORS.pending.dashed).toBe(false)
+    expect(EDGE_COLORS.pending.dashArray).toBeUndefined()
+  })
+
+  it('is a hairline, so the cards stay louder than the wires between them', () => {
+    renderWithProviders(<WorkflowTransitionEdge {...(edgeProps as never)} data={{ label: 'Approved' }} />)
+
+    expect(screen.getByTestId('base-edge').getAttribute('data-stroke-width')).toBe('1.5')
+  })
+
+  it('derives its stroke from the muted-foreground token, never a literal colour', () => {
+    expect(EDGE_COLORS.pending.stroke).toContain('var(--muted-foreground)')
+    expect(EDGE_COLORS.pending.stroke).not.toMatch(/#[0-9a-f]{3,8}|rgba?\(|oklch\(/i)
+  })
+
+  it('keeps a route that carries meaning heavier than the neutral default', () => {
+    expect(EDGE_COLORS.error.strokeWidth).toBeGreaterThan(EDGE_COLORS.pending.strokeWidth)
+    expect(EDGE_COLORS.completed.strokeWidth).toBeGreaterThan(EDGE_COLORS.pending.strokeWidth)
+  })
+})
+
 describe('the meaningful dash patterns stay distinct from each other', () => {
   it('keeps error, compensation and data-mapping on three different patterns', () => {
     const patterns = [EDGE_COLORS.error.dashArray, '10,4,2,4', '2,3']

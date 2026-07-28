@@ -85,10 +85,13 @@ export function WorkflowTransitionEdge({
         aria-label={routeAriaLabel}
         style={{
           stroke: colors.stroke,
-          strokeWidth: 2,
+          strokeWidth: colors.strokeWidth,
           strokeDasharray: colors.dashed ? colors.dashArray : undefined,
         }}
       />
+      {/* Invisible hit path. Deliberately independent of the visible stroke
+          width: thinning the wire must not make a route harder to grab for
+          selection or endpoint reattachment. */}
       <path
         d={edgePath}
         fill="none"
