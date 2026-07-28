@@ -21,6 +21,18 @@ No aggregation across currencies is ever shown as a single number. Nothing chang
 
 ---
 
+## Overview
+
+**Who it is for.** Any backend user of any `DataTable` list — the driving case is a sales operator on `/backend/sales/orders` who has filtered to a channel and date range and needs the total value of that selection.
+
+**What it adds.** Three composable pieces, each behind an opt-in: a `<tfoot>` in the shared `DataTable` (presentational), a generic aggregation capability on the query engine surfaced through a `summary` mode on any CRUD list route (data), and a per-column header menu whose choice persists in the user's Perspective (interaction).
+
+**What it deliberately is not.** Not FX conversion (no as-of rates — mixed currencies are grouped, never merged), not in-body grouping/pivot rows, not aggregation of encrypted or custom-field values, and not an orders-specific feature: the orders list is the first consumer of a generic capability, not the place the logic lives.
+
+**Why it is shaped this way.** The two things that make a totals footer non-trivial are correctness and cost. Correctness means the whole filtered set (not the page), deduplicated base rows (joins can multiply), and per-currency grouping. Cost means a tenant with millions of orders who never asks for a total pays nothing — hence opt-in per column, and a separate non-blocking request rather than extra work on every list load.
+
+---
+
 ## Problem Statement
 
 `DataTable` (used by every backend list page) has **no way to show a column total**. The only footer mechanism today is the `:footer` **widget-injection spot** (`packages/ui/src/backend/DataTable.tsx` ~L1364, rendered ~L3260), which renders a free-form `div` **below** the table and **cannot align a sum under its column**. There is no `<tfoot>`, no aggregation model, and no server endpoint that returns a total for a filtered list.
@@ -66,6 +78,8 @@ Phase B2 (interaction)      per-column header menu → Perspective `aggregations
 
 Each layer is independently valuable and independently mergeable. Phase A has no backend dependency; B1 delivers the real feature for orders; B2 makes it interactive and sticky and — because B1 is generic — lights up for every aggregatable column on every list at once.
 
+**Scope decision (maintainer):** the three phases ship as **separate PRs**, not one. Phase A is PR #3972 plus the example/e2e addition and is a prerequisite for B1's footer rendering. B1 is the core capability and is acceptance-complete on its own (opt-in toggle, no header menu, no persistence). B2 is deferable without blocking B1 — if it slips, B1 still ships usable totals. They stay in **one spec** because they share a single contract (the `aggregate` engine option, the `summary` wire shape, and the column `meta` convention): splitting the document would force those decisions to be made in B1 and re-litigated in B2. One spec, three PRs.
+
 ### Phase A — presentational footer + example (PR #3972 hardening)
 
 PR #3972 already adds the native `<tfoot>`: `DataTable` renders `table.getFooterGroups()` through the `TableFooter` primitive (`packages/ui/src/primitives/table.tsx` L79) whenever at least one merged column defines a TanStack `footer` (`ReactNode` or `(ctx) => ReactNode`); no footer ⇒ no `<tfoot>` (backward compatible). Footer cells mirror header/body layout (bulk-selection leading spacer, `responsiveClass`, sticky-first-column treatment, trailing actions spacer).
@@ -81,21 +95,26 @@ PR #3972 already adds the native `<tfoot>`: `DataTable` renders `table.getFooter
 
 The generic `QueryEngine` contract (`packages/shared/src/lib/query/types.ts`) today exposes only `query(entity, opts): Promise<QueryResult>` — paginated find, no aggregation. `BasicQueryEngine` (`packages/shared/src/lib/query/engine.ts`) already builds a **companion count query** (clears select/orderBy, selects `count(*)` / `count(distinct id)`, ~L896–923) to fill `QueryResult.total`. We extend the **same** builder to optionally compute aggregates over the identical filtered/scoped/joined set:
 
-- Add an optional field to `QueryOptions`:
+- Add an optional field to `QueryOptions`. **Grouping is per-field, not global** — a request routinely mixes money fields (which must group by currency) with `count` (which must not); a single top-level `groupBy` would return one count per currency and make the footer's single count cell ambiguous:
   ```ts
   aggregate?: {
-    fields: Array<{ field: string; fn: 'sum' | 'avg' | 'min' | 'max' | 'count' }>
-    groupBy?: string        // e.g. currency column, for currency-safe totals
+    fields: Array<{
+      field: string
+      fn: 'sum' | 'avg' | 'min' | 'max' | 'count'
+      groupBy?: string      // e.g. currency column; omit for currency-agnostic aggregates
+      alias?: string        // defaults to `${field}:${fn}`
+    }>
   }
   ```
-- Add an optional block to `QueryResult`:
+- Add an optional block to `QueryResult`. Fields sharing a `groupBy` are merged into one group set; ungrouped fields land in a single `groupKey: null` entry:
   ```ts
   aggregates?: {
-    groups: Array<{ groupKey: string | null; values: Record<string, number> }>
+    groups: Array<{ groupBy: string | null; groupKey: string | null; values: Record<string, number> }>
   }
   ```
-- `BasicQueryEngine` derives an aggregate builder from the full query (same filters, joins, tenant/org scope) selecting `COALESCE(SUM(col::numeric),0)` etc. (mirroring the dashboards `buildAggregateExpression`, `packages/core/src/modules/dashboards/lib/aggregations.ts` L32) plus an optional `GROUP BY groupBy`. `count` maps to the existing distinct/plain count logic.
-- `HybridQueryEngine` forwards `aggregate` to the underlying engine (custom-field/search-decorated path unaffected — aggregatable fields are plain base columns; see Risks).
+- `BasicQueryEngine` derives an aggregate builder from the full query (same filters, joins, tenant/org scope) selecting `COALESCE(SUM(col::numeric),0)` etc. (mirroring the dashboards `buildAggregateExpression`, `packages/core/src/modules/dashboards/lib/aggregations.ts` L32). Distinct `groupBy` values require distinct `GROUP BY` clauses, so the engine emits **one aggregate query per distinct `groupBy`** (in practice one or two) rather than attempting a single query.
+- **Deduplication invariant (correctness-critical).** Aggregates MUST be computed over **deduplicated base rows**. The engine already recognises that joins can multiply base rows and switches its count to `count(distinct base.id)` under exactly that condition (`packages/shared/src/lib/query/engine.ts` L908–918: `hasJoinedAggregates || opts.joins?.length || opts.customFieldSources?.length`). `SUM`/`AVG` applied naively to the same builder would count a €100 order once per matching join row. When that condition holds, the aggregate MUST run over a base-id-deduplicated relation (group-by-`base.id` subquery / CTE, then aggregate the outer relation) rather than the joined builder directly. `SUM(DISTINCT col)` is **not** an acceptable substitute — two different orders may legitimately have equal amounts. `MIN`/`MAX` are duplication-safe; `COUNT` reuses the existing distinct logic. The exact SQL construction is left to implementation; the invariant and its test are not.
+- `HybridQueryEngine` forwards `aggregate` to the underlying engine (custom-field/search-decorated path unaffected — aggregatable fields are plain base columns; see Risks). Note this does **not** exempt the invariant above: the aggregated *column* is a plain base column, but the *filter* may still join custom fields or extensions and multiply rows.
 
 This is an **additive** change to a STABLE contract surface (new optional option + new optional result field); existing callers are unaffected. See [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md).
 
@@ -104,20 +123,24 @@ This is an **additive** change to a STABLE contract surface (new optional option
 `makeCrudRoute` (`packages/shared/src/lib/crud/factory.ts`) gains an opt-in **summary request mode** so any CRUD list can serve aggregates using the exact same filter parsing it already uses (guaranteeing filter parity):
 
 - Request: the existing list route with `summary=1` and an aggregation spec, e.g.
-  `GET /api/sales/orders?<existing filters>&summary=grandTotalNetAmount:sum,grandTotalGrossAmount:sum&summaryGroupBy=currencyCode`
-- When `summary=1`, the handler **skips item hydration/enrichment** and returns only the aggregate envelope — it is a lightweight, standalone request the client fires **in parallel** with (and independently of) the page request, so list latency is never coupled to aggregate latency:
+  `GET /api/sales/orders?<existing filters>&summary=grandTotalNetAmount:sum:currencyCode,grandTotalGrossAmount:sum:currencyCode,id:count`
+
+  Each `summary` entry is `<field>:<fn>[:<groupBy>]`. The optional third segment carries the per-field grouping (see B1.1); omitting it requests an ungrouped aggregate. There is no `summaryGroupBy` param — a single global grouping cannot express "money per currency, count once".
+- When `summary` is present, the handler **skips item hydration/enrichment** and returns only the aggregate envelope — it is a lightweight, standalone request the client fires **in parallel** with (and independently of) the page request, so list latency is never coupled to aggregate latency:
   ```jsonc
   {
     "summary": {
       "groups": [
-        { "currency": "EUR", "values": { "grandTotalNetAmount": 12340.50, "grandTotalGrossAmount": 14000.00 } },
-        { "currency": "USD", "values": { "grandTotalNetAmount": 4100.00,  "grandTotalGrossAmount": 4520.00 } }
+        { "groupBy": "currencyCode", "groupKey": "EUR", "values": { "grandTotalNetAmount:sum": 12340.50, "grandTotalGrossAmount:sum": 14000.00 } },
+        { "groupBy": "currencyCode", "groupKey": "USD", "values": { "grandTotalNetAmount:sum": 4100.00,  "grandTotalGrossAmount:sum": 4520.00 } },
+        { "groupBy": null,           "groupKey": null,  "values": { "id:count": 37 } }
       ]
     }
   }
   ```
-- Aggregatable fields are validated against a route-declared allow-list (only columns the route opts into); unknown/disallowed fields → 400. The summary respects the identical tenant/org scope and RBAC guard as the list (no new ACL feature).
-- Opt-in per route: a route enables it by declaring `summary: { fields: [...], groupBy?: 'currencyCode' }` in its CRUD options; `hooks.afterList` (already used by the sales factory, `packages/core/src/modules/sales/api/documents/factory.ts` ~L513) is available for routes that need a bespoke summary but the generic path covers the common case.
+  A column's footer reads the group set matching its own `meta.currencyField` (or the `groupBy: null` entry when it declares none), so a currency-agnostic `count` renders exactly once regardless of how many currencies the money columns split into.
+- Aggregatable fields **and their `groupBy` fields** are validated against a route-declared allow-list (only columns the route opts into); unknown/disallowed field, fn, or groupBy → 400. The summary respects the identical tenant/org scope and RBAC guard as the list (no new ACL feature).
+- Opt-in per route: a route enables it by declaring `summary: { fields: [{ field, fns, groupBy? }] }` in its CRUD options; `hooks.afterList` (already used by the sales factory, `packages/core/src/modules/sales/api/documents/factory.ts` ~L513) is available for routes that need a bespoke summary but the generic path covers the common case.
 
 Rejected alternative — computing the sum inside `afterList` on the **normal** list request: it either runs on every load (perf regression) or forces the client to call the list endpoint twice, re-running item hydration just to get a scalar. The standalone summary mode avoids both.
 
@@ -141,7 +164,7 @@ Only columns with `aggregatable: true` render a footer cell and (in B2) offer th
 
 #### B1.4 — Orders list consumer
 
-- `SalesOrder` already has `grand_total_net_amount` / `grand_total_gross_amount` (numeric(18,4), `sales/data/entities.ts` L451/L454) and each row a `currency` (`SalesDocumentsTable.tsx` L73/L473). The orders route declares `summary: { fields: ['grandTotalNetAmount','grandTotalGrossAmount'], groupBy: 'currencyCode' }`.
+- `SalesOrder` already has `grand_total_net_amount` / `grand_total_gross_amount` (numeric(18,4), `sales/data/entities.ts` L451/L454) and each row a `currency` (`SalesDocumentsTable.tsx` L73/L473). The orders route declares `summary: { fields: [{ field: 'grandTotalNetAmount', fns: ['sum','avg'], groupBy: 'currencyCode' }, { field: 'grandTotalGrossAmount', fns: ['sum','avg'], groupBy: 'currencyCode' }, { field: 'id', fns: ['count'] }] }`.
 - `SalesDocumentsTable` gains an **opt-in** "Show totals" affordance (Phase B1 can ship this as a simple toggle; B2 replaces it with the per-column header menu). When enabled, it fires the summary request (same filters, in parallel), and the gross/net columns declare `footer` nodes that render the returned per-currency values via the existing `formatCurrency` (`SalesDocumentsTable.tsx` L119).
 - **Footer rendering rule**:
   - single currency in the result → one clean formatted number (`€12,340.50`).
@@ -181,14 +204,14 @@ List page (SalesDocumentsTable)
         makeCrudRoute summary mode  ── reuses buildFilters + tenant/org scope + RBAC guard
                                    │
                                    ▼
-        QueryEngine.query(entity, { ...filters, aggregate: { fields, groupBy } })
+        QueryEngine.query(entity, { ...filters, aggregate: { fields: [{ field, fn, groupBy? }] } })
                                    │
                                    ▼
-        BasicQueryEngine: full filtered/scoped builder → aggregate builder
-            SELECT currency, COALESCE(SUM(grand_total_gross_amount::numeric),0) ... GROUP BY currency
+        BasicQueryEngine: full filtered/scoped builder → base-id-deduplicated relation → aggregate builder
+            (one query per distinct groupBy; grouped money + ungrouped count)
                                    │
                                    ▼
-        DataTable <tfoot>: per-column footer node renders summary.groups (currency-aware)
+        DataTable <tfoot>: per-column footer node renders the matching group set (currency-aware)
 ```
 
 ### Key touch points
@@ -207,6 +230,17 @@ List page (SalesDocumentsTable)
 
 ---
 
+## Frontend Architecture Contract
+
+- **Server/Client boundary:** unchanged. The summary handler is server (Node), inside the existing `makeCrudRoute` list route — no new route file, no new App Router page, no new provider or bootstrap scope. Every touched UI file is already a client component.
+- **`"use client"` ledger:** no new entries. `DataTable.tsx` and `SalesDocumentsTable.tsx` are already `"use client"`; the footer cells, the B2 header menu, and the summary fetch live inside them. If implementation extracts a new component (e.g. `ColumnAggregationMenu`), it is client and presentational, and this ledger must be updated in the same PR.
+- **Client-blob guardrail:** no new dependency enters the list bundle. Footers reuse the existing `TableFooter` primitive, the header menu reuses the existing `DropdownMenu`, and money rendering reuses `formatCurrency`/`formatMoney`. No charting or formatting library is added.
+- **Budgets / evidence:** **N/A for route/bundle/RAM budgets** — no new route, no new dependency, and the added client code is a footer row plus a dropdown on an already-heavy shared component. Evidence required at implementation time is the narrower thing that can actually regress: (a) `build:app` output shows no material bundle delta on the orders route, and (b) the orders list p50 is unchanged when no aggregation is active (the default path fires no summary request at all).
+- **Request ownership & lifecycle (design decision, not an implementation detail):** the summary request is owned by the table, keyed by the same filter/scope state as the page request, and is **generation-guarded** — each dispatch carries a monotonically increasing token (or an `AbortController` retained per key) and a response whose token is stale is **discarded, not rendered**. Without this, narrowing a filter while a slow aggregate is in flight lets the older, wider total overwrite the newer one and silently display a wrong number that never self-corrects. While a summary request is in flight for a changed filter set, the footer renders a loading state rather than the previous value.
+- **Hydration/interactivity tests:** unit coverage that the footer renders only for `aggregatable` columns and that a stale-token response does not overwrite a newer one; e2e that the footer hydrates with real values, updates on filter change, and (B2) that header-menu toggling and sort-on-header-click remain independently operable.
+
+---
+
 ## Data Models
 
 No new entities. No database migration.
@@ -219,10 +253,31 @@ No new entities. No database migration.
 
 ## API Contracts
 
-- **Additive query param on existing CRUD list routes** (opt-in per route): `summary=<field>:<fn>,...` and optional `summaryGroupBy=<field>`. Returns `{ summary: { groups: Array<{ currency?: string|null, values: Record<string, number> }> } }` and omits `items`. Same auth/tenant/org scope and RBAC as the list.
+- **Additive query param on existing CRUD list routes** (opt-in per route): `summary=<field>:<fn>[:<groupBy>],...`. Returns `{ summary: { groups: Array<{ groupBy: string|null, groupKey: string|null, values: Record<string, number> }> } }` and omits `items`. Same auth/tenant/org scope and RBAC as the list. Disallowed field/fn/groupBy → 400.
 - No new standalone endpoint, no new ACL feature, no new event.
 - Response envelope of the normal list request is **unchanged** (still `items/total/page/pageSize/totalPages/meta?`).
-- Contract-surface classification (per `BACKWARD_COMPATIBILITY.md`): all additions are **ADDITIVE-ONLY** (new optional query param; new optional `QueryOptions`/`QueryResult` fields; new optional `PerspectiveSettings` key; new optional column `meta`). No FROZEN surface is touched; no deprecation protocol required.
+
+---
+
+## Migration & Backward Compatibility
+
+Required by [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md) §5 for any spec touching a contract surface.
+
+| Contract surface | Change | Classification | Impact on third-party modules |
+|---|---|---|---|
+| `QueryOptions` (STABLE type) | new optional `aggregate` field | **ADDITIVE-ONLY** | None. Existing callers omit it; engines that ignore it return no `aggregates`. |
+| `QueryResult` (STABLE type) | new optional `aggregates` block | **ADDITIVE-ONLY** | None. Consumers destructuring known keys are unaffected. |
+| `QueryEngine` interface | no signature change (option/result carry the capability) | **UNCHANGED** | None. Third-party engine implementations that ignore `aggregate` stay compilable and correct — a route requesting a summary from such an engine gets no `aggregates` and the footer renders empty rather than wrong. |
+| CRUD list route query params | new optional `summary` param, opt-in per route | **ADDITIVE-ONLY** | None. Routes that do not declare `summary` reject it as an unknown param exactly as today. |
+| CRUD list response envelope | unchanged for normal requests | **UNCHANGED** | None. |
+| `makeCrudRoute` options | new optional `summary` declaration | **ADDITIVE-ONLY** | None. |
+| `PerspectiveSettings` (validated Zod schema) | new optional `aggregations` key | **ADDITIVE-ONLY** | None. `settings_json` is untyped JSON; rows written before this change simply lack the key and load as "no aggregations". |
+| DataTable column `meta` | new optional `aggregatable`/`aggregations`/`aggregationField`/`currencyField` keys | **ADDITIVE-ONLY** | None. `meta` is an open bag; columns without the keys behave exactly as today. |
+| `TableFooter` / `<tfoot>` rendering | dormant unless a column defines `footer` | **ADDITIVE-ONLY** | None. Tables with no footer column render no `<tfoot>` (Phase A guarantee). |
+
+- **No FROZEN surface is touched.** No removal, rename, or signature change anywhere; the deprecation protocol (`@deprecated` + bridge + `UPGRADE_NOTES.md`) is therefore **not required** and no `UPGRADE_NOTES.md` entry is needed.
+- **No database migration.** No new entity, column, or index-bearing schema change is introduced by the contract; the index verification in Data Models is an operational check on existing filter columns, not a migration shipped by this spec.
+- **Forward migration path:** if FX conversion (explicit non-goal) is added later, it extends `aggregate.fields[]` with an optional target-currency field — additive again, and the per-field `groupBy` shape chosen in B1.1 accommodates it without a breaking rewrite.
 
 ---
 
@@ -239,37 +294,75 @@ No new entities. No database migration.
 | R7 | New per-header dropdown is the first of its kind — UX/regression risk in a heavily-used primitive | Medium | UI | Isolate in B2; dormant unless a column is `aggregatable`; keep header click-to-sort behavior intact; unit + e2e | — |
 | R8 | Footer must stay aligned with sticky first column, bulk-select spacer, actions column, virtualization | Medium | UI | Reuse #3972's footer layout that already mirrors header/body spacers and sticky shadows | — |
 | R9 | Coexistence with the existing `:footer` injection spot (rendered outside `<table>`) | Low | UI | Independent surfaces; both can render; documented | — |
+| R10 | Row-multiplying joins inflate `SUM`/`AVG` — filtering on a multi-valued custom field or an extension join makes a €100 order contribute once per join row, silently overstating the total | High | Correctness | Dedup invariant in B1.1: aggregate over a base-id-deduplicated relation whenever the engine's existing `mayMultiplyBaseRows` condition holds (`engine.ts` L908–918); regression test filters by a multi-valued CF and asserts the sum is unchanged | Invariant is enforced by test, not by the type system — a future join source added without extending the condition could reintroduce it |
+| R11 | A stale in-flight summary response overwrites a newer one, showing a total that does not match the visible filters and never self-corrects | High | Correctness / UI | Generation-guarded request ownership (Frontend Architecture Contract); stale-token responses discarded; loading state while a changed filter set is in flight | — |
 
 ---
 
 ## Test Plan
 
 - **Phase A**: unit (renders `<tfoot>` when a column defines `footer`; renders none otherwise — already in #3972) + **new self-contained e2e** on an example page (footer present, aligned under the right column, absent when no footer column).
-- **Phase B1**: engine unit tests (`sum/avg/min/max/count`, `groupBy` currency, tenant/org scope applied, filter parity with the list); route test (summary mode reuses filters, rejects disallowed fields with 400, omits items); **orders e2e** (≥2 currencies fixture, enable totals, per-currency sums correct, updates on filter change). Fixtures created via API in setup and cleaned up in teardown (`.ai/qa/AGENTS.md`).
-- **Phase B2**: header-menu unit test (toggle sets aggregation, only on aggregatable columns); perspective round-trip test (save → reload → footer persists); **e2e** enabling "Sum" from the menu and asserting persistence across reload.
+- **Phase B1**: engine unit tests (`sum/avg/min/max/count`, per-field `groupBy`, tenant/org scope applied, filter parity with the list); route test (summary mode reuses filters, rejects disallowed field/fn/groupBy with 400, omits items); **orders e2e** (≥2 currencies fixture, enable totals, per-currency sums correct, updates on filter change). Fixtures created via API in setup and cleaned up in teardown (`.ai/qa/AGENTS.md`).
+  - **Required regression — join multiplication (R10)**: a fixture where the filtered set joins a row-multiplying source (a multi-valued custom field, an `includeExtensions` join, and an explicit `joins` entry — one case each). Assert `SUM` equals the hand-computed per-order total, **not** a multiple of it, and that the same query's `total` and `count` agree with it. This test must fail against a naive aggregate applied to the joined builder.
+  - **Required regression — mixed grouping (B1.2)**: one request combining currency-grouped money fields with an ungrouped `count`; assert the count appears exactly once with `groupBy: null` and is not duplicated per currency.
+- **Phase B2**: header-menu unit test (toggle sets aggregation, only on aggregatable columns); perspective round-trip test (save → reload → footer persists); **stale-response test (R11)** — dispatch two summary requests, resolve them out of order, assert the older response is discarded; **e2e** enabling "Sum" from the menu and asserting persistence across reload.
 
 Integration coverage for every affected API path and key UI path is enumerated per phase above (spec requirement).
 
 ---
+
+## Resolved Decisions
+
+4. **Currency of "count"** — **Resolved**: grouping is **per-field**, not per-request (B1.1). Currency-agnostic aggregates omit `groupBy` and return a single `groupBy: null` group, so `count` renders once regardless of how many currencies the money columns split into. A single global `groupBy` was rejected precisely because it cannot express this.
 
 ## Open Questions
 
 1. **Header-menu ambition** — ship a minimal aggregation-only menu (recommended) or the general per-column menu (sort/hide/pin/aggregate) in the same PR? Default: minimal, built to extend.
 2. **B1 opt-in affordance** — a simple "Show totals" toggle in B1 (replaced by the header menu in B2), or wait and land the header menu directly? Default: simple toggle in B1 so B1 is demoable without B2.
 3. **Line-item count total** — also expose `lineItemCount` as an aggregatable (`sum`) column on orders? Default: yes, cheap.
-4. **Currency of "count"** — `count` is currency-agnostic; render it once (not per-currency) even when other columns group by currency. Confirm rendering.
 5. **Role-default aggregations** (`RolePerspective`) — deferred; confirm out of scope.
+
+These remaining questions are **UI-affordance and scope choices that do not change any contract**; each has a stated default and none blocks starting B1.
 
 ---
 
 ## Final Compliance Report
 
-- **Backward compatibility**: all changes ADDITIVE-ONLY (optional query param, optional engine option/result fields, optional `PerspectiveSettings` key, optional column meta). No FROZEN/STABLE surface removed or changed. No migration.
-- **Tenant safety**: aggregates run through the same tenant/org-scoped, RBAC-guarded builder as the list; no new cross-tenant surface.
-- **DS compliance**: footer uses the existing `TableFooter` primitive + `bg-background`/sticky shadow tokens (no hardcoded colors, no arbitrary sizes); header menu uses the existing `DropdownMenu` primitive.
-- **i18n**: new user-facing strings ("Show totals", "Sum", "Average", "Count", "Total", multi-currency hint) routed through `useT()` / locale files; internal errors prefixed `[internal]`.
-- **HTTP/UI**: summary fetch uses `apiCall`; any perspective write uses the existing `useGuardedMutation` path (optimistic locking already handled by the perspectives module).
-- **Performance**: opt-in + separate non-blocking request + index verification; default cost for non-users is zero.
+**Reviewed**: 2026-07-28.
+
+**`AGENTS.md` files reviewed** (via the root Task Router rows matching this task — DataTable/CrudForm UI, query engine, CRUD routes, perspectives, testing, spec conventions):
+
+- [`AGENTS.md`](../../AGENTS.md) (root — Architecture, Data & Security, UI & HTTP, Code Quality, Design System, Backward Compatibility)
+- [`packages/shared/AGENTS.md`](../../packages/shared/AGENTS.md) (query/data engine types, i18n, request scoping)
+- [`packages/ui/AGENTS.md`](../../packages/ui/AGENTS.md) + [`packages/ui/src/backend/AGENTS.md`](../../packages/ui/src/backend/AGENTS.md) (DataTable guidelines, `apiCall`, loading/error states)
+- [`packages/core/AGENTS.md`](../../packages/core/AGENTS.md) (API routes, `makeCrudRoute`, query engine integration, access control)
+- [`packages/core/src/modules/sales/AGENTS.md`](../../packages/core/src/modules/sales/AGENTS.md) (orders list consumer)
+- [`.ai/specs/AGENTS.md`](./AGENTS.md) (spec structure and content checklist)
+- [`.ai/qa/AGENTS.md`](../qa/AGENTS.md) (integration coverage, self-contained fixtures)
+- [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md) (contract-surface classification, §5 spec requirement)
+- [`.ai/ds-rules.md`](../ds-rules.md) (tokens, no arbitrary values)
+
+| Rule / requirement | Source | Status | Evidence |
+|---|---|---|---|
+| Spec includes TLDR, Overview, Problem, Solution, Architecture, Data Models, API Contracts, Risks, Final Compliance Report, Changelog | `.ai/specs/AGENTS.md:91` | Compliant | All ten sections present; `## Overview` added in this revision (it was the one missing heading) |
+| Migration & Backward Compatibility section for contract-touching specs | `BACKWARD_COMPATIBILITY.md:11` (§5) | Compliant | Dedicated section with per-surface classification table |
+| Contract changes classified; deprecation protocol where needed | `BACKWARD_COMPATIBILITY.md` | Compliant | All ADDITIVE-ONLY / UNCHANGED; no FROZEN surface touched ⇒ protocol N/A |
+| Frontend Architecture Contract for UI/client-boundary work | om-spec-writing heuristic #9 | Compliant | Dedicated section; boundary map + ledger + guardrail + request lifecycle; route/bundle/RAM budgets marked N/A with reason (no new route or dependency) |
+| Risks document failure scenario, severity, area, mitigation, residual | `.ai/specs/AGENTS.md` | Compliant | R1–R11, incl. R10 join multiplication and R11 stale response |
+| Integration coverage for every affected API path and key UI path, shipped in the same change | root `AGENTS.md` → Documentation and Specifications; `.ai/qa/AGENTS.md` | Compliant | Test Plan enumerates per phase; R10/R11 regressions are named as required |
+| Integration tests self-contained (API fixtures, cleaned up in teardown) | `.ai/qa/AGENTS.md` | Compliant | Test Plan, Phase B1 |
+| Tenant/org scoping on all queries; no cross-tenant exposure | root `AGENTS.md` → Architecture | Compliant | Aggregates reuse the list's scoped, RBAC-guarded builder; no new ACL feature |
+| No direct cross-module ORM relationships | root `AGENTS.md` → Architecture | Compliant | No new entity or relation; sales consumes the generic route capability |
+| `apiCall` not raw `fetch`; guarded mutations | root `AGENTS.md` → UI & HTTP | Compliant | Summary fetch via `apiCall`; perspective write via existing `useGuardedMutation` path |
+| No hardcoded user-facing strings | root `AGENTS.md` → UI & HTTP | Compliant | "Show totals", "Sum", "Average", "Count", "Total", multi-currency hint via `useT()`/locale files; internal errors prefixed `[internal]` |
+| DS tokens only; no hardcoded status colors or arbitrary values | `.ai/ds-rules.md` | Compliant | Existing `TableFooter` + `bg-background`/sticky shadow tokens; existing `DropdownMenu` primitive |
+| No `any`; zod-validated inputs | root `AGENTS.md` → Data & Security, Code Quality | Compliant | Summary params zod-parsed against the route allow-list; `aggregate`/`aggregates` typed |
+| No database migration introduced without generator workflow | root `AGENTS.md` → Data & Security | N/A | No schema change; index verification is operational, not a shipped migration |
+| Optimistic locking on new user-editable entities | root `AGENTS.md` → Always | N/A | No new entity; perspective writes already covered by the perspectives module |
+
+**Internal consistency check**: passed. The per-field `groupBy` shape is stated identically in B1.1 (engine option), B1.2 (wire param + envelope), B1.4 (orders declaration), the Architecture data-flow diagram, the API Contracts section, and Resolved Decision #4. The dedup invariant appears in B1.1 and is carried into R10 and the Test Plan. The scope decision (one spec, three PRs) is stated in the Layering overview and reflected in the phase-scoped Test Plan.
+
+**Non-compliant items**: none. Three open questions remain (header-menu ambition, B1 opt-in affordance, line-item count), all UI-affordance/scope choices with stated defaults that touch no contract surface and do not block B1.
 
 ---
 
@@ -278,3 +371,4 @@ Integration coverage for every affected API path and key UI path is enumerated p
 | Date | Change |
 |------|--------|
 | 2026-07-24 | Initial spec — layered plan (A: primitive + example/e2e; B1: generic server-side currency-aware aggregation + orders consumer; B2: header menu + Perspective persistence). Open questions pending. |
+| 2026-07-28 | Revision after automated review on PR #4455. Added the base-row deduplication invariant for `SUM`/`AVG` over row-multiplying joins (R10 + required regression test). Moved aggregate grouping from a single global `groupBy` to **per-field** `groupBy`, resolving the mixed money/count ambiguity (Open Question #4) and updating the engine option, wire param, response envelope, orders declaration, and data-flow diagram. Added the Frontend Architecture Contract, including generation-guarded summary-request ownership to prevent stale responses overwriting newer totals (R11 + test). Added the required Migration & Backward Compatibility section with a per-surface classification table. Made the phase-scope decision explicit (one spec, three independently mergeable PRs; B2 deferable). Expanded the Final Compliance Report into a dated rule/status/evidence matrix with reviewed `AGENTS.md` list, internal-consistency result, and non-compliant items. Added the missing `## Overview` section required by the spec content checklist. |
