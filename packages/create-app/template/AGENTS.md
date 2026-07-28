@@ -68,7 +68,7 @@ Match every work-unit row; OPEN its skill before selection.
 |---|---|---|
 | `architecture` | Explain/choose module, UMES, package, eject | architecture; `om-help` for an unresolved or comparative choice across these mechanisms |
 | `module-data` | Business slice or multi-seam domain/API/command fix | MUST load `om-module-scaffold` + its exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key, which resolves units inside the slice, not ownership — an ownership/capability outline adds `architecture` |
-| `spec-pr` | Spec or plan in safe working stages | Axis 3 skill; deployable phases |
+| `spec-pr` | Working spec/plan | Axis 3; phases+integration coverage=`integration-coverage` |
 | `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts`/`package.json` |
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |
 | `module-data` | Entity/link/validator/migration/encryption/lock/transaction | `om-data-model-design` + contracts |

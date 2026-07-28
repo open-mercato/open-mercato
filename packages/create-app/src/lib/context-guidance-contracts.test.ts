@@ -281,6 +281,11 @@ test('business one-shot route keys remain binding for installed-module links', (
   assert.match(blueprints, /every unparenthesized route letter and its skill/)
 })
 
+test('spec routing binds integration coverage to its decision label', () => {
+  const root = readAgentic('shared/AGENTS.md.template')
+  assert.match(root, /integration coverage=`integration-coverage`/)
+})
+
 test('complete one-shot modules cannot skip core module procedures for specialist skills', () => {
   const skill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
   assert.match(skill, /complete one-shot module or CRUD vertical slice/)
