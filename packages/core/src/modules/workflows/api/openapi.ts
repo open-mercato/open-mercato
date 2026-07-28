@@ -93,6 +93,82 @@ export const userTaskClaimResponseSchema = z.object({
   message: z.string(),
 })
 
+// ============================================================================
+// Work Inbox (spec §6.2/§6.3 — one queue over every registered source)
+// ============================================================================
+
+export const workInboxPrioritySchema = z.enum(['extreme', 'high', 'medium', 'low'])
+
+export const workInboxEntityBindingSchema = z.object({
+  entityType: z.string(),
+  entityId: z.string(),
+  label: z.string().nullable().optional(),
+})
+
+export const workInboxActionSchema = z.object({
+  id: z.string(),
+  labelKey: z.string(),
+  endpoint: z.string(),
+  appliesTo: z.enum(['claimable', 'claimed-by-me', 'open', 'always']),
+})
+
+/**
+ * Passthrough on purpose: a row carries its source's own payload alongside the
+ * common projection, so a `user_task` row is a superset of a
+ * `GET /api/workflows/tasks` row (that is what keeps `proposalId` reachable).
+ */
+export const workInboxRowSchema = z
+  .object({
+    id: z.string(),
+    kind: z.string().describe('Source discriminator — user_task, agent_disposition, …'),
+    moduleId: z.string(),
+    title: z.string(),
+    description: z.string().nullable(),
+    status: z.string(),
+    priority: workInboxPrioritySchema.nullable(),
+    dueDate: z.string().nullable(),
+    overdue: z.boolean().describe('Derived: past due and not finished'),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    assignedTo: z.string().nullable(),
+    assignedToRoles: z.array(z.string()).nullable(),
+    claimedBy: z.string().nullable(),
+    entityTypes: z.array(z.string()),
+    entityBindings: z.array(workInboxEntityBindingSchema),
+    detailHref: z.string().nullable(),
+    actions: z.array(workInboxActionSchema),
+  })
+  .passthrough()
+
+export const workInboxListQuerySchema = z.object({
+  kind: z.string().optional().describe('Filter by source kind (comma-separated)'),
+  module: z.string().optional().describe('Filter by owning module id (comma-separated)'),
+  entityType: z.string().optional().describe('Filter by bound entity type (comma-separated)'),
+  role: z.string().optional().describe('Filter by queued role (comma-separated)'),
+  priority: z.string().optional().describe('Filter by priority (comma-separated: extreme,high,medium,low)'),
+  status: z.string().optional().describe('Filter by status (comma-separated)'),
+  overdue: z.coerce.boolean().optional().describe('Only items past their due date'),
+  myWork: z.coerce.boolean().optional().describe('Only items assigned to, claimed by, or queued to a role of the caller'),
+  assignedTo: z.string().optional().describe('Filter by assignee'),
+  workflowInstanceId: z.string().uuid().optional().describe('Filter by workflow instance'),
+  limit: z.coerce.number().min(1).max(100).optional().default(50).describe('Number of results (max 100)'),
+  offset: z.coerce.number().min(0).optional().default(0).describe('Pagination offset'),
+})
+
+export const workInboxListResponseSchema = z.object({
+  data: z.array(workInboxRowSchema),
+  pagination: paginationSchema,
+  meta: z.object({
+    kinds: z.array(z.string()).describe('Source kinds that answered this request'),
+    degradedKinds: z.array(z.string()).describe('Source kinds that failed; their work is missing from this page'),
+  }),
+})
+
+export const workInboxClaimNextResponseSchema = z.object({
+  data: workInboxRowSchema.nullable().describe('The claimed item, or null when nothing was claimable'),
+  message: z.string(),
+})
+
 export const completeTaskRequestSchema = z.object({
   formData: z.record(z.string(), z.unknown()).describe('Form field values'),
   comments: z.string().optional().describe('Optional comments'),

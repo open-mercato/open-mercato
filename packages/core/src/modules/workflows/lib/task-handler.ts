@@ -296,13 +296,22 @@ export async function completeUserTask(
  * Claim a user task from a role queue
  *
  * Allows a user to claim a task that's assigned to their role(s).
- * Prevents race conditions by checking task status.
+ *
+ * The claim itself is a COMPARE-AND-SET, not a read-then-write: the lookup
+ * below only decides which error to report, while the row is taken with a
+ * conditional `UPDATE … WHERE status = 'PENDING' AND claimed_by IS NULL`. Two
+ * callers racing for the same task — which is exactly what the work inbox's
+ * claim-next affordance produces — therefore cannot both win; the loser sees
+ * zero affected rows and the same `TASK_NOT_FOUND` it would have seen a moment
+ * later. Reading the status and flushing the entity afterwards would have let
+ * both transactions read `PENDING` and both write.
  *
  * @param em - Entity manager
  * @param taskId - Task ID to claim
  * @param userId - User claiming the task
- * @param scope - Tenant/organization the caller acts within; the lookup filters
- *   on it, so a task belonging to another tenant is never reachable
+ * @param scope - Tenant/organization the caller acts within; both the lookup and
+ *   the conditional update filter on it, so a task belonging to another tenant
+ *   is never reachable and never writable
  * @throws UserTaskError if task cannot be claimed
  */
 export async function claimUserTask(
@@ -342,8 +351,35 @@ export async function claimUserTask(
     )
   }
 
-  // Update task
   const now = new Date()
+  const claimed = await em.nativeUpdate(
+    UserTask,
+    {
+      id: taskId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      status: 'PENDING',
+      claimedBy: null,
+    },
+    {
+      claimedBy: userId,
+      claimedAt: now,
+      status: 'IN_PROGRESS',
+      updatedAt: now,
+    },
+  )
+
+  if (claimed === 0) {
+    throw new UserTaskError(
+      'Task not found or already claimed',
+      'TASK_NOT_FOUND',
+      { taskId }
+    )
+  }
+
+  // The conditional update above already wrote the row; mirroring it onto the
+  // managed entity keeps the caller's identity-mapped copy from reporting the
+  // pre-claim state back to the client.
   task.claimedBy = userId
   task.claimedAt = now
   task.status = 'IN_PROGRESS'

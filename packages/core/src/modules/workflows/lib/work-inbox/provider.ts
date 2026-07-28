@@ -281,3 +281,18 @@ export function compareWorkInboxRows(left: WorkInboxRow, right: WorkInboxRow): n
 export function sortWorkInboxRows(rows: WorkInboxRow[]): WorkInboxRow[] {
   return [...rows].sort(compareWorkInboxRows)
 }
+
+/**
+ * Flatten a row for the wire: the provider payload first, the common projection
+ * on top. Spreading `details` UNDER the common fields is what makes a
+ * `user_task` row a strict superset of the row `GET /api/workflows/tasks`
+ * already returns — the enterprise "Review proposal" row action reads
+ * `row.proposalId`, which lives only in the provider payload, and the common
+ * fields still win wherever both define a key.
+ */
+export type WorkInboxWireRow = Omit<WorkInboxRow, 'details'> & Record<string, unknown>
+
+export function serializeWorkInboxRow(row: WorkInboxRow): WorkInboxWireRow {
+  const { details, ...common } = row
+  return { ...details, ...common }
+}
