@@ -45,6 +45,7 @@ import {
 } from '../../../lib/editor-annotations'
 import { WORKFLOW_GROUP_TOGGLE_EVENT } from '../../../lib/annotation-events'
 import { AnnotationEditDialog } from '../../../components/AnnotationEditDialog'
+import { WorkflowCodeView } from '../../../components/WorkflowCodeView'
 import { WorkflowIconPicker } from '../../../components/WorkflowIconPicker'
 import { WorkflowCommandPalette } from '../../../components/WorkflowCommandPalette'
 import { buildWorkflowEditorCommands, type WorkflowEditorCommand } from '../../../lib/editor-commands'
@@ -124,7 +125,7 @@ import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Command, Group, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Code, Command, Group, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
 import { useSidebarCollapse } from '@open-mercato/ui/backend/AppShell'
@@ -369,6 +370,9 @@ export default function VisualEditorPage() {
   // Problems panel it is the complete non-pointer authoring path, so every
   // mutating action the toolbar offers is reachable through it.
   const [showCommandPalette, setShowCommandPalette] = useState(false)
+  // Code view, stage 1 (spec §2.2): the assembled definition JSON read-only,
+  // beside the same structured issue list the Problems panel renders.
+  const [showCodeView, setShowCodeView] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [showTemplateGallery, setShowTemplateGallery] = useState(false)
   const [problems, setProblems] = useState<WorkflowValidationIssue[]>([])
@@ -1521,8 +1525,10 @@ export default function VisualEditorPage() {
     [t],
   )
 
-  // Validate workflow — collect every graph and schema issue into the problems panel
-  const handleValidate = useCallback(() => {
+  // Collect every graph and schema issue for the current document. Shared by the
+  // explicit Validate action and the Code view's JSON-schema validation display
+  // (spec §2.2), so both surfaces can never disagree about what is wrong.
+  const evaluateWorkflowIssues = useCallback((): WorkflowValidationIssue[] => {
     const graphErrors = validateWorkflowGraph(nodes, edges)
     let zodIssues: ZodIssueLike[] = []
     let configWarnings: ZodIssueLike[] = []
@@ -1564,6 +1570,12 @@ export default function VisualEditorPage() {
         message: t('workflows.visualEditor.problems.schemaValidationFailed', 'Schema validation failed: {message}', { message: schemaFailureMessage }),
       })
     }
+    return issues
+  }, [nodes, edges, triggers, contextSchema, definitionIo, interpolation, errorHandler, triggerPayloadContracts, translateIssue, t])
+
+  // Validate workflow — collect every graph and schema issue into the problems panel
+  const handleValidate = useCallback(() => {
+    const issues = evaluateWorkflowIssues()
     setProblems(issues)
 
     if (issues.length === 0) {
@@ -1578,7 +1590,52 @@ export default function VisualEditorPage() {
         errors > 0 ? 'error' : 'warning',
       )
     }
-  }, [nodes, edges, triggers, contextSchema, definitionIo, interpolation, errorHandler, triggerPayloadContracts, translateIssue, t])
+  }, [evaluateWorkflowIssues, t])
+
+  // Code view, stage 1 (spec §2.2). The JSON is assembled through the same
+  // builders Save uses, so what an author reads is exactly what is persisted;
+  // it is only computed while the panel is open.
+  const codeViewJson = useMemo(() => {
+    if (!showCodeView) return ''
+    try {
+      const definitionData = buildDefinitionPayload({
+        graphDefinition: graphToDefinition(nodes, edges, { includePositions: true }),
+        triggers,
+        contextSchema,
+        io: definitionIo,
+        interpolation,
+        errorHandler,
+      })
+      return JSON.stringify(definitionData, null, 2)
+    } catch (error) {
+      return t(
+        'workflows.visualEditor.codeView.assemblyFailed',
+        'The definition could not be assembled: {message}',
+        { message: error instanceof Error ? error.message : String(error) },
+      )
+    }
+  }, [showCodeView, nodes, edges, triggers, contextSchema, definitionIo, interpolation, errorHandler, t])
+
+  const codeViewIssues = useMemo(
+    () => (showCodeView ? evaluateWorkflowIssues() : []),
+    [showCodeView, evaluateWorkflowIssues],
+  )
+
+  const handleCopyDefinitionJson = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(codeViewJson)
+      flash(t('workflows.visualEditor.codeView.copied', 'Definition JSON copied'), 'success')
+    } catch (error) {
+      logger.warn('Workflow definition JSON copy was blocked by the browser', { err: error })
+      flash(
+        t(
+          'workflows.visualEditor.codeView.copyUnavailable',
+          'The browser blocked clipboard access, so nothing was copied — select the JSON and copy it manually.',
+        ),
+        'warning',
+      )
+    }
+  }, [codeViewJson, t])
 
   // Focus the offending node or edge on the canvas when a problem row is clicked
   const handleProblemClick = useCallback((issue: WorkflowValidationIssue) => {
@@ -1849,6 +1906,7 @@ export default function VisualEditorPage() {
       toggleMetadata: t('workflows.commandPalette.toggleMetadata', 'Toggle the workflow details panel'),
       toggleFocus: t('workflows.commandPalette.toggleFocus', 'Toggle focus mode'),
       toggleProblems: t('workflows.commandPalette.toggleProblems', 'Toggle the Problems panel'),
+      toggleCodeView: t('workflows.commandPalette.toggleCodeView', 'Toggle the Code view'),
       validate: t('workflows.visualEditor.validate'),
       runTest: t('workflows.actions.startInstance'),
       save: t('workflows.common.save'),
@@ -1869,6 +1927,7 @@ export default function VisualEditorPage() {
       toggleMetadata: () => setShowMetadata((visible) => !visible),
       toggleFocus,
       toggleProblems: () => setShowProblems((visible) => !visible),
+      toggleCodeView: () => setShowCodeView((visible) => !visible),
       validate: handleValidate,
       runTest: () => setStartOpen(true),
       save: () => { void handleSave() },
@@ -1896,7 +1955,7 @@ export default function VisualEditorPage() {
       const active = document.activeElement as HTMLElement | null
       const tag = (active?.tagName || '').toLowerCase()
       const isEditing = tag === 'input' || tag === 'textarea' || tag === 'select' || !!active?.isContentEditable
-      const isDialogOpen = showNodeDialog || showEdgeDialog || showAnnotationDialog || showClearConfirm || startOpen
+      const isDialogOpen = showNodeDialog || showEdgeDialog || showAnnotationDialog || showClearConfirm || startOpen || showCodeView
       const isCommandKey = (event.metaKey || event.ctrlKey) && !event.altKey
 
       if (isCommandKey && (event.key === 'k' || event.key === 'K')) {
@@ -1963,7 +2022,7 @@ export default function VisualEditorPage() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [
     isMobile, focusMode, showNodeDialog, showEdgeDialog, showAnnotationDialog, showClearConfirm, startOpen,
-    showCommandPalette, toggleFocus, setFocusMode, handleUndo, handleRedo, handleCopySelection, handlePaste,
+    showCodeView, showCommandPalette, toggleFocus, setFocusMode, handleUndo, handleRedo, handleCopySelection, handlePaste,
     handleDuplicateSelection, openSelectedInspector, handleDeleteSelection, handleNudge,
   ])
 
@@ -2376,6 +2435,16 @@ export default function VisualEditorPage() {
         onOpenChange={setShowCommandPalette}
         commands={commandPaletteCommands}
       />
+      <WorkflowCodeView
+        isOpen={showCodeView}
+        onClose={() => setShowCodeView(false)}
+        definitionJson={codeViewJson}
+        issues={codeViewIssues}
+        onCopy={() => { void handleCopyDefinitionJson() }}
+        onPasteSubgraph={() => { void handlePaste() }}
+        canPaste={!isCodeOnly}
+        onIssueClick={handleProblemClick}
+      />
       <AnnotationEditDialog
         node={selectedAnnotation}
         isOpen={showAnnotationDialog}
@@ -2713,6 +2782,19 @@ export default function VisualEditorPage() {
               >
                 <CircleQuestionMark className="mr-1.5 h-4 w-4" />
                 {t('workflows.visualEditor.validate')}
+              </Button>
+              {/* Code view (spec §2.2): read-only definition JSON plus the
+                  schema-validation display — the retirement precondition for
+                  the form editor. */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCodeView(true)}
+                className="h-8 px-2 text-xs"
+                aria-label={t('workflows.visualEditor.codeView.open', 'Show the definition JSON')}
+              >
+                <Code className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                {t('workflows.visualEditor.codeView.title', 'Code')}
               </Button>
               {definitionId && (
                 <Button

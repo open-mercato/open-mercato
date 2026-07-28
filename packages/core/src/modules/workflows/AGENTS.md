@@ -271,6 +271,25 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   in-page buffer and says so; paste reads that buffer. It is never a silent no-op — the reason is
   always surfaced.
 
+## Code View (stage 1 — read-only)
+
+- `components/WorkflowCodeView.tsx` is the Phase 3 stage of spec §2.2: **read-only view + copy/paste
+  of subgraphs + JSON-schema validation display**. Two-way live sync is Phase 5 — nothing in this
+  panel edits, and the canvas stays the source of truth.
+- **The JSON is the save payload, not a re-serialization.** It is assembled through the same
+  `graphToDefinition` + `buildDefinitionPayload` pair `handleSave` uses, so what an author reads is
+  byte-for-byte what a Save would persist. It is only computed while the drawer is open.
+- **Paste reuses the canvas clipboard format** (`lib/subgraph-clipboard.ts`) through the page's own
+  `handlePaste`, so a fragment copied from the canvas and a fragment copied out of the Code view are
+  the same payload, an unknown payload is refused with the same message, and the paste is ONE undo
+  entry. The Copy button copies the WHOLE definition JSON — the document, not a fragment.
+- **The issue list is the Problems panel's list.** Both call the page's `evaluateWorkflowIssues`
+  (graph errors + `workflowDefinitionDataSchema` + activity-config and context-ref warnings through
+  `collectValidationIssues`), so the two surfaces can never disagree about what is wrong. Severity
+  pairs its DS token with an icon AND an `sr-only` name, per the §4.6 colour-only rule.
+- The view is reachable from the toolbar and from the Cmd+K palette (`view.toggleCodeView`); while it
+  is open the canvas keyboard bindings are suppressed exactly as they are for a dialog.
+
 ## Editor Annotations (sticky notes · groups)
 
 - **Annotations are documentation and NEVER execution semantics.** `lib/editor-annotations.ts`
