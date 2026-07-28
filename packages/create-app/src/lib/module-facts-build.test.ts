@@ -46,6 +46,30 @@ test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {
   }
 })
 
+test('every emitted module fact is exercised by the evaluation catalog', () => {
+  ensureBuilt()
+  const moduleGuidesDir = join(guidesDir, 'modules')
+  const cases = JSON.parse(fs.readFileSync(
+    join(pkgRoot, 'dist', 'agentic', 'shared', 'ai', 'harness', 'cases.json'),
+    'utf8',
+  )) as Array<{
+    owner: { path: string }
+    context: { required: string[]; allowedExtra?: string[] }
+  }>
+  const catalogReferences = new Set(cases.flatMap((caseRecord) => [
+    caseRecord.owner.path,
+    ...caseRecord.context.required,
+    ...(caseRecord.context.allowedExtra ?? []),
+  ]))
+  const uncovered = fs.readdirSync(moduleGuidesDir)
+    .filter((filename) => filename.endsWith('.md'))
+    .map((filename) => `.ai/guides/modules/${filename}`)
+    .filter((guide) => !catalogReferences.has(guide))
+    .sort()
+
+  assert.deepEqual(uncovered, [], `module facts without an evaluation case:\n${uncovered.join('\n')}`)
+})
+
 test('build no longer emits legacy core.<module>.md redirect stubs (#3754)', () => {
   ensureBuilt()
   for (const moduleId of D5_MODULES) {

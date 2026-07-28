@@ -14,19 +14,23 @@ const sourceEvaluator = path.join(sharedRoot, 'scripts', 'evaluate-agent-harness
 const sourceExecutionSandbox = path.join(sharedRoot, 'scripts', 'execution-sandbox.mjs')
 const sourceToolServer = path.join(sharedRoot, 'scripts', 'agent-harness-tool-server.mjs')
 const sourceFixturePreparer = path.join(sharedRoot, 'scripts', 'prepare-agent-harness-fixture.mjs')
+const sourceFrameworkContext = path.join(sharedRoot, 'scripts', 'framework-context.mjs')
 const typescriptPackageRoot = path.dirname(fileURLToPath(import.meta.resolve('typescript-standalone/package.json')))
 const targetSandboxAvailable = process.platform === 'darwin'
   || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
 
 type HarnessCase = {
   id: string
+  title: string
   mode: string
   evaluationKind: string
   owner: { ruleIds: string[] }
   context: { required: string[]; allowedExtra?: string[] }
   validators: string[]
+  decisionVocabulary?: string[]
   requiredDecisions?: string[]
   allowedWrites?: string[]
+  frameworkContext?: Array<{ module?: string; package?: string; query: string }>
   oracle?: { expectedArtifacts?: string[] }
   fixture?: unknown
   timeoutMs?: number
@@ -82,6 +86,7 @@ function stageApp(): string {
   fs.copyFileSync(sourceExecutionSandbox, path.join(root, 'scripts', 'execution-sandbox.mjs'))
   fs.copyFileSync(sourceToolServer, path.join(root, 'scripts', 'agent-harness-tool-server.mjs'))
   fs.copyFileSync(sourceFixturePreparer, path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'))
+  fs.copyFileSync(sourceFrameworkContext, path.join(root, 'scripts', 'framework-context.mjs'))
   fs.mkdirSync(path.join(root, 'node_modules'))
   fs.mkdirSync(path.join(root, 'src'), { recursive: true })
   fs.writeFileSync(path.join(root, 'src', 'modules.ts'), 'export const enabledModules = []\n')
@@ -245,7 +250,7 @@ test('the catalog count and release coverage are derived from the validator regi
     }
   }
   const casesSchema = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.schema.json'), 'utf8')) as {
-    items: { properties: { maxInitialContextBytes: { maximum: number } } }
+    items: { properties: { id: { pattern: string }; maxInitialContextBytes: { maximum: number } } }
   }
   const matrix = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'release-matrix.json'), 'utf8')) as {
     routing: { required: { caseIds: string }; portability: { caseIds: string[] }; runners: Record<string, { modelSelector: string }> }
@@ -256,7 +261,11 @@ test('the catalog count and release coverage are derived from the validator regi
   }
   assert.equal(cases.length, validators.catalog.expectedCaseCount)
   assert.equal(casesSchema.items.properties.maxInitialContextBytes.maximum, validators.catalog.maxInitialContextBytes)
-  assert.deepEqual(cases.map((entry) => entry.id), Array.from({ length: cases.length }, (_, index) => `OMH-${String(index + 1).padStart(3, '0')}`))
+  const expectedCaseIds = Array.from({ length: cases.length }, (_, index) => `OMH-${String(index + 1).padStart(3, '0')}`)
+  const caseIdPattern = new RegExp(casesSchema.items.properties.id.pattern)
+  assert.deepEqual(cases.map((entry) => entry.id), expectedCaseIds)
+  assert.ok(expectedCaseIds.every((id) => caseIdPattern.test(id)), 'case schema must admit every expected ID')
+  assert.ok(['OMH-000', `OMH-${String(cases.length + 1).padStart(3, '0')}`, 'OMH-0010'].every((id) => !caseIdPattern.test(id)), 'case schema must reject IDs outside the catalog range')
   assert.deepEqual(cases.filter((entry) => entry.fixture).map((entry) => entry.id), validators.catalog.writableCaseIds)
   assert.deepEqual(matrix.routing.portability.caseIds, validators.catalog.writableCaseIds)
   assert.equal(matrix.routing.required.caseIds, 'all')
@@ -297,6 +306,7 @@ test('the catalog count and release coverage are derived from the validator regi
   const compatibilityPath = '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const auditedInitialContextFloors = [
+    ['OMH-070', 7, 44_179],
     ['OMH-080', 12, 69_892],
     ['OMH-111', 10, 58_162],
     ['OMH-169', 10, 57_825],
@@ -363,6 +373,39 @@ test('deterministic evaluation passes every concrete catalog case in an emitted-
     const expected = JSON.parse(fs.readFileSync(path.join(root, '.ai', 'harness', 'cases.json'), 'utf8')).length
     assert.match(result.stdout, new RegExp(`Deterministic: ${expected}/${expected} selected cases passed`))
     assert.equal((result.stdout.match(/^PASS OMH-/gm) ?? []).length, expected)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('deterministic evaluation enforces the case schema through OMH-187', () => {
+  const root = stageApp()
+  try {
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
+    assert.equal(cases.at(-1)?.id, 'OMH-187')
+    cases[0].title = 'x'.repeat(181)
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /cases schema: \$\[0\]\.title exceeds maxLength 180/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('catalog validation requires contrastive decision vocabularies to contain every mandatory label', () => {
+  const root = stageApp()
+  try {
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
+    cases[0].decisionVocabulary = ['facts-first', 'unrelated-distractor']
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /decisionVocabulary must include every required decision/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -487,6 +530,130 @@ test('fixture preparer safely seeds one writable case and refuses reuse', () => 
     })
     assert.equal(nested.status, 2)
     assert.match(nested.stderr, /outside the controller app/)
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
+test('writable evaluation materializes and admits bounded installed framework context', { skip: !targetSandboxAvailable }, () => {
+  const controller = stageApp()
+  const target = stageWritableTarget(controller)
+  const corePackageRoot = path.join(controller, 'node_modules', '@open-mercato', 'core')
+  const sharedPackageRoot = path.join(controller, 'node_modules', '@open-mercato', 'shared')
+  const coreMaterializedRoot = '.ai/framework-context/open-mercato-core@1.0.0'
+  const sharedMaterializedRoot = '.ai/framework-context/open-mercato-shared@2.0.0'
+  const coreManifest = `${coreMaterializedRoot}/manifest.json`
+  const coreSearch = `${coreMaterializedRoot}/search.txt`
+  const coreUsage = `${coreMaterializedRoot}/source/workflows/contracts.ts`
+  const sharedManifest = `${sharedMaterializedRoot}/manifest.json`
+  const sharedSearch = `${sharedMaterializedRoot}/search.txt`
+  const installedContract = `${sharedMaterializedRoot}/source/package/modules/workflows/types.ts`
+  try {
+    fs.cpSync(path.join(controller, 'AGENTS.md'), path.join(target, 'AGENTS.md'))
+    fs.cpSync(path.join(controller, '.ai', 'guides'), path.join(target, '.ai', 'guides'), { recursive: true })
+    fs.cpSync(path.join(controller, '.ai', 'skills'), path.join(target, '.ai', 'skills'), { recursive: true })
+    fs.mkdirSync(path.join(target, '.ai', 'guides', 'modules'), { recursive: true })
+    fs.writeFileSync(path.join(target, '.ai', 'guides', 'modules', 'workflows.md'), '# Workflows\nUse installed workflow contracts.\n')
+    fs.mkdirSync(path.join(corePackageRoot, 'src', 'modules', 'workflows'), { recursive: true })
+    fs.writeFileSync(path.join(corePackageRoot, 'package.json'), JSON.stringify({
+      name: '@open-mercato/core',
+      version: '1.0.0',
+    }))
+    fs.writeFileSync(path.join(corePackageRoot, 'AGENTS.md'), '# Core package\nKeep installed contracts read-only.\n')
+    fs.writeFileSync(
+      path.join(corePackageRoot, 'src', 'modules', 'workflows', 'contracts.ts'),
+      "import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'\n",
+    )
+    fs.mkdirSync(path.join(sharedPackageRoot, 'src', 'modules', 'workflows'), { recursive: true })
+    fs.writeFileSync(path.join(sharedPackageRoot, 'package.json'), JSON.stringify({
+      name: '@open-mercato/shared',
+      version: '2.0.0',
+    }))
+    fs.writeFileSync(path.join(sharedPackageRoot, 'AGENTS.md'), '# Shared package\nPreserve public type contracts.\n')
+    fs.writeFileSync(
+      path.join(sharedPackageRoot, 'src', 'modules', 'workflows', 'types.ts'),
+      'export interface CodeWorkflowDefinition { workflowId: string }\n',
+    )
+    fs.writeFileSync(path.join(target, 'package.json'), JSON.stringify({
+      name: 'framework-context-writable-fixture',
+      private: true,
+      dependencies: { '@open-mercato/core': '1.0.0', '@open-mercato/shared': '2.0.0' },
+    }))
+    fs.writeFileSync(
+      path.join(target, 'src', 'modules.ts'),
+      "export const enabledModules = [{ id: 'workflows', from: '@open-mercato/core' }]\n",
+    )
+    const prepared = spawnSync(process.execPath, [
+      path.join(controller, 'scripts', 'prepare-agent-harness-fixture.mjs'),
+      '--case', 'OMH-054', '--target', target, '--acknowledge-writes',
+    ], { cwd: controller, encoding: 'utf8' })
+    assert.equal(prepared.status, 0, `${prepared.stdout}\n${prepared.stderr}`)
+
+    const bin = installFakeRunner(controller, 'codex', `
+const fs = require('node:fs')
+const path = require('node:path')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const prompt = fs.readFileSync(0, 'utf8')
+const requiredContext = ${JSON.stringify([coreManifest, coreSearch, coreUsage, sharedManifest, sharedSearch, installedContract])}
+const promptEvidence = ${JSON.stringify([
+  coreManifest,
+  coreSearch,
+  `${coreMaterializedRoot}/source/workflows`,
+  sharedManifest,
+  sharedSearch,
+  `${sharedMaterializedRoot}/source/package`,
+])}
+if (!prompt.includes('controller has already materialized bounded read-only installed-package evidence')
+  || !promptEvidence.every((entry) => prompt.includes(entry))
+  || !args.some((entry) => entry.includes(${JSON.stringify(`${coreMaterializedRoot}/**`)}))
+  || !args.some((entry) => entry.includes(${JSON.stringify(`${sharedMaterializedRoot}/**`)}))) process.exit(10)
+for (const entry of requiredContext) {
+  const content = fs.readFileSync(path.join(process.cwd(), entry), 'utf8')
+  if (content.includes('node_modules') || content.includes(${JSON.stringify(controller)})) process.exit(11)
+}
+const route = path.join(process.cwd(), 'src/modules/automation/workflows/call-api.ts')
+fs.writeFileSync(route, \`
+export type CallApiInput = { url: string; idempotencyKey: string }
+export type CallApiEffects = {
+  reserveIdempotency(key: string): Promise<string>
+  transaction<T>(work: () => Promise<T>): Promise<T>
+  post(url: string, options: { idempotencyKey: string }): Promise<unknown>
+}
+export const activityType = 'CALL_API'
+export async function sendCallApi(url: string, key: string, fetchImpl = fetch) {
+  return fetchImpl(url, { headers: { 'Idempotency-Key': key } })
+}
+export async function callApiActivity(input: CallApiInput, effects: CallApiEffects) {
+  const key = await effects.reserveIdempotency(input.idempotencyKey)
+  return effects.transaction(() => effects.post(input.url, { idempotencyKey: key }))
+}
+\`)
+const selectedContext = [
+  'AGENTS.md', '.ai/guides/ai-workflows.md', '.ai/skills/om-build-workflow/SKILL.md',
+  '.ai/guides/modules/workflows.md', ...requiredContext,
+]
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['ai-workflow'], selectedSkills: ['om-build-workflow'],
+  selectedContext, decisions: ['idempotency-outside-rollback', 'call-api'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat ' + selectedContext.join(' ') } }))
+`)
+    fs.writeFileSync(path.join(bin, 'yarn'), '#!/usr/bin/env node\nprocess.exit(process.argv[2] === "typecheck" ? 0 : 9)\n')
+    fs.chmodSync(path.join(bin, 'yarn'), 0o755)
+    const run = runEvaluator(controller, [
+      '--runner', 'codex', '--case', 'OMH-054', '--writable-root', target, '--acknowledge-writes',
+    ], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(controller), null, 2)}`)
+    const [stored] = storedResults(controller)
+    assert.ok(stored.actualContext.paths.includes(installedContract))
+    assert.ok(stored.selectedContext.includes(coreManifest))
+    assert.ok(stored.selectedContext.includes(sharedManifest))
+    assert.ok(stored.selectedContext.includes(sharedSearch))
   } finally {
     fs.rmSync(controller, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })
@@ -1862,6 +2029,35 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
     assert.ok(stored.violations.includes('standard context .ai/guides/testing-debugging.md requires route debugging or testing'))
     assert.ok(!stored.violations.includes('unexpected context .ai/guides/testing-debugging.md'))
     assert.ok(!stored.violations.includes('unsafe arbitrary app-root read .ai/guides/testing-debugging.md'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('routing rejects an offered but unmandated contrastive decision', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+  const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
+  cases[0].decisionVocabulary = [...(cases[0].requiredDecisions ?? []), 'framework-package-edit']
+  fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first', 'framework-package-edit'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md .ai/guides/architecture.md' } }))
+`)
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+    assert.ok(storedResults(root)[0].violations.includes('unmandated decision framework-package-edit'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

@@ -1921,7 +1921,8 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/extensions.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md"
       ],
       "forbidden": [
         ".env*",
@@ -1929,9 +1930,16 @@
         "node_modules/**"
       ]
     },
+    "decisionVocabulary": [
+      "scoped-enricher",
+      "batched-enrichment",
+      "dotted-runtime-target-entity",
+      "colon-form-target-entity"
+    ],
     "requiredDecisions": [
       "scoped-enricher",
-      "batched-enrichment"
+      "batched-enrichment",
+      "dotted-runtime-target-entity"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -4206,7 +4214,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a CALL_API activity whose idempotency key survives transaction rollback. Preserve the seeded callApiActivity(input, effects) seam and reserve input.idempotencyKey through effects.reserveIdempotency before entering effects.transaction; send that reserved key through effects.post on every retry. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a CALL_API activity whose idempotency key survives transaction rollback. Use the controller-prepared installed workflows contract instead of probing node_modules. Preserve the seeded callApiActivity(input, effects) seam and reserve input.idempotencyKey through effects.reserveIdempotency before entering effects.transaction; send that reserved key through effects.post on every retry. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "ai-workflow",
       "idempotency-outside-rollback"
@@ -4292,6 +4300,16 @@
     },
     "allowedWrites": [
       "src/modules/automation/**"
+    ],
+    "frameworkContext": [
+      {
+        "module": "workflows",
+        "query": "CodeWorkflowDefinition"
+      },
+      {
+        "package": "@open-mercato/shared",
+        "query": "interface CodeWorkflowDefinition"
+      }
     ]
   },
   {
@@ -5572,8 +5590,8 @@
       "oracle.artifacts",
       "oracle.regression.cursor"
     ],
-    "maxContextFiles": 6,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 7,
+    "maxInitialContextBytes": 45056,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-069"
@@ -6156,7 +6174,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "For a standalone service-management module that needs entities, validators, commands, APIs, backend and public pages, page middleware, UI locales, ACL/setup/DI/encryption, search, vector config, analytics, dashboard widgets, typed events, async and sync query subscribers, workers, workflows, progress, notification definitions/renderers/reactive handlers, messages and inbox actions, widgets, command/API interceptors, response/query enrichers, guards, AI tools, MFA provider and sudo-target contributions, integration metadata, generator plugins, CLI, translatable fields, and tests, map each named capability to the current canonical discovery or support surface. For AI, explicitly choose typed defineAiTool versus low-level registerMcpTool/OpenCode Code Mode, including Zod/moduleId/requiredFeatures/serializable results, installed ai_assistant facts, per-request MCP/RBAC, two-tier auth, and ask-first config/session changes. Distinguish generator discovery from imported support files; reject retired flat pages, HTTP-method API directories, data/fields.ts, and unnecessary placeholders; include generation and focused verification.",
+    "prompt": "For a standalone service-management module that needs entities, validators, commands, APIs, backend and public pages, page middleware, UI locales, ACL/setup/DI/encryption, search, vector config, analytics, dashboard widgets, typed events, async and sync query subscribers, workers, workflows, progress, notification definitions/renderers/reactive handlers, messages and inbox actions, widgets, command/API interceptors, response/query enrichers, guards, AI tools, MFA provider and sudo-target contributions, integration metadata, generator plugins, CLI, translatable fields, and tests, map each named capability to the current canonical discovery or support surface. Include the installed facts for API keys, configs, dictionaries, Stripe gateway, perspectives, record locks, resources, SSO, S3 storage, Akeneo sync, Excel sync, and system-status overlays so none of those capabilities is rebuilt unnecessarily. For AI, explicitly choose typed defineAiTool versus low-level registerMcpTool/OpenCode Code Mode, including Zod/moduleId/requiredFeatures/serializable results, installed ai_assistant facts, per-request MCP/RBAC, two-tier auth, and ask-first config/session changes. Distinguish generator discovery from imported support files; reject retired flat pages, HTTP-method API directories, data/fields.ts, and unnecessary placeholders; include generation and focused verification.",
     "tags": ["module", "discovery", "surface-catalog", "architecture"],
     "owner": {
       "kind": "skill",
@@ -6171,7 +6189,11 @@
         "AGENTS.md", ".ai/guides/architecture.md", ".ai/guides/contracts.md", ".ai/guides/ai-workflows.md",
         ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
         ".ai/skills/om-create-ai-agent/SKILL.md", ".ai/skills/om-create-ai-agent/references/surface-selector.md",
-        ".ai/guides/modules/ai_assistant.md"
+        ".ai/guides/modules/ai_assistant.md",
+        ".ai/guides/modules/api_keys.md", ".ai/guides/modules/configs.md", ".ai/guides/modules/dictionaries.md",
+        ".ai/guides/modules/gateway_stripe.md", ".ai/guides/modules/perspectives.md", ".ai/guides/modules/record_locks.md",
+        ".ai/guides/modules/resources.md", ".ai/guides/modules/sso.md", ".ai/guides/modules/storage_s3.md",
+        ".ai/guides/modules/sync_akeneo.md", ".ai/guides/modules/sync_excel.md", ".ai/guides/modules/system_status_overlays.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-framework-context/SKILL.md",
