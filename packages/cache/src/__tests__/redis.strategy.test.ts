@@ -43,6 +43,39 @@ class FakeRedis {
     return [...(this.sets.get(key) ?? [])]
   }
 
+  /**
+   * Mirrors the reap script's KEYS/ARGV contract rather than interpreting Lua —
+   * there is no Lua runtime here, and pulling one in for a single script is not
+   * worth the dependency. What this pins down is the strategy's side of the
+   * contract (key ordering, the tag/value split, member alignment, chunking)
+   * and the exists-guarded semantics. The script *body* is not covered; verify
+   * it against a real Redis when changing it.
+   */
+  async eval(_script: string, numKeys: number, ...args: (string | number)[]): Promise<number> {
+    const keys = args.slice(0, numKeys) as string[]
+    const argv = args.slice(numKeys).map(String)
+    const tagCount = Number(argv[0])
+    const tagKeys = keys.slice(0, tagCount)
+    const valueKeys = keys.slice(tagCount)
+    const members = argv.slice(1)
+
+    if (valueKeys.length !== members.length) {
+      throw new Error(`[internal] eval contract: ${valueKeys.length} value keys vs ${members.length} members`)
+    }
+
+    let removed = 0
+    for (const [index, valueKey] of valueKeys.entries()) {
+      if (this.values.has(valueKey)) continue
+      for (const tagKey of tagKeys) {
+        const set = this.sets.get(tagKey)
+        if (!set?.delete(members[index])) continue
+        removed++
+        if (set.size === 0) this.sets.delete(tagKey)
+      }
+    }
+    return removed
+  }
+
   pipeline() {
     const ops: PipelineOp[] = []
     const chain = {
@@ -152,6 +185,47 @@ describe('redis strategy tag index', () => {
     expect(deleted).toBe(1)
     expect(await currentRedis.smembers('tag:rbac:tenant:t1')).toEqual([])
     expect(await strategy.get('live')).toBeNull()
+  })
+
+  it('keeps a key indexed when a concurrent write rebuilds it mid-walk', async () => {
+    await strategy.set('nav:user-1', { v: 'old' }, { ttl: 60_000, tags: ['rbac:tenant:t1'] })
+    currentRedis.expire('cache:nav:user-1')
+
+    // deleteByTags walks members one round trip at a time, so an entry it read
+    // as missing can be rebuilt before the reap runs. Land that write in the
+    // window by hooking the GET that reports the key absent.
+    const readValue = currentRedis.get.bind(currentRedis)
+    let rebuilt = false
+    currentRedis.get = async (key: string) => {
+      const result = await readValue(key)
+      if (!rebuilt && key === 'cache:nav:user-1' && result === null) {
+        rebuilt = true
+        await strategy.set('nav:user-1', { v: 'fresh' }, { ttl: 60_000, tags: ['rbac:tenant:t1'] })
+      }
+      return result
+    }
+
+    await strategy.deleteByTags(['rbac:tenant:t1'])
+    currentRedis.get = readValue
+
+    // The rebuilt entry must stay in the index, or it silently outlives every
+    // future invalidation of this tag and serves stale data until its TTL.
+    expect(await currentRedis.smembers('tag:rbac:tenant:t1')).toEqual(['nav:user-1'])
+    expect(await strategy.deleteByTags(['rbac:tenant:t1'])).toBe(1)
+    expect(await strategy.get('nav:user-1')).toBeNull()
+  })
+
+  it('reaps orphans spanning multiple chunks', async () => {
+    const keyCount = 600 // REAP_CHUNK_SIZE is 256, so this spans three chunks.
+    for (let index = 0; index < keyCount; index++) {
+      const key = `bulk-${index}`
+      await strategy.set(key, { index }, { ttl: 60_000, tags: ['rbac:tenant:t1'] })
+      currentRedis.expire(`cache:${key}`)
+    }
+    expect((await currentRedis.smembers('tag:rbac:tenant:t1')).length).toBe(keyCount)
+
+    expect(await strategy.deleteByTags(['rbac:tenant:t1'])).toBe(0)
+    expect(await currentRedis.smembers('tag:rbac:tenant:t1')).toEqual([])
   })
 
   it('only reaps orphans from the tags it was asked to invalidate', async () => {

@@ -21,6 +21,7 @@ type RedisClient = {
   exists(key: string): Promise<number>
   keys(pattern: string): Promise<string[]>
   smembers(key: string): Promise<string[]>
+  eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>
   pipeline(): RedisPipeline
   quit(): Promise<void>
   once?(event: 'end', listener: () => void): void
@@ -30,6 +31,37 @@ type RedisConstructor = new (url?: string) => RedisClient
 type PossibleRedisModule = unknown
 
 type RequireFn = (id: string) => unknown
+
+/**
+ * Reaps orphaned tag members atomically.
+ *
+ * `KEYS` is `[...tagKeys, ...valueKeys]`, split at `ARGV[1]` (the tag count);
+ * `ARGV[2..]` are the member names aligned with the value-key half. Every key
+ * the script touches is declared in `KEYS` so the script stays valid if this
+ * ever runs against a slot-aware deployment.
+ *
+ * The `EXISTS` check and the `SREM`s run in one atomic step, which is the whole
+ * point: a member may only be dropped while its value key is genuinely absent.
+ * A concurrent `set()` either lands first (`EXISTS` is 1, so the member is left
+ * alone) or lands after (its own `sadd` re-adds the member). Either ordering
+ * leaves a live key indexed.
+ */
+const REAP_ORPHANED_TAG_MEMBERS = `
+local tagCount = tonumber(ARGV[1])
+local removed = 0
+for i = tagCount + 1, #KEYS do
+  local member = ARGV[i - tagCount + 1]
+  if redis.call('EXISTS', KEYS[i]) == 0 then
+    for t = 1, tagCount do
+      removed = removed + redis.call('SREM', KEYS[t], member)
+    end
+  end
+end
+return removed
+`
+
+/** Bounds both the script's blocking time on the server and the request size. */
+const REAP_CHUNK_SIZE = 256
 
 /**
  * Redis cache strategy with tag support
@@ -338,13 +370,19 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     // value keys rather than tag sets. Nothing else reaps them, so the sets grow
     // without bound whenever TTL'd entries also rotate their key names — and
     // every later invalidation pays a GET per orphan. Reap what we just walked.
+    //
+    // `deleteKey` reported these missing some time ago — the walk above is one
+    // round trip per member — so a concurrent request may have rebuilt any of
+    // them since. Re-check each value key atomically with the removal rather
+    // than trusting that stale read: dropping a live key from the index would
+    // silently exempt it from every future invalidation of this tag.
     if (orphans.length > 0) {
-      const pipeline = client.pipeline()
-      for (const tag of tags) {
-        const tagKey = getTagKey(tag)
-        for (const key of orphans) pipeline.srem(tagKey, key)
+      const tagKeys = tags.map(getTagKey)
+      for (let offset = 0; offset < orphans.length; offset += REAP_CHUNK_SIZE) {
+        const chunk = orphans.slice(offset, offset + REAP_CHUNK_SIZE)
+        const keys = [...tagKeys, ...chunk.map(getCacheKey)]
+        await client.eval(REAP_ORPHANED_TAG_MEMBERS, keys.length, ...keys, String(tagKeys.length), ...chunk)
       }
-      await pipeline.exec()
     }
 
     return deleted
