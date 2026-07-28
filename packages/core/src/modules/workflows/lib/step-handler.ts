@@ -19,6 +19,7 @@ import {
   type StepInstanceStatus,
   type WorkflowStepType,
 } from '../data/entities'
+import { emitWorkflowsEvent } from '../events'
 import { calculateDueDate, parseDuration } from './duration'
 import {
   CONDITION_STEP_TYPE,
@@ -47,6 +48,9 @@ export interface StepExecutionContext {
   triggerData?: any
   // Populated by executeStep from the loaded definition; absent means lenient.
   interpolationMode?: WorkflowInterpolationMode
+  // Populated by executeStep from the loaded definition so task notifications
+  // can name the workflow the way its author did.
+  workflowName?: string
 }
 
 export interface StepExecutionResult {
@@ -252,6 +256,7 @@ export async function executeStep(
       {
         ...context,
         interpolationMode: resolveDefinitionInterpolationMode(definition.definition),
+        workflowName: definition.workflowName,
       },
       container,
       branch
@@ -664,6 +669,46 @@ function resolveUserTaskDeadline(stepId: string, slaDuration: string): Date {
 }
 
 /**
+ * Publish the declared `workflows.task.assigned` domain event for a freshly
+ * created task, alongside (never instead of) the internal `USER_TASK_CREATED`
+ * audit row. It carries both the individual assignee and the role queue so the
+ * notification subscriber can reach role-assigned tasks too.
+ *
+ * Delivery is at-least-once and consumers must be idempotent; a bus failure
+ * must never break workflow execution, so this is strictly best-effort.
+ */
+async function emitTaskAssignedEvent(
+  userTask: UserTask,
+  instance: WorkflowInstance,
+  context: StepExecutionContext
+): Promise<void> {
+  try {
+    await emitWorkflowsEvent(
+      'workflows.task.assigned',
+      {
+        taskId: userTask.id,
+        taskName: userTask.taskName,
+        workflowInstanceId: instance.id,
+        workflowId: instance.workflowId,
+        workflowName: context.workflowName ?? instance.workflowId,
+        assignedUserId: userTask.assignedTo ?? null,
+        assignedToRoles: userTask.assignedToRoles ?? null,
+        dueDate: userTask.dueDate ? userTask.dueDate.toISOString() : null,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId ?? null,
+      },
+      { persistent: true }
+    )
+  } catch (error) {
+    logger.error('Failed to emit workflows.task.assigned', {
+      component: 'step-handler',
+      taskId: userTask.id,
+      err: error,
+    })
+  }
+}
+
+/**
  * Handle USER_TASK step - create user task and enter waiting state
  *
  * Creates a UserTask entity and returns WAITING status.
@@ -727,6 +772,8 @@ async function handleUserTaskStep(
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
   })
+
+  await emitTaskAssignedEvent(userTask, instance, context)
 
   // Pause execution - waits for user task completion. For a branch, only the
   // branch pauses; sibling branches keep running.

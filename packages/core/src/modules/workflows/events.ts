@@ -27,6 +27,9 @@ const events = [
   { id: 'workflows.instance.paused', label: 'Workflow Paused', category: 'lifecycle' },
   { id: 'workflows.instance.resumed', label: 'Workflow Resumed', category: 'lifecycle' },
 
+  // User Task Events
+  { id: 'workflows.task.assigned', label: 'Task Assigned', entity: 'task', category: 'lifecycle' },
+
   // Activity Events
   { id: 'workflows.activity.started', label: 'Activity Started', category: 'lifecycle' },
   { id: 'workflows.activity.completed', label: 'Activity Completed', category: 'lifecycle' },

@@ -15,7 +15,7 @@
 |-------|------|-------|--------|--------|
 | 0 | 0.1 | A1: userTaskConfigSchema accepts assignedToRoles/formKey/allowedActions (roles stop being stripped on save) | done | 6d5f1ef7a |
 | 0 | 0.2 | A9: replace the naive duration parser with the shared duration util | done | addd6fb4b |
-| 0 | 0.3 | A4+A5: declare and emit task events; fix notification recipients for role-assigned tasks; fix deep links | todo | — |
+| 0 | 0.3 | A4+A5: declare and emit task events; fix notification recipients for role-assigned tasks; fix deep links | done | a35eb5416 |
 | 0 | 0.4 | A6: inbox actually sends the myTasks filter it defaults to | todo | — |
 | 0 | 0.5 | A8: task list serializer (proposalId/kind/priority to top level, response superset) | todo | — |
 | 0 | 0.6 | taskHandler DI registration + route migration off direct lib imports (module MUST #1) | todo | — |

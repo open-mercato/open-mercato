@@ -13,11 +13,11 @@ export const notificationTypes: NotificationTypeDefinition[] = [
         id: 'view',
         labelKey: 'common.view',
         variant: 'outline',
-        href: '/backend/workflows/tasks/{sourceEntityId}',
+        href: '/backend/tasks/{sourceEntityId}',
         icon: 'external-link',
       },
     ],
-    linkHref: '/backend/workflows/tasks/{sourceEntityId}',
+    linkHref: '/backend/tasks/{sourceEntityId}',
     expiresAfterHours: 168, // 7 days
   },
 ]
