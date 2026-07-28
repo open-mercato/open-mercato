@@ -684,6 +684,8 @@ const PROVIDER_ENVIRONMENT_FAILURES = [
   /\b(?:quota (?:exhausted|exceeded)|insufficient_quota)\b/i,
   /\bnot logged in\b/i,
   /\b(?:authentication|authorization) failed\b/i,
+  /\bfailed to authenticate\b/i,
+  /\b(?:oauth )?session expired\b/i,
   /\b(?:invalid|missing|expired) (?:account|credential|token|api key)\b/i,
 ]
 

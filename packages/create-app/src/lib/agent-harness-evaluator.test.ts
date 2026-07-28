@@ -1215,7 +1215,7 @@ test('live Claude classifies authentication failures as environment failures', {
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
 console.log(JSON.stringify({ type: 'system', subtype: 'init', plugins: Array.from({ length: 800 }, (_, index) => 'plugin-' + index) }))
-console.log(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'authentication failed: invalid account' }))
+console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: true, terminal_reason: 'api_error', result: 'Failed to authenticate: OAuth session expired and could not be refreshed' }))
 process.exit(1)
 `)
   try {
@@ -1225,7 +1225,7 @@ process.exit(1)
     })
     assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`)
     assert.match(result.stderr, /provider environment failure after executing 1 of 1 cases/)
-    assert.match(result.stderr, /authentication failed: invalid account/)
+    assert.match(result.stderr, /Failed to authenticate: OAuth session expired/)
     assert.doesNotMatch(result.stderr, /plugin-0/)
     assert.deepEqual(storedResults(root), [])
   } finally {
