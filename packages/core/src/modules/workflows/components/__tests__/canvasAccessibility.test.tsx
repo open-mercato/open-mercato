@@ -27,6 +27,13 @@ const ALL_STATUSES: WorkflowStatus[] = [
   'error',
 ]
 
+/**
+ * Every status EXCEPT `not_started`. `not_started` is the editor's resting
+ * state: it paints no status colour, so it makes no colour claim that needs a
+ * second cue — but it still has to announce its name.
+ */
+const RUN_STATUSES = ALL_STATUSES.filter((status) => status !== 'not_started')
+
 describe('node cards announce themselves', () => {
   it('labels the card with its type, title and status', () => {
     renderWithProviders(<WorkflowNodeCard title="Approve order" nodeType="userTask" status="failed" />)
@@ -48,18 +55,40 @@ describe('node cards announce themselves', () => {
     }
   })
 
-  it('gives every status its own icon shape alongside the token colour', () => {
+  it('gives every RUN status its own icon shape alongside the token colour', () => {
     const shapes = new Set<string>()
-    for (const status of ALL_STATUSES) {
+    for (const status of RUN_STATUSES) {
       const { container, unmount } = renderWithProviders(
         <WorkflowNodeCard title="Step" nodeType="automated" status={status} />,
       )
       const icons = Array.from(container.querySelectorAll('svg.lucide'))
-      expect(icons.length).toBeGreaterThan(0)
+      // The node-type icon plus this status's own glyph.
+      expect(icons.length).toBeGreaterThan(1)
       shapes.add(icons.map((icon) => icon.getAttribute('class')).join('|'))
       unmount()
     }
     expect(shapes.size).toBeGreaterThan(1)
+  })
+
+  it('drops the glyph for not_started, which makes no colour claim, but keeps its name', () => {
+    const { container } = renderWithProviders(
+      <WorkflowNodeCard title="Step" nodeType="automated" status="not_started" />,
+    )
+
+    // Only the node-type icon remains — an empty hollow ring on every card in
+    // the editor was a mark that meant nothing (gap 8).
+    expect(container.querySelectorAll('svg.lucide')).toHaveLength(1)
+    expect(container.querySelector('.sr-only')?.textContent?.trim()).toBe('Not started')
+  })
+
+  it('keeps the status name on a terminal pill, which has no room for a status row', () => {
+    const { container } = renderWithProviders(
+      <WorkflowNodeCard title="Start" nodeType="start" status="failed" variant="pill" />,
+    )
+
+    const pill = container.querySelector('[data-node-variant="pill"]')
+    expect(pill?.getAttribute('aria-label')).toContain('Failed')
+    expect(container.querySelector('.sr-only')?.textContent?.trim()).toBe('Failed')
   })
 
   it('gives the error badge an accessible name rather than a bare red dot', () => {

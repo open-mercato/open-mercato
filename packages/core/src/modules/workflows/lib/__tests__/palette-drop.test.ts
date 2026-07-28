@@ -9,6 +9,7 @@ import {
 } from '../palette-drag'
 import { appendActivityToRoute, insertStepOnRoute } from '../palette-drop'
 import { resolveNewNodePlacement } from '../node-placement'
+import { NODE_HEIGHT, NODE_MIN_WIDTH } from '../node-geometry'
 
 function fakeDataTransfer(initial: Record<string, string> = {}) {
   const store: Record<string, string> = { ...initial }
@@ -73,12 +74,20 @@ describe('palette drag payload (spec section 4.2)', () => {
 
 describe('drop position mapping (spec section 4.2)', () => {
   test('a drop centres the card on the cursor; a click appends after the right-most card', () => {
-    expect(resolveNewNodePlacement(nodes, { dropPosition: { x: 300, y: 400 } })).toEqual({ x: 210, y: 358 })
+    // Derived from the shared node geometry rather than restated, so a card
+    // resize never silently re-baselines this expectation.
+    expect(resolveNewNodePlacement(nodes, { dropPosition: { x: 300, y: 400 } })).toEqual({
+      x: 300 - NODE_MIN_WIDTH / 2,
+      y: 400 - NODE_HEIGHT / 2,
+    })
     expect(resolveNewNodePlacement(nodes)).toEqual({ x: 628, y: 0 })
   })
 
   test('a drop onto an occupied spot is nudged clear instead of hiding a card', () => {
-    expect(resolveNewNodePlacement(nodes, { dropPosition: { x: 300, y: 120 } })).toEqual({ x: 210, y: 210 })
+    expect(resolveNewNodePlacement(nodes, { dropPosition: { x: 300, y: 120 } })).toEqual({
+      x: 300 - NODE_MIN_WIDTH / 2,
+      y: 120 - NODE_HEIGHT / 2 + NODE_HEIGHT + 48,
+    })
   })
 })
 

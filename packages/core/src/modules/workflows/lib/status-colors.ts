@@ -79,26 +79,43 @@ export function toWorkflowStatus(status?: string): WorkflowStatus {
 export type EdgeState = 'completed' | 'pending' | 'error'
 
 /**
- * `dashArray` is part of the state, not a hard-coded stroke option: the error
- * route's longer dash pattern is a second, non-color signal, and the edge pairs
- * it with an always-visible icon+label chip so status is never color-only.
+ * `dashArray` and `strokeWidth` are part of the state, not hard-coded stroke
+ * options: the error route's longer dash pattern is a second, non-color signal,
+ * and the edge pairs it with an always-visible icon+label chip so status is
+ * never color-only.
+ *
+ * A dash has to MEAN something. Error routes use `8,4`, data-mapping links
+ * `2,3` and compensation ghosts `10,4,2,4`; `pending` — the default state every
+ * route in the editor falls back to — is therefore SOLID, so the signal is not
+ * spent on a canvas where every wire is dashed. It is also the lightest and
+ * thinnest state: a neutral wire should recede behind the cards it connects,
+ * while a state that carries meaning stays heavier.
+ *
+ * The default stroke is mixed to 70% of `--muted-foreground`, not the design
+ * mock's 55%: at this weight, 55% of a mid-grey on a near-white plane measures
+ * ~2.2:1, under the 3:1 WCAG minimum for non-text graphical objects. 70% is
+ * visually near-identical and compliant. `color-mix` keeps the value on the
+ * token, so dark mode is handled by `--muted-foreground` itself.
  */
 export const EDGE_COLORS = {
   completed: {
     stroke: 'var(--status-success-icon)',
     strokeClass: 'stroke-status-success-icon',
+    strokeWidth: 2,
     dashed: false,
     dashArray: undefined,
   },
   pending: {
-    stroke: 'var(--muted-foreground)',
+    stroke: 'color-mix(in oklab, var(--muted-foreground) 70%, transparent)',
     strokeClass: 'stroke-muted-foreground',
-    dashed: true,
-    dashArray: '5,5',
+    strokeWidth: 1.5,
+    dashed: false,
+    dashArray: undefined,
   },
   error: {
     stroke: 'var(--status-error-icon)',
     strokeClass: 'stroke-status-error-icon',
+    strokeWidth: 2,
     dashed: true,
     dashArray: '8,4',
   },

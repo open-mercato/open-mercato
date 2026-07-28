@@ -35,7 +35,12 @@ export type WorkflowRouteChipsProps = {
   onOpenSection?: (section: RouteChipSection) => void
 }
 
-const CHIP_CLASSES = 'inline-flex items-center gap-1 rounded border bg-card px-1.5 py-0.5 text-xs font-medium'
+/**
+ * The DS radius scale has no 4px step for a chip: it is either `rounded-full`
+ * (pill) or `rounded-md`. Bare `rounded` was neither, and read as a slightly
+ * squared-off box next to every other chip in the product.
+ */
+const CHIP_CLASSES = 'inline-flex items-center gap-1 rounded-md border bg-card px-1.5 py-0.5 text-xs font-medium'
 
 /**
  * WorkflowRouteChips — the condition / activity / otherwise chip row a

@@ -98,6 +98,17 @@ describe('WorkflowRouteChips', () => {
   })
 })
 
+describe('route chip radius', () => {
+  it('uses a DS radius step, never the 4px `rounded` that is on neither scale', () => {
+    const model = buildRouteChipModel({ condition: { field: 'amount', operator: '>', value: 5000 } })
+    renderWithProviders(<WorkflowRouteChips model={model} />)
+
+    const chip = screen.getAllByRole('button')[0]
+    expect(chip.className).toContain('rounded-md')
+    expect(chip.className).not.toMatch(/(?:^|\s)rounded(?:\s|$)/)
+  })
+})
+
 describe('route chip → dialog bridge', () => {
   it('announces the requested edge and section on window', () => {
     const received: RouteChipEventDetail[] = []

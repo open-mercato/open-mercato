@@ -38,6 +38,7 @@ export function StartNode({ id, data, isConnectable, selected }: NodeProps) {
         errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
+        variant="pill"
       />
 
       {/* Source Handle */}

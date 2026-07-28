@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BaseEdge, EdgeProps, EdgeLabelRenderer, getSmoothStepPath, useStore } from '@xyflow/react'
+import { BaseEdge, EdgeProps, EdgeLabelRenderer, getBezierPath, useStore } from '@xyflow/react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { WorkflowTransitionLabel } from './WorkflowTransitionLabel'
 import { WorkflowRouteChips } from './WorkflowRouteChips'
@@ -55,7 +55,7 @@ export function WorkflowTransitionEdge({
   })
   const showChips = !isErrorRoute && !chipModel.isEmpty
 
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -85,10 +85,13 @@ export function WorkflowTransitionEdge({
         aria-label={routeAriaLabel}
         style={{
           stroke: colors.stroke,
-          strokeWidth: 2,
+          strokeWidth: colors.strokeWidth,
           strokeDasharray: colors.dashed ? colors.dashArray : undefined,
         }}
       />
+      {/* Invisible hit path. Deliberately independent of the visible stroke
+          width: thinning the wire must not make a route harder to grab for
+          selection or endpoint reattachment. */}
       <path
         d={edgePath}
         fill="none"

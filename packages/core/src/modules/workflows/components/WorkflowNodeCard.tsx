@@ -3,12 +3,16 @@
 import { Check, Play, Pause, Circle, CircleAlert, ShieldMinus, XCircle, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
-import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../lib/node-type-icons'
+import { NODE_TYPE_ICONS, NODE_TYPE_ACCENTS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../lib/node-type-icons'
+import { NODE_MAX_WIDTH, NODE_MIN_WIDTH } from '../lib/node-geometry'
 
-/** Rendered node sizing. Cards size to their content between these bounds; the
- * dagre layout mirrors the same bounds when estimating per-node footprints. */
-export const NODE_MIN_WIDTH = 180
-export const NODE_MAX_WIDTH = 280
+/**
+ * Rendered node sizing. Cards size to their content between these bounds and
+ * the dagre layout reserves the same bounds; both read `lib/node-geometry`, so
+ * there is one place to change them. Re-exported here because third-party code
+ * has always imported them from this module.
+ */
+export { NODE_MIN_WIDTH, NODE_MAX_WIDTH }
 /** @deprecated kept for back-compat; prefer NODE_MIN_WIDTH/NODE_MAX_WIDTH. */
 export const NODE_WIDTH = NODE_MIN_WIDTH
 
@@ -39,6 +43,8 @@ export function requestWorkflowNodeDeletion(nodeId: string): void {
   window.dispatchEvent(new CustomEvent(WORKFLOW_NODE_DELETE_EVENT, { detail: { nodeId } }))
 }
 
+export type WorkflowNodeCardVariant = 'card' | 'pill'
+
 interface WorkflowNodeCardProps {
   title: string
   description?: string
@@ -57,6 +63,13 @@ interface WorkflowNodeCardProps {
   nodeId?: string
   /** When true (and `nodeId` is set), show the hover/selected trash button. */
   editable?: boolean
+  /**
+   * How the node presents itself. `'card'` is a step: a capped, titled card
+   * with a description. `'pill'` is a terminal (START / END): an auto-width
+   * lozenge carrying only its icon and name, so the two ends of a flow stop
+   * competing for attention with the steps between them.
+   */
+  variant?: WorkflowNodeCardVariant
 }
 
 export function WorkflowNodeCard({
@@ -70,6 +83,7 @@ export function WorkflowNodeCard({
   hasCompensation = false,
   nodeId,
   editable = false,
+  variant = 'card',
 }: WorkflowNodeCardProps) {
   const t = useT()
   // In edit mode (not_started), use white background
@@ -88,6 +102,10 @@ export function WorkflowNodeCard({
 
   const NodeTypeIcon = NODE_TYPE_ICONS[nodeType]
   const nodeTypeIconColor = NODE_TYPE_COLORS[nodeType]
+  // Type gets its own channel (the painted cap) so the card's border and
+  // background are left to speak only for run status. A selected or failing
+  // card wants its whole outline to read as one state, so the accent yields.
+  const accentClass = selected || hasError ? '' : NODE_TYPE_ACCENTS[nodeType]
   const nodeTypeLabel = NODE_TYPE_LABELS[nodeType]?.title ?? nodeType
   const showDelete = editable && !!nodeId
 
@@ -120,23 +138,16 @@ export function WorkflowNodeCard({
     { type: nodeTypeLabel, title, status: statusLabel },
   )
 
-  return (
-    <div
-      role="group"
-      aria-label={cardLabel}
-      data-node-status={status}
-      style={{ minWidth: NODE_MIN_WIDTH, maxWidth: NODE_MAX_WIDTH }}
-      className={`
-        group w-fit rounded-lg border
-        ${backgroundClass} ${borderClass}
-        transition-all duration-200 relative
-        ${
-          selected
-            ? 'ring-2 ring-primary'
-            : 'shadow-sm hover:shadow-md'
-        }
-      `}
-    >
+  // Gap 8: the status glyph is a RUN affordance. In the editor every node is
+  // `not_started`, so rendering it there put a meaningless hollow ring on every
+  // single card. The `sr-only` name stays unconditional — it is what keeps
+  // status from being colour-only (spec section 4.6).
+  const statusGlyph = isEditMode ? null : (
+    <StatusIcon className={`h-4 w-4 shrink-0 ${colors.icon}`} aria-hidden="true" />
+  )
+
+  const badges = (
+    <>
       {hasError && (
         <span
           role="status"
@@ -165,36 +176,80 @@ export function WorkflowNodeCard({
           <ShieldMinus className="h-3 w-3" aria-hidden="true" />
         </span>
       )}
+    </>
+  )
+
+  const deleteButton = showDelete ? (
+    <button
+      type="button"
+      aria-label={t('workflows.visualEditor.deleteStep', 'Delete step')}
+      className="nodrag nopan -mr-1 -mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-status-error-icon focus-visible:opacity-100 group-hover:opacity-100"
+      onClick={(event) => {
+        event.stopPropagation()
+        event.preventDefault()
+        requestWorkflowNodeDeletion(nodeId!)
+      }}
+    >
+      <Trash2 className="h-3.5 w-3.5" />
+    </button>
+  ) : null
+
+  const elevationClass = selected ? 'ring-2 ring-primary' : 'shadow-sm hover:shadow-md'
+
+  if (variant === 'pill') {
+    return (
+      <div
+        role="group"
+        aria-label={cardLabel}
+        data-node-status={status}
+        data-node-variant="pill"
+        title={description}
+        style={{ maxWidth: NODE_MAX_WIDTH }}
+        className={`
+          group relative inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1.5
+          ${backgroundClass} ${borderClass}
+          transition-all duration-200 ${elevationClass}
+        `}
+      >
+        {badges}
+        <span className="sr-only">{statusLabel}</span>
+        <NodeTypeIcon className={`h-3.5 w-3.5 shrink-0 ${nodeTypeIconColor}`} aria-hidden="true" />
+        {statusGlyph}
+        <span className={`truncate text-sm font-semibold leading-snug ${colors.text}`}>{title}</span>
+        {deleteButton}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      role="group"
+      aria-label={cardLabel}
+      data-node-status={status}
+      data-node-variant="card"
+      style={{ minWidth: NODE_MIN_WIDTH, maxWidth: NODE_MAX_WIDTH }}
+      className={`
+        group w-fit rounded-lg border border-t-4 ${accentClass}
+        ${backgroundClass} ${borderClass}
+        transition-all duration-200 relative ${elevationClass}
+      `}
+    >
+      {badges}
 
       {/* Type label + (editable) inline delete */}
       <div className="flex items-center justify-between gap-2 px-2.5 pt-2">
         <div className="flex min-w-0 items-center gap-1">
-          <NodeTypeIcon className={`h-3 w-3 shrink-0 ${nodeTypeIconColor}`} />
+          <NodeTypeIcon className={`h-3 w-3 shrink-0 ${nodeTypeIconColor}`} aria-hidden="true" />
           <span className="truncate text-overline font-semibold uppercase tracking-wide text-muted-foreground">
             {nodeTypeLabel}
           </span>
         </div>
-        {showDelete && (
-          <button
-            type="button"
-            aria-label={t('workflows.visualEditor.deleteStep', 'Delete step')}
-            className="nodrag nopan -mr-1 -mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-status-error-icon focus-visible:opacity-100 group-hover:opacity-100"
-            onClick={(event) => {
-              event.stopPropagation()
-              event.preventDefault()
-              requestWorkflowNodeDeletion(nodeId!)
-            }}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        )}
+        {deleteButton}
       </div>
 
       <div className="flex items-start gap-2 px-2.5 pb-2.5 pt-1">
-        <div className={`mt-0.5 flex-shrink-0 ${colors.icon}`}>
-          <StatusIcon className="h-4 w-4" aria-hidden="true" />
-          <span className="sr-only">{statusLabel}</span>
-        </div>
+        <span className="sr-only">{statusLabel}</span>
+        {statusGlyph ? <div className="mt-0.5">{statusGlyph}</div> : null}
         <div className="min-w-0 flex-1">
           <h3 className={`break-words text-sm font-semibold leading-snug ${colors.text}`}>
             {title}

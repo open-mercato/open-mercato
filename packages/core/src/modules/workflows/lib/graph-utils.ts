@@ -6,22 +6,20 @@ import { isCompensationGhostEdge } from './compensation-ghosts'
 import { isDataMappingEdge } from './data-edge-mapping'
 import { isAnnotationNode } from './editor-annotations'
 import { ERROR_SOURCE_HANDLE_ID } from './error-routing'
+import {
+  NODE_DESCRIPTION_HEIGHT,
+  NODE_HEIGHT,
+  NODE_MAX_WIDTH,
+  NODE_MIN_WIDTH,
+  TERMINAL_NODE_HEIGHT,
+  TERMINAL_NODE_MIN_WIDTH,
+} from './node-geometry'
 
 /**
  * Graph Utilities for Visual Workflow Editor
  *
  * Converts between ReactFlow graph representation and workflow definition JSON
  */
-
-/**
- * Node footprint used by the dagre layout engine. `NODE_WIDTH` must match the
- * `NODE_WIDTH` exported from `../components/WorkflowNodeCard`; it is mirrored as
- * a local constant here so this pure data-transform module stays free of the
- * React/`lucide-react` import chain (it runs in node + jest contexts).
- */
-const NODE_WIDTH = 180
-const NODE_MAX_WIDTH = 280
-const NODE_HEIGHT = 84
 
 export interface GraphToDefinitionOptions {
   includePositions?: boolean
@@ -326,7 +324,7 @@ export function definitionToGraph(
   const dagrePositions = needsDagre
     ? layoutWithDagre(definition.steps, definition.transitions, {
         direction: 'LR',
-        nodeWidth: NODE_WIDTH,
+        nodeWidth: NODE_MIN_WIDTH,
         nodeHeight: NODE_HEIGHT,
       })
     : null
@@ -519,7 +517,7 @@ export function definitionToGraph(
 /**
  * Approximate a node card's rendered footprint when its true measured size is
  * not yet known (initial open, before React Flow measures the DOM). Cards are
- * `w-fit` between `NODE_WIDTH` and `NODE_MAX_WIDTH` (see WorkflowNodeCard); their
+ * `w-fit` between `NODE_MIN_WIDTH` and `NODE_MAX_WIDTH` (see lib/node-geometry); their
  * width is driven mostly by the two-line `line-clamp-2` description, which pushes
  * almost any described node to the max width. So a node WITH a description is
  * estimated at the cap (and taller for the extra line); a bare-title node sizes
@@ -527,28 +525,53 @@ export function definitionToGraph(
  * toward the real (larger) footprint. The Auto-arrange path uses exact measured
  * sizes instead and does not rely on this.
  */
-function estimateNodeSize(label: unknown, hasDescription: boolean): { width: number; height: number } {
+function estimateNodeSize(
+  label: unknown,
+  hasDescription: boolean,
+  isTerminal: boolean,
+): { width: number; height: number } {
   const text = typeof label === 'string' ? label.trim() : ''
   const titleWidth = Math.round(text.length * 7) + 64
+  // Terminals are auto-width pills carrying only an icon and a name: no
+  // description row, no minimum card width.
+  if (isTerminal) {
+    return {
+      width: Math.min(Math.max(TERMINAL_NODE_MIN_WIDTH, titleWidth), NODE_MAX_WIDTH),
+      height: TERMINAL_NODE_HEIGHT,
+    }
+  }
   const width = hasDescription
     ? NODE_MAX_WIDTH
-    : Math.min(Math.max(NODE_WIDTH, titleWidth), NODE_MAX_WIDTH)
-  const height = hasDescription ? NODE_HEIGHT + 24 : NODE_HEIGHT
+    : Math.min(Math.max(NODE_MIN_WIDTH, titleWidth), NODE_MAX_WIDTH)
+  const height = hasDescription ? NODE_HEIGHT + NODE_DESCRIPTION_HEIGHT : NODE_HEIGHT
   return { width, height }
+}
+
+/**
+ * START / END, in either vocabulary: `definitionToGraph` lays out definition
+ * steps (which carry `stepType`), `applyAutoLayout` lays out React Flow nodes
+ * (which carry the editor `nodeType`).
+ */
+function isTerminalStep(step: any): boolean {
+  return step.stepType === 'START'
+    || step.stepType === 'END'
+    || step.nodeType === 'start'
+    || step.nodeType === 'end'
 }
 
 /**
  * Footprint dagre reserves for a node: its exact measured size when React Flow
  * has already laid it out (the Auto-arrange path passes `node.measured`),
- * otherwise the description-aware estimate above.
+ * otherwise the description-aware estimate above. Exported so a layout test can
+ * assert that the boxes dagre reserved actually do not overlap.
  */
-function nodeFootprint(step: any): { width: number; height: number } {
+export function nodeFootprint(step: any): { width: number; height: number } {
   if (typeof step.width === 'number' && typeof step.height === 'number') {
     return { width: step.width, height: step.height }
   }
   const description = step.description
   const hasDescription = typeof description === 'string' && description.trim().length > 0
-  return estimateNodeSize(step.stepName ?? step.label, hasDescription)
+  return estimateNodeSize(step.stepName ?? step.label, hasDescription, isTerminalStep(step))
 }
 
 function layoutWithDagre(
@@ -621,6 +644,7 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
     .map((node) => ({
       stepId: node.id,
       stepName: (node.data as any)?.label,
+      nodeType: node.type,
       description: (node.data as any)?.description,
       width: node.measured?.width,
       height: node.measured?.height,
@@ -634,7 +658,7 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
 
   const positions = layoutWithDagre(steps, transitions, {
     direction: 'LR',
-    nodeWidth: NODE_WIDTH,
+    nodeWidth: NODE_MIN_WIDTH,
     nodeHeight: NODE_HEIGHT,
   })
 

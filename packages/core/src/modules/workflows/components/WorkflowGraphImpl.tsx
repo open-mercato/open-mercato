@@ -21,6 +21,7 @@ import {
   NodeChange,
   EdgeChange,
   ConnectionMode,
+  ConnectionLineType,
   MarkerType,
   type ReactFlowInstance,
 } from '@xyflow/react'
@@ -34,10 +35,25 @@ import {
   compensatingStepIds,
   WORKFLOW_COMPENSATION_GHOST_EDGE_TYPE,
 } from '../lib/compensation-ghosts'
-import { STATUS_COLORS, toWorkflowStatus } from '../lib/status-colors'
+import { EDGE_COLORS, STATUS_COLORS, toWorkflowStatus } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+/**
+ * Arrowhead every control-flow route ends in. Sized against the 1.5px wire it
+ * caps — xyflow's 16px default reads top-heavy on a hairline stroke — and
+ * painted in the same derived colour as the route itself, so head and stroke
+ * are one mark rather than two weights. Declared once because the connection
+ * fallback below and `defaultEdgeOptions` both need it and used to carry
+ * separate copies that could drift.
+ */
+const ROUTE_MARKER_END = {
+  type: MarkerType.ArrowClosed,
+  width: 10,
+  height: 10,
+  color: EDGE_COLORS.pending.stroke,
+} as const
 
 export interface WorkflowGraphFocusTarget {
   nodeId?: string
@@ -94,7 +110,7 @@ export interface WorkflowGraphDropEvent {
  * Resolve which route the cursor is over. React Flow renders each edge as a
  * `<g class="react-flow__edge" data-id="…">` carrying a wide invisible
  * interaction path, so hit-testing the DOM is exact where geometry over a
- * smooth-step curve would only be an approximation.
+ * bezier curve would only be an approximation.
  */
 function edgeIdAtPoint(clientX: number, clientY: number): string | null {
   if (typeof document === 'undefined' || typeof document.elementsFromPoint !== 'function') return null
@@ -164,7 +180,12 @@ export default function WorkflowGraphImpl({
   const latestEdgesRef = useRef(edges)
   latestEdgesRef.current = edges
 
-  const backgroundDotColor = 'var(--border)'
+  // A 16px dot grid on a large canvas reads as moiré while each dot is nearly
+  // invisible. A 24px grid (the 4px-scale step nearest the design's 22px) at a
+  // low mix of `--muted-foreground` gives the plane a texture you can read
+  // depth from without competing with the graph.
+  const backgroundDotColor = 'color-mix(in oklab, var(--muted-foreground) 22%, transparent)'
+  const backgroundDotGap = 24
   const [isCompactViewport, setIsCompactViewport] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null)
@@ -258,12 +279,7 @@ export default function WorkflowGraphImpl({
           ...connection,
           type: 'workflowTransition',
           animated: false,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 16,
-            height: 16,
-            color: 'var(--muted-foreground)',
-          },
+          markerEnd: ROUTE_MARKER_END,
         }
         setEdges((eds) => addEdge(newEdge, eds))
       }
@@ -412,6 +428,7 @@ export default function WorkflowGraphImpl({
           reactFlowInstanceRef.current = instance
         }}
         connectionMode={ConnectionMode.Loose}
+        connectionLineType={ConnectionLineType.Bezier}
         fitView
         fitViewOptions={fitViewOptions}
         minZoom={0.1}
@@ -419,12 +436,7 @@ export default function WorkflowGraphImpl({
         defaultEdgeOptions={{
           type: 'workflowTransition',
           animated: false,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 16,
-            height: 16,
-            color: 'var(--muted-foreground)',
-          },
+          markerEnd: ROUTE_MARKER_END,
         }}
         nodesDraggable={editable}
         nodesConnectable={editable}
@@ -433,17 +445,20 @@ export default function WorkflowGraphImpl({
       >
         <Background
           variant={BackgroundVariant.Dots}
-          gap={16}
+          gap={backgroundDotGap}
           size={1}
           color={backgroundDotColor}
         />
 
+        {/* Tools bottom-left, minimap bottom-right. Top-right put the canvas
+            controls directly under the editor's own header actions, so two
+            unrelated button clusters stacked on the same corner. */}
         <Controls
           showZoom={true}
           showFitView={true}
           showInteractive={false}
-          position={isCompactViewport ? 'bottom-right' : 'top-right'}
-          className={`!bg-card !border-border !shadow-md [&>button]:!bg-card [&>button]:!border-border [&>button]:!fill-foreground [&>button:hover]:!bg-muted ${isCompactViewport ? 'scale-90 origin-bottom-right' : ''}`}
+          position="bottom-left"
+          className={`!bg-card !border-border !shadow-md [&>button]:!bg-card [&>button]:!border-border [&>button]:!fill-foreground [&>button:hover]:!bg-muted ${isCompactViewport ? 'scale-90 origin-bottom-left' : ''}`}
         />
 
         {!isCompactViewport && (
@@ -454,7 +469,7 @@ export default function WorkflowGraphImpl({
               return STATUS_COLORS[status]?.hex || STATUS_COLORS.not_started.hex
             }}
             maskColor="rgba(0, 0, 0, 0.1)"
-            position="bottom-left"
+            position="bottom-right"
             className="!bg-card !border !border-border !rounded-lg"
           />
         )}
