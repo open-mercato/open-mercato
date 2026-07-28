@@ -3,7 +3,7 @@
 import { Check, Play, Pause, Circle, CircleAlert, ShieldMinus, XCircle, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
-import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../lib/node-type-icons'
+import { NODE_TYPE_ICONS, NODE_TYPE_ACCENTS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../lib/node-type-icons'
 import { NODE_MAX_WIDTH, NODE_MIN_WIDTH } from '../lib/node-geometry'
 
 /**
@@ -92,6 +92,10 @@ export function WorkflowNodeCard({
 
   const NodeTypeIcon = NODE_TYPE_ICONS[nodeType]
   const nodeTypeIconColor = NODE_TYPE_COLORS[nodeType]
+  // Type gets its own channel (the painted cap) so the card's border and
+  // background are left to speak only for run status. A selected or failing
+  // card wants its whole outline to read as one state, so the accent yields.
+  const accentClass = selected || hasError ? '' : NODE_TYPE_ACCENTS[nodeType]
   const nodeTypeLabel = NODE_TYPE_LABELS[nodeType]?.title ?? nodeType
   const showDelete = editable && !!nodeId
 
@@ -131,7 +135,7 @@ export function WorkflowNodeCard({
       data-node-status={status}
       style={{ minWidth: NODE_MIN_WIDTH, maxWidth: NODE_MAX_WIDTH }}
       className={`
-        group w-fit rounded-lg border
+        group w-fit rounded-lg border border-t-4 ${accentClass}
         ${backgroundClass} ${borderClass}
         transition-all duration-200 relative
         ${

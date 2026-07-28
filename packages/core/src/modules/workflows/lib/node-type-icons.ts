@@ -18,28 +18,61 @@ export const NODE_TYPE_ICONS: Record<NodeType, LucideIcon> = {
   switch: ListTree,
 }
 
+/**
+ * Node TYPE is categorical, node STATUS is semantic — two different channels
+ * that used to fight over the card's border. Type now comes from the `chart-*`
+ * palette, which the DS ships expressly for categorical encoding
+ * (`.ai/ds-rules.md` - Data Visualization), so the card's border and background
+ * are free to speak only for run status. This also retires the raw Tailwind
+ * shades (`text-blue-500`, `text-amber-500`, ...) that had no guaranteed
+ * dark-mode value.
+ */
 export const NODE_TYPE_COLORS: Record<NodeType, string> = {
   start: 'text-status-success-icon',
   end: 'text-status-error-icon',
-  // Decorative node-type accents (not status semantics): no 1:1 semantic DS
-  // token exists for these hues, so they are intentionally left as accent
-  // shades to avoid mislabeling them with status meaning.
-  userTask: 'text-blue-500',
-  automated: 'text-amber-500',
-  subWorkflow: 'text-purple-500',
-  waitForSignal: 'text-purple-500',
-  waitForTimer: 'text-cyan-500',
+  userTask: 'text-chart-amber',
+  automated: 'text-chart-blue',
+  subWorkflow: 'text-chart-violet',
+  waitForSignal: 'text-chart-teal',
+  waitForTimer: 'text-chart-teal',
   // Predicate wait is a routing/guard construct, not a status indicator.
   waitForCondition: 'text-primary',
-  // New nodes use a semantic token (DS rule: no hardcoded color shades).
   parallelFork: 'text-primary',
   parallelJoin: 'text-primary',
-  // AI / agent touchpoint — brand-violet is reserved for AI features (DS rule).
+  // AI / agent touchpoint — brand-violet is reserved for AI features (DS rule),
+  // so it stays on brand-violet rather than moving to chart-violet.
   invokeAgent: 'text-brand-violet',
   // Branching nodes share the parallel-split semantic token: they are routing
   // constructs, not status indicators.
   ifElse: 'text-primary',
   switch: 'text-primary',
+}
+
+/**
+ * The 3px painted cap along the top of a node card. Because it is a
+ * `border-top` rather than a child element it sits inside the card's radius and
+ * reads as part of the object. Rendered with `border-t-4` — the DS scale's
+ * nearest step, one pixel heavier than the design mock and visually
+ * indistinguishable from it; `border-t-[3px]` would be an arbitrary value and
+ * is not DS-legal.
+ *
+ * Terminals carry no accent (the design draws them as pills, not capped
+ * cards), so they resolve to the same `--border` the rest of the card uses.
+ */
+export const NODE_TYPE_ACCENTS: Record<NodeType, string> = {
+  start: 'border-t-border',
+  end: 'border-t-border',
+  userTask: 'border-t-chart-amber',
+  automated: 'border-t-chart-blue',
+  subWorkflow: 'border-t-chart-violet',
+  waitForSignal: 'border-t-chart-teal',
+  waitForTimer: 'border-t-chart-teal',
+  waitForCondition: 'border-t-primary',
+  parallelFork: 'border-t-primary',
+  parallelJoin: 'border-t-primary',
+  invokeAgent: 'border-t-brand-violet',
+  ifElse: 'border-t-primary',
+  switch: 'border-t-primary',
 }
 
 export const NODE_TYPE_LABELS: Record<NodeType, { title: string; description: string }> = {

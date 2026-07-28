@@ -15,7 +15,12 @@
 export const NODE_MIN_WIDTH = 180
 /** Widest a `w-fit` card may render before its content wraps. */
 export const NODE_MAX_WIDTH = 280
-/** Height of a title-only card. */
-export const NODE_HEIGHT = 84
+/**
+ * Height of a title-only card: the type row plus the title row, plus the 4px
+ * node-type accent cap (`border-t-4`) that replaced the card's 1px top border.
+ * Under-estimating here is what makes dagre pack ranks tight enough to overlap,
+ * so this errs toward the real footprint.
+ */
+export const NODE_HEIGHT = 88
 /** Extra height the two-line `line-clamp-2` description adds to a card. */
 export const NODE_DESCRIPTION_HEIGHT = 24
