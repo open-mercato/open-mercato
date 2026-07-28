@@ -18,6 +18,7 @@ import {
 } from '../data/validators'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { buildCurrencyCommandWhere, ensureCurrencyCommandScope } from './scope'
 
 const currencyCrudEvents: CrudEventsConfig = {
   module: 'currencies',
@@ -48,9 +49,17 @@ type CurrencySnapshot = {
 
 type CurrencyUndoPayload = UndoPayload<CurrencySnapshot>
 
-async function loadCurrencySnapshot(em: EntityManager, id: string): Promise<CurrencySnapshot | null> {
-  const record = await em.findOne(Currency, { id })
+async function loadCurrencySnapshot(
+  em: EntityManager,
+  id: string,
+  ctx: Parameters<typeof buildCurrencyCommandWhere>[0],
+): Promise<CurrencySnapshot | null> {
+  const record = await em.findOne(
+    Currency,
+    buildCurrencyCommandWhere<Currency>(ctx, { id }),
+  )
   if (!record) return null
+  ensureCurrencyCommandScope(ctx, record)
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -91,6 +100,7 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
   id: 'currencies.currencies.create',
   async execute(input, ctx) {
     const parsed = currencyCreateSchema.parse(input)
+    ensureCurrencyCommandScope(ctx, parsed)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
@@ -159,7 +169,7 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadCurrencySnapshot(em, result.currencyId)
+    return loadCurrencySnapshot(em, result.currencyId, ctx)
   },
   buildLog: async ({ snapshots }) => {
     const after = snapshots.after as CurrencySnapshot | undefined
@@ -204,7 +214,7 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
   async prepare(input, ctx) {
     requireId(input.id, 'Currency ID is required')
     const em = ctx.container.resolve('em') as EntityManager
-    const before = await loadCurrencySnapshot(em, input.id)
+    const before = await loadCurrencySnapshot(em, input.id, ctx)
     return { before }
   },
   async execute(input, ctx) {
@@ -212,10 +222,14 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
     requireId(parsed.id, 'Currency ID is required')
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(Currency, { id: parsed.id, deletedAt: null })
+    const record = await em.findOne(
+      Currency,
+      buildCurrencyCommandWhere<Currency>(ctx, { id: parsed.id }),
+    )
     if (!record) {
       throw new CrudHttpError(404, { error: 'Currency not found' })
     }
+    ensureCurrencyCommandScope(ctx, record)
 
     // Check code uniqueness if changing code
     if (parsed.code && parsed.code !== record.code) {
@@ -289,7 +303,7 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadCurrencySnapshot(em, result.currencyId)
+    return loadCurrencySnapshot(em, result.currencyId, ctx)
   },
   buildLog: async ({ snapshots, result }) => {
     const before = snapshots.before as CurrencySnapshot | undefined
@@ -334,7 +348,7 @@ const deleteCurrencyCommand: CommandHandler<CurrencyDeleteInput, { currencyId: s
   async prepare(input, ctx) {
     requireId(input.id, 'Currency ID is required')
     const em = ctx.container.resolve('em') as EntityManager
-    const before = await loadCurrencySnapshot(em, input.id)
+    const before = await loadCurrencySnapshot(em, input.id, ctx)
     return { before }
   },
   async execute(input, ctx) {
@@ -342,10 +356,14 @@ const deleteCurrencyCommand: CommandHandler<CurrencyDeleteInput, { currencyId: s
     requireId(parsed.id, 'Currency ID is required')
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(Currency, { id: parsed.id, deletedAt: null })
+    const record = await em.findOne(
+      Currency,
+      buildCurrencyCommandWhere<Currency>(ctx, { id: parsed.id }),
+    )
     if (!record) {
       throw new CrudHttpError(404, { error: 'Currency not found' })
     }
+    ensureCurrencyCommandScope(ctx, record)
 
     // Prevent deleting base currency
     if (record.isBase) {
