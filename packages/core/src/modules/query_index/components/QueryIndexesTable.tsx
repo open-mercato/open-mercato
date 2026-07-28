@@ -189,7 +189,19 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
         const measured = record.baseCount != null || record.indexCount != null
         const ok = record.ok && (!job || job.status === 'idle')
         const statusText = translateJobStatus(t, job?.status, ok, measured)
-        const jobProgress = job ? formatProgressLabel(job.processedCount ?? null, job.totalCount ?? null, t) : null
+
+        // Job counters and index coverage are different numbers: the counters describe the
+        // last reindex run, the Records/Indexed columns describe the index right now. While
+        // a job runs, "Reindexing (5/14)" is the only place progress is visible. Once it is
+        // idle the counters are stale and duplicate the columns — worse, they can contradict
+        // them: an entity whose last run processed 14 rows but landed 2 in the index rendered
+        // "Out of sync (14/14)" next to Records 14 / Indexed 2.
+        const jobInFlight = Boolean(job && job.status !== 'idle')
+          || partitions.some((part) => part.status !== 'completed')
+
+        const jobProgress = jobInFlight && job
+          ? formatProgressLabel(job.processedCount ?? null, job.totalCount ?? null, t)
+          : null
         const label = jobProgress
           ? t('query_index.table.status.withProgress', { status: statusText, progress: jobProgress })
           : statusText
@@ -206,12 +218,8 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
 
         // Per-partition detail earns its space only while work is in flight — that is when
         // it tells you which partition is running or stuck. Once the job is idle and every
-        // partition is finished, each line just restates the badge ("In sync (12/12)"
-        // followed by five "Partition n: Done"), on every row of the table.
-        const showJobDetail = Boolean(job && job.status !== 'idle')
-          || partitions.some((part) => part.status !== 'completed')
-
-        if (showJobDetail) {
+        // partition is finished, each line just restates the badge, on every row.
+        if (jobInFlight) {
           if (job?.scope && partitions.length <= 1) {
             const scopeStatus = translateScopeStatus(t, job.scope.status ?? null)
             const scopeProgress = formatProgressLabel(job.scope.processedCount ?? null, job.scope.totalCount ?? null, t)

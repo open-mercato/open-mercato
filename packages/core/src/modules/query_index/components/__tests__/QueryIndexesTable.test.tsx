@@ -236,6 +236,57 @@ describe('QueryIndexesTable', () => {
     },
   })
 
+  it('drops stale job counters from the badge once the job is idle', async () => {
+    // Last run processed 14 rows but only 2 landed in the index. Rendering "(14/14)" beside
+    // "Out of sync" contradicted the Records 14 / Indexed 2 columns and read as reassurance.
+    ;(readApiResultOrThrow as jest.Mock).mockResolvedValue({
+      items: [{
+        entityId: 'drifted',
+        label: 'drifted',
+        baseCount: 14,
+        indexCount: 2,
+        vectorCount: null,
+        vectorEnabled: false,
+        fulltextCount: null,
+        fulltextEnabled: false,
+        ok: false,
+        job: { status: 'idle', processedCount: 14, totalCount: 14, partitions: [] },
+      }],
+    })
+    renderWithProviders(<QueryIndexesTable />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByText('drifted')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('OutOfSyncStatus')).toBeInTheDocument()
+    expect(screen.queryByText(/14\/14/)).not.toBeInTheDocument()
+  })
+
+  it('keeps job progress in the badge while a reindex runs', async () => {
+    ;(readApiResultOrThrow as jest.Mock).mockResolvedValue({
+      items: [{
+        entityId: 'running',
+        label: 'running',
+        baseCount: 14,
+        indexCount: 5,
+        vectorCount: null,
+        vectorEnabled: false,
+        fulltextCount: null,
+        fulltextEnabled: false,
+        ok: false,
+        job: { status: 'reindexing', processedCount: 5, totalCount: 14, partitions: [] },
+      }],
+    })
+    renderWithProviders(<QueryIndexesTable />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByText('running')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText(/ReindexingStatus \(5\/14\)/)).toBeInTheDocument()
+  })
+
   it('hides per-partition detail once the job is idle and every partition finished', async () => {
     ;(readApiResultOrThrow as jest.Mock).mockResolvedValue({ items: [withPartitions('idle', 'completed')] })
     renderWithProviders(<QueryIndexesTable />, { dict })
