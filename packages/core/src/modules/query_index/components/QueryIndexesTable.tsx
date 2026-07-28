@@ -128,7 +128,15 @@ function translateScopeStatus(
 
 function createColumns(t: Translator): ColumnDef<Row>[] {
   return [
-    { id: 'entityId', header: () => t('query_index.table.columns.entity'), accessorKey: 'entityId', meta: { priority: 1 } },
+    {
+      id: 'entityId',
+      header: () => t('query_index.table.columns.entity'),
+      accessorKey: 'entityId',
+      // The entity id is the only identifier on this page and ids run to ~45 characters
+      // (`catalog:catalog_product_category_assignment`). DataTable's default 150px clamp
+      // ellipsised them into indistinguishable `customers:customer…` rows.
+      meta: { priority: 1, maxWidth: '340px' },
+    },
     {
       id: 'baseCount',
       header: () => t('query_index.table.columns.records'),
