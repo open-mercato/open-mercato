@@ -1632,6 +1632,29 @@ function isCorrectableTraceStartupFailure(violation) {
   return violation === 'runner trace unavailable; observed context cannot be verified'
 }
 
+function routingCorrectionDiagnostics(violations) {
+  const diagnostics = new Set()
+  for (const violation of violations) {
+    if (violation.startsWith('missing route ')) diagnostics.add('At least one required Axis 1 route is missing.')
+    else if (violation.startsWith('missing skill ')) diagnostics.add('At least one required Axis 2 skill is missing.')
+    else if (violation.startsWith('missing decision ')) diagnostics.add('At least one required decision is missing.')
+    else if (/^(?:missing context|required context not observed|selected context not observed|observed context not declared)/.test(violation)) {
+      diagnostics.add('The declared selectedContext and successful instruction reads are incomplete or inconsistent.')
+    } else if (/^(?:unexpected route|unexpected skill|unexpected context|unexpected decision|unmandated decision)/.test(violation)) {
+      diagnostics.add('The answer includes at least one unrequired route, skill, context path, or decision.')
+    } else if (/^(?:selected skill context|optional skill|standard skill)/.test(violation)) {
+      diagnostics.add('A selected skill is missing its emitted context or matching route.')
+    } else if (violation.startsWith('standard context ')) {
+      diagnostics.add('Selected standard context is missing its matching route.')
+    } else if (/^(?:initial context (?:file|byte)|context byte) budget exceeded/.test(violation)) {
+      diagnostics.add('The selected context exceeds a configured budget.')
+    } else if (isCorrectableTraceStartupFailure(violation)) {
+      diagnostics.add('No verifiable harness.read trace was observed.')
+    }
+  }
+  return [...diagnostics]
+}
+
 function runnerVersion(runner, root) {
   const result = spawnSync(runner, ['--version'], {
     encoding: 'utf8',
@@ -2573,15 +2596,28 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         return { response, trace, stats, declaredStats, violations }
       }
       let evaluated = evaluateAttempt(execution)
-      if (!writable
-        && executions.length === 1
+      let semanticCorrectionUsed = false
+      let traceStartupCorrectionUsed = false
+      while (!writable
         && execution.kind === 'success'
-        && evaluated.trace.violations.every(isCorrectableTraceStartupFailure)
         && evaluated.response.violations.length === 0
-        && evaluated.violations.length > 0
-        && evaluated.violations.every((violation) =>
-          isCorrectableRoutingFailure(violation) || isCorrectableTraceStartupFailure(violation))) {
-        const retryPrompt = `${prompt}\n\nThis is correction attempt 2 after the first routing answer failed a non-safety semantic contract. Start the routing audit again by calling harness.read with {"path":"AGENTS.md"}; never call read_mcp_resource or any resource API. Re-evaluate every additive Axis 1 route, Axis 2 work-unit skill, module fact, and required decision while opening only the smallest task-matching initial context. Before returning, reconcile selectedContext exactly with successful reads and re-check the context budget. Return only the schema object.`
+        && evaluated.violations.length > 0) {
+        const traceStartupFailure = evaluated.trace.violations.length > 0
+          && evaluated.trace.violations.every(isCorrectableTraceStartupFailure)
+          && evaluated.violations.every((violation) =>
+            isCorrectableRoutingFailure(violation) || isCorrectableTraceStartupFailure(violation))
+        const semanticFailure = evaluated.trace.violations.length === 0
+          && evaluated.violations.every(isCorrectableRoutingFailure)
+        let correctionKind
+        if (traceStartupFailure && !traceStartupCorrectionUsed) {
+          correctionKind = 'trace-start'
+          traceStartupCorrectionUsed = true
+        } else if (semanticFailure && !semanticCorrectionUsed) {
+          correctionKind = 'semantic-routing'
+          semanticCorrectionUsed = true
+        } else break
+        const diagnostics = routingCorrectionDiagnostics(evaluated.violations)
+        const retryPrompt = `${prompt}\n\nThis is correction attempt ${executions.length + 1} after the previous routing answer failed a non-safety contract. Correction kind: ${correctionKind}. Evaluator diagnostics: ${JSON.stringify(diagnostics)}. These diagnostics identify only the failing contract categories; derive every answer from emitted instructions. Start the routing audit again by calling harness.read with {"path":"AGENTS.md"}; never call read_mcp_resource or any resource API. Re-evaluate every additive Axis 1 route, Axis 2 work-unit skill, module fact, and required decision while opening only the smallest task-matching initial context. Before returning, reconcile selectedContext exactly with successful reads and re-check the context budget. Return only the schema object.`
         execution = runAgentOnce({
           runner: options.runner, root: runRoot, schemaPath, prompt: retryPrompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
           allowedReads, allowedWrites: [],

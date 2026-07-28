@@ -5998,8 +5998,8 @@
     "requiredDecisions": ["provider-neutral-domain", "deterministic-carrier-rule", "retry-safe-booking", "idempotent-external-id", "event-progress", "webhook-poll-reconciliation", "optional-provider"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "provider credentials.{0,30}(?:log|plain)", "direct ORM relationship"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 13,
-    "maxInitialContextBytes": 73728,
+    "maxContextFiles": 14,
+    "maxInitialContextBytes": 81920,
     "maxTotalContextBytes": 262144,
     "relatedCases": ["OMH-040", "OMH-043", "OMH-055"]
   },

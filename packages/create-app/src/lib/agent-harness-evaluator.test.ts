@@ -262,6 +262,9 @@ test('the catalog count and release coverage are derived from the validator regi
   }
   assert.equal(cases.length, validators.catalog.expectedCaseCount)
   assert.equal(casesSchema.items.properties.maxInitialContextBytes.maximum, validators.catalog.maxInitialContextBytes)
+  const fulfillmentCase = cases.find((entry) => entry.id === 'OMH-080')
+  assert.equal(fulfillmentCase?.maxContextFiles, 14)
+  assert.equal(fulfillmentCase?.maxInitialContextBytes, 81_920)
   const expectedCaseIds = Array.from({ length: cases.length }, (_, index) => `OMH-${String(index + 1).padStart(3, '0')}`)
   const caseIdPattern = new RegExp(casesSchema.items.properties.id.pattern)
   assert.deepEqual(cases.map((entry) => entry.id), expectedCaseIds)
@@ -1261,7 +1264,7 @@ const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 if (args[0] === 'features' && args[1] === 'list') process.exit(0)
 const prompt = fs.readFileSync(0, 'utf8')
-const correction = prompt.includes('correction attempt 2 after the first routing answer failed a non-safety semantic contract')
+const correction = prompt.includes('Correction kind: trace-start')
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['architecture'], selectedSkills: [],
   selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
@@ -1293,6 +1296,49 @@ if (correction) {
   }
 })
 
+test('live Codex gives a semantic correction one separate trace-start recovery', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+if (args[0] === 'features' && args[1] === 'list') process.exit(0)
+const prompt = fs.readFileSync(0, 'utf8')
+const semanticCorrection = prompt.includes('Correction kind: semantic-routing')
+const traceCorrection = prompt.includes('Correction kind: trace-start')
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: semanticCorrection || traceCorrection ? ['architecture'] : ['testing'],
+  selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'],
+  violations: []
+}))
+if (!semanticCorrection || traceCorrection) {
+  for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) {
+    console.log(JSON.stringify({ type: 'item.completed', item: {
+      type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+    }}))
+  }
+} else {
+  console.log(JSON.stringify({ type: 'thread.started', thread_id: 'trace-free-semantic-correction' }))
+}
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.equal(stored.attempts, 3)
+    assert.equal(stored.corrections, 2)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.selectedRouter, ['architecture'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('live Claude retries one correctable read-only routing assertion and then succeeds', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'claude', `
@@ -1301,7 +1347,7 @@ const path = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
-const correction = prompt.includes('correction attempt 2 after the first routing answer failed a non-safety semantic contract')
+const correction = prompt.includes('Correction kind: semantic-routing')
 console.log(JSON.stringify({ type: 'assistant', message: { content: [
   { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), 'AGENTS.md') } },
   { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/guides/contracts.md') } },
