@@ -19,7 +19,8 @@ import {
   type StepInstanceStatus,
   type WorkflowStepType,
 } from '../data/entities'
-import { parseDuration } from './duration'
+import { emitWorkflowsEvent } from '../events'
+import { calculateDueDate, parseDuration } from './duration'
 import {
   CONDITION_STEP_TYPE,
   conditionReadContext,
@@ -30,6 +31,17 @@ import { mapAgentResultToContext } from './agent-result-mapping'
 import { logWorkflowEvent } from './event-logger'
 import { findDefinitionForInstance } from './find-definition'
 import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from './interpolation-pipeline'
+import {
+  flattenTaskText,
+  resolveTaskAssignment,
+  resolveTaskDeadlineDuration,
+  resolveTaskDecisions,
+  resolveTaskEntityBindings,
+  resolveTaskText,
+  type TaskInterpolate,
+} from './task-resolution'
+import { scheduleUserTaskSla } from './task-sla'
+import type { TaskQuickActionInput } from './task-quick-action'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from './find-definition'
 import { validateAgainstPorts } from './port-contract'
@@ -47,6 +59,9 @@ export interface StepExecutionContext {
   triggerData?: any
   // Populated by executeStep from the loaded definition; absent means lenient.
   interpolationMode?: WorkflowInterpolationMode
+  // Populated by executeStep from the loaded definition so task notifications
+  // can name the workflow the way its author did.
+  workflowName?: string
 }
 
 export interface StepExecutionResult {
@@ -252,6 +267,7 @@ export async function executeStep(
       {
         ...context,
         interpolationMode: resolveDefinitionInterpolationMode(definition.definition),
+        workflowName: definition.workflowName,
       },
       container,
       branch
@@ -646,6 +662,74 @@ async function handleAutomatedStep(
 }
 
 /**
+ * Resolve a user task's deadline from its authored duration.
+ *
+ * An unparseable duration fails the step with an actionable message instead of
+ * quietly resolving to some default the author never asked for.
+ */
+function resolveUserTaskDeadline(stepId: string, slaDuration: string): Date {
+  try {
+    return calculateDueDate(slaDuration)
+  } catch (error) {
+    throw new StepExecutionError(
+      `Invalid user task deadline "${slaDuration}": ${error instanceof Error ? error.message : String(error)}`,
+      'INVALID_USER_TASK_DEADLINE',
+      { stepId, slaDuration }
+    )
+  }
+}
+
+/**
+ * Publish the declared `workflows.task.assigned` domain event for a freshly
+ * created task, alongside (never instead of) the internal `USER_TASK_CREATED`
+ * audit row. It carries both the individual assignee and the role queue so the
+ * notification subscriber can reach role-assigned tasks too.
+ *
+ * Delivery is at-least-once and consumers must be idempotent; a bus failure
+ * must never break workflow execution, so this is strictly best-effort.
+ */
+async function emitTaskAssignedEvent(
+  userTask: UserTask,
+  instance: WorkflowInstance,
+  context: StepExecutionContext,
+  quickAction?: TaskQuickActionInput
+): Promise<void> {
+  try {
+    await emitWorkflowsEvent(
+      'workflows.task.assigned',
+      {
+        // Everything the notification quick-action rule needs, and nothing more.
+        // ABSENT means "unknown", and the subscriber falls back to the deep
+        // link — a quick action must never be offered on a guess.
+        ...(quickAction ? { quickAction } : {}),
+        taskId: userTask.id,
+        taskName: userTask.taskName,
+        workflowInstanceId: instance.id,
+        workflowId: instance.workflowId,
+        workflowName: context.workflowName ?? instance.workflowId,
+        assignedUserId: userTask.assignedTo ?? null,
+        assignedToRoles: userTask.assignedToRoles ?? null,
+        dueDate: userTask.dueDate ? userTask.dueDate.toISOString() : null,
+        // Additive: the records the task is about. Modules that own those
+        // records subscribe and surface the task on their own turf — the
+        // customers module writes a `CustomerTodoLink` from this. Workflows
+        // never reaches into another module's tables to do it itself.
+        entityBindings: userTask.entityBindings ?? null,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId ?? null,
+      },
+      { persistent: true }
+    )
+  } catch (error) {
+    logger.error('Failed to emit workflows.task.assigned', {
+      component: 'step-handler',
+      taskId: userTask.id,
+      err: error,
+    })
+  }
+}
+
+/**
  * Handle USER_TASK step - create user task and enter waiting state
  *
  * Creates a UserTask entity and returns WAITING status.
@@ -661,14 +745,43 @@ async function handleUserTaskStep(
 ): Promise<StepExecutionResult> {
   const userTaskConfig = stepDef.userTaskConfig || {}
 
-  // Handle assignedTo - if it's an array, treat it as roles
-  let assignedTo = userTaskConfig.assignedTo || null
-  let assignedToRoles = userTaskConfig.assignedToRoles || null
+  // Everything an author can write on a task — its title, its instructions, its
+  // decision labels, its dynamic assignee and its entity bindings — is resolved
+  // HERE, once, against the context the run has at creation time. Resolving
+  // later would let a definition edit retro-change what a running task says.
+  // Lenient on purpose: an unresolved dynamic assignee is what the fallback role
+  // queue exists for, not a reason to fail the step.
+  //
+  // Imported dynamically like every other activity-executor use in this file, so
+  // the module graph stays acyclic.
+  const { interpolateVariables } = await import('./activity-executor')
+  const interpolate: TaskInterpolate = (value) =>
+    interpolateVariables(value, context.workflowContext, instance)
 
-  if (Array.isArray(assignedTo)) {
-    assignedToRoles = assignedTo
-    assignedTo = null
+  const assignment = resolveTaskAssignment(userTaskConfig, interpolate)
+  if (assignment.fellBackToRoles) {
+    logger.warn('Dynamic task assignee resolved to nothing; falling back to the role queue', {
+      component: 'step-handler',
+      stepId: stepDef.stepId,
+      workflowInstanceId: instance.id,
+      assignedToRoles: assignment.assignedToRoles,
+    })
   }
+
+  const { bindings, unresolved } = resolveTaskEntityBindings(userTaskConfig.entityBindings, interpolate)
+  if (unresolved.length) {
+    logger.warn('Task entity bindings skipped because their ids did not resolve', {
+      component: 'step-handler',
+      stepId: stepDef.stepId,
+      workflowInstanceId: instance.id,
+      unresolved,
+    })
+  }
+
+  const taskName = String(interpolate(stepDef.stepName) ?? stepDef.stepName)
+  const instructions = resolveTaskText(userTaskConfig.instructions, interpolate)
+  const decisions = resolveTaskDecisions(userTaskConfig.decisions, interpolate)
+  const deadlineDuration = resolveTaskDeadlineDuration(userTaskConfig)
 
   // Create user task
   const now = new Date()
@@ -676,14 +789,18 @@ async function handleUserTaskStep(
     workflowInstanceId: instance.id,
     stepInstanceId: stepInstance.id,
     branchInstanceId: branch ? branch.id : null,
-    taskName: stepDef.stepName,
-    description: stepDef.description || null,
+    taskName,
+    description: flattenTaskText(instructions) ?? stepDef.description ?? null,
     status: 'PENDING',
     formSchema: userTaskConfig.formSchema || null,
     formData: null,
-    assignedTo: assignedTo,
-    assignedToRoles: assignedToRoles,
-    dueDate: userTaskConfig.slaDuration ? calculateDueDate(userTaskConfig.slaDuration) : null,
+    assignedTo: assignment.assignedTo,
+    assignedToRoles: assignment.assignedToRoles,
+    entityBindings: bindings.length ? bindings : null,
+    priority: userTaskConfig.priority ?? null,
+    dueDate: deadlineDuration
+      ? resolveUserTaskDeadline(stepDef.stepId, deadlineDuration)
+      : null,
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
     createdAt: now,
@@ -703,9 +820,35 @@ async function handleUserTaskStep(
       taskName: userTask.taskName,
       assignedTo: userTask.assignedTo,
       assignedToRoles: userTask.assignedToRoles,
+      ...(bindings.length ? { entityBindings: bindings } : {}),
+      ...(userTask.priority ? { priority: userTask.priority } : {}),
+      ...(decisions.length ? { decisions } : {}),
+      ...(assignment.fellBackToRoles ? { assignmentFallback: 'roles' } : {}),
     },
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
+  })
+
+  await emitTaskAssignedEvent(userTask, instance, context, {
+    decisions: decisions.map((decision) => ({ id: decision.id })),
+    formSchema: userTask.formSchema ?? null,
+    editablePrefilled: userTaskConfig.editablePrefilled ?? null,
+  })
+
+  // Reminders and the deadline breach are scheduled HERE, once, with the
+  // deadline already absolute on each job payload — see `lib/task-sla.ts`. A
+  // task with no deadline schedules nothing at all.
+  await scheduleUserTaskSla({
+    workflowInstanceId: instance.id,
+    stepInstanceId: stepInstance.id,
+    branchInstanceId: branch ? branch.id : null,
+    userTaskId: userTask.id,
+    dueDate: userTask.dueDate ?? null,
+    reminders: userTaskConfig.reminders ?? null,
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+    userId: context.userId,
+    now,
   })
 
   // Pause execution - waits for user task completion. For a branch, only the
@@ -1254,39 +1397,6 @@ async function logStepEvent(
 
   await em.persist(workflowEvent).flush()
   return workflowEvent
-}
-
-/**
- * Calculate due date from ISO 8601 duration string
- *
- * @param duration - ISO 8601 duration (e.g., "P1D" for 1 day)
- * @returns Due date
- */
-function calculateDueDate(duration: string): Date {
-  // Simple implementation for MVP
-  // Supports: P1D (1 day), P1H (1 hour), P1W (1 week)
-  const now = new Date()
-
-  const daysMatch = duration.match(/P(\d+)D/)
-  if (daysMatch) {
-    const days = parseInt(daysMatch[1], 10)
-    return new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
-  }
-
-  const hoursMatch = duration.match(/PT(\d+)H/)
-  if (hoursMatch) {
-    const hours = parseInt(hoursMatch[1], 10)
-    return new Date(now.getTime() + hours * 60 * 60 * 1000)
-  }
-
-  const weeksMatch = duration.match(/P(\d+)W/)
-  if (weeksMatch) {
-    const weeks = parseInt(weeksMatch[1], 10)
-    return new Date(now.getTime() + weeks * 7 * 24 * 60 * 60 * 1000)
-  }
-
-  // Default: 1 day
-  return new Date(now.getTime() + 24 * 60 * 60 * 1000)
 }
 
 /**

@@ -44,25 +44,40 @@ function makeTask(overrides: TaskRow = {}): TaskRow {
   }
 }
 
+function matchesFilter(row: TaskRow, where: Record<string, unknown>): boolean {
+  return Object.entries(where).every(([key, value]) => {
+    if (value !== null && typeof value === 'object' && '$in' in (value as Record<string, unknown>)) {
+      return ((value as { $in: unknown[] }).$in).includes(row[key])
+    }
+    return row[key] === value
+  })
+}
+
 /**
- * Stands in for the identity map: only returns a row when every scalar in the
- * filter matches, which is exactly what a missing tenant filter would bypass.
+ * Stands in for the identity map plus the database: `findOne` only returns a
+ * row when every scalar in the filter matches (exactly what a missing tenant
+ * filter would bypass), and `nativeUpdate` behaves like the conditional UPDATE
+ * it stands for — it reports how many rows the predicate actually matched, so a
+ * row someone else already claimed yields zero.
  */
 function makeEm(rows: TaskRow[]) {
   const flush = jest.fn(async () => undefined)
   const findOne = jest.fn(async (_entity: unknown, where: Record<string, unknown>) => {
-    return (
-      rows.find((row) =>
-        Object.entries(where).every(([key, value]) => {
-          if (value !== null && typeof value === 'object' && '$in' in (value as Record<string, unknown>)) {
-            return ((value as { $in: unknown[] }).$in).includes(row[key])
-          }
-          return row[key] === value
-        }),
-      ) ?? null
-    )
+    return rows.find((row) => matchesFilter(row, where)) ?? null
   })
-  return { em: { findOne, flush } as unknown as EntityManager, findOne, flush }
+  const nativeUpdate = jest.fn(
+    async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+      const matched = rows.filter((row) => matchesFilter(row, where))
+      for (const row of matched) Object.assign(row, data)
+      return matched.length
+    },
+  )
+  return {
+    em: { findOne, flush, nativeUpdate } as unknown as EntityManager,
+    findOne,
+    flush,
+    nativeUpdate,
+  }
 }
 
 const container = { resolve: jest.fn(() => undefined) } as unknown as AwilixContainer
@@ -100,6 +115,57 @@ describe('claimUserTask tenant scoping', () => {
 
     expect(row.claimedBy).toBe(USER_A)
     expect(row.status).toBe('IN_PROGRESS')
+  })
+})
+
+/**
+ * The claim is a compare-and-set, not a read-then-write. Two operators pressing
+ * the work inbox's claim-next button at the same instant read the same
+ * `PENDING` row; only the conditional UPDATE decides who owns it.
+ */
+describe('claimUserTask concurrency', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  test('takes the row with a conditional update, scoped and guarded on status', async () => {
+    const { em, nativeUpdate } = makeEm([makeTask()])
+
+    await claimUserTask(em, TASK_ID, USER_A, scopeA)
+
+    expect(nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        id: TASK_ID,
+        tenantId: TENANT_A,
+        organizationId: ORG_A,
+        status: 'PENDING',
+        claimedBy: null,
+      },
+      expect.objectContaining({ claimedBy: USER_A, status: 'IN_PROGRESS' }),
+    )
+  })
+
+  test('the second caller loses: the row keeps the first claimant and the loser is told so', async () => {
+    const row = makeTask()
+    const { em } = makeEm([row])
+
+    await claimUserTask(em, TASK_ID, USER_A, scopeA)
+
+    await expect(claimUserTask(em, TASK_ID, USER_B, scopeA)).rejects.toMatchObject({
+      code: 'TASK_NOT_FOUND',
+    })
+    expect(row.claimedBy).toBe(USER_A)
+  })
+
+  test('a row snatched between the lookup and the write is refused, not overwritten', async () => {
+    const row = makeTask()
+    const { em, nativeUpdate } = makeEm([row])
+    nativeUpdate.mockResolvedValueOnce(0)
+
+    await expect(claimUserTask(em, TASK_ID, USER_A, scopeA)).rejects.toMatchObject({
+      code: 'TASK_NOT_FOUND',
+    })
+    expect(row.claimedBy).toBeNull()
+    expect(row.status).toBe('PENDING')
   })
 })
 

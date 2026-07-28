@@ -13,6 +13,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { UserTask } from '../../../data/entities'
+import { serializeUserTask } from '../serialize'
+import { loadTaskDecisionContext } from '../../../lib/task-decision-context'
 import {
   workflowsTag,
   userTaskDetailResponseSchema,
@@ -69,8 +71,19 @@ export async function GET(
       )
     }
 
+    // Decision buttons are DERIVED, never stored: the instance pins its
+    // definition version, so re-resolving here always yields the buttons the
+    // author wrote for this step. A task on a step that authored none gets an
+    // empty list and completes through the plain form exactly as before.
+    const { decisions, stepId, formKey } = await loadTaskDecisionContext(em, task)
+
     return NextResponse.json({
-      data: task,
+      data: {
+        ...serializeUserTask(task),
+        stepId,
+        decisions,
+        formKey,
+      },
     })
   } catch (error) {
     logger.error('Error fetching user task', { err: error })

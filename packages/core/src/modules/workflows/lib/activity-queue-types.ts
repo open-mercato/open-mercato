@@ -7,6 +7,8 @@
  *   - `'timer'`: delayed fire-timer job for a WAIT_FOR_TIMER step
  *   - `'condition'`: delayed poll job for a WAIT_FOR_CONDITION step — the
  *     durability backstop behind the event-driven context-write wake
+ *   - `'task_sla'`: delayed reminder / deadline-breach job for a USER_TASK,
+ *     carrying the absolute deadline so the queue cannot extend it
  *   - `'invoke_agent'`: run an INVOKE_AGENT step's agent OUTSIDE the workflow
  *     transaction, then resume the parked step via the proposal-ready signal
  *   - `'workflow_error_handler'`: start the definition's catch-all handler
@@ -62,6 +64,27 @@ export interface WorkflowActivityJobCondition extends WorkflowActivityJobBase {
   stepInstanceId: string
   deadlineAt: string
   attempt: number
+}
+
+/**
+ * SLA job for a USER_TASK's deadline. One job per authored reminder offset plus
+ * one for the deadline itself, all enqueued when the task is created.
+ *
+ * `deadlineAt` is ABSOLUTE and travels on the payload — exactly like the
+ * WAIT_FOR_CONDITION backstop — so a queue that runs late can never silently
+ * extend the deadline the author configured. `fireAt` records when this
+ * particular job was meant to run, so a late reminder can recognise itself.
+ *
+ * Delivery is at-least-once: the handler is idempotent (a completed, cancelled
+ * or already-breached task makes the job a no-op).
+ */
+export interface WorkflowActivityJobTaskSla extends WorkflowActivityJobBase {
+  kind: 'task_sla'
+  stepInstanceId: string
+  userTaskId: string
+  phase: 'reminder' | 'breach'
+  deadlineAt: string
+  fireAt: string
 }
 
 export interface WorkflowActivityJobInvokeAgent extends WorkflowActivityJobBase {
@@ -123,6 +146,7 @@ export type WorkflowActivityJob =
   | WorkflowActivityJobActivity
   | WorkflowActivityJobTimer
   | WorkflowActivityJobCondition
+  | WorkflowActivityJobTaskSla
   | WorkflowActivityJobInvokeAgent
   | WorkflowActivityJobResumeSubWorkflowParent
   | WorkflowActivityJobErrorHandler

@@ -25,6 +25,26 @@ export interface GraphToDefinitionOptions {
   includePositions?: boolean
 }
 
+/**
+ * Task inspector keys (spec §6.1) that round-trip verbatim between the node and
+ * the definition's `userTaskConfig`.
+ *
+ * They are listed rather than spread so an editor-only key on `node.data` can
+ * never leak into a persisted definition, and so the set is one obvious place
+ * to extend. The engine reads them through `userTaskConfig`; the inspector
+ * reads them off `node.data`, which is why both directions copy.
+ */
+const USER_TASK_INSPECTOR_KEYS = [
+  'instructions',
+  'entityBindings',
+  'priority',
+  'deadline',
+  'reminders',
+  'onBreach',
+  'decisions',
+  'editablePrefilled',
+] as const
+
 export interface DefinitionToGraphOptions {
   autoLayout?: boolean
   layoutSpacing?: { vertical: number; horizontal: number }
@@ -111,6 +131,11 @@ export function graphToDefinition(
 
       if ((node.data as any).escalationRules || (node.data as any).userTaskConfig?.escalationRules) {
         step.userTaskConfig.escalationRules = (node.data as any).escalationRules || (node.data as any).userTaskConfig.escalationRules
+      }
+
+      for (const key of USER_TASK_INSPECTOR_KEYS) {
+        const authored = (node.data as any)[key] ?? (node.data as any).userTaskConfig?.[key]
+        if (authored !== undefined) step.userTaskConfig[key] = authored
       }
     }
 
@@ -407,6 +432,11 @@ export function definitionToGraph(
 
       if (step.userTaskConfig.escalationRules) {
         nodeData.escalationRules = step.userTaskConfig.escalationRules
+      }
+
+      for (const key of USER_TASK_INSPECTOR_KEYS) {
+        const persisted = (step.userTaskConfig as Record<string, unknown>)[key]
+        if (persisted !== undefined) nodeData[key] = persisted
       }
     }
 

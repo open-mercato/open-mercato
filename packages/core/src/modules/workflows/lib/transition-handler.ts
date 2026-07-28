@@ -30,6 +30,7 @@ import {
   resolveStepFailureHandling,
   type StepFailureHandling,
 } from './error-routing'
+import { excludeSlaBreachTransitions } from './breach-routing'
 import {
   type ExecutionToken,
   rootToken,
@@ -195,8 +196,8 @@ export async function evaluateTransition(
         }
       }
     } else {
-      // Auto-select first valid transition (never an error route)
-      const availableTransitions = excludeErrorTransitions(transitions).filter(
+      // Auto-select first valid transition (never an error or SLA-breach route)
+      const availableTransitions = excludeSlaBreachTransitions(excludeErrorTransitions(transitions)).filter(
         (t: any) => t.fromStepId === fromStepId
       )
 
@@ -283,8 +284,11 @@ export async function findValidTransitions(
     }
 
     // Find all transitions from current step, sorted by priority (highest first).
-    // Error routes are excluded: they are reachable only from a step failure.
-    const transitions = excludeErrorTransitions(definition.definition.transitions || [])
+    // Error routes are excluded (reachable only from a step failure) and so are
+    // SLA-breach routes (reachable only from a task's deadline passing).
+    const transitions = excludeSlaBreachTransitions(
+      excludeErrorTransitions(definition.definition.transitions || [])
+    )
       .filter((t: any) => t.fromStepId === fromStepId)
       .sort((a: any, b: any) => (b.priority || 0) - (a.priority || 0))
 

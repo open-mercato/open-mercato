@@ -78,11 +78,11 @@ The END step marks completion of the workflow. When execution reaches an END ste
 USER_TASK steps require human intervention—someone needs to review data, make a decision, or provide input.
 
 **Characteristics:**
-- Creates a task in the user's task queue
+- Creates a task that appears in the [Work Inbox](./user-tasks#the-work-inbox)
 - Workflow pauses at this step until the task is completed
-- Can be assigned to specific users or roles
-- Supports custom forms for data collection
-- Tracks SLA (service level agreements) and escalation
+- Can be assigned to a user, a role queue, a context value, or a business rule
+- Supports custom forms for data collection, and decision buttons bound to outgoing routes
+- Tracks a deadline, reminders before it, and what happens when it passes
 
 **Configuration:**
 
@@ -120,10 +120,17 @@ Define fields users must fill when completing the task:
 }
 ```
 
-### SLA and Escalation
+### Deadline, reminders and breach
 
-- **SLA Duration**: Define how long the task should take (e.g., "2 days")
-- **Escalation Rules**: Automatically reassign or notify if the task is overdue
+- **Deadline**: an ISO 8601 duration from task creation (`P2D`, `PT30M`) that becomes the task's due date
+- **Reminders**: offsets before the deadline, each firing a notification to whoever the task is offered to
+- **When the deadline passes**: notify, reassign to a user or role, or follow a route out of the step
+
+The older `escalationRules` field is still accepted for existing definitions but nothing executes it — see [Deadlines, reminders and breach](./user-tasks#when).
+
+### Decisions
+
+Bind a button to each outgoing route so the assignee's choice is what routes the run, instead of a free-text field the next step has to interpret. See [Decisions](./user-tasks#decisions).
 
 **Use Cases:**
 - Approval workflows (purchase orders, expense reports)

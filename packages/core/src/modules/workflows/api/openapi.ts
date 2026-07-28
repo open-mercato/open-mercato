@@ -22,6 +22,7 @@ export const userTaskSchema = z.object({
   id: z.string().uuid(),
   workflowInstanceId: z.string().uuid(),
   stepInstanceId: z.string().uuid(),
+  branchInstanceId: z.string().uuid().nullable().optional(),
   taskName: z.string(),
   description: z.string().nullable().optional(),
   status: userTaskStatusSchema,
@@ -36,10 +37,29 @@ export const userTaskSchema = z.object({
   escalatedTo: z.string().nullable().optional(),
   completedBy: z.string().nullable().optional(),
   completedAt: z.string().nullable().optional(),
+  comments: z.string().nullable().optional(),
+  reassignedBy: z.string().nullable().optional().describe('Who last reassigned this task'),
+  reassignedAt: z.string().nullable().optional().describe('When it was last reassigned'),
+  reassignReason: z.string().nullable().optional().describe('Why it was reassigned'),
   tenantId: z.string().uuid(),
   organizationId: z.string().uuid(),
   createdAt: z.string(),
+  /** Optimistic-lock version — a reassign UI sends it back as the lock header. */
   updatedAt: z.string(),
+})
+
+/**
+ * List projection: every field the raw-entity dump already returned, plus the
+ * work-item fields consumers had to dig out of `formSchema` themselves (the
+ * enterprise "Review proposal" row action read `row.proposalId`, which was
+ * never there). Strictly a superset — BACKWARD_COMPATIBILITY.md §7 forbids
+ * dropping a response field.
+ */
+export const userTaskRowSchema = userTaskSchema.extend({
+  kind: z.literal('user_task').describe('Work-inbox source discriminator'),
+  proposalId: z.string().nullable().describe('Agent proposal this task disposes, when any'),
+  priority: z.union([z.string(), z.number()]).nullable(),
+  entityBindings: z.array(z.unknown()).nullable().describe('Records this task is about, when authored'),
 })
 
 export const userTaskListQuerySchema = z.object({
@@ -60,12 +80,30 @@ export const paginationSchema = z.object({
 })
 
 export const userTaskListResponseSchema = z.object({
-  data: z.array(userTaskSchema),
+  data: z.array(userTaskRowSchema),
   pagination: paginationSchema,
 })
 
+/**
+ * A decision button as the assignee sees it, re-resolved at request time from
+ * the instance's pinned definition (never stored on the task row).
+ */
+export const userTaskDecisionSchema = z.object({
+  id: z.string(),
+  label: z.union([z.string(), z.record(z.string(), z.string())]),
+  transitionId: z.string().describe('Durable id of the route this button takes'),
+  style: z.enum(['primary', 'secondary', 'destructive']).optional(),
+})
+
+/**
+ * Detail projection: the same superset the list returns, plus the derived
+ * decision buttons and the definition step id they belong to.
+ */
 export const userTaskDetailResponseSchema = z.object({
-  data: userTaskSchema,
+  data: userTaskRowSchema.extend({
+    stepId: z.string().nullable().describe('Definition step the task is parked on'),
+    decisions: z.array(userTaskDecisionSchema),
+  }),
 })
 
 export const userTaskClaimResponseSchema = z.object({
@@ -73,9 +111,89 @@ export const userTaskClaimResponseSchema = z.object({
   message: z.string(),
 })
 
+// ============================================================================
+// Work Inbox (spec §6.2/§6.3 — one queue over every registered source)
+// ============================================================================
+
+export const workInboxPrioritySchema = z.enum(['extreme', 'high', 'medium', 'low'])
+
+export const workInboxEntityBindingSchema = z.object({
+  entityType: z.string(),
+  entityId: z.string(),
+  label: z.string().nullable().optional(),
+})
+
+export const workInboxActionSchema = z.object({
+  id: z.string(),
+  labelKey: z.string(),
+  endpoint: z.string(),
+  appliesTo: z.enum(['claimable', 'claimed-by-me', 'open', 'always']),
+})
+
+/**
+ * Passthrough on purpose: a row carries its source's own payload alongside the
+ * common projection, so a `user_task` row is a superset of a
+ * `GET /api/workflows/tasks` row (that is what keeps `proposalId` reachable).
+ */
+export const workInboxRowSchema = z
+  .object({
+    id: z.string(),
+    kind: z.string().describe('Source discriminator — user_task, agent_disposition, …'),
+    moduleId: z.string(),
+    title: z.string(),
+    description: z.string().nullable(),
+    status: z.string(),
+    priority: workInboxPrioritySchema.nullable(),
+    dueDate: z.string().nullable(),
+    overdue: z.boolean().describe('Derived: past due and not finished'),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    assignedTo: z.string().nullable(),
+    assignedToRoles: z.array(z.string()).nullable(),
+    claimedBy: z.string().nullable(),
+    entityTypes: z.array(z.string()),
+    entityBindings: z.array(workInboxEntityBindingSchema),
+    detailHref: z.string().nullable(),
+    actions: z.array(workInboxActionSchema),
+  })
+  .passthrough()
+
+export const workInboxListQuerySchema = z.object({
+  kind: z.string().optional().describe('Filter by source kind (comma-separated)'),
+  module: z.string().optional().describe('Filter by owning module id (comma-separated)'),
+  entityType: z.string().optional().describe('Filter by bound entity type (comma-separated)'),
+  role: z.string().optional().describe('Filter by queued role (comma-separated)'),
+  priority: z.string().optional().describe('Filter by priority (comma-separated: extreme,high,medium,low)'),
+  status: z.string().optional().describe('Filter by status (comma-separated)'),
+  overdue: z.coerce.boolean().optional().describe('Only items past their due date'),
+  myWork: z.coerce.boolean().optional().describe('Only items assigned to, claimed by, or queued to a role of the caller'),
+  assignedTo: z.string().optional().describe('Filter by assignee'),
+  workflowInstanceId: z.string().uuid().optional().describe('Filter by workflow instance'),
+  limit: z.coerce.number().min(1).max(100).optional().default(50).describe('Number of results (max 100)'),
+  offset: z.coerce.number().min(0).optional().default(0).describe('Pagination offset'),
+})
+
+export const workInboxListResponseSchema = z.object({
+  data: z.array(workInboxRowSchema),
+  pagination: paginationSchema,
+  meta: z.object({
+    kinds: z.array(z.string()).describe('Source kinds that answered this request'),
+    degradedKinds: z.array(z.string()).describe('Source kinds that failed; their work is missing from this page'),
+  }),
+})
+
+export const workInboxClaimNextResponseSchema = z.object({
+  data: workInboxRowSchema.nullable().describe('The claimed item, or null when nothing was claimable'),
+  message: z.string(),
+})
+
 export const completeTaskRequestSchema = z.object({
   formData: z.record(z.string(), z.unknown()).describe('Form field values'),
   comments: z.string().optional().describe('Optional comments'),
+  decisionId: z
+    .string()
+    .optional()
+    .describe('Decision button pressed; selects the outgoing route and is recorded with the completion'),
 })
 
 export const userTaskCompleteResponseSchema = z.object({

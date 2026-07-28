@@ -13,10 +13,29 @@ import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { Mapping } from '../components/fields/MappingArrayEditor'
 import type { StartPreCondition } from '../components/fields/StartPreConditionsEditor'
 import type { AgentInvokeConfigValue, AgentSubjectValue } from '../components/fields/AgentInvokeConfigField'
-import type { InvokeAgentConfig } from '../data/validators'
+import type { InvokeAgentConfig, UserTaskConfig } from '../data/validators'
 import { sanitizeId } from './graph-utils'
 import { isFutureIsoDateString, isValidDurationString } from '../data/validators'
 import { isPlainRecord, parseAdvancedConfigValue } from './advanced-config'
+import {
+  applyEditedTaskText,
+  decisionsToDrafts,
+  deriveTaskAssignmentMode,
+  draftsToDecisions,
+  draftsToEntityBindings,
+  draftToOnBreach,
+  entityBindingsToDrafts,
+  flattenTaskTextForEditing,
+  isTaskPriority,
+  offsetsToReminders,
+  onBreachToDraft,
+  remindersToOffsets,
+  resolveTaskDeadlinePersistence,
+  type TaskAssignmentMode,
+  type TaskDecisionDraft,
+  type TaskEntityBindingDraft,
+  type TaskOnBreachDraft,
+} from './task-inspector-config'
 
 // userTaskConfig keys owned by dedicated form fields. At dialog load they are
 // EXCLUDED from the Advanced Configuration blob (only genuinely unhandled keys
@@ -29,6 +48,34 @@ const USER_TASK_STRUCTURED_CONFIG_KEYS = [
   'assignmentRule',
   'slaDuration',
   'escalationRules',
+  // Task inspector vocabulary (spec §6.1). Structural from here on: the five
+  // inspector sections own these keys, so they must not ALSO travel through the
+  // Advanced Configuration blob where a stale copy could win on save.
+  'instructions',
+  'entityBindings',
+  'priority',
+  'deadline',
+  'reminders',
+  'onBreach',
+  'decisions',
+  'editablePrefilled',
+] as const
+
+/**
+ * Inspector keys mirrored onto `node.data` by `definitionToGraph`. Both places
+ * are read (top level first, exactly as `graphToDefinition` resolves them), and
+ * a save writes BOTH so clearing a value in the inspector cannot be undone by a
+ * stale top-level copy left over from the load.
+ */
+const USER_TASK_INSPECTOR_NODE_KEYS = [
+  'instructions',
+  'entityBindings',
+  'priority',
+  'deadline',
+  'reminders',
+  'onBreach',
+  'decisions',
+  'editablePrefilled',
 ] as const
 
 // Signal name the INVOKE_AGENT step parks on when a proposal is routed to a
@@ -109,6 +156,18 @@ export interface NodeFormValues {
   slaDuration?: string
   escalationRules?: any[]
 
+  // Task inspector sections (spec §6.1). Editor-side drafts: the mapping back
+  // onto `userTaskConfig` lives in `lib/task-inspector-config.ts`, which is
+  // where the "untouched means unchanged" rules are stated and tested.
+  assignmentMode?: TaskAssignmentMode
+  taskInstructions?: string
+  taskEntityBindings?: TaskEntityBindingDraft[]
+  taskPriority?: string
+  taskReminders?: string[]
+  taskOnBreach?: TaskOnBreachDraft
+  taskDecisions?: TaskDecisionDraft[]
+  taskEditablePrefilled?: string[]
+
   // Automated fields
   activityType?: string
   activityId?: string
@@ -157,6 +216,22 @@ export interface NodeFormValues {
   // Advanced configuration. JsonBuilder emits the parsed object; legacy
   // callers may still provide a JSON string.
   advancedConfig?: Record<string, unknown> | string
+}
+
+/**
+ * The inspector vocabulary as the engine would resolve it: `definitionToGraph`
+ * mirrors each key onto `node.data`, and `graphToDefinition` reads the top-level
+ * copy FIRST (`node.data[key] ?? node.data.userTaskConfig?.[key]`). Reading it
+ * the same way here is what keeps the dialog showing what a save would persist.
+ */
+function readUserTaskInspectorConfig(node: Node): Partial<UserTaskConfig> {
+  const nodeData = (node.data ?? {}) as Record<string, unknown>
+  const stored = isPlainRecord(nodeData.userTaskConfig) ? nodeData.userTaskConfig : {}
+  const merged: Record<string, unknown> = { ...stored }
+  for (const key of USER_TASK_INSPECTOR_NODE_KEYS) {
+    if (nodeData[key] !== undefined) merged[key] = nodeData[key]
+  }
+  return merged as Partial<UserTaskConfig>
 }
 
 function normalizeAssignedToRoles(value: unknown): string[] {
@@ -268,6 +343,25 @@ export function nodeToFormValues(node: Node): NodeFormValues {
       values.slaDuration = nodeData.userTaskConfig.slaDuration || nodeData.slaDuration || ''
       values.escalationRules = nodeData.userTaskConfig.escalationRules || nodeData.escalationRules || []
     }
+
+    // Task inspector sections (spec §6.1). The deadline control edits whichever
+    // key carries the duration, so it seeds from `deadline` first and falls back
+    // to the legacy bare `slaDuration`.
+    const inspectorConfig = readUserTaskInspectorConfig(node)
+    if (inspectorConfig.deadline?.duration) values.slaDuration = inspectorConfig.deadline.duration
+    values.assignmentMode = deriveTaskAssignmentMode({
+      assignedTo: values.assignedTo,
+      assignmentRule: values.assignmentRule,
+    })
+    values.taskInstructions = flattenTaskTextForEditing(inspectorConfig.instructions)
+    values.taskEntityBindings = entityBindingsToDrafts(inspectorConfig.entityBindings)
+    values.taskPriority = isTaskPriority(inspectorConfig.priority) ? inspectorConfig.priority : ''
+    values.taskReminders = remindersToOffsets(inspectorConfig.reminders)
+    values.taskOnBreach = onBreachToDraft(inspectorConfig.onBreach)
+    values.taskDecisions = decisionsToDrafts(inspectorConfig.decisions)
+    values.taskEditablePrefilled = Array.isArray(inspectorConfig.editablePrefilled)
+      ? [...inspectorConfig.editablePrefilled]
+      : []
 
     // Load form fields from userTaskConfig.formSchema
     if (nodeData?.userTaskConfig?.formSchema) {
@@ -422,6 +516,19 @@ export function formValuesToNodeUpdates(
     updates.assignedToRoles = assignedToRoles
     updates.formKey = values.formKey || undefined
 
+    // Task inspector sections (spec §6.1). Every value below is optional and
+    // absent-by-default: a step whose inspector sections were never touched
+    // produces exactly the config it produced before this section existed.
+    const inspectorConfig = readUserTaskInspectorConfig(node)
+    const deadline = resolveTaskDeadlinePersistence(inspectorConfig, values.slaDuration ?? '')
+    const instructions = applyEditedTaskText(inspectorConfig.instructions, values.taskInstructions ?? '')
+    const entityBindings = draftsToEntityBindings(values.taskEntityBindings)
+    const priority = isTaskPriority(values.taskPriority) ? values.taskPriority : undefined
+    const reminders = offsetsToReminders(values.taskReminders)
+    const onBreach = draftToOnBreach(values.taskOnBreach)
+    const decisions = draftsToDecisions(values.taskDecisions)
+    const editablePrefilled = values.taskEditablePrefilled?.filter((entry) => entry.trim().length > 0)
+
     // Build userTaskConfig with all fields
     updates.userTaskConfig = {
       ...(values.formFields && values.formFields.length > 0 && {
@@ -433,11 +540,31 @@ export function formValuesToNodeUpdates(
       ...(assignedToRoles.length > 0 && { assignedToRoles }),
       // Preserve advanced fields
       ...(values.assignmentRule && { assignmentRule: values.assignmentRule }),
-      ...(values.slaDuration && { slaDuration: values.slaDuration }),
+      ...deadline,
       ...(values.escalationRules && values.escalationRules.length > 0 && {
         escalationRules: values.escalationRules
       }),
+      ...(instructions !== undefined && { instructions }),
+      ...(entityBindings !== undefined && { entityBindings }),
+      ...(priority !== undefined && { priority }),
+      ...(reminders !== undefined && { reminders }),
+      ...(onBreach !== undefined && { onBreach }),
+      ...(decisions !== undefined && { decisions }),
+      ...(editablePrefilled?.length ? { editablePrefilled } : {}),
     }
+
+    // Mirror onto `node.data` so a CLEARED value cannot be resurrected by the
+    // copy `definitionToGraph` left at the top level (`graphToDefinition` reads
+    // the top-level key first).
+    updates.instructions = instructions
+    updates.entityBindings = entityBindings
+    updates.priority = priority
+    updates.deadline = deadline.deadline
+    updates.slaDuration = deadline.slaDuration
+    updates.reminders = reminders
+    updates.onBreach = onBreach
+    updates.decisions = decisions
+    updates.editablePrefilled = editablePrefilled?.length ? editablePrefilled : undefined
   }
 
   // Automated task specific fields

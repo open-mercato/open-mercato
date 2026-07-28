@@ -7,6 +7,8 @@
  */
 
 import { describe, test, expect } from '@jest/globals'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createContainer, asValue } from 'awilix'
 import { register } from '../di'
 
@@ -29,10 +31,21 @@ describe('workflows DI registrations', () => {
       'signalHandler',
       'timerHandler',
       'conditionHandler',
+      'taskHandler',
+      'workInboxService',
     ]
     for (const token of tokens) {
       expect(container.hasRegistration(token)).toBe(true)
     }
+  })
+
+  test('exposes the work inbox entry points the inbox routes call', () => {
+    const container = buildContainer()
+    const workInboxService =
+      container.resolve<Record<string, (...args: unknown[]) => unknown>>('workInboxService')
+
+    expect(typeof workInboxService.listWorkInbox).toBe('function')
+    expect(typeof workInboxService.listClaimableWorkInbox).toBe('function')
   })
 
   test('preserves the legacy instance-based handler signatures', () => {
@@ -62,4 +75,34 @@ describe('workflows DI registrations', () => {
     expect(conditionHandler.evaluateWaitCondition.length).toBe(3)
     expect(conditionHandler.wakeConditionWaiters.length).toBe(3)
   })
+
+  test('exposes the task lifecycle entry points the task routes call', () => {
+    const container = buildContainer()
+    const taskHandler = container.resolve<Record<string, (...args: unknown[]) => unknown>>('taskHandler')
+
+    expect(taskHandler.completeUserTask.length).toBe(3)
+    expect(taskHandler.claimUserTask.length).toBe(4)
+  })
+})
+
+/**
+ * Module rule #1: services are resolved by DI token, never imported from `lib/`
+ * and called. The task routes were the module's own exception — they imported
+ * `lib/task-handler` directly, which put them outside every DI seam (test
+ * doubles, enterprise overrides, request-scoped instrumentation).
+ */
+describe('task routes resolve the handler through DI', () => {
+  const routes = [
+    join('tasks', '[id]', 'claim', 'route.ts'),
+    join('tasks', '[id]', 'complete', 'route.ts'),
+  ]
+
+  for (const route of routes) {
+    test(`${route} resolves taskHandler instead of importing the lib`, () => {
+      const source = readFileSync(join(__dirname, '..', 'api', route), 'utf8')
+
+      expect(source).toContain("container.resolve<TaskHandlerService>('taskHandler')")
+      expect(source).not.toMatch(/^import\s+\{[^}]*\}\s+from\s+'[^']*lib\/task-handler'/m)
+    })
+  }
 })

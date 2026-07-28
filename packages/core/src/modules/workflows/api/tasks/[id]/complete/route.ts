@@ -11,7 +11,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { completeUserTask } from '../../../../lib/task-handler'
+import type { TaskHandlerService } from '../../../../lib/task-handler'
 import {
   workflowsTag,
   completeTaskRequestSchema as openApiCompleteTaskSchema,
@@ -31,6 +31,11 @@ export const metadata = {
 const completeTaskSchema = z.object({
   formData: z.record(z.string(), z.any()),
   comments: z.string().optional(),
+  /**
+   * The decision button the assignee pressed. Optional and additive: a task
+   * without decisions completes through the plain form exactly as before.
+   */
+  decisionId: z.string().min(1).optional(),
 })
 
 /**
@@ -89,7 +94,7 @@ export async function POST(
       )
     }
 
-    const { formData, comments } = parseResult.data
+    const { formData, comments, decisionId } = parseResult.data
 
     // Verify task belongs to this tenant/org before completing
     const { UserTask } = await import('../../../../data/entities')
@@ -107,11 +112,13 @@ export async function POST(
     }
 
     // Call task handler to complete task and resume workflow
-    await completeUserTask(em, container, {
+    const taskHandler = container.resolve<TaskHandlerService>('taskHandler')
+    await taskHandler.completeUserTask(em, container, {
       taskId: params.id,
       formData,
       userId: auth.sub,
       comments,
+      decisionId,
       scope: { tenantId, organizationId },
     })
 
@@ -131,6 +138,12 @@ export async function POST(
 
     // Handle specific error codes from task-handler
     if (error instanceof Error) {
+      if ((error as { code?: unknown }).code === 'UNKNOWN_DECISION') {
+        return NextResponse.json(
+          { error: error.message },
+          { status: 400 }
+        )
+      }
       if (error.message.includes('not found')) {
         return NextResponse.json(
           { error: error.message },

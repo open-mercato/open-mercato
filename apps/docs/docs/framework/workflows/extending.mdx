@@ -189,6 +189,80 @@ The editor's variable picker and unresolved-reference warnings are fed by a **pe
 
 Declare a `mock` on your custom activity types so workflow authors can test steps that use them.
 
+## Work Inbox Sources (`WorkInboxSourceProvider`)
+
+The Work Inbox (`GET /api/workflows/work-inbox`) is a **projection over several sources**, not a table. Core registers the `user_task` source; any module can contribute its own kind of work to the same queue by registering a provider.
+
+Register from your module's `di.ts`, at module-DI load time:
+
+```typescript
+import {
+  registerWorkInboxSources,
+  type WorkInboxSourceProvider,
+} from '@open-mercato/core/modules/workflows/lib/work-inbox/provider'
+
+const approvalSource: WorkInboxSourceProvider = {
+  kind: 'my_module_approval',
+  moduleId: 'my_module',
+  // Injection spot id the task detail view renders for this kind, when any.
+  render: 'work-inbox:my_module_approval:detail',
+  actions: [
+    {
+      id: 'claim',
+      labelKey: 'my_module.approvals.actions.claim',
+      endpoint: '/api/my_module/approvals/{id}/claim',
+      appliesTo: 'claimable',
+    },
+  ],
+  async list(query, context) {
+    const em = context.resolve<EntityManager>('em')
+    // MUST filter on context.scope.tenantId, and on scope.organizationIds
+    // when it is non-null (null is the unrestricted-operator wildcard).
+    const rows = await loadApprovals(em, query, context.scope)
+    return { rows, total: rows.length }
+  },
+}
+
+registerWorkInboxSources([{ moduleId: 'my_module', sources: [approvalSource] }])
+```
+
+Contract notes:
+
+- **Registration merges by module id.** Re-registering the same module replaces that module's providers and leaves every other module's alone, so load order between modules is irrelevant and re-registration is idempotent.
+- **`resolve` is a runtime seam, not an import.** Providers resolve their own services through `context.resolve`, so a provider registered by another module never drags that module's internals into workflows. The type is structural — there is no Awilix import.
+- **A provider that throws is degraded, not fatal.** Its kind is reported in the response's `meta.degradedKinds` and the rest of the queue still renders. One module's outage must not hide another module's work.
+- **A provider that is not registered simply contributes nothing.** Without the enterprise module the inbox shows workflow tasks and raises no error anywhere.
+- **Actions are declarative data** (an id, a translation key, a POST endpoint template with `{id}`, and a row predicate: `claimable` / `claimed-by-me` / `open` / `always`), so the page renders every provider's actions through one code path and no provider ships UI into the inbox bundle.
+- **Ordering is applied by the merge service**, not by your provider: priority → due date → created. Return your source's own window and its own true total; `deriveWorkInboxOverdue` and `normalizeWorkInboxPriority` are exported so your rows use the same derivations.
+- **`POST /api/workflows/work-inbox/next` claims `user_task` rows only.** `taskHandler` is the claim seam for that kind, and a provider-generic claim would need every source to expose a server-side claim of its own. Other kinds stay claimable through the endpoints their rows advertise in `actions`.
+
+## Task Form Renderers (`formKey`)
+
+A USER_TASK step can declare `userTaskConfig.formKey` to render its form with a module-supplied component instead of the built-in field renderer. Register the renderer once, keyed by that string:
+
+```typescript
+import {
+  registerTaskFormRenderer,
+} from '@open-mercato/core/modules/workflows/lib/task-form-registry'
+
+registerTaskFormRenderer({
+  formKey: 'my_module.credit_review',
+  titleKey: 'my_module.credit_review.formTitle',
+  Renderer: CreditReviewForm, // ({ context, onChange }) => JSX
+  inputSchema: creditReviewPrefillSchema,   // optional
+  outputSchema: creditReviewPayloadSchema,  // optional
+})
+```
+
+The renderer receives a typed `TaskFormRendererContext` — task id and name, the resolved `formKey`, the authored `formSchema`, the task's `entityBindings`, the decision ids the surface will render beside the form, current `values`, a `disabled` flag while a completion is in flight, and the surrounding locale — and calls `onChange(values)` so the host keeps owning the state, exactly as the built-in form does.
+
+Contract notes:
+
+- The module is **pure by contract**: type-only imports, no React, ORM or Awilix at module scope, so the worker and the browser can both load it.
+- **Duplicate registration throws**, mirroring `registerActivityType`: two modules silently fighting over one key is a bug that must surface at load time, not a race whose winner depends on import order.
+- **Resolution never throws.** `resolveTaskForm(formKey)` returns `{ kind: 'builtin' }` when no key is authored, `{ kind: 'registered', entry }` on a hit, and `{ kind: 'missing', formKey }` when the author asked for a renderer that is not loaded. `missing` is deliberately distinct from `builtin`: both fall back to the built-in form, but `missing` is something the surface must say out loud rather than quietly render something else. A blank screen is the one outcome this must never produce.
+- The `formKey` is **re-resolved per request** from the instance's pinned definition, never copied onto a column, so a definition that gains a renderer key starts using it with no migration.
+
 ## Structured Validation Error Bodies
 
 Schema failures on the definitions POST/PUT respond `400` with `{ error: 'Validation failed', details: [...] }`. Each `details` entry is normalized by `lib/definition-error-body.ts` to `{ path, code, message, expected?, got? }` — `path` and `message` are preserved from the previous shape, so existing parsers (including `formatWorkflowValidationError`) keep working, while `code`/`expected`/`got` enable precise editor diagnostics.

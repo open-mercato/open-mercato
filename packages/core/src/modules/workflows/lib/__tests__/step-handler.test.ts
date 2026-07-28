@@ -695,6 +695,81 @@ describe('Step Handler (Unit Tests)', () => {
       expect(userTaskCall[1].assignedTo).toBeNull()
       expect(userTaskCall[1].assignedToRoles).toEqual(['manager', 'admin'])
     })
+
+    const buildDeadlineDefinition = (slaDuration: string) => ({
+      ...mockDefinition,
+      definition: {
+        ...mockDefinition.definition,
+        steps: [
+          {
+            stepId: 'user-task-deadline',
+            stepName: 'Deadline Task',
+            stepType: 'USER_TASK',
+            userTaskConfig: { assignedTo: 'manager@example.com', slaDuration },
+          },
+        ],
+      },
+    })
+
+    const primeDeadlineMocks = (slaDuration: string) => {
+      const definition = buildDeadlineDefinition(slaDuration)
+      mockEm.findOne
+        .mockResolvedValueOnce(definition as WorkflowDefinition)
+        .mockResolvedValueOnce(definition as WorkflowDefinition)
+        .mockResolvedValueOnce(null)
+
+      mockEm.create
+        .mockReturnValueOnce({
+          id: 'step-instance-1',
+          workflowInstanceId: testInstanceId,
+          stepId: 'user-task-deadline',
+          stepName: 'Deadline Task',
+          stepType: 'USER_TASK',
+          status: 'ACTIVE',
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+          retryCount: 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as StepInstance)
+        .mockReturnValueOnce({} as any) // event
+        .mockReturnValueOnce({ id: 'user-task-1' } as UserTask)
+        .mockReturnValueOnce({} as any) // event
+    }
+
+    test('should honour a sub-day deadline instead of defaulting to one day', async () => {
+      primeDeadlineMocks('PT30M')
+      const before = Date.now()
+
+      await stepHandler.executeStep(
+        mockEm,
+        mockInstance as WorkflowInstance,
+        'user-task-deadline',
+        { workflowContext: {} }
+      )
+
+      const userTaskCall = (mockEm.create as jest.Mock).mock.calls[2] as [string, any]
+      const dueDate = userTaskCall[1].dueDate as Date
+      const offsetMs = dueDate.getTime() - before
+
+      expect(offsetMs).toBeGreaterThanOrEqual(30 * 60 * 1000)
+      expect(offsetMs).toBeLessThan(31 * 60 * 1000)
+    })
+
+    test('should fail the step when the deadline cannot be parsed', async () => {
+      primeDeadlineMocks('sometime next week')
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        mockInstance as WorkflowInstance,
+        'user-task-deadline',
+        { workflowContext: {} }
+      )
+
+      expect(result.status).toBe('FAILED')
+      expect(result.error).toContain('sometime next week')
+      expect((mockEm.create as jest.Mock).mock.calls).toHaveLength(2)
+    })
   })
 
   // ============================================================================

@@ -687,6 +687,40 @@ export class UserTask {
   @Property({ name: 'comments', type: 'text', nullable: true })
   comments?: string | null
 
+  /**
+   * Records this task is about, resolved from the authored
+   * `userTaskConfig.entityBindings` when the task was created.
+   *
+   * A real column rather than a read of the authored `formSchema` blob: the
+   * work inbox, the record-page widget and the §6.4 visibility predicate all
+   * need to filter on it, and the authored form schema is the wrong shape and
+   * the wrong lifetime for that (it describes the FORM, and re-editing the
+   * definition must not retro-change what a running task is about).
+   */
+  @Property({ name: 'entity_bindings', type: 'jsonb', nullable: true })
+  entityBindings?: unknown[] | null
+
+  /** Authored `low|medium|high|extreme`, mirroring the platform's labels. */
+  @Property({ name: 'priority', type: 'varchar', length: 20, nullable: true })
+  priority?: string | null
+
+  /**
+   * Reassignment audit — who moved this task, when, and why.
+   *
+   * Deliberately audit columns and not a new `UserTaskStatus` value: a status
+   * addition is an Ask-First state-machine change, and the reassigned task is
+   * still exactly as pending or in-progress as it was. Mirrors how Phase 3a's
+   * failure queue reused `PAUSED` plus a marker.
+   */
+  @Property({ name: 'reassigned_by', type: 'varchar', length: 255, nullable: true })
+  reassignedBy?: string | null
+
+  @Property({ name: 'reassigned_at', type: Date, nullable: true })
+  reassignedAt?: Date | null
+
+  @Property({ name: 'reassign_reason', type: 'text', nullable: true })
+  reassignReason?: string | null
+
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 

@@ -53,6 +53,14 @@ export const FLOW_LOGIC_MESSAGE_KEYS: Record<FlowLogicWarningCode, { key: string
     key: 'workflows.visualEditor.problems.unmappedStepConfig',
     fallback: 'Step "{stepId}" keeps unmapped configuration from an earlier type change ({keys}); it is stored but no longer executed',
   },
+  taskDecisionUnknownRoute: {
+    key: 'workflows.visualEditor.problems.taskDecisionUnknownRoute',
+    fallback: 'Decision "{decisionId}" on task "{stepId}" points at route "{transitionId}", which no longer leaves this step',
+  },
+  taskDecisionDuplicateId: {
+    key: 'workflows.visualEditor.problems.taskDecisionDuplicateId',
+    fallback: 'Task "{stepId}" has more than one decision with the id "{decisionId}"; only one of them can ever be recorded',
+  },
 }
 
 export type WorkflowIssueTranslator = (

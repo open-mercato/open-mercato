@@ -106,6 +106,31 @@ export default async function handle(
     return
   }
 
+  // Task SLA jobs (kind: 'task_sla') fire a reminder or the deadline breach for
+  // a USER_TASK. The deadline travels absolute on the payload, and the handler
+  // is idempotent, so an at-least-once delivery still breaches exactly once.
+  if (payload.kind === 'task_sla') {
+    logger.debug('Running task SLA job', {
+      instanceId: payload.workflowInstanceId,
+      userTaskId: payload.userTaskId,
+      phase: payload.phase,
+      jobId: ctx.jobId,
+    })
+    const { runTaskSlaJob } = await import('../lib/task-sla')
+    await runTaskSlaJob(em, container, {
+      userTaskId: payload.userTaskId,
+      stepInstanceId: payload.stepInstanceId,
+      workflowInstanceId: payload.workflowInstanceId,
+      branchInstanceId: payload.branchInstanceId,
+      phase: payload.phase,
+      deadlineAt: payload.deadlineAt,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+      userId: payload.userId,
+    })
+    return
+  }
+
   // Invoke-agent jobs (kind: 'invoke_agent') run an INVOKE_AGENT step's agent
   // OUTSIDE the workflow transaction (this worker has its own connection), then
   // resume the parked step via the proposal-ready signal. This is what keeps a

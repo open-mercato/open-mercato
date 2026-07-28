@@ -20,6 +20,13 @@ import {
 } from '../data/entities'
 import { executeWorkflow } from './workflow-executor'
 import { findDefinitionForInstance } from './find-definition'
+import {
+  findTaskDecision,
+  findTaskDecisionTransition,
+  withRecordedDecision,
+} from './task-decisions'
+import { loadTaskDecisionContext } from './task-decision-context'
+import { readRequiredFormFields } from './task-form-schema'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -40,11 +47,33 @@ export interface UserTaskScope {
   organizationId: string
 }
 
+/**
+ * Shape of the `taskHandler` DI registration (`di.ts`).
+ *
+ * The functions below stay exported — third-party modules may import them and
+ * `BACKWARD_COMPATIBILITY.md` §3 freezes import paths — but callers inside the
+ * platform MUST resolve this service instead, per the module's first rule.
+ */
+export interface TaskHandlerService {
+  completeUserTask: typeof completeUserTask
+  claimUserTask: typeof claimUserTask
+  releaseUserTask: typeof releaseUserTask
+}
+
 export interface CompleteUserTaskOptions {
   taskId: string
   formData: Record<string, any>
   userId: string
   comments?: string
+  /**
+   * The decision button the assignee pressed, when the step authored any.
+   *
+   * It does two things: it SELECTS the outgoing route (the decision's
+   * `transitionId` wins over the first-valid-transition default), and it is
+   * RECORDED as part of the completion payload. Omitted, completion behaves
+   * exactly as it always did.
+   */
+  decisionId?: string
   scope: UserTaskScope
 }
 
@@ -83,7 +112,7 @@ export async function completeUserTask(
   container: AwilixContainer,
   options: CompleteUserTaskOptions
 ): Promise<void> {
-  const { taskId, formData, userId, comments, scope } = options
+  const { taskId, formData, userId, comments, decisionId, scope } = options
 
   // Fetch task
   const task = await em.findOne(UserTask, {
@@ -128,10 +157,31 @@ export async function completeUserTask(
     }
   }
 
+  // Resolve the pressed decision BEFORE anything is mutated: an unknown
+  // decision id must leave the task untouched rather than complete it down the
+  // default route. The list is re-resolved from the instance's pinned
+  // definition, so it is exactly the list the assignee was shown.
+  const chosenDecision = decisionId
+    ? findTaskDecision((await loadTaskDecisionContext(em, task)).decisions, decisionId)
+    : null
+
+  if (decisionId && !chosenDecision) {
+    throw new UserTaskError(
+      'Unknown decision for this task',
+      'UNKNOWN_DECISION',
+      { taskId, decisionId }
+    )
+  }
+
+  // The chosen decision rides along inside the completion payload the task
+  // already persists — no new column, and downstream route conditions can read
+  // it once the payload is merged into the run context.
+  const completionData = withRecordedDecision(formData, chosenDecision?.id)
+
   // Update task
   const now = new Date()
   task.status = 'COMPLETED'
-  task.formData = formData
+  task.formData = completionData
   task.completedBy = userId
   task.completedAt = now
   task.comments = comments || null
@@ -151,13 +201,24 @@ export async function completeUserTask(
 
   // Branch-scoped completion: when the task belongs to a parallel branch,
   // merge form data into the branch namespace and resume just that branch.
+  //
+  // The decision is RECORDED here exactly as it is on the main path, but it does
+  // not select the route: a branch advances through `resumeBranch` with its own
+  // token, and overriding a branch's outgoing route is a parallel-execution
+  // change rather than a task-surface one.
   if (task.branchInstanceId) {
     await logWorkflowEvent(em, {
       workflowInstanceId: instance.id,
       stepInstanceId: task.stepInstanceId,
       branchInstanceId: task.branchInstanceId,
       eventType: 'USER_TASK_COMPLETED',
-      eventData: { taskId: task.id, taskName: task.taskName, completedBy: userId, formData },
+      eventData: {
+        taskId: task.id,
+        taskName: task.taskName,
+        completedBy: userId,
+        formData: completionData,
+        ...(chosenDecision ? { decisionId: chosenDecision.id } : {}),
+      },
       userId,
       tenantId: instance.tenantId,
       organizationId: instance.organizationId,
@@ -169,9 +230,9 @@ export async function completeUserTask(
       branchInstanceId: task.branchInstanceId,
       tenantId: instance.tenantId,
       organizationId: instance.organizationId,
-      contextMerge: formData,
+      contextMerge: completionData,
       exitStepInstanceId: task.stepInstanceId,
-      exitOutput: { userTaskId: task.id, formData },
+      exitOutput: { userTaskId: task.id, formData: completionData },
     })
 
     if (resumed) {
@@ -183,7 +244,7 @@ export async function completeUserTask(
   // Merge form data into workflow context
   instance.context = {
     ...instance.context,
-    ...formData,
+    ...completionData,
   }
   instance.updatedAt = now
 
@@ -196,7 +257,8 @@ export async function completeUserTask(
       taskId: task.id,
       taskName: task.taskName,
       completedBy: userId,
-      formData,
+      formData: completionData,
+      ...(chosenDecision ? { decisionId: chosenDecision.id } : {}),
     },
     userId,
     tenantId: instance.tenantId,
@@ -210,7 +272,7 @@ export async function completeUserTask(
   })
 
   if (stepInstance) {
-    await stepHandler.exitStep(em, stepInstance, { userTaskId: task.id, formData })
+    await stepHandler.exitStep(em, stepInstance, { userTaskId: task.id, formData: completionData })
   }
 
   // Find the next automatic transition from the current step
@@ -227,36 +289,66 @@ export async function completeUserTask(
     )
   }
 
-  // Find automatic transitions from current step
-  const autoTransitions = (definition.definition.transitions || []).filter(
-    (t: any) => t.fromStepId === currentStepId && t.trigger === 'auto'
-  )
-
-  if (autoTransitions.length === 0) {
-    // No automatic transitions, workflow stays paused at current step
-    return
-  }
-
-  // Find valid transitions using transition handler
   const transitionContext = {
     workflowContext: instance.context,
     userId,
   }
 
-  const validTransitions = await transitionHandler.findValidTransitions(
-    em,
-    instance,
-    currentStepId,
-    transitionContext
-  )
+  // A decision names the route to take. It is bound to the transition's durable
+  // id, so it survives every route reorder, and it is looked up among the routes
+  // LEAVING this step only — a button can never send the run down a route that
+  // does not start where the run currently is. A decision whose route no longer
+  // exists there falls through to the default evaluation rather than stranding
+  // the run at a step it already completed.
+  const decisionTransition = chosenDecision
+    ? findTaskDecisionTransition(
+        definition.definition.transitions || [],
+        chosenDecision.transitionId,
+        currentStepId
+      )
+    : null
 
-  const firstValidTransition = validTransitions.find(t => t.isValid)
+  if (chosenDecision && !decisionTransition) {
+    logger.warn('Task decision route not found on the current step; falling back to auto routing', {
+      component: 'task-handler',
+      taskId: task.id,
+      decisionId: chosenDecision.id,
+      transitionId: chosenDecision.transitionId,
+      currentStepId,
+    })
+  }
 
-  if (!firstValidTransition || !firstValidTransition.transition) {
-    // Resume workflow execution anyway, maybe conditions will be met later
-    instance.status = 'RUNNING'
-    await em.flush()
-    return
+  let targetStepId = decisionTransition?.toStepId ?? null
+
+  if (!targetStepId) {
+    // Find automatic transitions from current step
+    const autoTransitions = (definition.definition.transitions || []).filter(
+      (t: any) => t.fromStepId === currentStepId && t.trigger === 'auto'
+    )
+
+    if (autoTransitions.length === 0) {
+      // No automatic transitions, workflow stays paused at current step
+      return
+    }
+
+    // Find valid transitions using transition handler
+    const validTransitions = await transitionHandler.findValidTransitions(
+      em,
+      instance,
+      currentStepId,
+      transitionContext
+    )
+
+    const firstValidTransition = validTransitions.find(t => t.isValid)
+
+    if (!firstValidTransition || !firstValidTransition.transition) {
+      // Resume workflow execution anyway, maybe conditions will be met later
+      instance.status = 'RUNNING'
+      await em.flush()
+      return
+    }
+
+    targetStepId = firstValidTransition.transition.toStepId
   }
 
   // Execute the transition to move to next step
@@ -266,7 +358,7 @@ export async function completeUserTask(
     container,
     instance,
     currentStepId,
-    firstValidTransition.transition.toStepId,
+    targetStepId,
     transitionContext
   )
 
@@ -284,13 +376,22 @@ export async function completeUserTask(
  * Claim a user task from a role queue
  *
  * Allows a user to claim a task that's assigned to their role(s).
- * Prevents race conditions by checking task status.
+ *
+ * The claim itself is a COMPARE-AND-SET, not a read-then-write: the lookup
+ * below only decides which error to report, while the row is taken with a
+ * conditional `UPDATE … WHERE status = 'PENDING' AND claimed_by IS NULL`. Two
+ * callers racing for the same task — which is exactly what the work inbox's
+ * claim-next affordance produces — therefore cannot both win; the loser sees
+ * zero affected rows and the same `TASK_NOT_FOUND` it would have seen a moment
+ * later. Reading the status and flushing the entity afterwards would have let
+ * both transactions read `PENDING` and both write.
  *
  * @param em - Entity manager
  * @param taskId - Task ID to claim
  * @param userId - User claiming the task
- * @param scope - Tenant/organization the caller acts within; the lookup filters
- *   on it, so a task belonging to another tenant is never reachable
+ * @param scope - Tenant/organization the caller acts within; both the lookup and
+ *   the conditional update filter on it, so a task belonging to another tenant
+ *   is never reachable and never writable
  * @throws UserTaskError if task cannot be claimed
  */
 export async function claimUserTask(
@@ -330,8 +431,35 @@ export async function claimUserTask(
     )
   }
 
-  // Update task
   const now = new Date()
+  const claimed = await em.nativeUpdate(
+    UserTask,
+    {
+      id: taskId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      status: 'PENDING',
+      claimedBy: null,
+    },
+    {
+      claimedBy: userId,
+      claimedAt: now,
+      status: 'IN_PROGRESS',
+      updatedAt: now,
+    },
+  )
+
+  if (claimed === 0) {
+    throw new UserTaskError(
+      'Task not found or already claimed',
+      'TASK_NOT_FOUND',
+      { taskId }
+    )
+  }
+
+  // The conditional update above already wrote the row; mirroring it onto the
+  // managed entity keeps the caller's identity-mapped copy from reporting the
+  // pre-claim state back to the client.
   task.claimedBy = userId
   task.claimedAt = now
   task.status = 'IN_PROGRESS'
@@ -350,6 +478,99 @@ export async function claimUserTask(
         taskId: task.id,
         taskName: task.taskName,
         claimedBy: userId,
+      },
+      userId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+  }
+}
+
+/**
+ * Release a claimed task back to its role queue.
+ *
+ * The counterpart of `claimUserTask`, and deliberately its mirror image: the
+ * write is the same compare-and-set, guarded on the caller still being the
+ * claimant, so a task reassigned or completed in the meantime is refused rather
+ * than silently reopened. It uses the EXISTING statuses — the row goes back to
+ * `PENDING` — because adding a `UserTaskStatus` value is an Ask-First
+ * state-machine change and a released task is exactly as pending as it was
+ * before anyone claimed it.
+ *
+ * @throws UserTaskError if the task is not the caller's to release
+ */
+export async function releaseUserTask(
+  em: EntityManager,
+  taskId: string,
+  userId: string,
+  scope: UserTaskScope
+): Promise<void> {
+  const task = await em.findOne(UserTask, {
+    id: taskId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    status: 'IN_PROGRESS',
+  })
+
+  if (!task) {
+    throw new UserTaskError(
+      'Task not found or not claimed',
+      'TASK_NOT_FOUND',
+      { taskId }
+    )
+  }
+
+  if (task.claimedBy !== userId) {
+    throw new UserTaskError(
+      'Task is claimed by another user',
+      'TASK_ASSIGNED_TO_ANOTHER_USER',
+      { taskId, claimedBy: task.claimedBy }
+    )
+  }
+
+  const now = new Date()
+  const released = await em.nativeUpdate(
+    UserTask,
+    {
+      id: taskId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      status: 'IN_PROGRESS',
+      claimedBy: userId,
+    },
+    {
+      claimedBy: null,
+      claimedAt: null,
+      status: 'PENDING',
+      updatedAt: now,
+    },
+  )
+
+  if (released === 0) {
+    throw new UserTaskError(
+      'Task not found or not claimed',
+      'TASK_NOT_FOUND',
+      { taskId }
+    )
+  }
+
+  task.claimedBy = null
+  task.claimedAt = null
+  task.status = 'PENDING'
+  task.updatedAt = now
+
+  await em.flush()
+
+  const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
+  if (instance) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      stepInstanceId: task.stepInstanceId,
+      eventType: 'USER_TASK_RELEASED',
+      eventData: {
+        taskId: task.id,
+        taskName: task.taskName,
+        releasedBy: userId,
       },
       userId,
       tenantId: instance.tenantId,
@@ -388,32 +609,29 @@ async function logWorkflowEvent(
 }
 
 /**
- * Validate form data against JSON schema (basic validation for MVP)
+ * Validate form data against the task's authored schema.
  *
- * In Phase 7, we'll implement comprehensive JSON Schema validation.
- * For MVP, we do basic type checking.
+ * Required-field presence in BOTH accepted `formSchema` shapes: the JSON-Schema
+ * form and the `{ fields: [...] }` form the Studio writes, whose per-field
+ * `required: true` flag this used to ignore entirely — so a task authored in
+ * the visual editor validated nothing however many fields its author marked
+ * mandatory. Both shapes now resolve through `lib/task-form-schema.ts`, the
+ * same module the renderer walks, so they cannot drift apart again.
+ *
+ * Presence-only, deliberately: type checking would need the full JSON-Schema
+ * vocabulary, and what matters is that a required field cannot be skipped.
  *
  * @param formData - User-provided form data
- * @param formSchema - JSON schema defining expected structure
+ * @param formSchema - Authored schema, in either accepted shape
  * @throws Error if validation fails
  */
-function validateFormData(
+export function validateFormData(
   formData: Record<string, any>,
-  formSchema: any
+  formSchema: unknown
 ): void {
-  // For MVP: Basic validation - just check required fields exist
-  if (!formSchema || !formSchema.properties) {
-    return // No schema to validate against
-  }
-
-  const requiredFields = formSchema.required || []
-
-  for (const field of requiredFields) {
+  for (const field of readRequiredFormFields(formSchema)) {
     if (!(field in formData) || formData[field] === null || formData[field] === undefined) {
       throw new Error(`Required field missing: ${field}`)
     }
   }
-
-  // Additional type validation can be added in Phase 7
-  // For now, this basic validation is sufficient
 }

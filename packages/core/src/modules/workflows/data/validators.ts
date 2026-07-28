@@ -138,6 +138,90 @@ export const escalationActionSchema = z.enum(['reassign', 'notify', 'escalate'])
 export type EscalationAction = z.infer<typeof escalationActionSchema>
 
 // ============================================================================
+// Task inspector vocabulary (spec §6.1)
+// ============================================================================
+
+/**
+ * Author-supplied copy that reaches an end user (task instructions, entity
+ * binding labels, decision-button labels).
+ *
+ * The redesign's §6.5 wants the platform localized-string shape
+ * (`{ [locale]: string }`) with a bare string treated as the tenant default
+ * locale. No such platform type exists, and promoting one to
+ * `packages/shared` would mint a new STABLE type surface, so this shape stays
+ * LOCAL to workflows until that call is made.
+ *
+ * Both members are structural, which keeps every existing single-string value
+ * valid forever and lets `interpolateVariables` walk either form unchanged (it
+ * already recurses into plain objects).
+ */
+export const taskLocalizedStringSchema = z.union([
+  z.string(),
+  z.record(z.string(), z.string()),
+])
+export type TaskLocalizedString = z.infer<typeof taskLocalizedStringSchema>
+
+/**
+ * A record the task is about. `idPath` is a context path (the ledger emits
+ * `{{context.*}}` pills over the same vocabulary) resolved at task-creation
+ * time; `entityType` is the platform entity id (`customers:person`).
+ */
+export const taskEntityBindingSchema = z.object({
+  entityType: z.string().min(1),
+  idPath: z.string().min(1),
+  label: taskLocalizedStringSchema.optional(),
+})
+export type TaskEntityBinding = z.infer<typeof taskEntityBindingSchema>
+
+/** Mirrors the platform's priority labels (root AGENTS.md → PR Workflow). */
+export const taskPrioritySchema = z.enum(['low', 'medium', 'high', 'extreme'])
+export type TaskPriority = z.infer<typeof taskPrioritySchema>
+
+/**
+ * Business-word deadline, anchored to task creation. A strict superset of
+ * `slaDuration`: an object so the anchor and later qualifiers have somewhere to
+ * live, while `slaDuration` keeps working forever as the bare-duration form.
+ */
+export const taskDeadlineSchema = z.object({
+  duration: z.string().min(1),
+})
+export type TaskDeadline = z.infer<typeof taskDeadlineSchema>
+
+/** Nudge fired `offset` before the deadline. */
+export const taskReminderSchema = z.object({
+  offset: z.string().min(1),
+})
+export type TaskReminder = z.infer<typeof taskReminderSchema>
+
+/**
+ * What happens when the deadline passes: notify, reassign, or follow the
+ * SLA-breach route out of the step.
+ */
+export const taskOnBreachSchema = z.object({
+  action: z.enum(['notify', 'reassign', 'route']),
+  reassignTo: z.string().optional(),
+  transitionId: z.string().optional(),
+})
+export type TaskOnBreach = z.infer<typeof taskOnBreachSchema>
+
+/**
+ * A decision button, mapped 1:1 to an outgoing route.
+ *
+ * `transitionId` binds to the transition's DURABLE id, never its index: route
+ * order changes with every edit, and both id forms the engine accepts stay
+ * valid forever (`t_…` minted by `generateTransitionId()`, plus the legacy
+ * `e_<from>_<to>` ids stored definitions still carry), so the shape is an
+ * opaque non-empty string rather than a pattern.
+ */
+export const taskDecisionSchema = z.object({
+  id: z.string().min(1),
+  label: taskLocalizedStringSchema,
+  transitionId: z.string().min(1),
+  style: z.enum(['primary', 'secondary', 'destructive']).optional(),
+})
+export type TaskDecision = z.infer<typeof taskDecisionSchema>
+
+// ============================================================================
 // Complex Object Schemas - Workflow Definition Components
 // ============================================================================
 
@@ -166,6 +250,17 @@ export const userTaskConfigSchema = z.object({
     z.string(),
     z.array(z.string()),
   ]).optional(),
+  // Role queue the task is offered to when no individual assignee is set. The
+  // editor has always written this key (`lib/graph-utils.ts`) and the engine has
+  // always read it (`lib/step-handler.ts`), but it was undeclared here — zod
+  // strips unknown keys and the definition PUT persists the PARSED value, so
+  // authored role assignment was silently discarded on every save.
+  assignedToRoles: z.array(z.string()).optional(),
+  // Renderer key for an externally registered task form. Same round-trip as
+  // `assignedToRoles`: written by the editor, previously stripped on save.
+  formKey: z.string().optional(),
+  // Actions offered on the task surface (editor default: complete + cancel).
+  allowedActions: z.array(z.string()).optional(),
   assignmentRule: z.string().optional(), // Business rule ID
   slaDuration: z.string().optional(), // ISO 8601 duration
   escalationRules: z.array(z.object({
@@ -174,7 +269,27 @@ export const userTaskConfigSchema = z.object({
     escalateTo: z.string().optional(),
     notifyUsers: z.array(z.string()).optional(),
   })).optional(),
+  // --------------------------------------------------------------------------
+  // Task inspector vocabulary (spec §6.1). Every key below is OPTIONAL and
+  // additive: a config declaring none of them parses to exactly what it parsed
+  // to before, and the engine reads it exactly as it did before. A regression
+  // test in `lib/__tests__/user-task-config.test.ts` pins that byte-for-byte.
+  // --------------------------------------------------------------------------
+  // "What": rich instructions shown to the assignee, variable pills included.
+  instructions: taskLocalizedStringSchema.optional(),
+  // "About what": the records this task is about.
+  entityBindings: z.array(taskEntityBindingSchema).optional(),
+  // "When": priority, deadline, reminders, and what happens on breach.
+  priority: taskPrioritySchema.optional(),
+  deadline: taskDeadlineSchema.optional(),
+  reminders: z.array(taskReminderSchema).optional(),
+  onBreach: taskOnBreachSchema.optional(),
+  // "Decisions": buttons bound 1:1 to outgoing routes, plus the subset of form
+  // fields the assignee may edit before deciding.
+  decisions: z.array(taskDecisionSchema).optional(),
+  editablePrefilled: z.array(z.string()).optional(),
 })
+export type UserTaskConfig = z.infer<typeof userTaskConfigSchema>
 
 // Sub-workflow configuration (Phase 8)
 export const subWorkflowConfigSchema = z.object({
@@ -400,10 +515,11 @@ export type StepErrorDirective = z.infer<typeof stepErrorDirectiveSchema>
 
 /**
  * Transition discriminator. `error` routes are reachable ONLY from a step
- * failure — normal routing filters them out — so adding one never changes the
- * happy path. Absent means `normal`.
+ * failure and `slaBreach` routes ONLY from a user task's deadline passing —
+ * normal routing filters both out — so adding one never changes the happy path.
+ * Absent means `normal`.
  */
-export const transitionKindSchema = z.enum(['normal', 'error'])
+export const transitionKindSchema = z.enum(['normal', 'error', 'slaBreach'])
 
 export type WorkflowTransitionKind = z.infer<typeof transitionKindSchema>
 
