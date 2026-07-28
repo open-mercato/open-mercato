@@ -295,6 +295,20 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   (`resizing === false`) commits, so one gesture is one autosave and one undo entry. React Flow's own
   measurement changes carry no `resizing` flag and stay non-persistable as before.
 
+## Definition Icon Picker
+
+- `components/WorkflowIconPicker.tsx` replaces the free-text `metadata.icon` input with a searchable
+  grid over the platform's SHARED registry (`LUCIDE_ICON_REGISTRY` from
+  `@open-mercato/ui/backend/icons/lucideRegistry`). That registry is generated from the icon names
+  actually used across the repo and `AppShell` already loads it on every backend page, so the grid
+  adds NOTHING to the editor chunk — importing `lucide-react` wholesale for a field that stores one
+  string is the bundle regression this deliberately avoids (#3169).
+- **Free text stays the fallback.** `metadata.icon` has always been an open string, so the picker
+  keeps an input: a name the registry does not know is stored verbatim with a warning, never dropped.
+  `normalizeIconName` (`lib/icon-search.ts`, PURE) maps every historic spelling — `ShoppingCart`,
+  `shopping_cart`, `lucide:shopping-cart` — onto the registry key, which is what makes an existing
+  definition open with its icon already selected. Selecting from the grid writes the kebab-case key.
+
 ## Palette Drops (drag-from-palette · insert-on-route)
 
 - **Click stays the keyboard path.** Every palette entry is a `<button>` that appends on click; drag

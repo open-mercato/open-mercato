@@ -45,6 +45,7 @@ import {
 } from '../../../lib/editor-annotations'
 import { WORKFLOW_GROUP_TOGGLE_EVENT } from '../../../lib/annotation-events'
 import { AnnotationEditDialog } from '../../../components/AnnotationEditDialog'
+import { WorkflowIconPicker } from '../../../components/WorkflowIconPicker'
 import { readPaletteDragItem, writePaletteDragPayload } from '../../../lib/palette-drag'
 import { appendActivityToRoute, insertStepOnRoute, type PaletteDropRejectionCode } from '../../../lib/palette-drop'
 import { useActivityTypeOptions } from '../../../components/fields/useActivityTypeOptions'
@@ -2698,16 +2699,11 @@ export default function VisualEditorPage() {
                 />
               </div>
 
-              {/* Icon */}
+              {/* Icon — searchable grid over the shared lucide registry, with
+                  free text kept as the fallback so existing values never break */}
               <div className="min-w-0 space-y-1">
                 <Label htmlFor="icon" className="text-xs">{t('workflows.form.icon')}</Label>
-                <Input
-                  id="icon"
-                  value={icon}
-                  onChange={(e) => setIcon(e.target.value)}
-                  placeholder="ShoppingCart"
-                  className="h-8 text-sm"
-                />
+                <WorkflowIconPicker id="icon" value={icon} onChange={setIcon} disabled={isCodeOnly} />
               </div>
 
               <div className="min-w-0 space-y-1">
