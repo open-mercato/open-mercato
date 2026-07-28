@@ -113,6 +113,38 @@ export const features = [
     dependsOn: ['workflows.tasks.view'],
   },
   {
+    // Administration, per spec §6.4: `workflows.tasks.*` gates viewing OTHER
+    // people's work, never one's own. Reading a task you have no relationship
+    // to still passes the same entity gate — this widens WHOSE rows you see,
+    // not WHICH entities you may see them about. It deliberately grants no act:
+    // an administrator reassigns a task to themselves (audited) before they can
+    // complete it, which is what keeps "who approved this?" answerable.
+    //
+    // `dependsOn: ['workflows.tasks.view']` keeps the older id load-bearing
+    // rather than leaving it a stored-but-unconsulted grant: it still admits a
+    // caller to the task API, and this feature decides which rows come back.
+    id: 'workflows.tasks.view_all',
+    title: 'View all workflow tasks',
+    module: moduleId,
+    dependsOn: ['workflows.tasks.view'],
+  },
+  {
+    // The ONLY supported route from "I can see this task" to "I can act on it".
+    // Writes the reassignment audit columns plus a WorkflowEvent.
+    id: 'workflows.tasks.reassign',
+    title: 'Reassign workflow tasks',
+    module: moduleId,
+    dependsOn: ['workflows.tasks.view_all'],
+  },
+  {
+    // Administrative mutations that are not reassignment: force-unclaim, cancel,
+    // bulk operations, and writing the tenant task-permission setting.
+    id: 'workflows.tasks.manage',
+    title: 'Administer workflow tasks',
+    module: moduleId,
+    dependsOn: ['workflows.tasks.view_all'],
+  },
+  {
     id: 'workflows.signals.send',
     title: 'Send workflow signals',
     module: moduleId,

@@ -17,7 +17,7 @@
 | 5 | 5.3 | `lib/task-entity-types.ts` — entity-type normalization sharing one alias dictionary | done | `f73400352` |
 | 5 | 5.4 | `lib/task-visibility.ts` — the pure predicate + filter builder, no call sites | done | `679b08c74` |
 | 5 | 5.5 | `lib/task-entity-access.ts` — per-request access map resolver | done | `1538946be` |
-| 5 | 5.6 | Three administration ACL features with `dependsOn` + dependency-table test | todo | — |
+| 5 | 5.6 | Three administration ACL features with `dependsOn` + dependency-table test | done | `ef5fc7330` |
 | 5 | 5.7 | Tenant opt-out setting (`api/task-settings.ts`, fail-to-`true`) | todo | — |
 | 5 | 5.8 | Migration: `assignee_kind` + `entity_types` + GIN index; creation writes both | todo | — |
 | 5 | 5.9 | Wire the predicate into every backoffice READ surface (+ 404-vs-403 policy) | todo | — |

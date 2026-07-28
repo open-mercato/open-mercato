@@ -35,7 +35,13 @@ Use the workflows module for business process automation: defining step-based wo
 yarn db:generate
 yarn generate
 yarn workspace @open-mercato/core build
+yarn mercato auth sync-role-acls   # after ANY acl.ts change — existing tenants only pick up new grants here
 ```
+
+Release runbook: adding a feature to `acl.ts` grants it to new tenants through
+`setup.ts` `defaultRoleFeatures`, but **existing** tenants receive nothing until
+`yarn mercato auth sync-role-acls` runs. Run it as part of the deploy for every
+release that touches `acl.ts`.
 
 ## Execution Architecture
 
@@ -508,7 +514,7 @@ When adding new injected widgets, follow this pattern — keep the widget self-c
 
 ```
 src/modules/workflows/
-├── acl.ts                    # 19 RBAC features
+├── acl.ts                    # 24 RBAC features
 ├── ce.ts                     # Custom entities (empty)
 ├── cli.ts                    # CLI: seed-demo, start-worker, process-activities
 ├── di.ts                     # DI: workflowExecutor, stepHandler, transitionHandler, activityExecutor, eventLogger
