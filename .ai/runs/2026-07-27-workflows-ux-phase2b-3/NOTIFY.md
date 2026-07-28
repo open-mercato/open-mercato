@@ -16,3 +16,7 @@ Append-only UTC log. Checkpoint events, blockers, and scope decisions only.
 - 2026-07-28T06:30Z — DECISION: BR dependency visibility ships as a SLOT (InlineRuleEditor accepts usagePanel: ReactNode); business_rules never learns its consumers. Workflows fills it with its own tenant-scoped query. Satisfies no-cross-import by construction.
 - 2026-07-28T07:00Z — FINDING (second pre-existing bug fixed): collectBranchingRouteWarnings counted an error route as the otherwise route, silencing the missing-otherwise warning on steps that could stall. Regression test added.
 - 2026-07-28T07:05Z — Checkpoint 4 recorded. PHASE 3a COMPLETE (25/41 steps). Scoped suite 8855 tests green.
+- 2026-07-28T09:00Z — PR #4569 opened as DRAFT against feat/agent-orchestrator-mvp (labels: feature, in-progress, needs-qa, priority-medium, risk-high). Opened at the Phase 2b+3a boundary for early review visibility; Phase 3b continues on the same branch.
+- 2026-07-28T10:30Z — DECISION: active-instance status set for the edit-safety guard is RUNNING/PAUSED/WAITING_FOR_ACTIVITIES/FORKED/COMPENSATING. COMPENSATING added beyond the plan's four because the saga replays the same definition in reverse.
+- 2026-07-28T11:00Z — DECISION: scoped re-tidy (3.4) deferred with documented reasoning — dagre re-ranks whole components so a bounded neighbourhood run is not expressible; full Tidy remains the explicit override.
+- 2026-07-28T11:05Z — Checkpoint 5 recorded (30/41). Module scope 1768 tests green.
