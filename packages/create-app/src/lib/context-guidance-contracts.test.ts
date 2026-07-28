@@ -346,3 +346,10 @@ test('workflow skill binds implementation prompts to the progressive contract re
   assert.match(workflowSkill, /custom activity or `UPDATE_ENTITY` command activity/)
   assert.match(workflowSkill, /Load `references\/durability-and-progress\.md` whenever the workflow waits, handles signals, schedules timers/)
 })
+
+test('debugging stays additive to cross-module domain and extension work', () => {
+  const root = readAgentic('shared/AGENTS.md.template')
+  assert.match(root, /`debugging` never replaces them/)
+  assert.match(root, /links an installed module's record by scalar ID\/snapshot/)
+  assert.match(root, /loads `om-data-model-design` \+ `om-system-extension`/)
+})

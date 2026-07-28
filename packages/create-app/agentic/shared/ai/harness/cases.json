@@ -13414,7 +13414,7 @@
       "public-schema-no-runtime-scope",
       "public-schema-requires-runtime-scope",
       "scalar-crm-customer-snapshot",
-      "duplicate-local-member",
+      "duplicate-member-shadow-record",
       "atomic-one-winner-checkout",
       "read-then-create-checkout",
       "deterministic-idempotent-retry",

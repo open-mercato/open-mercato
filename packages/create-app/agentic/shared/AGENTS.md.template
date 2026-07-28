@@ -35,7 +35,7 @@ Use the smallest relevant set. Broad: `yarn generate && yarn typecheck && yarn l
 
 Routes are additive, never exclusive: ownership says WHOSE code changes, the rest say WHAT changes. Select every match, then stop.
 
-Combine matches: lifecycle reaction = `module-data` + `umes`; convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. `framework-context` only for an unresolved contract.
+Combine matches: lifecycle reaction = `module-data` + `umes`; convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. A fix keeps its domain/extension work-unit routes and skills—`debugging` never replaces them. `framework-context` only for an unresolved contract.
 
 `debugging` = reported bug/security/drift; designed failure UI is not. Specs/delivery = `spec-pr` + integration coverage; spec-only work reads root + `om-spec-writing` + config, implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; an editable or save/reload/clear round-trip surface adds `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
@@ -58,7 +58,7 @@ Staff preview/report/bulk actions add `backend-ui` unless API-only.
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
-Location never decides the route: app code changing an installed module's records, commands, events, pages, agents, or tools is `module-data` + `umes`; reading its facts is not. Reusable providers are published dependencies, never `packages/*`.
+Location never decides the route: app code changing an installed module's records, commands, events, pages, agents, or tools is `module-data` + `umes`; reading its facts is not. An app-owned entity that links an installed module's record by scalar ID/snapshot is also `module-data` + `umes` and loads `om-data-model-design` + `om-system-extension`. Reusable providers are published dependencies, never `packages/*`.
 
 ### Axis 2 — Work Units
 
