@@ -22,6 +22,11 @@ import {
 } from '../data/entities'
 import { compensateWorkflow } from './compensation-handler'
 import { WORKFLOW_ENGINE_VERSION, isEngineVersionSupported } from './engine-version'
+import {
+  WORKFLOW_ERROR_CONTEXT_KEY,
+  buildErrorContextEntry,
+  excludeErrorTransitions,
+} from './error-routing'
 import { findWorkflowDefinition, findDefinitionForInstance } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitWorkflowsEvent } from '../events'
@@ -432,7 +437,7 @@ export async function executeWorkflow(
           }
         }
 
-        const transitions = definition.definition.transitions.filter(
+        const transitions = excludeErrorTransitions(definition.definition.transitions).filter(
           (t: any) =>
             t.fromStepId === currentInstance.currentStepId &&
             t.trigger === 'auto'
@@ -489,6 +494,57 @@ export async function executeWorkflow(
 
           if (!transitionResult.success) {
             const rejectionMessage = transitionResult.error || 'Transition failed'
+
+            // Error routing (spec 5.9): a wired error route is followed instead
+            // of failing the instance; a failure-queue directive parks it. Both
+            // are absent unless the definition opts in, so the legacy failure
+            // path below is byte-identical for every existing definition.
+            if (transitionResult.errorRoute && transitionResult.failedStepId) {
+              const routed = await followErrorRoute(
+                trx,
+                container,
+                currentInstance,
+                transitionResult.failedStepId,
+                transitionResult.errorRoute,
+                rejectionMessage,
+                evalContext
+              )
+              if (routed) {
+                events.push({
+                  eventType: 'ERROR_ROUTED',
+                  occurredAt: new Date(),
+                  data: {
+                    failedStepId: transitionResult.failedStepId,
+                    toStepId: transitionResult.errorRoute.toStepId,
+                    transitionId: transitionResult.errorRoute.transitionId,
+                  },
+                })
+                continue
+              }
+              errors.push(`Error route from ${transitionResult.failedStepId} could not be followed`)
+            }
+
+            if (transitionResult.parkForAttention && transitionResult.failedStepId) {
+              await parkInstanceForAttention(
+                trx,
+                currentInstance,
+                transitionResult.failedStepId,
+                rejectionMessage
+              )
+              events.push({
+                eventType: 'ERROR_PARKED',
+                occurredAt: new Date(),
+                data: { failedStepId: transitionResult.failedStepId },
+              })
+              return {
+                status: 'RUNNING',
+                currentStep: currentInstance.currentStepId,
+                context: currentInstance.context,
+                events,
+                executionTime: Date.now() - startTime,
+              }
+            }
+
             logger.error('Transition rejected', {
               instanceId: currentInstance.id,
               workflowId: currentInstance.workflowId,
@@ -680,6 +736,100 @@ export async function executeWorkflow(
     await persistFailedStatusAfterRollback(em, instanceId, error)
     throw error
   }
+}
+
+/**
+ * Follow a wired error route out of a failed step (spec 5.9). The failure is
+ * published into the run context under `__error` so the handling branch can act
+ * on it, then the error transition executes through the normal machinery — it
+ * creates its step instance, runs its activities and logs its events like any
+ * other route. Returns false when the route could not be taken, so the caller
+ * falls back to the untouched failure path.
+ */
+async function followErrorRoute(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  failedStepId: string,
+  errorRoute: { transitionId?: string; toStepId: string },
+  error: string,
+  evalContext: { workflowContext: Record<string, any>; userId?: string }
+): Promise<boolean> {
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instance.id,
+    eventType: 'ERROR_ROUTED',
+    eventData: {
+      failedStepId,
+      toStepId: errorRoute.toStepId,
+      transitionId: errorRoute.transitionId,
+      error,
+    },
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
+
+  const errorEntry = buildErrorContextEntry(failedStepId, error)
+  instance.context = {
+    ...(instance.context || {}),
+    [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry,
+  }
+  instance.updatedAt = new Date()
+  await em.flush()
+
+  const transitionHandler = await import('./transition-handler')
+  const routedResult = await transitionHandler.executeTransition(
+    em,
+    container,
+    instance,
+    failedStepId,
+    errorRoute.toStepId,
+    {
+      ...evalContext,
+      workflowContext: {
+        ...evalContext.workflowContext,
+        [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry,
+      },
+    }
+  )
+
+  return routedResult.success === true
+}
+
+/**
+ * Park an instance for triage instead of failing it — the `failureQueue` error
+ * directive (spec 5.9 "Send to failure queue"). Uses the existing PAUSED state
+ * plus an engine-owned `metadata.attention` marker; no new instance status and
+ * no compensation, because the run is suspended rather than terminated.
+ */
+async function parkInstanceForAttention(
+  em: EntityManager,
+  instance: WorkflowInstance,
+  failedStepId: string,
+  error: string
+): Promise<void> {
+  const now = new Date()
+  instance.status = 'PAUSED'
+  instance.pausedAt = now
+  instance.errorMessage = error
+  instance.metadata = {
+    ...(instance.metadata || {}),
+    attention: {
+      reason: 'ERROR_DIRECTIVE',
+      stepId: failedStepId,
+      error,
+      at: now.toISOString(),
+    },
+  }
+  instance.updatedAt = now
+  await em.flush()
+
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instance.id,
+    eventType: 'ERROR_PARKED',
+    eventData: { failedStepId, error, directive: 'failureQueue' },
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
 }
 
 /**
@@ -1232,6 +1382,7 @@ export const RESERVED_WORKFLOW_CONTEXT_KEYS: readonly string[] = [
   '__result',
   '_pendingAsyncActivities',
   '__park',
+  WORKFLOW_ERROR_CONTEXT_KEY,
 ]
 
 export function findReservedContextKeys(updates: Record<string, unknown>): string[] {

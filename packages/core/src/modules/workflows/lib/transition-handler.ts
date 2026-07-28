@@ -26,6 +26,11 @@ import { findDefinitionForInstance } from './find-definition'
 import { resolveDefinitionInterpolationMode } from './interpolation-pipeline'
 import { buildSetVariableContextPatch, isSetVariableOutput } from './set-variable'
 import {
+  excludeErrorTransitions,
+  resolveStepFailureHandling,
+  type StepFailureHandling,
+} from './error-routing'
+import {
   type ExecutionToken,
   rootToken,
   tokenBranchInstanceId,
@@ -40,6 +45,30 @@ import {
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
+
+/**
+ * Translate a resolved failure handling into the fields the executor acts on.
+ * `fail` (the absent-config default) adds nothing, so untouched definitions
+ * return the exact failure shape they returned before error routing existed.
+ */
+function buildFailureRouting(
+  handling: StepFailureHandling,
+  failedStepId: string
+): Pick<TransitionExecutionResult, 'failedStepId' | 'errorRoute' | 'parkForAttention'> {
+  if (handling.kind === 'route' && typeof handling.transition.toStepId === 'string') {
+    return {
+      failedStepId,
+      errorRoute: {
+        transitionId: handling.transition.transitionId,
+        toStepId: handling.transition.toStepId,
+      },
+    }
+  }
+  if (handling.kind === 'park') {
+    return { failedStepId, parkForAttention: true }
+  }
+  return {}
+}
 
 // ============================================================================
 // Types and Interfaces
@@ -80,6 +109,13 @@ export interface TransitionExecutionResult {
   }
   activitiesExecuted?: activityExecutor.ActivityExecutionResult[]
   error?: string
+  // Error routing (spec 5.9). Set only when the failure carries error handling
+  // the executor must apply: `errorRoute` names the wired error transition to
+  // follow, `parkForAttention` asks for a failure-queue park instead of a fail.
+  // Absent on every legacy failure, which therefore keeps failing identically.
+  failedStepId?: string
+  errorRoute?: { transitionId?: string; toStepId: string }
+  parkForAttention?: boolean
 }
 
 export class TransitionError extends Error {
@@ -151,8 +187,8 @@ export async function evaluateTransition(
         }
       }
     } else {
-      // Auto-select first valid transition
-      const availableTransitions = transitions.filter(
+      // Auto-select first valid transition (never an error route)
+      const availableTransitions = excludeErrorTransitions(transitions).filter(
         (t: any) => t.fromStepId === fromStepId
       )
 
@@ -238,8 +274,9 @@ export async function findValidTransitions(
       return []
     }
 
-    // Find all transitions from current step, sorted by priority (highest first)
-    const transitions = (definition.definition.transitions || [])
+    // Find all transitions from current step, sorted by priority (highest first).
+    // Error routes are excluded: they are reachable only from a step failure.
+    const transitions = excludeErrorTransitions(definition.definition.transitions || [])
       .filter((t: any) => t.fromStepId === fromStepId)
       .sort((a: any, b: any) => (b.priority || 0) - (a.priority || 0))
 
@@ -481,13 +518,44 @@ export async function executeTransitionForToken(
         })
 
         if (!continueOnFailure) {
-          return {
-            success: false,
-            error: `Activities failed: ${failedActivities.map(f => f.error).join(', ')}`,
-            conditionsEvaluated: {
-              preConditions: true,
-              postConditions: false,
-            },
+          // Error routing (spec 5.9). The failing node here is the step the
+          // route leaves, because the token cursor has not advanced yet.
+          const failureHandling = resolveStepFailureHandling(
+            definitionForInterpolation?.definition,
+            fromStepId
+          )
+
+          if (failureHandling.kind === 'continue') {
+            // `continueWithFallback` is the directive form of the legacy
+            // `continueOnActivityFailure` flag: identical continue semantics,
+            // plus the authored fallback value landing under the step id.
+            await logTransitionEvent(em, {
+              workflowInstanceId: instance.id,
+              branchInstanceId,
+              eventType: 'ERROR_DIRECTIVE_APPLIED',
+              eventData: {
+                stepId: fromStepId,
+                directive: 'continueWithFallback',
+                transitionId: transition.transitionId || `${fromStepId}->${toStepId}`,
+                hasFallbackValue: failureHandling.fallbackValue !== undefined,
+              },
+              userId: context.userId,
+              tenantId: instance.tenantId,
+              organizationId: instance.organizationId,
+            })
+            if (failureHandling.fallbackValue !== undefined) {
+              activityOutputs[fromStepId] = failureHandling.fallbackValue
+            }
+          } else {
+            return {
+              success: false,
+              error: `Activities failed: ${failedActivities.map(f => f.error).join(', ')}`,
+              conditionsEvaluated: {
+                preConditions: true,
+                postConditions: false,
+              },
+              ...buildFailureRouting(failureHandling, fromStepId),
+            }
           }
         }
       }
@@ -595,11 +663,41 @@ export async function executeTransitionForToken(
     // Flush to database after step execution completes to make state visible to UI
     await em.flush()
 
-    // Handle step execution failure
+    // Handle step execution failure. Error routing (spec 5.9) keys on the step
+    // that failed — the cursor already advanced, so that is `toStepId`.
     if (stepExecutionResult.status === 'FAILED') {
-      return {
-        success: false,
-        error: stepExecutionResult.error || 'Step execution failed',
+      const definitionForFailure = await findDefinitionForInstance(em, instance)
+      const failureHandling = resolveStepFailureHandling(definitionForFailure?.definition, toStepId)
+
+      if (failureHandling.kind === 'continue') {
+        // The step instance stays FAILED — its state machine is untouched. The
+        // instance advances with the authored fallback value in context, and
+        // the executor re-evaluates the failed step's outgoing routes.
+        await logTransitionEvent(em, {
+          workflowInstanceId: instance.id,
+          branchInstanceId,
+          eventType: 'ERROR_DIRECTIVE_APPLIED',
+          eventData: {
+            stepId: toStepId,
+            directive: 'continueWithFallback',
+            transitionId: transition.transitionId || `${fromStepId}->${toStepId}`,
+            error: stepExecutionResult.error,
+            hasFallbackValue: failureHandling.fallbackValue !== undefined,
+          },
+          userId: context.userId,
+          tenantId: instance.tenantId,
+          organizationId: instance.organizationId,
+        })
+        if (failureHandling.fallbackValue !== undefined) {
+          mergeTokenContext(token, { [toStepId]: failureHandling.fallbackValue })
+          await em.flush()
+        }
+      } else {
+        return {
+          success: false,
+          error: stepExecutionResult.error || 'Step execution failed',
+          ...buildFailureRouting(failureHandling, toStepId),
+        }
       }
     }
 

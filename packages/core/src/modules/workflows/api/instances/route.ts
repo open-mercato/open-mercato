@@ -71,6 +71,7 @@ export async function GET(request: NextRequest) {
     const entityId = searchParams.get('entityId')
     const parentInstanceId = searchParams.get('parentInstanceId')
     const hasParent = parseBooleanToken(searchParams.get('hasParent'))
+    const attention = parseBooleanToken(searchParams.get('attention'))
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
 
@@ -132,6 +133,14 @@ export async function GET(request: NextRequest) {
       // query is single-table (tenant/org scope adds predicates, not joins).
       const parentIdPath = raw(`(metadata #>> '{labels,parentInstanceId}')`)
       where.$and.push({ [parentIdPath]: hasParent ? { $ne: null } : null })
+    }
+
+    // Failure-queue park filter (spec 5.9): instances parked by a `failureQueue`
+    // error directive carry an engine-owned metadata.attention marker.
+    if (attention !== null) {
+      where.$and = where.$and || []
+      const attentionPath = raw(`(metadata #>> '{attention,reason}')`)
+      where.$and.push({ [attentionPath]: attention ? { $ne: null } : null })
     }
 
     const [instances, total] = await em.findAndCount(
@@ -343,6 +352,7 @@ export const openApi = {
         entityId: z.string().optional(),
         parentInstanceId: z.string().optional().describe('Return only direct sub-workflow children of this parent instance.'),
         hasParent: z.boolean().optional().describe('false = only top-level/standalone instances; true = only sub-workflow children. Ignored when parentInstanceId is set.'),
+        attention: z.boolean().optional().describe('true = only instances parked by a failure-queue error directive; false = only instances without an attention marker.'),
         limit: z.number().int().positive().default(50).optional(),
         offset: z.number().int().min(0).default(0).optional(),
       }),

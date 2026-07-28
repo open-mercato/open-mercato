@@ -182,11 +182,25 @@ export interface WorkflowMetadata {
   editor?: WorkflowEditorMetadata
 }
 
+/**
+ * Failure-queue park marker (spec 5.9 "Send to failure queue"). Written when a
+ * step's `failureQueue` error directive parks the instance instead of failing
+ * it; the instances list filters on it (`?attention=true`) and the Phase 5
+ * triage UI consumes it. Additive and engine-owned — never user-writable.
+ */
+export interface WorkflowInstanceAttention {
+  reason: string
+  stepId?: string
+  error?: string
+  at: string
+}
+
 export interface WorkflowInstanceMetadata {
   entityType?: string
   entityId?: string
   initiatedBy?: string
   labels?: Record<string, string>
+  attention?: WorkflowInstanceAttention | null
 }
 
 // ============================================================================

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { conditionExpressionSchema } from '@open-mercato/core/modules/business_rules/data/validators'
 import { validateConditionExpressionForApi } from '@open-mercato/core/modules/business_rules/lib/payload-validation'
 import { parseDuration } from '../lib/duration'
+import { excludeErrorTransitions } from '../lib/error-routing'
 import '../lib/activity-registry-bootstrap'
 import { activityTypeIds } from '../lib/activity-registry'
 import {
@@ -384,6 +385,28 @@ function refineWaitForConditionStep(config: Record<string, unknown>, ctx: z.Refi
   }
 }
 
+/**
+ * Named error directive applied when a failing step has no wired error route
+ * (spec 5.9). Absent means `fail`, which is the pre-existing behavior, so no
+ * stored definition changes meaning. `fallbackValue` is authored against the
+ * step's output contract and lands in the run context under the step id.
+ */
+export const stepErrorDirectiveSchema = z.object({
+  mode: z.enum(['fail', 'continueWithFallback', 'failureQueue']),
+  fallbackValue: z.unknown().optional(),
+})
+
+export type StepErrorDirective = z.infer<typeof stepErrorDirectiveSchema>
+
+/**
+ * Transition discriminator. `error` routes are reachable ONLY from a step
+ * failure — normal routing filters them out — so adding one never changes the
+ * happy path. Absent means `normal`.
+ */
+export const transitionKindSchema = z.enum(['normal', 'error'])
+
+export type WorkflowTransitionKind = z.infer<typeof transitionKindSchema>
+
 // Step definition
 export const workflowStepSchema = z.object({
   stepId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Step ID must contain only lowercase letters, numbers, hyphens, and underscores'),
@@ -402,6 +425,8 @@ export const workflowStepSchema = z.object({
   retryPolicy: retryPolicySchema.optional(),
   // Pre-conditions for START step (business rules to validate before workflow can be started)
   preConditions: z.array(startPreConditionSchema).optional(),
+  // What happens when this step fails and no error route is wired (spec 5.9).
+  errorDirective: stepErrorDirectiveSchema.optional(),
   // Visual-editor node coordinate persisted in the jsonb definition so a saved
   // graph re-opens exactly as the author arranged it. Additive/optional — legacy
   // and code-authored definitions omit it and auto-arrange on load.
@@ -477,6 +502,9 @@ export const workflowTransitionSchema = z.object({
   condition: conditionExpressionSchema,
   activities: z.array(activityDefinitionSchema).optional(), // Activities to execute during transition
   continueOnActivityFailure: z.boolean().default(false).optional(), // If true, transition continues even when activities fail
+  // Error route marker (spec 5.9). Normal routing never selects an `error`
+  // route; the engine follows it only when the source step fails.
+  kind: transitionKindSchema.optional(),
   priority: z.number().int().min(0).max(9999).default(0),
 })
 
@@ -549,6 +577,7 @@ interface ForkJoinTransitionLike {
   fromStepId: string
   toStepId: string
   trigger: string
+  kind?: string
 }
 
 interface ForkJoinDefinitionLike {
@@ -573,7 +602,9 @@ interface ForkJoinDefinitionLike {
 export function validateParallelForkJoin(definition: ForkJoinDefinitionLike): ForkJoinValidationIssue[] {
   const issues: ForkJoinValidationIssue[] = []
   const steps = definition.steps ?? []
-  const transitions = definition.transitions ?? []
+  // Error routes leave the happy-path graph on purpose (spec 5.9): a branch step
+  // may route its failure outside the fork region without breaking convergence.
+  const transitions = excludeErrorTransitions(definition.transitions ?? [])
 
   const stepById = new Map<string, ForkJoinStepLike>()
   for (const step of steps) stepById.set(step.stepId, step)
