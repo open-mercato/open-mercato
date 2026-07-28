@@ -213,15 +213,15 @@ test('the 195-case catalog routes audited installed-module, runtime, and AI/prov
       decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
     },
     'OMH-193': {
-      contexts: ['.ai/guides/modules/sync_excel.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      contexts: ['.ai/guides/modules/sync_excel.md', '.ai/guides/architecture.md', '.ai/skills/om-integration-builder/SKILL.md'],
       decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
     },
     'OMH-194': {
-      contexts: ['.ai/guides/modules/gateway_stripe.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      contexts: ['.ai/guides/modules/gateway_stripe.md', '.ai/guides/architecture.md', '.ai/skills/om-integration-builder/SKILL.md'],
       decisions: ['facts-first', 'app-module-activation', 'acl-features', 'smallest-validation'],
     },
     'OMH-195': {
-      contexts: ['.ai/guides/modules/sync_akeneo.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      contexts: ['.ai/guides/modules/sync_akeneo.md', '.ai/guides/architecture.md', '.ai/skills/om-integration-builder/SKILL.md'],
       decisions: ['facts-first', 'app-module-activation', 'tenant-scope', 'smallest-validation'],
     },
   }
@@ -244,22 +244,25 @@ test('the 195-case catalog routes audited installed-module, runtime, and AI/prov
   assert.deepEqual(byId.get('OMH-186')?.expectedRouter.required, ['module-data'])
   assert.deepEqual(byId.get('OMH-187')?.expectedRouter.required, ['module-data'])
 
-  const reuseInstalledFacts: Record<string, string> = {
-    'OMH-188': '.ai/guides/modules/dictionaries.md',
-    'OMH-189': '.ai/guides/modules/api_keys.md',
-    'OMH-190': '.ai/guides/modules/configs.md',
-    'OMH-191': '.ai/guides/modules/perspectives.md',
-    'OMH-192': '.ai/guides/modules/resources.md',
-    'OMH-193': '.ai/guides/modules/sync_excel.md',
-    'OMH-194': '.ai/guides/modules/gateway_stripe.md',
-    'OMH-195': '.ai/guides/modules/sync_akeneo.md',
+  // Every reuse-installed case observes its module fact-sheet; the skill that governs the
+  // decision differs by framing. "Does something already own this?" opens om-help; a named
+  // provider or file-feed opens om-integration-builder, which is what live routing selects.
+  const reuseInstalledFacts: Record<string, { factSheet: string; skill: string }> = {
+    'OMH-188': { factSheet: '.ai/guides/modules/dictionaries.md', skill: 'om-help' },
+    'OMH-189': { factSheet: '.ai/guides/modules/api_keys.md', skill: 'om-help' },
+    'OMH-190': { factSheet: '.ai/guides/modules/configs.md', skill: 'om-help' },
+    'OMH-191': { factSheet: '.ai/guides/modules/perspectives.md', skill: 'om-help' },
+    'OMH-192': { factSheet: '.ai/guides/modules/resources.md', skill: 'om-help' },
+    'OMH-193': { factSheet: '.ai/guides/modules/sync_excel.md', skill: 'om-integration-builder' },
+    'OMH-194': { factSheet: '.ai/guides/modules/gateway_stripe.md', skill: 'om-integration-builder' },
+    'OMH-195': { factSheet: '.ai/guides/modules/sync_akeneo.md', skill: 'om-integration-builder' },
   }
-  for (const [caseId, factSheet] of Object.entries(reuseInstalledFacts)) {
+  for (const [caseId, { factSheet, skill }] of Object.entries(reuseInstalledFacts)) {
     const record = byId.get(caseId)
     assert.deepEqual(record?.expectedRouter.required, ['architecture'], `${caseId}: reuse-installed routing is an architecture decision`)
-    assert.ok(record?.requiredSkills.includes('om-help'), `${caseId}: a comparative installed-versus-new choice must open om-help`)
+    assert.ok(record?.requiredSkills.includes(skill), `${caseId}: an installed-versus-new choice must open ${skill}`)
     assert.ok(record?.context.required.includes('.ai/guides/architecture.md'), `${caseId}: the architecture guide must be observed, not merely allowed`)
-    assert.ok(record?.context.required.includes('.ai/skills/om-help/SKILL.md'), `${caseId}: the om-help skill must be observed, not merely allowed`)
+    assert.ok(record?.context.required.includes(`.ai/skills/${skill}/SKILL.md`), `${caseId}: the ${skill} skill must be observed, not merely allowed`)
     assert.ok(record?.context.required.includes(factSheet), `${caseId}: the installed module fact-sheet must be observed, not merely allowed`)
     assert.ok(record?.requiredDecisions.includes('facts-first'), `${caseId}: reuse-installed routing must decide facts-first`)
   }

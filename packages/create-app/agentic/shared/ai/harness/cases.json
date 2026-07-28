@@ -13190,19 +13190,19 @@
       "required": ["architecture"],
       "allowedExtra": ["integration", "module-data", "framework-context", "umes"]
     },
-    "requiredSkills": ["om-help"],
+    "requiredSkills": ["om-integration-builder"],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/architecture.md",
-        ".ai/skills/om-help/SKILL.md",
+        ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/guides/modules/sync_excel.md"
       ],
       "allowedExtra": [
         ".ai/guides/integrations.md",
         ".ai/guides/contracts.md",
         ".ai/guides/modules/data_sync.md",
-        ".ai/skills/om-integration-builder/SKILL.md"
+        ".ai/skills/om-help/SKILL.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
@@ -13243,19 +13243,19 @@
       "required": ["architecture"],
       "allowedExtra": ["integration", "module-data", "framework-context", "umes"]
     },
-    "requiredSkills": ["om-help"],
+    "requiredSkills": ["om-integration-builder"],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/architecture.md",
-        ".ai/skills/om-help/SKILL.md",
+        ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/guides/modules/gateway_stripe.md"
       ],
       "allowedExtra": [
         ".ai/guides/integrations.md",
         ".ai/guides/contracts.md",
         ".ai/guides/modules/payment_gateways.md",
-        ".ai/skills/om-integration-builder/SKILL.md"
+        ".ai/skills/om-help/SKILL.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },
@@ -13296,19 +13296,19 @@
       "required": ["architecture"],
       "allowedExtra": ["integration", "module-data", "framework-context", "umes"]
     },
-    "requiredSkills": ["om-help"],
+    "requiredSkills": ["om-integration-builder"],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/architecture.md",
-        ".ai/skills/om-help/SKILL.md",
+        ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/guides/modules/sync_akeneo.md"
       ],
       "allowedExtra": [
         ".ai/guides/integrations.md",
         ".ai/guides/contracts.md",
         ".ai/guides/modules/data_sync.md",
-        ".ai/skills/om-integration-builder/SKILL.md"
+        ".ai/skills/om-help/SKILL.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
     },

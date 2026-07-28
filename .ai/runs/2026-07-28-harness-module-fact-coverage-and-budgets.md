@@ -25,6 +25,8 @@ against the on-disk byte size of the context that case declares.
 
 ## Progress
 
+PR: #4602
+
 - [x] 1.1 Materialise a faithful controller and establish the pre-change baseline — deterministic
       189/189 on the stacked parent's exact bytes
 - [x] 1.2 Inventory every shipped fact-sheet against catalog context, owner, and prompt coverage —
