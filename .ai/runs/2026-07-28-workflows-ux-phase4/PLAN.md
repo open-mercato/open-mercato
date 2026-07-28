@@ -19,7 +19,7 @@
 | 0 | 0.4 | A6: inbox actually sends the myTasks filter it defaults to | done | 74c515f22 |
 | 0 | 0.5 | A8: task list serializer (proposalId/kind/priority to top level, response superset) | done | 9b39f0a68 |
 | 0 | 0.6 | taskHandler DI registration + route migration off direct lib imports (module MUST #1) | done | f63c88a01 |
-| 1 | 1.1 | Additive userTaskConfig fields: instructions, entityBindings, priority, deadline, reminders, onBreach, decisions, editablePrefilled | todo | — |
+| 1 | 1.1 | Additive userTaskConfig fields: instructions, entityBindings, priority, deadline, reminders, onBreach, decisions, editablePrefilled | done | 25ea54521 |
 | 1 | 1.2 | user_tasks additive columns + migration (entity_bindings, priority, reassignment audit) | todo | — |
 | 1 | 1.3 | Task creation resolves interpolation, dynamic assignment with fallback role, entity bindings | todo | — |
 | 1 | 1.4 | Task inspector §6.1 sections in NodeEditDialogCrudForm (What/About/Who/When/Decisions) | todo | — |

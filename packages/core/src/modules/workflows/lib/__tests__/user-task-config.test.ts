@@ -85,6 +85,149 @@ describe('user task config round trip (A1 regression)', () => {
   })
 })
 
+/**
+ * Task inspector vocabulary (spec §6.1). Every assertion goes through
+ * `workflowStepSchema.parse` for the same reason the A1 suite above does: that
+ * parse IS the save, and an undeclared key is discarded there silently.
+ */
+const inspectorNode: Node = {
+  id: 'approve-refund',
+  type: 'userTask',
+  position: { x: 0, y: 0 },
+  data: {
+    label: 'Approve Refund',
+    instructions: { en: 'Check {{context.order.total}} against policy.', pl: 'Sprawdź kwotę.' },
+    entityBindings: [
+      { entityType: 'customers:person', idPath: 'context.customerId', label: 'Customer' },
+      { entityType: 'sales:order', idPath: 'context.order.id' },
+    ],
+    priority: 'high',
+    deadline: { duration: 'PT4H' },
+    reminders: [{ offset: 'PT1H' }, { offset: 'PT15M' }],
+    onBreach: { action: 'route', transitionId: 't_breach_escalate' },
+    decisions: [
+      { id: 'approve', label: 'Approve', transitionId: 't_approve', style: 'primary' },
+      { id: 'reject', label: { en: 'Reject' }, transitionId: 't_reject', style: 'destructive' },
+    ],
+    editablePrefilled: ['refundAmount'],
+  },
+}
+
+const inspectorEdges: Edge[] = [
+  { id: 't_approve', source: 'approve-refund', target: 'end' },
+]
+
+describe('task inspector vocabulary round trip (spec §6.1)', () => {
+  test('the save keeps every authored inspector field', () => {
+    const definition = graphToDefinition([inspectorNode, endNode], inspectorEdges)
+    const saved = saveStep(definition.steps.find((step: any) => step.stepId === 'approve-refund'))
+    const config = saved.userTaskConfig
+
+    expect(config?.instructions).toEqual({
+      en: 'Check {{context.order.total}} against policy.',
+      pl: 'Sprawdź kwotę.',
+    })
+    expect(config?.entityBindings).toEqual([
+      { entityType: 'customers:person', idPath: 'context.customerId', label: 'Customer' },
+      { entityType: 'sales:order', idPath: 'context.order.id' },
+    ])
+    expect(config?.priority).toBe('high')
+    expect(config?.deadline).toEqual({ duration: 'PT4H' })
+    expect(config?.reminders).toEqual([{ offset: 'PT1H' }, { offset: 'PT15M' }])
+    expect(config?.onBreach).toEqual({ action: 'route', transitionId: 't_breach_escalate' })
+    expect(config?.decisions).toEqual([
+      { id: 'approve', label: 'Approve', transitionId: 't_approve', style: 'primary' },
+      { id: 'reject', label: { en: 'Reject' }, transitionId: 't_reject', style: 'destructive' },
+    ])
+    expect(config?.editablePrefilled).toEqual(['refundAmount'])
+  })
+
+  test('inspector fields survive graphToDefinition → save → definitionToGraph → save', () => {
+    const first = graphToDefinition([inspectorNode, endNode], inspectorEdges)
+    const persisted = { ...first, steps: first.steps.map((step: any) => saveStep(step)) }
+    const { nodes, edges } = definitionToGraph(persisted as any)
+
+    const reloaded = nodes.find((node) => node.id === 'approve-refund')
+    expect(reloaded?.data.priority).toBe('high')
+    expect(reloaded?.data.decisions).toEqual(inspectorNode.data.decisions)
+    expect(reloaded?.data.entityBindings).toEqual(inspectorNode.data.entityBindings)
+
+    const resaved = saveStep(
+      graphToDefinition(nodes, edges).steps.find((step: any) => step.stepId === 'approve-refund')
+    )
+    expect(resaved.userTaskConfig?.instructions).toEqual(inspectorNode.data.instructions)
+    expect(resaved.userTaskConfig?.deadline).toEqual({ duration: 'PT4H' })
+    expect(resaved.userTaskConfig?.reminders).toEqual([{ offset: 'PT1H' }, { offset: 'PT15M' }])
+    expect(resaved.userTaskConfig?.onBreach).toEqual({ action: 'route', transitionId: 't_breach_escalate' })
+    expect(resaved.userTaskConfig?.editablePrefilled).toEqual(['refundAmount'])
+  })
+
+  test('a plain-string instruction and a legacy transition id are both accepted', () => {
+    const saved = saveStep({
+      stepId: 'legacy',
+      stepName: 'Legacy',
+      stepType: 'USER_TASK',
+      userTaskConfig: {
+        instructions: 'Approve the refund.',
+        decisions: [{ id: 'approve', label: 'Approve', transitionId: 'e_legacy_end' }],
+      },
+    })
+
+    expect(saved.userTaskConfig?.instructions).toBe('Approve the refund.')
+    expect(saved.userTaskConfig?.decisions?.[0]?.transitionId).toBe('e_legacy_end')
+  })
+
+  test('a config declaring none of the new fields parses byte-identically', () => {
+    const legacyConfig = {
+      assignedTo: 'manager@example.com',
+      slaDuration: 'P1D',
+      escalationRules: [{ trigger: 'sla_breach', action: 'notify' }],
+    }
+
+    const saved = saveStep({
+      stepId: 'legacy',
+      stepName: 'Legacy',
+      stepType: 'USER_TASK',
+      userTaskConfig: legacyConfig,
+    })
+
+    expect(saved.userTaskConfig).toEqual(legacyConfig)
+    expect(Object.keys(saved.userTaskConfig ?? {})).toEqual(Object.keys(legacyConfig))
+  })
+
+  test('a graph authoring none of the new fields serializes byte-identically', () => {
+    const definition = graphToDefinition([authoredUserTaskNode, endNode], authoredEdges)
+    const step = definition.steps.find((entry: any) => entry.stepId === 'approve-invoice')
+
+    expect(step.userTaskConfig).toEqual({
+      assignedTo: undefined,
+      assignedToRoles: ['finance_approver', 'controller'],
+      formKey: 'invoice-approval',
+      allowedActions: ['complete', 'reject'],
+    })
+  })
+
+  test('an invalid priority or decision is rejected rather than silently dropped', () => {
+    expect(() =>
+      saveStep({
+        stepId: 'bad',
+        stepName: 'Bad',
+        stepType: 'USER_TASK',
+        userTaskConfig: { priority: 'urgent' },
+      })
+    ).toThrow()
+
+    expect(() =>
+      saveStep({
+        stepId: 'bad',
+        stepName: 'Bad',
+        stepType: 'USER_TASK',
+        userTaskConfig: { decisions: [{ id: 'approve', label: 'Approve' }] },
+      })
+    ).toThrow()
+  })
+})
+
 describe('user task config reaches the engine after a save', () => {
   const testTenantId = '00000000-0000-4000-8000-000000000001'
   const testOrgId = '00000000-0000-4000-8000-000000000002'
