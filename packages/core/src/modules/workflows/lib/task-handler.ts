@@ -20,6 +20,12 @@ import {
 } from '../data/entities'
 import { executeWorkflow } from './workflow-executor'
 import { findDefinitionForInstance } from './find-definition'
+import {
+  findTaskDecision,
+  findTaskDecisionTransition,
+  withRecordedDecision,
+} from './task-decisions'
+import { loadTaskDecisionContext } from './task-decision-context'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -58,6 +64,15 @@ export interface CompleteUserTaskOptions {
   formData: Record<string, any>
   userId: string
   comments?: string
+  /**
+   * The decision button the assignee pressed, when the step authored any.
+   *
+   * It does two things: it SELECTS the outgoing route (the decision's
+   * `transitionId` wins over the first-valid-transition default), and it is
+   * RECORDED as part of the completion payload. Omitted, completion behaves
+   * exactly as it always did.
+   */
+  decisionId?: string
   scope: UserTaskScope
 }
 
@@ -96,7 +111,7 @@ export async function completeUserTask(
   container: AwilixContainer,
   options: CompleteUserTaskOptions
 ): Promise<void> {
-  const { taskId, formData, userId, comments, scope } = options
+  const { taskId, formData, userId, comments, decisionId, scope } = options
 
   // Fetch task
   const task = await em.findOne(UserTask, {
@@ -141,10 +156,31 @@ export async function completeUserTask(
     }
   }
 
+  // Resolve the pressed decision BEFORE anything is mutated: an unknown
+  // decision id must leave the task untouched rather than complete it down the
+  // default route. The list is re-resolved from the instance's pinned
+  // definition, so it is exactly the list the assignee was shown.
+  const chosenDecision = decisionId
+    ? findTaskDecision((await loadTaskDecisionContext(em, task)).decisions, decisionId)
+    : null
+
+  if (decisionId && !chosenDecision) {
+    throw new UserTaskError(
+      'Unknown decision for this task',
+      'UNKNOWN_DECISION',
+      { taskId, decisionId }
+    )
+  }
+
+  // The chosen decision rides along inside the completion payload the task
+  // already persists — no new column, and downstream route conditions can read
+  // it once the payload is merged into the run context.
+  const completionData = withRecordedDecision(formData, chosenDecision?.id)
+
   // Update task
   const now = new Date()
   task.status = 'COMPLETED'
-  task.formData = formData
+  task.formData = completionData
   task.completedBy = userId
   task.completedAt = now
   task.comments = comments || null
@@ -164,13 +200,24 @@ export async function completeUserTask(
 
   // Branch-scoped completion: when the task belongs to a parallel branch,
   // merge form data into the branch namespace and resume just that branch.
+  //
+  // The decision is RECORDED here exactly as it is on the main path, but it does
+  // not select the route: a branch advances through `resumeBranch` with its own
+  // token, and overriding a branch's outgoing route is a parallel-execution
+  // change rather than a task-surface one.
   if (task.branchInstanceId) {
     await logWorkflowEvent(em, {
       workflowInstanceId: instance.id,
       stepInstanceId: task.stepInstanceId,
       branchInstanceId: task.branchInstanceId,
       eventType: 'USER_TASK_COMPLETED',
-      eventData: { taskId: task.id, taskName: task.taskName, completedBy: userId, formData },
+      eventData: {
+        taskId: task.id,
+        taskName: task.taskName,
+        completedBy: userId,
+        formData: completionData,
+        ...(chosenDecision ? { decisionId: chosenDecision.id } : {}),
+      },
       userId,
       tenantId: instance.tenantId,
       organizationId: instance.organizationId,
@@ -182,9 +229,9 @@ export async function completeUserTask(
       branchInstanceId: task.branchInstanceId,
       tenantId: instance.tenantId,
       organizationId: instance.organizationId,
-      contextMerge: formData,
+      contextMerge: completionData,
       exitStepInstanceId: task.stepInstanceId,
-      exitOutput: { userTaskId: task.id, formData },
+      exitOutput: { userTaskId: task.id, formData: completionData },
     })
 
     if (resumed) {
@@ -196,7 +243,7 @@ export async function completeUserTask(
   // Merge form data into workflow context
   instance.context = {
     ...instance.context,
-    ...formData,
+    ...completionData,
   }
   instance.updatedAt = now
 
@@ -209,7 +256,8 @@ export async function completeUserTask(
       taskId: task.id,
       taskName: task.taskName,
       completedBy: userId,
-      formData,
+      formData: completionData,
+      ...(chosenDecision ? { decisionId: chosenDecision.id } : {}),
     },
     userId,
     tenantId: instance.tenantId,
@@ -223,7 +271,7 @@ export async function completeUserTask(
   })
 
   if (stepInstance) {
-    await stepHandler.exitStep(em, stepInstance, { userTaskId: task.id, formData })
+    await stepHandler.exitStep(em, stepInstance, { userTaskId: task.id, formData: completionData })
   }
 
   // Find the next automatic transition from the current step
@@ -240,36 +288,66 @@ export async function completeUserTask(
     )
   }
 
-  // Find automatic transitions from current step
-  const autoTransitions = (definition.definition.transitions || []).filter(
-    (t: any) => t.fromStepId === currentStepId && t.trigger === 'auto'
-  )
-
-  if (autoTransitions.length === 0) {
-    // No automatic transitions, workflow stays paused at current step
-    return
-  }
-
-  // Find valid transitions using transition handler
   const transitionContext = {
     workflowContext: instance.context,
     userId,
   }
 
-  const validTransitions = await transitionHandler.findValidTransitions(
-    em,
-    instance,
-    currentStepId,
-    transitionContext
-  )
+  // A decision names the route to take. It is bound to the transition's durable
+  // id, so it survives every route reorder, and it is looked up among the routes
+  // LEAVING this step only — a button can never send the run down a route that
+  // does not start where the run currently is. A decision whose route no longer
+  // exists there falls through to the default evaluation rather than stranding
+  // the run at a step it already completed.
+  const decisionTransition = chosenDecision
+    ? findTaskDecisionTransition(
+        definition.definition.transitions || [],
+        chosenDecision.transitionId,
+        currentStepId
+      )
+    : null
 
-  const firstValidTransition = validTransitions.find(t => t.isValid)
+  if (chosenDecision && !decisionTransition) {
+    logger.warn('Task decision route not found on the current step; falling back to auto routing', {
+      component: 'task-handler',
+      taskId: task.id,
+      decisionId: chosenDecision.id,
+      transitionId: chosenDecision.transitionId,
+      currentStepId,
+    })
+  }
 
-  if (!firstValidTransition || !firstValidTransition.transition) {
-    // Resume workflow execution anyway, maybe conditions will be met later
-    instance.status = 'RUNNING'
-    await em.flush()
-    return
+  let targetStepId = decisionTransition?.toStepId ?? null
+
+  if (!targetStepId) {
+    // Find automatic transitions from current step
+    const autoTransitions = (definition.definition.transitions || []).filter(
+      (t: any) => t.fromStepId === currentStepId && t.trigger === 'auto'
+    )
+
+    if (autoTransitions.length === 0) {
+      // No automatic transitions, workflow stays paused at current step
+      return
+    }
+
+    // Find valid transitions using transition handler
+    const validTransitions = await transitionHandler.findValidTransitions(
+      em,
+      instance,
+      currentStepId,
+      transitionContext
+    )
+
+    const firstValidTransition = validTransitions.find(t => t.isValid)
+
+    if (!firstValidTransition || !firstValidTransition.transition) {
+      // Resume workflow execution anyway, maybe conditions will be met later
+      instance.status = 'RUNNING'
+      await em.flush()
+      return
+    }
+
+    targetStepId = firstValidTransition.transition.toStepId
   }
 
   // Execute the transition to move to next step
@@ -279,7 +357,7 @@ export async function completeUserTask(
     container,
     instance,
     currentStepId,
-    firstValidTransition.transition.toStepId,
+    targetStepId,
     transitionContext
   )
 

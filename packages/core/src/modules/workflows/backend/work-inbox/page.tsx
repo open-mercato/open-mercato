@@ -22,18 +22,6 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import {
-  AlertTriangle,
-  ArrowDown,
-  ArrowUp,
-  CheckCircle2,
-  Circle,
-  Clock,
-  Flame,
-  Loader,
-  Minus,
-  XCircle,
-} from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -54,7 +42,7 @@ import {
   describeWorkInboxPriority,
   describeWorkInboxStatus,
 } from '../../lib/work-inbox/presentation'
-import type { WorkInboxIconName } from '../../lib/work-inbox/presentation'
+import { StatusChip } from '../../components/work-inbox/StatusChip'
 
 /**
  * `data-table:workflows.tasks.list:*` is a FROZEN widget spot id — the
@@ -64,43 +52,10 @@ const WORK_INBOX_TABLE_ID = 'workflows.tasks.list'
 
 const PAGE_SIZE = 50
 
-const ICONS: Record<WorkInboxIconName, React.ComponentType<{ className?: string }>> = {
-  Clock,
-  Loader,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-  Flame,
-  ArrowUp,
-  Minus,
-  ArrowDown,
-  Circle,
-}
-
 type WorkInboxResponse = {
   data: WorkInboxWireRow[]
   pagination: { total: number; limit: number; offset: number; hasMore: boolean }
   meta: { kinds: string[]; degradedKinds: string[] }
-}
-
-type StatusChipProps = {
-  iconName: WorkInboxIconName
-  badgeClassName: string
-  iconClassName: string
-  label: string
-}
-
-/** Token + icon + label — the badge stays readable with colour removed. */
-function StatusChip({ iconName, badgeClassName, iconClassName, label }: StatusChipProps) {
-  const Icon = ICONS[iconName]
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium ${badgeClassName}`}
-    >
-      <Icon className={`h-3 w-3 ${iconClassName}`} />
-      {label}
-    </span>
-  )
 }
 
 export default function WorkInboxPage() {
@@ -319,9 +274,7 @@ export default function WorkInboxPage() {
             {row.original.overdue ? (
               <div className="mt-1">
                 <StatusChip
-                  iconName={WORK_INBOX_OVERDUE_TONE.iconName}
-                  badgeClassName={WORK_INBOX_OVERDUE_TONE.badge}
-                  iconClassName={WORK_INBOX_OVERDUE_TONE.icon}
+                  descriptor={WORK_INBOX_OVERDUE_TONE}
                   label={t('workflows.tasks.overdue')}
                 />
               </div>
@@ -350,9 +303,7 @@ export default function WorkInboxPage() {
           }
           return (
             <StatusChip
-              iconName={descriptor.iconName}
-              badgeClassName={descriptor.badge}
-              iconClassName={descriptor.icon}
+              descriptor={descriptor}
               label={t(`workflows.workInbox.priorities.${row.original.priority}`)}
             />
           )
@@ -366,9 +317,7 @@ export default function WorkInboxPage() {
           const descriptor = describeWorkInboxStatus(row.original.status)
           return (
             <StatusChip
-              iconName={descriptor.iconName}
-              badgeClassName={descriptor.badge}
-              iconClassName={descriptor.icon}
+              descriptor={descriptor}
               label={t(`workflows.tasks.statuses.${row.original.status}`, row.original.status)}
             />
           )

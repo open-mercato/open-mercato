@@ -42,6 +42,34 @@ export type UserTaskResponse = {
   organizationId: string
   createdAt: string
   updatedAt: string
+  /**
+   * Work-item projection added by `api/tasks/serialize.ts`; optional here
+   * because third-party callers may still be reading a pre-Phase-4 payload.
+   */
+  kind?: string
+  proposalId?: string | null
+  priority?: string | number | null
+  entityBindings?: UserTaskEntityBinding[] | null
+  /** Definition step the task is parked on, when it could be resolved. */
+  stepId?: string | null
+  /**
+   * Decision buttons, re-resolved per request from the instance's pinned
+   * definition. Never stored on the task row — see `lib/task-decisions.ts`.
+   */
+  decisions?: UserTaskDecision[]
+}
+
+export type UserTaskEntityBinding = {
+  entityType: string
+  entityId: string
+  label?: string | Record<string, string> | null
+}
+
+export type UserTaskDecision = {
+  id: string
+  label: string | Record<string, string>
+  transitionId: string
+  style?: 'primary' | 'secondary' | 'destructive'
 }
 
 // Grouped metadata state for MobileVisualEditor / MobileMetadataSheet

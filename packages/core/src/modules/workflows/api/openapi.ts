@@ -84,8 +84,26 @@ export const userTaskListResponseSchema = z.object({
   pagination: paginationSchema,
 })
 
+/**
+ * A decision button as the assignee sees it, re-resolved at request time from
+ * the instance's pinned definition (never stored on the task row).
+ */
+export const userTaskDecisionSchema = z.object({
+  id: z.string(),
+  label: z.union([z.string(), z.record(z.string(), z.string())]),
+  transitionId: z.string().describe('Durable id of the route this button takes'),
+  style: z.enum(['primary', 'secondary', 'destructive']).optional(),
+})
+
+/**
+ * Detail projection: the same superset the list returns, plus the derived
+ * decision buttons and the definition step id they belong to.
+ */
 export const userTaskDetailResponseSchema = z.object({
-  data: userTaskSchema,
+  data: userTaskRowSchema.extend({
+    stepId: z.string().nullable().describe('Definition step the task is parked on'),
+    decisions: z.array(userTaskDecisionSchema),
+  }),
 })
 
 export const userTaskClaimResponseSchema = z.object({
@@ -172,6 +190,10 @@ export const workInboxClaimNextResponseSchema = z.object({
 export const completeTaskRequestSchema = z.object({
   formData: z.record(z.string(), z.unknown()).describe('Form field values'),
   comments: z.string().optional().describe('Optional comments'),
+  decisionId: z
+    .string()
+    .optional()
+    .describe('Decision button pressed; selects the outgoing route and is recorded with the completion'),
 })
 
 export const userTaskCompleteResponseSchema = z.object({
