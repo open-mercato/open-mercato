@@ -185,7 +185,7 @@ function DetailHeader({
                   size="sm"
                   onClick={onDelete}
                   disabled={isDeleting}
-                  className="text-red-600 border-red-200 hover:bg-red-50 rounded"
+                  className="text-destructive border-red-200 hover:bg-red-50 rounded"
                 >
                   {isDeleting ? (
                     <Loader2 className="size-4 mr-2 animate-spin" />

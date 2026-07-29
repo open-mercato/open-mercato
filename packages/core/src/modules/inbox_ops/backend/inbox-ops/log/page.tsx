@@ -141,7 +141,7 @@ export default function ProcessingLogPage() {
       accessorKey: 'processingError',
       header: t('inbox_ops.extraction_failed', 'Error'),
       cell: ({ row }) => (
-        <span className="text-xs text-red-600 truncate max-w-[280px] block">
+        <span className="text-xs text-destructive truncate max-w-[280px] block">
           {row.original.processingError || '-'}
         </span>
       ),

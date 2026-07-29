@@ -65,7 +65,7 @@ export function UserConsentsPanel({ userId }: UserConsentsPanelProps) {
   }
 
   if (error) {
-    return <p className="text-sm text-red-600">{error}</p>
+    return <p className="text-sm text-destructive">{error}</p>
   }
 
   if (consents.length === 0) {
@@ -94,7 +94,7 @@ export function UserConsentsPanel({ userId }: UserConsentsPanelProps) {
               ) : (
                 <>
                   <ShieldX className="size-4 text-red-500" />
-                  <span className="text-red-600 font-medium">
+                  <span className="text-destructive font-medium">
                     {t('auth.users.consents.withdrawn', 'Withdrawn')}
                   </span>
                 </>

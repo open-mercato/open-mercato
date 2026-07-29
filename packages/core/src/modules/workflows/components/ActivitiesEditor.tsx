@@ -184,7 +184,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
           <p className="text-sm text-muted-foreground">
             {t('workflows.form.descriptions.activities')}
           </p>
-          {error && <p className="text-sm text-red-600 mt-1">{error}</p>}
+          {error && <p className="text-sm text-destructive mt-1">{error}</p>}
         </div>
         <Button type="button" onClick={addActivity} variant="outline" size="sm" className="w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-1" />
@@ -257,7 +257,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                     onClick={() => removeActivity(index)}
                     title={t('common.delete')}
                   >
-                    <Trash2 className="h-4 w-4 text-red-600" />
+                    <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
               </div>
