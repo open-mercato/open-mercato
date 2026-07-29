@@ -29,7 +29,7 @@ Build a four-layer harness:
 1. A boundary-first root `AGENTS.md` that only routes tasks and carries universal safety rules.
 2. Focused guides and thin standalone skills loaded only for the selected task.
 3. Generated module facts plus an exact installed-source/original-AGENTS escape hatch.
-4. A versioned 184-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
+4. A versioned 192-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
 
 ## 📝 Architecture
 
@@ -574,7 +574,7 @@ The case assertions cover every frozen/stable surface even though the harness do
 
 | Risk | Severity | Mitigation | Residual risk |
 |---|---|---|---|
-| Rewriting generated guidance changes agent behavior broadly. | High | 184 semantic cases, mandatory safety subset, complete selected-runner release evidence, optional explicit cross-model portability evidence, draft PR, and review gate. | Model behavior remains probabilistic and secondary-runner evidence depends on optional provider access. |
+| Rewriting generated guidance changes agent behavior broadly. | High | 192 semantic cases, mandatory safety subset, complete selected-runner release evidence, optional explicit cross-model portability evidence, draft PR, and review gate. | Model behavior remains probabilistic and secondary-runner evidence depends on optional provider access. |
 | Root instructions are silently truncated by a default agent budget. | High | 12 KiB byte cap on both root sources plus representative generated initial-chain checks against 32,768 bytes (issue #4484). | Other tools may impose smaller undocumented budgets. |
 | Context files still drift from framework contracts. | High | Generated facts, installed source/AGENTS escape hatch, semantic contradiction scan, release version stamps. | Hand-written conceptual guides still require maintenance. |
 | Installer removes user content or breaks Windows. | High | Node path-safe implementation, ownership checks, junction tests, preserve stable flags/wrapper, generated-app tests. | Windows junction semantics vary by corporate policy. |
@@ -719,3 +719,4 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 - **2026-07-27** — Hardened review portability and safety: ownership-aware staging preserves unowned skills, framework-context scans are NUL-safe and symlink-contained, writable behavior probes safely stub trusted imports, entity oracles honor explicit database-field mappings, provider quota/authentication failures abort as environment failures, and macOS/manual fixture prerequisites are documented.
 - **2026-07-28** — Expanded the catalog to 187 cases and the writable/review matrix to 40; added complete-module, cache, and queue coverage; made case-schema validation executable through OMH-187; audited all 53 emitted module facts into catalog coverage; added contrastive decision vocabularies; and wired bounded controller-materialized installed-package context into declared writable cases without relaxing the dependency-tree ban.
 - **2026-07-28** — Added field-tested writable OMH-188–191 and combined CRM/library OMH-192; extended the writable/review matrix to 45, added a fourth executable generated-test lane, fixed exact-string oracle execution, enforced command-local atomic/undo seams, and tightened scope, lifecycle, concurrency, CRM-link, worker-scope, and Jest review rules.
+- **2026-07-29** — Re-audited Zielivia's original and generated-case findings plus #4564/#4565/#4571/#4572 against their executable owners, synchronized the remaining overview/risk counts to 192, and proved final27 deterministic 192/192; the selected live runner matrices remain the delivery gate.
