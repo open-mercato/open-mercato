@@ -363,6 +363,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.47 Separate AI-file, lead-validation, read-only context, injected-table, and host-status guard owners — `f14910224`
 - [x] 3.48 Strengthen selected attachment, testing, and installed-guard context obligations — `aa101f99c`
 - [x] 3.49 Keep AI consumption of existing files out of transport/storage routing — `58fb0f50d`
+- [x] 3.50 Bind AI attachment work to every named domain-record fact — `2b12bcd20`
 
 ### Phase 4: Compatibility baseline
 
