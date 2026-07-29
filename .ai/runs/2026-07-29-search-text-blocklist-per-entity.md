@@ -135,5 +135,5 @@ rule) with the entity-scoped syntax.
 
 ### Phase 3: Documentation
 
-- [ ] 3.1 Update both .env.example files with the entity-scoped syntax
-- [ ] 3.2 Document the variable and reindex requirement in the hybrid-search docs
+- [x] 3.1 Update both .env.example files with the entity-scoped syntax — 3383fdf1c
+- [x] 3.2 Document the variable and reindex requirement in the hybrid-search docs — 3383fdf1c
