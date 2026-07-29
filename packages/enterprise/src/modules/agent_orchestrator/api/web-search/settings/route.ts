@@ -149,10 +149,16 @@ export async function PUT(req: Request) {
     adapterOptions[entry.module.id] = unmaskSecrets(incoming, stored, describeOptionsSchema(entry.module))
   }
 
+  // The write replaces the whole stored value, so a body that omits `guardrails`
+  // used to erase them — and the settings page autosaves without sending them,
+  // which quietly dropped an operator's deny list the first time anyone opened
+  // the screen. Absent means unchanged.
+  const guardrails = parsed.data.guardrails ?? current.guardrails
+
   await service.setValue(
     WEB_SEARCH_CONFIG_MODULE,
     WEB_SEARCH_CONFIG_NAME,
-    { ...parsed.data, adapterOptions },
+    { ...parsed.data, guardrails, adapterOptions },
     { tenantId: auth.tenantId },
   )
 

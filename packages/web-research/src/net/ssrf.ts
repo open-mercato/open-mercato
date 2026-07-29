@@ -140,6 +140,31 @@ export type AssertPublicUrlOptions = {
    * the request proceed would silently drop a control rather than merely fail.
    */
   readonly failClosed?: boolean
+  /**
+   * Hosts permitted to resolve to a non-public address.
+   *
+   * An allowlist rather than a blanket "allow private", because the two are not
+   * remotely equivalent: a boolean opens every internal address to whatever URL
+   * a model or a search result happens to produce, while this only unblocks
+   * destinations an operator named. It exists because a service the operator
+   * runs themselves — a SearXNG instance on the container network, a self-hosted
+   * scraper — is otherwise unreachable by design.
+   *
+   * Matching is exact host or a dot-boundary suffix, so `internal.example.com`
+   * covers `search.internal.example.com` but never `notinternal.example.com`.
+   */
+  readonly allowPrivateHosts?: readonly string[]
+}
+
+/** Exact host or a dot-boundary suffix; never a bare substring. */
+export function isPrivateHostAllowed(hostname: string, allowlist: readonly string[] | undefined): boolean {
+  if (!allowlist || allowlist.length === 0) return false
+  const host = hostname.toLowerCase()
+  return allowlist.some((entry) => {
+    const allowed = entry.trim().toLowerCase()
+    if (allowed.length === 0) return false
+    return host === allowed || host.endsWith(`.${allowed}`)
+  })
 }
 
 export type VettedUrl = {
@@ -168,13 +193,14 @@ export async function assertPublicUrl(
   }
 
   const hostname = parsed.hostname.replace(/^\[|\]$/g, '')
+  const privateAllowed = isPrivateHostAllowed(hostname, options.allowPrivateHosts)
 
-  if (isLoopbackHostname(hostname)) {
+  if (!privateAllowed && isLoopbackHostname(hostname)) {
     throw new WebResearchError('ssrf_blocked', `Blocked loopback host for ${label}: ${hostname}`)
   }
 
   if (isIP(hostname)) {
-    if (isPrivateAddress(hostname)) {
+    if (!privateAllowed && isPrivateAddress(hostname)) {
       throw new WebResearchError('ssrf_blocked', `Blocked non-public address for ${label}: ${hostname}`)
     }
     return { url: parsed, addresses: [hostname] }
@@ -198,7 +224,7 @@ export async function assertPublicUrl(
     return { url: parsed, addresses: [] }
   }
   for (const { address } of records) {
-    if (isPrivateAddress(address)) {
+    if (!privateAllowed && isPrivateAddress(address)) {
       throw new WebResearchError(
         'ssrf_blocked',
         `Host ${hostname} resolves to non-public address ${address} for ${label}`,

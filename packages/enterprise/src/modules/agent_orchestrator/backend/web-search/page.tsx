@@ -41,11 +41,12 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { AdapterRow, type AdapterHealth, type InstalledAdapter } from './AdapterRow'
+import { WebSearchPreview } from './WebSearchPreview'
 
 const SETTINGS_URL = '/api/agent_orchestrator/web-search/settings'
 const HEALTH_URL = '/api/agent_orchestrator/web-search/health'
 
-type AdapterEntry = { id: string; enabled: boolean; order: number; weight: number }
+type AdapterEntry = { id: string; enabled: boolean; order: number; weight: number; timeoutMs?: number }
 
 type Policy = {
   settleMode: 'race' | 'quorum' | 'exhaustive'
@@ -61,8 +62,19 @@ type Policy = {
   adapters: AdapterEntry[]
 }
 
+type Guardrails = {
+  allowDomains: string[]
+  denyDomains: string[]
+  allowPrivateHosts: string[]
+  searchesPerRun: number
+  fetchesPerRun: number
+  callsPerTenantPerMinute: number
+  maxFetchBytes: number
+}
+
 type SettingsResponse = {
   policy: Policy
+  guardrails: Guardrails
   source: 'tenant' | 'instance'
   installed?: InstalledAdapter[]
 }
@@ -216,6 +228,7 @@ export default function WebSearchSettingsPage() {
   const [installed, setInstalled] = React.useState<InstalledAdapter[]>([])
   const [health, setHealth] = React.useState<AdapterHealth[]>([])
   const [adapterOptions, setAdapterOptions] = React.useState<AdapterOptions>({})
+  const [guardrails, setGuardrails] = React.useState<Guardrails | null>(null)
   const [source, setSource] = React.useState<'tenant' | 'instance'>('instance')
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -243,6 +256,7 @@ export default function WebSearchSettingsPage() {
       setInstalled(adapters)
       setAdapterOptions(Object.fromEntries(adapters.map((adapter) => [adapter.id, { ...adapter.options }])))
       setSource(next.source)
+      setGuardrails(next.guardrails)
       setPolicy({ ...next.policy, adapters: mergeAdapters(next.policy, adapters) })
       setLoadError(null)
       hydrated.current = true
@@ -314,14 +328,18 @@ export default function WebSearchSettingsPage() {
   }
 
   const persist = React.useCallback(
-    async (nextPolicy: Policy, nextOptions: AdapterOptions) => {
+    async (nextPolicy: Policy, nextOptions: AdapterOptions, nextGuardrails: Guardrails | null) => {
       setSaveState('saving')
       await runMutation({
         context: { contextId: 'agent_orchestrator.web_search.settings' },
         operation: async () => {
           const call = await apiCall(SETTINGS_URL, {
             method: 'PUT',
-            body: JSON.stringify({ ...nextPolicy, adapterOptions: nextOptions }),
+            body: JSON.stringify({
+              ...nextPolicy,
+              adapterOptions: nextOptions,
+              ...(nextGuardrails ? { guardrails: nextGuardrails } : {}),
+            }),
           })
           if (!call.ok) {
             setSaveState('error')
@@ -348,10 +366,10 @@ export default function WebSearchSettingsPage() {
   React.useEffect(() => {
     if (!hydrated.current || !policy) return
     const timer = setTimeout(() => {
-      void persist(policy, adapterOptions)
+      void persist(policy, adapterOptions, guardrails)
     }, 700)
     return () => clearTimeout(timer)
-  }, [policy, adapterOptions, persist])
+  }, [policy, adapterOptions, guardrails, persist])
 
   if (isLoading) {
     return (
@@ -428,11 +446,13 @@ export default function WebSearchSettingsPage() {
                         id={entry.id}
                         enabled={entry.enabled}
                         weight={entry.weight}
+                        timeoutMs={entry.timeoutMs}
                         meta={installed.find((adapter) => adapter.id === entry.id)}
                         health={health.find((report) => report.id === entry.id)}
                         options={adapterOptions[entry.id] ?? {}}
                         onToggle={(enabled) => updateAdapter(entry.id, { enabled })}
                         onWeight={(weight) => updateAdapter(entry.id, { weight })}
+                        onTimeout={(timeoutMs) => updateAdapter(entry.id, { timeoutMs })}
                         onOption={(field, value) => updateOption(entry.id, field, value)}
                       />
                     ))}
@@ -581,8 +601,48 @@ export default function WebSearchSettingsPage() {
                 />
               </div>
             </FieldGroup>
+
+            <FieldGroup title={t('agent_orchestrator.settings.webSearch.groupEgress', 'Network egress')}>
+              <div className="space-y-1.5">
+                <Label>
+                  {t('agent_orchestrator.settings.webSearch.allowPrivateHosts', 'Reachable internal hosts')}
+                </Label>
+                <Input
+                  value={(guardrails?.allowPrivateHosts ?? []).join(', ')}
+                  placeholder={t(
+                    'agent_orchestrator.settings.webSearch.allowPrivateHostsPlaceholder',
+                    'none — every private address is refused',
+                  )}
+                  autoComplete="off"
+                  disabled={guardrails === null}
+                  onChange={(event) =>
+                    setGuardrails((current) =>
+                      current === null
+                        ? current
+                        : {
+                            ...current,
+                            allowPrivateHosts: event.target.value
+                              .split(',')
+                              .map((entry) => entry.trim().toLowerCase())
+                              .filter((entry) => entry.length > 0),
+                          },
+                    )
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'agent_orchestrator.settings.webSearch.allowPrivateHostsHint',
+                    'Comma-separated hosts allowed to resolve to a private address, for a service you run yourself such as SearXNG. Everything else stays blocked. A host named here is also reachable by web_fetch, so add it to the deny list too if only an adapter should reach it.',
+                  )}
+                </p>
+              </div>
+            </FieldGroup>
           </CardContent>
         </Card>
+
+        <div className="mt-4">
+          <WebSearchPreview />
+        </div>
       </PageBody>
     </Page>
   )

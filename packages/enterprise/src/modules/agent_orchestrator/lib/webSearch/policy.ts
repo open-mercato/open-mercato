@@ -19,6 +19,18 @@ export const WEB_SEARCH_CONFIG_NAME = 'web_search'
 export type WebSearchGuardrails = {
   readonly allowDomains: readonly string[]
   readonly denyDomains: readonly string[]
+  /**
+   * Hosts allowed to resolve to a non-public address.
+   *
+   * Egress, not filtering: `allowDomains`/`denyDomains` decide which results an
+   * agent may see, this decides where the engine may connect at all. It exists so
+   * an operator-hosted service — a SearXNG instance on the container network — is
+   * reachable, which the SSRF guard otherwise refuses by design.
+   *
+   * Naming a host here also makes it reachable by `web_fetch`. Pair it with
+   * `denyDomains` when only an adapter should be able to talk to it.
+   */
+  readonly allowPrivateHosts: readonly string[]
   readonly searchesPerRun: number
   readonly fetchesPerRun: number
   readonly callsPerTenantPerMinute: number
@@ -97,6 +109,7 @@ export function resolveEnvSettings(env: NodeJS.ProcessEnv = process.env): {
     guardrails: {
       allowDomains: domainList(env.OM_WEB_SEARCH_ALLOW_DOMAINS),
       denyDomains: domainList(env.OM_WEB_SEARCH_DENY_DOMAINS),
+      allowPrivateHosts: domainList(env.OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS),
       searchesPerRun: positiveInt(env.OM_WEB_SEARCH_RATE_PER_RUN, GUARDRAIL_DEFAULTS.searchesPerRun),
       fetchesPerRun: positiveInt(env.OM_WEB_FETCH_RATE_PER_RUN, GUARDRAIL_DEFAULTS.fetchesPerRun),
       callsPerTenantPerMinute: positiveInt(
@@ -136,6 +149,7 @@ export function withModelAdapterBudget(policy: SearchPolicy): SearchPolicy {
 export const guardrailsSchema = z.object({
   allowDomains: z.array(z.string()).optional(),
   denyDomains: z.array(z.string()).optional(),
+  allowPrivateHosts: z.array(z.string()).optional(),
   searchesPerRun: z.number().int().min(1).optional(),
   fetchesPerRun: z.number().int().min(1).optional(),
   callsPerTenantPerMinute: z.number().int().min(1).optional(),
@@ -208,6 +222,7 @@ export async function resolveWebSearchSettings(
     guardrails: {
       allowDomains: storedGuardrails.allowDomains ?? base.guardrails.allowDomains,
       denyDomains: storedGuardrails.denyDomains ?? base.guardrails.denyDomains,
+      allowPrivateHosts: storedGuardrails.allowPrivateHosts ?? base.guardrails.allowPrivateHosts,
       searchesPerRun: storedGuardrails.searchesPerRun ?? base.guardrails.searchesPerRun,
       fetchesPerRun: storedGuardrails.fetchesPerRun ?? base.guardrails.fetchesPerRun,
       callsPerTenantPerMinute:

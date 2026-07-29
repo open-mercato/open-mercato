@@ -123,4 +123,43 @@ describe('assertPublicUrl', () => {
     const error = await assertPublicUrl('http://127.0.0.1/', 'test').catch((caught: unknown) => caught)
     expect(isWebResearchError(error)).toBe(true)
   })
+
+  describe('allowPrivateHosts', () => {
+    it('lets a named host resolve privately', async () => {
+      const vetted = await assertPublicUrl('http://searxng:8080/search', 'test', {
+        lookup: async () => [{ address: '10.1.2.3', family: 4 }],
+        allowPrivateHosts: ['searxng'],
+      })
+      expect(vetted.addresses).toEqual(['10.1.2.3'])
+    })
+
+    it('matches on a dot boundary, never a bare suffix', async () => {
+      const options = {
+        lookup: async () => [{ address: '10.1.2.3', family: 4 }],
+        allowPrivateHosts: ['internal.example.com'],
+      }
+      await expect(
+        assertPublicUrl('http://search.internal.example.com/', 'test', options),
+      ).resolves.toBeDefined()
+      await expect(
+        assertPublicUrl('http://notinternal.example.com/', 'test', options),
+      ).rejects.toMatchObject({ code: 'ssrf_blocked' })
+    })
+
+    it('still refuses a host nobody named', async () => {
+      await expect(
+        assertPublicUrl('http://169.254.169.254/latest/meta-data/', 'test', {
+          allowPrivateHosts: ['searxng'],
+        }),
+      ).rejects.toMatchObject({ code: 'ssrf_blocked' })
+    })
+
+    it('unblocks loopback only for the named host', async () => {
+      await expect(assertPublicUrl('http://127.0.0.1/', 'test', { allowPrivateHosts: ['127.0.0.1'] }))
+        .resolves.toBeDefined()
+      await expect(
+        assertPublicUrl('http://localhost/', 'test', { allowPrivateHosts: ['127.0.0.1'] }),
+      ).rejects.toMatchObject({ code: 'ssrf_blocked' })
+    })
+  })
 })

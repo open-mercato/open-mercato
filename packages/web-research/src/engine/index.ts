@@ -11,6 +11,7 @@ export type {
   AdapterDiagnostic,
   AdapterDiagnosticStatus,
   AdapterHealthReport,
+  AdapterResultSet,
   EngineAdapterEntry,
   RunOptions,
   SearchDiagnostics,

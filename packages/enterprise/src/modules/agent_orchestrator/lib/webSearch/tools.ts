@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { AiToolDefinition, McpToolContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
-import { enforceWebSearchRateLimit, resolveRunId } from './guardrails'
+import { chargeWebFetchBudget, enforceWebSearchRateLimit, resolveRunId } from './guardrails'
 import { hostnameOf, isHostAllowed, resolveWebSearchSettings } from './policy'
 import { buildWebSearchEngine } from './registry'
 import { createStepEmitter } from './steps'
@@ -132,6 +132,11 @@ export const webSearchTool: AiToolDefinition = {
         ...(input.freshness === undefined ? {} : { freshness: input.freshness }),
         ...(input.includeContent === undefined ? {} : { includeContent: input.includeContent }),
       })
+
+      // includeContent reads pages under a single search point, so the reads are
+      // charged here or the fetch budget never engages on the path the tool
+      // description recommends.
+      await chargeWebFetchBudget(ctx.container, runId, settings.guardrails, result.diagnostics.pagesRead)
 
       const allowed = result.results.filter((hit) => {
         const host = hostnameOf(hit.url)

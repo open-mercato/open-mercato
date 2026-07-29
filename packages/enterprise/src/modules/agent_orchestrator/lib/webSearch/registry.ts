@@ -136,7 +136,12 @@ export function buildWebSearchEngine(options: BuildEngineOptions): BuiltEngine {
   // Deliberately not derived from `adapterTimeoutMs`: that is a whole adapter's
   // budget, while this is one HTTP attempt, and an adapter may make several.
   // Adapters that legitimately need longer pass `timeoutMs` per request.
-  const http = createHttpClient({ maxBytes: settings.guardrails.maxFetchBytes })
+  const http = createHttpClient({
+    maxBytes: settings.guardrails.maxFetchBytes,
+    // The only way an operator-hosted service on the container network becomes
+    // reachable. Empty unless someone named a host.
+    allowPrivateHosts: settings.guardrails.allowPrivateHosts,
+  })
 
   const cache = resolveCache(container, tenantId)
 

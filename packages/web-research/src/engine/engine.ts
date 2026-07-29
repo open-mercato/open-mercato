@@ -97,12 +97,16 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     signal: AbortSignal,
     deadlineAt: number,
     report: (event: SearchStepEvent, detail?: string, metrics?: SearchStepMetrics) => void,
-  ): Promise<readonly SearchResult[]> {
+  ): Promise<{ results: readonly SearchResult[]; pagesRead: number }> {
     const targets = results.filter((result) => result.content === null).slice(0, policy.content.maxPages)
-    if (targets.length === 0) return results
+    if (targets.length === 0) return { results, pagesRead: 0 }
     report('started', `reading ${targets.length} page(s) for inline content`)
 
     const contentByUrl = new Map<string, string>()
+    // Counts pages we actually went to the network for, not pages that yielded
+    // usable text: the budget this feeds is about egress, and a fetch that came
+    // back empty still cost a request to somebody else's server.
+    let pagesRead = 0
     const queue = [...targets]
     // Bounded by the same knob as the search wave: reading N pages at once is the
     // same egress burst as running N adapters, and it lands on third-party hosts.
@@ -111,6 +115,7 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
         // The run deadline binds here too — otherwise a search bounded to
         // `hardDeadlineMs` could spend minutes reading pages after fusion.
         if (signal.aborted || now() >= deadlineAt) return
+        pagesRead += 1
         const outcome = await fetchPage(
           { url: next.url, maxBytes: policy.content.maxBytesPerPage },
           { signal },
@@ -126,10 +131,13 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
       resultCount: contentByUrl.size,
     })
 
-    return results.map((result) => {
-      const content = contentByUrl.get(result.url)
-      return content === undefined ? result : { ...result, content }
-    })
+    return {
+      results: results.map((result) => {
+        const content = contentByUrl.get(result.url)
+        return content === undefined ? result : { ...result, content }
+      }),
+      pagesRead,
+    }
   }
 
   async function fetchPage(request: FetchRequest, runOptions: RunOptions = {}): Promise<FetchOutcome> {
@@ -228,6 +236,7 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
 
     const diagnostics: AdapterDiagnostic[] = []
     const collected: FusionInput[] = []
+    const answersById = new Map<string, string>()
     const attempted = new Set<string>()
     const blockedAdapters: string[] = []
     let successCount = 0
@@ -296,6 +305,9 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
           weight: settled.entry.weight,
           results: settled.outcome.results,
         })
+        // The top-level answer stays first-wins, but every adapter's prose is
+        // kept so a comparison run can show them side by side.
+        if (settled.outcome.answer) answersById.set(id, settled.outcome.answer)
         if (answer === null && settled.outcome.answer) answer = settled.outcome.answer
       }
       if (status === 'blocked') blockedAdapters.push(id)
@@ -413,15 +425,18 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     })
 
     let results = fused.results
+    let pagesRead = 0
     if (includeContent && results.length > 0) {
       const expiry = new AbortController()
       const timer = setTimeout(() => expiry.abort(), Math.max(0, deadlineAt - now()))
       timer.unref?.()
       const enrichment = linkSignals([runOptions.signal, expiry.signal])
       try {
-        results = await enrichContent(results, enrichment.signal, deadlineAt, (event, detail, metrics) =>
+        const enriched = await enrichContent(results, enrichment.signal, deadlineAt, (event, detail, metrics) =>
           report('fetch', event, undefined, detail, metrics),
         )
+        results = enriched.results
+        pagesRead = enriched.pagesRead
       } finally {
         clearTimeout(timer)
         enrichment.dispose()
@@ -449,7 +464,18 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
         cached: false,
         escalated,
         elapsedMs,
+        pagesRead,
       },
+      ...(runOptions.includeAdapterResults
+        ? {
+            byAdapter: collected.map((input) => ({
+              adapterId: input.adapterId,
+              weight: input.weight,
+              answer: answersById.get(input.adapterId) ?? null,
+              results: input.results,
+            })),
+          }
+        : {}),
     }
   }
 
@@ -457,20 +483,28 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     const report = createReporter([options.onStep, runOptions.onStep])
     const { request, includeContent } = normalizeRequest(input, policy)
     const adapterIds = ordered.filter((entry) => entry.enabled).map((entry) => entry.adapter.id)
-    const cacheKey = `${buildCacheKey(request, adapterIds)}:${includeContent ? 'full' : 'lite'}`
+    const compare = runOptions.includeAdapterResults === true
+    // The suffix keeps a comparison run off the normal run's single-flight slot,
+    // which would otherwise hand one caller a result built for the other shape.
+    const cacheKey = `${buildCacheKey(request, adapterIds)}:${includeContent ? 'full' : 'lite'}${compare ? ':compare' : ''}`
+    // A comparison is a diagnostic: serving it from cache would show an operator
+    // yesterday's adapter behaviour while they change settings, and storing it
+    // would put every adapter's full result list in the cache for one debug run.
+    const useCache = options.cache !== undefined && policy.cacheTtlMs > 0 && !compare
 
-    if (options.cache && policy.cacheTtlMs > 0) {
-      const cached = await options.cache.get(cacheKey).catch(() => null)
+    if (useCache) {
+      const cached = await options.cache!.get(cacheKey).catch(() => null)
       if (cached) {
         report('done', 'cached', undefined, 'served from cache', { resultCount: cached.results.length })
-        return { ...cached, diagnostics: { ...cached.diagnostics, cached: true } }
+        // A cache hit read nothing, so it owes nothing to the fetch budget.
+        return { ...cached, diagnostics: { ...cached.diagnostics, cached: true, pagesRead: 0 } }
       }
     }
 
     const result = await singleFlight(cacheKey, () => runSearch(request, includeContent, runOptions, report))
 
-    if (options.cache && policy.cacheTtlMs > 0 && result.results.length > 0) {
-      await options.cache.set(cacheKey, result, policy.cacheTtlMs).catch(() => undefined)
+    if (useCache && result.results.length > 0) {
+      await options.cache!.set(cacheKey, result, policy.cacheTtlMs).catch(() => undefined)
     }
     return result
   }
