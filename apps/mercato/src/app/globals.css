@@ -114,6 +114,20 @@ TODO: Fix that latter to have reference by the package names
   --color-status-pink-border: var(--status-pink-border);
   --color-status-pink-icon: var(--status-pink-icon);
 
+  /* Solid role — filled chips, status dots, emphasis surfaces */
+  --color-status-error-solid: var(--status-error-solid);
+  --color-status-error-solid-foreground: var(--status-error-solid-foreground);
+  --color-status-success-solid: var(--status-success-solid);
+  --color-status-success-solid-foreground: var(--status-success-solid-foreground);
+  --color-status-warning-solid: var(--status-warning-solid);
+  --color-status-warning-solid-foreground: var(--status-warning-solid-foreground);
+  --color-status-info-solid: var(--status-info-solid);
+  --color-status-info-solid-foreground: var(--status-info-solid-foreground);
+  --color-status-neutral-solid: var(--status-neutral-solid);
+  --color-status-neutral-solid-foreground: var(--status-neutral-solid-foreground);
+  --color-status-pink-solid: var(--status-pink-solid);
+  --color-status-pink-solid-foreground: var(--status-pink-solid-foreground);
+
   /* ═══ Design System: Accent Colors ═══ */
   --color-accent-indigo: var(--accent-indigo);
   --color-accent-indigo-foreground: var(--accent-indigo-foreground);
@@ -210,7 +224,7 @@ TODO: Fix that latter to have reference by the package names
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  --muted-foreground: oklch(0.545 0 0); /* darkened from 0.556: 4.54:1 on --muted (AA), was 4.34 */
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
@@ -289,6 +303,22 @@ TODO: Fix that latter to have reference by the package names
   --status-pink-text: oklch(0.388 0.180 340); /* pink-700 #BE185D */
   --status-pink-border: oklch(0.840 0.090 340);/* pink-200 #FBCFE8 */
   --status-pink-icon: oklch(0.633 0.238 340); /* pink-500 #EC4899 */
+
+  /* Solid role — filled surfaces that carry text (chips, badges, dots with
+     labels). All pairs hold WCAG AA 4.5:1 with their foreground; verified by
+     scripts/check-token-parity.mjs. Shades follow each family's 600-700. */
+  --status-error-solid: oklch(0.577 0.245 27.325);   /* red-600   #dc2626, on white 4.83 */
+  --status-error-solid-foreground: #ffffff;
+  --status-success-solid: oklch(0.527 0.154 150.069);/* green-700 #15803d, on white 5.02 */
+  --status-success-solid-foreground: #ffffff;
+  --status-warning-solid: oklch(0.555 0.163 48.998); /* amber-700 #b45309, on white 5.02 */
+  --status-warning-solid-foreground: #ffffff;
+  --status-info-solid: oklch(0.511 0.262 276.966);   /* indigo-600 #4f46e5, on white 6.29 */
+  --status-info-solid-foreground: #ffffff;
+  --status-neutral-solid: oklch(0.439 0 0);          /* neutral-600 #525252, on white 7.81 */
+  --status-neutral-solid-foreground: #ffffff;
+  --status-pink-solid: oklch(0.388 0.180 340);       /* pink-700  #be185d, on white 6.04 */
+  --status-pink-solid-foreground: #ffffff;
 }
 
 /* Opt-in Figma-style focus ring: 2px inner ring + 4px outer ring */
@@ -326,7 +356,7 @@ TODO: Fix that latter to have reference by the package names
   --brand-violet-foreground: #0C0C0C;
   --primary-hover: oklch(0.85 0 0);
   /* Accent indigo — slightly lighter in dark mode for contrast */
-  --accent-indigo: #818cf8;
+  --accent-indigo: #6d74f4; /* was indigo-400 #818cf8: white glyph 2.98:1 < 3.0 (WCAG non-text); now 3.85:1 */
   --accent-indigo-foreground: #ffffff;
   /* Disabled control tokens (dark) */
   --bg-disabled: oklch(0.25 0 0);
@@ -408,6 +438,22 @@ TODO: Fix that latter to have reference by the package names
   --status-pink-text: oklch(0.815 0.135 340);
   --status-pink-border: oklch(0.405 0.155 340);
   --status-pink-icon: oklch(0.700 0.225 340);
+
+  /* Solid role — same values as light: the fills are saturated enough to
+     read on dark surfaces, and keeping one value preserves chip identity
+     across themes. Listed explicitly so the parity check stays honest. */
+  --status-error-solid: oklch(0.577 0.245 27.325);
+  --status-error-solid-foreground: #ffffff;
+  --status-success-solid: oklch(0.527 0.154 150.069);
+  --status-success-solid-foreground: #ffffff;
+  --status-warning-solid: oklch(0.555 0.163 48.998);
+  --status-warning-solid-foreground: #ffffff;
+  --status-info-solid: oklch(0.511 0.262 276.966);
+  --status-info-solid-foreground: #ffffff;
+  --status-neutral-solid: oklch(0.439 0 0);
+  --status-neutral-solid-foreground: #ffffff;
+  --status-pink-solid: oklch(0.388 0.180 340);
+  --status-pink-solid-foreground: #ffffff;
 }
 
 @layer base {

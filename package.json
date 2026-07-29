@@ -107,6 +107,7 @@
     "check:client-boundaries": "node scripts/check-client-boundaries.mjs",
     "check:client-boundaries:fail": "node scripts/check-client-boundaries.mjs --fail",
     "check:time-bombs": "node scripts/time-bomb-scanner.mjs",
+    "check:tokens": "node scripts/check-token-parity.mjs",
     "check:time-bombs:fail": "node scripts/time-bomb-scanner.mjs --fail",
     "agents:check-budget": "node scripts/check-agents-md-budget.mjs"
   },
