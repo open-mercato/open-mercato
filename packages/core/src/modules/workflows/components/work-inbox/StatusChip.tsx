@@ -24,7 +24,10 @@ import {
 } from 'lucide-react'
 import type { WorkInboxIconName, WorkInboxStatusDescriptor } from '../../lib/work-inbox/presentation'
 
-const ICONS: Record<WorkInboxIconName, React.ComponentType<{ className?: string }>> = {
+export const WORK_INBOX_ICONS: Record<
+  WorkInboxIconName,
+  React.ComponentType<{ className?: string }>
+> = {
   Clock,
   Loader,
   CheckCircle2,
@@ -44,7 +47,7 @@ export type StatusChipProps = {
 }
 
 export function StatusChip({ descriptor, label, className }: StatusChipProps) {
-  const Icon = ICONS[descriptor.iconName]
+  const Icon = WORK_INBOX_ICONS[descriptor.iconName]
   return (
     <span
       className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium ${descriptor.badge}${className ? ` ${className}` : ''}`}

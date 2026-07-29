@@ -104,6 +104,24 @@ This is what keeps "who approved this, and how did it reach them?" answerable af
 
 The reassign gate deliberately checks **visibility, not ownership** — requiring ownership would make the one case below unrescuable by definition.
 
+### The decision travels; the UI never re-derives it
+
+`GET /api/workflows/tasks/[id]` returns the predicate's own answer alongside the row, so a page renders what the server permits instead of guessing from `status`:
+
+| Field | Means |
+|---|---|
+| `canComplete` | `actable` — may complete or decide. **`workflows.tasks.view_all` alone yields `false`.** |
+| `canClaim` | `claimable` — may take it off its role queue. |
+| `canRelease` | Holds the claim on an `IN_PROGRESS` row and may release it. |
+| `canReassign` | Visible **and** holds `workflows.tasks.reassign` **and** the row is still open — the gate the reassign endpoint applies, ownership included nowhere. |
+| `actBlockedReason` | Why `canComplete` is `false`: `not-workable` · `owned-by-another` · `not-in-your-queue` · `unowned` · `unavailable`. `null` when it is `true`. |
+
+All six are **additive** and every pre-existing field is unchanged. `resolveTaskAffordances` (`lib/task-visibility.ts`, pure) computes them from the same `decideTaskVisibility` result the read gate used — a second copy of the rule in a client is a review failure, exactly as it is on the server.
+
+`actBlockedReason` names only distinctions the caller can already draw from the same payload (`status`, `assignedTo`, `claimedBy`, `assignedToRoles`). `unavailable` is the deliberate exception: it stands for the entity-gate refusal reachable under the tenant opt-out, which the act routes answer as a bare 404, so it names neither the binding nor the reason code. Widening it would hand a caller precisely what that 404 withholds.
+
+The backoffice task page gates Complete, Claim, Release and Reassign on these flags, states the reason when an action is unavailable, and offers the reassign control inline wherever reassignment is the named remedy.
+
 ### The owner-less task
 
 A `USER_TASK` authored with no assignee, no role queue and no claim belongs to nobody, so nobody can complete it. The act endpoints answer `403 TASK_NOT_ACTIONABLE` and name reassignment as the remedy.
@@ -187,7 +205,6 @@ Read these before assuming a guarantee the model does not make.
 
 - **Role queues match on role NAMES, not ids.** `assignedToRoles` stores names end to end — the Studio picker writes them, the engine copies them onto the task, and the claim check compares them against the caller's server-derived `auth.roles`. Names are not caller-supplied, so they are not client-spoofable, but they are tenant-mutable: **renaming a role silently orphans every assignment authored against the old name.** Moving to immutable ids is a coordinated data + authored-definition migration and is deliberately not half-done.
 - **No per-record ACL.** Repeated here because it is the single easiest thing to misread on this page.
-- **The backoffice task page still renders the Complete button for a `view_all` administrator.** The detail response carries no `canComplete` field (the portal one does), so the page derives completability from status alone. The refusal is enforced server-side — the click fails with the 409 above — but the UI currently offers an action it cannot perform. There is also no reassign control on the page yet; reassignment is API-only.
 - **`defaultCustomerRoleFeatures` reaches new tenants only during setup.** An already-provisioned tenant receives `portal.tasks.*` after running [`yarn mercato customer_accounts sync-customer-role-acls`](/cli/customer-accounts-sync-customer-role-acls) — the customer-role counterpart of `auth sync-role-acls`. It is additive, wildcard-aware, and never creates roles.
 - **Portal ACLs are cached for five minutes.** A fresh portal grant is not immediately visible to a signed-in portal user. Do not debug a working system for five minutes.
 - **Portal identity claims are read from the JWT.** `customerEntityId` / `personEntityId` are not re-verified per request, so a user moved between companies keeps stale ownership until their token turns over.

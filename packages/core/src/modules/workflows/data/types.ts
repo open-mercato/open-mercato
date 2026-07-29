@@ -66,7 +66,33 @@ export type UserTaskResponse = {
    * blank screen (`lib/task-form-registry.ts`).
    */
   formKey?: string | null
+  /**
+   * The §6.4 act surfaces, decided server-side (`lib/task-visibility.ts`).
+   *
+   * Optional because they are ADDITIVE: a payload written before they existed
+   * carries none, and a consumer reading one must keep working. The detail route
+   * always sends them — a page that derives `canComplete` from the status is the
+   * second implementation of the rule these fields exist to remove.
+   */
+  canComplete?: boolean
+  canClaim?: boolean
+  canRelease?: boolean
+  canReassign?: boolean
+  actBlockedReason?: TaskActionBlockReason | null
 }
+
+/**
+ * Why completion is unavailable to a caller who can read the row. Mirrors
+ * `lib/task-visibility.ts`; `unavailable` is deliberately non-diagnostic,
+ * because it stands for the entity-gate refusal the act routes answer as a bare
+ * 404, and must stay that way.
+ */
+export type TaskActionBlockReason =
+  | 'not-workable'
+  | 'owned-by-another'
+  | 'not-in-your-queue'
+  | 'unowned'
+  | 'unavailable'
 
 export type UserTaskEntityBinding = {
   entityType: string

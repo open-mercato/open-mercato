@@ -57,9 +57,11 @@ import {
   buildTaskVisibilityConditions,
   currentTaskOwnerId,
   decideTaskVisibility,
+  resolveTaskAffordances,
   TASK_ACTIONABLE_STATUSES,
   WORKFLOWS_TASKS_VIEW_ALL_FEATURE,
   type BackofficeTaskPrincipal,
+  type TaskAffordances,
   type TaskEntityAccessMap,
   type TaskEntityBindingFact,
   type TaskFacts,
@@ -365,6 +367,24 @@ export function decideTaskAccess(
     context.entityAccess,
     context.policy,
   )
+}
+
+/**
+ * The act surfaces a detail response advertises for one already-loaded row.
+ *
+ * The server has always known this — `decideTaskAccess` returns `actable` and
+ * `claimable` on every request — and until now it threw the answer away, which
+ * is why the backoffice task page rendered a Complete button that 409s for a
+ * `workflows.tasks.view_all` administrator. Sending the decision is the fix; a
+ * client re-deriving it is the bug coming back.
+ */
+export function resolveTaskAffordancesForRequest(
+  context: TaskVisibilityRequestContext,
+  task: UserTask,
+  decision: TaskVisibilityDecision,
+  options: TaskFactsOptions = {},
+): TaskAffordances {
+  return resolveTaskAffordances(context.principal, toTaskFacts(task, options), decision)
 }
 
 /**
