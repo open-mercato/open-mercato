@@ -2,7 +2,6 @@
 
 import type { Edge } from '@xyflow/react'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Trash2 } from 'lucide-react'
@@ -12,6 +11,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/components/utils/conditionValidation'
 import { InputDataPanel } from './InputDataPanel'
+import { InspectorPanel, type InspectorPanelVariant } from './InspectorPanel'
 import { BusinessRuleConditionsEditor } from './fields/BusinessRuleConditionsEditor'
 import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
 import { edgeToFormValues, formValuesToEdgeUpdates, type EdgeFormValues } from '../lib/edgeFormTransforms'
@@ -43,6 +43,11 @@ export interface EdgeEditDialogCrudFormProps {
    * condition or the activity list instead of the top of the form.
    */
   focusFieldId?: string | null
+  /**
+   * How the inspector is presented. Defaults to `overlay` so a caller that has
+   * not opted in keeps the modal shape it had.
+   */
+  variant?: InspectorPanelVariant
 }
 
 /**
@@ -62,7 +67,7 @@ export interface EdgeEditDialogCrudFormProps {
  * - Delete functionality with confirmation
  * - Keyboard shortcuts (Cmd/Ctrl+Enter save, Escape cancel)
  */
-export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete, ledgerEntries, focusFieldId }: EdgeEditDialogCrudFormProps) {
+export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete, ledgerEntries, focusFieldId, variant = 'overlay' }: EdgeEditDialogCrudFormProps) {
   const t = useT()
   const [initialValues, setInitialValues] = useState<Partial<EdgeFormValues>>({})
   const bodyRef = useRef<HTMLDivElement | null>(null)
@@ -106,12 +111,6 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
     if (!edge) return
     onDelete(edge.id)
   }, [edge, onDelete])
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose()
-    }
-  }, [onClose])
 
   // Define form groups
   const groups: CrudFormGroup[] = useMemo(() => [
@@ -248,63 +247,51 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
   const triggerVariant = trigger === 'auto' ? 'default' : trigger === 'manual' ? 'secondary' : 'outline'
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent
-        className="sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col !p-0 [&_.grid]:!grid-cols-1"
-        onKeyDown={handleKeyDown}
-      >
-        <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b border-border/70">
-          <div className="flex items-center gap-2 mb-2">
-            <DialogTitle>{t('workflows.edgeEditor.title')}</DialogTitle>
-            <Badge variant={triggerVariant} className="text-xs">
-              {t(`workflows.transitions.triggers.${trigger}`)}
-            </Badge>
-          </div>
-          <div className="space-y-1">
-            <DialogDescription>
-              {t('workflows.edgeEditor.description')}
-            </DialogDescription>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-medium">{t('workflows.edgeEditor.id')}:</span>
-              <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{edge.id}</code>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-medium">{t('workflows.edgeEditor.flow')}:</span>
-              <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{edge.source}</code>
-              <span>→</span>
-              <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{edge.target}</code>
-            </div>
-          </div>
-        </DialogHeader>
-
-        <div className="flex flex-1 min-h-0 gap-4 overflow-hidden px-6">
-          <div className="min-h-0 flex-1 overflow-y-auto" ref={bodyRef}>
-            <CrudForm
-              fields={fields}
-              groups={groups}
-              initialValues={initialValues}
-              onSubmit={handleSubmit}
-              embedded={true}
-              submitLabel={t('workflows.edgeEditor.saveTransition')}
-              extraActions={
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={handleDelete}
-                >
-                  <Trash2 className="size-4 mr-2" />
-                  {t('workflows.edgeEditor.deleteTransition')}
-                </Button>
-              }
-            />
-          </div>
-          <InputDataPanel
-            entries={ledgerEntries}
-            stepId={edge.target}
-            className="hidden w-72 shrink-0 self-start lg:flex max-h-full"
-          />
+    <InspectorPanel
+      open={isOpen}
+      onClose={onClose}
+      variant={variant}
+      title={t('workflows.edgeEditor.title')}
+      typeLabel={t(`workflows.transitions.triggers.${trigger}`)}
+      typeLabelVariant={triggerVariant}
+      description={t('workflows.edgeEditor.description')}
+      recordId={edge.id}
+      recordIdLabel={t('workflows.edgeEditor.id')}
+      headerExtra={
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="font-medium">{t('workflows.edgeEditor.flow')}:</span>
+          <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono">{edge.source}</code>
+          <span aria-hidden="true">→</span>
+          <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono">{edge.target}</code>
         </div>
-      </DialogContent>
-    </Dialog>
+      }
+    >
+      <div ref={bodyRef}>
+        <CrudForm
+          fields={fields}
+          groups={groups}
+          initialValues={initialValues}
+          onSubmit={handleSubmit}
+          embedded={true}
+          submitLabel={t('workflows.edgeEditor.saveTransition')}
+          extraActions={
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleDelete}
+            >
+              <Trash2 className="size-4 mr-2" />
+              {t('workflows.edgeEditor.deleteTransition')}
+            </Button>
+          }
+        />
+      </div>
+
+      <InputDataPanel
+        entries={ledgerEntries}
+        stepId={edge.target}
+        className="mt-4"
+      />
+    </InspectorPanel>
   )
 }

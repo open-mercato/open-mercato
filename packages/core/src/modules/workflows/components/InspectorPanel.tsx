@@ -36,12 +36,20 @@ export interface InspectorPanelProps {
   title: string
   /** Optional type chip beside the heading ("User task", "Route"). */
   typeLabel?: string
+  /** Badge variant for the type chip — the route inspector colours it by trigger. */
+  typeLabelVariant?: React.ComponentProps<typeof Badge>['variant']
   /** Optional one-line explanation under the heading. */
   description?: string
   /** Optional durable id rendered as a monospace chip. */
   recordId?: string
   /** Label for the id chip; defaults to the shared "ID" string. */
   recordIdLabel?: string
+  /**
+   * Extra header rows below the id chip. The route inspector uses it for the
+   * `source → target` line, which is identity rather than configuration and so
+   * belongs beside the id rather than inside the scrolling form.
+   */
+  headerExtra?: React.ReactNode
   children: React.ReactNode
 }
 
@@ -55,18 +63,22 @@ const DOCKED_WIDTH_CLASS = 'w-96'
 function InspectorHeading({
   title,
   typeLabel,
+  typeLabelVariant,
   description,
   recordId,
   recordIdLabel,
+  headerExtra,
   titleId,
   descriptionId,
   as,
 }: {
   title: string
   typeLabel?: string
+  typeLabelVariant?: React.ComponentProps<typeof Badge>['variant']
   description?: string
   recordId?: string
   recordIdLabel: string
+  headerExtra?: React.ReactNode
   titleId: string
   descriptionId: string
   as: 'plain' | 'drawer'
@@ -82,7 +94,7 @@ function InspectorHeading({
           </h2>
         )}
         {typeLabel ? (
-          <Badge variant="secondary" className="text-xs">
+          <Badge variant={typeLabelVariant ?? 'secondary'} className="text-xs">
             {typeLabel}
           </Badge>
         ) : null}
@@ -102,6 +114,7 @@ function InspectorHeading({
           <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono">{recordId}</code>
         </div>
       ) : null}
+      {headerExtra}
     </>
   )
 }
@@ -120,9 +133,11 @@ export function InspectorPanel({
   variant,
   title,
   typeLabel,
+  typeLabelVariant,
   description,
   recordId,
   recordIdLabel,
+  headerExtra,
   children,
 }: InspectorPanelProps) {
   const t = useT()
@@ -156,9 +171,11 @@ export function InspectorPanel({
             <InspectorHeading
               title={title}
               typeLabel={typeLabel}
+              typeLabelVariant={typeLabelVariant}
               description={description}
               recordId={recordId}
               recordIdLabel={idLabel}
+              headerExtra={headerExtra}
               titleId={titleId}
               descriptionId={descriptionId}
               as="drawer"
@@ -187,9 +204,11 @@ export function InspectorPanel({
           <InspectorHeading
             title={title}
             typeLabel={typeLabel}
+            typeLabelVariant={typeLabelVariant}
             description={description}
             recordId={recordId}
             recordIdLabel={idLabel}
+            headerExtra={headerExtra}
             titleId={titleId}
             descriptionId={descriptionId}
             as="plain"
