@@ -445,7 +445,7 @@ test('integration routing binds installed-record imports and optional carriers a
   assert.match(providerFamilies, /encrypted metadata \(`encrypted-storage`\)/)
   assert.match(providerFamilies, /lifecycle cleanup \(`cleanup`\)/)
   assert.match(root, /`testing`.*`\.ai\/guides\/testing-debugging\.md`/)
-  assert.match(root, /AI file use = `ai-workflow` unless building transport\/storage/)
+  assert.match(root, /AI consuming files = `ai-workflow`, NEVER `integration` unless transport\/storage changes/)
 })
 
 test('debugging stays additive to cross-module domain and extension work', () => {
