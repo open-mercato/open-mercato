@@ -71,6 +71,110 @@ export function buildUserTaskDefinitionPayload(timestamp: number) {
   };
 }
 
+/**
+ * Definition exercising every isolation guarantee a dry run must give
+ * (spec section 8.2): it emits an event, mutates an entity, sends an email and
+ * raises a USER_TASK. In a real run each of those is a side effect; in a dry
+ * run every one must be replaced by its would-do report entry.
+ */
+export function buildDryRunIsolationDefinitionPayload(timestamp: number, suffix = '') {
+  return {
+    workflowId: `qa-wf-dryrun-${timestamp}${suffix}`,
+    workflowName: `QA Dry Run Isolation ${timestamp}${suffix}`,
+    description: 'Workflow whose every step has a side effect, for dry-run isolation testing',
+    version: 1,
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'notify', stepName: 'Notify', stepType: 'AUTOMATED' },
+        {
+          stepId: 'review',
+          stepName: 'Review',
+          stepType: 'USER_TASK',
+          userTaskConfig: {
+            assignedTo: ['admin'],
+            formSchema: { fields: [{ name: 'approved', type: 'boolean', required: true }] },
+          },
+        },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [
+        {
+          transitionId: 'start-to-notify',
+          fromStepId: 'start',
+          toStepId: 'notify',
+          trigger: 'auto',
+          activities: [
+            {
+              activityId: 'send-mail',
+              activityName: 'sendMail',
+              activityType: 'SEND_EMAIL',
+              config: { to: 'qa@example.com', subject: 'Dry run isolation probe' },
+            },
+            {
+              activityId: 'emit',
+              activityName: 'emitProbe',
+              activityType: 'EMIT_EVENT',
+              config: { eventName: 'workflows.qa.dry_run_probe', payload: { probe: true } },
+            },
+          ],
+        },
+        {
+          transitionId: 'notify-to-review',
+          fromStepId: 'notify',
+          toStepId: 'review',
+          trigger: 'auto',
+        },
+        {
+          transitionId: 'review-to-end',
+          fromStepId: 'review',
+          toStepId: 'end',
+          trigger: 'auto',
+        },
+      ],
+    },
+    enabled: true,
+  };
+}
+
+/**
+ * Definition whose first activity REFUSES simulation (`EXECUTE_FUNCTION` declares
+ * `mock: 'refuse'`), so a dry run must stop at that node with an explicit marker
+ * rather than following an error route.
+ */
+export function buildDryRunRefusalDefinitionPayload(timestamp: number, suffix = '') {
+  return {
+    workflowId: `qa-wf-dryrun-refuse-${timestamp}${suffix}`,
+    workflowName: `QA Dry Run Refusal ${timestamp}${suffix}`,
+    version: 1,
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'run', stepName: 'Run', stepType: 'AUTOMATED' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [
+        {
+          transitionId: 'start-to-run',
+          fromStepId: 'start',
+          toStepId: 'run',
+          trigger: 'auto',
+          activities: [
+            {
+              activityId: 'custom',
+              activityName: 'customFn',
+              activityType: 'EXECUTE_FUNCTION',
+              config: { functionName: 'qa.noop' },
+            },
+          ],
+        },
+        { transitionId: 'run-to-end', fromStepId: 'run', toStepId: 'end', trigger: 'auto' },
+      ],
+    },
+    enabled: true,
+  };
+}
+
 export async function createWorkflowDefinitionFixture(
   request: APIRequestContext,
   token: string,

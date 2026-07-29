@@ -577,14 +577,43 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   so shrinking your way back under a cap always works. Fixture data is stored verbatim and is neither
   redacted nor encrypted; keep the warning copy wherever one is saved.
 
-## Code View (stage 1 — read-only)
+## Code View (stage 2 — two-way sync)
 
-- `components/WorkflowCodeView.tsx` is the Phase 3 stage of spec §2.2: **read-only view + copy/paste
-  of subgraphs + JSON-schema validation display**. Two-way live sync is Phase 5 — nothing in this
-  panel edits, and the canvas stays the source of truth.
+- **The safety model, and why it is asymmetric.** Spec §2.2 asks for "two-way live sync"; taken
+  literally — mutate the canvas on every keystroke — it is unimplementable safely, because deleting
+  the `s` of `"steps"` momentarily produces a document with no steps and applying it would delete
+  every node, lose the arrangement and push one undo entry per character. So each direction gets what
+  it can actually support: **canvas → code is LIVE** (the panel re-renders from the canvas whenever
+  the author has not started editing); **code → canvas needs an explicit Apply** (button or
+  Cmd/Ctrl+Enter). Parsing, validation, the issue list and the gutter markers stay LIVE as you type,
+  so the feedback loop is immediate even though the commit is not.
+- **`lib/code-view-apply.ts` (PURE) is the gate**, which is what makes the rule testable without a
+  canvas. Four escalating refusals, each with its own reason: `unchanged` · `parseError` (carrying
+  the line to mark) · `schemaError` · `graphError`. Graph WARNINGS never block, exactly as they never
+  block a Save; graph ERRORS do, because a canvas holding a graph the engine would reject is worse
+  than no apply — the author has lost the text they typed and now repairs a canvas by hand.
+  Validation runs `definitionToGraph(..., { autoLayout: false })`: whether a definition is valid
+  cannot depend on running a layout engine over it.
+- **An apply is ONE fully reversible action.** `WorkflowEditorDocument` gained an optional `panel`
+  carrying the definition-panel fields the canvas does not hold (triggers, `contextSchema`, `io`,
+  `interpolation`, `errorHandler`), because the Code view's Apply replaces the WHOLE definition —
+  undoing it without them would restore the graph with somebody else's triggers attached. Entries
+  captured before the field existed carry none, and readers then leave the panel alone.
+- **Markers are GUTTER markers, not underlines.** A plain textarea cannot decorate a substring, and
+  an overlaid highlight layer drifts out of alignment with the textarea's own text metrics. Each
+  marked line carries its severity glyph as well as its DS colour, per the §4.6 colour-only rule, and
+  every issue row states its line and focuses it.
+- **`lib/definition-json-locations.ts` (PURE) answers WHERE a node lives** in the JSON text, with a
+  minimal tokenizer rather than a regex over `"id": "<value>"` — the author is editing free text, so
+  a step id also appears inside `{{context.*}}` templates, inside `fromStepId`, and inside note
+  markdown, and a regex would happily point the squiggle at any of them. Ids are attached from the
+  PARSED document by array index, so a malformed id cannot desynchronise the scan.
+- **Closing the panel discards an unapplied draft.** Keeping it would let the author reopen the view
+  onto text that no longer describes the canvas, with no signal that the two had diverged.
 - **The JSON is the save payload, not a re-serialization.** It is assembled through the same
   `graphToDefinition` + `buildDefinitionPayload` pair `handleSave` uses, so what an author reads is
-  byte-for-byte what a Save would persist. It is only computed while the drawer is open.
+  byte-for-byte what a Save would persist, and what they apply is the same shape. It is only computed
+  while the drawer is open.
 - **Paste reuses the canvas clipboard format** (`lib/subgraph-clipboard.ts`) through the page's own
   `handlePaste`, so a fragment copied from the canvas and a fragment copied out of the Code view are
   the same payload, an unknown payload is refused with the same message, and the paste is ONE undo

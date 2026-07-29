@@ -23,6 +23,7 @@ import {
   undoEditorHistory,
   type EditorHistoryState,
   type WorkflowEditorDocument,
+  type WorkflowEditorPanelState,
 } from '../../../lib/editor-history'
 import {
   parseWorkflowSubgraph,
@@ -47,6 +48,12 @@ import {
 import { WORKFLOW_GROUP_TOGGLE_EVENT } from '../../../lib/annotation-events'
 import { AnnotationEditDialog } from '../../../components/AnnotationEditDialog'
 import { WorkflowCodeView } from '../../../components/WorkflowCodeView'
+import { describeCodeViewDraft, evaluateCodeViewDraft } from '../../../lib/code-view-apply'
+import {
+  locateDefinitionJsonEntities,
+  locateIssues,
+  severityByLine,
+} from '../../../lib/definition-json-locations'
 import { WorkflowIconPicker } from '../../../components/WorkflowIconPicker'
 import { WorkflowCommandPalette } from '../../../components/WorkflowCommandPalette'
 import { buildWorkflowEditorCommands, type WorkflowEditorCommand } from '../../../lib/editor-commands'
@@ -486,10 +493,32 @@ export default function VisualEditorPage() {
     applyCode: t('workflows.visualEditor.history.applyCode', 'Apply JSON from Code view'),
   }), [t])
 
+  // The definition-panel fields ride ALONG with the document so the Code view's
+  // Apply — which replaces the whole definition, panel fields included — is one
+  // fully reversible action. Every other entry captures them too, which costs
+  // five references and makes an undo restore the state it claims to.
+  const panelStateRef = React.useRef<WorkflowEditorPanelState>({
+    triggers: [],
+    contextSchema: undefined,
+    io: undefined,
+    interpolation: undefined,
+    errorHandler: undefined,
+  })
+  useEffect(() => {
+    panelStateRef.current = {
+      triggers,
+      contextSchema,
+      io: definitionIo,
+      interpolation,
+      errorHandler,
+    }
+  }, [triggers, contextSchema, definitionIo, interpolation, errorHandler])
+
   const captureDocument = useCallback((): WorkflowEditorDocument => ({
     nodes: nodesRef.current,
     edges: edgesRef.current,
     metadata: loadedMetadataRef.current,
+    panel: panelStateRef.current,
   }), [])
 
   const commitCapturedDocument = useCallback((document: WorkflowEditorDocument, label: string) => {
@@ -800,6 +829,15 @@ export default function VisualEditorPage() {
     setNodes(document.nodes)
     setEdges(document.edges)
     setLoadedMetadata(document.metadata)
+    // Entries captured before the panel fields were versioned carry none; then
+    // the panel is left exactly as it is, which is the previous behaviour.
+    if (document.panel) {
+      setTriggers(document.panel.triggers as WorkflowDefinitionTrigger[])
+      setContextSchema(document.panel.contextSchema as WorkflowContextSchema | undefined)
+      setDefinitionIo(document.panel.io as WorkflowIoContract | undefined)
+      setInterpolation(document.panel.interpolation as WorkflowInterpolationMode | undefined)
+      setErrorHandler(document.panel.errorHandler as WorkflowErrorHandlerConfig | undefined)
+    }
     scheduleAutosave()
   }, [scheduleAutosave])
 
@@ -1773,6 +1811,98 @@ export default function VisualEditorPage() {
     [showCodeView, evaluateWorkflowIssues],
   )
 
+  // Code view stage 2 (spec §2.2). Safety model, stated once:
+  // canvas → code is LIVE (the panel re-renders from the canvas whenever the
+  // author has not started editing); code → canvas needs an explicit Apply.
+  // Parsing, validation and the gutter markers stay live as you type, so the
+  // feedback loop is immediate even though the commit is not — mutating the
+  // canvas per keystroke would delete every node the moment "steps" is
+  // mid-rename, and push one undo entry per character.
+  const [codeDraft, setCodeDraft] = useState<string | null>(null)
+  const codeDraftText = codeDraft ?? codeViewJson
+
+  const codeApplyDecision = useMemo(
+    () => evaluateCodeViewDraft<WorkflowDefinitionData>({
+      draftText: codeDraftText,
+      canvasText: codeViewJson,
+      parseDefinition: (parsed) => {
+        const result = workflowDefinitionDataSchema.safeParse(parsed)
+        if (result.success) return { ok: true, definition: result.data as WorkflowDefinitionData }
+        return {
+          ok: false,
+          messages: result.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`),
+        }
+      },
+      // Warnings never block, exactly as they never block a Save; only graph
+      // ERRORS do, because a canvas holding a graph the engine rejects is worse
+      // than no apply — the author has lost the text they typed.
+      // `autoLayout: false` on purpose: whether a definition is VALID cannot
+      // depend on running a layout engine over it, and skipping dagre keeps this
+      // memo cheap enough to run on every keystroke.
+      validateGraph: (definition) => {
+        const graph = definitionToGraph(definition, { autoLayout: false })
+        return validateWorkflowGraph(graph.nodes, graph.edges)
+          .filter((issue) => issue.type === 'error')
+          .map((issue) => issue.message)
+      },
+    }),
+    [codeDraftText, codeViewJson],
+  )
+
+  const codeDraftStatus = useMemo(() => describeCodeViewDraft(codeApplyDecision), [codeApplyDecision])
+
+  const codeIssueLocations = useMemo(() => {
+    if (!showCodeView) return { severityByLine: new Map<number, 'error' | 'warning'>(), lineByIssueId: new Map<string, number>() }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(codeDraftText)
+    } catch {
+      // Unparseable text has no entity positions to point at; the parse-error
+      // line is marked on its own by `codeDraftStatus`.
+      return { severityByLine: new Map<number, 'error' | 'warning'>(), lineByIssueId: new Map<string, number>() }
+    }
+    const locations = locateDefinitionJsonEntities(codeDraftText, parsed)
+    const located = locateIssues(codeViewIssues, locations)
+    return {
+      severityByLine: severityByLine(located),
+      lineByIssueId: new Map(located.map((issue) => [issue.issueId, issue.line])),
+    }
+  }, [showCodeView, codeDraftText, codeViewIssues])
+
+  const handleApplyCodeDraft = useCallback(() => {
+    if (!codeApplyDecision.ok) return
+    const definition = codeApplyDecision.definition
+    // Committed BEFORE the replacement, so undo restores the graph AND the
+    // panel fields the applied JSON also carried.
+    commitHistory(historyLabels.applyCode)
+    const graph = definitionToGraph(definition, { autoLayout: true })
+    setNodes(graph.nodes)
+    setEdges(graph.edges)
+    setTriggers(definition.triggers ?? [])
+    // The zod-parsed shapes leave the optional field flags optional; the editor
+    // state types have them resolved. The same narrowing the draft-restore path
+    // uses applies here.
+    setContextSchema(definition.contextSchema as WorkflowContextSchema | undefined)
+    setDefinitionIo(definition.io as WorkflowIoContract | undefined)
+    setInterpolation(definition.interpolation)
+    setErrorHandler(definition.errorHandler)
+    setCodeDraft(null)
+    scheduleAutosave()
+    flash(t('workflows.visualEditor.codeView.applied'), 'success')
+  }, [codeApplyDecision, commitHistory, historyLabels.applyCode, scheduleAutosave, t])
+
+  const handleRevertCodeDraft = useCallback(() => {
+    setCodeDraft(null)
+  }, [])
+
+  // Closing the panel discards an unapplied draft: keeping it would let the
+  // author reopen the view onto text that no longer describes the canvas, with
+  // no signal that the two had diverged.
+  const handleCloseCodeView = useCallback(() => {
+    setCodeDraft(null)
+    setShowCodeView(false)
+  }, [])
+
   const handleCopyDefinitionJson = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(codeViewJson)
@@ -2600,13 +2730,20 @@ export default function VisualEditorPage() {
       />
       <WorkflowCodeView
         isOpen={showCodeView}
-        onClose={() => setShowCodeView(false)}
+        onClose={handleCloseCodeView}
         definitionJson={codeViewJson}
         issues={codeViewIssues}
         onCopy={() => { void handleCopyDefinitionJson() }}
         onPasteSubgraph={() => { void handlePaste() }}
         canPaste={!isCodeOnly}
         onIssueClick={handleProblemClick}
+        draftText={codeDraftText}
+        onDraftChange={setCodeDraft}
+        onApply={handleApplyCodeDraft}
+        onRevert={handleRevertCodeDraft}
+        draftStatus={codeDraftStatus}
+        severityByLine={codeIssueLocations.severityByLine}
+        lineByIssueId={codeIssueLocations.lineByIssueId}
       />
       <AnnotationEditDialog
         node={selectedAnnotation}

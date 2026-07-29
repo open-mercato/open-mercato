@@ -11,7 +11,7 @@ Brief: `BRIEFING-phase5.md` §8.1/§8.2 + "Code view stage 2". Owned by this exe
 | D.1 | `INVOKE_AGENT` gets a `mock` — the one built-in that could not dry-run | done | `5d63aeb33` |
 | D.2 | `WorkflowInstance.isDryRun` + mocked-effector execution + the isolation guarantees | done | `21310f145` |
 | D.3 | Start fixtures + step-through | done | (this commit) |
-| D.4 | Code view stage 2 — two-way sync + issue-to-node squiggles | todo | |
+| D.4 | Code view stage 2 — two-way sync + issue-to-node squiggles | done | (this commit) |
 
 ## Binding constraints
 
@@ -42,7 +42,14 @@ Brief: `BRIEFING-phase5.md` §8.1/§8.2 + "Code view stage 2". Owned by this exe
    `WAITING_FOR_ACTIVITIES` when any result says `async`. A dry run running an authored-async
    activity inline would park forever waiting for a job it deliberately never enqueued. Caught by a
    test; fixed by correcting the flag on the inline path.
-4. **Agent KPI leak (pre-existing).** `metricRollupService` floors `AgentRun` counts to
+4. **`Alert variant="error"` does not exist** — the primitive's legacy variant union is
+   `default | destructive | success | warning | info`. Caught by typecheck, not by eye.
+5. **jsdom has no `structuredClone`, which dagre needs.** Any jsdom test that applies a definition
+   through `definitionToGraph` with auto-layout hits it. Polyfilled in the affected test rather than
+   worked around in the editor — and the Code view's validation seam now passes
+   `autoLayout: false`, which is the right thing independently: validity must not depend on a layout
+   engine.
+6. **Agent KPI leak (pre-existing).** `metricRollupService` floors `AgentRun` counts to
    `source: 'runtime'` — with a comment explaining exactly why — but the `AgentProposal` counts
    beside them had no floor, so `approveUnchangedRate` was a ratio over two different populations
    and every eval replay's proposals skewed it. Floored to the same runtime run ids; regression test
