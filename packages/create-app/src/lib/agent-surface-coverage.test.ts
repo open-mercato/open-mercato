@@ -88,7 +88,7 @@ test('standalone provider guidance defaults app integrations to local modules, n
   assert.match(root, /src\/modules\/<id>/)
   for (const content of [guide, activation]) assert.match(content, /src\/modules\/<provider>/)
   for (const content of [root, guide, activation]) assert.match(content, /packages\/\*/)
-  assert.match(root, /Reusable providers are published dependencies/)
+  assert.match(root, /Providers are published, never `packages\/\*`/)
   assert.match(guide, /scaffold has no workspace topology/)
   assert.match(activation, /App-specific \(default\)/)
   assert.match(activation, /Reusable \(explicit user requirement\)/)

@@ -26,6 +26,7 @@ A new or complete provider implementation cannot stop at this file: `references/
 - Provider credentials, mappings, external IDs, and cursors stay in this skill; do not add `om-data-model-design` unless the brief also creates a separate business-domain schema.
 - Never log/return secrets, bypass SSRF/signature checks, or advance a cursor after an uncommitted/failed page.
 - When those decision labels are offered, commit a cursor only after a successful page (`cursor-after-success`) and bound retries to transient provider failures (`transient-retry`).
+- Storage/media work always reads `references/provider-families.md` and reports object authorization (`artifact-authorization`), encrypted metadata (`encrypted-storage`), and lifecycle cleanup (`cleanup`).
 - When the provider is optional, keep a safe absent-provider path (`optional-provider`). Health and OAuth paths use bounded retries with redacted diagnostics (`health-retry-redaction`).
 - Signed callbacks verify the signature (`webhook-signature`) and replay window (`replay-protection`) before the atomic inbox claim.
 - Remote mutations and callbacks must be idempotent and safe when retried or racing (`subscriber-idempotency` when that decision vocabulary is requested).

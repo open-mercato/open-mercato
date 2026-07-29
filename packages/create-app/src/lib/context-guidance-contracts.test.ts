@@ -289,7 +289,7 @@ test('business one-shot route keys remain binding for installed-module links', (
 test('spec routing binds integration coverage to its decision label', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /integration coverage \(`integration-coverage`\); no domain routes/)
-  assert.match(root, /commit\+open-ready PR .* preserve task routes \(`delivery-route-preserves-task-routes`\).*`om-auto-create-pr`/)
+  assert.match(root, /commit\+ready PR \(MUST add\); keep task routes \(`delivery-route-preserves-task-routes`\).*`om-auto-create-pr`/)
 })
 
 test('complete one-shot modules cannot skip core module procedures for specialist skills', () => {
@@ -372,8 +372,8 @@ test('router distinguishes durable multi-stage state from one-step schedules', (
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /Multi-stage waits\/cancel\/restart are durable/)
   assert.match(root, /reminders and renewal\/batch schedules are `module-data`/)
-  assert.match(root, /spreadsheet\/CSV\/file import\/export, sync\/webhook\/storage/)
-  assert.match(root, /imports stay `integration` with preview\/UI/)
+  assert.match(root, /spreadsheet\/CSV\/file I\/O, sync\/webhook\/storage/)
+  assert.match(root, /imports = `integration`/)
 })
 
 test('installed behavior discovery and field-versus-history design bind their exact owners', () => {
@@ -385,6 +385,10 @@ test('installed behavior discovery and field-versus-history design bind their ex
   assert.match(root, /safest customization seam/)
   assert.match(uiSkill, /field, filter, row action, or bulk action added to an existing installed form\/table/)
   assert.match(uiSkill, /also requires `om-system-extension`/)
+  assert.match(uiSkill, /read `references\/crud-surfaces\.md` and `references\/quality-states\.md`/)
+  assert.match(uiSkill, /stable host ID \(`stable-table-host`\)/)
+  assert.match(root, /read-only behavior\/auth\/dependents\/customization = `framework-context`/)
+  assert.match(root, /API\/command\/record\/status\/event\/UI changes\/guards = `umes`/)
   assert.match(extensionSkill, /one installed-host field versus extension records for history\/rules/)
   for (const reference of ['mechanism-selector.md', 'extension-branches.md']) {
     assert.ok(
@@ -422,6 +426,8 @@ test('integration routing binds installed-record imports and optional carriers a
   )
   assert.match(integrationSkill, /rows write existing installed customer\/catalog\/host records, also select UMES/)
   assert.match(integrationSkill, /`om-system-extension`/)
+  assert.match(integrationSkill, /Storage\/media work always reads `references\/provider-families\.md`/)
+  assert.match(integrationSkill, /lifecycle cleanup \(`cleanup`\)/)
   assert.match(providerFamilies, /host domain state provider-neutral \(`provider-neutral-domain`\)/)
   assert.match(providerFamilies, /carrier module is optional/)
   assert.match(providerFamilies, /safe absent-provider path \(`optional-provider`\)/)
@@ -429,19 +435,21 @@ test('integration routing binds installed-record imports and optional carriers a
   assert.match(providerFamilies, /encrypted metadata \(`encrypted-storage`\)/)
   assert.match(providerFamilies, /lifecycle cleanup \(`cleanup`\)/)
   assert.match(root, /`testing`.*`\.ai\/guides\/testing-debugging\.md`/)
+  assert.match(root, /AI file use = `ai-workflow` unless building transport\/storage/)
 })
 
 test('debugging stays additive to cross-module domain and extension work', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   const debugging = readAgentic('guides/testing-debugging.md')
   assert.match(root, /`debugging` is additive/)
-  assert.match(root, /Installed API\/command\/record\/status\/event\/UI changes add `umes`/)
+  assert.match(root, /API\/command\/record\/status\/event\/UI changes\/guards = `umes`/)
   assert.match(root, /A scalar-ID\/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` \+ `umes`/)
   assert.match(root, /load `om-data-model-design` \+ `om-system-extension`/)
   assert.match(debugging, /`unit-regression-oracle` when that decision vocabulary is requested/)
   assert.match(debugging, /Provider cursor\/retry\/idempotency fixes therefore load `om-integration-builder`/)
   assert.match(debugging, /explicitly asks for tests, coverage, or app-level verification also selects `testing`/)
   assert.match(debugging, /`health-retry-redaction`/)
+  assert.match(debugging, /ephemeral test environment \(`ephemeral-test-environment`\)/)
   assert.match(debugging, /surface every real failure \(`honest-test-result`\)/)
   const troubleshooter = readAgentic('shared/ai/skills/om-troubleshooter/SKILL.md')
   assert.match(troubleshooter, /explicitly asks to add a test, select the `testing` route/)

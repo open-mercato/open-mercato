@@ -54,11 +54,11 @@ Staff preview/report/bulk actions add `backend-ui` unless API-only.
 | `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
 | `backend-ui` | Authored/restyled rendered surface or browser UI state/session bootstrap | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
-| `integration` | Provider, spreadsheet/CSV/file import/export, sync/webhook/storage | `.ai/guides/integrations.md`; imports stay `integration` with preview/UI; not installed sender, workflow CALL_API, downloads, or AI storage |
+| `integration` | Provider, spreadsheet/CSV/file I/O, sync/webhook/storage | `.ai/guides/integrations.md`; imports = `integration`; AI file use = `ai-workflow` unless building transport/storage; not sender/CALL_API/download |
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
-Location never decides routing. Installed API/command/record/status/event/UI changes add `umes`; app persistence adds `module-data`. Facts do not. Reusable providers are published dependencies, never `packages/*`.
+API/command/record/status/event/UI changes/guards = `umes`; app persistence = `module-data`; read-only behavior/auth/dependents/customization = `framework-context`. Facts do not. Providers are published, never `packages/*`.
 
 ### Axis 2 — Work Units
 
@@ -94,7 +94,7 @@ Delivery skills come from pinned `open-mercato/skills` (`yarn install-skills`; i
 |---|---|---|
 | `spec-pr` | Write/revise spec | `om-spec-writing` (OMH-005) + exact `.ai/agentic.config.json` for its specs-directory setting |
 | `spec-pr` | Implement approved phases locally | `om-implement-spec` (OMH-006) |
-| `spec-pr` | Whole-spec / commit+open-ready PR / issue / review; preserve task routes (`delivery-route-preserves-task-routes`) | `om-auto-implement-spec` / `om-auto-create-pr` / `om-auto-fix-issue` / `om-auto-review-pr` |
+| `spec-pr` | Whole-spec/issue/review/commit+ready PR (MUST add); keep task routes (`delivery-route-preserves-task-routes`) | `om-auto-implement-spec` / `om-auto-create-pr` / `om-auto-fix-issue` / `om-auto-review-pr` |
 | `testing` | Integration/E2E/UI QA | `om-integration-tests` / `om-auto-qa-pr` |
 | — | No PR/spec workflow requested | Do not load delivery skills |
 
