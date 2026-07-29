@@ -19,8 +19,8 @@ hold, STOP and escalate rather than widening the state machine.
 | C.3 | Gantt run timeline with collapsed waits | done | `68ad96c3c` |
 | C.4 | Live SSE — `clientBroadcast` on `workflows.instance.*` + run views subscribe | done | `a699bb6e2` |
 | C.5 | Run-list filters — date range + failure-queue attention | done | `9acd91874` |
-| C.6a | Fix: `DataTable`'s `bulkActions` prop discarded `{ ok, progressJobId }` | done | PENDING_SHA |
-| C.6 | Failure-queue triage + error grouping + bulk replay through the progress module | pending | — |
+| C.6a | Fix: `DataTable`'s `bulkActions` prop discarded `{ ok, progressJobId }` | done | `4c563843f` |
+| C.6 | Failure-queue triage + error grouping + bulk replay through the progress module | done | PENDING_SHA |
 | C.7 | Rerun-from-step — new ACL feature, `STEP_RERUN` event, new `PENDING` step instance | pending | — |
 | C.8 | Studio canvas "Show last run" execution overlay | pending | — |
 
