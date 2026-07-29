@@ -15,7 +15,7 @@ hold, STOP and escalate rather than widening the state machine.
 | Step | Title | Status | Commit |
 |------|-------|--------|--------|
 | C.1 | `GET /api/workflows/instances/[id]/steps` — the `StepInstance` read surface §8.3 needs | done | `7eb5e5e7a` |
-| C.2 | Run detail restructured into Flow / Timeline / Context / Raw tabs + per-step I/O inspector | pending | — |
+| C.2 | Run detail restructured into Flow / Timeline / Context / Raw tabs + per-step I/O inspector | done | PENDING_SHA |
 | C.3 | Gantt run timeline with collapsed waits | pending | — |
 | C.4 | Live SSE — `clientBroadcast` on `workflows.instance.*` + run views subscribe | pending | — |
 | C.5 | Run-list filters — date range + failure-queue attention | pending | — |
@@ -34,4 +34,14 @@ hold, STOP and escalate rather than widening the state machine.
 
 ## Bugs found while implementing
 
-_(recorded as they are found)_
+1. **The run overlay mispaints any run with more than 100 events.** `backend/instances/[id]/page.tsx`
+   reads `?sortDir=desc&pageSize=100`, so on a long run an early step's `STEP_ENTERED` has fallen off
+   the page and the step painted `pending` despite having completed. Fixed by making `StepInstance`
+   rows — one per execution, far fewer than events — authoritative for step state in
+   `lib/run-execution.ts`. The taken-route overlay still reads events and inherits the cap.
+2. **`COMPENSATION_ACTIVITY_FAILED` painted as a routine rollback.** The inline event-badge chain
+   tested `includes('COMPENSATION')` before `includes('FAILED')`, so a failed compensation step got
+   the same warning colour as a successful one. `lib/run-event-tone.ts` orders failure first.
+3. **`text-orange-600` on the instance list's retry-count cell** — a hardcoded status colour the
+   hex-only DS guard could not see. Fixed, and `status-colors-ds.test.ts` now also rejects raw
+   Tailwind palette shades across both instance pages and `components/run/`.

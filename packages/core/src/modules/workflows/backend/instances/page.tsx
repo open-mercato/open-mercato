@@ -383,7 +383,11 @@ export default function WorkflowInstancesListPage() {
       cell: ({ row }) => {
         if (row.original.__placeholder) return null
         return (
-          <span className={`text-sm ${row.original.retryCount > 0 ? 'text-orange-600 font-medium' : 'text-muted-foreground'}`}>
+          <span
+            className={`text-sm ${
+              row.original.retryCount > 0 ? 'font-medium text-status-warning-text' : 'text-muted-foreground'
+            }`}
+          >
             {row.original.retryCount}
           </span>
         )
