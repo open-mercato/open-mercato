@@ -20,6 +20,7 @@ import { WorkflowLegend } from '../../../components/WorkflowLegend'
 import { MobileInstanceOverview } from '../../../components/mobile/MobileInstanceOverview'
 import { RunStepInspector } from '../../../components/run/RunStepInspector'
 import { RunGantt } from '../../../components/run/RunGantt'
+import { useLiveRunUpdates } from '../../../components/run/useLiveRunUpdates'
 import { RunEventBadge, runEventBadgeClass } from '../../../components/run/RunEventBadge'
 import { InstanceStatusBadge, instanceStatusBadgeClass } from '../../../components/run/RunStatusBadge'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
@@ -154,6 +155,18 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
   }, [childInstances])
 
   const parentInstanceId = instance?.metadata?.labels?.parentInstanceId ?? null
+
+  // Live run updates (spec §8.3). Every step advance re-emits
+  // `workflows.instance.started` with the destination step, so the SSE stream
+  // already carries the run forward without a reload.
+  const refreshRun = React.useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['workflow-instance', id] })
+    queryClient.invalidateQueries({ queryKey: ['workflow-instance-steps'] })
+    queryClient.invalidateQueries({ queryKey: ['workflow-events'] })
+    queryClient.invalidateQueries({ queryKey: ['workflow-instance-children'] })
+  }, [queryClient, id])
+
+  useLiveRunUpdates({ instanceId: id ?? null, onRefresh: refreshRun, enabled: !!id })
 
   const goToInstance = React.useCallback((targetId: string) => {
     router.push(`/backend/instances/${targetId}`)

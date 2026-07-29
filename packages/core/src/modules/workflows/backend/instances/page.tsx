@@ -16,6 +16,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useLiveRunUpdates } from '../../components/run/useLiveRunUpdates'
 
 type WorkflowInstance = {
   id: string
@@ -118,6 +119,15 @@ export default function WorkflowInstancesListPage() {
 
       return response?.data || []
     },
+  })
+
+  // Live run list (spec §8.3). Instance lifecycle events are broadcast to the
+  // browser, so a run that starts, finishes or fails appears without a reload.
+  // The hook throttles the burst a busy tenant produces into one refetch.
+  useLiveRunUpdates({
+    onRefresh: React.useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ['workflow-instances'] })
+    }, [queryClient]),
   })
 
   // Reset accordion state whenever the top-level result set changes (filters,

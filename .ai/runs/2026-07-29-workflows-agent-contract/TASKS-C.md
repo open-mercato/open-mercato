@@ -16,8 +16,8 @@ hold, STOP and escalate rather than widening the state machine.
 |------|-------|--------|--------|
 | C.1 | `GET /api/workflows/instances/[id]/steps` — the `StepInstance` read surface §8.3 needs | done | `6c8bafe6c` |
 | C.2 | Run detail restructured into Flow / Timeline / Context / Raw tabs + per-step I/O inspector | done | `ee5f9f648` |
-| C.3 | Gantt run timeline with collapsed waits | done | PENDING_SHA |
-| C.4 | Live SSE — `clientBroadcast` on `workflows.instance.*` + run views subscribe | pending | — |
+| C.3 | Gantt run timeline with collapsed waits | done | `68ad96c3c` |
+| C.4 | Live SSE — `clientBroadcast` on `workflows.instance.*` + run views subscribe | done | PENDING_SHA |
 | C.5 | Run-list filters — date range + failure-queue attention | pending | — |
 | C.6 | Failure-queue triage + error grouping + bulk replay through the progress module | pending | — |
 | C.7 | Rerun-from-step — new ACL feature, `STEP_RERUN` event, new `PENDING` step instance | pending | — |
@@ -45,3 +45,10 @@ hold, STOP and escalate rather than widening the state machine.
 3. **`text-orange-600` on the instance list's retry-count cell** — a hardcoded status colour the
    hex-only DS guard could not see. Fixed, and `status-colors-ds.test.ts` now also rejects raw
    Tailwind palette shades across both instance pages and `components/run/`.
+4. **`workflows.instance.paused` and `workflows.instance.resumed` are declared but have no emit
+   site.** `InstanceLifecycleEventId` in `lib/workflow-executor.ts` lists only
+   `created|started|failed|cancelled|completed`, and PAUSED is set in ~10 places across
+   `step-handler`, `signal-handler`, `execution-token` and the executor. Not fixed here — wiring
+   ten emit sites in the step-handler files is a state-machine-adjacent change PR C should not make
+   unasked. It costs little in practice: every step advance re-emits
+   `workflows.instance.started` with the destination step, so a run that parks still pushes.
