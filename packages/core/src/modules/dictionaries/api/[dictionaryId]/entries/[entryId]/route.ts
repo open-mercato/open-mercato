@@ -167,6 +167,9 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid input', details: err.issues }, { status: 400 })
+    }
     logger.error('Failed to update dictionary entry', { err })
     return NextResponse.json({ error: 'Failed to update dictionary entry' }, { status: 500 })
   }
@@ -240,6 +243,9 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid input', details: err.issues }, { status: 400 })
     }
     logger.error('Failed to delete dictionary entry', { err })
     return NextResponse.json({ error: 'Failed to delete dictionary entry' }, { status: 500 })
