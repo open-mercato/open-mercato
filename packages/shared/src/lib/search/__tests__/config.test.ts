@@ -94,6 +94,18 @@ describe('OM_SEARCH_FIELD_BLOCKLIST parsing', () => {
     expect(config.blocklistedFields).toContain('body')
     expect(config.entityBlocklistedFields).toEqual({})
   })
+
+  it('stores entity types that collide with inherited object keys as own entries', () => {
+    process.env.OM_SEARCH_FIELD_BLOCKLIST = 'constructor@body,toString@summary,__proto__@notes'
+    const config = resolveSearchConfig()
+
+    expect(config.entityBlocklistedFields?.['constructor']).toEqual(['body'])
+    expect(config.entityBlocklistedFields?.['tostring']).toEqual(['summary'])
+    expect(config.entityBlocklistedFields?.['__proto__']).toEqual(['notes'])
+    expect(isSearchFieldBlocklisted('body', 'constructor', config)).toBe(true)
+    expect(isSearchFieldBlocklisted('summary', 'toString', config)).toBe(true)
+    expect(isSearchFieldBlocklisted('notes', '__proto__', config)).toBe(true)
+  })
 })
 
 describe('isSearchFieldBlocklisted', () => {

@@ -50,7 +50,7 @@ function parseFieldBlocklist(raw: string | undefined): {
   byEntity: Record<string, string[]>
 } {
   const global: string[] = []
-  const byEntity: Record<string, string[]> = {}
+  const byEntity = new Map<string, string[]>()
 
   for (const rawEntry of parseCommaSeparatedList(raw)) {
     const entry = rawEntry.toLowerCase()
@@ -64,16 +64,16 @@ function parseFieldBlocklist(raw: string | undefined): {
       continue
     }
 
-    const scoped = byEntity[entityType] ?? []
+    const scoped = byEntity.get(entityType) ?? []
     if (!scoped.includes(field)) scoped.push(field)
-    byEntity[entityType] = scoped
+    byEntity.set(entityType, scoped)
   }
 
   for (const fallback of DEFAULT_BLOCKLIST) {
     if (!global.includes(fallback)) global.push(fallback)
   }
 
-  return { global, byEntity }
+  return { global, byEntity: Object.fromEntries(byEntity) }
 }
 
 export function resolveSearchConfig(): SearchConfig {
